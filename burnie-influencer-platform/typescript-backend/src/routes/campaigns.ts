@@ -3,6 +3,7 @@ import { logger } from '../config/logger';
 import { AppDataSource } from '../config/database';
 import { Campaign } from '../models/Campaign';
 import { Project } from '../models/Project';
+import { User } from '../models/User';
 import { Repository } from 'typeorm';
 import { CampaignStatus, CampaignType } from '../types/index';
 
@@ -219,6 +220,27 @@ router.post('/', async (req: Request, res: Response) => {
           timestamp: new Date().toISOString(),
         });
       }
+    }
+
+    // Ensure default user exists for foreign key constraint
+    const userRepository = AppDataSource.getRepository(User);
+    const defaultUser = await userRepository.findOne({ where: { id: 1 } });
+    if (!defaultUser) {
+      // Create default user if it doesn't exist
+      const newUser = userRepository.create({
+        walletAddress: '0x0000000000000000000000000000000000000001',
+        username: 'admin',
+        email: 'admin@roastpower.com',
+        isVerified: true,
+        isAdmin: true,
+        profile: {
+          displayName: 'System Admin',
+          bio: 'Default system administrator account',
+          website: 'https://roastpower.com'
+        }
+      });
+      await userRepository.save(newUser);
+      logger.info('✅ Created default user for campaign creation');
     }
 
     // Create new campaign

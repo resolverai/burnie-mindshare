@@ -1,24 +1,7 @@
-import React, { useState, useEffect } from 'react'
-import WalletConnector from './WalletConnector'
-import { ConnectionStatus } from './ConnectionStatus'
-import ContentGenerator from './ContentGenerator'
-import { CampaignList } from './CampaignList'
-import { PerformanceStats } from './PerformanceStats'
-import { api, Campaign, MinerRegistration } from '../services/burnie-api'
+'use client'
 
-interface MinerStats {
-  balance: number
-  totalEarnings: number
-  successRate: number
-  activeSubmissions: number
-  completedCampaigns: number
-  minerRank: number
-}
-
-interface MinerDashboardProps {
-  walletAddress: string | null
-  isConnected: boolean
-}
+import { useState, useEffect } from 'react'
+import { CreateAgentModal } from './CreateAgentModal'
 
 interface Agent {
   id: string
@@ -34,387 +17,421 @@ interface Agent {
   createdAt: string
 }
 
+interface Campaign {
+  id: string
+  title: string
+  description: string
+  campaign_type: string
+  category: string
+  winner_reward: number
+  max_submissions: number
+  current_submissions: number
+  time_remaining: string
+  submission_rate: number
+  is_full: boolean
+}
+
+interface MiningStats {
+  totalGenerated: number
+  totalSubmitted: number
+  tokensUsed: number
+  successRate: number
+  currentStreak: number
+  averageScore: number
+}
+
+interface MinerDashboardProps {
+  walletAddress: string | null
+  isConnected: boolean
+}
+
 export const MinerDashboard: React.FC<MinerDashboardProps> = ({ 
   walletAddress, 
   isConnected 
 }) => {
-  const [stats, setStats] = useState<MinerStats>({
-    balance: 0,
-    totalEarnings: 0,
-    successRate: 0,
-    activeSubmissions: 0,
-    completedCampaigns: 0,
-    minerRank: 0
-  })
-  const [loading, setLoading] = useState(false)
-  const [minerId, setMinerId] = useState<string | null>(null)
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
-  const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null)
+  const [agent, setAgent] = useState<Agent | null>(null)
   const [showCreateAgent, setShowCreateAgent] = useState(false)
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false)
-  const [miningStatus, setMiningStatus] = useState<'idle' | 'mining' | 'waiting_block'>('idle')
-  const [blockNotification, setBlockNotification] = useState<string | null>(null)
-  const [apiConnected, setApiConnected] = useState(false)
-  const [wsConnected, setWsConnected] = useState(false)
-  const [minerStatus, setMinerStatus] = useState<'ONLINE' | 'OFFLINE' | 'MINING' | 'IDLE'>('OFFLINE')
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [isMining, setIsMining] = useState(false)
+  const [miningStats, setMiningStats] = useState<MiningStats>({
+    totalGenerated: 0,
+    totalSubmitted: 0,
+    tokensUsed: 0,
+    successRate: 0,
+    currentStreak: 0,
+    averageScore: 0,
+  })
+  const [miningLogs, setMiningLogs] = useState<string[]>([])
 
   useEffect(() => {
-    if (isConnected && walletAddress) {
-      fetchMinerStats()
-      setApiConnected(true)
-      setMinerStatus('ONLINE')
+    // Load agent from localStorage
+    const savedAgent = localStorage.getItem('mining_agent')
+    if (savedAgent) {
+      setAgent(JSON.parse(savedAgent))
     }
-  }, [isConnected, walletAddress])
 
-  useEffect(() => {
-    if (walletAddress && minerId) {
-      fetchActiveCampaigns()
-      const interval = setInterval(fetchActiveCampaigns, 5000)
-      return () => clearInterval(interval)
+    // Load mining stats
+    const savedStats = localStorage.getItem('mining_stats')
+    if (savedStats) {
+      setMiningStats(JSON.parse(savedStats))
     }
-  }, [walletAddress, minerId])
 
-  useEffect(() => {
-    if (walletAddress && minerId) {
-      const interval = setInterval(checkBlockStatus, 2000)
-      return () => clearInterval(interval)
-    }
-  }, [walletAddress, minerId])
+    // Load campaigns
+    fetchCampaigns()
+  }, [])
 
-  const fetchMinerStats = async () => {
-    setLoading(true)
+  const fetchCampaigns = async () => {
     try {
-      // Mock data for now - replace with actual API call
-      setStats({
-        balance: 1250.75,
-        totalEarnings: 4382.50,
-        successRate: 87.5,
-        activeSubmissions: 3,
-        completedCampaigns: 12,
-        minerRank: 34
-      })
-    } catch (error) {
-      console.error('Failed to fetch miner stats:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchActiveCampaigns = async () => {
-    try {
-      setLoadingCampaigns(true)
-      const response = await api.getActiveCampaigns()
-      setCampaigns(response)
+      const response = await fetch('http://localhost:8000/api/campaigns')
+      const data = await response.json()
+      if (data.success && Array.isArray(data.data)) {
+        setCampaigns(data.data)
+      }
     } catch (error) {
       console.error('Failed to fetch campaigns:', error)
-    } finally {
-      setLoadingCampaigns(false)
+      // No mock data - show empty state when backend is unavailable
+      setCampaigns([])
     }
   }
 
-  const checkBlockStatus = async () => {
-    try {
-      // Check if block mining is about to start
-      const response = await api.getBlockStatus()
-      if (response.blockMiningStarting) {
-        setBlockNotification('⚡ Block mining starting in 30 seconds! Start mining now!')
-        setMiningStatus('waiting_block')
-        
-        // Clear notification after 10 seconds
-        setTimeout(() => {
-          setBlockNotification(null)
-        }, 10000)
-      }
-    } catch (error) {
-      // Silently handle API errors for status checks
-    }
-  }
-
-  const handleWalletConnected = async (address: string) => {
-    try {
-      // Register or get existing miner
-      const minerData: MinerRegistration = {
-        wallet_address: address,
-        agent_personality: 'SAVAGE',
-        llm_provider: 'OPENAI',
-        llm_model: 'gpt-4'
-      }
-      const response = await api.registerMiner(minerData)
-      if (response.id) {
-        setMinerId(response.id.toString())
-        localStorage.setItem('miner_id', response.id.toString())
-      }
-    } catch (error) {
-      console.error('Failed to register miner:', error)
-    }
-  }
-
-  const handleAgentCreated = (agent: Agent) => {
-    const updatedAgents = [...agents, agent]
-    setAgents(updatedAgents)
-    setSelectedAgent(agent)
-    localStorage.setItem('miner_agents', JSON.stringify(updatedAgents))
-    localStorage.setItem('selected_agent', JSON.stringify(agent))
+  const handleAgentCreated = (newAgent: Agent) => {
+    setAgent(newAgent)
+    localStorage.setItem('mining_agent', JSON.stringify(newAgent))
     setShowCreateAgent(false)
+    addMiningLog(`🤖 Agent "${newAgent.name}" created with ${newAgent.personality} personality`)
   }
 
-  const handleAgentSelected = (agent: Agent) => {
-    setSelectedAgent(agent)
-    localStorage.setItem('selected_agent', JSON.stringify(agent))
+  const addMiningLog = (message: string) => {
+    const timestamp = new Date().toLocaleTimeString()
+    setMiningLogs(prev => [`[${timestamp}] ${message}`, ...prev.slice(0, 19)])
   }
 
-  const handleCampaignSelected = (campaign: Campaign) => {
-    setSelectedCampaign(campaign)
+  const simulateContentGeneration = async (campaign: Campaign): Promise<string> => {
+    // Simulate API call delay
+    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000))
+
+    const personalities = {
+      SAVAGE: [
+        `This ${campaign.category} project is so bad, even my grandmother's knitting circle could build better DeFi protocols`,
+        `Calling this ${campaign.category} "innovative" is like calling a broken calculator "mathematically advanced"`,
+        `I've seen more creativity in a bowl of plain oatmeal than in this entire ${campaign.category} ecosystem`,
+      ],
+      WITTY: [
+        `This ${campaign.category} project has more red flags than a communist parade`,
+        `Their tokenomics make about as much sense as a chocolate teapot`,
+        `I'm not saying this is a rug pull, but I've seen Persian carpets with more transparency`,
+      ],
+      CHAOTIC: [
+        `BREAKING: Local ${campaign.category} project discovers new way to lose money - experts are baffled!`,
+        `Plot twist: This isn't actually a ${campaign.category} project, it's an elaborate art installation about disappointment`,
+        `In a shocking turn of events, this project somehow made me nostalgic for 2018 ICO scams`,
+      ],
+      LEGENDARY: [
+        `Behold! The legendary ${campaign.category} project that shall be remembered in the annals of history... as a cautionary tale`,
+        `In the great saga of ${campaign.category}, this chapter will be titled "How Not To Build Anything"`,
+        `Future archaeologists will study this ${campaign.category} project to understand the decline of human civilization`,
+      ]
+    }
+
+    const personalityContent = personalities[agent?.personality as keyof typeof personalities] || personalities.SAVAGE
+    return personalityContent[Math.floor(Math.random() * personalityContent.length)]
   }
 
-  const handleStartMining = () => {
-    if (selectedAgent && selectedCampaign) {
-      setMiningStatus('mining')
-      setMinerStatus('MINING')
+  const submitContent = async (campaignId: string, content: string) => {
+    try {
+      const response = await fetch('http://localhost:8000/api/submissions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          campaignId,
+          minerId: agent?.id,
+          content,
+          contentType: 'text',
+          metadata: {
+            agent: agent?.name,
+            personality: agent?.personality,
+            model: agent?.model,
+            provider: agent?.provider,
+          }
+        }),
+      })
+
+      const data = await response.json()
+      return data.success
+    } catch (error) {
+      console.error('Failed to submit content:', error)
+      return false
     }
   }
 
-  const handleMiningComplete = () => {
-    setMiningStatus('idle')
-    setMinerStatus('IDLE')
+  const startMining = async () => {
+    if (!agent || campaigns.length === 0) return
+
+    setIsMining(true)
+    addMiningLog(`🚀 Starting mining with ${agent.name}...`)
+
+    const availableCampaigns = campaigns.filter(c => !c.is_full)
+    let totalGenerated = 0
+    let totalSubmitted = 0
+    let tokensUsed = 0
+
+    for (const campaign of availableCampaigns) {
+      if (!isMining) break
+
+      addMiningLog(`⚡ Generating content for "${campaign.title}"...`)
+      
+      try {
+        const content = await simulateContentGeneration(campaign)
+        totalGenerated++
+        tokensUsed += Math.floor(Math.random() * 100) + 50 // Simulate token usage
+
+        addMiningLog(`📝 Generated: "${content.substring(0, 60)}..."`)
+
+        // Simulate submission
+        const submitted = await submitContent(campaign.id, content)
+        if (submitted) {
+          totalSubmitted++
+          addMiningLog(`✅ Submitted to "${campaign.title}"`)
+        } else {
+          addMiningLog(`❌ Failed to submit to "${campaign.title}"`)
+        }
+
+        // Update stats
+        const newStats = {
+          ...miningStats,
+          totalGenerated: miningStats.totalGenerated + totalGenerated,
+          totalSubmitted: miningStats.totalSubmitted + totalSubmitted,
+          tokensUsed: miningStats.tokensUsed + tokensUsed,
+          successRate: ((miningStats.totalSubmitted + totalSubmitted) / (miningStats.totalGenerated + totalGenerated)) * 100,
+          currentStreak: submitted ? miningStats.currentStreak + 1 : 0,
+          averageScore: 75 + Math.random() * 20, // Simulate score
+        }
+        setMiningStats(newStats)
+        localStorage.setItem('mining_stats', JSON.stringify(newStats))
+
+        // Wait before next campaign
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      } catch (error) {
+        addMiningLog(`💥 Error generating content for "${campaign.title}"`)
+      }
+    }
+
+    setIsMining(false)
+    addMiningLog(`🏁 Mining completed! Generated ${totalGenerated}, Submitted ${totalSubmitted}`)
   }
 
-  // Show agent creation if no agents exist
-  const shouldShowAgentCreation = walletAddress && minerId && agents.length === 0
+  const stopMining = () => {
+    setIsMining(false)
+    addMiningLog('⏹️ Mining stopped by user')
+  }
+
+  const resetAgent = () => {
+    setAgent(null)
+    localStorage.removeItem('mining_agent')
+    addMiningLog('🔄 Agent reset')
+  }
 
   if (!isConnected) {
     return (
-      <div className="gaming-card p-6 text-center">
-        <div className="neon-text neon-red text-4xl mb-4">🔒</div>
-        <h3 className="neon-text neon-blue text-xl font-semibold mb-2">SYSTEM LOCKED</h3>
-        <p className="text-gray-400">Connect your wallet to access miner dashboard</p>
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-6xl mb-4">🔒</div>
+          <h3 className="text-2xl font-bold mb-2">Connect Wallet</h3>
+          <p className="text-gray-400">Connect your wallet to access the mining interface</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">⛏️</span>
-                </div>
-                <h1 className="text-xl font-bold text-white">RoastPower Mining</h1>
-              </div>
-              {blockNotification && (
-                <div className="bg-yellow-600 text-yellow-100 px-3 py-1 rounded-full text-sm font-medium animate-pulse">
-                  {blockNotification}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center space-x-4">
-              <ConnectionStatus 
-                isApiConnected={apiConnected}
-                isWsConnected={wsConnected}
-                minerStatus={minerStatus}
-              />
-              <WalletConnector />
-            </div>
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white">
+      <div className="container mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-orange-400 to-red-500 bg-clip-text text-transparent mb-2">
+            🔥 RoastPower Mining Interface
+          </h1>
+          <p className="text-gray-400">Generate savage content with AI agents</p>
         </div>
-      </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {!walletAddress ? (
-          // Wallet Connection Required
-          <div className="text-center py-20">
-            <div className="w-16 h-16 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
-              <span className="text-2xl">🔗</span>
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-4">Connect Your Wallet</h2>
-            <p className="text-gray-400 mb-8 max-w-md mx-auto">
-              Connect your wallet to start mining and earning rewards from content creation campaigns.
-            </p>
-            <WalletConnector />
-          </div>
-        ) : shouldShowAgentCreation ? (
-          // Agent Creation Required
-          <div className="text-center py-20">
-            <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-6">
-              <span className="text-2xl">🤖</span>
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-4">Create Your First Agent</h2>
-            <p className="text-gray-400 mb-8 max-w-md mx-auto">
-              Before you can start mining, you need to create an AI agent that will generate content for campaigns. 
-              Bring your own API keys and configure your agent's personality.
-            </p>
-            <button
-              onClick={() => setShowCreateAgent(true)}
-              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all duration-200 shadow-lg"
-            >
-              Create Agent
-            </button>
-          </div>
-        ) : (
-          // Main Dashboard
-          <div className="space-y-8">
-            {/* Agent & Campaign Selection */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Agent Selection */}
-              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">AI Agent</h3>
-                  <button
-                    onClick={() => setShowCreateAgent(true)}
-                    className="px-3 py-1 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700 transition-colors"
-                  >
-                    + New Agent
-                  </button>
-                </div>
-                
-                {agents.length > 0 ? (
-                  <div className="space-y-3">
-                    {agents.map((agent) => (
-                      <div
-                        key={agent.id}
-                        onClick={() => handleAgentSelected(agent)}
-                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                          selectedAgent?.id === agent.id
-                            ? 'border-purple-500 bg-purple-900/20'
-                            : 'border-gray-600 hover:border-gray-500'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="font-medium text-white">{agent.name}</h4>
-                            <p className="text-sm text-gray-400">{agent.personality} • {agent.provider} {agent.model}</p>
-                          </div>
-                          <div className={`w-2 h-2 rounded-full ${agent.isActive ? 'bg-green-500' : 'bg-gray-500'}`} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-400 text-center py-4">No agents created yet</p>
-                )}
-              </div>
-
-              {/* Campaign Selection */}
-              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">Active Campaigns</h3>
-                  <div className="flex items-center space-x-2">
-                    {loadingCampaigns && (
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
-                    )}
-                    <span className="text-sm text-gray-400">Refreshing every 5s</span>
-                  </div>
-                </div>
-                
-                <div className="space-y-3 max-h-64 overflow-y-auto">
-                  {campaigns.length > 0 ? (
-                    campaigns.map((campaign) => (
-                      <div
-                        key={campaign.id}
-                        onClick={() => handleCampaignSelected(campaign)}
-                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                          selectedCampaign?.id === campaign.id
-                            ? 'border-orange-500 bg-orange-900/20'
-                            : 'border-gray-600 hover:border-gray-500'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-medium text-white">{campaign.title}</h4>
-                          <span className="text-sm text-green-400">${campaign.winner_reward.toLocaleString()}</span>
-                        </div>
-                        <p className="text-sm text-gray-400 mb-2">{campaign.description}</p>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-gray-500">{campaign.category || campaign.topic}</span>
-                          <span className="text-gray-500">
-                            {campaign.current_submissions}/{campaign.max_submissions} submissions
-                          </span>
-                        </div>
-                        {campaign.is_full && (
-                          <div className="mt-2 text-xs text-red-400">Campaign Full</div>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-gray-400 text-center py-4">
-                      {loadingCampaigns ? 'Loading campaigns...' : 'No active campaigns'}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Start Mining Button */}
-            {selectedAgent && selectedCampaign && !selectedCampaign.is_full && (
-              <div className="text-center">
-                <button
-                  onClick={handleStartMining}
-                  disabled={miningStatus === 'mining'}
-                  className={`px-8 py-4 text-lg font-bold rounded-lg transition-all duration-200 shadow-lg ${
-                    miningStatus === 'mining'
-                      ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-orange-600 to-red-600 text-white hover:from-orange-700 hover:to-red-700 transform hover:scale-105'
-                  }`}
-                >
-                  {miningStatus === 'mining' ? '⚡ Mining in Progress...' : '🚀 Start Mining'}
-                </button>
-                <p className="text-gray-400 mt-2 text-sm">
-                  Generate content using {selectedAgent.name} for "{selectedCampaign.title}"
-                </p>
-              </div>
-            )}
-
-            {/* Content Generator */}
-            {miningStatus === 'mining' && selectedAgent && selectedCampaign && (
-              <ContentGenerator
-                selectedCampaigns={[selectedCampaign.id]}
-                campaigns={campaigns}
-                minerData={{
-                  agent_personality: selectedAgent.personality,
-                  id: minerId
-                }}
-                onContentGenerated={(content, tokensUsed, campaignId) => {
-                  console.log('Content generated:', { content, tokensUsed, campaignId })
-                  handleMiningComplete()
-                }}
-              />
-            )}
-
-            {/* Campaign List */}
-            <CampaignList 
-              campaigns={campaigns}
-              selectedCampaign={selectedCampaign}
-              onCampaignSelect={handleCampaignSelected}
-            />
-
-            {/* Performance Stats */}
-            <PerformanceStats />
-          </div>
-        )}
-      </main>
-
-      {/* Create Agent Modal - Placeholder for now */}
-      {showCreateAgent && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-xl font-bold text-white mb-4">Create Agent</h3>
-            <p className="text-gray-400 mb-4">Agent creation feature coming soon!</p>
-            <div className="flex justify-end space-x-3">
+        {!agent ? (
+          /* No Agent State */
+          <div className="max-w-2xl mx-auto text-center">
+            <div className="bg-gray-800 rounded-lg p-8 border border-gray-700">
+              <div className="text-6xl mb-4">🤖</div>
+              <h2 className="text-2xl font-bold mb-4">Create Your AI Agent</h2>
+              <p className="text-gray-400 mb-6">
+                Set up your AI agent with personality, LLM provider, and model to start mining content
+              </p>
               <button
-                onClick={() => setShowCreateAgent(false)}
-                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+                onClick={() => setShowCreateAgent(true)}
+                className="px-6 py-3 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg hover:from-orange-700 hover:to-red-700 transition-all duration-200 shadow-lg"
               >
-                Close
+                Create Agent
               </button>
             </div>
           </div>
-        </div>
-      )}
+        ) : (
+          /* Agent Active State */
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Agent Info */}
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold">🤖 Agent Status</h3>
+                <button
+                  onClick={resetAgent}
+                  className="text-gray-400 hover:text-red-400 text-sm"
+                >
+                  Reset
+                </button>
+              </div>
+              
+              <div className="space-y-3">
+                <div>
+                  <span className="text-gray-400">Name:</span>
+                  <span className="ml-2 font-semibold">{agent.name}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Personality:</span>
+                  <span className="ml-2 font-semibold">{agent.personality}</span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Model:</span>
+                  <span className="ml-2 font-semibold">{agent.provider} {agent.model}</span>
+                </div>
+                <div className="flex items-center">
+                  <span className="text-gray-400">Status:</span>
+                  <span className={`ml-2 px-2 py-1 rounded text-xs ${
+                    isMining ? 'bg-green-900 text-green-300' : 'bg-gray-700 text-gray-300'
+                  }`}>
+                    {isMining ? '⚡ Mining' : '💤 Idle'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-6">
+                {!isMining ? (
+                  <button
+                    onClick={startMining}
+                    disabled={campaigns.length === 0}
+                    className="w-full px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50"
+                  >
+                    🚀 Start Mining
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopMining}
+                    className="w-full px-4 py-2 bg-gradient-to-r from-red-600 to-pink-600 text-white rounded-lg hover:from-red-700 hover:to-pink-700 transition-all duration-200"
+                  >
+                    ⏹️ Stop Mining
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Mining Stats */}
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h3 className="text-xl font-bold mb-4">📊 Mining Stats</h3>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-400">{miningStats.totalGenerated}</div>
+                  <div className="text-sm text-gray-400">Generated</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-400">{miningStats.totalSubmitted}</div>
+                  <div className="text-sm text-gray-400">Submitted</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-400">{miningStats.tokensUsed.toLocaleString()}</div>
+                  <div className="text-sm text-gray-400">Tokens Used</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-400">{miningStats.successRate.toFixed(1)}%</div>
+                  <div className="text-sm text-gray-400">Success Rate</div>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-gray-700">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">Current Streak:</span>
+                  <span className="font-semibold">{miningStats.currentStreak}</span>
+                </div>
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-400">Avg Score:</span>
+                  <span className="font-semibold">{miningStats.averageScore.toFixed(1)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Mining Logs */}
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h3 className="text-xl font-bold mb-4">📋 Mining Logs</h3>
+              
+              <div className="space-y-1 max-h-64 overflow-y-auto">
+                {miningLogs.map((log, index) => (
+                  <div key={index} className="text-sm text-gray-300 font-mono">
+                    {log}
+                  </div>
+                ))}
+                {miningLogs.length === 0 && (
+                  <div className="text-gray-500 text-sm">No logs yet...</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Campaigns Section */}
+        {agent && (
+          <div className="mt-8">
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h3 className="text-xl font-bold mb-4">🎯 Available Campaigns</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {campaigns.map((campaign) => (
+                  <div key={campaign.id} className="bg-gray-700 rounded-lg p-4 border border-gray-600">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold text-white">{campaign.title}</h4>
+                      <span className="text-green-400 font-bold">${campaign.winner_reward.toLocaleString()}</span>
+                    </div>
+                    <p className="text-gray-300 text-sm mb-3">{campaign.description}</p>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-400">{campaign.category} • {campaign.campaign_type}</span>
+                      <span className="text-gray-400">{campaign.current_submissions}/{campaign.max_submissions}</span>
+                    </div>
+                    <div className="mt-2">
+                      <div className="bg-gray-600 rounded-full h-2">
+                        <div 
+                          className="bg-orange-500 h-2 rounded-full" 
+                          style={{ width: `${(campaign.current_submissions / campaign.max_submissions) * 100}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-400">
+                      {campaign.time_remaining} remaining
+                    </div>
+                  </div>
+                ))}
+                {campaigns.length === 0 && (
+                  <div className="col-span-2 text-center py-8 text-gray-400">
+                    No campaigns available
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Create Agent Modal */}
+        {showCreateAgent && (
+          <CreateAgentModal
+            onClose={() => setShowCreateAgent(false)}
+            onAgentCreated={handleAgentCreated}
+          />
+        )}
+      </div>
     </div>
   )
 } 

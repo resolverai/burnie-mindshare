@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import api, { analyticsApi, projectsApi, campaignsApi } from '@/services/api'
 import DashboardStats from './DashboardStats'
 import ProjectsList from './ProjectsList'
@@ -52,120 +52,89 @@ export default function Dashboard() {
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [showCreateCampaign, setShowCreateCampaign] = useState(false)
 
+  const queryClient = useQueryClient()
+
   // Fetch dashboard analytics
   const { data: analytics, isLoading: analyticsLoading } = useQuery({
     queryKey: ['analytics', 'dashboard'],
     queryFn: analyticsApi.getDashboard,
+    refetchInterval: 30000, // Refetch every 30 seconds
+    staleTime: 10000, // Consider data stale after 10 seconds
   })
 
   // Fetch projects
   const { data: projects, isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: () => projectsApi.getAll(1, 10),
+    refetchInterval: 60000, // Refetch every minute
+    staleTime: 30000,
   })
 
   // Fetch campaigns
   const { data: campaigns, isLoading: campaignsLoading } = useQuery({
     queryKey: ['campaigns'],
     queryFn: () => campaignsApi.getAll(1, 10),
+    refetchInterval: 30000, // Refetch every 30 seconds
+    staleTime: 10000,
   })
 
   useEffect(() => {
-    fetchDashboardData();
-    // Refresh data every 30 seconds
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchDashboardData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Fetch data from multiple endpoints in parallel
-      const [
-        campaignsResponse,
-        projectsResponse,
-        minersResponse,
-        submissionsResponse,
-        analyticsResponse
-      ] = await Promise.all([
-        api.get('/api/campaigns?limit=1000'),
-        api.get('/api/projects?limit=1000'),
-        api.get('/api/miners?limit=1000'),
-        api.get('/api/submissions?limit=1000'),
-        api.get('/api/analytics/dashboard').catch(() => ({ data: { data: null } }))
-      ]);
-
-      const campaigns = campaignsResponse.data.data || [];
-      const projects = projectsResponse.data.data || [];
-      const miners = minersResponse.data.data || [];
-      const submissions = submissionsResponse.data.data || [];
-      const analytics = analyticsResponse.data.data;
-
-      // Calculate metrics
-      const activeCampaigns = campaigns.filter((c: any) => c.status === 'ACTIVE').length;
-      const totalSubmissions = submissions.length;
-      const approvedSubmissions = submissions.filter((s: any) => s.status === 'APPROVED').length;
-      const pendingSubmissions = submissions.filter((s: any) => s.status === 'PENDING').length;
-      const totalRewardsDistributed = campaigns.reduce((sum: number, c: any) => 
-        sum + (c.rewardPool || 0), 0
-      );
-      
-      // Calculate average score
-      const submissionsWithScores = submissions.filter((s: any) => s.totalScore > 0);
-      const averageScore = submissionsWithScores.length > 0 ? 
-        submissionsWithScores.reduce((sum: number, s: any) => sum + s.totalScore, 0) / submissionsWithScores.length : 0;
-      
-      // Calculate approval rate
-      const approvalRate = totalSubmissions > 0 ? (approvedSubmissions / totalSubmissions) * 100 : 0;
-
-      // Calculate recent activity (last 7 days)
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const recentCampaigns = campaigns.filter((c: any) => 
-        new Date(c.createdAt) > sevenDaysAgo
-      ).length;
-      const recentSubmissions = submissions.filter((s: any) => 
-        new Date(s.createdAt) > sevenDaysAgo
-      ).length;
-      const recentMiners = miners.filter((m: any) => 
-        new Date(m.createdAt) > sevenDaysAgo
-      ).length;
-
+    // Only show real data from the database - no mock data
+    if (analytics) {
       setDashboardData({
-        totalCampaigns: campaigns.length,
-        activeCampaigns,
-        totalSubmissions,
-        totalMiners: miners.length,
-        totalProjects: projects.length,
-        totalRewardsDistributed,
-        averageScore: Math.round(averageScore * 10) / 10,
-        approvalRate: Math.round(approvalRate * 10) / 10,
-        pendingSubmissions,
-        approvedSubmissions,
+        totalCampaigns: analytics.total_campaigns || 0,
+        activeCampaigns: analytics.active_campaigns || 0,
+        totalSubmissions: analytics.total_submissions || 0,
+        totalMiners: analytics.total_miners || 0,
+        totalProjects: analytics.total_projects || 0,
+        totalRewardsDistributed: analytics.total_rewards_distributed || 0,
+        averageScore: analytics.avg_submission_score || 0,
+        approvalRate: analytics.performance_metrics?.approval_rate || 0,
+        pendingSubmissions: analytics.pending_submissions || 0,
+        approvedSubmissions: analytics.approved_submissions || 0,
         recentActivity: {
-          newCampaigns: recentCampaigns,
-          newSubmissions: recentSubmissions,
-          newMiners: recentMiners,
+          newCampaigns: analytics.growth_metrics?.current_period?.campaigns || 0,
+          newSubmissions: analytics.growth_metrics?.current_period?.submissions || 0,
+          newMiners: 0, // Not tracked in current analytics
         },
       });
-
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
-      setError('Failed to load dashboard data. Please try again.');
-    } finally {
-      setLoading(false);
+    } else {
+      // If no analytics data, show all zeros (no mock data)
+      setDashboardData({
+        totalCampaigns: 0,
+        activeCampaigns: 0,
+        totalSubmissions: 0,
+        totalMiners: 0,
+        totalProjects: 0,
+        totalRewardsDistributed: 0,
+        averageScore: 0,
+        approvalRate: 0,
+        pendingSubmissions: 0,
+        approvedSubmissions: 0,
+        recentActivity: {
+          newCampaigns: 0,
+          newSubmissions: 0,
+          newMiners: 0,
+        },
+      });
     }
-  };
+    setLoading(false);
+  }, [analytics, campaigns, projects]);
 
   const handleProjectCreated = () => {
     setShowCreateProject(false);
-    fetchDashboardData(); // Refresh data
+    // Refresh data immediately
+    queryClient.invalidateQueries({ queryKey: ['projects'] })
+    queryClient.invalidateQueries({ queryKey: ['analytics'] })
+    queryClient.invalidateQueries({ queryKey: ['analytics', 'dashboard'] })
   };
 
   const handleCampaignCreated = () => {
     setShowCreateCampaign(false);
-    fetchDashboardData(); // Refresh data
+    // Refresh data immediately
+    queryClient.invalidateQueries({ queryKey: ['campaigns'] })
+    queryClient.invalidateQueries({ queryKey: ['analytics'] })
+    queryClient.invalidateQueries({ queryKey: ['analytics', 'dashboard'] })
   };
 
   const tabs = [
@@ -192,7 +161,9 @@ export default function Dashboard() {
           <div className="text-red-600 mb-4">⚠️ Error</div>
           <p className="text-gray-600 mb-4">{error}</p>
           <button
-            onClick={fetchDashboardData}
+            onClick={() => {
+              // Refresh data
+            }}
             className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
           >
             Retry

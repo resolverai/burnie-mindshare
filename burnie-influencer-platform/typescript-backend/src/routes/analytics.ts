@@ -1,5 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../config/logger';
+import { AppDataSource } from '../config/database';
+import { Campaign } from '../models/Campaign';
+import { Project } from '../models/Project';
+import { Submission } from '../models/Submission';
+import { Miner } from '../models/Miner';
+import { Repository } from 'typeorm';
+import { CampaignStatus, SubmissionStatus } from '../types/index';
 
 const router = Router();
 
@@ -8,117 +15,98 @@ router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     logger.info('📊 Fetching dashboard analytics');
 
-    // TODO: Implement real analytics from database
-    const dashboardData = {
-      overview: {
-        totalMiners: 1247,
-        activeMiners: 89,
-        totalCampaigns: 23,
-        activeCampaigns: 7,
-        totalSubmissions: 8934,
-        todaySubmissions: 156,
-        totalRewards: 2500000, // ROAST tokens
-        avgQualityScore: 8.2,
-      },
-      recentActivity: [
-        {
-          id: 1,
-          type: 'submission',
-          minerId: 42,
-          minerName: 'SavageRoaster_007',
-          campaignId: 1,
-          campaignTitle: 'Roast the Competition 🔥',
-          content: 'Their marketing is so bad, even their own customers are bearish',
-          score: 9.2,
-          timestamp: new Date(Date.now() - 300000).toISOString(), // 5 min ago
+    let dashboardData;
+
+    if (AppDataSource.isInitialized) {
+      // Fetch real data from database
+      const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
+      const projectRepository: Repository<Project> = AppDataSource.getRepository(Project);
+      const submissionRepository: Repository<Submission> = AppDataSource.getRepository(Submission);
+      const minerRepository: Repository<Miner> = AppDataSource.getRepository(Miner);
+
+      // Get counts from database
+      const totalProjects = await projectRepository.count();
+      const totalCampaigns = await campaignRepository.count();
+      const activeCampaigns = await campaignRepository.count({
+        where: { status: CampaignStatus.ACTIVE }
+      });
+      const totalSubmissions = await submissionRepository.count();
+      const totalMiners = await minerRepository.count();
+      const pendingSubmissions = await submissionRepository.count({
+        where: { status: SubmissionStatus.PENDING }
+      });
+      const approvedSubmissions = await submissionRepository.count({
+        where: { status: SubmissionStatus.APPROVED }
+      });
+
+      logger.info(`📊 Real database counts: Projects=${totalProjects}, Campaigns=${totalCampaigns}, Submissions=${totalSubmissions}, Miners=${totalMiners}`);
+
+      dashboardData = {
+        total_projects: totalProjects,
+        total_campaigns: totalCampaigns,
+        active_campaigns: activeCampaigns,
+        total_submissions: totalSubmissions,
+        total_miners: totalMiners,
+        pending_submissions: pendingSubmissions,
+        approved_submissions: approvedSubmissions,
+        rejected_submissions: totalSubmissions - approvedSubmissions - pendingSubmissions,
+        total_rewards_distributed: 0, // TODO: Calculate from rewards table
+        avg_submission_score: 0, // TODO: Calculate average score
+        growth_metrics: {
+          projects_growth: 0,
+          campaigns_growth: 0,
+          submissions_growth: 0,
+          current_period: {
+            projects: totalProjects,
+            campaigns: totalCampaigns,
+            submissions: totalSubmissions,
+          },
+          previous_period: {
+            projects: 0,
+            campaigns: 0,
+            submissions: 0,
+          }
         },
-        {
-          id: 2,
-          type: 'reward',
-          minerId: 17,
-          minerName: 'MemeKing_420',
-          amount: 500,
-          blockId: 145,
-          timestamp: new Date(Date.now() - 600000).toISOString(), // 10 min ago
+        performance_metrics: {
+          avg_submissions_per_campaign: totalCampaigns > 0 ? Math.round(totalSubmissions / totalCampaigns) : 0,
+          approval_rate: totalSubmissions > 0 ? Math.round((approvedSubmissions / totalSubmissions) * 100) : 0,
+          avg_reward_per_submission: 0,
+          active_campaign_percentage: totalCampaigns > 0 ? Math.round((activeCampaigns / totalCampaigns) * 100) : 0,
         },
-        {
-          id: 3,
-          type: 'registration',
-          minerId: 156,
-          minerName: 'NewMiner_789',
-          personality: 'WITTY',
-          timestamp: new Date(Date.now() - 900000).toISOString(), // 15 min ago
+        top_performing_campaigns: [], // TODO: Implement
+        recent_activity: [], // TODO: Implement
+      };
+    } else {
+      // Fallback to empty data if database not available
+      logger.warn('⚠️ Database not available, returning empty analytics');
+      dashboardData = {
+        total_projects: 0,
+        total_campaigns: 0,
+        active_campaigns: 0,
+        total_submissions: 0,
+        total_miners: 0,
+        pending_submissions: 0,
+        approved_submissions: 0,
+        rejected_submissions: 0,
+        total_rewards_distributed: 0,
+        avg_submission_score: 0,
+        growth_metrics: {
+          projects_growth: 0,
+          campaigns_growth: 0,
+          submissions_growth: 0,
+          current_period: { projects: 0, campaigns: 0, submissions: 0 },
+          previous_period: { projects: 0, campaigns: 0, submissions: 0 }
         },
-      ],
-      performanceMetrics: {
-        hourlySubmissions: [
-          { hour: '00:00', count: 12 },
-          { hour: '01:00', count: 8 },
-          { hour: '02:00', count: 15 },
-          { hour: '03:00', count: 23 },
-          { hour: '04:00', count: 18 },
-          { hour: '05:00', count: 31 },
-          { hour: '06:00', count: 45 },
-          { hour: '07:00', count: 67 },
-          { hour: '08:00', count: 89 },
-          { hour: '09:00', count: 102 },
-          { hour: '10:00', count: 134 },
-          { hour: '11:00', count: 156 },
-        ],
-        topMiners: [
-          {
-            id: 42,
-            username: 'SavageRoaster_007',
-            submissions: 234,
-            avgScore: 9.1,
-            totalEarnings: 12500,
-            personality: 'SAVAGE',
-          },
-          {
-            id: 17,
-            username: 'MemeKing_420',
-            submissions: 189,
-            avgScore: 8.8,
-            totalEarnings: 9800,
-            personality: 'CHAOTIC',
-          },
-          {
-            id: 73,
-            username: 'WittyWriter_101',
-            submissions: 156,
-            avgScore: 8.9,
-            totalEarnings: 8900,
-            personality: 'WITTY',
-          },
-        ],
-        campaignPerformance: [
-          {
-            id: 1,
-            title: 'Roast the Competition 🔥',
-            submissions: 342,
-            avgScore: 8.4,
-            totalRewards: 50000,
-            participantsCount: 89,
-          },
-          {
-            id: 2,
-            title: 'Meme Magic Monday 🎭',
-            submissions: 156,
-            avgScore: 7.9,
-            totalRewards: 25000,
-            participantsCount: 45,
-          },
-        ],
-      },
-      systemHealth: {
-        apiStatus: 'healthy',
-        websocketConnections: 89,
-        databaseStatus: 'connected',
-        redisStatus: 'connected',
-        avgResponseTime: 145, // ms
-        uptime: process.uptime(),
-      },
-    };
+        performance_metrics: {
+          avg_submissions_per_campaign: 0,
+          approval_rate: 0,
+          avg_reward_per_submission: 0,
+          active_campaign_percentage: 0,
+        },
+        top_performing_campaigns: [],
+        recent_activity: [],
+      };
+    }
 
     res.json({
       success: true,

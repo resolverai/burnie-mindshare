@@ -76,11 +76,23 @@ export class CampaignService {
         };
       }
 
-      // Fallback mock data
-      return this.getMockCampaigns(options);
+      // Return empty result if no database
+      return {
+        data: [],
+        total: 0,
+        page: options.page || 1,
+        size: options.size || 10,
+        totalPages: 0,
+      };
     } catch (error) {
       logger.error('❌ Failed to list campaigns:', error);
-      return this.getMockCampaigns(options);
+      return {
+        data: [],
+        total: 0,
+        page: options.page || 1,
+        size: options.size || 10,
+        totalPages: 0,
+      };
     }
   }
 
@@ -109,36 +121,11 @@ export class CampaignService {
         }));
       }
 
-      // Fallback mock data
-      return [
-        {
-          id: 1,
-          title: 'Roast the Competition 🔥',
-          description: 'Create savage roasts targeting competitor brands.',
-          campaignType: 'roast',
-          status: 'ACTIVE',
-          rewardPool: 50000,
-          entryFee: 100,
-          maxSubmissions: 1500,
-          currentSubmissions: 342,
-          endDate: new Date(Date.now() + 6 * 86400000).toISOString(),
-        },
-        {
-          id: 2,
-          title: 'Meme Magic Monday 🎭',
-          description: 'Generate viral memes for crypto trends.',
-          campaignType: 'meme',
-          status: 'ACTIVE',
-          rewardPool: 25000,
-          entryFee: 50,
-          maxSubmissions: 1000,
-          currentSubmissions: 156,
-          endDate: new Date(Date.now() + 86400000).toISOString(),
-        },
-      ];
+      // Return empty array if no database
+      return [];
     } catch (error) {
       logger.error('❌ Failed to get active campaigns:', error);
-      throw error;
+      return [];
     }
   }
 
@@ -165,98 +152,11 @@ export class CampaignService {
         }
       }
 
-      // Mock data fallback
-      return {
-        id,
-        title: 'Roast the Competition 🔥',
-        description: 'Create savage roasts targeting competitor brands.',
-        status: 'ACTIVE',
-        rewardPool: 50000,
-        currentSubmissions: 342,
-      };
+      // Return null if not found or no database
+      return null;
     } catch (error) {
       logger.error('❌ Failed to get campaign:', error);
       throw error;
     }
-  }
-
-  private getMockCampaigns(options: any): any {
-    const mockCampaigns = [
-      {
-        id: 1,
-        title: 'Roast the Competition 🔥',
-        description: 'Create savage roasts targeting competitor brands. Show no mercy in your humor!',
-        category: 'Roasting',
-        campaignType: 'roast',
-        status: 'ACTIVE',
-        rewardPool: 50000,
-        entryFee: 100,
-        maxSubmissions: 1500,
-        currentSubmissions: 342,
-        startDate: new Date(Date.now() - 86400000).toISOString(),
-        endDate: new Date(Date.now() + 6 * 86400000).toISOString(),
-        createdAt: new Date(Date.now() - 172800000).toISOString(),
-      },
-      {
-        id: 2,
-        title: 'Meme Magic Monday 🎭',
-        description: 'Generate viral memes for the latest crypto trends. Make them laugh, make them share!',
-        category: 'Memes',
-        campaignType: 'meme',
-        status: 'ACTIVE',
-        rewardPool: 25000,
-        entryFee: 50,
-        maxSubmissions: 1000,
-        currentSubmissions: 156,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 86400000).toISOString(),
-        createdAt: new Date(Date.now() - 86400000).toISOString(),
-      },
-      {
-        id: 3,
-        title: 'Creative Chaos Campaign 🎨',
-        description: 'Unleash your creativity! Write stories, poems, or creative content with crypto themes.',
-        category: 'Creative',
-        campaignType: 'creative',
-        status: 'ACTIVE',
-        rewardPool: 35000,
-        entryFee: 75,
-        maxSubmissions: 800,
-        currentSubmissions: 89,
-        startDate: new Date(Date.now() - 43200000).toISOString(),
-        endDate: new Date(Date.now() + 3 * 86400000).toISOString(),
-        createdAt: new Date(Date.now() - 86400000).toISOString(),
-      },
-    ];
-
-    // Apply filtering for mock data
-    let filtered = mockCampaigns;
-    const { page = 1, size = 10, status, type, search } = options;
-
-    if (status) {
-      filtered = filtered.filter(c => c.status.toLowerCase() === status.toLowerCase());
-    }
-    if (type) {
-      filtered = filtered.filter(c => c.campaignType.toLowerCase() === type.toLowerCase());
-    }
-    if (search) {
-      filtered = filtered.filter(c =>
-        c.title.toLowerCase().includes(search.toLowerCase()) ||
-        c.description.toLowerCase().includes(search.toLowerCase())
-      );
-    }
-
-    const total = filtered.length;
-    const startIndex = (page - 1) * size;
-    const endIndex = startIndex + size;
-    const paginatedData = filtered.slice(startIndex, endIndex);
-
-    return {
-      data: paginatedData,
-      total,
-      page,
-      size,
-      totalPages: Math.ceil(total / size),
-    };
   }
 } 

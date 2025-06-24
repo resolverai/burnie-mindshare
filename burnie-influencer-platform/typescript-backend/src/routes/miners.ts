@@ -50,10 +50,19 @@ router.post('/register', async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    logger.error('❌ Miner registration failed:', error);
+    logger.error('❌ Miner registration failed:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      requestBody: req.body
+    });
+    
+    // Provide more specific error message
+    const errorMessage = error instanceof Error ? error.message : 'Miner registration failed';
+    
     res.status(500).json({
       success: false,
-      error: 'Miner registration failed',
+      error: errorMessage,
+      details: error instanceof Error ? error.message : 'Unknown error occurred',
       timestamp: new Date().toISOString(),
     });
   }
