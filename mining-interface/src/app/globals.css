@@ -1,0 +1,413 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Remove all blur effects and improve readability */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+  color: #ffffff;
+  min-height: 100vh;
+}
+
+/* Clean card styles without blur */
+.mining-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
+  backdrop-filter: none; /* Remove blur */
+  transition: all 0.2s ease;
+}
+
+.mining-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+/* Clean text styles */
+.mining-title {
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: #ffffff;
+  text-shadow: none; /* Remove text shadow */
+}
+
+.mining-subtitle {
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: #a0a0a0;
+}
+
+.mining-value {
+  font-weight: 600;
+  font-size: 1.5rem;
+  color: #00ff88;
+}
+
+/* Status indicators */
+.status-online {
+  color: #00ff88;
+  font-weight: 600;
+}
+
+.status-offline {
+  color: #ff4444;
+  font-weight: 600;
+}
+
+.status-mining {
+  color: #ffaa00;
+  font-weight: 600;
+}
+
+/* Campaign cards */
+.campaign-card {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.campaign-card:hover {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
+  border-color: rgba(0, 255, 136, 0.3);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 32px rgba(0, 255, 136, 0.1);
+}
+
+.campaign-card.selected {
+  border-color: #00ff88;
+  background: linear-gradient(145deg, rgba(0, 255, 136, 0.1), rgba(0, 255, 136, 0.05));
+}
+
+/* Buttons */
+.btn-primary {
+  background: linear-gradient(135deg, #00ff88, #00cc6a);
+  color: #000000;
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-shadow: none;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #00cc6a, #00aa55);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-weight: 500;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Progress bars */
+.progress-bar {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, #00ff88, #00cc6a);
+  height: 100%;
+  border-radius: 8px;
+  transition: width 0.3s ease;
+}
+
+/* Mining stats */
+.mining-stat {
+  text-align: center;
+  padding: 1rem;
+}
+
+.mining-stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #00ff88;
+  display: block;
+}
+
+.mining-stat-label {
+  font-size: 0.875rem;
+  color: #a0a0a0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.25rem;
+}
+
+/* Clean animations */
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.pulse-green {
+  animation: pulse-green 2s ease-in-out infinite;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Custom fonts for gaming UI */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+
+/* Gaming UI Variables */
+:root {
+  --neon-blue: #00ffff;
+  --neon-orange: #ff6600;
+  --neon-green: #00ff00;
+  --neon-purple: #ff00ff;
+  --neon-red: #ff0066;
+  --dark-bg: #0a0a0a;
+  --card-bg: #1a1a2e;
+  --card-border: #16213e;
+}
+
+/* Cyberpunk gradient backgrounds */
+.cyberpunk-bg {
+  background: linear-gradient(135deg, #0f0f23 0%, #16213e 25%, #1a1a2e 50%, #0f0f23 75%, #000000 100%);
+  position: relative;
+}
+
+.cyberpunk-bg::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 255, 255, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.neon-text {
+  font-family: 'Orbitron', monospace;
+  text-shadow: 0 0 5px currentColor, 0 0 10px currentColor, 0 0 15px currentColor, 0 0 20px currentColor;
+}
+
+.neon-blue { color: var(--neon-blue); }
+.neon-orange { color: var(--neon-orange); }
+.neon-green { color: var(--neon-green); }
+.neon-purple { color: var(--neon-purple); }
+.neon-red { color: var(--neon-red); }
+
+/* Gaming cards with neon borders */
+.gaming-card {
+  background: linear-gradient(145deg, #1a1a2e, #16213e);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.gaming-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(145deg, transparent, rgba(0, 255, 255, 0.05), transparent);
+  pointer-events: none;
+}
+
+.gaming-card-glow {
+  box-shadow: 
+    0 0 20px rgba(0, 255, 255, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+}
+
+.gaming-card-glow:hover {
+  box-shadow: 
+    0 0 30px rgba(0, 255, 255, 0.5),
+    0 0 60px rgba(0, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+/* Neon buttons */
+.neon-button {
+  background: linear-gradient(145deg, #16213e, #1a1a2e);
+  border: 1px solid var(--neon-blue);
+  color: var(--neon-blue);
+  font-family: 'Orbitron', monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.neon-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.neon-button:hover::before {
+  left: 100%;
+}
+
+.neon-button:hover {
+  box-shadow: 
+    0 0 20px var(--neon-blue),
+    inset 0 0 20px rgba(0, 255, 255, 0.1);
+  text-shadow: 0 0 10px var(--neon-blue);
+}
+
+.neon-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Progress bars with neon glow */
+.neon-progress {
+  background: #16213e;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.neon-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--neon-blue), var(--neon-green));
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.neon-progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: shimmer 2s infinite;
+}
+
+/* Animations */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes neon-flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes matrix-rain {
+  0% { transform: translateY(-100%); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+
+/* Input styling */
+.gaming-input {
+  background: #16213e;
+  border: 1px solid var(--card-border);
+  color: #fff;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.gaming-input:focus {
+  border-color: var(--neon-blue);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+  outline: none;
+}
+
+.gaming-input::placeholder {
+  color: #666;
+}
+
+/* Loading spinner */
+.loading-spinner {
+  border: 2px solid var(--card-border);
+  border-top: 2px solid var(--neon-blue);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Utility classes */
+.text-shadow {
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.border-glow {
+  border: 1px solid transparent;
+  background: linear-gradient(#1a1a2e, #1a1a2e) padding-box,
+              linear-gradient(45deg, var(--neon-blue), var(--neon-purple)) border-box;
+}
+
+.glassmorphism {
+  background: rgba(26, 26, 46, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Responsive design improvements */
+@media (max-width: 768px) {
+  .neon-text {
+    font-size: 0.9em;
+  }
+  
+  .gaming-card {
+    margin: 0.5rem;
+  }
+} 
