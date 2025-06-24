@@ -1,0 +1,21 @@
+{
+    "accounts": {
+        "testnet-account": {
+            "address": "0x90f0da66a9e4ed0f",
+            "key": "0xcc0ee07f082147ff11e8e695deecd3c338dd1f3ef0b1edd376d9755092ec322c",
+            "sigAlgorithm": "ECDSA_P256",
+            "hashAlgorithm": "SHA3_256"
+        }
+    },
+    "networks": {
+        "testnet": "access.devnet.nodes.onflow.org:9000"
+    },
+    "deployments": {
+        "testnet": {
+            "testnet-account": ["RoastPoints"]
+        }
+    },
+    "contracts": {
+        "RoastPoints": "./token.cdc"
+    }
+}

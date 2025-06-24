@@ -55,7 +55,7 @@ interface Campaign {
 export default function MiningInterface() {
   const { address, isConnected } = useAccount()
   const { disconnect } = useDisconnect()
-
+  
   const [state, setState] = useState<AppState>({
     isConnected: false,
     walletAddress: null,
@@ -101,7 +101,7 @@ export default function MiningInterface() {
     try {
       // Load campaigns from backend
       await loadCampaigns()
-      
+
       // Check for saved wallet
       const savedWallet = localStorage.getItem('roastpower_wallet')
       if (savedWallet && !state.isConnected) {
@@ -147,8 +147,9 @@ export default function MiningInterface() {
         isLoading: false
       }))
 
-      // Save wallet for persistence
+      // Save wallet and miner ID for persistence
       localStorage.setItem('roastpower_wallet', address)
+      localStorage.setItem('current_miner_id', minerData.id.toString())
       console.log('✅ Wallet connection completed successfully')
 
     } catch (error) {
@@ -171,6 +172,7 @@ export default function MiningInterface() {
       selectedCampaigns: new Set()
     }))
     localStorage.removeItem('roastpower_wallet')
+    localStorage.removeItem('current_miner_id')
     
     // Trigger wagmi disconnect
     disconnect()
@@ -409,10 +411,12 @@ export default function MiningInterface() {
       
       // Submit content to backend
       await api.submitContent({
-        campaign_id: selectedCampaign.id,
+        minerId: parseInt(state.minerData.id),
+        campaignId: selectedCampaign.id,
         content: mockContent,
-        tokens_spent: Math.floor(Math.random() * 500) + 100,
-        transaction_hash: '0x' + Math.random().toString(16).substr(2, 64),
+        tokensUsed: Math.floor(Math.random() * 500) + 100,
+        minerWallet: state.walletAddress || '',
+        transactionHash: '0x' + Math.random().toString(16).substr(2, 64),
         metadata: {
           agent_id: selectedAgent.id,
           agent_personality: selectedAgent.personality,
@@ -664,7 +668,7 @@ export default function MiningInterface() {
                   </div>
                 )}
               </div>
-              
+
               {/* Content Generator - Only show when mining */}
               {state.isMining && (
                 <ContentGenerator

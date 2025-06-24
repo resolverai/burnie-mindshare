@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { campaignsApi } from '@/services/api'
+import { useState, useEffect } from 'react'
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
+import { campaignsApi, projectsApi } from '@/services/api'
 import { XMarkIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
 
 interface CreateCampaignModalProps {
@@ -24,6 +24,7 @@ const CATEGORIES = [
 
 export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: CreateCampaignModalProps) {
   const [formData, setFormData] = useState({
+    projectId: '',
     title: '',
     description: '',
     category: '',
@@ -34,6 +35,28 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
   const [showSuccess, setShowSuccess] = useState(false)
 
   const queryClient = useQueryClient()
+
+  // Fetch available projects
+  const { data: projectsResponse, isLoading: projectsLoading, error: projectsError } = useQuery({
+    queryKey: ['projects'],
+    queryFn: () => projectsApi.getAll(),
+    enabled: isOpen
+  })
+
+  const projects = projectsResponse?.items || []
+
+  // Debug logging
+  useEffect(() => {
+    if (isOpen) {
+      console.log('📊 Campaign Modal Debug:', {
+        projectsLoading,
+        projectsError,
+        projectsResponse,
+        projects: projects.length,
+        projectsList: projects
+      })
+    }
+  }, [isOpen, projectsLoading, projectsError, projectsResponse, projects])
 
   const createCampaignMutation = useMutation({
     mutationFn: campaignsApi.create,
@@ -52,6 +75,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
         onSuccess?.()
         onClose()
         setFormData({
+          projectId: '',
           title: '',
           description: '',
           category: '',
@@ -73,19 +97,20 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
       return
     }
 
+    // Map frontend fields to backend fields
     const campaignData = {
-      project_id: '1', // TODO: Get from selected project or make this selectable
+      projectId: formData.projectId ? parseInt(formData.projectId) : undefined,
       title: formData.title,
       description: formData.description,
-      topic: formData.category,
-      guidelines: formData.description, // Use description as guidelines for now
-      budget: parseInt(formData.rewardPool),
-      reward_per_roast: Math.floor(parseInt(formData.rewardPool) / parseInt(formData.maxSubmissions)),
-      max_submissions: parseInt(formData.maxSubmissions),
-      start_date: new Date().toISOString(),
-      end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+      category: formData.category,
+      campaignType: formData.campaignType,
+      rewardPool: parseInt(formData.rewardPool),
+      maxSubmissions: parseInt(formData.maxSubmissions),
+      startDate: new Date().toISOString(),
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
     }
 
+    console.log('🚀 Submitting campaign data:', campaignData)
     createCampaignMutation.mutate(campaignData)
   }
 
@@ -119,6 +144,41 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <div>
+              <label htmlFor="projectId" className="block text-sm font-medium text-gray-700 mb-1">
+                Project {projectsLoading ? '(Loading...)' : projects.length === 0 ? '(No projects available)' : '(Optional)'}
+              </label>
+              <select
+                id="projectId"
+                name="projectId"
+                value={formData.projectId}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                disabled={projectsLoading || projects.length === 0}
+              >
+                <option value="">
+                  {projectsLoading ? 'Loading projects...' : 
+                   projects.length === 0 ? 'No projects available - Create a project first' : 
+                   'Select project (optional)'}
+                </option>
+                {projects.map(project => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              {projectsError && (
+                <p className="mt-1 text-sm text-red-600">
+                  Failed to load projects. Please try again.
+                </p>
+              )}
+              {projects.length === 0 && !projectsLoading && (
+                <p className="mt-1 text-sm text-gray-500">
+                  You can create campaigns without projects, or create a project first for better organization.
+                </p>
+              )}
+            </div>
+
             <div>
               <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
                 Campaign Title *

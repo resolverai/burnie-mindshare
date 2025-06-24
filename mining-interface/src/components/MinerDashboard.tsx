@@ -111,33 +111,100 @@ export const MinerDashboard: React.FC<MinerDashboardProps> = ({
     await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000))
 
     const personalities = {
-      SAVAGE: [
-        `This ${campaign.category} project is so bad, even my grandmother's knitting circle could build better DeFi protocols`,
-        `Calling this ${campaign.category} "innovative" is like calling a broken calculator "mathematically advanced"`,
-        `I've seen more creativity in a bowl of plain oatmeal than in this entire ${campaign.category} ecosystem`,
-      ],
-      WITTY: [
-        `This ${campaign.category} project has more red flags than a communist parade`,
-        `Their tokenomics make about as much sense as a chocolate teapot`,
-        `I'm not saying this is a rug pull, but I've seen Persian carpets with more transparency`,
-      ],
-      CHAOTIC: [
-        `BREAKING: Local ${campaign.category} project discovers new way to lose money - experts are baffled!`,
-        `Plot twist: This isn't actually a ${campaign.category} project, it's an elaborate art installation about disappointment`,
-        `In a shocking turn of events, this project somehow made me nostalgic for 2018 ICO scams`,
-      ],
-      LEGENDARY: [
-        `Behold! The legendary ${campaign.category} project that shall be remembered in the annals of history... as a cautionary tale`,
-        `In the great saga of ${campaign.category}, this chapter will be titled "How Not To Build Anything"`,
-        `Future archaeologists will study this ${campaign.category} project to understand the decline of human civilization`,
-      ]
+      SAVAGE: {
+        roast: [
+          `${campaign.title} is so overrated, even their own whitepaper calls them a "speculative investment" - which is corporate speak for "we have no idea what we're doing but please give us money anyway."`,
+          `I've seen more innovation in a kindergarten art class than in ${campaign.description}. At least the kids use different colors.`,
+          `This project promises to revolutionize everything except their ability to deliver on promises. Their track record is more consistent than their technology.`,
+          `Their roadmap has more red flags than a communist parade. The only thing they're disrupting is their investors' bank accounts.`,
+          `They call it "DeFi innovation" but the only thing they've decentralized is disappointment across multiple blockchains.`
+        ],
+        meme: [
+          `When ${campaign.title} says "HODL" but their chart looks like a ski slope 📉`,
+          `${campaign.title} holders explaining why -90% is actually bullish 🤡`,
+          `Me: "I'll just invest what I can afford to lose" Also me: *invests in ${campaign.title}* 💀`,
+          `${campaign.title}: "We're building the future" The future: 404 not found 🚫`,
+          `POV: You bought ${campaign.title} at ATH and now you're a "long-term investor" 📈❌`
+        ],
+        creative: [
+          `Breaking: ${campaign.title} discovers new way to make simple things unnecessarily complicated`,
+          `In today's episode of "Blockchain Theater," ${campaign.title} performs the classic "Promise Everything, Deliver Nothing"`,
+          `${campaign.title} has achieved what many thought impossible: making traditional finance look efficient`
+        ]
+      },
+      WITTY: {
+        roast: [
+          `${campaign.title} is like that friend who always says they'll pay you back - technically possible, but you're not holding your breath.`,
+          `If ${campaign.title} was a movie, it would be "The Emperor's New Clothes" but with more buzzwords and less plot.`,
+          `They've solved the age-old problem of how to make simple things unnecessarily complicated. Innovation!`,
+          `${campaign.title} has more pivots than a basketball team with ADHD. At least they're consistent at being inconsistent.`,
+          `Their tokenomics make about as much sense as a chocolate teapot in a sauna.`
+        ],
+        meme: [
+          `${campaign.title}: "We're not like other coins, we're a cool coin" *proceeds to dump 50%* 😎`,
+          `${campaign.title} community: "This is fine" *everything is on fire* 🔥`,
+          `When ${campaign.title} promises utility but delivers only speculation 🎭`,
+          `${campaign.title} chart doing the hokey pokey - you put your money in, you take your hopes out 💃`,
+          `${campaign.title} whitepaper: 50 pages. Actual utility: 404 not found 📄❌`
+        ],
+        creative: [
+          `${campaign.title}: A masterclass in turning FOMO into FOMA (Fear of Missing Assets)`,
+          `They said ${campaign.title} would go to the moon. They just didn't specify which moon... turns out it was one of Pluto's.`,
+          `${campaign.title} is what happens when you let a random word generator loose on a business plan`
+        ]
+      },
+      CHAOTIC: {
+        roast: [
+          `BREAKING: ${campaign.title} discovers new way to lose money - experts are baffled!`,
+          `Plot twist: This isn't actually a crypto project, it's an elaborate art installation about disappointment`,
+          `In a shocking turn of events, ${campaign.title} somehow made me nostalgic for 2018 ICO scams`,
+          `${campaign.title} has achieved what many thought impossible: making Ponzi schemes look transparent`,
+          `Scientists are studying ${campaign.title} to understand how something can simultaneously exist and not exist`
+        ],
+        meme: [
+          `${campaign.title} holders: "It's not a loss until you sell" Also them: *never sells* 💎🤡`,
+          `${campaign.title} to the moon! *rocket explodes on launch pad* 🚀💥`,
+          `When ${campaign.title} says "diamond hands" but you're holding glass 💎➡️🗑️`,
+          `${campaign.title} community: "Just wait for the next update" The update: *makes things worse* 🔄💀`,
+          `Me explaining ${campaign.title} to my therapist 🛋️😵‍💫`
+        ],
+        creative: [
+          `${campaign.title}: Where logic goes to die and hope becomes a four-letter word`,
+          `In the multiverse, there's probably a version where ${campaign.title} makes sense. This isn't that universe.`,
+          `${campaign.title} is what happens when chaos theory meets venture capital`
+        ]
+      },
+      LEGENDARY: {
+        roast: [
+          `Behold! The legendary ${campaign.title} that shall be remembered in the annals of history... as a cautionary tale`,
+          `In the great saga of crypto, this chapter will be titled "How ${campaign.title} Taught Us Humility"`,
+          `Future archaeologists will study ${campaign.title} to understand the decline of human civilization`,
+          `${campaign.title} stands as a monument to human optimism - the belief that if you say "revolutionary" enough times, it might actually become true`,
+          `In the pantheon of crypto legends, ${campaign.title} holds the sacred position of "What Not To Do"`
+        ],
+        meme: [
+          `And thus, ${campaign.title} taught us that hope is the last thing to die... right after your portfolio 🏛️`,
+          `In the annals of ${campaign.title}, let it be written: "They came, they saw, they got rekt" 📜`,
+          `${campaign.title}: A tale of two tokens - one was promised, one was delivered. Guess which one exists? 📚`,
+          `The ${campaign.title} Chronicles: Chapter 1 - "The Phantom Utility" 👻`,
+          `${campaign.title}: An epic journey from "revolutionary" to "what happened?" 🗺️❓`
+        ],
+        creative: [
+          `${campaign.title}: A Shakespearean tragedy in three acts - Hope, Hype, and Heartbreak`,
+          `In the grand theater of ${campaign.title}, we witness the eternal dance between ambition and reality`,
+          `${campaign.title} shall be remembered as the project that united the crypto community... in confusion`
+        ]
+      }
     }
 
-    const personalityContent = personalities[agent?.personality as keyof typeof personalities] || personalities.SAVAGE
-    return personalityContent[Math.floor(Math.random() * personalityContent.length)]
+    const personality = agent?.personality as keyof typeof personalities || 'SAVAGE'
+    const contentType = campaign.campaign_type as keyof typeof personalities['SAVAGE'] || 'roast'
+    const templates = personalities[personality]?.[contentType] || personalities.SAVAGE.roast
+    
+    return templates[Math.floor(Math.random() * templates.length)]
   }
 
-  const submitContent = async (campaignId: string, content: string) => {
+  const submitContent = async (campaignId: string, content: string, tokensUsed: number, minerId: string): Promise<boolean> => {
     try {
       const response = await fetch('http://localhost:8000/api/submissions', {
         method: 'POST',
@@ -145,81 +212,132 @@ export const MinerDashboard: React.FC<MinerDashboardProps> = ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          campaignId,
-          minerId: agent?.id,
+          minerId: parseInt(minerId),
+          campaignId: parseInt(campaignId),
           content,
-          contentType: 'text',
+          tokensUsed,
+          minerWallet: walletAddress,
+          transactionHash: `0x${Math.random().toString(16).substr(2, 64)}`,
           metadata: {
             agent: agent?.name,
             personality: agent?.personality,
             model: agent?.model,
             provider: agent?.provider,
+            generatedAt: new Date().toISOString()
           }
         }),
       })
 
       const data = await response.json()
-      return data.success
+      if (data.success) {
+        addMiningLog(`✅ Submitted to "${campaigns.find(c => c.id === campaignId)?.title}" - ID: ${data.data.submissionId}`)
+        return true
+      } else {
+        addMiningLog(`❌ Submission failed: ${data.error}`)
+        return false
+      }
     } catch (error) {
       console.error('Failed to submit content:', error)
+      addMiningLog(`❌ Network error during submission`)
       return false
     }
   }
 
   const startMining = async () => {
-    if (!agent || campaigns.length === 0) return
+    if (!agent || campaigns.length === 0) {
+      addMiningLog(`❌ Cannot start mining: ${!agent ? 'No agent configured' : 'No campaigns available'}`)
+      return
+    }
+
+    // Get current miner ID from localStorage or generate one
+    let minerId = localStorage.getItem('current_miner_id')
+    if (!minerId) {
+      addMiningLog(`❌ No miner ID found. Please connect wallet first.`)
+      return
+    }
 
     setIsMining(true)
-    addMiningLog(`🚀 Starting mining with ${agent.name}...`)
+    addMiningLog(`🚀 Starting mining with ${agent.name} (${agent.personality})...`)
+    addMiningLog(`👤 Miner ID: ${minerId}`)
 
-    const availableCampaigns = campaigns.filter(c => !c.is_full)
-    let totalGenerated = 0
-    let totalSubmitted = 0
-    let tokensUsed = 0
+    const availableCampaigns = campaigns.filter(c => !c.is_full && c.current_submissions < c.max_submissions)
+    addMiningLog(`🎯 Found ${availableCampaigns.length} available campaigns`)
 
-    for (const campaign of availableCampaigns) {
-      if (!isMining) break
+    let sessionStats = {
+      totalGenerated: 0,
+      totalSubmitted: 0,
+      tokensUsed: 0,
+      successfulSubmissions: 0
+    }
 
-      addMiningLog(`⚡ Generating content for "${campaign.title}"...`)
+    for (let i = 0; i < availableCampaigns.length && isMining; i++) {
+      const campaign = availableCampaigns[i]
+      
+      addMiningLog(`⚡ [${i+1}/${availableCampaigns.length}] Generating content for "${campaign.title}"...`)
       
       try {
+        // Generate content
         const content = await simulateContentGeneration(campaign)
-        totalGenerated++
-        tokensUsed += Math.floor(Math.random() * 100) + 50 // Simulate token usage
+        const tokensUsed = Math.floor(Math.random() * 80) + 40 // 40-120 tokens
+        
+        sessionStats.totalGenerated++
+        sessionStats.tokensUsed += tokensUsed
 
-        addMiningLog(`📝 Generated: "${content.substring(0, 60)}..."`)
+        addMiningLog(`📝 Generated (${tokensUsed} tokens): "${content.substring(0, 80)}${content.length > 80 ? '...' : ''}"`)
 
-        // Simulate submission
-        const submitted = await submitContent(campaign.id, content)
+        // Submit content
+        const submitted = await submitContent(campaign.id, content, tokensUsed, minerId)
         if (submitted) {
-          totalSubmitted++
-          addMiningLog(`✅ Submitted to "${campaign.title}"`)
-        } else {
-          addMiningLog(`❌ Failed to submit to "${campaign.title}"`)
+          sessionStats.totalSubmitted++
+          sessionStats.successfulSubmissions++
+          
+          // Simulate scoring
+          const score = (Math.random() * 4 + 6).toFixed(1) // 6.0-10.0 score
+          addMiningLog(`🎯 Content scored ${score}/10 - Reward pending`)
         }
 
         // Update stats
         const newStats = {
           ...miningStats,
-          totalGenerated: miningStats.totalGenerated + totalGenerated,
-          totalSubmitted: miningStats.totalSubmitted + totalSubmitted,
-          tokensUsed: miningStats.tokensUsed + tokensUsed,
-          successRate: ((miningStats.totalSubmitted + totalSubmitted) / (miningStats.totalGenerated + totalGenerated)) * 100,
+          totalGenerated: miningStats.totalGenerated + sessionStats.totalGenerated,
+          totalSubmitted: miningStats.totalSubmitted + sessionStats.totalSubmitted,
+          tokensUsed: miningStats.tokensUsed + sessionStats.tokensUsed,
+          successRate: Math.round((sessionStats.successfulSubmissions / sessionStats.totalGenerated) * 100),
           currentStreak: submitted ? miningStats.currentStreak + 1 : 0,
-          averageScore: 75 + Math.random() * 20, // Simulate score
+                     averageScore: Math.round((Math.random() * 2 + 7) * 10) / 10 // 7.0-9.0 average
         }
+        
         setMiningStats(newStats)
         localStorage.setItem('mining_stats', JSON.stringify(newStats))
 
-        // Wait before next campaign
-        await new Promise(resolve => setTimeout(resolve, 2000))
+        // Add delay between submissions (1-3 seconds)
+        if (i < availableCampaigns.length - 1) {
+          const delay = 1000 + Math.random() * 2000
+          addMiningLog(`⏱️ Waiting ${Math.round(delay/1000)}s before next generation...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+        
       } catch (error) {
-        addMiningLog(`💥 Error generating content for "${campaign.title}"`)
+        console.error('Content generation error:', error)
+        addMiningLog(`❌ Error generating content for "${campaign.title}": ${error}`)
       }
     }
 
     setIsMining(false)
-    addMiningLog(`🏁 Mining completed! Generated ${totalGenerated}, Submitted ${totalSubmitted}`)
+    addMiningLog(`🏁 Mining session completed!`)
+    addMiningLog(`📊 Session stats: ${sessionStats.totalGenerated} generated, ${sessionStats.totalSubmitted} submitted, ${sessionStats.tokensUsed} tokens used`)
+    
+    // Update final stats
+    const finalSuccessRate = sessionStats.totalGenerated > 0 
+      ? Math.round((sessionStats.successfulSubmissions / sessionStats.totalGenerated) * 100)
+      : miningStats.successRate
+      
+    const updatedStats = {
+      ...miningStats,
+      successRate: finalSuccessRate
+    }
+    setMiningStats(updatedStats)
+    localStorage.setItem('mining_stats', JSON.stringify(updatedStats))
   }
 
   const stopMining = () => {

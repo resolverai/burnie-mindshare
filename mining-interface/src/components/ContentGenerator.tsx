@@ -131,11 +131,19 @@ export default function ContentGenerator({
 
         // Submit to backend immediately
         try {
+          const minerId = localStorage.getItem('current_miner_id')
+          if (!minerId) {
+            console.error('❌ No miner ID found for submission')
+            continue
+          }
+
           const result = await api.submitContent({
-            campaign_id: campaignId,
+            minerId: parseInt(minerId),
+            campaignId: campaignId,
             content,
-            tokens_spent: tokensUsed,
-            transaction_hash: `0x${Math.random().toString(16).substr(2, 64)}`,
+            tokensUsed,
+            minerWallet: '0x' + Math.random().toString(16).substr(2, 40), // Would get from wallet
+            transactionHash: `0x${Math.random().toString(16).substr(2, 64)}`,
             metadata: {
               personality: minerData?.agent_personality,
               generated_at: new Date().toISOString(),

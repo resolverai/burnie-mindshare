@@ -1,0 +1,22 @@
+{
+    "name": "pinata-upload-script",
+    "version": "1.0.0",
+    "description": "Standalone TypeScript script to upload strings to Pinata IPFS",
+    "main": "uploadToPinata.ts",
+    "scripts": {
+        "start": "ts-node uploadToPinata.ts",
+        "build": "tsc",
+        "dev": "ts-node --watch uploadToPinata.ts"
+    },
+    "keywords": ["pinata", "ipfs", "upload", "typescript"],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "dotenv": "^16.5.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "ts-node": "^10.9.0",
+        "typescript": "^5.0.0"
+    }
+}

@@ -37,12 +37,14 @@ export default function ProjectsList({ projects, loading, compact = false }: Pro
         <div key={project.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow">
           <div className="flex justify-between items-start">
             <div className="flex-1">
-              <h3 className="text-lg font-medium text-gray-900 mb-1">{project.title}</h3>
-              <p className={`text-gray-600 mb-2 ${compact ? 'line-clamp-2' : ''}`}>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                {project.name}
+              </h3>
+              <p className="text-gray-600 mb-3">
                 {project.description}
               </p>
-              <div className="flex items-center space-x-4 text-sm text-gray-500">
-                <span>📧 {project.contact_email}</span>
+              <div className="flex items-center gap-4 text-sm text-gray-500">
+                <span>📅 {new Date(project.created_at).toLocaleDateString()}</span>
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                   project.status === 'active' 
                     ? 'bg-green-100 text-green-800'
@@ -52,6 +54,16 @@ export default function ProjectsList({ projects, loading, compact = false }: Pro
                 }`}>
                   {project.status}
                 </span>
+                {project.website_url && (
+                  <a 
+                    href={project.website_url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800"
+                  >
+                    🌐 Website
+                  </a>
+                )}
               </div>
             </div>
             {!compact && (

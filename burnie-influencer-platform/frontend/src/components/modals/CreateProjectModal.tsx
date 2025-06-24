@@ -13,12 +13,12 @@ interface CreateProjectModalProps {
 
 export default function CreateProjectModal({ isOpen, onClose, onSuccess }: CreateProjectModalProps) {
   const [formData, setFormData] = useState({
-    title: '',
+    name: '',
     description: '',
-    contact_email: '',
-    website_url: '',
+    website_url: ''
   })
   const [showSuccess, setShowSuccess] = useState(false)
+  const [error, setError] = useState('')
 
   const queryClient = useQueryClient()
 
@@ -38,7 +38,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
         setShowSuccess(false)
         onSuccess?.()
         onClose()
-        setFormData({ title: '', description: '', contact_email: '', website_url: '' })
+        setFormData({ name: '', description: '', website_url: '' })
       }, 1500)
     },
     onError: (error) => {
@@ -46,14 +46,27 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
     }
   })
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const resetForm = () => {
+    setFormData({ name: '', description: '', website_url: '' })
+    setError('')
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!formData.title.trim() || !formData.description.trim() || !formData.contact_email.trim()) {
+    if (!formData.name.trim() || !formData.description.trim()) {
+      setError('Please fill in all required fields')
       return
     }
 
-    createProjectMutation.mutate(formData)
+    // Map frontend fields to backend fields
+    const projectData = {
+      name: formData.name,
+      description: formData.description,
+      website: formData.website_url
+    }
+
+    createProjectMutation.mutate(projectData)
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -87,24 +100,24 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
         ) : (
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             <div>
-              <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
-                Project Title *
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+                Project Name *
               </label>
               <input
                 type="text"
-                id="title"
-                name="title"
-                value={formData.title}
+                id="name"
+                name="name"
+                value={formData.name}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Enter project title"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter project name"
                 required
               />
             </div>
 
-            <div>
+            <div className="mb-4">
               <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-                Description *
+                Project Description *
               </label>
               <textarea
                 id="description"
@@ -112,31 +125,15 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
                 value={formData.description}
                 onChange={handleChange}
                 rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Describe your project"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Describe your project and its goals"
                 required
               />
             </div>
 
-            <div>
-              <label htmlFor="contact_email" className="block text-sm font-medium text-gray-700 mb-1">
-                Contact Email *
-              </label>
-              <input
-                type="email"
-                id="contact_email"
-                name="contact_email"
-                value={formData.contact_email}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="contact@yourproject.com"
-                required
-              />
-            </div>
-
-            <div>
+            <div className="mb-6">
               <label htmlFor="website_url" className="block text-sm font-medium text-gray-700 mb-1">
-                Website (Optional)
+                Website URL
               </label>
               <input
                 type="url"
@@ -144,7 +141,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess }: Creat
                 name="website_url"
                 value={formData.website_url}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="https://yourproject.com"
               />
             </div>
