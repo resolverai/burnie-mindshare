@@ -97,19 +97,10 @@ export class WebSocketManager {
         }
       }
 
-      // Fallback mock data
+      // Only proceed if we have real data
       if (!submissionData) {
-        submissionData = {
-          id: submissionId,
-          content: 'Mock submission content...',
-          status: 'PENDING',
-          tokensSpent: 100,
-          campaignId: 1,
-          campaignTitle: 'Mock Campaign',
-          minerId: 1,
-          minerName: 'MockMiner',
-          createdAt: new Date(),
-        };
+        logger.warn(`⚠️ No submission data found for ID ${submissionId}, skipping broadcast`);
+        return;
       }
 
       // Broadcast to dashboard

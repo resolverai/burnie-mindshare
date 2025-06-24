@@ -11,52 +11,31 @@ import {
   metaMaskWallet,
   coinbaseWallet,
   walletConnectWallet,
+  phantomWallet,
 } from '@rainbow-me/rainbowkit/wallets'
 import { configureChains, createConfig, WagmiConfig } from 'wagmi'
-import { base, mainnet, localhost } from 'wagmi/chains'
+import { base, mainnet } from 'wagmi/chains'
 import { publicProvider } from 'wagmi/providers/public'
 
 import '@rainbow-me/rainbowkit/styles.css'
 
-// Development chain configuration
-const developmentChain = {
-  ...localhost,
-  id: 31337,
-  name: 'RoastPower Local',
-  network: 'roastpower-local',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'Ether',
-    symbol: 'ETH',
-  },
-  rpcUrls: {
-    default: {
-      http: ['http://127.0.0.1:8545'],
-    },
-    public: {
-      http: ['http://127.0.0.1:8545'],
-    },
-  },
-}
-
-// Configure chains and providers
+// Configure chains and providers - Base mainnet as primary
 const { chains, publicClient, webSocketPublicClient } = configureChains(
-  process.env.NODE_ENV === 'development' 
-    ? [developmentChain as any, base] // Local development chain first, then Base
-    : [base, mainnet], // Production: Base mainnet as primary, Ethereum mainnet as fallback
+  [base, mainnet], // Base mainnet as primary, Ethereum mainnet as fallback
   [publicProvider()]
 )
 
 // Get WalletConnect project ID from environment
 const projectId = process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID
 
-// Configure wallets with fallback for missing project ID
+// Configure wallets with MetaMask and Phantom support
 const connectors = connectorsForWallets([
   {
-    groupName: 'Recommended',
+    groupName: 'Popular',
     wallets: [
-      injectedWallet({ chains }),
       metaMaskWallet({ projectId: projectId || 'demo', chains }),
+      phantomWallet({ chains }),
+      injectedWallet({ chains }),
       coinbaseWallet({ appName: 'RoastPower Mining', chains }),
       // Only include WalletConnect if we have a project ID
       ...(projectId ? [walletConnectWallet({ projectId, chains })] : []),
@@ -77,9 +56,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <WagmiConfig config={wagmiConfig}>
       <RainbowKitProvider 
         chains={chains}
-        initialChain={process.env.NODE_ENV === 'development' ? developmentChain as any : base}
+        initialChain={base} // Default to Base mainnet
       >
-        <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black">
           {children}
         </div>
       </RainbowKitProvider>
