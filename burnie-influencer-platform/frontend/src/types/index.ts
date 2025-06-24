@@ -9,9 +9,8 @@ export interface User {
 
 export interface Project {
   id: string
-  title: string
+  name: string
   description: string
-  contact_email: string
   website_url?: string
   created_by: string
   status: 'draft' | 'active' | 'completed' | 'cancelled'
@@ -37,6 +36,7 @@ export interface Campaign {
   updated_at: string
   submissions_count?: number
   current_submissions?: number
+  project?: Project
 }
 
 export interface Submission {
@@ -141,21 +141,23 @@ export interface PaginatedResponse<T> {
 }
 
 export interface CreateProjectRequest {
-  title: string
+  name: string
   description: string
-  contact_email: string
-  website_url?: string
+  website?: string
 }
 
 export interface CreateCampaignRequest {
-  project_id: string
+  projectId?: number
   title: string
   description: string
-  topic: string
-  guidelines?: string
-  budget: number
-  reward_per_roast: number
-  max_submissions: number
-  start_date?: string
-  end_date?: string
+  category: string
+  campaignType: string
+  rewardPool: number
+  entryFee?: number
+  maxSubmissions: number
+  startDate: string
+  endDate: string
+  requirements?: any
+  metadata?: any
+  isActive?: boolean
 } 

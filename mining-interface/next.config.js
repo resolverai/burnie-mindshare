@@ -3,6 +3,9 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   
+  // Enable standalone output for Docker
+  output: 'standalone',
+  
   // Disable server components for now to avoid compatibility issues
   experimental: {
     // Disable some experimental features that might cause issues

@@ -40,10 +40,12 @@ export interface MinerRegistration {
 }
 
 export interface ContentSubmission {
-  campaign_id: number;
+  minerId: number;
+  campaignId: number;
   content: string;
-  tokens_spent: number;
-  transaction_hash: string;
+  tokensUsed: number;
+  minerWallet: string;
+  transactionHash?: string;
   metadata?: Record<string, any>;
 }
 

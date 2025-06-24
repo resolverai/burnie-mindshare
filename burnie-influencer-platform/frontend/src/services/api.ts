@@ -54,7 +54,27 @@ export const analyticsApi = {
 export const projectsApi = {
   getAll: async (page = 1, size = 10): Promise<PaginatedResponse<Project>> => {
     const response = await api.get(`/api/projects/?page=${page}&size=${size}`)
-    return response.data
+    
+    // Backend returns { success: true, data: [...], pagination: {...} }
+    // Frontend expects { items: [...], total, page, size, pages }
+    if (response.data.success && response.data.data) {
+      return {
+        items: response.data.data,
+        total: response.data.pagination?.total || response.data.data.length,
+        page: response.data.pagination?.page || page,
+        size: response.data.pagination?.limit || size,
+        pages: response.data.pagination?.totalPages || Math.ceil((response.data.pagination?.total || response.data.data.length) / size)
+      }
+    }
+    
+    // Fallback for unexpected format
+    return {
+      items: [],
+      total: 0,
+      page: 1,
+      size: 10,
+      pages: 0
+    }
   },
 
   getById: async (id: string): Promise<Project> => {
