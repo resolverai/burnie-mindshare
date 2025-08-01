@@ -17,7 +17,6 @@ def check_dependencies():
     try:
         import fastapi
         import crewai
-        import databases
         import asyncpg
         print("✅ All dependencies found")
         return True

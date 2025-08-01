@@ -18,7 +18,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app ./app
 COPY .env* ./
-COPY start_ai_backend.py ./
 
 # Create non-root user
 RUN groupadd --gid 1001 python && \
@@ -35,4 +34,4 @@ EXPOSE 8000
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "start_ai_backend.py"] 
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"] 
