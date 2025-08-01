@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 class MindshareMLTrainer:
     """Advanced ML training system for mindshare prediction models"""
     
-    def __init__(self, models_dir: str = "../../../models/mindshare"):
+    def __init__(self, models_dir: str = "/app/models/mindshare"):
         self.models_dir = models_dir
         self.models = {}
         self.scalers = {}
