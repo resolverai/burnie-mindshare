@@ -129,7 +129,7 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       logger.warn(`⚠️ Authorization code already processed for wallet: ${walletAddress}`);
       return res.status(400).json({
         success: false,
-        error: 'Authorization code has already been used'
+        error: 'This authorization code has already been processed'
       });
     }
 
@@ -270,7 +270,7 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
 
     logger.info(`✅ Twitter connection successful for wallet ${walletAddress} -> @${twitterUser.username}`);
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Twitter account connected successfully',
       data: {
@@ -290,7 +290,7 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Error in Twitter OAuth exchange:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error during Twitter authentication'
     });

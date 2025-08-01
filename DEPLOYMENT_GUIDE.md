@@ -5,54 +5,252 @@ This guide provides step-by-step instructions for deploying the Burnie Platform 
 ## 📋 Prerequisites
 
 - AWS EC2 Ubuntu instance (t3.medium or larger recommended)
-- Docker and Docker Compose installed
+- Docker and Docker Compose installed (see installation guide below)
 - Domain names configured in Route 53:
   - `mining.burnie.io` → Mining Interface
   - `influencer.burnie.io` → Frontend
   - `mindshareapi.burnie.io` → TypeScript Backend
   - `attentionai.burnie.io` → Python AI Backend
 
+## 🐳 Docker Installation on Ubuntu (AWS EC2)
+
+> **Note**: This guide installs the standalone `docker-compose` command (not the Docker plugin version). All deployment commands will use `docker-compose` (with hyphen) instead of `docker compose` (with space).
+
+### 1. Update System Packages
+
+```bash
+# Update package index
+sudo apt update
+
+# Install packages to allow apt to use a repository over HTTPS
+sudo apt install -y \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    software-properties-common
+```
+
+### 2. Install Docker Engine
+
+```bash
+# Add Docker's official GPG key
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+# Set up the Docker repository
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Update package index again
+sudo apt update
+
+# Install Docker Engine and containerd (without Docker Compose plugin)
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
+```
+
+### 3. Configure Docker (Optional but Recommended)
+
+```bash
+# Start and enable Docker service
+sudo systemctl start docker
+sudo systemctl enable docker
+
+# Add your user to the docker group (to run docker without sudo)
+sudo usermod -aG docker $USER
+
+# Apply the new group membership (log out and back in, or use newgrp)
+newgrp docker
+
+# Configure Docker to start on boot
+sudo systemctl enable docker.service
+sudo systemctl enable containerd.service
+```
+
+### 4. Install Docker Compose (Standalone Version)
+
+```bash
+# Download Docker Compose (latest version)
+DOCKER_COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep 'tag_name' | cut -d\" -f4)
+sudo curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+
+# Make it executable
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Create symlink for easier access (optional)
+sudo ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+
+# Verify Docker Compose is installed correctly
+docker-compose --version
+```
+
+### 5. Verify Installation
+
+```bash
+# Check Docker version
+docker --version
+
+# Check Docker Compose version (standalone)
+docker-compose --version
+
+# Test Docker installation
+docker run hello-world
+
+# Test Docker Compose with a simple command
+docker-compose version
+
+# Check Docker service status
+sudo systemctl status docker
+
+# Verify you can run docker without sudo (after logout/login)
+docker ps
+```
+
+### 6. Configure Docker for Production
+
+```bash
+# Create Docker daemon configuration for better logging
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  },
+  "storage-driver": "overlay2"
+}
+EOF
+
+# Restart Docker to apply configuration
+sudo systemctl restart docker
+
+# Enable Docker to start on boot
+sudo systemctl enable docker
+```
+
+### 7. Security Hardening (Optional)
+
+```bash
+# Create a dedicated docker user (if not using your main user)
+sudo useradd -m -s /bin/bash dockeruser
+sudo usermod -aG docker dockeruser
+
+# Set up proper file permissions for Docker socket
+sudo chmod 660 /var/run/docker.sock
+sudo chown root:docker /var/run/docker.sock
+```
+
+### 8. Troubleshooting Docker Installation
+
+```bash
+# If you get permission denied errors
+sudo chmod 666 /var/run/docker.sock
+
+# If Docker service fails to start
+sudo journalctl -u docker.service
+
+# Clean up Docker if needed
+docker system prune -a
+
+# Restart Docker service
+sudo systemctl restart docker
+```
+
+**🎉 Docker Installation Complete!**
+
+### ⚡ Important: Using Standalone Docker Compose
+
+This installation uses the **standalone `docker-compose`** binary. Key differences:
+
+✅ **Correct Usage (What we use):**
+```bash
+docker-compose up -d
+docker-compose build
+docker-compose logs -f
+```
+
+❌ **Plugin Version (NOT used in this guide):**
+```bash
+docker compose up -d     # Note: space instead of hyphen
+docker compose build
+docker compose logs -f
+```
+
+All scripts and commands in this deployment guide are designed for the **standalone** version with the **hyphen** (`docker-compose`).
+
+You can now proceed with the deployment. Your system is ready to run the Burnie Platform containers.
+
 ## 🔧 Environment Variables Setup
 
 ### 1. Frontend Environment Variables
 Create: `burnie-influencer-platform/frontend/.env`
 
+**For Production:**
 ```bash
-# Next.js Configuration
+# Production Configuration for influencer.burnie.io
 NODE_ENV=production
 PORT=3004
+
+# API Configuration (Production)
+NEXT_PUBLIC_API_URL=https://mindshareapi.burnie.io
 NEXT_PUBLIC_BACKEND_URL=https://mindshareapi.burnie.io
 NEXT_PUBLIC_AI_BACKEND_URL=https://attentionai.burnie.io
 
-# Wallet & Blockchain (Base Network)
+# WalletConnect Configuration
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
+
+# Network Configuration
+NEXT_PUBLIC_DEFAULT_CHAIN_ID=8453
 NEXT_PUBLIC_BASE_RPC_URL=https://mainnet.base.org
+
+# Token Contracts (Update with your actual deployed addresses)
 NEXT_PUBLIC_ROAST_TOKEN_ADDRESS=0x...
-NEXT_PUBLIC_USDC_BASE_ADDRESS=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913
+NEXT_PUBLIC_USDC_BASE_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+
+# Mining Interface URL
+NEXT_PUBLIC_MINING_INTERFACE_URL=https://mining.burnie.io
+```
+
+**For Local Development:**
+```bash
+# Development Configuration
+NODE_ENV=development
+PORT=3004
+
+NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
+NEXT_PUBLIC_AI_BACKEND_URL=http://localhost:8000
+NEXT_PUBLIC_MINING_INTERFACE_URL=http://localhost:3000
+# ... other settings same as production
 ```
 
 ### 2. TypeScript Backend Environment Variables
 Create: `burnie-influencer-platform/typescript-backend/.env`
 
+**For Production:**
 ```bash
-# API Configuration
+# Production Configuration for mindshareapi.burnie.io
 NODE_ENV=production
 API_HOST=0.0.0.0
 API_PORT=3001
 
-# Database Configuration
-DB_HOST=localhost
+# Database Configuration (AWS RDS)
+DB_HOST=your-rds-endpoint.region.rds.amazonaws.com
 DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=your_secure_rds_password
 DB_NAME=burnie_platform
-DB_USER=postgres
-DB_PASSWORD=your_secure_password
 DB_SYNCHRONIZE=false
+DB_LOGGING=false
 
-# CORS Configuration
+# CORS Configuration (Production URLs)
 ALLOWED_ORIGINS=https://mining.burnie.io,https://influencer.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io
 
-# JWT Configuration
-JWT_SECRET=your_super_secure_jwt_secret_key_minimum_32_characters
+# JWT Configuration (Use strong secrets)
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production-32-chars-min
 JWT_EXPIRES_IN=7d
 JWT_REFRESH_EXPIRES_IN=30d
 
@@ -61,40 +259,46 @@ BASE_RPC_URL=https://mainnet.base.org
 BASE_PRIVATE_KEY=your_private_key_without_0x_prefix
 ROAST_TOKEN_ADDRESS=0x...
 ROAST_STAKING_ADDRESS=0x...
-USDC_BASE_ADDRESS=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913
+USDC_BASE_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
 
-# Social Media APIs
+# AI Integration (Production URL)
+PYTHON_AI_BACKEND_URL=https://attentionai.burnie.io
+
+# Twitter OAuth (Production callback)
+TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
 TWITTER_BEARER_TOKEN=your_twitter_bearer_token
 TWITTER_API_KEY=your_twitter_api_key
 TWITTER_API_SECRET=your_twitter_api_secret
 
-# AI Integration
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-PYTHON_AI_BACKEND_URL=https://attentionai.burnie.io
+# Admin Authentication (Strong secrets in production)
+ADMIN_JWT_SECRET=admin-super-secret-jwt-key-burnie-2025-change-in-production-32-chars
+```
 
-# Mining Configuration
-DEFAULT_BLOCK_TIME=300
-MIN_MINERS_FOR_BLOCK=2
-MAX_SUBMISSIONS_PER_CAMPAIGN=1500
+**For Local Development:**
+```bash
+# Development Configuration
+NODE_ENV=development
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3004
+PYTHON_AI_BACKEND_URL=http://localhost:8000
+TWITTER_REDIRECT_URI=http://localhost:3000/twitter-callback
+# ... other settings same as production but with localhost URLs
 ```
 
 ### 3. Python AI Backend Environment Variables
 Create: `burnie-influencer-platform/python-ai-backend/.env`
 
+**For Production:**
 ```bash
-# App Configuration
+# Production Configuration for attentionai.burnie.io
 APP_ENV=production
 APP_HOST=0.0.0.0
 APP_PORT=8000
-DEBUG=False
+APP_DEBUG=false
 
-# Integration URLs (Configure based on your deployment)
-TYPESCRIPT_BACKEND_URL=http://localhost:3001
-# For Docker Compose: http://typescript-backend:3001
-# For AWS/Production: https://mindshareapi.burnie.io
+# TypeScript Backend Integration (Production URL)
+TYPESCRIPT_BACKEND_URL=https://mindshareapi.burnie.io
 
-# Database Configuration (AWS RDS)
+# Database Configuration (AWS RDS - Individual Parameters)
 DATABASE_HOST=your-rds-endpoint.region.rds.amazonaws.com
 DATABASE_PORT=5432
 DATABASE_NAME=burnie_platform
@@ -111,30 +315,59 @@ CREWAI_MODEL=gpt-4
 CREWAI_TEMPERATURE=0.7
 ```
 
-**Important:** Configure `TYPESCRIPT_BACKEND_URL` based on your deployment:
-- **Local development:** `http://localhost:3001`
-- **Docker Compose:** `http://typescript-backend:3001`  
-- **Production:** `https://mindshareapi.burnie.io`
+**For Local Development:**
+```bash
+# Development Configuration
+APP_ENV=development
+APP_DEBUG=true
+TYPESCRIPT_BACKEND_URL=http://localhost:3001
+DATABASE_HOST=localhost
+# ... other settings same as production
+```
 
 ### 4. Mining Interface Environment Variables
 Create: `mining-interface/.env`
 
+**For Production:**
 ```bash
-# Next.js Configuration
+# Production Configuration for mining.burnie.io
 NODE_ENV=production
 PORT=3000
-NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io
+
+# Burnie Platform Connection (Production)
+NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io/api
 NEXT_PUBLIC_AI_API_URL=https://attentionai.burnie.io
+NEXT_PUBLIC_BURNIE_WS_URL=wss://mindshareapi.burnie.io/ws
 
-# Wallet & Blockchain
+# WalletConnect & Blockchain
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_walletconnect_project_id
+NEXT_PUBLIC_DEFAULT_CHAIN_ID=8453
 NEXT_PUBLIC_BASE_RPC_URL=https://mainnet.base.org
-NEXT_PUBLIC_ROAST_TOKEN_ADDRESS=0x...
-NEXT_PUBLIC_USDC_BASE_ADDRESS=0x833589fcd6edb6e08f4c7c32d4f71b54bda02913
 
-# Social Media Integration
+# Token Contracts (Update with your actual deployed addresses)
+NEXT_PUBLIC_ROAST_TOKEN_ADDRESS=0x...
+NEXT_PUBLIC_USDC_BASE_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+
+# Social Media Integration (Production)
 NEXT_PUBLIC_TWITTER_CLIENT_ID=your_twitter_client_id
 NEXT_PUBLIC_TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
+
+# Agent Storage (Production)
+NEXT_PUBLIC_AGENT_STORAGE_URL=https://mindshareapi.burnie.io/api/agents
+```
+
+**For Local Development:**
+```bash
+# Development Configuration
+NODE_ENV=development
+PORT=3000
+
+NEXT_PUBLIC_BURNIE_API_URL=http://localhost:3001/api
+NEXT_PUBLIC_AI_API_URL=http://localhost:8000
+NEXT_PUBLIC_BURNIE_WS_URL=ws://localhost:3001/ws
+NEXT_PUBLIC_TWITTER_REDIRECT_URI=http://localhost:3000/twitter-callback
+NEXT_PUBLIC_AGENT_STORAGE_URL=http://localhost:3001/api/agents
+# ... other settings same as production
 ```
 
 ## 🗃️ Database Setup
@@ -197,19 +430,43 @@ nano mining-interface/.env
 
 ### 3. Deploy with Single Command
 
+**Option A: Use Production .env Files (Recommended)**
+```bash
+# Copy all production configurations
+cp burnie-influencer-platform/frontend/.env.production burnie-influencer-platform/frontend/.env
+cp burnie-influencer-platform/typescript-backend/.env.production burnie-influencer-platform/typescript-backend/.env
+cp burnie-influencer-platform/python-ai-backend/.env.production burnie-influencer-platform/python-ai-backend/.env
+cp mining-interface/.env.production mining-interface/.env
+
+# Deploy all services
+./deploy.sh
+```
+
+**Option B: Manual .env Setup**
+Create all 4 environment files with your specific configuration (see templates above), then:
 ```bash
 # Deploy all services
 ./deploy.sh
 ```
 
-This script will:
-- Pull latest changes from git
-- Check for required .env files
-- Stop existing containers
-- Build new containers
-- Start all services
-- Perform health checks
-- Clean up unused resources
+## 📋 Production URL Changes Summary
+
+| Service | Development URL | Production URL |
+|---------|----------------|----------------|
+| **Frontend APIs** | `http://localhost:3001` | `https://mindshareapi.burnie.io` |
+| **AI Backend** | `http://localhost:8000` | `https://attentionai.burnie.io` |
+| **Mining Interface** | `http://localhost:3000` | `https://mining.burnie.io` |
+| **WebSocket** | `ws://localhost:3001` | `wss://mindshareapi.burnie.io` |
+| **Twitter Callback** | `http://localhost:3000/twitter-callback` | `https://mining.burnie.io/twitter-callback` |
+| **CORS Origins** | `localhost:3000,localhost:3004` | `*.burnie.io domains` |
+
+**Key Production Changes:**
+- ✅ All HTTP → HTTPS
+- ✅ WebSocket WS → WSS  
+- ✅ localhost → production domains
+- ✅ Database → AWS RDS endpoints
+- ✅ NODE_ENV → production
+- ✅ Debug modes → disabled
 
 ### 4. Manual Docker Commands (Alternative)
 
@@ -217,17 +474,26 @@ This script will:
 # Build all containers
 docker-compose build --no-cache
 
-# Start all services
+# Start all services in detached mode
 docker-compose up -d
 
-# Check status
+# Check running containers status
 docker-compose ps
 
-# View logs
+# View logs (all services)
 docker-compose logs -f
+
+# View logs for specific service
+docker-compose logs -f [service-name]
 
 # Stop all services
 docker-compose down
+
+# Stop and remove all containers, networks, and volumes
+docker-compose down -v
+
+# Restart specific service
+docker-compose restart [service-name]
 ```
 
 ## 🌐 Nginx & SSL Setup
@@ -431,6 +697,15 @@ git checkout HEAD~1
 #!/bin/bash
 docker-compose down
 sudo systemctl stop nginx
+```
+
+### Force Clean Restart
+
+```bash
+#!/bin/bash
+docker-compose down -v
+docker system prune -f
+./deploy.sh
 ```
 
 ---

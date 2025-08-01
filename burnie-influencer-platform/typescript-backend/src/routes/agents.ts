@@ -108,7 +108,7 @@ router.get('/user/:walletAddress', async (req: Request, res: Response) => {
 
     logger.info(`✅ Found ${agents.length} agent(s) for user ${user.id}`);
 
-    res.json({
+    return res.json({
       success: true,
       data: transformedAgents,
       count: transformedAgents.length
@@ -116,7 +116,7 @@ router.get('/user/:walletAddress', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Error fetching user agents:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Internal server error',
       data: []
@@ -256,7 +256,7 @@ router.post('/create', async (req: Request, res: Response) => {
 
     logger.info(`🎉 Successfully created personalized agent for user ${user.id}`);
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Personalized agent created successfully',
       data: [responseAgent],
@@ -265,7 +265,7 @@ router.post('/create', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Error creating agent:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to create agent',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -308,7 +308,7 @@ router.post('/update-learning/:walletAddress', async (req: Request, res: Respons
 
     logger.info(`✅ Learning update completed for user ${user.id}`);
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Learning updated successfully',
       timestamp: new Date().toISOString()
@@ -316,7 +316,7 @@ router.post('/update-learning/:walletAddress', async (req: Request, res: Respons
 
   } catch (error) {
     logger.error('❌ Error updating learning:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to update learning',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -380,7 +380,7 @@ router.post('/:agentId/update-learning', async (req: Request, res: Response) => 
       where: { id: parseInt(agentId), isActive: true }
     });
 
-    res.json({
+    return res.json({
       success: true,
       message: `Learning updated successfully for agent: ${agent.agentName}`,
       timestamp: new Date().toISOString(),
@@ -394,7 +394,7 @@ router.post('/:agentId/update-learning', async (req: Request, res: Response) => 
 
   } catch (error) {
     logger.error(`❌ Error updating learning for agent ${req.params.agentId}:`, error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to update learning',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -485,7 +485,7 @@ router.get('/debug-learning/:walletAddress', async (req: Request, res: Response)
 
   } catch (error) {
     logger.error('❌ Error in debug learning endpoint:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch debug learning data'
     });
@@ -576,7 +576,7 @@ router.get('/:agentId/learning-status', async (req: Request, res: Response) => {
       message = `Trained on ${totalTweetsProcessed} tweets • Agent ready`;
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         agentId: agentId,
@@ -593,7 +593,7 @@ router.get('/:agentId/learning-status', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error(`❌ Error fetching learning status for agent ${req.params.agentId}:`, error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch agent learning status'
     });
@@ -687,7 +687,7 @@ router.get('/learning-status/:walletAddress', async (req: Request, res: Response
       learningProgress = 10; // Show minimal progress for agent creation
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         hasLearningData: totalTweetsProcessed > 0,
@@ -704,7 +704,7 @@ router.get('/learning-status/:walletAddress', async (req: Request, res: Response
 
   } catch (error) {
     logger.error('❌ Error fetching learning status:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch learning status'
     });
@@ -832,7 +832,7 @@ router.put('/:agentId/update', async (req: Request, res: Response) => {
 
     logger.info(`🎉 Successfully updated agent ${agentId} and triggered learning`);
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Agent configuration updated successfully',
       data: responseAgent,
@@ -841,7 +841,7 @@ router.put('/:agentId/update', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error(`❌ Error updating agent ${req.params.agentId}:`, error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to update agent configuration',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -940,7 +940,7 @@ router.put('/update/:walletAddress', async (req: Request, res: Response) => {
 
     logger.info(`✅ Successfully updated ${updatedAgents.length} agents for user ${user.id}`);
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Agent configuration updated successfully',
       data: responseAgents
@@ -948,7 +948,7 @@ router.put('/update/:walletAddress', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Error updating agent configuration:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to update agent configuration',
       details: error instanceof Error ? error.message : 'Unknown error'
