@@ -452,7 +452,7 @@ router.get('/debug-learning/:walletAddress', async (req: Request, res: Response)
       where: { userId: user.id, isConnected: true }
     });
 
-    res.json({
+    return res.json({
       success: true,
       debug: {
         userId: user.id,
