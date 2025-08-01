@@ -38,9 +38,7 @@ class MindshareMLTrainer:
         self.scalers = {}
         self.vectorizers = {}
         self.label_encoders = {}
-        
-        # Ensure models directory exists
-        os.makedirs(self.models_dir, exist_ok=True)
+        self._initialized = False
         
         # Available algorithms
         self.algorithms = {
@@ -53,6 +51,25 @@ class MindshareMLTrainer:
         
         # Default algorithm
         self.default_algorithm = 'random_forest'
+    
+    def _ensure_models_dir(self):
+        """Ensure models directory exists - lazy initialization"""
+        if not self._initialized:
+            try:
+                os.makedirs(self.models_dir, exist_ok=True)
+                self._initialized = True
+                logger.info(f"✅ Models directory initialized: {self.models_dir}")
+            except PermissionError as e:
+                logger.error(f"❌ Cannot create models directory {self.models_dir}: {e}")
+                # Fallback to /tmp for development/testing
+                fallback_dir = "/tmp/mindshare_models"
+                logger.warning(f"⚠️ Using fallback directory: {fallback_dir}")
+                os.makedirs(fallback_dir, exist_ok=True)
+                self.models_dir = fallback_dir
+                self._initialized = True
+            except Exception as e:
+                logger.error(f"❌ Unexpected error creating models directory: {e}")
+                raise
     
     async def load_training_data(self, platform_source: str = None) -> pd.DataFrame:
         """Load training data from database"""
@@ -245,6 +262,9 @@ class MindshareMLTrainer:
             if algorithm is None:
                 algorithm = self.default_algorithm
             
+            # Ensure models directory exists
+            self._ensure_models_dir()
+            
             # Load data
             df = await self.load_training_data(platform_source)
             if len(df) == 0:
@@ -366,6 +386,9 @@ class MindshareMLTrainer:
     async def train_platform_ensemble(self, platform_source: str) -> Dict[str, Any]:
         """Train an ensemble of models for a specific platform"""
         try:
+            # Ensure models directory exists
+            self._ensure_models_dir()
+            
             # Load data
             df = await self.load_training_data(platform_source)
             if len(df) == 0:

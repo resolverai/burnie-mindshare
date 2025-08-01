@@ -24,7 +24,7 @@ RUN groupadd --gid 1001 python && \
     useradd --uid 1001 --gid python --shell /bin/bash python
 
 # Create directories and set permissions
-RUN mkdir -p /app/logs /app/models && \
+RUN mkdir -p /app/logs /app/models/mindshare && \
     chown -R python:python /app
 
 USER python

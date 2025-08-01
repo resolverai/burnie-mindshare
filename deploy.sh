@@ -91,9 +91,24 @@ check_env_files() {
     print_success "All environment files found"
 }
 
+# Build containers first for minimal downtime
+build_containers() {
+    print_status "Building new container images..."
+    
+    docker-compose build --no-cache || {
+        print_error "Failed to build containers"
+        exit 1
+    }
+    
+    print_success "Containers built successfully"
+}
+
 # Stop existing containers
 stop_containers() {
     print_status "Stopping existing containers..."
+    
+    # Record downtime start
+    DOWNTIME_START=$(date +%s)
     
     docker-compose down --remove-orphans || {
         print_warning "Failed to stop some containers (they might not be running)"
@@ -102,25 +117,23 @@ stop_containers() {
     print_success "Containers stopped"
 }
 
-# Build and start containers
-build_and_start() {
-    print_status "Building and starting containers..."
+# Start containers with new images
+start_containers() {
+    print_status "Starting containers with new images..."
     
-    # Build containers
-    docker-compose build --no-cache || {
-        print_error "Failed to build containers"
-        exit 1
-    }
-    
-    print_success "Containers built successfully"
-    
-    # Start containers
     docker-compose up -d || {
         print_error "Failed to start containers"
         exit 1
     }
     
-    print_success "Containers started successfully"
+    # Calculate downtime if we recorded it
+    if [ ! -z "$DOWNTIME_START" ]; then
+        DOWNTIME_END=$(date +%s)
+        DOWNTIME_DURATION=$((DOWNTIME_END - DOWNTIME_START))
+        print_success "Containers started successfully (downtime: ${DOWNTIME_DURATION}s)"
+    else
+        print_success "Containers started successfully"
+    fi
 }
 
 # Check container health
@@ -136,9 +149,28 @@ check_health() {
             print_success "$container is running"
         else
             print_error "$container is not running"
-            docker logs "$container" --tail 20
+            echo ""
+            echo -e "${YELLOW}📋 Last 20 log lines for $container:${NC}"
+            docker logs "$container" --tail 20 --colors 2>/dev/null || docker logs "$container" --tail 20
+            echo ""
             exit 1
         fi
+    done
+}
+
+# Show recent logs for all services
+show_quick_logs() {
+    print_status "📋 Quick status check - Recent logs from all services:"
+    echo ""
+    
+    services=("frontend" "typescript-backend" "python-ai-backend" "mining-interface")
+    
+    for service in "${services[@]}"; do
+        echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
+        echo -e "${YELLOW}📦 $service (last 5 lines):${NC}"
+        echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
+        docker-compose logs --tail=5 "$service" --colors 2>/dev/null || docker-compose logs --tail=5 "$service"
+        echo ""
     done
 }
 
@@ -152,7 +184,14 @@ show_status() {
     echo "⛏️  Mining Interface: https://mining.burnie.io (port 3000)"
     echo ""
     echo "📊 To view container logs:"
-    echo "  docker-compose logs -f [service-name]"
+    echo "  docker-compose logs -f [service-name]                    # Follow logs for specific service"
+    echo "  docker-compose logs -f --tail=100 [service-name]         # Last 100 lines with follow"
+    echo "  docker logs [container-name] --colors -f                 # Colored logs for specific container"
+    echo ""
+    echo "🔍 Available services: frontend, typescript-backend, python-ai-backend, mining-interface"
+    echo ""
+    echo "🎨 For colored live logs, use:"
+    echo "  ./deploy.sh logs [service-name]                          # Follow colored logs for a service"
     echo ""
     echo "🛑 To stop all services:"
     echo "  docker-compose down"
@@ -172,20 +211,52 @@ main() {
     echo "=================="
     echo "🔥 BURNIE PLATFORM DEPLOYMENT"
     echo "=================="
+    echo "⚡ Optimized for minimal downtime: Build → Stop → Start"
     echo ""
     
     check_dependencies
     pull_changes
     check_env_files
+    build_containers
     stop_containers
-    build_and_start
+    start_containers
     check_health
+    show_quick_logs
     cleanup
     show_status
+}
+
+# Function to show colored logs for a specific service
+show_logs() {
+    local service="$1"
+    
+    if [ -z "$service" ]; then
+        echo -e "${YELLOW}🎨 Available services:${NC}"
+        echo "  - frontend"
+        echo "  - typescript-backend" 
+        echo "  - python-ai-backend"
+        echo "  - mining-interface"
+        echo ""
+        echo -e "${BLUE}Usage: ./deploy.sh logs [service-name]${NC}"
+        exit 1
+    fi
+    
+    print_status "📋 Following colored logs for: $service"
+    echo -e "${YELLOW}Press Ctrl+C to stop following logs${NC}"
+    echo ""
+    
+    # Try with colors first, fallback to regular logs
+    docker-compose logs -f --tail=50 "$service" --colors 2>/dev/null || docker-compose logs -f --tail=50 "$service"
 }
 
 # Trap errors and cleanup
 trap 'print_error "Deployment failed! Check the logs above for details."' ERR
 
-# Run main function
+# Check if we're running logs command
+if [ "$1" = "logs" ]; then
+    show_logs "$2"
+    exit 0
+fi
+
+# Run main function for normal deployment
 main "$@" 
