@@ -138,4 +138,5 @@ dist
 *.env.*
 
 *.DS_Store
-.DS_Store
+.DS_Store*.tar.gz
+mining-interface/roastpower-mining-interface-updated.tar.gz
