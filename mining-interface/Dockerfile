@@ -16,6 +16,9 @@ COPY . .
 # Copy environment file
 COPY .env* ./
 
+# Create public directory if it doesn't exist
+RUN mkdir -p public
+
 # Build the application
 RUN npm run build
 
