@@ -30,15 +30,19 @@ const envSchema = Joi.object({
   JWT_EXPIRES_IN: Joi.string().default('7d'),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('30d'),
 
-  // CORS
-  ALLOWED_ORIGINS: Joi.string().default('http://localhost:3000,http://localhost:3004'),
+  // CORS Configuration
+  ALLOWED_ORIGINS: Joi.string().default('http://localhost:3000,http://localhost:3004,https://mining.burnie.io,https://influencer.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io'),
 
-  // Blockchain
-  ETH_RPC_URL: Joi.string().uri().default('https://mainnet.infura.io/v3/demo'),
-  ETH_PRIVATE_KEY: Joi.string().default('0x0000000000000000000000000000000000000000000000000000000000000000'),
-  CONTRACT_ROAST_TOKEN: Joi.string().default('0x0000000000000000000000000000000000000000'),
-  CONTRACT_MINING_POOL: Joi.string().default('0x0000000000000000000000000000000000000000'),
-  CONTRACT_CAMPAIGN_FACTORY: Joi.string().default('0x0000000000000000000000000000000000000000'),
+  // Blockchain - MVP Base Network Only
+  BASE_RPC_URL: Joi.string().uri().default('https://mainnet.base.org'),
+  BASE_PRIVATE_KEY: Joi.string().default('0x0000000000000000000000000000000000000000000000000000000000000000'),
+  ROAST_TOKEN_ADDRESS: Joi.string().default('0x0000000000000000000000000000000000000000'), // Existing deployed ROAST token
+  ROAST_STAKING_ADDRESS: Joi.string().default('0x0000000000000000000000000000000000000000'), // Existing deployed staking
+  USDC_BASE_ADDRESS: Joi.string().default('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'), // USDC on Base mainnet
+  
+  // Advanced Blockchain (Dormant for future phases)
+  ADVANCED_CAMPAIGN_FACTORY: Joi.string().default('0x0000000000000000000000000000000000000000'),
+  ADVANCED_MINING_POOL: Joi.string().default('0x0000000000000000000000000000000000000000'),
 
   // Social Media
   TWITTER_API_KEY: Joi.string().allow('').default(''),
@@ -49,7 +53,7 @@ const envSchema = Joi.object({
   // AI
   OPENAI_API_KEY: Joi.string().allow('').default(''),
   ANTHROPIC_API_KEY: Joi.string().allow('').default(''),
-  PYTHON_AI_SERVICE_URL: Joi.string().uri().default('http://localhost:5000'),
+  PYTHON_AI_BACKEND_URL: Joi.string().uri().default('http://localhost:8000'),
 
   // File Storage
   UPLOAD_PATH: Joi.string().default('./uploads'),
@@ -77,6 +81,19 @@ const envSchema = Joi.object({
   REDIS_SUBMISSIONS_KEY: Joi.string().default('submissions'),
   REDIS_ACTIVE_MINERS_KEY: Joi.string().default('active_miners'),
 
+  // MVP Platform Configuration
+  ENABLE_CONTENT_MARKETPLACE: Joi.boolean().default(true),
+  ENABLE_BIDDING_SYSTEM: Joi.boolean().default(true),
+  ENABLE_MANUAL_CAMPAIGN_AGGREGATION: Joi.boolean().default(true),
+  PLATFORM_FEE_PERCENTAGE: Joi.number().min(0).max(10).default(2.5), // 2.5% platform fee
+  MINIMUM_BID_AMOUNT: Joi.number().min(1).default(10), // 10 ROAST minimum bid
+  MAX_BID_DURATION_HOURS: Joi.number().default(48), // 48 hours max bidding
+  
+  // External Platform Aggregation
+  COOKIE_FUN_API_URL: Joi.string().uri().default('https://api.cookie.fun'),
+  YAPS_KAITO_API_URL: Joi.string().uri().default('https://api.yaps.kaito.ai'),
+  YAP_MARKET_API_URL: Joi.string().uri().default('https://api.yap.market'),
+  
   // Content Scoring
   HUMOR_WEIGHT: Joi.number().min(0).max(1).default(0.35),
   ENGAGEMENT_WEIGHT: Joi.number().min(0).max(1).default(0.25),
@@ -131,15 +148,23 @@ export const env = {
     allowedOrigins: envVars.ALLOWED_ORIGINS.split(',').map((origin: string) => origin.trim()),
   },
 
-  // Blockchain
+  // Blockchain - MVP Base Network Only
   blockchain: {
-    rpcUrl: envVars.ETH_RPC_URL,
-    privateKey: envVars.ETH_PRIVATE_KEY,
+    network: 'base',
+    rpcUrl: envVars.BASE_RPC_URL,
+    privateKey: envVars.BASE_PRIVATE_KEY,
     contracts: {
-      roastToken: envVars.CONTRACT_ROAST_TOKEN,
-      miningPool: envVars.CONTRACT_MINING_POOL,
-      campaignFactory: envVars.CONTRACT_CAMPAIGN_FACTORY,
+      roastToken: envVars.ROAST_TOKEN_ADDRESS,
+      stakingContract: envVars.ROAST_STAKING_ADDRESS,
+      usdcToken: envVars.USDC_BASE_ADDRESS,
     },
+  },
+
+  // Advanced Blockchain Features (Dormant)
+  advancedBlockchain: {
+    campaignFactory: envVars.ADVANCED_CAMPAIGN_FACTORY,
+    miningPool: envVars.ADVANCED_MINING_POOL,
+    enabled: false, // Dormant for MVP
   },
 
   // Social Media
@@ -158,7 +183,7 @@ export const env = {
   ai: {
     openaiApiKey: envVars.OPENAI_API_KEY,
     anthropicApiKey: envVars.ANTHROPIC_API_KEY,
-    pythonServiceUrl: envVars.PYTHON_AI_SERVICE_URL,
+    pythonBackendUrl: envVars.PYTHON_AI_BACKEND_URL,
   },
 
   // File Storage
@@ -188,6 +213,23 @@ export const env = {
     redisPrefix: envVars.REDIS_MINING_PREFIX,
     submissionsKey: envVars.REDIS_SUBMISSIONS_KEY,
     activeMinersKey: envVars.REDIS_ACTIVE_MINERS_KEY,
+  },
+
+  // MVP Platform Configuration
+  platform: {
+    enableContentMarketplace: envVars.ENABLE_CONTENT_MARKETPLACE,
+    enableBiddingSystem: envVars.ENABLE_BIDDING_SYSTEM,
+    enableManualCampaignAggregation: envVars.ENABLE_MANUAL_CAMPAIGN_AGGREGATION,
+    platformFeePercentage: envVars.PLATFORM_FEE_PERCENTAGE,
+    minimumBidAmount: envVars.MINIMUM_BID_AMOUNT,
+    maxBidDurationHours: envVars.MAX_BID_DURATION_HOURS,
+  },
+
+  // External Platform APIs
+  externalPlatforms: {
+    cookieFun: { apiUrl: envVars.COOKIE_FUN_API_URL },
+    yapsKaito: { apiUrl: envVars.YAPS_KAITO_API_URL },
+    yapMarket: { apiUrl: envVars.YAP_MARKET_API_URL },
   },
 
   // Content Scoring

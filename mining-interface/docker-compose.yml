@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  roastpower-mining:
+    image: roastpower-mining-interface:latest
+    container_name: roastpower-mining-interface
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - roastpower-network
+
+  # Optional: Add the backend service if you have it
+  # roastpower-backend:
+  #   image: roastpower-backend:latest
+  #   container_name: roastpower-backend
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - NODE_ENV=production
+  #     - DATABASE_URL=postgresql://user:password@db:5432/roastpower
+  #   depends_on:
+  #     - db
+  #   networks:
+  #     - roastpower-network
+
+  # Optional: Add PostgreSQL database
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: roastpower-db
+  #   environment:
+  #     - POSTGRES_DB=roastpower
+  #     - POSTGRES_USER=roastpower
+  #     - POSTGRES_PASSWORD=your-secure-password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - roastpower-network
+
+networks:
+  roastpower-network:
+    driver: bridge
+
+# volumes:
+#   postgres_data: 

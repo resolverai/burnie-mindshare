@@ -58,8 +58,21 @@ export const projectsApi = {
     // Backend returns { success: true, data: [...], pagination: {...} }
     // Frontend expects { items: [...], total, page, size, pages }
     if (response.data.success && response.data.data) {
+      // Transform backend fields to frontend format
+      const transformedItems = response.data.data.map((project: any) => ({
+        id: project.id.toString(),
+        name: project.name,
+        description: project.description,
+        website_url: project.website,
+        created_by: project.ownerId?.toString() || '1',
+        status: project.isActive ? 'active' : 'inactive',
+        created_at: project.createdAt,
+        updated_at: project.updatedAt,
+        campaigns: project.campaigns || []
+      }));
+      
       return {
-        items: response.data.data,
+        items: transformedItems,
         total: response.data.pagination?.total || response.data.data.length,
         page: response.data.pagination?.page || page,
         size: response.data.pagination?.limit || size,
@@ -101,7 +114,46 @@ export const projectsApi = {
 export const campaignsApi = {
   getAll: async (page = 1, size = 10): Promise<PaginatedResponse<Campaign>> => {
     const response = await api.get(`/api/campaigns/?page=${page}&size=${size}`)
-    return response.data
+    
+    // Transform backend response to frontend format
+    if (response.data.success && response.data.data) {
+      const transformedItems = response.data.data.map((campaign: any) => ({
+        id: campaign.id.toString(),
+        project_id: campaign.projectId?.toString() || '',
+        title: campaign.title,
+        description: campaign.description,
+        topic: campaign.category || 'General', // Map category to topic
+        guidelines: campaign.requirements ? JSON.stringify(campaign.requirements) : '',
+        budget: parseInt(campaign.rewardPool) || 0,
+        reward_per_roast: Math.floor((parseInt(campaign.rewardPool) || 0) / (campaign.maxSubmissions || 1)),
+        max_submissions: campaign.maxSubmissions,
+        status: campaign.status.toLowerCase(), // Convert ACTIVE to active
+        start_date: campaign.startDate,
+        end_date: campaign.endDate,
+        created_at: campaign.createdAt,
+        updated_at: campaign.updatedAt,
+        submissions_count: campaign.submissionCount || 0,
+        current_submissions: campaign.currentSubmissions || 0,
+        project: campaign.project
+      }));
+      
+      return {
+        items: transformedItems,
+        total: response.data.pagination?.total || response.data.data.length,
+        page: response.data.pagination?.page || page,
+        size: response.data.pagination?.limit || size,
+        pages: response.data.pagination?.totalPages || Math.ceil((response.data.pagination?.total || response.data.data.length) / size)
+      }
+    }
+    
+    // Fallback for unexpected format
+    return {
+      items: [],
+      total: 0,
+      page: 1,
+      size: 10,
+      pages: 0
+    }
   },
 
   getById: async (id: string): Promise<Campaign> => {

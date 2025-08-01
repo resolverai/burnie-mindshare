@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Generated files
+dist/
+build/
+*.tsbuildinfo
+
+# CSV output files
+csvs/
+*.csv
+
+# JSON output files (if enabled)
+aggregation-results.json
+
+# Environment files (if created)
+.env
+.env.local
+.env.production
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log 

@@ -1,0 +1,152 @@
+{
+  "timestamp": "2025-07-31T12:24:04.004Z",
+  "user": {
+    "username": "taran210487",
+    "userId": "1882102529556701184",
+    "totalTweetsFetched": 2
+  },
+  "tweets": [
+    {
+      "text": "Hey @Burnieio, I want you to roast the following repo: https://t.co/o1qvjBMsDo 🔥, check out this guys @shaohua0116",
+      "public_metrics": {
+        "retweet_count": 0,
+        "reply_count": 0,
+        "like_count": 0,
+        "quote_count": 0,
+        "bookmark_count": 0,
+        "impression_count": 1
+      },
+      "id": "1893434090491167226",
+      "edit_history_tweet_ids": [
+        "1893434090491167226"
+      ],
+      "created_at": "2025-02-22T22:54:00.000Z",
+      "entities": {
+        "urls": [
+          {
+            "start": 55,
+            "end": 78,
+            "url": "https://t.co/o1qvjBMsDo",
+            "expanded_url": "https://github.com/shaohua0116/Group-Normalization-Tensorflow",
+            "display_url": "github.com/shaohua0116/Gr…",
+            "status": 200,
+            "title": "GitHub - shaohua0116/Group-Normalization-Tensorflow: A TensorFlow implementation of Group Normalization on the task of image classification",
+            "description": "A TensorFlow implementation of Group Normalization on the task of image classification - shaohua0116/Group-Normalization-Tensorflow",
+            "unwound_url": "https://github.com/shaohua0116/Group-Normalization-Tensorflow"
+          }
+        ],
+        "mentions": [
+          {
+            "start": 4,
+            "end": 13,
+            "username": "Burnieio",
+            "id": "1887115769731055616"
+          },
+          {
+            "start": 102,
+            "end": 114,
+            "username": "shaohua0116",
+            "id": "3843380113"
+          }
+        ]
+      }
+    },
+    {
+      "text": "Hey @Burnieio, I want you to roast the following repo: https://t.co/Zy0spMEAyG 🔥, check out this guys @Grananqvist",
+      "public_metrics": {
+        "retweet_count": 0,
+        "reply_count": 0,
+        "like_count": 0,
+        "quote_count": 0,
+        "bookmark_count": 0,
+        "impression_count": 4
+      },
+      "id": "1893431969041535350",
+      "edit_history_tweet_ids": [
+        "1893431969041535350"
+      ],
+      "created_at": "2025-02-22T22:45:34.000Z",
+      "entities": {
+        "urls": [
+          {
+            "start": 55,
+            "end": 78,
+            "url": "https://t.co/Zy0spMEAyG",
+            "expanded_url": "https://github.com/grananqvist/Awesome-Quant-Machine-Learning-Trading",
+            "display_url": "github.com/grananqvist/Aw…",
+            "images": [
+              {
+                "url": "https://pbs.twimg.com/news_img/1893431974355771392/x8hprKQY?format=jpg&name=orig",
+                "width": 1200,
+                "height": 600
+              },
+              {
+                "url": "https://pbs.twimg.com/news_img/1893431974355771392/x8hprKQY?format=jpg&name=150x150",
+                "width": 150,
+                "height": 150
+              }
+            ],
+            "status": 200,
+            "title": "GitHub - grananqvist/Awesome-Quant-Machine-Learning-Trading: Quant/Algorithm trading resources with an emphasis on Machine Learning",
+            "description": "Quant/Algorithm trading resources with an emphasis on Machine Learning - grananqvist/Awesome-Quant-Machine-Learning-Trading",
+            "unwound_url": "https://github.com/grananqvist/Awesome-Quant-Machine-Learning-Trading"
+          }
+        ],
+        "mentions": [
+          {
+            "start": 4,
+            "end": 13,
+            "username": "Burnieio",
+            "id": "1887115769731055616"
+          },
+          {
+            "start": 102,
+            "end": 114,
+            "username": "Grananqvist",
+            "id": "2849656667"
+          }
+        ]
+      }
+    }
+  ],
+  "analysis": {
+    "writingStyle": {
+      "averageLength": 115,
+      "lengthDistribution": {
+        "short": "0% under 100 chars",
+        "long": "0% over 200 chars"
+      },
+      "hashtagUsageRate": 0,
+      "emojiUsageRate": 50,
+      "urlUsageRate": 100,
+      "mentionUsageRate": 100
+    },
+    "engagement": {
+      "averageLikes": 0,
+      "averageRetweets": 0,
+      "averageReplies": 0,
+      "totalEngagement": 0,
+      "bestPerformingTweet": {
+        "text": "Hey @Burnieio, I want you to roast the following repo: https://t.co/o1qvjBMsDo 🔥, check out this gu...",
+        "likes": 0,
+        "retweets": 0,
+        "replies": 0
+      }
+    },
+    "contentThemes": {
+      "tech": [],
+      "crypto": [],
+      "business": [],
+      "topHashtags": []
+    },
+    "postingPatterns": {
+      "mostActiveHour": "4:00",
+      "tweetsAnalyzed": 2,
+      "hourlyDistribution": {
+        "4": 2
+      }
+    },
+    "summary": "\n📊 REAL DATA for @taran210487 (2 tweets analyzed):\n\n📝 Writing Style:\n   • Average length: 115 characters\n   • Uses hashtags: 0% of tweets\n   • Uses emojis: 50% of tweets\n   • Includes URLs: 100% of tweets\n\n📈 Engagement Performance:\n   • Average likes: 0\n   • Average retweets: 0\n   • Average replies: 0\n   • Total engagement: 0\n\n🎯 Content Focus:\n   • Tech keywords: None detected\n   • Crypto keywords: None detected\n   • Business keywords: None detected\n   • Top hashtags: None used\n\n⏰ Posting Habits:\n   • Most active hour: 4:00\n   • Posting frequency: 2 tweets in recent history\n",
+    "aiAgentTraining": "\n🤖 How this data will train your AI agents:\n\n📊 Data Analyst Agent:\n   → Learned your avg 115 char tweets get 0 likes\n   → Optimal posting time: 4:00\n   → Hashtag strategy: 0% usage rate\n\n🎯 Content Strategist Agent:\n   → Focus areas: General content\n   → Top performing style: \"Hey @Burnieio, I want you to roast the following repo: https://t.co/o1qvjBMsDo \ud83d...\"\n   → Engagement sweet spot: 115 characters\n\n✍️ Text Content Agent:\n   → Writing style: 115 char average, 0% hashtags\n   → Tone: Casual/friendly\n   → Format: Link-heavy\n\n🎨 Visual Content Agent:\n   → Media usage: 0/2 tweets with media\n   → Visual style needed: Support for general content\n\n🎭 Orchestrator Agent:\n   → Brand voice: General professional\n   → Posting schedule: Peak at 4:00\n   → Content mix: 0% with hashtags, 50% with emojis\n"
+  }
+}

@@ -16,12 +16,24 @@ import { projectRoutes } from './routes/projects';
 import { submissionRoutes } from './routes/submissions';
 import { analyticsRoutes } from './routes/analytics';
 import miningRoutes from './routes/mining';
+import marketplaceRoutes from './routes/marketplace';
+import { adminRoutes } from './routes/admin';
+import agentRoutes from './routes/agents';
+import twitterAuthRoutes from './routes/twitter-auth';
 
 const app = express();
 const server = createServer(app);
 
 // Global middleware
-app.use(helmet());
+// Configure helmet for development - allow cross-origin requests
+if (env.api.nodeEnv === 'development') {
+  app.use(helmet({
+    crossOriginResourcePolicy: false, // Disable to allow cross-origin requests
+    contentSecurityPolicy: false, // Disable CSP in development
+  }));
+} else {
+  app.use(helmet()); // Use default secure settings in production
+}
 app.use(compression());
 
 // CORS configuration - Allow all localhost origins in development
@@ -74,6 +86,10 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/submissions', submissionRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/mining', miningRoutes);
+app.use('/api/marketplace', marketplaceRoutes); // MVP Marketplace for content bidding
+app.use('/api/admin', adminRoutes); // Admin routes
+app.use('/api/agents', agentRoutes); // Agent routes
+app.use('/api/twitter-auth', twitterAuthRoutes); // Twitter auth routes
 
 // Start server
 const startServer = async () => {

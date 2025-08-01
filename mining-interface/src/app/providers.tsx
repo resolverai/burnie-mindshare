@@ -1,67 +1,35 @@
 'use client'
 
-import * as React from 'react'
-import {
-  RainbowKitProvider,
-  getDefaultWallets,
-  connectorsForWallets,
-} from '@rainbow-me/rainbowkit'
-import {
-  injectedWallet,
-  metaMaskWallet,
-  coinbaseWallet,
-  walletConnectWallet,
-  phantomWallet,
-} from '@rainbow-me/rainbowkit/wallets'
-import { configureChains, createConfig, WagmiConfig } from 'wagmi'
-import { base, mainnet } from 'wagmi/chains'
-import { publicProvider } from 'wagmi/providers/public'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { WagmiConfig } from 'wagmi'
+import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit'
+import { config, chains } from './wagmi'
 
 import '@rainbow-me/rainbowkit/styles.css'
 
-// Configure chains and providers - Base mainnet as primary
-const { chains, publicClient, webSocketPublicClient } = configureChains(
-  [base, mainnet], // Base mainnet as primary, Ethereum mainnet as fallback
-  [publicProvider()]
-)
-
-// Get WalletConnect project ID from environment
-const projectId = process.env.NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID
-
-// Configure wallets with MetaMask and Phantom support
-const connectors = connectorsForWallets([
-  {
-    groupName: 'Popular',
-    wallets: [
-      metaMaskWallet({ projectId: projectId || 'demo', chains }),
-      phantomWallet({ chains }),
-      injectedWallet({ chains }),
-      coinbaseWallet({ appName: 'RoastPower Mining', chains }),
-      // Only include WalletConnect if we have a project ID
-      ...(projectId ? [walletConnectWallet({ projectId, chains })] : []),
-    ],
-  },
-])
-
-// Create wagmi config
-const wagmiConfig = createConfig({
-  autoConnect: true,
-  connectors,
-  publicClient,
-  webSocketPublicClient,
-})
+const queryClient = new QueryClient()
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <WagmiConfig config={wagmiConfig}>
-      <RainbowKitProvider 
-        chains={chains}
-        initialChain={base} // Default to Base mainnet
-      >
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black">
+    <WagmiConfig config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider 
+          chains={chains}
+          theme={darkTheme({
+            accentColor: '#f97316', // Orange accent for mining interface
+            accentColorForeground: 'white',
+            borderRadius: 'large',
+            fontStack: 'system',
+            overlayBlur: 'small',
+          })}
+          appInfo={{
+            appName: 'Burnie Mining Interface',
+            learnMoreUrl: 'https://burnie.co',
+          }}
+        >
           {children}
-        </div>
-      </RainbowKitProvider>
+        </RainbowKitProvider>
+      </QueryClientProvider>
     </WagmiConfig>
   )
 } 

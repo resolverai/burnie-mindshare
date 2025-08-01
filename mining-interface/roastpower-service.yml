@@ -1,0 +1,54 @@
+# Defines the version of the configuration format
+version: 0.1
+
+# Services are a collection of workloads that work together
+services:
+  # Defines a workload named 'roastpower-mining'
+  roastpower-mining:
+    # Specify the container image name; Make sure image is public
+    image: tarandevdock/roastpower-mining-interface:latest
+
+    # Determines when to fetch the latest version of the workload
+    imagePullPolicy: Always
+
+    # Defines the command to run; empty by default (uses container's default)
+    command: []
+
+    # Specifies arguments for the command; empty by default
+    args: []
+
+    # Defines network-related settings
+    ports:
+      - containerPort: 3000 # The port on which the Next.js service will be available
+        protocol: TCP # The protocol used for communication
+        expose: true # This will generate the URL for the service, so it can be accessed from the internet
+
+    # Defines environment variables for the workload
+    env:
+      - name: NODE_ENV # Environment variable for Node.js environment
+        value: "production" # Static value for production deployment
+
+      - name: NEXT_PUBLIC_BURNIE_API_URL # Backend API URL (corrected variable name)
+        value: "{{.BACKEND_URL}}" # Placeholder for dynamic value substitution
+        default: "https://marketing.burnie.io" # Default backend API URL
+
+      - name: PORT # Port configuration
+        value: "3000" # Static port value
+
+      - name: HOSTNAME # Hostname configuration  
+        value: "0.0.0.0" # Allow connections from any host
+
+    # Specifies the minimum resource allocation
+    # This also specify the template price
+    resourceUsage:
+      idle:
+        cpu: 500 # CPU allocation (0.5 cores) - sufficient for Next.js app
+        memory: 512 # Memory allocation (512 MB) - adequate for mining interface
+
+
+  ######## Constraints ########
+  # 1. Maximum 5 services can be deployed.
+  # 2. CU = max(total CPU, total Memory); Max 4 CUs can be deployed.
+  # 3. One service can be expose outside the world.
+  # 4. In upgrade template does not allow to add service(s) / update service(s) resources.
+  ######## Constraints ######## 

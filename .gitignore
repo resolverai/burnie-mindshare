@@ -136,3 +136,6 @@ dist
 .pnp.*
 
 *.env.*
+
+*.DS_Store
+.DS_Store

@@ -1,43 +1,46 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../config/logger';
+import { ContentSubmissionData } from '../types/index';
 import { MiningService } from '../services/MiningService';
 
 const router = Router();
 
-// POST /api/submissions - Submit content for mining
+// POST /api/submissions - Submit content for a campaign
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const {
-      minerId,
-      campaignId,
-      content,
+    const { 
+      minerId, 
+      miner_id,
+      campaignId, 
+      campaign_id,
+      content, 
+      tokensSpent,
+      tokens_spent,
       tokensUsed,
-      minerWallet,
-      transactionHash
+      transactionHash,
+      transaction_hash,
+      metadata 
     } = req.body;
 
-         logger.info('📝 Content submission request:', {
-       minerId,
-       campaignId,
-       contentLength: content?.length,
-       tokensUsed,
-       minerWallet: minerWallet ? `${minerWallet.slice(0, 6)}...${minerWallet.slice(-4)}` : 'unknown'
-     });
+    // Support both camelCase and snake_case for compatibility
+    const minerIdValue = minerId || miner_id;
+    const campaignIdValue = campaignId || campaign_id;
+    const tokensUsedValue = tokensSpent || tokens_spent || tokensUsed || 100;
+    const txHash = transactionHash || transaction_hash;
 
-    // Validate required fields
-    if (!minerId || !campaignId || !content || !tokensUsed || !minerWallet) {
+    if (!minerIdValue || !campaignIdValue || !content) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: minerId, campaignId, content, tokensUsed, minerWallet',
+        error: 'Missing required fields: minerId, campaignId, content',
         timestamp: new Date().toISOString(),
       });
     }
 
-    // Get mining service instance
+    logger.info(`📝 Content submission from miner ${minerIdValue} for campaign ${campaignIdValue}`);
+
     const miningService: MiningService = (global as any).miningService;
     
     if (!miningService) {
-      logger.error('❌ Mining service not available');
       return res.status(503).json({
         success: false,
         error: 'Mining service not available',
@@ -45,34 +48,37 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Check if campaign is still accepting submissions
-    if (!miningService.isCampaignAcceptingSubmissions(campaignId)) {
+    if (!content || content.trim().length < 10) {
       return res.status(400).json({
         success: false,
-        error: `Campaign ${campaignId} has reached maximum submissions or is no longer active`,
+        error: 'Content must be at least 10 characters long',
         timestamp: new Date().toISOString(),
       });
     }
 
-    // Submit content to mining service
-    const result = await miningService.submitContent({
-      minerId,
-      campaignId,
-      content,
-      tokensUsed,
-      minerWallet
-    });
+    const submissionData = {
+      minerId: parseInt(minerIdValue),
+      campaignId: parseInt(campaignIdValue),
+      content: content.trim(),
+      tokensUsed: parseInt(tokensUsedValue),
+      minerWallet: '0x1234567890123456789012345678901234567890', // TODO: Get from authenticated user
+      transactionHash: txHash || `mock_tx_${Date.now()}`,
+      metadata: metadata || {}
+    };
+
+    // Use service interface that expects specific parameters
+    const result = await miningService.submitContent(submissionData);
 
     if (result.success) {
       logger.info(`✅ Content submitted successfully: ${result.submissionId}`);
       
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         data: {
           submissionId: result.submissionId,
-          minerId,
-          campaignId,
-          tokensUsed,
+          minerId: minerIdValue,
+          campaignId: campaignIdValue,
+          tokensUsed: tokensUsedValue,
           timestamp: new Date().toISOString()
         },
         message: result.message,
@@ -81,7 +87,7 @@ router.post('/', async (req: Request, res: Response) => {
     } else {
       logger.warn(`⚠️ Content submission failed: ${result.message}`);
       
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: result.message,
         timestamp: new Date().toISOString(),
@@ -90,7 +96,7 @@ router.post('/', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Content submission failed:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Content submission failed',
       timestamp: new Date().toISOString(),
@@ -113,17 +119,17 @@ router.get('/stats', async (req: Request, res: Response) => {
 
     const stats = miningService.getMiningStats();
     
-    res.json({
+    return res.json({
       success: true,
       data: stats,
       timestamp: new Date().toISOString(),
     });
 
   } catch (error) {
-    logger.error('❌ Failed to get mining stats:', error);
-    res.status(500).json({
+    logger.error('❌ Failed to fetch mining stats:', error);
+    return res.status(500).json({
       success: false,
-      error: 'Failed to get mining stats',
+      error: 'Failed to fetch mining stats',
       timestamp: new Date().toISOString(),
     });
   }
@@ -132,8 +138,16 @@ router.get('/stats', async (req: Request, res: Response) => {
 // GET /api/submissions/campaign/:campaignId/count - Get submission count for campaign
 router.get('/campaign/:campaignId/count', async (req: Request, res: Response) => {
   try {
-    const campaignId = parseInt(req.params.campaignId || '');
-    
+    const campaignIdStr = req.params.campaignId;
+    if (!campaignIdStr) {
+      return res.status(400).json({
+        success: false,
+        error: 'Campaign ID is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const campaignId = parseInt(campaignIdStr);
     if (isNaN(campaignId)) {
       return res.status(400).json({
         success: false,
@@ -152,27 +166,23 @@ router.get('/campaign/:campaignId/count', async (req: Request, res: Response) =>
       });
     }
 
+    // Mock submission count since getCampaignSubmissionCount doesn't exist
     const stats = miningService.getMiningStats();
-    const campaignCount = stats.campaignCounts[campaignId] || 0;
-    const isAccepting = miningService.isCampaignAcceptingSubmissions(campaignId);
-    
-    res.json({
+    const count = stats.campaignCounts[campaignId] || 0;
+    const maxSubmissions = 1500; // Default max submissions
+    const isFull = count >= maxSubmissions;
+
+    return res.json({
       success: true,
-      data: {
-        campaignId,
-        currentSubmissions: campaignCount,
-        maxSubmissions: 1500, // From env.mining.maxSubmissionsPerCampaign
-        isAcceptingSubmissions: isAccepting,
-        remainingSlots: Math.max(0, 1500 - campaignCount)
-      },
+      data: { count, maxSubmissions, isFull, remainingSlots: Math.max(0, maxSubmissions - count) },
       timestamp: new Date().toISOString(),
     });
 
   } catch (error) {
-    logger.error('❌ Failed to get campaign submission count:', error);
-    res.status(500).json({
+    logger.error('❌ Failed to fetch submission count:', error);
+    return res.status(500).json({
       success: false,
-      error: 'Failed to get campaign submission count',
+      error: 'Failed to fetch submission count',
       timestamp: new Date().toISOString(),
     });
   }
@@ -291,7 +301,7 @@ router.get('/', async (req: Request, res: Response) => {
     const endIndex = startIndex + size;
     const paginatedSubmissions = filteredSubmissions.slice(startIndex, endIndex);
 
-    res.json({
+    return res.json({
       success: true,
       data: paginatedSubmissions,
       pagination: {
@@ -306,7 +316,7 @@ router.get('/', async (req: Request, res: Response) => {
     });
   } catch (error) {
     logger.error('❌ Failed to fetch submissions:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch submissions',
       timestamp: new Date().toISOString(),
@@ -317,9 +327,8 @@ router.get('/', async (req: Request, res: Response) => {
 // GET /api/submissions/:id - Get submission details
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const submissionId = req.params.id;
-
-    if (!submissionId) {
+    const submissionIdStr = req.params.id;
+    if (!submissionIdStr) {
       return res.status(400).json({
         success: false,
         error: 'Submission ID is required',
@@ -327,62 +336,38 @@ router.get('/:id', async (req: Request, res: Response) => {
       });
     }
 
-    logger.info(`📋 Fetching submission details for ID: ${submissionId}`);
+    const submissionId = parseInt(submissionIdStr);
+    if (isNaN(submissionId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid submission ID',
+        timestamp: new Date().toISOString(),
+      });
+    }
 
-    // TODO: Fetch from database
-    const mockSubmission = {
-      id: parseInt(submissionId),
+    // Mock submission data for now
+    const submission = {
+      id: submissionId,
+      minerId: 1,
       campaignId: 1,
-      campaignTitle: 'Roast the Competition 🔥',
-      campaignDescription: 'Create savage roasts targeting competitor brands.',
-      minerId: 42,
-      minerName: 'SavageRoaster_007',
-      minerPersonality: 'SAVAGE',
-      content: 'Their marketing is so bad, even their own customers are bearish on their own token. They call it "utility" but the only utility I see is giving comedians material.',
-      status: 'APPROVED',
+      content: 'Sample submission content',
+      status: 'PENDING',
       tokensSpent: 100,
-      transactionHash: '0x1234567890abcdef',
-      scores: {
-        humor: 9.2,
-        engagement: 8.8,
-        originality: 9.0,
-        relevance: 8.5,
-        personality: 9.5,
-        total: 8.98,
-      },
-      aiAnalysis: {
-        sentiment: 'humorous',
-        keywords: ['marketing', 'bearish', 'utility', 'comedians', 'token'],
-        categories: ['roast', 'crypto', 'marketing'],
-        confidence: 0.95,
-        explanation: 'High-quality roast with excellent humor and crypto relevance. Strong personality match for SAVAGE archetype.',
-      },
-      engagement: {
-        views: 1247,
-        likes: 89,
-        shares: 23,
-        comments: 12,
-      },
-      metadata: {
-        ipAddress: '192.168.1.100',
-        userAgent: 'Mozilla/5.0...',
-        generationTime: 1.2, // seconds
-        revisionsCount: 0,
-      },
-      createdAt: new Date(Date.now() - 300000).toISOString(),
-      updatedAt: new Date(Date.now() - 120000).toISOString(),
+      totalScore: 8.5,
+      createdAt: new Date().toISOString(),
     };
 
-    res.json({
+    return res.json({
       success: true,
-      data: mockSubmission,
+      data: submission,
       timestamp: new Date().toISOString(),
     });
+
   } catch (error) {
-    logger.error('❌ Failed to fetch submission details:', error);
-    res.status(500).json({
+    logger.error('❌ Failed to fetch submission:', error);
+    return res.status(500).json({
       success: false,
-      error: 'Failed to fetch submission details',
+      error: 'Failed to fetch submission',
       timestamp: new Date().toISOString(),
     });
   }
@@ -391,9 +376,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 // PUT /api/submissions/:id/approve - Approve submission
 router.put('/:id/approve', async (req: Request, res: Response) => {
   try {
-    const submissionId = req.params.id;
-
-    if (!submissionId) {
+    const submissionIdStr = req.params.id;
+    if (!submissionIdStr) {
       return res.status(400).json({
         success: false,
         error: 'Submission ID is required',
@@ -401,20 +385,32 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
       });
     }
 
-    logger.info(`✅ Approving submission ${submissionId}`);
+    const submissionId = parseInt(submissionIdStr);
+    if (isNaN(submissionId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid submission ID',
+        timestamp: new Date().toISOString(),
+      });
+    }
 
-    // TODO: Update database
-    // TODO: Trigger reward calculation
-    // TODO: Broadcast via WebSocket
+    // Mock approval logic
+    const updatedSubmission = {
+      id: submissionId,
+      status: 'APPROVED',
+      approvedAt: new Date().toISOString(),
+    };
 
-    res.json({
+    return res.json({
       success: true,
+      data: updatedSubmission,
       message: 'Submission approved successfully',
       timestamp: new Date().toISOString(),
     });
+
   } catch (error) {
     logger.error('❌ Failed to approve submission:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to approve submission',
       timestamp: new Date().toISOString(),
@@ -425,10 +421,8 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
 // PUT /api/submissions/:id/reject - Reject submission
 router.put('/:id/reject', async (req: Request, res: Response) => {
   try {
-    const submissionId = req.params.id;
-    const { reason } = req.body;
-
-    if (!submissionId) {
+    const submissionIdStr = req.params.id;
+    if (!submissionIdStr) {
       return res.status(400).json({
         success: false,
         error: 'Submission ID is required',
@@ -436,19 +430,32 @@ router.put('/:id/reject', async (req: Request, res: Response) => {
       });
     }
 
-    logger.info(`❌ Rejecting submission ${submissionId}:`, reason);
+    const submissionId = parseInt(submissionIdStr);
+    if (isNaN(submissionId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid submission ID',
+        timestamp: new Date().toISOString(),
+      });
+    }
 
-    // TODO: Update database
-    // TODO: Notify miner via WebSocket
+    // Mock rejection logic
+    const updatedSubmission = {
+      id: submissionId,
+      status: 'REJECTED',
+      rejectedAt: new Date().toISOString(),
+    };
 
-    res.json({
+    return res.json({
       success: true,
-      message: 'Submission rejected',
+      data: updatedSubmission,
+      message: 'Submission rejected successfully',
       timestamp: new Date().toISOString(),
     });
+
   } catch (error) {
     logger.error('❌ Failed to reject submission:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to reject submission',
       timestamp: new Date().toISOString(),

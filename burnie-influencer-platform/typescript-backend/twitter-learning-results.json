@@ -1,0 +1,186 @@
+{
+  "timestamp": "2025-07-31T12:05:09.414Z",
+  "totalUsers": 1,
+  "users": [
+    {
+      "userId": 2,
+      "walletAddress": "0xeea4816ee64781107f4bfa6beeddbb157546ba26",
+      "twitterUsername": "taran210487",
+      "twitterDisplayName": "Taranjeet Singh Kalra",
+      "processingStarted": "2025-07-31T12:05:09.425Z",
+      "processingCompleted": "2025-07-31T12:05:09.425Z",
+      "tweets": {
+        "fetched": 4,
+        "analyzed": 4,
+        "newlyStored": 4
+      },
+      "insights": {
+        "totalTweetsAnalyzed": 4,
+        "recentAnalysis": [
+          {
+            "tweetId": "1883924387465568256",
+            "tweetText": "Just analyzed the latest DeFi protocols and the innovation is incredible! 🚀 The future...",
+            "postingTime": "2025-01-29T15:30:00.000Z",
+            "engagementMetrics": {
+              "like_count": 0,
+              "retweet_count": 0,
+              "reply_count": 0,
+              "quote_count": 0,
+              "impression_count": 45
+            },
+            "analyzedFeatures": {
+              "textLength": 127,
+              "wordCount": 18,
+              "hashtagCount": 3,
+              "mentionCount": 0,
+              "urlCount": 0,
+              "hasEmojis": true,
+              "hasMedia": false,
+              "engagementRate": 0,
+              "sentiment": "positive",
+              "cryptoKeywords": [
+                "DeFi",
+                "protocols",
+                "innovation",
+                "future",
+                "finance"
+              ],
+              "postingHour": 15,
+              "dayOfWeek": 3
+            },
+            "learningInsights": {
+              "contentType": "educational",
+              "engagementQuality": "low",
+              "optimalCharacteristics": {
+                "useEmojis": true,
+                "includeHashtags": true,
+                "topicRelevance": "high"
+              },
+              "toneAnalysis": "professional-enthusiastic",
+              "topicRelevance": "crypto-defi",
+              "viralPotential": "medium"
+            }
+          },
+          {
+            "tweetId": "1883924387465568257",
+            "tweetText": "Building the future of finance with blockchain technology. Every day brings new possibilities in the decentralized world.",
+            "postingTime": "2025-01-29T12:15:00.000Z",
+            "engagementMetrics": {
+              "like_count": 2,
+              "retweet_count": 1,
+              "reply_count": 0,
+              "quote_count": 0,
+              "impression_count": 123
+            },
+            "analyzedFeatures": {
+              "textLength": 142,
+              "wordCount": 21,
+              "hashtagCount": 0,
+              "mentionCount": 0,
+              "urlCount": 0,
+              "hasEmojis": false,
+              "hasMedia": false,
+              "engagementRate": 2.4,
+              "sentiment": "positive",
+              "cryptoKeywords": [
+                "finance",
+                "blockchain",
+                "technology",
+                "decentralized"
+              ],
+              "postingHour": 12,
+              "dayOfWeek": 3
+            },
+            "learningInsights": {
+              "contentType": "inspirational",
+              "engagementQuality": "moderate",
+              "optimalCharacteristics": {
+                "professionalTone": true,
+                "futureOriented": true,
+                "industryFocused": true
+              },
+              "toneAnalysis": "professional-optimistic",
+              "topicRelevance": "blockchain-general",
+              "viralPotential": "low-medium"
+            }
+          }
+        ],
+        "summary": {
+          "averageTextLength": 134.5,
+          "averageWordCount": 19.5,
+          "hashtagUsageRate": 0.5,
+          "emojiUsageRate": 0.25,
+          "mediaUsageRate": 0,
+          "commonCryptoKeywords": [
+            "DeFi",
+            "blockchain",
+            "technology",
+            "finance",
+            "innovation",
+            "protocols",
+            "decentralized",
+            "future",
+            "possibilities",
+            "crypto"
+          ],
+          "postingTimePatterns": {
+            "mostActiveHours": {
+              "12": 1,
+              "15": 1
+            },
+            "mostActiveDays": {
+              "3": 2
+            },
+            "totalPosts": 4
+          },
+          "engagementPatterns": {
+            "averageLikes": 0.5,
+            "averageRetweets": 0.25,
+            "averageReplies": 0,
+            "totalEngagement": 3,
+            "bestPerformingTweet": {
+              "like_count": 2,
+              "retweet_count": 1,
+              "reply_count": 0,
+              "impression_count": 123
+            }
+          },
+          "contentTypes": {
+            "educational": 2,
+            "inspirational": 1,
+            "technical": 1
+          },
+          "toneAnalysis": {
+            "professional-enthusiastic": 1,
+            "professional-optimistic": 1,
+            "technical-analytical": 1,
+            "forward-thinking": 1
+          },
+          "personalizedAgentTraining": {
+            "dataAnalystAgent": {
+              "insights": "User shows consistent engagement with DeFi and blockchain content. Optimal posting times are midday (12pm-3pm). Hashtag usage correlates with higher engagement.",
+              "recommendations": "Focus on educational DeFi content with 2-3 relevant hashtags. Target posting during peak hours."
+            },
+            "contentStrategistAgent": {
+              "insights": "User prefers educational and inspirational content about blockchain technology. Strong focus on future-oriented messaging.",
+              "recommendations": "Create content around emerging DeFi protocols, future of finance, and blockchain innovation. Mix educational deep-dives with inspirational future-vision posts."
+            },
+            "textContentAgent": {
+              "insights": "Writing style is professional yet enthusiastic. Average tweet length ~135 characters. Uses technical terms correctly. Moderate emoji usage (🚀 for excitement).",
+              "recommendations": "Maintain professional tone with occasional enthusiasm. Include technical crypto terms. Use future-tense language. Add relevant emojis sparingly for emphasis."
+            },
+            "visualContentAgent": {
+              "insights": "Currently low media usage. Could benefit from charts, graphs, or infographics to support educational content.",
+              "recommendations": "Create visual content showing DeFi protocol comparisons, blockchain diagrams, and market trend charts."
+            },
+            "orchestratorAgent": {
+              "insights": "User maintains consistent posting schedule and thematic focus. Strong brand as a blockchain educator/enthusiast.",
+              "recommendations": "Coordinate content calendar around major DeFi events, protocol launches, and market movements. Maintain 60% educational, 30% inspirational, 10% market analysis split."
+            }
+          }
+        }
+      },
+      "errors": []
+    }
+  ]
+}

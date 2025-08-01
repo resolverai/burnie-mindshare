@@ -5,10 +5,13 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
   Index,
 } from 'typeorm';
 import { Submission } from './Submission';
 import { Reward } from './Reward';
+import { Campaign } from './Campaign';
 import { BlockStatus } from '../types/index';
 
 @Entity('blocks')
@@ -46,6 +49,9 @@ export class Block {
   @Column({ type: 'timestamp', nullable: true })
   confirmedAt?: Date;
 
+  @Column({ type: 'integer' })
+  campaign_id!: number;
+
   @Column({ type: 'jsonb', nullable: true })
   metadata?: {
     difficulty?: number;
@@ -61,6 +67,10 @@ export class Block {
   updatedAt!: Date;
 
   // Relations
+  @ManyToOne(() => Campaign, campaign => campaign.blocks)
+  @JoinColumn({ name: 'campaign_id' })
+  campaign!: Campaign;
+
   @OneToMany(() => Submission, (submission) => submission.block)
   submissions!: Submission[];
 

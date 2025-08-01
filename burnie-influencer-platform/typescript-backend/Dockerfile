@@ -1,31 +1,47 @@
-# Use Node.js LTS version
-FROM node:18-alpine
+# Build stage
+FROM node:18-alpine AS builder
 
-# Set working directory  
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY bun.lock* ./
+COPY tsconfig.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm install
 
 # Copy source code
-COPY . .
+COPY src ./src
+COPY .env* ./
 
 # Build TypeScript
 RUN npm run build
 
+# Production stage
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S roastpower -u 1001
+RUN addgroup --system --gid 1001 backend
+RUN adduser --system --uid 1001 backend
 
-# Change ownership
-RUN chown -R roastpower:nodejs /app
-USER roastpower
+# Install production dependencies only
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
 
-# Expose port
-EXPOSE 8000
+# Copy built application and environment files
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/.env* ./
 
-# Start application
-CMD ["npm", "start"] 
+# Set permissions
+RUN chown -R backend:backend /app
+USER backend
+
+EXPOSE 3001
+
+ENV NODE_ENV=production
+ENV PORT=3001
+
+CMD ["node", "dist/server.js"] 

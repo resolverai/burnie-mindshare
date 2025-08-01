@@ -13,6 +13,16 @@ import { Reward } from '../models/Reward';
 import { SocialAccount } from '../models/SocialAccount';
 import { Analytics } from '../models/Analytics';
 
+// Import new entities for multi-agentic system
+import { AgentConfiguration } from '../models/AgentConfiguration';
+import { MindshareTrainingData } from '../models/MindshareTrainingData';
+import { ContentMarketplace } from '../models/ContentMarketplace';
+import { BiddingSystem } from '../models/BiddingSystem';
+import { PaymentTransaction } from '../models/PaymentTransaction';
+import { TwitterLearningData } from '../models/TwitterLearningData';
+import { Admin } from '../models/Admin';
+import { TwitterUserConnection } from '../models/TwitterUserConnection';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -27,6 +37,7 @@ export const AppDataSource = new DataSource({
   synchronize: env.database.synchronize, // Auto-create/update tables
   logging: env.database.logging,
   entities: [
+    // Original entities
     User,
     Miner,
     Campaign,
@@ -36,6 +47,15 @@ export const AppDataSource = new DataSource({
     Reward,
     SocialAccount,
     Analytics,
+    // New multi-agentic system entities
+    AgentConfiguration,
+    MindshareTrainingData,
+    ContentMarketplace,
+    BiddingSystem,
+    PaymentTransaction,
+    TwitterLearningData,
+    Admin,
+    TwitterUserConnection,
   ],
   migrations: [],
   subscribers: [],

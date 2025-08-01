@@ -1,16 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../config/logger';
 import { AppDataSource } from '../config/database';
-import { Campaign } from '../models/Campaign';
+import { Campaign, CampaignStatus, CampaignType } from '../models/Campaign';
 import { Project } from '../models/Project';
 import { User } from '../models/User';
+import { ContentMarketplace } from '../models/ContentMarketplace';
 import { Repository } from 'typeorm';
-import { CampaignStatus, CampaignType } from '../types/index';
+import { env } from '../config/env';
 
 const router = Router();
 
-// GET /api/campaigns/active - Get active campaigns for mining interface
-router.get('/active', async (req: Request, res: Response) => {
+// GET /api/campaigns/marketplace-ready - Get marketplace-ready campaigns for mining interface
+router.get('/marketplace-ready', async (req: Request, res: Response) => {
   try {
     const category = req.query.category as string;
     const campaign_type = req.query.campaign_type as string;
@@ -54,6 +55,7 @@ router.get('/active', async (req: Request, res: Response) => {
       topic: campaign.category,
       campaign_type: campaign.campaignType,
       category: campaign.category,
+      platform_source: campaign.platformSource,
       keywords: campaign.metadata?.tags || [],
       guidelines: campaign.metadata?.brandGuidelines || '',
       min_token_spend: campaign.requirements?.minStake || 100,
@@ -74,7 +76,7 @@ router.get('/active', async (req: Request, res: Response) => {
 
     logger.info(`📢 Retrieved ${formattedCampaigns.length} active campaigns for mining`);
 
-    res.json({
+    return res.json({
       success: true,
       data: formattedCampaigns,
       timestamp: new Date().toISOString(),
@@ -82,7 +84,7 @@ router.get('/active', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to fetch active campaigns:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch active campaigns',
       timestamp: new Date().toISOString(),
@@ -138,7 +140,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     logger.info(`📋 Retrieved ${campaigns.length} campaigns (page ${page}/${totalPages})`);
 
-    res.json({
+    return res.json({
       success: true,
       data: campaigns.map(campaign => ({
         ...campaign,
@@ -158,7 +160,7 @@ router.get('/', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to fetch campaigns:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch campaigns',
       timestamp: new Date().toISOString(),
@@ -244,7 +246,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // Create new campaign
-    const newCampaign = campaignRepository.create({
+    const campaignData = {
       title,
       description,
       category,
@@ -252,6 +254,7 @@ router.post('/', async (req: Request, res: Response) => {
       rewardPool,
       entryFee: entryFee || 0,
       maxSubmissions,
+      currentSubmissions: 0,
       startDate: new Date(startDate),
       endDate: new Date(endDate),
       requirements: requirements || {},
@@ -259,8 +262,9 @@ router.post('/', async (req: Request, res: Response) => {
       status: isActive ? CampaignStatus.ACTIVE : CampaignStatus.DRAFT,
       projectId: projectId || undefined,
       creatorId: 1, // TODO: Get from authentication
-    });
+    };
 
+    const newCampaign = campaignRepository.create(campaignData);
     const savedCampaign = await campaignRepository.save(newCampaign);
 
     // Fetch the campaign with relations
@@ -271,7 +275,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     logger.info(`✅ Campaign created successfully: ${savedCampaign.id} - ${savedCampaign.title || 'Unknown'}`);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: campaignWithProject,
       message: 'Campaign created successfully',
@@ -280,7 +284,7 @@ router.post('/', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to create campaign:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to create campaign',
       timestamp: new Date().toISOString(),
@@ -326,7 +330,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     logger.info(`📖 Retrieved campaign details: ${campaign.title || 'Unknown'}`);
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         ...campaign,
@@ -339,7 +343,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to fetch campaign:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch campaign',
       timestamp: new Date().toISOString(),
@@ -390,7 +394,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 
     logger.info(`✅ Campaign updated successfully: ${updatedCampaign.title || 'Unknown'}`);
 
-    res.json({
+    return res.json({
       success: true,
       data: updatedCampaign,
       message: 'Campaign updated successfully',
@@ -399,7 +403,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to update campaign:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to update campaign',
       timestamp: new Date().toISOString(),
@@ -456,7 +460,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     logger.info(`✅ Campaign deleted successfully: ${campaign.title || 'Unknown'}`);
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Campaign deleted successfully',
       timestamp: new Date().toISOString(),
@@ -464,7 +468,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to delete campaign:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to delete campaign',
       timestamp: new Date().toISOString(),
@@ -521,7 +525,7 @@ router.put('/:id/status', async (req: Request, res: Response) => {
 
     logger.info(`✅ Campaign status updated: ${campaign.title || 'Unknown'} -> ${status}`);
 
-    res.json({
+    return res.json({
       success: true,
       data: updatedCampaign,
       message: `Campaign status updated to ${status}`,
@@ -530,7 +534,7 @@ router.put('/:id/status', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to update campaign status:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to update campaign status',
       timestamp: new Date().toISOString(),
@@ -593,7 +597,7 @@ router.get('/:id/stats', async (req: Request, res: Response) => {
       totalTokensSpent: submissions.reduce((sum, s) => sum + (s.tokensSpent || 0), 0),
     };
 
-    res.json({
+    return res.json({
       success: true,
       data: stats,
       timestamp: new Date().toISOString(),
@@ -601,9 +605,374 @@ router.get('/:id/stats', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to fetch campaign stats:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch campaign stats',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// ============================================================================
+// MVP MARKETPLACE SPECIFIC ENDPOINTS
+// ============================================================================
+
+/**
+ * @route POST /api/campaigns/aggregate
+ * @desc Manually aggregate campaigns from external platforms
+ */
+router.post('/aggregate', async (req: Request, res: Response) => {
+  try {
+    const { platform_source, campaigns } = req.body;
+
+    if (!platform_source || !campaigns || !Array.isArray(campaigns)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: platform_source, campaigns (array)',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
+    const aggregatedCampaigns = [];
+
+    for (const campaignData of campaigns) {
+      try {
+        // Check if campaign already exists by external ID
+        const existingCampaign = await campaignRepository.findOne({
+          where: { externalCampaignId: campaignData.external_id }
+        });
+
+        if (existingCampaign) {
+          // Update existing campaign
+          Object.assign(existingCampaign, {
+            title: campaignData.title,
+            description: campaignData.description,
+            rewardToken: campaignData.reward_token,
+            targetAudience: campaignData.target_audience,
+            brandGuidelines: campaignData.brand_guidelines,
+            predictedMindshare: campaignData.predicted_mindshare,
+            isActive: campaignData.is_active !== false,
+            endDate: campaignData.end_date ? new Date(campaignData.end_date) : existingCampaign.endDate,
+          });
+
+          const updatedCampaign = await campaignRepository.save(existingCampaign);
+          aggregatedCampaigns.push(updatedCampaign);
+        } else {
+          // Create new campaign
+          const newCampaign = campaignRepository.create({
+            title: campaignData.title,
+            description: campaignData.description,
+            category: campaignData.category || 'general',
+            campaignType: campaignData.campaign_type as CampaignType || CampaignType.SOCIAL,
+            rewardPool: campaignData.reward_pool || 10000,
+            maxSubmissions: campaignData.max_submissions || 1000,
+            startDate: campaignData.start_date ? new Date(campaignData.start_date) : new Date(),
+            endDate: campaignData.end_date ? new Date(campaignData.end_date) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+            status: CampaignStatus.ACTIVE,
+            
+            // MVP specific fields
+            platformSource: platform_source,
+            externalCampaignId: campaignData.external_id,
+            rewardToken: campaignData.reward_token,
+            targetAudience: campaignData.target_audience,
+            brandGuidelines: campaignData.brand_guidelines,
+            predictedMindshare: campaignData.predicted_mindshare,
+            isActive: campaignData.is_active !== false,
+            
+            // Default values
+            creatorId: 1, // System user
+            currentSubmissions: 0,
+            entryFee: 0,
+            requirements: {},
+            metadata: {
+              source: platform_source,
+              originalData: campaignData
+            }
+          });
+
+          const savedCampaign = await campaignRepository.save(newCampaign);
+          aggregatedCampaigns.push(savedCampaign);
+        }
+      } catch (error) {
+        logger.error(`Failed to aggregate campaign ${campaignData.external_id}:`, error);
+        // Continue with other campaigns
+      }
+    }
+
+    logger.info(`✅ Aggregated ${aggregatedCampaigns.length} campaigns from ${platform_source}`);
+
+    return res.status(201).json({
+      success: true,
+      data: aggregatedCampaigns,
+      message: `Successfully aggregated ${aggregatedCampaigns.length} campaigns from ${platform_source}`,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to aggregate campaigns:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to aggregate campaigns',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route GET /api/campaigns/aggregated
+ * @desc Get all aggregated campaigns from external platforms
+ */
+router.get('/aggregated', async (req: Request, res: Response) => {
+  try {
+    const { platform_source, page = 1, limit = 20, include_content_count = false } = req.query;
+
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
+    const pageNum = Math.max(1, parseInt(page as string));
+    const limitNum = Math.min(50, Math.max(1, parseInt(limit as string)));
+    const offset = (pageNum - 1) * limitNum;
+
+    let queryBuilder = campaignRepository.createQueryBuilder('campaign')
+      .where('campaign.platformSource IS NOT NULL')
+      .andWhere('campaign.isActive = :isActive', { isActive: true })
+      .orderBy('campaign.predictedMindshare', 'DESC')
+      .addOrderBy('campaign.createdAt', 'DESC')
+      .skip(offset)
+      .take(limitNum);
+
+    if (platform_source) {
+      queryBuilder = queryBuilder.andWhere('campaign.platformSource = :platform', { platform: platform_source });
+    }
+
+    if (include_content_count === 'true') {
+      queryBuilder = queryBuilder.loadRelationCountAndMap('campaign.contentCount', 'campaign.contentMarketplace');
+    }
+
+    const [campaigns, total] = await queryBuilder.getManyAndCount();
+
+    // Format for marketplace display
+    const formattedCampaigns = campaigns.map(campaign => ({
+      id: campaign.id,
+      title: campaign.title,
+      description: campaign.description,
+      platform_source: campaign.platformSource,
+      external_campaign_id: campaign.externalCampaignId,
+      reward_token: campaign.rewardToken,
+      reward_pool: campaign.rewardPool,
+      target_audience: campaign.targetAudience,
+      brand_guidelines: campaign.brandGuidelines,
+      predicted_mindshare: campaign.predictedMindshare,
+      campaign_type: campaign.campaignType,
+      end_date: campaign.endDate,
+      is_active: campaign.isActive,
+      content_count: (campaign as any).contentCount || 0,
+      created_at: campaign.createdAt,
+      updated_at: campaign.updatedAt
+    }));
+
+    const totalPages = Math.ceil(total / limitNum);
+
+    logger.info(`📋 Retrieved ${formattedCampaigns.length} aggregated campaigns`);
+
+    return res.json({
+      success: true,
+      data: formattedCampaigns,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages,
+        hasNext: pageNum < totalPages,
+        hasPrev: pageNum > 1,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to fetch aggregated campaigns:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch aggregated campaigns',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route GET /api/campaigns/marketplace-ready
+ * @desc Get campaigns formatted for mining interface and marketplace
+ */
+router.get('/marketplace-ready', async (req: Request, res: Response) => {
+  try {
+    const { limit = 20, category, platform_source } = req.query;
+
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
+    const contentRepository: Repository<ContentMarketplace> = AppDataSource.getRepository(ContentMarketplace);
+
+    let queryBuilder = campaignRepository.createQueryBuilder('campaign')
+      .where('campaign.status = :status', { status: 'active' })
+      .andWhere('(campaign.endDate > :now OR campaign.endDate IS NULL)', { now: new Date() })
+      .orderBy('campaign.predictedMindshare', 'DESC')
+      .addOrderBy('campaign.createdAt', 'DESC')
+      .take(parseInt((limit as string) || '20'));
+
+    if (category) {
+      queryBuilder = queryBuilder.andWhere('campaign.category = :category', { category });
+    }
+
+    if (platform_source) {
+      queryBuilder = queryBuilder.andWhere('campaign.platformSource = :platform', { platform: platform_source });
+    }
+
+    const campaigns = await queryBuilder.getMany();
+
+    // Get content counts for each campaign
+    const formattedCampaigns = await Promise.all(campaigns.map(async (campaign) => {
+      const contentCount = await contentRepository.count({
+        where: { campaignId: campaign.id, isAvailable: true }
+      });
+
+      return {
+        id: campaign.id.toString(),
+        title: campaign.title,
+        description: campaign.description,
+        platform_source: campaign.platformSource || 'burnie',
+        reward_pool: campaign.rewardPool || 0,
+        reward_token: campaign.rewardToken || 'ROAST',
+        target_audience: campaign.targetAudience || 'General',
+        brand_guidelines: campaign.brandGuidelines || '',
+        predicted_mindshare: campaign.predictedMindshare || 75,
+        campaign_type: campaign.campaignType || 'general',
+        is_active: campaign.isActive !== false,
+        end_date: campaign.endDate ? campaign.endDate.toISOString() : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        available_content_count: contentCount,
+        time_remaining: campaign.endDate 
+          ? Math.max(0, campaign.endDate.getTime() - Date.now()) 
+          : 30 * 24 * 60 * 60 * 1000, // 30 days default
+        
+        // Legacy format compatibility for mining interface
+        category: campaign.category || 'general',
+        keywords: campaign.metadata?.tags || [],
+        guidelines: campaign.brandGuidelines || '',
+        min_token_spend: 10, // MVP minimum
+        winner_reward: campaign.rewardPool || 0,
+        max_submissions: campaign.maxSubmissions || 1000,
+        current_submissions: campaign.currentSubmissions || 0,
+      };
+    }));
+
+    logger.info(`🎯 Retrieved ${formattedCampaigns.length} marketplace-ready campaigns (including admin-created)`);
+
+    return res.json({
+      success: true,
+      data: formattedCampaigns,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to fetch marketplace-ready campaigns:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch marketplace-ready campaigns',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route POST /api/campaigns/:id/sync-content
+ * @desc Sync AI-generated content to marketplace for a campaign
+ */
+router.post('/:id/sync-content', async (req: Request, res: Response) => {
+  try {
+    const campaignId = parseInt(req.params.id || '0');
+    const { content_data, creator_id, asking_price } = req.body;
+
+    if (isNaN(campaignId) || !content_data || !creator_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: campaignId, content_data, creator_id',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
+    const contentRepository: Repository<ContentMarketplace> = AppDataSource.getRepository(ContentMarketplace);
+
+    // Verify campaign exists
+    const campaign = await campaignRepository.findOne({
+      where: { id: campaignId, isActive: true }
+    });
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        error: 'Campaign not found or not active',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Create marketplace content
+    const marketplaceContent = contentRepository.create({
+      creatorId: creator_id,
+      campaignId: campaignId,
+      contentText: content_data.content_text,
+      contentImages: content_data.content_images || null,
+      predictedMindshare: content_data.predicted_mindshare || 75,
+      qualityScore: content_data.quality_score || 80,
+      askingPrice: asking_price || env.platform.minimumBidAmount,
+      isAvailable: true,
+      generationMetadata: content_data.generation_metadata || {}
+    });
+
+    const savedContent = await contentRepository.save(marketplaceContent);
+
+    logger.info(`✅ Synced AI content to marketplace: Campaign ${campaignId}, Content ${savedContent.id}`);
+
+    return res.status(201).json({
+      success: true,
+      data: savedContent,
+      message: 'Content synced to marketplace successfully',
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to sync content to marketplace:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to sync content to marketplace',
       timestamp: new Date().toISOString(),
     });
   }

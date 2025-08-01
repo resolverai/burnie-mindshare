@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # Frontend - Burnie Influencer Platform
+  frontend:
+    build:
+      context: ./burnie-influencer-platform/frontend
+      dockerfile: Dockerfile
+    container_name: burnie-frontend
+    ports:
+      - "3004:3004"
+    env_file:
+      - ./burnie-influencer-platform/frontend/.env
+    environment:
+      # Override for production deployment
+      - NEXT_PUBLIC_BACKEND_URL=https://mindshareapi.burnie.io
+      - NEXT_PUBLIC_AI_BACKEND_URL=https://attentionai.burnie.io
+    networks:
+      - burnie-network
+    depends_on:
+      - typescript-backend
+      - python-ai-backend
+    restart: unless-stopped
+
+  # TypeScript Backend
+  typescript-backend:
+    build:
+      context: ./burnie-influencer-platform/typescript-backend
+      dockerfile: Dockerfile
+    container_name: burnie-typescript-backend
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./burnie-influencer-platform/typescript-backend/.env
+    environment:
+      # Production URL overrides only
+      - FRONTEND_URL=https://influencer.burnie.io
+      - MINING_INTERFACE_URL=https://mining.burnie.io
+      - AI_BACKEND_URL=https://attentionai.burnie.io
+    networks:
+      - burnie-network
+    restart: unless-stopped
+
+  # Python AI Backend
+  python-ai-backend:
+    build:
+      context: ./burnie-influencer-platform/python-ai-backend
+      dockerfile: Dockerfile
+    container_name: burnie-python-ai-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./burnie-influencer-platform/python-ai-backend/.env
+    volumes:
+      - ./models:/app/models
+    networks:
+      - burnie-network
+    restart: unless-stopped
+
+  # Mining Interface
+  mining-interface:
+    build:
+      context: ./mining-interface
+      dockerfile: Dockerfile
+    container_name: burnie-mining-interface
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./mining-interface/.env
+    environment:
+      # Override for production deployment
+      - NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io
+      - NEXT_PUBLIC_AI_API_URL=https://attentionai.burnie.io
+    networks:
+      - burnie-network
+    depends_on:
+      - typescript-backend
+      - python-ai-backend
+    restart: unless-stopped
+
+networks:
+  burnie-network:
+    driver: bridge
+
+volumes:
+  models:
+    driver: local 

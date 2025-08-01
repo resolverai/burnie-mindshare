@@ -1,0 +1,10 @@
+{
+  "mongodb": {
+    "uri": "mongodb+srv://burnieyapper:Burni3yapP3r@burnie-yapping.b4o4gwj.mongodb.net/?retryWrites=true&w=majority&appName=burnie-yapping",
+    "database": "burnieyappingdata"
+  },
+  "example": {
+    "uri": "mongodb+srv://user:password@cluster0.abcdef.mongodb.net/yapping_data?retryWrites=true&w=majority",
+    "database": "yapping_data"
+  }
+} 

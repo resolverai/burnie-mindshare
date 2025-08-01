@@ -44,7 +44,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     logger.info(`📋 Retrieved ${projects.length} projects (page ${page}/${totalPages})`);
 
-    res.json({
+    return res.json({
       success: true,
       data: projects.map(project => ({
         ...project,
@@ -64,7 +64,7 @@ router.get('/', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to fetch projects:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch projects',
       timestamp: new Date().toISOString(),
@@ -110,7 +110,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     logger.info(`📖 Retrieved project details: ${project.name}`);
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         ...project,
@@ -122,7 +122,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to fetch project:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch project',
       timestamp: new Date().toISOString(),
@@ -237,7 +237,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     logger.info(`✅ Project created successfully: ${(savedProject as any).id} - ${(savedProject as any).name}`);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: savedProject,
       message: 'Project created successfully',
@@ -246,7 +246,7 @@ router.post('/', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to create project:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to create project',
       timestamp: new Date().toISOString(),
@@ -292,11 +292,12 @@ router.put('/:id', async (req: Request, res: Response) => {
 
     // Update project fields
     Object.assign(project, updates);
+    
     const updatedProject = await projectRepository.save(project);
 
     logger.info(`✅ Project updated successfully: ${updatedProject.name}`);
 
-    res.json({
+    return res.json({
       success: true,
       data: updatedProject,
       message: 'Project updated successfully',
@@ -305,7 +306,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to update project:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to update project',
       timestamp: new Date().toISOString(),
@@ -351,6 +352,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     // Check if project has active campaigns
     const activeCampaigns = project.campaigns?.filter(c => c.status === 'ACTIVE') || [];
+    
     if (activeCampaigns.length > 0) {
       return res.status(400).json({
         success: false,
@@ -363,7 +365,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     logger.info(`✅ Project deleted successfully: ${project.name}`);
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Project deleted successfully',
       timestamp: new Date().toISOString(),
@@ -371,7 +373,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to delete project:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to delete project',
       timestamp: new Date().toISOString(),
@@ -416,27 +418,33 @@ router.get('/:id/stats', async (req: Request, res: Response) => {
     }
 
     const campaigns = project.campaigns || [];
-    const totalSubmissions = campaigns.reduce((sum, campaign) => 
-      sum + (campaign.submissions?.length || 0), 0
-    );
-    
     const activeCampaigns = campaigns.filter(c => c.status === 'ACTIVE');
     const completedCampaigns = campaigns.filter(c => c.status === 'COMPLETED');
     
-    const totalBudget = campaigns.reduce((sum, campaign) => 
+    const totalRewards = campaigns.reduce((sum, campaign) => 
       sum + (campaign.rewardPool || 0), 0
     );
+
+    const allSubmissions = campaigns.flatMap(c => c.submissions || []);
+    const totalSubmissions = allSubmissions.length;
+    const approvedSubmissions = allSubmissions.filter(s => s.status === 'APPROVED').length;
 
     const stats = {
       totalCampaigns: campaigns.length,
       activeCampaigns: activeCampaigns.length,
       completedCampaigns: completedCampaigns.length,
       totalSubmissions,
-      totalBudget,
-      avgSubmissionsPerCampaign: campaigns.length > 0 ? Math.round(totalSubmissions / campaigns.length) : 0,
+      approvedSubmissions,
+      rejectedSubmissions: allSubmissions.filter(s => s.status === 'REJECTED').length,
+      pendingSubmissions: allSubmissions.filter(s => s.status === 'PENDING').length,
+      totalRewardsAllocated: totalRewards,
+      averageScore: totalSubmissions > 0 ? 
+        allSubmissions.reduce((sum, s) => sum + (s.totalScore || 0), 0) / totalSubmissions : 0,
+      participationRate: campaigns.length > 0 ? 
+        totalSubmissions / campaigns.length : 0,
     };
 
-    res.json({
+    return res.json({
       success: true,
       data: stats,
       timestamp: new Date().toISOString(),
@@ -444,7 +452,7 @@ router.get('/:id/stats', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Failed to fetch project stats:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch project stats',
       timestamp: new Date().toISOString(),

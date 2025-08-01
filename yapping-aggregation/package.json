@@ -1,0 +1,22 @@
+{
+  "name": "yapping-aggregation-pipeline",
+  "version": "1.0.0",
+  "description": "Standalone MongoDB aggregation pipeline for yapping data",
+  "main": "aggregation-pipeline.ts",
+  "scripts": {
+    "start": "ts-node aggregation-pipeline.ts",
+    "dev": "ts-node --watch aggregation-pipeline.ts"
+  },
+  "dependencies": {
+    "mongoose": "^8.0.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.0"
+  },
+  "keywords": ["mongodb", "aggregation", "yapping", "analytics"],
+  "author": "",
+  "license": "MIT"
+} 

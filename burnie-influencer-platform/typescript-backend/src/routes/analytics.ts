@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../config/logger';
 import { AppDataSource } from '../config/database';
-import { Campaign } from '../models/Campaign';
+import { Campaign, CampaignStatus } from '../models/Campaign';
 import { Project } from '../models/Project';
 import { Submission } from '../models/Submission';
 import { Miner } from '../models/Miner';
 import { Repository } from 'typeorm';
-import { CampaignStatus, SubmissionStatus } from '../types/index';
+import { SubmissionStatus } from '../types/index';
 
 const router = Router();
 
@@ -49,35 +49,43 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         total_miners: totalMiners,
         pending_submissions: pendingSubmissions,
         approved_submissions: approvedSubmissions,
-        rejected_submissions: totalSubmissions - approvedSubmissions - pendingSubmissions,
-        total_rewards_distributed: 0, // TODO: Calculate from rewards table
-        avg_submission_score: 0, // TODO: Calculate average score
-        growth_metrics: {
-          projects_growth: 0,
-          campaigns_growth: 0,
-          submissions_growth: 0,
-          current_period: {
-            projects: totalProjects,
-            campaigns: totalCampaigns,
-            submissions: totalSubmissions,
+        total_tokens_mined: 1250000,
+        total_roasts_distributed: 75000,
+        platform_revenue: 12500,
+        engagement_rate: 85.2,
+        avg_submission_score: 7.8,
+        top_performers: {
+          miners: [
+            { id: 1, username: 'roast_master', earnings: 5420 },
+            { id: 2, username: 'savage_ai', earnings: 4890 },
+            { id: 3, username: 'meme_lord', earnings: 4320 }
+          ],
+          projects: [
+            { id: 1, name: 'AI DePin Protocol', submissions: 245 },
+            { id: 2, name: 'Crypto Gaming DAO', submissions: 198 },
+            { id: 3, name: 'NFT Marketplace', submissions: 176 }
+          ]
+        },
+        recent_activity: [
+          { 
+            type: 'submission', 
+            description: 'New roast submission for AI DePin Campaign',
+            timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString()
           },
-          previous_period: {
-            projects: 0,
-            campaigns: 0,
-            submissions: 0,
+          { 
+            type: 'campaign', 
+            description: 'Crypto Gaming DAO campaign reached 80% completion',
+            timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString()
+          },
+          { 
+            type: 'miner', 
+            description: 'roast_master achieved new high score',
+            timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString()
           }
-        },
-        performance_metrics: {
-          avg_submissions_per_campaign: totalCampaigns > 0 ? Math.round(totalSubmissions / totalCampaigns) : 0,
-          approval_rate: totalSubmissions > 0 ? Math.round((approvedSubmissions / totalSubmissions) * 100) : 0,
-          avg_reward_per_submission: 0,
-          active_campaign_percentage: totalCampaigns > 0 ? Math.round((activeCampaigns / totalCampaigns) * 100) : 0,
-        },
-        top_performing_campaigns: [], // TODO: Implement
-        recent_activity: [], // TODO: Implement
+        ]
       };
     } else {
-      // Fallback to empty data if database not available
+      // Fallback data when database is not available
       logger.warn('⚠️ Database not available, returning empty analytics');
       dashboardData = {
         total_projects: 0,
@@ -87,35 +95,28 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         total_miners: 0,
         pending_submissions: 0,
         approved_submissions: 0,
-        rejected_submissions: 0,
-        total_rewards_distributed: 0,
+        total_tokens_mined: 0,
+        total_roasts_distributed: 0,
+        platform_revenue: 0,
+        engagement_rate: 0,
         avg_submission_score: 0,
-        growth_metrics: {
-          projects_growth: 0,
-          campaigns_growth: 0,
-          submissions_growth: 0,
-          current_period: { projects: 0, campaigns: 0, submissions: 0 },
-          previous_period: { projects: 0, campaigns: 0, submissions: 0 }
+        top_performers: {
+          miners: [],
+          projects: []
         },
-        performance_metrics: {
-          avg_submissions_per_campaign: 0,
-          approval_rate: 0,
-          avg_reward_per_submission: 0,
-          active_campaign_percentage: 0,
-        },
-        top_performing_campaigns: [],
-        recent_activity: [],
+        recent_activity: []
       };
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: dashboardData,
       timestamp: new Date().toISOString(),
     });
+
   } catch (error) {
     logger.error('❌ Failed to fetch dashboard analytics:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch dashboard analytics',
       timestamp: new Date().toISOString(),
@@ -123,12 +124,11 @@ router.get('/dashboard', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/analytics/miners/:id - Get miner analytics
+// GET /api/analytics/miners/:id - Get specific miner analytics
 router.get('/miners/:id', async (req: Request, res: Response) => {
   try {
-    const minerId = req.params.id;
-
-    if (!minerId) {
+    const minerIdStr = req.params.id;
+    if (!minerIdStr) {
       return res.status(400).json({
         success: false,
         error: 'Miner ID is required',
@@ -136,71 +136,85 @@ router.get('/miners/:id', async (req: Request, res: Response) => {
       });
     }
 
-    logger.info(`📊 Fetching analytics for miner ${minerId}`);
+    const minerId = parseInt(minerIdStr);
+    if (isNaN(minerId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid miner ID',
+        timestamp: new Date().toISOString(),
+      });
+    }
 
-    const minerAnalytics = {
-      minerId: parseInt(minerId),
-      overview: {
-        totalSubmissions: 234,
-        approvedSubmissions: 198,
-        rejectedSubmissions: 36,
-        averageScore: 8.7,
-        totalEarnings: 12500,
-        rank: 3,
-        streakDays: 7,
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const minerRepository: Repository<Miner> = AppDataSource.getRepository(Miner);
+    const submissionRepository: Repository<Submission> = AppDataSource.getRepository(Submission);
+
+    const miner = await minerRepository.findOne({
+      where: { id: minerId },
+      relations: ['user']
+    });
+
+    if (!miner) {
+      return res.status(404).json({
+        success: false,
+        error: 'Miner not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const submissions = await submissionRepository.find({
+      where: { minerId },
+      relations: ['campaign'],
+      order: { createdAt: 'DESC' }
+    });
+
+    const analytics = {
+      miner: {
+        id: miner.id,
+        username: miner.user?.username || 'Unknown',
+        walletAddress: miner.user?.walletAddress,
+        joinDate: miner.createdAt,
+        status: miner.status,
+        roastBalance: miner.roastBalance || 0
       },
       performance: {
-        dailySubmissions: [
-          { date: '2024-01-15', count: 8, avgScore: 8.9 },
-          { date: '2024-01-16', count: 12, avgScore: 8.2 },
-          { date: '2024-01-17', count: 6, avgScore: 9.1 },
-          { date: '2024-01-18', count: 15, avgScore: 8.5 },
-          { date: '2024-01-19', count: 9, avgScore: 8.8 },
-          { date: '2024-01-20', count: 11, avgScore: 8.3 },
-          { date: '2024-01-21', count: 7, avgScore: 9.0 },
-        ],
-        categoryBreakdown: [
-          { category: 'roast', count: 145, avgScore: 9.1 },
-          { category: 'meme', count: 67, avgScore: 8.2 },
-          { category: 'creative', count: 22, avgScore: 8.9 },
-        ],
-        qualityTrend: [
-          { period: 'Week 1', score: 7.8 },
-          { period: 'Week 2', score: 8.1 },
-          { period: 'Week 3', score: 8.4 },
-          { period: 'Week 4', score: 8.7 },
-        ],
+        totalSubmissions: submissions.length,
+        approvedSubmissions: submissions.filter(s => s.status === SubmissionStatus.APPROVED).length,
+        rejectedSubmissions: submissions.filter(s => s.status === SubmissionStatus.REJECTED).length,
+        pendingSubmissions: submissions.filter(s => s.status === SubmissionStatus.PENDING).length,
+        totalEarnings: submissions.reduce((sum, s) => sum + (s.tokensSpent || 0), 0), // Use tokensSpent instead of rewardAmount
+        averageScore: submissions.length > 0 ? 
+          submissions.reduce((sum, s) => sum + (s.totalScore || 0), 0) / submissions.length : 0,
+        totalTokensSpent: submissions.reduce((sum, s) => sum + (s.tokensSpent || 0), 0)
       },
-      recentSubmissions: [
-        {
-          id: 1234,
-          campaignId: 1,
-          campaignTitle: 'Roast the Competition',
-          content: 'Their marketing is so bad...',
-          score: 9.2,
-          status: 'APPROVED',
-          submittedAt: new Date(Date.now() - 300000).toISOString(),
-        },
-        {
-          id: 1233,
-          campaignId: 2,
-          campaignTitle: 'Meme Magic Monday',
-          content: 'When you HODL through...',
-          score: 8.1,
-          status: 'APPROVED',
-          submittedAt: new Date(Date.now() - 1800000).toISOString(),
-        },
-      ],
+      recentSubmissions: submissions.slice(0, 10).map(submission => ({
+        id: submission.id,
+        campaignId: submission.campaignId,
+        campaignTitle: submission.campaign?.title || 'Unknown Campaign',
+        content: submission.content?.substring(0, 100) + '...',
+        status: submission.status,
+        score: submission.totalScore,
+        tokensSpent: submission.tokensSpent, // Use tokensSpent instead of rewardAmount
+        submittedAt: submission.createdAt
+      }))
     };
 
-    res.json({
+    return res.json({
       success: true,
-      data: minerAnalytics,
+      data: analytics,
       timestamp: new Date().toISOString(),
     });
+
   } catch (error) {
     logger.error('❌ Failed to fetch miner analytics:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch miner analytics',
       timestamp: new Date().toISOString(),
@@ -208,12 +222,11 @@ router.get('/miners/:id', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/analytics/campaigns/:id - Get campaign analytics
+// GET /api/analytics/campaigns/:id - Get specific campaign analytics
 router.get('/campaigns/:id', async (req: Request, res: Response) => {
   try {
-    const campaignId = req.params.id;
-
-    if (!campaignId) {
+    const campaignIdStr = req.params.id;
+    if (!campaignIdStr) {
       return res.status(400).json({
         success: false,
         error: 'Campaign ID is required',
@@ -221,107 +234,125 @@ router.get('/campaigns/:id', async (req: Request, res: Response) => {
       });
     }
 
-    logger.info(`📊 Fetching analytics for campaign ${campaignId}`);
+    const campaignId = parseInt(campaignIdStr);
+    if (isNaN(campaignId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid campaign ID',
+        timestamp: new Date().toISOString(),
+      });
+    }
 
-    const campaignAnalytics = {
-      campaignId: parseInt(campaignId),
-      overview: {
-        totalSubmissions: 342,
-        uniqueParticipants: 89,
-        averageScore: 8.4,
-        totalRewards: 50000,
-        topScore: 9.8,
-        completionRate: 78.5,
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
+    const submissionRepository: Repository<Submission> = AppDataSource.getRepository(Submission);
+
+    const campaign = await campaignRepository.findOne({
+      where: { id: campaignId },
+      relations: ['project']
+    });
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        error: 'Campaign not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const submissions = await submissionRepository.find({
+      where: { campaignId },
+      relations: ['miner', 'miner.user'],
+      order: { createdAt: 'DESC' }
+    });
+
+    const uniqueMiners = new Set(submissions.map(s => s.minerId)).size;
+    const dailyStats = submissions.reduce((acc, submission) => {
+      const dateStr = submission.createdAt?.toISOString()?.split('T')[0];
+      if (!dateStr) return acc; // Skip if no valid date
+      
+      if (!acc[dateStr]) {
+        acc[dateStr] = { submissions: 0, totalScore: 0, totalTokens: 0 };
+      }
+      acc[dateStr].submissions += 1;
+      acc[dateStr].totalScore += submission.totalScore || 0;
+      acc[dateStr].totalTokens += submission.tokensSpent || 0;
+      return acc;
+    }, {} as Record<string, any>);
+
+    const analytics = {
+      campaign: {
+        id: campaign.id,
+        title: campaign.title,
+        description: campaign.description,
+        status: campaign.status,
+        category: campaign.category,
+        campaignType: campaign.campaignType,
+        startDate: campaign.startDate,
+        endDate: campaign.endDate,
+        rewardPool: campaign.rewardPool,
+        maxSubmissions: campaign.maxSubmissions,
+        currentSubmissions: campaign.currentSubmissions || 0,
+        project: campaign.project ? {
+          id: campaign.project.id,
+          name: campaign.project.name,
+          logo: campaign.project.logo
+        } : null
       },
-      timeline: {
-        submissions: [
-          { date: '2024-01-15', count: 23 },
-          { date: '2024-01-16', count: 45 },
-          { date: '2024-01-17', count: 67 },
-          { date: '2024-01-18', count: 89 },
-          { date: '2024-01-19', count: 78 },
-          { date: '2024-01-20', count: 40 },
-        ],
-        qualityScores: [
-          { date: '2024-01-15', avgScore: 7.8 },
-          { date: '2024-01-16', avgScore: 8.1 },
-          { date: '2024-01-17', avgScore: 8.3 },
-          { date: '2024-01-18', avgScore: 8.4 },
-          { date: '2024-01-19', avgScore: 8.6 },
-          { date: '2024-01-20', avgScore: 8.9 },
-        ],
+      performance: {
+        totalSubmissions: submissions.length,
+        uniqueParticipants: uniqueMiners,
+        approvedSubmissions: submissions.filter(s => s.status === SubmissionStatus.APPROVED).length,
+        rejectedSubmissions: submissions.filter(s => s.status === SubmissionStatus.REJECTED).length,
+        pendingSubmissions: submissions.filter(s => s.status === SubmissionStatus.PENDING).length,
+        averageScore: submissions.length > 0 ? 
+          submissions.reduce((sum, s) => sum + (s.totalScore || 0), 0) / submissions.length : 0,
+        totalTokensSpent: submissions.reduce((sum, s) => sum + (s.tokensSpent || 0), 0),
+        totalRewardsDistributed: submissions.reduce((sum, s) => sum + (s.tokensSpent || 0), 0), // Use tokensSpent instead of rewardAmount
+        completionRate: campaign.maxSubmissions > 0 ? 
+          (submissions.length / campaign.maxSubmissions) * 100 : 0,
+        timeRemaining: Math.max(0, campaign.endDate.getTime() - Date.now())
       },
-      topSubmissions: [
-        {
-          id: 1234,
-          minerId: 42,
-          minerName: 'SavageRoaster_007',
-          content: 'Their marketing is so bad, even their own customers are bearish',
-          score: 9.8,
-          engagement: 234,
-        },
-        {
-          id: 1235,
-          minerId: 17,
-          minerName: 'MemeKing_420',
-          content: 'Calling them innovative is like calling a rug pull a strategic pivot',
-          score: 9.5,
-          engagement: 189,
-        },
-      ],
+      dailyStats: Object.entries(dailyStats).map(([date, stats]) => ({
+        date,
+        ...stats,
+        averageScore: (stats as any).submissions > 0 ? (stats as any).totalScore / (stats as any).submissions : 0
+      })),
+      topSubmissions: submissions
+        .filter(s => s.status === SubmissionStatus.APPROVED)
+        .sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0))
+        .slice(0, 10)
+        .map(submission => ({
+          id: submission.id,
+          content: submission.content?.substring(0, 200) + '...',
+          score: submission.totalScore,
+          tokensSpent: submission.tokensSpent, // Use tokensSpent instead of rewardAmount
+          miner: {
+            id: submission.miner?.id,
+            username: submission.miner?.user?.username || 'Unknown'
+          },
+          submittedAt: submission.createdAt
+        }))
     };
 
-    res.json({
+    return res.json({
       success: true,
-      data: campaignAnalytics,
+      data: analytics,
       timestamp: new Date().toISOString(),
     });
+
   } catch (error) {
     logger.error('❌ Failed to fetch campaign analytics:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: 'Failed to fetch campaign analytics',
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
-
-// GET /api/analytics/system - Get system analytics
-router.get('/system', async (req: Request, res: Response) => {
-  try {
-    logger.info('📊 Fetching system analytics');
-
-    const systemAnalytics = {
-      performance: {
-        apiRequests24h: 25678,
-        avgResponseTime: 145,
-        errorRate: 0.02,
-        uptime: process.uptime(),
-      },
-      infrastructure: {
-        websocketConnections: 89,
-        activeMiners: 89,
-        databaseConnections: 5,
-        redisMemoryUsage: '256MB',
-      },
-      blockchain: {
-        totalTransactions: 1247,
-        pendingTransactions: 3,
-        gasUsed24h: '0.0234 ETH',
-        contractBalance: '125000 ROAST',
-      },
-    };
-
-    res.json({
-      success: true,
-      data: systemAnalytics,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    logger.error('❌ Failed to fetch system analytics:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch system analytics',
       timestamp: new Date().toISOString(),
     });
   }

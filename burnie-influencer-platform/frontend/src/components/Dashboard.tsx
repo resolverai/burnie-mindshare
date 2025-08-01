@@ -8,7 +8,8 @@ import ProjectsList from './ProjectsList'
 import CampaignsList from './CampaignsList'
 import CreateProjectModal from './modals/CreateProjectModal'
 import CreateCampaignModal from './modals/CreateCampaignModal'
-import { PlusIcon, ChartBarIcon, FolderIcon, MegaphoneIcon, FireIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, ChartBarIcon, FolderIcon, MegaphoneIcon, FireIcon, ArrowLeftIcon } from '@heroicons/react/24/outline'
+import { FireIcon as FireIconSolid } from '@heroicons/react/24/solid'
 
 interface DashboardData {
   totalCampaigns: number;
@@ -145,10 +146,10 @@ export default function Dashboard() {
 
   if (loading && dashboardData.totalCampaigns === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading dashboard...</p>
+          <p className="text-gray-400">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -156,10 +157,10 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-red-600 mb-4">⚠️ Error</div>
-          <p className="text-gray-600 mb-4">{error}</p>
+          <div className="text-red-400 mb-4">⚠️ Error</div>
+          <p className="text-gray-400 mb-4">{error}</p>
           <button
             onClick={() => {
               // Refresh data
@@ -174,22 +175,27 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-secondary-50 via-white to-primary-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md shadow-soft border-b border-secondary-200/50 sticky top-0 z-30">
-        <div className="container-app">
+      <header className="bg-gray-900/80 backdrop-blur-md border-b border-gray-700/50 sticky top-0 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
             <div className="flex items-center space-x-4">
+              <a href="/" className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors">
+                <ArrowLeftIcon className="h-4 w-4" />
+                <span className="text-sm">Back to Home</span>
+              </a>
+              <div className="h-6 w-px bg-gray-700"></div>
               <div className="flex items-center space-x-3">
-                <div className="p-2 bg-gradient-to-br from-primary-500 to-roast-500 rounded-xl shadow-medium">
-                  <FireIcon className="h-8 w-8 text-white" />
+                <div className="p-2 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl">
+                  <FireIconSolid className="h-6 w-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-3xl font-bold text-gradient">
-                    Burnie Influencer Platform
+                  <h1 className="text-2xl font-bold bg-gradient-to-r from-orange-400 to-red-500 bg-clip-text text-transparent">
+                    Campaign Manager
                   </h1>
-                  <p className="text-sm text-secondary-600 font-medium">
-                    Manage your AI-powered roast campaigns
+                  <p className="text-sm text-gray-400">
+                    Manage your AI-powered campaigns
                   </p>
                 </div>
               </div>
@@ -197,17 +203,17 @@ export default function Dashboard() {
             <div className="flex items-center space-x-3">
               <button
                 onClick={() => setShowCreateProject(true)}
-                className="btn-primary"
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors font-medium flex items-center space-x-2"
               >
-                <PlusIcon className="h-4 w-4 mr-2" />
-                New Project
+                <PlusIcon className="h-4 w-4" />
+                <span>New Project</span>
               </button>
               <button
                 onClick={() => setShowCreateCampaign(true)}
-                className="btn-secondary"
+                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors font-medium flex items-center space-x-2 border border-gray-600"
               >
-                <PlusIcon className="h-4 w-4 mr-2" />
-                New Campaign
+                <PlusIcon className="h-4 w-4" />
+                <span>New Campaign</span>
               </button>
             </div>
           </div>
@@ -215,8 +221,8 @@ export default function Dashboard() {
       </header>
 
       {/* Navigation Tabs */}
-      <div className="bg-white/60 backdrop-blur-sm border-b border-secondary-200/50">
-        <div className="container-app">
+      <div className="bg-gray-800/50 backdrop-blur-sm border-b border-gray-700/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex space-x-8">
             {tabs.map((tab) => {
               const Icon = tab.icon
@@ -226,8 +232,8 @@ export default function Dashboard() {
                   onClick={() => setActiveTab(tab.key as any)}
                   className={`${
                     activeTab === tab.key
-                      ? 'border-primary-500 text-primary-600 bg-primary-50/50'
-                      : 'border-transparent text-secondary-500 hover:text-secondary-700 hover:border-secondary-300'
+                      ? 'border-orange-500 text-orange-400 bg-orange-500/10'
+                      : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
                   } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm flex items-center transition-all duration-200 rounded-t-lg`}
                 >
                   <Icon className="h-4 w-4 mr-2" />
@@ -240,14 +246,14 @@ export default function Dashboard() {
       </div>
 
       {/* Main Content */}
-      <main className="container-app py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="animate-fade-in">
           {activeTab === 'overview' && (
             <div className="space-y-8">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Platform Overview</h2>
-                <div className="flex items-center space-x-2 text-sm text-gray-500">
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <h2 className="text-2xl font-bold text-white">Platform Overview</h2>
+                <div className="flex items-center space-x-2 text-sm text-gray-400">
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
                     Live Data
                   </span>
                 </div>
@@ -267,12 +273,12 @@ export default function Dashboard() {
               />
               
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="card p-6">
+                <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
                   <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-semibold text-secondary-900">
+                    <h3 className="text-lg font-semibold text-white">
                       Recent Projects
                     </h3>
-                    <FolderIcon className="h-5 w-5 text-secondary-400" />
+                    <FolderIcon className="h-5 w-5 text-gray-400" />
                   </div>
                   <ProjectsList 
                     projects={projects?.items?.slice(0, 5) || []} 
@@ -280,20 +286,20 @@ export default function Dashboard() {
                     compact
                   />
                   {!projectsLoading && (!projects?.items || projects.items.length === 0) && (
-                    <div className="text-center py-8 text-secondary-500">
-                      <FolderIcon className="h-12 w-12 mx-auto mb-4 text-secondary-300" />
+                    <div className="text-center py-8 text-gray-400">
+                      <FolderIcon className="h-12 w-12 mx-auto mb-4 text-gray-600" />
                       <p className="text-sm font-medium">No projects yet</p>
                       <p className="text-xs">Create your first project to get started</p>
                     </div>
                   )}
                 </div>
                 
-                <div className="card p-6">
+                <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
                   <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-semibold text-secondary-900">
+                    <h3 className="text-lg font-semibold text-white">
                       Active Campaigns
                     </h3>
-                    <MegaphoneIcon className="h-5 w-5 text-secondary-400" />
+                    <MegaphoneIcon className="h-5 w-5 text-gray-400" />
                   </div>
                   <CampaignsList 
                     campaigns={campaigns?.items?.filter(c => c.status === 'active').slice(0, 5) || []} 
@@ -301,10 +307,10 @@ export default function Dashboard() {
                     compact
                   />
                   {!campaignsLoading && (!campaigns?.items || campaigns.items.filter(c => c.status === 'active').length === 0) && (
-                    <div className="text-center py-8 text-secondary-500">
-                      <MegaphoneIcon className="h-12 w-12 mx-auto mb-4 text-secondary-300" />
+                    <div className="text-center py-8 text-gray-400">
+                      <MegaphoneIcon className="h-12 w-12 mx-auto mb-4 text-gray-600" />
                       <p className="text-sm font-medium">No active campaigns</p>
-                      <p className="text-xs">Launch your first campaign to start generating roasts</p>
+                      <p className="text-xs">Launch your first campaign to start generating content</p>
                     </div>
                   )}
                 </div>
@@ -313,17 +319,17 @@ export default function Dashboard() {
           )}
 
           {activeTab === 'projects' && (
-            <div className="card p-6">
+            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-secondary-900">
+                <h2 className="text-xl font-semibold text-white">
                   All Projects
                 </h2>
                 <button
                   onClick={() => setShowCreateProject(true)}
-                  className="btn-primary text-sm"
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors font-medium flex items-center space-x-2"
                 >
-                  <PlusIcon className="h-4 w-4 mr-2" />
-                  New Project
+                  <PlusIcon className="h-4 w-4" />
+                  <span>New Project</span>
                 </button>
               </div>
               <ProjectsList 
@@ -334,17 +340,17 @@ export default function Dashboard() {
           )}
 
           {activeTab === 'campaigns' && (
-            <div className="card p-6">
+            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-secondary-900">
+                <h2 className="text-xl font-semibold text-white">
                   All Campaigns
                 </h2>
                 <button
                   onClick={() => setShowCreateCampaign(true)}
-                  className="btn-primary text-sm"
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors font-medium flex items-center space-x-2"
                 >
-                  <PlusIcon className="h-4 w-4 mr-2" />
-                  New Campaign
+                  <PlusIcon className="h-4 w-4" />
+                  <span>New Campaign</span>
                 </button>
               </div>
               <CampaignsList 
