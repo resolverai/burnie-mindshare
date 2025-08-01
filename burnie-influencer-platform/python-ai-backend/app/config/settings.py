@@ -74,17 +74,19 @@ class Settings(BaseSettings):
     @property
     def database_dsn(self) -> str:
         """Get database connection URL"""
+        ssl_params = "?sslmode=require" if self.app_env == "production" else ""
         return (
             f"postgresql://{self.database_user}:{self.database_password}"
-            f"@{self.database_host}:{self.database_port}/{self.database_name}"
+            f"@{self.database_host}:{self.database_port}/{self.database_name}{ssl_params}"
         )
     
     @property
     def async_database_dsn(self) -> str:
         """Get async database connection URL"""
+        ssl_params = "?ssl=require" if self.app_env == "production" else ""
         return (
             f"postgresql+asyncpg://{self.database_user}:{self.database_password}"
-            f"@{self.database_host}:{self.database_port}/{self.database_name}"
+            f"@{self.database_host}:{self.database_port}/{self.database_name}{ssl_params}"
         )
     
     @property

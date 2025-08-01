@@ -62,6 +62,7 @@ export const AppDataSource = new DataSource({
   cache: {
     duration: 30000, // 30 seconds
   },
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   extra: {
     connectionLimit: 10,
     idleTimeoutMillis: 30000,
