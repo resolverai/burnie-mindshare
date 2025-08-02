@@ -12,9 +12,12 @@ services:
     env_file:
       - ./burnie-influencer-platform/frontend/.env
     environment:
-      # Override for production deployment
+      # Production environment overrides
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=https://mindshareapi.burnie.io
       - NEXT_PUBLIC_BACKEND_URL=https://mindshareapi.burnie.io
       - NEXT_PUBLIC_AI_BACKEND_URL=https://attentionai.burnie.io
+      - NEXT_PUBLIC_MINING_INTERFACE_URL=https://mining.burnie.io
     networks:
       - burnie-network
     depends_on:
@@ -33,10 +36,11 @@ services:
     env_file:
       - ./burnie-influencer-platform/typescript-backend/.env
     environment:
-      # Production URL overrides only
-      - FRONTEND_URL=https://influencer.burnie.io
-      - MINING_INTERFACE_URL=https://mining.burnie.io
-      - AI_BACKEND_URL=https://attentionai.burnie.io
+      # Production environment overrides
+      - NODE_ENV=production
+      - ALLOWED_ORIGINS=https://mining.burnie.io,https://influencer.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io
+      - PYTHON_AI_BACKEND_URL=https://attentionai.burnie.io
+      - TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
     networks:
       - burnie-network
     restart: unless-stopped
@@ -51,6 +55,11 @@ services:
       - "8000:8000"
     env_file:
       - ./burnie-influencer-platform/python-ai-backend/.env
+    environment:
+      # Production environment overrides
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - TYPESCRIPT_BACKEND_URL=https://mindshareapi.burnie.io
     volumes:
       - ./models:/app/models
     networks:
@@ -68,9 +77,13 @@ services:
     env_file:
       - ./mining-interface/.env
     environment:
-      # Override for production deployment
-      - NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io
+      # Production environment overrides
+      - NODE_ENV=production
+      - NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io/api
       - NEXT_PUBLIC_AI_API_URL=https://attentionai.burnie.io
+      - NEXT_PUBLIC_BURNIE_WS_URL=wss://mindshareapi.burnie.io/ws
+      - NEXT_PUBLIC_TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
+      - NEXT_PUBLIC_AGENT_STORAGE_URL=https://mindshareapi.burnie.io/api/agents
     networks:
       - burnie-network
     depends_on:
