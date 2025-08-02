@@ -6,9 +6,10 @@ const nextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
   
-  // Disable server components for now to avoid compatibility issues
+  // Disable static optimization for pages with client-side components
   experimental: {
-    // Disable some experimental features that might cause issues
+    // Force dynamic rendering to prevent static generation issues
+    serverComponentsExternalPackages: ['@rainbow-me/rainbowkit', 'wagmi', '@tanstack/react-query']
   },
   
   webpack: (config, { isServer }) => {
@@ -106,11 +107,6 @@ const nextConfig = {
   
   // Transpile ES modules that might cause issues
   transpilePackages: [],
-  
-  // Environment variables that should be available on the client
-  env: {
-    CUSTOM_KEY: process.env.CUSTOM_KEY,
-  },
 }
 
-module.exports = nextConfig 
+module.exports = nextConfig

@@ -18,10 +18,15 @@ interface AuthState {
 }
 
 export function useAuth() {
-  const { address, isConnected } = useAccount()
+  const [mounted, setMounted] = useState(false)
+  
+  // Always call hooks - this is required by React
+  const accountData = useAccount()
   const chainId = useChainId()
   const { signMessageAsync } = useSignMessage()
   const { disconnect } = useDisconnect()
+
+  const { address, isConnected } = accountData
   
   const [authState, setAuthState] = useState<AuthState>({
     isAuthenticated: false,
@@ -31,10 +36,15 @@ export function useAuth() {
     error: null
   })
 
-  const [mounted, setMounted] = useState(false)
+  // Client-side mounting check
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Initialize authentication state on mount
   useEffect(() => {
+    if (!mounted) return
+    
     const initializeAuth = () => {
       try {
         // Check localStorage for existing authentication
@@ -52,7 +62,6 @@ export function useAuth() {
             needsSignature: false,
             error: null
           })
-          setMounted(true)
           return
         }
         
@@ -65,7 +74,6 @@ export function useAuth() {
           needsSignature: false,
           error: null
         })
-        setMounted(true)
         
       } catch (error) {
         console.error('❌ Error initializing auth:', error)
@@ -81,16 +89,15 @@ export function useAuth() {
           needsSignature: false,
           error: null
         })
-        setMounted(true)
       }
     }
 
     initializeAuth()
-  }, [])
+  }, [mounted])
 
   // Handle wallet changes (only after component is mounted)
   useEffect(() => {
-    if (!mounted) return // Don't run until after initial mount
+    if (!mounted) return
     
     console.log('🔍 Wallet state change:', { isConnected, address, mounted })
     
@@ -150,6 +157,11 @@ export function useAuth() {
   }, [isConnected, address, mounted])
 
   const signIn = useCallback(async () => {
+    if (!mounted || !signMessageAsync) {
+      setAuthState(prev => ({ ...prev, error: 'Wallet not ready' }))
+      return false
+    }
+
     if (!address || !isConnected) {
       setAuthState(prev => ({ ...prev, error: 'Wallet not connected' }))
       return false
@@ -205,12 +217,12 @@ This signature proves you own this wallet.`
 
       // If user rejected, disconnect wallet
       if (error.message?.includes('rejected') || error.name === 'UserRejectedRequestError') {
-        disconnect()
+        if (disconnect) disconnect()
       }
 
       return false
     }
-  }, [address, chainId, isConnected, signMessageAsync, disconnect])
+  }, [address, chainId, isConnected, signMessageAsync, disconnect, mounted])
 
   const logout = useCallback(() => {
     console.log('🚪 Logging out user')
@@ -230,7 +242,7 @@ This signature proves you own this wallet.`
     })
 
     // Disconnect wallet
-    disconnect()
+    if (disconnect) disconnect()
   }, [disconnect])
 
   const clearError = useCallback(() => {
@@ -239,7 +251,7 @@ This signature proves you own this wallet.`
 
   return {
     isAuthenticated: authState.isAuthenticated,
-    isLoading: authState.isLoading,
+    isLoading: authState.isLoading || !mounted,
     user: authState.user,
     address: authState.user?.address || address,
     needsSignature: authState.needsSignature,

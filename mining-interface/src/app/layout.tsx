@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   description: 'AI-powered content mining platform for earning ROAST tokens',
 }
 
+// Force dynamic rendering for all pages
+export const dynamic = 'force-dynamic'
+
 export default function RootLayout({
   children,
 }: {

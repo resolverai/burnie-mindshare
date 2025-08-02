@@ -1,18 +1,22 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAuth } from '../hooks/useAuth'
 import { useTwitterConnection } from '../hooks/useTwitterConnection'
 import { ArrowPathIcon, BoltIcon, CpuChipIcon, SparklesIcon, TrophyIcon, RocketLaunchIcon, ChartBarIcon, FireIcon } from '@heroicons/react/24/outline'
-import { useRouter } from 'next/navigation'
+import { WagmiWrapper } from '../components/WagmiWrapper'
 
 // Dynamic imports for components that need authentication
 const TwitterConnection = dynamic(() => import('../components/TwitterConnection'), { ssr: false })
 const MinerDashboard = dynamic(() => import('../components/MinerDashboard'), { ssr: false })
 
-export default function HomePage() {
+// Force dynamic rendering to prevent SSR issues
+export const revalidate = 0
+
+function HomePageContent() {
   const { isAuthenticated, isLoading, error, clearError, address, needsSignature, signIn } = useAuth()
   const { isConnected: isTwitterConnected, isLoading: isTwitterLoading, refetch: refetchTwitterStatus } = useTwitterConnection(address)
   const router = useRouter()
@@ -124,10 +128,10 @@ export default function HomePage() {
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg flex items-center justify-center">
               <BoltIcon className="h-6 w-6 text-white" />
-              </div>
-            <h1 className="text-2xl font-bold text-white">BURNIE</h1>
             </div>
-            <div className="flex items-center space-x-4">
+            <h1 className="text-2xl font-bold text-white">BURNIE</h1>
+          </div>
+          <div className="flex items-center space-x-4">
             <ConnectButton />
           </div>
         </div>
@@ -140,7 +144,7 @@ export default function HomePage() {
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-orange-500/20 rounded-full blur-3xl animate-pulse"></div>
             <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-red-500/20 rounded-full blur-3xl animate-pulse delay-1000"></div>
-      </div>
+          </div>
 
           <div className="relative z-10">
             {/* Status indicator */}
@@ -168,17 +172,17 @@ export default function HomePage() {
                 <CpuChipIcon className="h-8 w-8 text-orange-500 mx-auto mb-3" />
                 <h3 className="text-lg font-bold text-white mb-2">Mindshare Algorithms</h3>
                 <p className="text-gray-400 text-sm">Proprietary AI analyzes attention patterns on cookie.fun, Kaito yaps to maximize mindshare</p>
-                          </div>
+              </div>
               <div className="glass p-6 rounded-xl">
                 <SparklesIcon className="h-8 w-8 text-blue-500 mx-auto mb-3" />
                 <h3 className="text-lg font-bold text-white mb-2">Precision Synthesis</h3>
                 <p className="text-gray-400 text-sm">AI agents create content scientifically engineered to dominate attention economy platforms</p>
-                          </div>
+              </div>
               <div className="glass p-6 rounded-xl">
                 <TrophyIcon className="h-8 w-8 text-yellow-500 mx-auto mb-3" />
                 <h3 className="text-lg font-bold text-white mb-2">Passive Income</h3>
                 <p className="text-gray-400 text-sm">Earn ROAST tokens while your AI generates viral content that captures mindshare</p>
-                </div>
+              </div>
             </div>
 
             {/* Stats */}
@@ -186,11 +190,11 @@ export default function HomePage() {
               <div className="text-center">
                 <div className="text-3xl font-black text-orange-500 mb-1">24/7</div>
                 <div className="text-gray-400 text-sm">Autonomous Mining</div>
-          </div>
+              </div>
               <div className="text-center">
                 <div className="text-3xl font-black text-blue-500 mb-1">5X</div>
                 <div className="text-gray-400 text-sm">Faster Than Manual</div>
-                  </div>
+              </div>
               <div className="text-center">
                 <div className="text-3xl font-black text-green-500 mb-1">$0.01</div>
                 <div className="text-gray-400 text-sm">Avg Gas Fee</div>
@@ -199,8 +203,8 @@ export default function HomePage() {
                 <div className="text-3xl font-black text-purple-500 mb-1">AI</div>
                 <div className="text-gray-400 text-sm">Multi-Modal</div>
               </div>
-                  </div>
-
+            </div>
+            
             {/* Connection Flow */}
             <div className="glass p-8 rounded-2xl max-w-lg mx-auto mb-12">
               <h3 className="text-2xl font-bold text-white mb-6">Start Mining in 3 Steps</h3>
@@ -208,11 +212,11 @@ export default function HomePage() {
                 <div className="flex items-center space-x-3">
                   <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center text-white font-bold text-sm">1</div>
                   <span className="text-gray-300">Connect your wallet (MetaMask, Phantom, etc.)</span>
-                  </div>
+                </div>
                 <div className="flex items-center space-x-3">
                   <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm">2</div>
                   <span className="text-gray-300">Connect Twitter for AI personalization</span>
-                  </div>
+                </div>
                 <div className="flex items-center space-x-3">
                   <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-sm">3</div>
                   <span className="text-gray-300">Deploy AI agents and start earning</span>
@@ -225,12 +229,12 @@ export default function HomePage() {
               <div className="mb-8 p-4 bg-red-500/20 border border-red-500/30 rounded-lg text-red-300 max-w-md mx-auto">
                 <p className="font-medium">Authentication Error</p>
                 <p className="text-sm mt-1">{error}</p>
-                  <button
+                <button
                   onClick={clearError}
                   className="mt-2 text-xs text-red-400 hover:text-red-300 underline"
-                  >
+                >
                   Try Again
-                  </button>
+                </button>
               </div>
             )}
 
@@ -263,13 +267,13 @@ export default function HomePage() {
                       <div className="text-gray-400 text-sm">
                         {isLoading ? 'Please sign the message in your wallet...' : 'Setting up your mining interface...'}
                       </div>
-                  </div>
+                    </div>
                   )
                 }}
               </ConnectButton.Custom>
             </div>
           </div>
-            </div>
+        </div>
       </main>
 
       {/* Attention Economy Intelligence Section */}
@@ -302,7 +306,7 @@ export default function HomePage() {
               </p>
             </div>
           </div>
-                  </div>
+        </div>
       </section>
 
       {/* Features Section */}
@@ -354,8 +358,16 @@ export default function HomePage() {
               )
             })}
           </div>
-      </div>
+        </div>
       </section>
     </div>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <WagmiWrapper>
+      <HomePageContent />
+    </WagmiWrapper>
   )
 } 
