@@ -35,7 +35,7 @@ const nextConfig = {
         util: false,
         events: false,
         buffer: false,
-        process: false,
+
         vm: false
       }
       
