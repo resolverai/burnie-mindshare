@@ -27,15 +27,24 @@ ENV NEXT_PUBLIC_USDC_BASE_ADDRESS=${NEXT_PUBLIC_USDC_BASE_ADDRESS}
 ENV NEXT_PUBLIC_MINING_INTERFACE_URL=${NEXT_PUBLIC_MINING_INTERFACE_URL}
 ENV NODE_ENV=${NODE_ENV:-production}
 
-# Copy package files
+# Copy package files for dependency caching
 COPY package*.json ./
 COPY bun.lock* ./
 
-# Install dependencies
+# Install dependencies (cached layer if package files unchanged)
 RUN npm install
 
-# Copy source code
-COPY . .
+# Copy .env files if they exist (for NEXT_PUBLIC_ variables during build)
+COPY .env* ./ 2>/dev/null || true
+
+# Copy source code (only invalidates cache when source changes)
+COPY src/ ./src/
+COPY public/ ./public/
+COPY next.config.js ./
+COPY tailwind.config.js ./
+COPY tsconfig.json ./
+COPY next-env.d.ts ./
+COPY postcss.config.js ./
 
 # Build the application (NEXT_PUBLIC_ vars will be embedded)
 RUN npm run build

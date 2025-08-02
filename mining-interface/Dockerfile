@@ -32,21 +32,23 @@ ENV NEXT_PUBLIC_ENVIRONMENT=${NEXT_PUBLIC_ENVIRONMENT}
 ENV NEXT_PUBLIC_AGENT_STORAGE_URL=${NEXT_PUBLIC_AGENT_STORAGE_URL}
 ENV NODE_ENV=production
 
-# Copy package files
+# Copy package files for dependency caching
 COPY package*.json ./
 COPY bun.lock* ./
 
-# Install dependencies
+# Install dependencies (cached layer if package files unchanged)
 RUN npm install
 
-# Copy source code
-COPY . .
+# Copy .env files if they exist (for NEXT_PUBLIC_ variables during build)
+COPY .env* ./ 2>/dev/null || true
 
-# Create public directory if it doesn't exist
-RUN mkdir -p public
-
-# Copy .env file if it exists (for NEXT_PUBLIC_ variables during build)
-COPY .env* ./
+# Copy source code (only invalidates cache when source changes)
+COPY src/ ./src/
+COPY public/ ./public/
+COPY next.config.js ./
+COPY tailwind.config.js ./
+COPY tsconfig.json ./
+COPY postcss.config.js ./
 
 # Build the application (NEXT_PUBLIC_ vars will be embedded)
 RUN npm run build

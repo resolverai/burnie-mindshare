@@ -9,15 +9,17 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
+# Copy requirements first for dependency caching
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies (cached layer if requirements.txt unchanged)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy .env files if they exist
+COPY .env* ./ 2>/dev/null || true
+
+# Copy application code (only invalidates cache when source changes)
 COPY app ./app
-COPY .env* ./
 
 # Create non-root user
 RUN groupadd --gid 1001 python && \
