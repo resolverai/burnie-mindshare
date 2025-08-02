@@ -42,7 +42,7 @@ INSERT INTO campaigns (
   85.5,
   '{"minEngagement": 1000, "platforms": ["twitter", "tiktok"], "contentTypes": ["video", "meme", "text"]}',
   true,
-  'AGGREGATED',
+  'social',
   'ACTIVE',
   50000, -- 50,000 COOKIE tokens
   100, -- 100 COOKIE entry fee
@@ -67,7 +67,7 @@ INSERT INTO campaigns (
   78.2,
   '{"minEngagement": 800, "platforms": ["twitter", "instagram"], "contentTypes": ["meme", "infographic", "text"]}',
   true,
-  'AGGREGATED',
+  'meme',
   'ACTIVE',
   75000, -- 75,000 COOKIE tokens
   150, -- 150 COOKIE entry fee
@@ -93,7 +93,7 @@ INSERT INTO campaigns (
   92.1,
   '{"minEngagement": 1500, "platforms": ["twitter", "linkedin"], "contentTypes": ["thread", "analysis", "prediction"]}',
   true,
-  'AGGREGATED',
+  'technical',
   'ACTIVE',
   100000, -- 100,000 KAITO tokens
   200, -- 200 KAITO entry fee
@@ -118,7 +118,7 @@ INSERT INTO campaigns (
   88.7,
   '{"minEngagement": 1200, "platforms": ["twitter"], "contentTypes": ["thread", "analysis", "chart"]}',
   true,
-  'AGGREGATED',
+  'educational',
   'ACTIVE',
   80000, -- 80,000 KAITO tokens
   180, -- 180 KAITO entry fee
@@ -144,7 +144,7 @@ INSERT INTO campaigns (
   82.3,
   '{"minEngagement": 900, "platforms": ["twitter", "discord"], "contentTypes": ["story", "tutorial", "community"]}',
   true,
-  'AGGREGATED',
+  'viral',
   'ACTIVE',
   60000, -- 60,000 YAP tokens
   120, -- 120 YAP entry fee
@@ -169,7 +169,7 @@ INSERT INTO campaigns (
   75.8,
   '{"minEngagement": 700, "platforms": ["twitter", "telegram"], "contentTypes": ["meme", "signal", "humor"]}',
   true,
-  'AGGREGATED',
+  'meme',
   'ACTIVE',
   45000, -- 45,000 YAP tokens
   90, -- 90 YAP entry fee
@@ -195,7 +195,7 @@ INSERT INTO campaigns (
   79.4,
   '{"minEngagement": 1100, "platforms": ["twitter", "tiktok"], "contentTypes": ["video", "meme", "hype"]}',
   true,
-  'AGGREGATED',
+  'meme',
   'ACTIVE',
   25000, -- 25,000 PUMP tokens
   50, -- 50 PUMP entry fee
@@ -221,7 +221,7 @@ INSERT INTO campaigns (
   86.9,
   '{"minEngagement": 1000, "platforms": ["twitter", "youtube"], "contentTypes": ["tutorial", "analysis", "education"]}',
   true,
-  'AGGREGATED',
+  'educational',
   'ACTIVE',
   40000, -- 40,000 DEX tokens
   80, -- 80 DEX entry fee
@@ -247,7 +247,7 @@ INSERT INTO campaigns (
   94.2,
   '{"minEngagement": 1800, "platforms": ["twitter", "linkedin"], "contentTypes": ["demo", "tutorial", "showcase"]}',
   true,
-  'ROAST',
+  'technical',
   'ACTIVE',
   150000, -- 150,000 ROAST tokens
   300, -- 300 ROAST entry fee
@@ -272,7 +272,7 @@ INSERT INTO campaigns (
   87.6,
   '{"minEngagement": 1200, "platforms": ["twitter", "discord"], "contentTypes": ["community", "utility", "adoption"]}',
   true,
-  'ROAST',
+  'social',
   'ACTIVE',
   200000, -- 200,000 ROAST tokens
   250, -- 250 ROAST entry fee
