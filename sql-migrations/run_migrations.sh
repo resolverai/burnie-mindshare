@@ -130,6 +130,7 @@ show_usage() {
     echo "  --env-file PATH          Specify custom .env file path"
     echo "  --campaigns-only         Run only campaigns migration"
     echo "  --mindshare-only         Run only mindshare training data migration"
+    echo "  --admin-only             Run only admin user migration"
     echo "  --skip-connection-test   Skip initial database connection test"
     echo "  --help                   Show this help message"
     echo ""
@@ -138,12 +139,14 @@ show_usage() {
     echo "  $0 --env-file ./custom/.env                 # Use custom .env file"
     echo "  $0 --campaigns-only                         # Run only campaigns migration"
     echo "  $0 --mindshare-only                         # Run only mindshare migration"
+    echo "  $0 --admin-only                             # Run only admin user migration"
 }
 
 # Parse command line arguments
 ENV_FILE=""
 CAMPAIGNS_ONLY=false
 MINDSHARE_ONLY=false
+ADMIN_ONLY=false
 SKIP_CONNECTION_TEST=false
 
 while [[ $# -gt 0 ]]; do
@@ -158,6 +161,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --mindshare-only)
             MINDSHARE_ONLY=true
+            shift
+            ;;
+        --admin-only)
+            ADMIN_ONLY=true
             shift
             ;;
         --skip-connection-test)
@@ -236,10 +243,13 @@ if [ "$MINDSHARE_ONLY" = true ]; then
     execute_sql_migration "$SCRIPT_DIR/002_seed_mindshare_training_data.sql" "Mindshare Training Data Seed"
 elif [ "$CAMPAIGNS_ONLY" = true ]; then
     execute_sql_migration "$SCRIPT_DIR/001_seed_campaigns_data.sql" "Campaigns Data Seed"
+elif [ "$ADMIN_ONLY" = true ]; then
+    execute_sql_migration "$SCRIPT_DIR/003_add_admin_user.sql" "Admin User Creation"
 else
     # Run all migrations
     execute_sql_migration "$SCRIPT_DIR/001_seed_campaigns_data.sql" "Campaigns Data Seed"
     execute_sql_migration "$SCRIPT_DIR/002_seed_mindshare_training_data.sql" "Mindshare Training Data Seed"
+    execute_sql_migration "$SCRIPT_DIR/003_add_admin_user.sql" "Admin User Creation"
 fi
 
 echo ""
