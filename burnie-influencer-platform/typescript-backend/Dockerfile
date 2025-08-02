@@ -12,7 +12,7 @@ COPY tsconfig.json ./
 RUN npm install
 
 # Copy .env files if they exist
-COPY .env* ./ 2>/dev/null || true
+COPY .env* ./
 
 # Copy source code (only invalidates cache when source changes)
 COPY src ./src
@@ -35,7 +35,7 @@ COPY --from=builder /app/node_modules ./node_modules
 
 # Copy built application and environment files
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/.env* ./ 2>/dev/null || true
+COPY --from=builder /app/.env* ./
 
 # Set permissions
 RUN chown -R backend:backend /app

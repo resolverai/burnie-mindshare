@@ -40,7 +40,7 @@ COPY bun.lock* ./
 RUN npm install
 
 # Copy .env files if they exist (for NEXT_PUBLIC_ variables during build)
-COPY .env* ./ 2>/dev/null || true
+COPY .env* ./
 
 # Copy source code (only invalidates cache when source changes)
 COPY src/ ./src/

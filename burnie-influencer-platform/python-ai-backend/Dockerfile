@@ -16,7 +16,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy .env files if they exist
-COPY .env* ./ 2>/dev/null || true
+COPY .env* ./
 
 # Copy application code (only invalidates cache when source changes)
 COPY app ./app
