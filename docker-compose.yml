@@ -6,6 +6,16 @@ services:
     build:
       context: ./burnie-influencer-platform/frontend
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://mindshareapi.burnie.io}
+        - NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL:-https://mindshareapi.burnie.io}
+        - NEXT_PUBLIC_AI_BACKEND_URL=${NEXT_PUBLIC_AI_BACKEND_URL:-https://attentionai.burnie.io}
+        - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-05882002bee82f700cdbcfb99c981fdd}
+        - NEXT_PUBLIC_DEFAULT_CHAIN_ID=${NEXT_PUBLIC_DEFAULT_CHAIN_ID:-8453}
+        - NEXT_PUBLIC_BASE_RPC_URL=${NEXT_PUBLIC_BASE_RPC_URL:-https://mainnet.base.org}
+        - NEXT_PUBLIC_ROAST_TOKEN_ADDRESS=${NEXT_PUBLIC_ROAST_TOKEN_ADDRESS:-0x1234567890123456789012345678901234567890}
+        - NEXT_PUBLIC_USDC_BASE_ADDRESS=${NEXT_PUBLIC_USDC_BASE_ADDRESS:-0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913}
+        - NEXT_PUBLIC_MINING_INTERFACE_URL=${NEXT_PUBLIC_MINING_INTERFACE_URL:-https://mining.burnie.io}
     container_name: burnie-frontend
     ports:
       - "3004:3004"
@@ -53,6 +63,19 @@ services:
     build:
       context: ./mining-interface
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_BURNIE_API_URL=${NEXT_PUBLIC_BURNIE_API_URL:-https://mindshareapi.burnie.io/api}
+        - NEXT_PUBLIC_AI_API_URL=${NEXT_PUBLIC_AI_API_URL:-https://attentionai.burnie.io}
+        - NEXT_PUBLIC_BURNIE_WS_URL=${NEXT_PUBLIC_BURNIE_WS_URL:-wss://mindshareapi.burnie.io/ws}
+        - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-05882002bee82f700cdbcfb99c981fdd}
+        - NEXT_PUBLIC_DEFAULT_CHAIN_ID=${NEXT_PUBLIC_DEFAULT_CHAIN_ID:-8453}
+        - NEXT_PUBLIC_BASE_RPC_URL=${NEXT_PUBLIC_BASE_RPC_URL:-https://mainnet.base.org}
+        - NEXT_PUBLIC_ROAST_TOKEN_ADDRESS=${NEXT_PUBLIC_ROAST_TOKEN_ADDRESS:-0x1234567890123456789012345678901234567890}
+        - NEXT_PUBLIC_USDC_BASE_ADDRESS=${NEXT_PUBLIC_USDC_BASE_ADDRESS:-0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913}
+        - NEXT_PUBLIC_TWITTER_CLIENT_ID=${NEXT_PUBLIC_TWITTER_CLIENT_ID:-Y1NzMnpZVDdrWU5EUktzZUhuNXg6MTpjaQ}
+        - NEXT_PUBLIC_TWITTER_REDIRECT_URI=${NEXT_PUBLIC_TWITTER_REDIRECT_URI:-https://mining.burnie.io/twitter-callback}
+        - NEXT_PUBLIC_ENVIRONMENT=${NEXT_PUBLIC_ENVIRONMENT:-production}
+        - NEXT_PUBLIC_AGENT_STORAGE_URL=${NEXT_PUBLIC_AGENT_STORAGE_URL:-https://mindshareapi.burnie.io/api/agents}
     container_name: burnie-mining-interface
     ports:
       - "3000:3000"
