@@ -8,25 +8,25 @@ INSERT INTO campaigns (
   title, 
   description, 
   category,
-  platform_source,
-  external_campaign_id,
-  reward_token,
-  target_audience,
-  brand_guidelines,
-  predicted_mindshare,
-  mindshare_requirements,
-  is_active,
-  campaign_type,
+  "platformSource",
+  "externalCampaignId",
+  "rewardToken",
+  "targetAudience",
+  "brandGuidelines",
+  "predictedMindshare",
+  "mindshareRequirements",
+  "isActive",
+  "campaignType",
   status,
-  reward_pool,
-  entry_fee,
-  max_submissions,
-  current_submissions,
-  start_date,
-  end_date,
+  "rewardPool",
+  "entryFee",
+  "maxSubmissions",
+  "currentSubmissions",
+  "startDate",
+  "endDate",
   requirements,
   metadata,
-  creator_id
+  "creatorId"
 ) VALUES 
 
 -- Cookie.fun Campaigns
@@ -290,16 +290,16 @@ SELECT setval('campaigns_id_seq', (SELECT MAX(id) FROM campaigns));
 
 -- Add indexes for better performance
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_campaigns_platform_active 
-ON campaigns(platform_source, is_active) 
-WHERE is_active = true;
+ON campaigns("platformSource", "isActive") 
+WHERE "isActive" = true;
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_campaigns_predicted_mindshare 
-ON campaigns(predicted_mindshare DESC) 
-WHERE is_active = true;
+ON campaigns("predictedMindshare" DESC) 
+WHERE "isActive" = true;
 
 -- Success message
 DO $$
 BEGIN
     RAISE NOTICE 'Successfully seeded % campaigns from various platforms including cookie.fun, yaps.kaito.ai, yap.market, pump.fun, dexscreener.com, and burnie.io', 
-    (SELECT COUNT(*) FROM campaigns WHERE platform_source IN ('cookie.fun', 'yaps.kaito.ai', 'yap.market', 'pump.fun', 'dexscreener.com', 'burnie.io'));
+    (SELECT COUNT(*) FROM campaigns WHERE "platformSource" IN ('cookie.fun', 'yaps.kaito.ai', 'yap.market', 'pump.fun', 'dexscreener.com', 'burnie.io'));
 END $$; 

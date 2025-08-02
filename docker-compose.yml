@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Frontend - Burnie Influencer Platform
+  # Frontend
   frontend:
     build:
       context: ./burnie-influencer-platform/frontend
@@ -12,12 +12,17 @@ services:
     env_file:
       - ./burnie-influencer-platform/frontend/.env
     environment:
-      # Production environment overrides
+      # Production environment overrides (from frontend/.env.production)
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=https://mindshareapi.burnie.io
       - NEXT_PUBLIC_BACKEND_URL=https://mindshareapi.burnie.io
       - NEXT_PUBLIC_AI_BACKEND_URL=https://attentionai.burnie.io
       - NEXT_PUBLIC_MINING_INTERFACE_URL=https://mining.burnie.io
+      - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=05882002bee82f700cdbcfb99c981fdd
+      - NEXT_PUBLIC_DEFAULT_CHAIN_ID=8453
+      - NEXT_PUBLIC_BASE_RPC_URL=https://mainnet.base.org
+      - NEXT_PUBLIC_ROAST_TOKEN_ADDRESS=0x1234567890123456789012345678901234567890
+      - NEXT_PUBLIC_USDC_BASE_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
     networks:
       - burnie-network
     depends_on:
@@ -36,13 +41,18 @@ services:
     env_file:
       - ./burnie-influencer-platform/typescript-backend/.env
     environment:
-      # Production environment overrides
+      # Production environment overrides (from typescript-backend/.env.production)
       - NODE_ENV=production
+      - API_HOST=0.0.0.0
+      - API_PORT=3001
       - ALLOWED_ORIGINS=https://mining.burnie.io,https://influencer.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io
       - PYTHON_AI_BACKEND_URL=https://attentionai.burnie.io
-      - TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
       - TWITTER_CLIENT_ID=Y1NzMnpZVDdrWU5EUktzZUhuNXg6MTpjaQ
       - TWITTER_CLIENT_SECRET=Gc4qgvfhFOZPYCzivFMZGIMUWtLL9CGTeFWked33K55jtStnF8
+      - TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
+      - BASE_RPC_URL=https://mainnet.base.org
+      - ROAST_TOKEN_ADDRESS=0x1234567890123456789012345678901234567890
+      - USDC_BASE_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
     networks:
       - burnie-network
     restart: unless-stopped
@@ -58,14 +68,17 @@ services:
     env_file:
       - ./burnie-influencer-platform/python-ai-backend/.env
     environment:
-      # Production environment overrides
+      # Production environment overrides (from python-ai-backend/.env.production)
       - APP_ENV=production
       - APP_DEBUG=false
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
       - TYPESCRIPT_BACKEND_URL=https://mindshareapi.burnie.io
-    volumes:
-      - ./models:/app/models
+      - LOG_LEVEL=INFO
     networks:
       - burnie-network
+    volumes:
+      - models:/app/models
     restart: unless-stopped
 
   # Mining Interface
@@ -79,14 +92,22 @@ services:
     env_file:
       - ./mining-interface/.env
     environment:
-      # Production environment overrides
+      # Production environment overrides (from mining-interface/.env.production)
       - NODE_ENV=production
       - NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io/api
       - NEXT_PUBLIC_AI_API_URL=https://attentionai.burnie.io
       - NEXT_PUBLIC_BURNIE_WS_URL=wss://mindshareapi.burnie.io/ws
-      - NEXT_PUBLIC_TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
       - NEXT_PUBLIC_TWITTER_CLIENT_ID=Y1NzMnpZVDdrWU5EUktzZUhuNXg6MTpjaQ
+      - NEXT_PUBLIC_TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
       - NEXT_PUBLIC_AGENT_STORAGE_URL=https://mindshareapi.burnie.io/api/agents
+      - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=05882002bee82f700cdbcfb99c981fdd
+      - NEXT_PUBLIC_DEFAULT_CHAIN_ID=8453
+      - NEXT_PUBLIC_BASE_RPC_URL=https://mainnet.base.org
+      - NEXT_PUBLIC_ROAST_TOKEN_ADDRESS=0x1234567890123456789012345678901234567890
+      - NEXT_PUBLIC_USDC_BASE_ADDRESS=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+      - NEXT_PUBLIC_APP_NAME=Burnie Mining Interface
+      - NEXT_PUBLIC_APP_DESCRIPTION=AI-powered content mining platform
+      - NEXT_PUBLIC_ENVIRONMENT=production
     networks:
       - burnie-network
     depends_on:
@@ -99,5 +120,4 @@ networks:
     driver: bridge
 
 volumes:
-  models:
-    driver: local 
+  models: 
