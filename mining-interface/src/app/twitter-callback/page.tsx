@@ -1,6 +1,5 @@
 'use client'
 
-import { WagmiWrapper } from '@/components/WagmiWrapper'
 import TwitterConnection from '@/components/TwitterConnection'
 
 function TwitterCallbackPageContent() {
@@ -15,9 +14,5 @@ function TwitterCallbackPageContent() {
 }
 
 export default function TwitterCallbackPage() {
-  return (
-    <WagmiWrapper>
-      <TwitterCallbackPageContent />
-    </WagmiWrapper>
-  )
+  return <TwitterCallbackPageContent />
 }

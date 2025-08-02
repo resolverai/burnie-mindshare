@@ -7,7 +7,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAuth } from '../hooks/useAuth'
 import { useTwitterConnection } from '../hooks/useTwitterConnection'
 import { ArrowPathIcon, BoltIcon, CpuChipIcon, SparklesIcon, TrophyIcon, RocketLaunchIcon, ChartBarIcon, FireIcon } from '@heroicons/react/24/outline'
-import { WagmiWrapper } from '../components/WagmiWrapper'
+
 
 // Dynamic imports for components that need authentication
 const TwitterConnection = dynamic(() => import('../components/TwitterConnection'), { ssr: false })
@@ -362,9 +362,5 @@ function HomePageContent() {
 }
 
 export default function HomePage() {
-  return (
-    <WagmiWrapper>
-      <HomePageContent />
-    </WagmiWrapper>
-  )
+  return <HomePageContent />
 } 

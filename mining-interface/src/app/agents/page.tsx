@@ -7,7 +7,7 @@ import { useEffect } from 'react'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import MinerDashboard from '@/components/MinerDashboard'
 import TwitterConnection from '@/components/TwitterConnection'
-import { WagmiWrapper } from '@/components/WagmiWrapper'
+
 
 function AgentsPageContent() {
   const { isAuthenticated, isLoading, address } = useAuth()
@@ -62,9 +62,5 @@ function AgentsPageContent() {
 }
 
 export default function AgentsPage() {
-  return (
-    <WagmiWrapper>
-      <AgentsPageContent />
-    </WagmiWrapper>
-  )
+  return <AgentsPageContent />
 } 

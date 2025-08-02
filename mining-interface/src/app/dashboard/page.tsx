@@ -1,6 +1,5 @@
 'use client'
 
-import { WagmiWrapper } from '@/components/WagmiWrapper'
 import MinerDashboard from '@/components/MinerDashboard'
 
 function DashboardPageContent() {
@@ -8,9 +7,5 @@ function DashboardPageContent() {
 }
 
 export default function DashboardPage() {
-  return (
-    <WagmiWrapper>
-      <DashboardPageContent />
-    </WagmiWrapper>
-  )
+  return <DashboardPageContent />
 }

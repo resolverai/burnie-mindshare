@@ -23,9 +23,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
     setMounted(true)
   }, [])
 
-  // Don't render anything until we're on the client side
+  // Don't render wagmi-dependent content until we're on the client side
   if (!mounted) {
-    return <div>{children}</div>
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+          <p className="text-gray-400">Initializing web3...</p>
+        </div>
+      </div>
+    )
   }
 
   return (

@@ -1,6 +1,5 @@
 'use client'
 
-import { WagmiWrapper } from '@/components/WagmiWrapper'
 import MinerDashboard from '@/components/MinerDashboard'
 
 function TeamsPageContent() {
@@ -8,9 +7,5 @@ function TeamsPageContent() {
 }
 
 export default function TeamsPage() {
-  return (
-    <WagmiWrapper>
-      <TeamsPageContent />
-    </WagmiWrapper>
-  )
+  return <TeamsPageContent />
 }
