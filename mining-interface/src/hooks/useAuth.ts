@@ -227,10 +227,14 @@ This signature proves you own this wallet.`
   const logout = useCallback(() => {
     console.log('🚪 Logging out user')
     
-    // Clear localStorage
+    // Clear all auth-related localStorage
     localStorage.removeItem('burnie_auth_user')
     localStorage.removeItem('burnie_auth_token')
     localStorage.removeItem('burnie_auth_signature')
+    // Clear Twitter OAuth data as well
+    localStorage.removeItem('twitter_oauth_state')
+    localStorage.removeItem('twitter_code_verifier')
+    localStorage.removeItem('twitter_wallet_address')
     
     // Clear auth state
     setAuthState({

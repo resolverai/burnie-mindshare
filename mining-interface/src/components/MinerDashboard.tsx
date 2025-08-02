@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAccount } from 'wagmi'
 import { useQuery } from '@tanstack/react-query'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAuth } from '../hooks/useAuth'
+import { useAuthGuard } from '../hooks/useAuthGuard'
 import { 
   HomeIcon, 
   MegaphoneIcon, 
@@ -30,17 +31,12 @@ interface MinerDashboardProps {
 export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDashboardProps) {
   const router = useRouter()
   const { address } = useAccount()
-  const { logout, isLoading } = useAuth()
+  const { logout } = useAuth()
+  const { shouldShowContent } = useAuthGuard()
   const [showNeuralKeys, setShowNeuralKeys] = useState(false)
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true)
 
-  // Handle manual logout
-  const handleLogout = () => {
-    logout()
-    router.push('/')
-  }
-
-  // Fetch user agents from centralized Burnie database
+  // Fetch user agents from centralized Burnie database (always call hooks)
   const { data: userAgents, isLoading: agentsLoading } = useQuery({
     queryKey: ['user-agents', address],
     queryFn: async () => {
@@ -64,6 +60,24 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
 
   // Get primary agent (first one or most recently used)
   const primaryAgent = userAgents?.[0] || null
+
+  // Handle manual logout
+  const handleLogout = () => {
+    logout()
+    router.push('/')
+  }
+
+  // Show loading while checking auth or redirecting (after all hooks are called)
+  if (!shouldShowContent) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading dashboard...</p>
+        </div>
+      </div>
+    )
+  }
 
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: HomeIcon, iconSolid: HomeIcon, route: '/dashboard' },
