@@ -13,9 +13,6 @@ import { WagmiWrapper } from '../components/WagmiWrapper'
 const TwitterConnection = dynamic(() => import('../components/TwitterConnection'), { ssr: false })
 const MinerDashboard = dynamic(() => import('../components/MinerDashboard'), { ssr: false })
 
-// Force dynamic rendering to prevent SSR issues
-export const revalidate = 0
-
 function HomePageContent() {
   const { isAuthenticated, isLoading, error, clearError, address, needsSignature, signIn } = useAuth()
   const { isConnected: isTwitterConnected, isLoading: isTwitterLoading, refetch: refetchTwitterStatus } = useTwitterConnection(address)

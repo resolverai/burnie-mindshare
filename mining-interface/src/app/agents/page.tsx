@@ -7,8 +7,9 @@ import { useEffect } from 'react'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import MinerDashboard from '@/components/MinerDashboard'
 import TwitterConnection from '@/components/TwitterConnection'
+import { WagmiWrapper } from '@/components/WagmiWrapper'
 
-export default function AgentsPage() {
+function AgentsPageContent() {
   const { isAuthenticated, isLoading, address } = useAuth()
   const { isConnected: isTwitterConnected, isLoading: isTwitterLoading, refetch: refetchTwitterStatus } = useTwitterConnection(address)
   const router = useRouter()
@@ -21,36 +22,49 @@ export default function AgentsPage() {
     }
   }, [isLoading, isAuthenticated, router])
 
-  // Handle Twitter connection completion
-  const handleTwitterConnected = async () => {
-    setTimeout(async () => {
-      await refetchTwitterStatus()
-    }, 500)
-  }
-
   // Show loading while checking authentication
   if (isLoading || isTwitterLoading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 flex items-center justify-center">
         <div className="text-center">
-          <ArrowPathIcon className="w-16 h-16 animate-spin text-orange-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-white mb-2">Loading Agents</h2>
-          <p className="text-gray-400">Checking authentication...</p>
+          <ArrowPathIcon className="w-12 h-12 animate-spin text-orange-500 mx-auto mb-4" />
+          <p className="text-gray-300">Loading agents...</p>
         </div>
       </div>
     )
   }
 
-  // Don't render anything if not authenticated (redirect will handle it)
-  if (!isAuthenticated) {
-    return null
-  }
-
-  // Show Twitter connection if needed
+  // Show Twitter connection if authenticated but Twitter not connected
   if (isAuthenticated && !isTwitterConnected) {
-    return <TwitterConnection onConnected={handleTwitterConnected} />
+    return (
+      <TwitterConnection 
+        onConnected={() => {
+          console.log('✅ Twitter connected from agents page')
+          refetchTwitterStatus()
+        }}
+      />
+    )
   }
 
-  // Render agents if fully authenticated
-  return <MinerDashboard activeSection="agents" />
+  // Show mining dashboard with agents focus
+  if (isAuthenticated && isTwitterConnected) {
+    return <MinerDashboard activeSection="agents" />
+  }
+
+  // This should not render due to redirect, but just in case
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 flex items-center justify-center">
+      <div className="text-center">
+        <p className="text-gray-300">Redirecting...</p>
+      </div>
+    </div>
+  )
+}
+
+export default function AgentsPage() {
+  return (
+    <WagmiWrapper>
+      <AgentsPageContent />
+    </WagmiWrapper>
+  )
 } 

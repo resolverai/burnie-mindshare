@@ -6,107 +6,60 @@ const nextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
   
-  // Disable static optimization for pages with client-side components
+  // Disable all static generation
   experimental: {
-    // Force dynamic rendering to prevent static generation issues
-    serverComponentsExternalPackages: ['@rainbow-me/rainbowkit', 'wagmi', '@tanstack/react-query']
+    serverComponentsExternalPackages: ['@rainbow-me/rainbowkit', 'wagmi', '@tanstack/react-query'],
+    esmExternals: 'loose'
   },
   
-  webpack: (config, { isServer }) => {
-    // Only apply fallbacks on the client side
-    if (!isServer) {
+  // Force dynamic rendering for all pages
+  generateStaticParams: false,
+  
+  webpack: (config, { isServer, dev }) => {
+    // Ignore optional dependencies in production builds
+    if (!dev && !isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
-        // Node.js core modules that aren't available in browsers
+        fs: false,
         net: false,
         tls: false,
-        fs: false,
-        path: false,
         crypto: false,
         stream: false,
+        url: false,
+        zlib: false,
         http: false,
         https: false,
-        zlib: false,
-        url: false,
         assert: false,
         os: false,
+        path: false,
         util: false,
         events: false,
         buffer: false,
         process: false,
-        vm: false,
-        child_process: false,
-        worker_threads: false,
-        cluster: false,
-        dgram: false,
-        dns: false,
-        readline: false,
-        repl: false,
-        v8: false,
-        perf_hooks: false,
-        async_hooks: false,
-        inspector: false,
-        // WebSocket optional dependencies
-        bufferutil: false,
-        'utf-8-validate': false,
-        // Pino logging fallbacks
-        'pino-pretty': false,
-        'pino/lib/tools': false,
-        'sonic-boom': false,
-        'thread-stream': false,
+        vm: false
       }
       
-      // Ensure that webpack doesn't try to polyfill these
-      config.resolve.alias = {
-        ...config.resolve.alias,
-        // Explicitly set these to false to prevent polyfilling
-        crypto: false,
-        stream: false,
-        http: false,
-        https: false,
-        zlib: false,
-        url: false,
-        assert: false,
-        os: false,
-        path: false,
-        // WebSocket fallbacks
-        bufferutil: false,
-        'utf-8-validate': false,
-        // Pino fallbacks
-        'pino-pretty': false,
-        'pino/lib/tools': false,
-      }
-      
-      // Ignore optional dependencies
+      // Ignore specific packages that cause issues
       config.externals = config.externals || []
       config.externals.push({
-        bufferutil: 'bufferutil',
-        'utf-8-validate': 'utf-8-validate',
-        'pino-pretty': 'pino-pretty',
-        'sonic-boom': 'sonic-boom',
-        'thread-stream': 'thread-stream',
+        'utf-8-validate': 'commonjs utf-8-validate',
+        'bufferutil': 'commonjs bufferutil',
+        'pino-pretty': 'commonjs pino-pretty'
       })
-    }
-    
-    // Disable source maps in production for better performance
-    if (process.env.NODE_ENV === 'production') {
-      config.devtool = false
     }
     
     return config
   },
   
-  // Optimize CSS loading
-  optimizeFonts: true,
-  
-  // Image optimization configuration
+  // Disable image optimization for simpler builds
   images: {
-    domains: ['localhost'],
-    formats: ['image/webp', 'image/avif'],
+    unoptimized: true
   },
   
-  // Transpile ES modules that might cause issues
-  transpilePackages: [],
+  // Disable telemetry
+  telemetry: {
+    disabled: true
+  }
 }
 
 module.exports = nextConfig
