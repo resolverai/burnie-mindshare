@@ -41,6 +41,8 @@ services:
       - ALLOWED_ORIGINS=https://mining.burnie.io,https://influencer.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io
       - PYTHON_AI_BACKEND_URL=https://attentionai.burnie.io
       - TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
+      - TWITTER_CLIENT_ID=Y1NzMnpZVDdrWU5EUktzZUhuNXg6MTpjaQ
+      - TWITTER_CLIENT_SECRET=Gc4qgvfhFOZPYCzivFMZGIMUWtLL9CGTeFWked33K55jtStnF8
     networks:
       - burnie-network
     restart: unless-stopped
@@ -83,6 +85,7 @@ services:
       - NEXT_PUBLIC_AI_API_URL=https://attentionai.burnie.io
       - NEXT_PUBLIC_BURNIE_WS_URL=wss://mindshareapi.burnie.io/ws
       - NEXT_PUBLIC_TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback
+      - NEXT_PUBLIC_TWITTER_CLIENT_ID=Y1NzMnpZVDdrWU5EUktzZUhuNXg6MTpjaQ
       - NEXT_PUBLIC_AGENT_STORAGE_URL=https://mindshareapi.burnie.io/api/agents
     networks:
       - burnie-network

@@ -80,7 +80,7 @@ const ContentMarketplace: React.FC = () => {
         if (value) queryParams.append(key, value);
       });
 
-      const response = await fetch(`http://localhost:3001/api/marketplace/content?${queryParams}`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content?${queryParams}`);
       if (response.ok) {
         const data = await response.json();
         setContent(data.data || []);
@@ -105,7 +105,7 @@ const ContentMarketplace: React.FC = () => {
     if (!selectedContent || !bidAmount) return;
 
     try {
-      const response = await fetch('http://localhost:3001/api/marketplace/bid', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/bid`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -134,7 +134,7 @@ const ContentMarketplace: React.FC = () => {
   // Purchase content directly
   const purchaseContent = async (contentItem: ContentItem) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/marketplace/content/${contentItem.id}/purchase`, {
+              const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${contentItem.id}/purchase`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

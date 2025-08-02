@@ -54,7 +54,7 @@ export class BurnieAPIClient {
   private baseURL: string;
 
   constructor() {
-    this.baseURL = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:8000/api';
+    this.baseURL = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api';
     
     this.api = axios.create({
       baseURL: this.baseURL,

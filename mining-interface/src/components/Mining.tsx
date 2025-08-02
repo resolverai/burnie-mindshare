@@ -161,7 +161,7 @@ export default function Mining() {
       setMiningStatus({ status: 'analyzing', progress: 10, currentStep: 'Connecting to AI backend...' })
       
       // Start mining session with Python AI backend
-      const response = await fetch('http://localhost:8000/api/mining/start', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000'}/api/mining/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -214,7 +214,7 @@ export default function Mining() {
 
   const connectToWebSocket = async (sessionId: string) => {
     try {
-      const ws = new WebSocket(`ws://localhost:8000/ws/${sessionId}`)
+      const ws = new WebSocket(`${process.env.NEXT_PUBLIC_BURNIE_WS_URL || 'ws://localhost:8000/ws'}/${sessionId}`)
       
       ws.onopen = () => {
         console.log('🔌 WebSocket connected')

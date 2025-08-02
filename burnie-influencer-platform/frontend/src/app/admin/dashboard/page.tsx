@@ -95,7 +95,7 @@ export default function AdminDashboard() {
       const token = getAdminToken()
       if (!token) throw new Error('No admin token')
 
-      const response = await fetch('http://localhost:3001/api/admin/campaigns', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/campaigns`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -123,7 +123,7 @@ export default function AdminDashboard() {
     try {
       setMlTraining(prev => ({ ...prev, isTraining: true, progress: 0, message: 'Starting training...' }))
       
-      const response = await fetch('http://localhost:8000/admin/ml/train-models', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_AI_BACKEND_URL || 'http://localhost:8000'}/admin/ml/train-models`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -160,7 +160,7 @@ export default function AdminDashboard() {
 
   const pollTrainingStatus = async (trainingId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/admin/ml/training-status/${trainingId}`)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_AI_BACKEND_URL || 'http://localhost:8000'}/admin/ml/training-status/${trainingId}`)
       const data = await response.json()
       
       setMlTraining(prev => ({
@@ -215,7 +215,7 @@ export default function AdminDashboard() {
       const token = getAdminToken()
       if (!token) throw new Error('No admin token')
 
-      const response = await fetch('http://localhost:3001/api/admin/campaigns', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/campaigns`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -458,7 +458,7 @@ export default function AdminDashboard() {
                   </button>
                   
                   <a
-                    href="http://localhost:8000/docs#/Admin%20ML"
+                    href={`${process.env.NEXT_PUBLIC_AI_BACKEND_URL || 'http://localhost:8000'}/docs#/Admin%20ML`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"

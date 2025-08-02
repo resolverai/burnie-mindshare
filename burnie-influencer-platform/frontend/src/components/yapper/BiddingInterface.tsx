@@ -67,7 +67,7 @@ export default function BiddingInterface() {
       params.append('sort_by', selectedSort)
       
       try {
-        const response = await fetch(`http://localhost:3001/api/marketplace/content?${params}`)
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content?${params}`)
         if (response.ok) {
           const data = await response.json()
           return data.data || []
@@ -85,7 +85,7 @@ export default function BiddingInterface() {
     if (!bidAmount || !showBidModal) return
 
     try {
-      const response = await fetch('http://localhost:3001/api/marketplace/bid', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/bid`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
