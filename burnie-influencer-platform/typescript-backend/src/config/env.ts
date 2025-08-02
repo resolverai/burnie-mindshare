@@ -30,8 +30,8 @@ const envSchema = Joi.object({
   JWT_EXPIRES_IN: Joi.string().default('7d'),
   JWT_REFRESH_EXPIRES_IN: Joi.string().default('30d'),
 
-  // CORS Configuration
-  ALLOWED_ORIGINS: Joi.string().default('http://localhost:3000,http://localhost:3004,https://mining.burnie.io,https://influencer.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io'),
+  // CORS Configuration - MUST be explicitly set in environment
+  ALLOWED_ORIGINS: Joi.string().required(),
 
   // Blockchain - MVP Base Network Only
   BASE_RPC_URL: Joi.string().uri().default('https://mainnet.base.org'),

@@ -36,20 +36,13 @@ if (env.api.nodeEnv === 'development') {
 }
 app.use(compression());
 
-// CORS configuration - Allow all localhost origins in development
+// CORS configuration - ALWAYS use environment variables only
 const corsOptions = {
   origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    // In development, allow all localhost origins
-    if (env.api.nodeEnv === 'development') {
-      if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
-        return callback(null, true);
-      }
-    }
-    
-    // Check against configured allowed origins
+    // Check against configured allowed origins from environment only
     if (env.cors.allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
@@ -70,7 +63,11 @@ app.use(express.urlencoded({ extended: true }));
 
 // Handle preflight requests for all routes
 app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  const origin = req.headers.origin;
+  // Only set origin header if it's in our allowed origins
+  if (origin && env.cors.allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.header('Access-Control-Allow-Credentials', 'true');

@@ -3,6 +3,30 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Accept build arguments for NEXT_PUBLIC_ variables
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_BACKEND_URL
+ARG NEXT_PUBLIC_AI_BACKEND_URL
+ARG NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+ARG NEXT_PUBLIC_DEFAULT_CHAIN_ID
+ARG NEXT_PUBLIC_BASE_RPC_URL
+ARG NEXT_PUBLIC_ROAST_TOKEN_ADDRESS
+ARG NEXT_PUBLIC_USDC_BASE_ADDRESS
+ARG NEXT_PUBLIC_MINING_INTERFACE_URL
+ARG NODE_ENV
+
+# Set environment variables from build args
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
+ENV NEXT_PUBLIC_AI_BACKEND_URL=${NEXT_PUBLIC_AI_BACKEND_URL}
+ENV NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID}
+ENV NEXT_PUBLIC_DEFAULT_CHAIN_ID=${NEXT_PUBLIC_DEFAULT_CHAIN_ID}
+ENV NEXT_PUBLIC_BASE_RPC_URL=${NEXT_PUBLIC_BASE_RPC_URL}
+ENV NEXT_PUBLIC_ROAST_TOKEN_ADDRESS=${NEXT_PUBLIC_ROAST_TOKEN_ADDRESS}
+ENV NEXT_PUBLIC_USDC_BASE_ADDRESS=${NEXT_PUBLIC_USDC_BASE_ADDRESS}
+ENV NEXT_PUBLIC_MINING_INTERFACE_URL=${NEXT_PUBLIC_MINING_INTERFACE_URL}
+ENV NODE_ENV=${NODE_ENV:-production}
+
 # Copy package files
 COPY package*.json ./
 COPY bun.lock* ./
@@ -13,10 +37,7 @@ RUN npm install
 # Copy source code
 COPY . .
 
-# Copy environment file
-COPY .env* ./
-
-# Build the application
+# Build the application (NEXT_PUBLIC_ vars will be embedded)
 RUN npm run build
 
 # Production stage
@@ -32,7 +53,6 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/.env* ./
 
 # Set correct permissions
 USER nextjs
@@ -42,4 +62,4 @@ EXPOSE 3004
 ENV NODE_ENV=production
 ENV PORT=3004
 
-CMD ["node", "server.js"] 
+CMD ["node", "server.js"]
