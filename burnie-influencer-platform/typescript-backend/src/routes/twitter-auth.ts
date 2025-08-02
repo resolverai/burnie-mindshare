@@ -127,6 +127,29 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
     // Check for duplicate code processing
     if (processedCodes.has(code)) {
       logger.warn(`⚠️ Authorization code already processed for wallet: ${walletAddress}`);
+      
+      // Check if user already has a Twitter connection
+      const userRepository: Repository<User> = AppDataSource.getRepository(User);
+      const existingUser = await userRepository.findOne({
+        where: { walletAddress: walletAddress.toLowerCase() }
+      });
+
+      if (existingUser && existingUser.twitterHandle) {
+        logger.info(`✅ User already has Twitter connection: ${existingUser.twitterHandle}`);
+        return res.status(200).json({
+          success: true,
+          message: 'Twitter account already connected',
+          data: {
+            user: {
+              walletAddress: existingUser.walletAddress,
+              twitterHandle: existingUser.twitterHandle,
+              twitterUserId: existingUser.twitterUserId
+            }
+          }
+        });
+      }
+      
+      // If no connection exists, this is a real duplicate code issue
       return res.status(400).json({
         success: false,
         error: 'This authorization code has already been processed'

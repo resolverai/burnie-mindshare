@@ -56,9 +56,10 @@ export default function TwitterConnection({ onConnected }: TwitterConnectionProp
       if (data.success && data.data.oauth_url) {
         console.log('✅ Got OAuth URL, opening popup...')
         
-        // Store state and code verifier for later use
+        // Store state, code verifier, and wallet address for later use
         localStorage.setItem('twitter_oauth_state', data.data.state)
         localStorage.setItem('twitter_code_verifier', data.data.code_verifier)
+        localStorage.setItem('twitter_wallet_address', address || '')
 
         // Step 2: Open Twitter OAuth in a new window
         const authWindow = window.open(
