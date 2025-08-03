@@ -152,7 +152,7 @@ export default function Mining() {
       }
       
       console.log('🔍 Mining: Fetching agents for wallet:', address)
-      const apiUrl = `${process.env.NEXT_PUBLIC_BURNIE_API_URL}/agents/user/${address}`
+      const apiUrl = `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/user/${address}`
       console.log('🔍 Mining: API URL:', apiUrl)
       
       const response = await fetch(apiUrl)
@@ -559,7 +559,7 @@ export default function Mining() {
       const reviewItem = contentReviewItems[index]
       
       // Send to backend for publication to Burnie influencer platform
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/marketplace/approve`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -610,7 +610,7 @@ export default function Mining() {
       const item = contentReviewItems[index]
       
       // Make API call to record rejection in database
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/marketplace/reject`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/reject`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -37,7 +37,7 @@ export default function TwitterConnection({ onConnected }: TwitterConnectionProp
       console.log('🔗 Starting Twitter OAuth flow for address:', address)
 
       // Step 1: Get Twitter OAuth URL from backend
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/twitter-auth/twitter/url`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/twitter-auth/twitter/url`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -146,7 +146,7 @@ export default function TwitterConnection({ onConnected }: TwitterConnectionProp
     try {
       console.log('🔍 Checking Twitter connection status as fallback...')
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BURNIE_API_URL}/twitter-auth/twitter/status/${address}`
+        `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/twitter-auth/twitter/status/${address}`
       )
       
       if (response.ok) {

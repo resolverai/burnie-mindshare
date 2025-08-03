@@ -77,7 +77,7 @@ export default function YapperAnalytics() {
 
       try {
         setIsLoading(true)
-        const baseUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL?.replace('/api', '') || 'http://localhost:3001'
+        const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'
 
         const [
           financialResponse,

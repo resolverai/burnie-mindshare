@@ -111,7 +111,7 @@ function TwitterCallbackPageContent() {
         setStatus('Exchanging authorization code...')
 
         // Send the code to backend to complete OAuth flow
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/twitter-auth/exchange-code`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/twitter-auth/exchange-code`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

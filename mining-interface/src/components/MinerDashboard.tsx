@@ -45,7 +45,7 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
       if (!address) return []
       
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/agents/user/${address}`)
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/user/${address}`)
         if (response.ok) {
           const data = await response.json()
           return data.data || []

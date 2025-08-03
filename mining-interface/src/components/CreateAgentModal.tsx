@@ -301,8 +301,8 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
       // Call backend API with config (model preferences stored in agent config)
       const isEditing = !!editingAgent
       const url = isEditing 
-        ? `${process.env.NEXT_PUBLIC_BURNIE_API_URL}/agents/${editingAgent.id}/update`
-        : `${process.env.NEXT_PUBLIC_BURNIE_API_URL}/agents/create`
+        ? `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/${editingAgent.id}/update`
+        : `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/create`
       
       const requestBody = isEditing ? {
         name: formData.name,

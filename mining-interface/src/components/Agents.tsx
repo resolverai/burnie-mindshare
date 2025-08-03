@@ -41,7 +41,7 @@ function Agents() {
       if (!address) return []
       
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/agents/user/${address}`)
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/user/${address}`)
         if (response.ok) {
           const data = await response.json()
           return data.data || []
@@ -61,7 +61,7 @@ function Agents() {
     mutationFn: async (agentId: string) => {
       if (!address) throw new Error('No wallet connected')
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/agents/${agentId}/update-learning`, {
+              const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/${agentId}/update-learning`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -90,7 +90,7 @@ function Agents() {
       
       const statusPromises = agents.map(async (agent) => {
         try {
-          const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/agents/${agent.id}/learning-status`)
+          const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/${agent.id}/learning-status`)
           if (response.ok) {
             const data = await response.json()
             return { [agent.id]: data.data }
