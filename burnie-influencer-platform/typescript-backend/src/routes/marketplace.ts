@@ -1109,14 +1109,14 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       bidding_enabled_at: content.biddingEnabledAt?.toISOString()
     }));
 
-    res.json({
+    return res.json({
       success: true,
       data: formattedContents
     });
 
   } catch (error) {
     console.error('❌ Error fetching miner content by wallet:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch miner content'
     });
@@ -1174,14 +1174,14 @@ router.get('/my-content/miner/:userId', async (req: Request, res: Response) => {
       bidding_enabled_at: content.biddingEnabledAt?.toISOString()
     }));
 
-    res.json({
+    return res.json({
       success: true,
       data: formattedContents
     });
 
   } catch (error) {
     console.error('❌ Error fetching miner content:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch miner content'
     });
@@ -1257,14 +1257,14 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
       }
     }));
 
-    res.json({
+    return res.json({
       success: true,
       data: formattedContents
     });
 
   } catch (error) {
     console.error('❌ Error fetching yapper content by wallet:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch yapper content'
     });
@@ -1326,14 +1326,14 @@ router.get('/my-content/yapper/:userId', async (req: Request, res: Response) => 
       }
     }));
 
-    res.json({
+    return res.json({
       success: true,
       data: formattedContents
     });
 
   } catch (error) {
     console.error('❌ Error fetching yapper content:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch yapper content'
     });
@@ -1399,7 +1399,7 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
 
     const updatedContent = await contentRepository.save(content);
 
-    res.json({
+    return res.json({
       success: true,
       data: {
         id: updatedContent.id,
@@ -1413,7 +1413,7 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('❌ Error updating bidding settings:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Failed to update bidding settings'
     });
@@ -1510,10 +1510,10 @@ router.get('/analytics/content-stats/:walletAddress', async (req: Request, res: 
       avgBidAmount: parseFloat(bidStats.avgBidAmount) || 0
     };
 
-    res.json({ data: result });
+    return res.json({ data: result });
   } catch (error) {
     console.error('Error fetching content stats:', error);
-    res.status(500).json({ error: 'Failed to fetch content stats' });
+    return res.status(500).json({ error: 'Failed to fetch content stats' });
   }
 });
 
@@ -1569,10 +1569,10 @@ router.get('/analytics/bidding-trends/:walletAddress', async (req: Request, res:
       });
     }
 
-    res.json({ data: trends });
+    return res.json({ data: trends });
   } catch (error) {
     console.error('Error fetching bidding trends:', error);
-    res.status(500).json({ error: 'Failed to fetch bidding trends' });
+    return res.status(500).json({ error: 'Failed to fetch bidding trends' });
   }
 });
 
@@ -1644,10 +1644,10 @@ router.get('/analytics/top-content/:walletAddress', async (req: Request, res: Re
       })
       .slice(0, 5);
 
-    res.json({ data: result });
+    return res.json({ data: result });
   } catch (error) {
     console.error('Error fetching top content:', error);
-    res.status(500).json({ error: 'Failed to fetch top content' });
+    return res.status(500).json({ error: 'Failed to fetch top content' });
   }
 });
 
@@ -1698,10 +1698,10 @@ router.get('/analytics/yapper-engagement/:walletAddress', async (req: Request, r
       wonContent: parseInt(data.wonContent) || 0
     }));
 
-    res.json({ data: yappers });
+    return res.json({ data: yappers });
   } catch (error) {
     console.error('Error fetching yapper engagement:', error);
-    res.status(500).json({ error: 'Failed to fetch yapper engagement' });
+    return res.status(500).json({ error: 'Failed to fetch yapper engagement' });
   }
 });
 
@@ -1780,10 +1780,10 @@ router.get('/analytics/agent-performance/:walletAddress', async (req: Request, r
       };
     });
 
-    res.json({ data: agentPerformance });
+    return res.json({ data: agentPerformance });
   } catch (error) {
     console.error('Error fetching agent performance:', error);
-    res.status(500).json({ error: 'Failed to fetch agent performance' });
+    return res.status(500).json({ error: 'Failed to fetch agent performance' });
   }
 });
 
@@ -1861,7 +1861,7 @@ router.get('/analytics/time-analysis/:walletAddress', async (req: Request, res: 
       };
     });
 
-    res.json({ 
+    return res.json({ 
       data: {
         heatmap,
         peakTimes
@@ -1869,7 +1869,7 @@ router.get('/analytics/time-analysis/:walletAddress', async (req: Request, res: 
     });
   } catch (error) {
     console.error('Error fetching time analysis:', error);
-    res.status(500).json({ error: 'Failed to fetch time analysis' });
+    return res.status(500).json({ error: 'Failed to fetch time analysis' });
   }
 });
 
@@ -1971,10 +1971,10 @@ router.get('/analytics/content-categories/:walletAddress', async (req: Request, 
         };
       });
 
-    res.json({ data: categoryPerformance });
+    return res.json({ data: categoryPerformance });
   } catch (error) {
     console.error('Error fetching content categories:', error);
-    res.status(500).json({ error: 'Failed to fetch content categories' });
+    return res.status(500).json({ error: 'Failed to fetch content categories' });
   }
 });
 
@@ -2038,7 +2038,7 @@ router.get('/analytics/yapper/financial/:walletAddress', async (req: Request, re
     const netProfit = mindshareValue - totalSpent;
     const roiPercentage = totalSpent > 0 ? (netProfit / totalSpent) * 100 : 0;
 
-    res.json({
+    return res.json({
       data: {
         overview: {
           totalSpent: parseFloat(stats?.totalSpent) || 0,
@@ -2066,7 +2066,7 @@ router.get('/analytics/yapper/financial/:walletAddress', async (req: Request, re
     });
   } catch (error) {
     console.error('Error fetching yapper financial analytics:', error);
-    res.status(500).json({ error: 'Failed to fetch financial analytics' });
+    return res.status(500).json({ error: 'Failed to fetch financial analytics' });
   }
 });
 
@@ -2146,7 +2146,7 @@ router.get('/analytics/yapper/bidding/:walletAddress', async (req: Request, res:
       ORDER BY "bidCount" DESC
     `, [user.id]);
 
-    res.json({
+    return res.json({
       data: {
         competition: competitionData.map((comp: any) => ({
           contentId: comp.contentId,
@@ -2174,7 +2174,7 @@ router.get('/analytics/yapper/bidding/:walletAddress', async (req: Request, res:
     });
   } catch (error) {
     console.error('Error fetching yapper bidding analytics:', error);
-    res.status(500).json({ error: 'Failed to fetch bidding analytics' });
+    return res.status(500).json({ error: 'Failed to fetch bidding analytics' });
   }
 });
 
@@ -2286,7 +2286,7 @@ router.get('/analytics/yapper/mindshare/:walletAddress', async (req: Request, re
       });
     }
 
-    res.json({
+    return res.json({
       data: {
         overview: {
           totalMindshare: platforms.reduce((sum, p) => sum + p.currentScore, 0),
@@ -2306,7 +2306,7 @@ router.get('/analytics/yapper/mindshare/:walletAddress', async (req: Request, re
     });
   } catch (error) {
     console.error('Error fetching yapper mindshare analytics:', error);
-    res.status(500).json({ error: 'Failed to fetch mindshare analytics' });
+    return res.status(500).json({ error: 'Failed to fetch mindshare analytics' });
   }
 });
 
@@ -2429,7 +2429,7 @@ router.get('/analytics/yapper/portfolio/:walletAddress', async (req: Request, re
       data.avgROI = data.totalInvestment > 0 ? ((data.totalGain / data.totalInvestment - 1) * 100).toFixed(1) : '0.0';
     });
 
-    res.json({
+    return res.json({
       data: {
         overview: {
           totalContent: portfolioData.length,
@@ -2455,7 +2455,7 @@ router.get('/analytics/yapper/portfolio/:walletAddress', async (req: Request, re
     });
   } catch (error) {
     console.error('Error fetching yapper portfolio analytics:', error);
-    res.status(500).json({ error: 'Failed to fetch portfolio analytics' });
+    return res.status(500).json({ error: 'Failed to fetch portfolio analytics' });
   }
 });
 
