@@ -46,6 +46,36 @@ export class ContentMarketplace {
   @Column({ type: 'jsonb', nullable: true })
   generationMetadata?: any;
 
+  @Column({ type: 'varchar', length: 50, default: 'pending' })
+  approvalStatus!: string; // 'pending', 'approved', 'rejected'
+
+  @Column({ type: 'integer', nullable: true })
+  agentId?: number; // ID of the agent used for content generation
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  agentName?: string; // Name of the agent used
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  walletAddress?: string; // Wallet address of the miner who created this content
+
+  @Column({ type: 'timestamp', nullable: true })
+  approvedAt?: Date; // When the content was approved
+
+  @Column({ type: 'timestamp', nullable: true })
+  rejectedAt?: Date; // When the content was rejected
+
+  @Column({ type: 'boolean', default: false })
+  isBiddable!: boolean; // Whether content is available for bidding
+
+  @Column({ type: 'timestamp', nullable: true })
+  biddingEndDate?: Date | null; // When bidding ends for this content
+
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true })
+  biddingAskPrice?: number | null; // Miner's ask price for bidding
+
+  @Column({ type: 'timestamp', nullable: true })
+  biddingEnabledAt?: Date | null; // When bidding was enabled
+
   // Relations
   @ManyToOne(() => User, user => user.id)
   @JoinColumn({ name: 'creatorId' })

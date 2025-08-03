@@ -33,8 +33,11 @@ const PROVIDER_OPTIONS = [
       'o1-mini'           // Smaller reasoning model
     ],
     imageModels: [
-      'dall-e-3',         // Latest image generation
-      'dall-e-2'          // Previous generation
+      'gpt-image-1',      // Latest dedicated image generation model (April 2025)
+      'gpt-4o',           // Direct image generation via responses API
+      'gpt-4o-mini',      // Direct image generation via responses API
+      'dall-e-3',         // Previous generation dedicated image model
+      'dall-e-2'          // Legacy image model
     ],
     audioModels: [
       'tts-1-hd',         // High quality text-to-speech
@@ -209,7 +212,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
       })
       setModelPreferences({
         text: editingAgent.config?.modelPreferences?.text || { provider: 'openai', model: 'gpt-4o' },
-        image: editingAgent.config?.modelPreferences?.image || { provider: 'openai', model: 'dall-e-3' },
+        image: editingAgent.config?.modelPreferences?.image || { provider: 'openai', model: 'gpt-4o' },
         video: editingAgent.config?.modelPreferences?.video || { provider: 'replicate', model: 'runway-ml/gen-2' },
         audio: editingAgent.config?.modelPreferences?.audio || { provider: 'openai', model: 'tts-1-hd' }
       })
@@ -218,7 +221,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
 
   const [modelPreferences, setModelPreferences] = useState<ContentTypeModelPreferences>({
     text: editingAgent?.config?.modelPreferences?.text || { provider: 'openai', model: 'gpt-4o' },
-    image: editingAgent?.config?.modelPreferences?.image || { provider: 'openai', model: 'dall-e-3' },
+    image: editingAgent?.config?.modelPreferences?.image || { provider: 'openai', model: 'gpt-4o' },
     video: editingAgent?.config?.modelPreferences?.video || { provider: 'replicate', model: 'runway-ml/gen-2' },
     audio: editingAgent?.config?.modelPreferences?.audio || { provider: 'openai', model: 'tts-1-hd' }
   })

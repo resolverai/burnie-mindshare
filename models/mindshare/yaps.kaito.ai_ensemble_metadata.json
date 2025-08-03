@@ -1,0 +1,65 @@
+{
+  "platform_source": "yaps.kaito.ai",
+  "model_type": "ensemble",
+  "algorithms": [
+    "random_forest",
+    "gradient_boosting",
+    "linear_regression",
+    "ridge_regression",
+    "svr"
+  ],
+  "training_samples": 40,
+  "test_samples": 10,
+  "feature_count": 30,
+  "individual_metrics": {
+    "random_forest": {
+      "mse": 0.07662087018669954,
+      "rmse": 0.2768047510190162,
+      "mae": 0.22177849999999869,
+      "r2": 0.6724048629261251,
+      "cv_mean": 0.1970378960025086,
+      "cv_std": 0.480392696126052
+    },
+    "gradient_boosting": {
+      "mse": 0.11713226085223068,
+      "rmse": 0.3422459069912023,
+      "mae": 0.2817713968022719,
+      "r2": 0.49919703396529314,
+      "cv_mean": -0.12550309767847562,
+      "cv_std": 0.7339789978699663
+    },
+    "linear_regression": {
+      "mse": 0.07956785181721232,
+      "rmse": 0.2820777407333169,
+      "mae": 0.22947375805657017,
+      "r2": 0.6598049427105281,
+      "cv_mean": -0.5158084981940856,
+      "cv_std": 1.8120490565996101
+    },
+    "ridge_regression": {
+      "mse": 0.08055562327423552,
+      "rmse": 0.2838232253960826,
+      "mae": 0.21992875467248058,
+      "r2": 0.6555816922427027,
+      "cv_mean": 0.5162933864667614,
+      "cv_std": 0.22004135273980072
+    },
+    "svr": {
+      "mse": 0.08057295235641085,
+      "rmse": 0.28385375170395555,
+      "mae": 0.24491384094361734,
+      "r2": 0.6555076011623383,
+      "cv_mean": 0.3308601492421011,
+      "cv_std": 0.2729620960225454
+    }
+  },
+  "ensemble_metrics": {
+    "mse": 0.066922420730207,
+    "rmse": 0.2586936812722858,
+    "mae": 0.2102146379229577,
+    "r2": 0.7138709135121082
+  },
+  "trained_at": "2025-08-02T18:53:03.262987",
+  "ensemble_path": "/Users/taran/Documents/devdock/burnie-mindshare/burnie-influencer-platform/python-ai-backend/app/utils/../../../../models/mindshare/yaps.kaito.ai_ensemble_models.pkl",
+  "scaler_path": "/Users/taran/Documents/devdock/burnie-mindshare/burnie-influencer-platform/python-ai-backend/app/utils/../../../../models/mindshare/yaps.kaito.ai_ensemble_scaler.pkl"
+}

@@ -32,7 +32,22 @@ logger = logging.getLogger(__name__)
 class MindshareMLTrainer:
     """Advanced ML training system for mindshare prediction models"""
     
-    def __init__(self, models_dir: str = "/app/models/mindshare"):
+    def __init__(self, models_dir: str = None):
+        # Smart directory detection for both Docker and localhost
+        if models_dir is None:
+            # Check environment variable first
+            models_dir = os.getenv('MODELS_DIR')
+            if not models_dir:
+                # Auto-detect environment
+                if os.path.exists('/app'):
+                    # Running in Docker container
+                    models_dir = "/app/models/mindshare"
+                else:
+                    # Running on localhost - use relative path from project root
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    project_root = os.path.join(current_dir, '..', '..', '..', '..')
+                    models_dir = os.path.join(project_root, 'models', 'mindshare')
+        
         self.models_dir = models_dir
         self.models = {}
         self.scalers = {}

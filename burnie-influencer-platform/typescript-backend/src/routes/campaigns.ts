@@ -954,6 +954,8 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
       qualityScore: content_data.quality_score || 80,
       askingPrice: asking_price || env.platform.minimumBidAmount,
       isAvailable: true,
+      approvalStatus: 'approved', // Auto-approve in MVP
+      approvedAt: new Date(),
       generationMetadata: content_data.generation_metadata || {}
     });
 

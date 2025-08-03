@@ -74,10 +74,15 @@ class ConnectionManager:
     async def send_progress_update(self, session_id: str, data: dict):
         if session_id in self.active_connections:
             try:
-                await self.active_connections[session_id].send_text(json.dumps(data))
+                websocket = self.active_connections[session_id]
+                message = json.dumps(data)
+                await websocket.send_text(message)
+                logger.debug(f"📡 Sent WebSocket update to {session_id}: {data.get('type', 'unknown')} - {data.get('current_step', 'N/A')}")
             except Exception as e:
                 logger.error(f"Error sending progress update to {session_id}: {e}")
                 self.disconnect(session_id)
+        else:
+            logger.warning(f"⚠️ No active WebSocket connection for session {session_id}")
 
     async def broadcast_to_user(self, user_id: int, data: dict):
         """Send update to all sessions for a specific user"""
@@ -91,11 +96,25 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # Pydantic models for API
-class StartMiningRequest(BaseModel):
-    user_id: int
+class CampaignAgentPair(BaseModel):
+    """Represents a campaign and its selected agent"""
     campaign_id: int
+    agent_id: int
     campaign_context: dict
+
+class StartMiningRequest(BaseModel):
+    """Request model for starting content generation"""
+    wallet_address: str  # Use wallet address to look up user
+    # Support both single and multiple campaigns
+    campaign_id: Optional[int] = None  # For backward compatibility
+    agent_id: Optional[int] = None     # For backward compatibility
+    campaign_context: Optional[dict] = None  # For backward compatibility
+    
+    # New multi-campaign support
+    campaigns: Optional[List[CampaignAgentPair]] = None
+    
     user_preferences: Optional[dict] = None
+    user_api_keys: Optional[Dict[str, str]] = None  # API keys from Neural Keys interface
 
 class MiningStatusResponse(BaseModel):
     session_id: str
@@ -171,38 +190,97 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 # Content generation endpoints
 @app.post("/api/mining/start", response_model=dict)
 async def start_mining(request: StartMiningRequest, background_tasks: BackgroundTasks):
-    """Start the multi-agentic content mining process"""
+    """Start the multi-agentic content mining process with user's agent configuration"""
     try:
+        logger.info(f"🎯 Starting mining session for wallet: {request.wallet_address}")
+        
+        # Look up user by wallet address
+        from app.database.repositories.user_repository import UserRepository
+        user_repo = UserRepository()
+        
+        user = user_repo.get_user_by_wallet_address(request.wallet_address)
+        if not user:
+            # Create user if not exists
+            user = user_repo.create_user_from_wallet(request.wallet_address)
+            logger.info(f"✅ Created new user for wallet: {request.wallet_address}")
+        
+        user_id = user.get('id')
+        logger.info(f"🔍 Found user ID: {user_id} for wallet: {request.wallet_address}")
+        
+        # Determine if this is single or multiple campaign request
+        campaigns_to_process = []
+        
+        if request.campaigns:
+            # Multiple campaigns mode
+            campaigns_to_process = request.campaigns
+        elif request.campaign_id and request.agent_id:
+            # Single campaign mode (backward compatibility)
+            campaigns_to_process = [CampaignAgentPair(
+                campaign_id=request.campaign_id,
+                agent_id=request.agent_id,
+                campaign_context=request.campaign_context or {}
+            )]
+        else:
+            raise HTTPException(status_code=400, detail="Either campaigns list or single campaign_id and agent_id are required")
+        
+        # Validate API keys first
+        if not request.user_api_keys:
+            raise HTTPException(status_code=400, detail="API keys are required. Please configure at least your text generation API key in Neural Keys.")
+        
+        # Count available API keys and categorize them
+        text_providers = ['openai', 'anthropic']
+        visual_providers = ['openai', 'google', 'replicate', 'stability']
+        
+        available_text_keys = [k for k in text_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
+        available_visual_keys = [k for k in visual_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
+        available_all_keys = [k for k, v in request.user_api_keys.items() if v and v.strip()]
+        
+        # Text generation is mandatory
+        if not available_text_keys:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Text generation API key is required. Please configure OpenAI or Anthropic API key in Neural Keys. Text content is mandatory for Twitter posts."
+            )
+        
         # Generate unique session ID
-        session_id = f"user_{request.user_id}_{uuid.uuid4().hex[:8]}"
+        session_id = f"user_{user_id}_{uuid.uuid4().hex[:8]}"
         
-        # Create mining session
-        mining_session = MiningSession(
-            session_id=session_id,
-            user_id=request.user_id,
-            campaign_id=request.campaign_id,
-            campaign_context=request.campaign_context,
-            user_preferences=request.user_preferences or {}
-        )
+        # Determine generation capabilities
+        generation_message = f"Mining process initiated for {len(campaigns_to_process)} campaign(s). "
+        if available_visual_keys:
+            generation_message += f"Text generation enabled with {available_text_keys[0].upper()}. Visual content generation available with {len(available_visual_keys)} provider(s)."
+            generation_mode = "full_multimodal"
+        else:
+            generation_message += f"Text generation enabled with {available_text_keys[0].upper()}. Visual content will be skipped (no visual API keys available)."
+            generation_mode = "text_only"
         
-        # Add to progress tracker
-        progress_tracker.add_session(session_id, mining_session)
-        
-        # Start background content generation
+        # Start background content generation for multiple campaigns
         background_tasks.add_task(
-            run_content_generation,
+            run_multi_campaign_generation,
             session_id,
-            mining_session
+            user_id, # Pass user_id
+            campaigns_to_process,
+            request.user_preferences or {},
+            request.user_api_keys
         )
         
-        logger.info(f"🚀 Started mining session: {session_id} for user {request.user_id}")
+        logger.info(f"🚀 Started mining session: {session_id} for user {request.wallet_address} with {len(campaigns_to_process)} campaign(s) (Text: {len(available_text_keys)} keys, Visual: {len(available_visual_keys)} keys)")
         
         return {
             "session_id": session_id,
             "status": "started",
-            "message": "Mining process initiated. Connect to WebSocket for real-time updates."
+            "message": generation_message,
+            "campaigns_count": len(campaigns_to_process),
+            "api_keys_status": {
+                "text_providers_available": available_text_keys,
+                "visual_providers_available": available_visual_keys,
+                "total_keys_configured": len(available_all_keys),
+                "generation_mode": generation_mode
+            }
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Error starting mining: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start mining: {str(e)}")
@@ -283,11 +361,156 @@ async def get_active_sessions():
         logger.error(f"❌ Error getting active sessions: {e}")
         raise HTTPException(status_code=500, detail="Failed to get active sessions")
 
-# Background task for content generation
-async def run_content_generation(session_id: str, mining_session: MiningSession):
-    """Background task that runs the CrewAI multi-agentic content generation"""
+# Background task for multi-campaign content generation
+async def run_multi_campaign_generation(
+    session_id: str, 
+    user_id: int,  # Back to int since it's the database primary key
+    campaigns: List[CampaignAgentPair], 
+    user_preferences: dict, 
+    user_api_keys: Dict[str, str]
+):
+    """Background task that runs content generation for multiple campaigns"""
     try:
-        logger.info(f"🧠 Starting content generation for session: {session_id}")
+        logger.info(f"🧠 Starting multi-campaign generation for session: {session_id} with {len(campaigns)} campaigns")
+        
+        # Wait for WebSocket connection to be established before sending updates
+        await asyncio.sleep(2)  # Give frontend 2 seconds to establish WebSocket connection
+        
+        # Check if WebSocket is connected before proceeding
+        max_wait_time = 10  # Maximum 10 seconds to wait for WebSocket
+        wait_count = 0
+        while session_id not in manager.active_connections and wait_count < max_wait_time:
+            await asyncio.sleep(1)
+            wait_count += 1
+            logger.info(f"⏳ Waiting for WebSocket connection for session: {session_id} ({wait_count}/{max_wait_time})")
+        
+        if session_id not in manager.active_connections:
+            logger.warning(f"⚠️ WebSocket not connected for session: {session_id}, proceeding anyway")
+        else:
+            logger.info(f"✅ WebSocket connection confirmed for session: {session_id}")
+        
+        # Initialize progress tracking
+        await manager.send_progress_update(session_id, {
+            "type": "progress_update",
+            "session_id": session_id,
+            "progress": 5,
+            "current_step": f"Starting content generation for {len(campaigns)} campaigns...",
+            "total_campaigns": len(campaigns),
+            "completed_campaigns": 0
+        })
+        
+        generated_content_list = []
+        
+        # Process each campaign individually
+        for index, campaign_pair in enumerate(campaigns):
+            try:
+                campaign_progress = int(10 + (80 * index / len(campaigns)))
+                await manager.send_progress_update(session_id, {
+                    "type": "progress_update",
+                    "session_id": session_id,
+                    "progress": campaign_progress,
+                    "current_step": f"Generating content for campaign {index + 1} of {len(campaigns)}...",
+                    "current_campaign": index + 1,
+                    "total_campaigns": len(campaigns)
+                })
+                
+                # Create individual mining session for this campaign
+                campaign_session_id = f"{session_id}_campaign_{campaign_pair.campaign_id}"
+                mining_session = MiningSession(
+                    session_id=campaign_session_id,
+                    user_id=user_id, # Use wallet_address
+                    campaign_id=campaign_pair.campaign_id,
+                    agent_id=campaign_pair.agent_id,
+                    campaign_context=campaign_pair.campaign_context,
+                    user_preferences=user_preferences,
+                    user_api_keys=user_api_keys
+                )
+                
+                # Add to progress tracker
+                progress_tracker.add_session(campaign_session_id, mining_session)
+                
+                # Initialize CrewAI service for this campaign
+                crew_service = CrewAIService(
+                    session_id=session_id,  # Use main session_id for WebSocket updates
+                    progress_tracker=progress_tracker,
+                    websocket_manager=manager
+                )
+                
+                # Run content generation for this specific campaign
+                result = await crew_service.generate_content(
+                    mining_session,
+                    user_api_keys=user_api_keys,
+                    agent_id=campaign_pair.agent_id
+                )
+                
+                # Format the result for this campaign
+                campaign_content = {
+                    "campaign_id": campaign_pair.campaign_id,
+                    "agent_id": campaign_pair.agent_id,
+                    "content_text": result.content_text,
+                    "quality_score": result.quality_score,
+                    "predicted_mindshare": result.predicted_mindshare,
+                    "generation_metadata": result.generation_metadata,
+                    "id": f"{session_id}_campaign_{campaign_pair.campaign_id}",
+                    "status": "completed"
+                }
+                
+                generated_content_list.append(campaign_content)
+                
+                # Send individual campaign completion update
+                await manager.send_progress_update(session_id, {
+                    "type": "campaign_completed",
+                    "session_id": session_id,
+                    "campaign_content": campaign_content,
+                    "completed_campaigns": index + 1,
+                    "total_campaigns": len(campaigns),
+                    "progress": int(10 + (80 * (index + 1) / len(campaigns)))
+                })
+                
+                logger.info(f"✅ Completed campaign {index + 1}/{len(campaigns)} for session: {session_id}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error generating content for campaign {campaign_pair.campaign_id}: {e}")
+                # Add failed campaign to results
+                failed_content = {
+                    "campaign_id": campaign_pair.campaign_id,
+                    "agent_id": campaign_pair.agent_id,
+                    "error": str(e),
+                    "status": "failed"
+                }
+                generated_content_list.append(failed_content)
+        
+        # Send final completion message with all results
+        await manager.send_progress_update(session_id, {
+            "type": "completion",
+            "session_id": session_id,
+            "status": "completed",
+            "progress": 100,
+            "current_step": f"All {len(campaigns)} campaigns completed!",
+            "generated_content": generated_content_list,
+            "total_campaigns": len(campaigns),
+            "completed_campaigns": len([c for c in generated_content_list if c.get("status") == "completed"])
+        })
+        
+        logger.info(f"✅ Multi-campaign generation completed for session: {session_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error in multi-campaign generation for session {session_id}: {e}")
+        
+        await manager.send_progress_update(session_id, {
+            "type": "completion",
+            "session_id": session_id,
+            "status": "error",
+            "progress": 0,
+            "current_step": f"Error: {str(e)}",
+            "error": str(e)
+        })
+
+# Original single campaign generation (for backward compatibility)
+async def run_content_generation(session_id: str, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None):
+    """Background task that runs the CrewAI multi-agentic content generation with user's preferences"""
+    try:
+        logger.info(f"🧠 Starting content generation for session: {session_id} with agent: {agent_id}")
         
         # Initialize CrewAI service
         crew_service = CrewAIService(
@@ -296,8 +519,12 @@ async def run_content_generation(session_id: str, mining_session: MiningSession)
             websocket_manager=manager
         )
         
-        # Run the multi-agentic content generation
-        result = await crew_service.generate_content(mining_session)
+        # Run the multi-agentic content generation with user's API keys and agent config
+        result = await crew_service.generate_content(
+            mining_session,
+            user_api_keys=user_api_keys,
+            agent_id=agent_id
+        )
         
         # Update session with final result
         mining_session.status = "completed"
@@ -318,6 +545,25 @@ async def run_content_generation(session_id: str, mining_session: MiningSession)
         })
         
         logger.info(f"✅ Content generation completed for session: {session_id}")
+        
+    except ValueError as e:
+        # Handle missing API keys specifically
+        logger.error(f"❌ API key validation error for session {session_id}: {e}")
+        
+        # Update session with API key error
+        mining_session.status = "error"
+        mining_session.error = str(e)
+        mining_session.current_step = f"Configuration Error: {str(e)}"
+        
+        # Send API key error update via WebSocket
+        await manager.send_progress_update(session_id, {
+            "type": "api_key_error",
+            "session_id": session_id,
+            "status": "error",
+            "error": str(e),
+            "current_step": f"Configuration Error: {str(e)}",
+            "error_type": "missing_api_keys"
+        })
         
     except Exception as e:
         logger.error(f"❌ Error in content generation for session {session_id}: {e}")

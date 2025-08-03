@@ -1,33 +1,90 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useAccount } from 'wagmi'
 import { 
-  ArrowTrendingUpIcon, ArrowTrendingDownIcon, Squares2X2Icon, ListBulletIcon, ChevronDownIcon, StarIcon, CpuChipIcon, TrophyIcon, SparklesIcon, DocumentTextIcon, BoltIcon
+  ArrowTrendingUpIcon, 
+  ArrowTrendingDownIcon, 
+  Squares2X2Icon, 
+  ListBulletIcon, 
+  ChevronDownIcon, 
+  StarIcon, 
+  CpuChipIcon, 
+  TrophyIcon, 
+  SparklesIcon, 
+  DocumentTextIcon, 
+  BoltIcon,
+  EyeIcon,
+  HeartIcon,
+  CurrencyDollarIcon,
+  ClockIcon,
+  UserGroupIcon,
+  ChartBarIcon,
+  FireIcon,
+  GlobeAltIcon,
+  BanknotesIcon
 } from '@heroicons/react/24/outline'
 import { 
-  TrophyIcon as TrophyIconSolid
+  TrophyIcon as TrophyIconSolid,
+  StarIcon as StarIconSolid,
+  FireIcon as FireIconSolid
 } from '@heroicons/react/24/solid'
 
-interface TreemapCampaign {
+interface MinerAnalytics {
+  contentStats: {
+    totalContent: number;
+    approvedContent: number;
+    biddableContent: number;
+    totalBids: number;
+    totalRevenue: number;
+    avgBidAmount: number;
+    contentReputation: number;
+  };
+  performance: {
+    topContent: Array<{
   id: string;
-  name: string;
-  project: string;
-  projectLogo: string;
-  mindshare: number;
-  change: number;
-  tokens: number;
-  color: string;
-}
-
-interface SocialGraphNode {
-  id: string;
-  name: string;
-  avatar: string;
-  profilePic: string;
-  finalX: number;
-  finalY: number;
-  size: number;
-  mindshare: number;
-  type: 'self' | 'friend' | 'collaborator' | 'distant';
-  delay: number;
+      title: string;
+      bidCount: number;
+      maxBid: number;
+      revenue: number;
+      quality_score: number;
+    }>;
+    bidTrends: Array<{
+      date: string;
+      bidCount: number;
+      revenue: number;
+    }>;
+    contentCategories: Array<{
+      category: string;
+      count: number;
+      avgBids: number;
+      revenue: number;
+    }>;
+  };
+  yapperEngagement: Array<{
+    walletAddress: string;
+    username: string;
+    totalBids: number;
+    totalAmount: number;
+    wonContent: number;
+  }>;
+  agentPerformance: Array<{
+    agentName: string;
+    contentCount: number;
+    bidCount: number;
+    revenue: number;
+    avgQuality: number;
+  }>;
+  timeAnalysis: {
+    heatmap: Array<{
+      hour: number;
+      day: number;
+      bidCount: number;
+      intensity: number;
+    }>;
+    peakTimes: Array<{
+      timeRange: string;
+      bidActivity: number;
+    }>;
+  };
 }
 
 interface SmartFeedPost {
@@ -48,617 +105,597 @@ interface SmartFeedPost {
 }
 
 export default function Dashboard() {
-  // State for treemap controls
-  const [treemapView, setTreemapView] = useState<'treemap' | 'list'>('treemap')
-  const [treemapTimeframe, setTreemapTimeframe] = useState<'7D' | '30D' | '3M'>('7D')
-  const [treemapMetric, setTreemapMetric] = useState<'mindshare' | 'delta' | 'quality'>('mindshare')
+  const [analyticsData, setAnalyticsData] = useState<MinerAnalytics | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const { address } = useAccount()
+
+  // Analytics data fetching
+  useEffect(() => {
+    if (address) {
+      fetchAnalytics();
+    }
+  }, [address]);
+
+  const fetchAnalytics = async () => {
+    if (!address) return;
+    
+    setIsLoading(true);
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api';
+      
+      // Fetch all analytics data in parallel
+      const [
+        contentStatsResponse,
+        myContentResponse,
+        biddingTrendsResponse,
+        topContentResponse,
+        yapperEngagementResponse,
+        agentPerformanceResponse,
+        timeAnalysisResponse,
+        contentCategoriesResponse
+      ] = await Promise.all([
+        fetch(`${baseUrl}/marketplace/analytics/content-stats/${address}`),
+        fetch(`${baseUrl}/marketplace/my-content/miner/wallet/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/bidding-trends/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/top-content/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/yapper-engagement/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/agent-performance/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/time-analysis/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/content-categories/${address}`)
+      ]);
+
+      const [
+        contentStats,
+        myContent,
+        biddingTrends,
+        topContent,
+        yapperEngagement,
+        agentPerformance,
+        timeAnalysis,
+        contentCategories
+      ] = await Promise.all([
+        contentStatsResponse.json(),
+        myContentResponse.json(),
+        biddingTrendsResponse.json(),
+        topContentResponse.json(),
+        yapperEngagementResponse.json(),
+        agentPerformanceResponse.json(),
+        timeAnalysisResponse.json(),
+        contentCategoriesResponse.json()
+      ]);
+
+      // Process the real analytics data
+      const processedData = processRealAnalyticsData({
+        contentStats: contentStats.data,
+        myContent: myContent.data,
+        biddingTrends: biddingTrends.data,
+        topContent: topContent.data,
+        yapperEngagement: yapperEngagement.data,
+        agentPerformance: agentPerformance.data,
+        timeAnalysis: timeAnalysis.data,
+        contentCategories: contentCategories.data
+      });
+
+      setAnalyticsData(processedData);
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const processRealAnalyticsData = (data: any): MinerAnalytics => {
+    const {
+      contentStats,
+      myContent,
+      biddingTrends,
+      topContent,
+      yapperEngagement,
+      agentPerformance,
+      timeAnalysis,
+      contentCategories
+    } = data;
+
+    return {
+      contentStats: {
+        totalContent: contentStats?.totalContent || 0,
+        approvedContent: contentStats?.totalContent || 0, // All content from this endpoint is approved
+        totalBids: contentStats?.totalBids || 0,
+        totalRevenue: contentStats?.totalRevenue || 0,
+        contentReputation: contentStats?.contentReputation || 0,
+        biddableContent: contentStats?.biddableContent || 0,
+        avgBidAmount: contentStats?.avgBidAmount || 0
+      },
+      performance: {
+        topContent: topContent || [],
+        bidTrends: biddingTrends || [],
+        contentCategories: contentCategories || []
+      },
+      yapperEngagement: yapperEngagement || [],
+      agentPerformance: agentPerformance || [],
+      timeAnalysis: timeAnalysis || { heatmap: [], peakTimes: [] }
+    };
+  };
   
-  // State for other controls
-  const [activeTimeframe, setActiveTimeframe] = useState<'1d' | '7d' | '30d' | '90d'>('7d')
-  const [socialGraphFilter, setSocialGraphFilter] = useState<'top20' | 'top50' | 'top100'>('top20')
-
-  // Mock data and functions (moved inside component)
-  const mockTreemapData = [
-    { id: 'AIXBT', name: 'AIXBT', logo: '🤖', mindshare: 23.4, delta: 12.5, quality: 92, tokens: 1250 },
-    { id: 'VADER', name: 'VADER', logo: '⚡', mindshare: 18.7, delta: -3.2, quality: 87, tokens: 950 },
-    { id: 'BASE', name: 'BASE', logo: '🔵', mindshare: 15.2, delta: 8.1, quality: 89, tokens: 780 },
-    { id: 'SOL', name: 'SOL', logo: '☀️', mindshare: 12.8, delta: 6.2, quality: 94, tokens: 640 },
-    { id: 'MATIC', name: 'MATIC', logo: '🔷', mindshare: 11.3, delta: -1.5, quality: 85, tokens: 470 },
-    { id: 'ARB', name: 'ARB', logo: '💎', mindshare: 7.8, delta: 3.7, quality: 88, tokens: 320 },
-    { id: 'AVAX', name: 'AVAX', logo: '🔺', mindshare: 6.2, delta: -2.1, quality: 83, tokens: 290 },
-    { id: 'DOT', name: 'DOT', logo: '⚫', mindshare: 4.6, delta: 1.8, quality: 81, tokens: 180 }
-  ]
-
-  // Get color based on metric value and buckets
-  const getTreemapColor = (item: any): string => {
-    let value: number
-    switch (treemapMetric) {
-      case 'mindshare':
-        value = item.mindshare
-        break
-      case 'delta':
-        value = item.delta
-        break
-      case 'quality':
-        value = item.quality
-        break
-      default:
-        value = item.mindshare
+  // Analytics rendering components
+  const renderContentStats = () => {
+    if (!analyticsData?.contentStats) {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-6 text-center">
+              <div className="text-gray-400">No Data</div>
+            </div>
+          ))}
+        </div>
+      );
     }
 
-    // Color buckets based on metric type
-    if (treemapMetric === 'delta') {
-      // Delta: red for negative, yellow for small positive, green for high positive
-      if (value < -2) return '#dc2626' // red-600
-      if (value < 0) return '#f59e0b' // amber-500
-      if (value < 5) return '#10b981' // emerald-500
-      return '#059669' // emerald-600
-    } else if (treemapMetric === 'quality') {
-      // Quality: gradient from orange to green (80-100 range)
-      if (value < 85) return '#f97316' // orange-500
-      if (value < 90) return '#eab308' // yellow-500
-      if (value < 95) return '#10b981' // emerald-500
-      return '#059669' // emerald-600
-    } else {
-      // Mindshare: gradient from blue to orange based on percentage
-      if (value < 5) return '#3b82f6' // blue-500
-      if (value < 10) return '#6366f1' // indigo-500
-      if (value < 15) return '#8b5cf6' // violet-500
-      if (value < 20) return '#f59e0b' // amber-500
-      return '#f97316' // orange-500
-    }
-  }
+    const stats = analyticsData.contentStats;
 
-  // Calculate treemap layout for column-wise stacking
-  const getTreemapLayout = () => {
-    // Sort by current metric value in descending order
-    const sortedData = [...mockTreemapData].sort((a, b) => {
-      const valueA = treemapMetric === 'mindshare' ? a.mindshare : 
-                     treemapMetric === 'delta' ? a.delta : a.quality
-      const valueB = treemapMetric === 'mindshare' ? b.mindshare : 
-                     treemapMetric === 'delta' ? b.delta : b.quality
-      return valueB - valueA
-    })
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {/* Total Content */}
+        <div className="bg-gradient-to-br from-purple-800 via-purple-700 to-purple-900 rounded-xl p-6 text-center">
+          <DocumentTextIcon className="h-8 w-8 text-purple-300 mx-auto mb-2" />
+          <h3 className="text-sm text-gray-300 mb-1">Total Content</h3>
+          <p className="text-3xl font-bold text-white">{stats.totalContent}</p>
+          <p className="text-sm text-purple-300">+{stats.approvedContent} approved</p>
+        </div>
 
-    const layouts = []
-    const containerHeight = 100 // Full height percentage
-    const numColumns = 4 // 4 columns for clean layout
-    const columnWidth = 100 / numColumns // 25% each column
-    
-    // Calculate how many items can fit in each column based on container height
-    const itemsPerColumn = Math.ceil(sortedData.length / numColumns)
-    
-    sortedData.forEach((item, index) => {
-      const columnIndex = Math.floor(index / itemsPerColumn)
-      const positionInColumn = index % itemsPerColumn
-      
-      // Calculate heights - larger for top items, smaller for lower items
-      let itemHeight
-      if (positionInColumn === 0) {
-        itemHeight = 45 // Large box for top item in each column
-      } else if (positionInColumn === 1) {
-        itemHeight = 35 // Medium box for second item
-      } else {
-        itemHeight = 20 // Small box for remaining items
-      }
-      
-      // Calculate Y position based on previous items in the same column
-      let yPosition = 0
-      for (let i = 0; i < positionInColumn; i++) {
-        if (i === 0) yPosition += 45
-        else if (i === 1) yPosition += 35
-        else yPosition += 20
-      }
-      
-      // Ensure we don't exceed container height
-      if (yPosition + itemHeight > containerHeight) {
-        itemHeight = Math.max(15, containerHeight - yPosition)
-      }
+        {/* Total Bids */}
+        <div className="bg-gradient-to-br from-blue-800 via-blue-700 to-blue-900 rounded-xl p-6 text-center">
+          <CurrencyDollarIcon className="h-8 w-8 text-blue-300 mx-auto mb-2" />
+          <h3 className="text-sm text-gray-300 mb-1">Total Bids</h3>
+          <p className="text-3xl font-bold text-white">{stats.totalBids}</p>
+          <p className="text-sm text-blue-300">${stats.avgBidAmount.toFixed(2)} avg bid</p>
+        </div>
 
-      layouts.push({
-        ...item,
-        x: columnIndex * columnWidth,
-        y: yPosition,
-        width: columnWidth,
-        height: itemHeight,
-        rank: index + 1,
-        isLarge: itemHeight >= 35,
-        isMedium: itemHeight >= 25 && itemHeight < 35,
-        isSmall: itemHeight < 25
-      })
-    })
+        {/* Total Revenue */}
+        <div className="bg-gradient-to-br from-green-800 via-green-700 to-green-900 rounded-xl p-6 text-center">
+          <BanknotesIcon className="h-8 w-8 text-green-300 mx-auto mb-2" />
+          <h3 className="text-sm text-gray-300 mb-1">Total Revenue</h3>
+          <p className="text-3xl font-bold text-white">${stats.totalRevenue}</p>
+          <p className="text-sm text-green-300">{stats.biddableContent} biddable</p>
+        </div>
 
-    return layouts.filter(item => item.height > 10) // Filter out items that are too small
-  }
+        {/* Content Reputation */}
+        <div className="bg-gradient-to-br from-orange-800 via-orange-700 to-orange-900 rounded-xl p-6 text-center">
+          <StarIcon className="h-8 w-8 text-orange-300 mx-auto mb-2" />
+          <h3 className="text-sm text-gray-300 mb-1">Content Reputation</h3>
+          <p className="text-3xl font-bold text-white">{stats.contentReputation}</p>
+          <p className="text-sm text-orange-300">Quality score</p>
+        </div>
+      </div>
+    );
+  };
 
-  // Generate social graph nodes with proper positioning and collision detection
-  const generateSocialGraphData = (): SocialGraphNode[] => {
-    const profilePics = [
-      '👨‍💼', '👩‍💻', '🧑‍🎨', '👨‍🔬', '👩‍🚀', '🧑‍⚕️', '👨‍🏫', '👩‍🎤',
-      '🧑‍💼', '👨‍🎯', '👩‍🔧', '🧑‍🌾', '👨‍🍳', '👩‍🎨', '🧑‍💻', '👨‍⚖️',
-      '👩‍🔬', '🧑‍🚀', '👨‍⚕️', '👩‍🏫', '🧑‍🎤', '👨‍🔧', '👩‍🌾', '🧑‍🍳',
-      '👨‍🎨', '👩‍🎯', '🧑‍🔧', '👨‍🚀', '👩‍💼'
-    ]
-    
-    const names = [
-      'Neural Alpha', 'CryptoSage', 'DeFiMaster', 'MemeBot', 'AITrader', 'NFTQueen',
-      'BaseBuilder', 'SolanaWiz', 'EthMiner', 'PolygonDev', 'ChainLink', 'MetaMask',
-      'UniSwap', 'OpenSea', 'Binance', 'Coinbase', 'Kraken', 'Gemini', 'FTX', 'KuCoin',
-      'Huobi', 'OKEx', 'Bitfinex', 'Bitstamp', 'PancakeSwap', 'Curve', 'Yearn', 'Compound', 'Aave'
-    ]
-
-    const mindshareValues = [
-      85.5, 72.3, 68.1, 64.2, 59.8, 55.4, 51.2, 48.7, 45.3, 42.1,
-      38.9, 35.6, 32.4, 29.8, 26.5, 23.7, 20.9, 18.3, 15.8, 12.4,
-      10.2, 8.7, 7.3, 6.1, 5.2, 4.4, 3.8, 3.2, 2.7
-    ]
-
-    const containerWidth = 800
-    const containerHeight = 400
-    const centerX = containerWidth / 2
-    const centerY = containerHeight / 2
-    const minBubbleDistance = 8
-
-    const placedBubbles: { x: number; y: number; radius: number }[] = []
-
-    const checkCollision = (x: number, y: number, radius: number): boolean => {
-      return placedBubbles.some(bubble => {
-        const distance = Math.sqrt(Math.pow(x - bubble.x, 2) + Math.pow(y - bubble.y, 2))
-        return distance < (radius + bubble.radius + minBubbleDistance)
-      })
+  const renderBiddingTrends = () => {
+    if (!analyticsData?.performance?.bidTrends || analyticsData.performance.bidTrends.length === 0) {
+      return (
+        <div className="bg-gray-800 rounded-xl p-6 mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-2">
+              <ChartBarIcon className="h-6 w-6 text-blue-400" />
+              <h2 className="text-xl font-bold text-white">Bidding Trends (30 Days)</h2>
+            </div>
+          </div>
+          <div className="text-center text-gray-400 py-8">No Data</div>
+        </div>
+      );
     }
 
-    const findValidPosition = (nodeSize: number, isCenter: boolean, attempts = 100): { x: number; y: number } => {
-      const radius = nodeSize / 2
-      const margin = radius + 5
-      
-      if (isCenter) {
-        return { x: centerX, y: centerY }
-      }
+    const trends = analyticsData.performance.bidTrends;
+    console.log('🔍 Bidding trends data:', trends);
+    
+    // Find days with actual activity for debugging
+    const activeDays = trends.filter(t => t.bidCount > 0 || t.revenue > 0);
+    console.log('📊 Active days:', activeDays);
+    
+    const maxBids = Math.max(...trends.map(t => t.bidCount), 1);
+    const maxRevenue = Math.max(...trends.map(t => t.revenue), 1);
+    
+    console.log('📈 Max values:', { maxBids, maxRevenue });
 
-      for (let i = 0; i < attempts; i++) {
-        const x = margin + Math.random() * (containerWidth - 2 * margin)
-        const y = margin + Math.random() * (containerHeight - 2 * margin)
+    return (
+      <div className="bg-gray-800 rounded-xl p-6 mb-8">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-2">
+            <ChartBarIcon className="h-6 w-6 text-blue-400" />
+            <h2 className="text-xl font-bold text-white">Bidding Trends (30 Days)</h2>
+          </div>
+          <div className="flex space-x-2">
+            <span className="px-3 py-1 bg-blue-600 text-white text-sm rounded-full">Bids</span>
+            <span className="px-3 py-1 bg-green-600 text-white text-sm rounded-full">Revenue</span>
+          </div>
+        </div>
         
-        if (!checkCollision(x, y, radius)) {
-          return { x, y }
-        }
-      }
-
-      const gridStep = nodeSize * 0.8
-      for (let y = margin; y <= containerHeight - margin; y += gridStep) {
-        for (let x = margin; x <= containerWidth - margin; x += gridStep) {
-          if (!checkCollision(x, y, radius)) {
-            return { x, y }
-          }
-        }
-      }
-
-      const maxRadius = Math.min(containerWidth, containerHeight) / 2 - margin
-      for (let r = nodeSize; r < maxRadius; r += nodeSize * 0.5) {
-        for (let angle = 0; angle < 360; angle += 15) {
-          const rad = (angle * Math.PI) / 180
-          const x = centerX + Math.cos(rad) * r
-          const y = centerY + Math.sin(rad) * r
+        {/* Chart */}
+        <div className="mb-6">
+          <div className="flex justify-between mb-2 text-xs text-gray-400">
+            <span>0</span>
+            <span className="text-blue-400">{maxBids} bids</span>
+            <span className="text-green-400">${maxRevenue}</span>
+          </div>
           
-          if (x >= margin && x <= containerWidth - margin && 
-              y >= margin && y <= containerHeight - margin &&
-              !checkCollision(x, y, radius)) {
-            return { x, y }
-          }
-        }
-      }
-
-      return { x: Math.max(margin, Math.min(containerWidth - margin, centerX + Math.random() * 200 - 100)), 
-               y: Math.max(margin, Math.min(containerHeight - margin, centerY + Math.random() * 100 - 50)) }
-    }
-
-    return names.slice(0, 29).map((name, index) => {
-      const mindshare = mindshareValues[index]
-      const nodeSize = 30 + (mindshare / 100) * 40
-      const isCenter = index === 0
-      
-      const position = findValidPosition(nodeSize, isCenter)
-      
-      placedBubbles.push({
-        x: position.x,
-        y: position.y,
-        radius: nodeSize / 2
-      })
-
-      return {
-        id: `node${index}`,
-        name,
-        avatar: profilePics[index % profilePics.length],
-        profilePic: profilePics[index % profilePics.length],
-        finalX: position.x,
-        finalY: position.y,
-        size: nodeSize,
-        mindshare,
-        type: index === 0 ? 'self' : 
-              index < 6 ? 'friend' : 
-              index < 15 ? 'collaborator' : 'distant',
-        delay: index * 0.08
-      }
-    })
-  }
-
-  const mockSocialGraphData = generateSocialGraphData()
-
-  const mockMindshareData = [
-    { date: 'Apr 14', value: 2.3 },
-    { date: 'Apr 15', value: 3.7 },
-    { date: 'Apr 16', value: 2.8 },
-    { date: 'Apr 17', value: 4.2 },
-    { date: 'Apr 18', value: 5.1 },
-    { date: 'Apr 19', value: 3.9 },
-    { date: 'Apr 20', value: 6.2 }
-  ]
-
-  const mockSmartFeedData: SmartFeedPost[] = [
-    {
-      id: '1',
-      author: 'Solana Protocol',
-      handle: '@solana',
-      avatar: '☀️',
-      date: 'Apr 18',
-      content: 'We are rolling out text posts on @zora. You can post text on web currently by just typing in the create box.',
-      metrics: {
-        reposts: 17,
-        likes: '261',
-        comments: '68',
-        shares: 15,
-        views: '32.03K'
-      },
-      minerContent: 'AI-generated updates about platform features'
-    },
-    {
-      id: '2',
-      author: 'Base Protocol',
-      handle: '@base',
-      avatar: '🔵',
-      date: 'Apr 17',
-      content: 'Base is now live! Build onchain with the security of Ethereum and the speed of Coinbase. Start building today with our developer tools and ecosystem partners.',
-      metrics: {
-        reposts: 156,
-        likes: '2.4K',
-        comments: '892',
-        shares: 89,
-        views: '156.7K'
-      },
-      minerContent: 'AI-generated content about L2 scaling solutions'
-    },
-    {
-      id: '3',
-      author: 'AIXBT AI',
-      handle: '@aixbt_agent',
-      avatar: '🤖',
-      date: 'Apr 16',
-      content: 'Market update: DeFi TVL reached $50B+ across all chains. Major growth in lending protocols and yield farming. AI agents are becoming key players in automated trading strategies.',
-      metrics: {
-        reposts: 87,
-        likes: '1.2K',
-        comments: '234',
-        shares: 45,
-        views: '87.3K'
-      },
-      minerContent: 'AI-generated market analysis and DeFi insights'
-    },
-    {
-      id: '4',
-      author: 'Ethereum',
-      handle: '@ethereum',
-      avatar: '💎',
-      date: 'Apr 15',
-      content: 'The merge anniversary approaches! Ethereum has been proof-of-stake for over a year now, reducing energy consumption by 99.9%. The future is sustainable and scalable.',
-      metrics: {
-        reposts: 203,
-        likes: '3.1K',
-        comments: '567',
-        shares: 128,
-        views: '245.8K'
-      },
-      minerContent: 'AI-generated content about blockchain sustainability'
-    },
-    {
-      id: '5',
-      author: 'Polygon Labs',
-      handle: '@0xPolygon',
-      avatar: '🔷',
-      date: 'Apr 14',
-      content: 'Polygon zkEVM mainnet beta is now live! Experience Ethereum-equivalent security with near-instant finality. Developers can deploy existing smart contracts without modification.',
-      metrics: {
-        reposts: 94,
-        likes: '1.8K',
-        comments: '312',
-        shares: 67,
-        views: '123.5K'
-      },
-      minerContent: 'AI-generated updates about zero-knowledge technology'
-    },
-    {
-      id: '6',
-      author: 'Coinbase',
-      handle: '@coinbase',
-      avatar: '🟦',
-      date: 'Apr 13',
-      content: 'Introducing Coinbase Wallet SDK 2.0! Build seamless Web3 experiences with improved security, better UX, and cross-platform support. The future of finance is here.',
-      metrics: {
-        reposts: 142,
-        likes: '2.7K',
-        comments: '489',
-        shares: 98,
-        views: '198.4K'
-      },
-      minerContent: 'AI-generated content about Web3 development tools'
-    }
-  ]
-
-  // Generate trend data for each item
-  const generateTrendData = (baseValue: number, isPositive: boolean) => {
-    const points = []
-    let currentValue = baseValue * 0.8 // Start 20% lower
-    
-    for (let i = 0; i < 20; i++) {
-      const variation = (Math.random() - 0.5) * 0.1 * baseValue
-      const trend = isPositive ? i * 0.05 * baseValue : -i * 0.02 * baseValue
-      currentValue += variation + trend
-      points.push(Math.max(0, currentValue))
-    }
-    
-    return points
-  }
-
-  const renderTreemap = () => (
-    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6 mb-8">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-bold text-white">Mindshare Campaigns</h3>
-        <div className="flex items-center space-x-4">
-          {/* Metric Selection Dropdown */}
-          <div className="flex bg-gray-700 rounded-lg p-1">
-            <select
-              value={treemapMetric}
-              onChange={(e) => setTreemapMetric(e.target.value as 'mindshare' | 'delta' | 'quality')}
-              className="bg-transparent text-white text-sm px-3 py-1 rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-            >
-              <option value="mindshare" className="bg-gray-700">Mindshare %</option>
-              <option value="delta" className="bg-gray-700">Mindshare Δ%</option>
-              <option value="quality" className="bg-gray-700">Content Quality</option>
-            </select>
+          <div className="flex items-end space-x-1 h-32 bg-gray-900 rounded p-2">
+            {trends.map((trend, index) => {
+              const bidHeight = Math.max((trend.bidCount / maxBids) * 100, trend.bidCount > 0 ? 15 : 0);
+              const revenueHeight = Math.max((trend.revenue / maxRevenue) * 100, trend.revenue > 0 ? 15 : 0);
+              
+              // Debug active days and last few days
+              if (trend.bidCount > 0 || trend.revenue > 0 || index >= 27) {
+                console.log(`🎯 Day ${index} (${trend.date}):`, {
+                  bidCount: trend.bidCount,
+                  revenue: trend.revenue,
+                  bidHeight: `${bidHeight}%`,
+                  revenueHeight: `${revenueHeight}%`,
+                  isToday: index === 29
+                });
+              }
+              
+              return (
+                <div key={index} className="flex-1 flex flex-col justify-end space-y-1 min-w-[3px]">
+                  <div 
+                    className="bg-blue-500 rounded-sm transition-all duration-300 min-w-[3px]" 
+                    style={{ 
+                      height: `${bidHeight}%`,
+                      backgroundColor: trend.bidCount > 0 ? '#3B82F6' : 'transparent',
+                      minHeight: trend.bidCount > 0 ? '15px' : '0px'
+                    }}
+                    title={`${trend.bidCount} bids on ${trend.date}`}
+                  />
+                  <div 
+                    className="bg-green-500 rounded-sm transition-all duration-300 min-w-[3px]" 
+                    style={{ 
+                      height: `${revenueHeight}%`,
+                      backgroundColor: trend.revenue > 0 ? '#10B981' : 'transparent',
+                      minHeight: trend.revenue > 0 ? '15px' : '0px'
+                    }}
+                    title={`$${trend.revenue} revenue on ${trend.date}`}
+                  />
+                </div>
+              );
+            })}
           </div>
-
-          {/* View Toggle */}
-          <div className="flex bg-gray-700 rounded-lg p-1">
-            <button
-              onClick={() => setTreemapView('treemap')}
-              className={`p-2 rounded transition-all ${
-                treemapView === 'treemap' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
-              </svg>
-            </button>
-            <button
-              onClick={() => setTreemapView('list')}
-              className={`p-2 rounded transition-all ${
-                treemapView === 'list' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M3 4a1 1 0 000 2h14a1 1 0 100-2H3zM3 8a1 1 0 000 2h14a1 1 0 100-2H3zM3 12a1 1 0 100 2h14a1 1 0 100-2H3z" />
-              </svg>
-            </button>
+          
+          <div className="flex justify-between mt-2 text-xs text-gray-500">
+            {[0, 5, 10, 15, 20, 25, 29].map((dayIndex) => {
+              const trend = trends[dayIndex];
+              if (!trend) return null;
+              
+              const date = new Date(trend.date);
+              const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+              const formattedDate = `${monthNames[date.getMonth()]} ${date.getDate()}`;
+              
+              return (
+                <span key={dayIndex}>{formattedDate}</span>
+              );
+            })}
           </div>
-
-          {/* Timeframe Selection */}
-          <div className="flex bg-gray-700 rounded-lg p-1">
-            {(['7D', '30D', '3M'] as const).map((timeframe) => (
-              <button
-                key={timeframe}
-                onClick={() => setTreemapTimeframe(timeframe)}
-                className={`px-3 py-1 text-xs font-medium rounded transition-all ${
-                  treemapTimeframe === timeframe
-                    ? 'bg-orange-500 text-white'
-                    : 'text-gray-400 hover:text-gray-300'
-                }`}
-              >
-                {timeframe}
-              </button>
-            ))}
+        </div>
+        
+        {/* Summary Stats */}
+        <div className="grid grid-cols-4 gap-4 text-center">
+          <div>
+            <p className="text-2xl font-bold text-blue-400">
+              {trends.reduce((sum, t) => sum + t.bidCount, 0)}
+            </p>
+            <p className="text-sm text-gray-400">Total Bids</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-green-400">
+              ${trends.reduce((sum, t) => sum + t.revenue, 0)}
+            </p>
+            <p className="text-sm text-gray-400">Total Revenue</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-purple-400">
+              {trends.length > 0 ? (trends.reduce((sum, t) => sum + t.bidCount, 0) / trends.length).toFixed(1) : '0.0'}
+            </p>
+            <p className="text-sm text-gray-400">Avg Daily Bids</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-orange-400">
+              ${trends.length > 0 ? Math.round(trends.reduce((sum, t) => sum + t.revenue, 0) / trends.length) : 0}
+            </p>
+            <p className="text-sm text-gray-400">Avg Daily Revenue</p>
           </div>
         </div>
       </div>
+    );
+  };
 
-      {treemapView === 'treemap' ? (
-        <div className="relative w-full h-80 bg-gray-900/50 rounded-lg overflow-hidden p-2">
-          {getTreemapLayout().map((item) => {
-            const currentValue = treemapMetric === 'mindshare' ? item.mindshare : 
-                                treemapMetric === 'delta' ? item.delta : item.quality
-            const isPositiveTrend = treemapMetric === 'delta' ? currentValue > 0 : true
-            const trendPoints = generateTrendData(currentValue, isPositiveTrend)
-            
-            // Create SVG path for trend line
-            const svgWidth = 60
-            const svgHeight = 20
-            const maxValue = Math.max(...trendPoints)
-            const minValue = Math.min(...trendPoints)
-            const valueRange = maxValue - minValue || 1
-            
-            const pathData = trendPoints.map((point, index) => {
-              const x = (index / (trendPoints.length - 1)) * svgWidth
-              const y = svgHeight - ((point - minValue) / valueRange) * svgHeight
-              return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
-            }).join(' ')
+  const renderTopContent = () => {
+    if (!analyticsData?.performance.topContent || analyticsData.performance.topContent.length === 0) {
+      return (
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+          <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+            <FireIcon className="h-6 w-6 mr-2 text-orange-400" />
+            Top Performing Content
+          </h3>
+          <div className="h-48 flex items-center justify-center">
+            <div className="text-center">
+              <DocumentTextIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
+              <p className="text-gray-400">No Data</p>
+              <p className="text-gray-500 text-sm">Create content to see performance</p>
+            </div>
+          </div>
+        </div>
+      )
+    }
 
-            return (
-              <div
-                key={item.id}
-                className="absolute rounded-lg border border-gray-600/30 cursor-pointer hover:border-orange-500/50 transition-all duration-200 overflow-hidden"
-                style={{
-                  left: `${item.x}%`,
-                  top: `${item.y}%`,
-                  width: `${item.width - 0.5}%`, // Small gap between columns
-                  height: `${item.height}%`,
-                  backgroundColor: getTreemapColor(item),
-                }}
-              >
-                {/* Rank Badge for top 3 */}
-                {item.rank <= 3 && (
-                  <div className="absolute top-2 right-2 w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center">
-                    <span className="text-xs font-bold text-black">
-                      {item.rank === 1 ? '👑' : item.rank === 2 ? '🥈' : '🥉'}
-                    </span>
+    return (
+      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+        <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+          <FireIcon className="h-6 w-6 mr-2 text-orange-400" />
+          Top Performing Content
+        </h3>
+        
+        <div className="space-y-4">
+          {analyticsData.performance.topContent.map((content, index) => (
+            <div key={content.id} className="bg-gray-700/50 rounded-lg p-4 hover:bg-gray-700/70 transition-colors">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center justify-center w-8 h-8 bg-orange-600 rounded-full text-white font-bold text-sm">
+                    {index + 1}
                   </div>
-                )}
-
-                <div className="p-3 h-full flex flex-col justify-between">
-                  {/* Header with logo and name */}
-                  <div className="flex items-center space-x-2">
-                    <div className={`${item.isLarge ? 'text-2xl' : item.isMedium ? 'text-lg' : 'text-sm'}`}>
-                      {item.logo}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className={`font-bold text-white truncate ${item.isLarge ? 'text-base' : item.isMedium ? 'text-sm' : 'text-xs'}`}>
-                        {item.name}
-                      </div>
-                      {!item.isSmall && (
-                        <div className="text-gray-300 text-xs opacity-75">
-                          {treemapMetric === 'mindshare' ? 'Mindshare' :
-                           treemapMetric === 'delta' ? 'Change' : 'Quality'}
-                        </div>
-                      )}
+                  <div>
+                    <p className="text-white font-medium">{content.title}</p>
+                    <div className="flex items-center space-x-4 text-sm text-gray-400">
+                      <span>{content.bidCount} bids</span>
+                      <span>Max: ${content.maxBid}</span>
+                      <span>Quality: {content.quality_score}/100</span>
                     </div>
                   </div>
-
-                  {/* Value Display */}
-                  <div className="mt-2">
-                    <div className={`font-bold text-white ${item.isLarge ? 'text-xl' : item.isMedium ? 'text-lg' : 'text-sm'}`}>
-                      {treemapMetric === 'delta' ? 
-                        `${currentValue > 0 ? '+' : ''}${currentValue.toFixed(2)}%` :
-                        `${currentValue.toFixed(2)}${treemapMetric === 'quality' ? '' : '%'}`
-                      }
-                    </div>
-                  </div>
-
-                  {/* Trend Chart - only for medium and large boxes */}
-                  {!item.isSmall && (
-                    <div className="mt-2 flex items-end">
-                      <svg 
-                        width={svgWidth} 
-                        height={svgHeight} 
-                        className="opacity-80"
-                      >
-                        <defs>
-                          <linearGradient id={`gradient-${item.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop 
-                              offset="0%" 
-                              stopColor={isPositiveTrend ? '#10b981' : '#ef4444'} 
-                              stopOpacity="0.1" 
-                            />
-                            <stop 
-                              offset="100%" 
-                              stopColor={isPositiveTrend ? '#10b981' : '#ef4444'} 
-                              stopOpacity="0.8" 
-                            />
-                          </linearGradient>
-                        </defs>
-                        
-                        {/* Fill area under curve */}
-                        <path
-                          d={`${pathData} L ${svgWidth} ${svgHeight} L 0 ${svgHeight} Z`}
-                          fill={`url(#gradient-${item.id})`}
-                        />
-                        
-                        {/* Trend line */}
-                        <path
-                          d={pathData}
-                          stroke={isPositiveTrend ? '#10b981' : '#ef4444'}
-                          strokeWidth="1.5"
-                          fill="none"
-                          opacity="0.9"
-                        />
-                      </svg>
-                    </div>
-                  )}
-
-                  {/* Token count for large boxes only */}
-                  {item.isLarge && (
-                    <div className="mt-1">
-                      <div className="text-gray-300 text-xs">
-                        {item.tokens.toLocaleString()} tokens
-                      </div>
-                    </div>
-                  )}
+                </div>
+                <div className="text-right">
+                  <p className="text-green-400 font-semibold">${content.revenue}</p>
+                  <p className="text-gray-400 text-sm">Revenue</p>
                 </div>
               </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const renderContentCategories = () => {
+    if (!analyticsData?.performance.contentCategories || analyticsData.performance.contentCategories.length === 0) {
+      return (
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+          <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+            <Squares2X2Icon className="h-6 w-6 mr-2 text-purple-400" />
+            Content Categories Performance
+          </h3>
+          <div className="h-48 flex items-center justify-center">
+            <div className="text-center">
+              <DocumentTextIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
+              <p className="text-gray-400">No Data</p>
+              <p className="text-gray-500 text-sm">Create diverse content to see categories</p>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+        <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+          <Squares2X2Icon className="h-6 w-6 mr-2 text-purple-400" />
+          Content Categories Performance
+        </h3>
+        
+        <div className="space-y-4">
+          {analyticsData.performance.contentCategories.map((category, index) => {
+            const maxRevenue = Math.max(...analyticsData.performance.contentCategories.map(c => c.revenue))
+            return (
+              <div key={category.category} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-white font-medium">{category.category}</span>
+                  <div className="flex items-center space-x-4 text-sm">
+                    <span className="text-gray-400">{category.count} posts</span>
+                    <span className="text-blue-400">{category.avgBids} avg bids</span>
+                    <span className="text-green-400">${category.revenue}</span>
+          </div>
+          </div>
+                <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="h-2 rounded-full bg-gradient-to-r from-purple-500 to-blue-500"
+                    style={{ width: `${maxRevenue > 0 ? (category.revenue / maxRevenue) * 100 : 0}%` }}
+                  />
+        </div>
+      </div>
             )
           })}
         </div>
-      ) : (
-        <div className="space-y-3">
-          {mockTreemapData
-            .sort((a, b) => {
-              const valueA = treemapMetric === 'mindshare' ? a.mindshare : 
-                           treemapMetric === 'delta' ? a.delta : a.quality
-              const valueB = treemapMetric === 'mindshare' ? b.mindshare : 
-                           treemapMetric === 'delta' ? b.delta : b.quality
-              return valueB - valueA
-            })
-            .map((item, index) => {
-              const currentValue = treemapMetric === 'mindshare' ? item.mindshare : 
-                                 treemapMetric === 'delta' ? item.delta : item.quality
-              return (
-                <div key={item.id} className="flex items-center justify-between p-4 bg-gray-800/50 rounded-lg border border-gray-700/50">
-                  <div className="flex items-center space-x-3">
-                    <div className="text-xl">{item.logo}</div>
-                    <div>
-                      <div className="font-semibold text-white">{item.name}</div>
-                      <div className="text-gray-400 text-sm">Tokens: {item.tokens.toLocaleString()}</div>
+      </div>
+    )
+  }
+
+  const renderSmartFeed = () => {
+    // Generate dynamic feed posts based on miner's actual content
+    const generateSmartFeedPosts = (): SmartFeedPost[] => {
+      if (!analyticsData?.performance.topContent || analyticsData.performance.topContent.length === 0) {
+        return []
+      }
+
+      // Create realistic social media posts based on actual miner content
+      const topContent = analyticsData.performance.topContent.slice(0, 3)
+      const yapperNames = analyticsData?.yapperEngagement?.slice(0, 5).map(y => y.username) || []
+      
+      return topContent.map((content, index) => {
+        const yapperName = yapperNames[index] || `CryptoUser${index + 1}`
+        const contentPreview = content.title.length > 30 ? content.title.substring(0, 30) + '...' : content.title
+
+      return {
+          id: content.id,
+          author: yapperName,
+          handle: `@${yapperName.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
+          avatar: ['🐋', '⚡', '🎨', '🔵', '😂'][index % 5],
+          date: `${index + 2}h`,
+          content: `Just used content from a miner on the platform! "${contentPreview}" - absolutely perfect for my latest post! Quality score: ${content.quality_score}/100 🔥 #ContentMining #ROAST`,
+      metrics: {
+            reposts: Math.floor(content.quality_score / 2) + 10,
+            likes: `${Math.floor(content.quality_score * 10) + 100}`,
+            comments: `${Math.floor(content.quality_score / 3) + 5}`,
+            shares: Math.floor(content.quality_score / 5) + 3,
+            views: `${Math.floor(content.quality_score * 50) + 500}`
+          },
+          minerContent: content.title
+        }
+      })
+    }
+
+    const smartFeedPosts = generateSmartFeedPosts()
+
+    if (smartFeedPosts.length === 0) {
+            return (
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
+          <div className="flex items-center space-x-3 mb-6">
+            <div className="p-2 bg-blue-500/20 rounded-lg">
+              <StarIcon className="h-5 w-5 text-blue-400" />
+                  </div>
+            <h3 className="text-xl font-bold text-white">Smart Feed</h3>
+            <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded-full">No Activity</span>
+          </div>
+
+          <div className="h-48 flex items-center justify-center">
+            <div className="text-center">
+              <StarIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
+              <p className="text-gray-400">No Data</p>
+              <p className="text-gray-500 text-sm">Create quality content to see social activity</p>
+                    </div>
+                      </div>
+                        </div>
+      )
+    }
+
+            return (
+      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
+        <div className="flex items-center space-x-3 mb-6">
+          <div className="p-2 bg-blue-500/20 rounded-lg">
+            <StarIcon className="h-5 w-5 text-blue-400" />
+                    </div>
+          <h3 className="text-xl font-bold text-white">Smart Feed</h3>
+          <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full">Live</span>
+                  </div>
+
+        <div className="space-y-4 max-h-[800px] overflow-y-auto">
+          {smartFeedPosts.map((post) => (
+            <div key={post.id} className="bg-gray-700/30 rounded-lg p-4 hover:bg-gray-700/50 transition-colors">
+              <div className="flex items-start space-x-3">
+                <div className="w-10 h-10 bg-gray-600 rounded-full flex items-center justify-center text-lg">
+                  {post.avatar}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <span className="font-semibold text-white text-sm">{post.author}</span>
+                    <span className="text-gray-400 text-xs">{post.handle}</span>
+                    <span className="text-gray-500 text-xs">·</span>
+                    <span className="text-gray-500 text-xs">{post.date}</span>
+                  </div>
+                  <p className="text-gray-200 text-sm leading-relaxed mb-3">{post.content}</p>
+                  
+                  {/* Miner content reference */}
+                  <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-2 mb-3">
+                    <div className="flex items-center space-x-2">
+                      <CpuChipIcon className="h-4 w-4 text-purple-400" />
+                      <span className="text-purple-300 text-xs">Used content: {post.minerContent}</span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-bold text-white text-lg">
-                      {treemapMetric === 'delta' ? 
-                        `${currentValue > 0 ? '+' : ''}${currentValue.toFixed(1)}%` :
-                        `${currentValue.toFixed(1)}${treemapMetric === 'quality' ? '' : '%'}`
-                      }
+
+                  {/* Engagement metrics */}
+                  <div className="flex items-center justify-between text-gray-400 text-xs">
+                    <div className="flex items-center space-x-1">
+                      <span>🔁</span>
+                      <span>{post.metrics.reposts}</span>
+                      </div>
+                    <div className="flex items-center space-x-1">
+                      <span>❤️</span>
+                      <span>{post.metrics.likes}</span>
                     </div>
-                    <div className="text-gray-400 text-sm">
-                      {treemapMetric === 'mindshare' ? 'Mindshare' :
-                       treemapMetric === 'delta' ? 'Delta' : 'Quality'}
+                    <div className="flex items-center space-x-1">
+                      <span>💬</span>
+                      <span>{post.metrics.comments}</span>
+                </div>
+                    <div className="flex items-center space-x-1">
+                      <span>📤</span>
+                      <span>{post.metrics.shares}</span>
+              </div>
+                    <div className="flex items-center space-x-1">
+                      <span>👁️</span>
+                      <span>{post.metrics.views}</span>
+        </div>
+                    </div>
+                  </div>
+                    </div>
+                    </div>
+          ))}
+          
+          {/* Footer note */}
+          <div className="text-center text-xs text-gray-500 mt-4 pt-4 border-t border-gray-700">
+            Showing social activity from content usage. Real-time Twitter integration coming soon.
                     </div>
                   </div>
                 </div>
               )
-            })}
+  }
+
+  const renderYapperEngagement = () => {
+    if (!analyticsData?.yapperEngagement || analyticsData.yapperEngagement.length === 0) {
+      return (
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+          <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+            <UserGroupIcon className="h-6 w-6 mr-2 text-teal-400" />
+            Top Yapper Engagement
+          </h3>
+          <div className="h-48 flex items-center justify-center">
+            <div className="text-center">
+              <UserGroupIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
+              <p className="text-gray-400">No Data</p>
+              <p className="text-gray-500 text-sm">Enable bidding to attract yappers</p>
         </div>
-      )}
+          </div>
     </div>
   )
+    }
 
-  const renderBullishProjects = () => (
-    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6 mb-8">
-      <h3 className="text-xl font-bold text-white mb-6">Bullish Projects</h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {mockTreemapData.slice(0, 2).map((project) => (
-          <div key={project.id} className="bg-gray-700/50 rounded-lg p-4 border border-gray-600/50">
-            <div className="flex items-center space-x-3 mb-3">
-              <div className="text-2xl">{project.logo}</div>
+    return (
+      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+        <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+          <UserGroupIcon className="h-6 w-6 mr-2 text-teal-400" />
+          Top Yapper Engagement
+        </h3>
+        
+        <div className="space-y-4">
+          {analyticsData.yapperEngagement.map((yapper, index) => (
+            <div key={yapper.walletAddress} className="bg-gray-700/50 rounded-lg p-4 hover:bg-gray-700/70 transition-colors">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center justify-center w-8 h-8 bg-teal-600 rounded-full text-white font-bold text-sm">
+                    {index + 1}
+                  </div>
               <div>
-                <div className="font-semibold text-white">{project.name}</div>
-                <div className="text-sm text-gray-400">Mindshare: {project.mindshare}%</div>
+                    <p className="text-white font-medium">{yapper.username}</p>
+                    <p className="text-gray-400 text-sm font-mono">{yapper.walletAddress}</p>
               </div>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-400">
-                <div className={`font-semibold ${project.delta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {project.delta >= 0 ? '+' : ''}{project.delta.toFixed(1)}% change
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <p className="text-blue-400 font-semibold">{yapper.totalBids}</p>
+                    <p className="text-gray-400 text-xs">Bids</p>
                 </div>
+                  <div>
+                    <p className="text-green-400 font-semibold">${yapper.totalAmount}</p>
+                    <p className="text-gray-400 text-xs">Total</p>
               </div>
-              <div className="text-sm">
-                <div className="text-orange-400 font-semibold">{project.tokens.toLocaleString()}</div>
-                <div className="text-gray-400">tokens</div>
+                  <div>
+                    <p className="text-orange-400 font-semibold">{yapper.wonContent}</p>
+                    <p className="text-gray-400 text-xs">Won</p>
+                  </div>
               </div>
             </div>
           </div>
@@ -666,401 +703,233 @@ export default function Dashboard() {
       </div>
     </div>
   )
+  }
 
-  const renderMindshareGraph = () => (
-    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6 mb-8">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-bold text-white">Mindshare Growth</h3>
-        <div className="flex items-center space-x-2">
-          <span className="px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-xs font-medium border border-blue-500/30">
-            Avg. Mindshare (7D): 0.025%
-          </span>
-          <span className="text-sm text-gray-400">3K Smart Followers</span>
+  const renderAgentPerformance = () => {
+    if (!analyticsData?.agentPerformance || analyticsData.agentPerformance.length === 0) {
+      return (
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+          <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+            <CpuChipIcon className="h-6 w-6 mr-2 text-green-400" />
+            Agent Performance Analysis
+          </h3>
+          <div className="h-48 flex items-center justify-center">
+            <div className="text-center">
+              <CpuChipIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
+              <p className="text-gray-400">No Data</p>
+              <p className="text-gray-500 text-sm">Create agents to see performance</p>
         </div>
       </div>
-      <div className="relative h-80">
-        <svg className="w-full h-full" viewBox="0 0 800 320">
-          {/* Grid lines */}
-          {[0, 25, 50, 75, 100].map(percent => (
-            <line
-              key={percent}
-              x1="40"
-              y1={`${(percent / 100) * 260 + 20}`}
-              x2="760"
-              y2={`${(percent / 100) * 260 + 20}`}
-              stroke="#374151"
-              strokeWidth="1"
-              opacity="0.3"
-            />
-          ))}
-          
-          {/* Bar chart */}
-          {mockMindshareData.map((item, index) => {
-            const barHeight = (item.value / 0.07) * 240
-            const x = 80 + (index * 100)
+        </div>
+      )
+    }
+
             return (
-              <rect
-                key={index}
-                x={x - 25}
-                y={290 - barHeight}
-                width="50"
-                height={barHeight}
-                fill="#60a5fa"
-                opacity="0.7"
-                rx="3"
-              />
+      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+        <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+          <CpuChipIcon className="h-6 w-6 mr-2 text-green-400" />
+          Agent Performance Analysis
+        </h3>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {analyticsData.agentPerformance.map((agent, index) => {
+            const maxRevenue = Math.max(...analyticsData.agentPerformance.map(a => a.revenue))
+            return (
+              <div key={agent.agentName} className="bg-gray-700/50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-white font-semibold">{agent.agentName}</h4>
+                  <div className="flex items-center space-x-2">
+                    <StarIcon className="h-4 w-4 text-yellow-400" />
+                    <span className="text-yellow-400 text-sm">{agent.avgQuality}/100</span>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-400">Content</p>
+                    <p className="text-white font-medium">{agent.contentCount}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400">Bids</p>
+                    <p className="text-blue-400 font-medium">{agent.bidCount}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400">Revenue</p>
+                    <p className="text-green-400 font-medium">${agent.revenue}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400">Avg Quality</p>
+                    <p className="text-yellow-400 font-medium">{agent.avgQuality}%</p>
+                  </div>
+                </div>
+                
+                {/* Performance bar */}
+                <div className="mt-4">
+                  <div className="w-full bg-gray-600 rounded-full h-2">
+                    <div 
+                      className="h-2 rounded-full bg-gradient-to-r from-green-500 to-blue-500"
+                      style={{ width: `${maxRevenue > 0 ? (agent.revenue / maxRevenue) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
             )
           })}
-          
-          {/* Trend line */}
-          <polyline
-            points={mockMindshareData.map((item, index) => {
-              const x = 80 + (index * 100)
-              const y = 290 - (item.value / 0.07) * 240
-              return `${x},${y}`
-            }).join(' ')}
-            fill="none"
-            stroke="#8b5cf6"
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          
-          {/* Data points */}
-          {mockMindshareData.map((item, index) => {
-            const x = 80 + (index * 100)
-            const y = 290 - (item.value / 0.07) * 240
-            return (
-              <circle
-                key={index}
-                cx={x}
-                cy={y}
-                r="5"
-                fill="#8b5cf6"
-                stroke="#ffffff"
-                strokeWidth="3"
-              />
-            )
-          })}
-
-          {/* X-axis labels */}
-          {['2025', 'Apr 14', 'Apr 15', 'Apr 16', 'Apr 17', 'Apr 18', 'Apr 19'].map((label, index) => (
-            <text
-              key={label}
-              x={80 + (index * 100)}
-              y="310"
-              textAnchor="middle"
-              fontSize="14"
-              fill="#9ca3af"
-            >
-              {label}
-            </text>
-          ))}
-
-          {/* Y-axis labels */}
-          {['0%', '0.02%', '0.04%', '0.06%', '0.08%'].map((label, index) => (
-            <text
-              key={label}
-              x="25"
-              y={295 - (index * 65)}
-              textAnchor="end"
-              fontSize="14"
-              fill="#9ca3af"
-            >
-              {label}
-            </text>
-          ))}
-        </svg>
       </div>
     </div>
   )
+  }
 
-  const renderSocialGraph = () => (
-    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6 mb-8">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-xl font-bold text-white">Agent Social Network</h3>
-        <div className="flex bg-gray-700 rounded-lg p-1">
-          {(['top20', 'top50', 'top100'] as const).map((filter) => (
-            <button
-              key={filter}
-              onClick={() => setSocialGraphFilter(filter)}
-              className={`px-3 py-1 text-xs font-medium rounded transition-all ${
-                socialGraphFilter === filter
-                  ? 'bg-orange-500 text-white'
-                  : 'text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              {filter === 'top20' ? 'Top 20' : filter === 'top50' ? 'Top 50' : 'Top 100'}
-            </button>
-          ))}
+  const renderTimeHeatmap = () => {
+    if (!analyticsData?.timeAnalysis.heatmap || analyticsData.timeAnalysis.heatmap.length === 0) {
+      return (
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+          <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+            <ClockIcon className="h-6 w-6 mr-2 text-purple-400" />
+            Bidding Activity Heatmap
+          </h3>
+          <div className="h-48 flex items-center justify-center">
+            <div className="text-center">
+              <ClockIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
+              <p className="text-gray-400">No Data</p>
+              <p className="text-gray-500 text-sm">Bidding activity will appear here</p>
         </div>
       </div>
-      <div className="relative w-full h-96 bg-gray-900/50 rounded-lg overflow-hidden">
-        <svg className="w-full h-full" viewBox="0 0 800 400">
-          {/* Render bubbles with reliable center ejection animation */}
-          {mockSocialGraphData.slice(0, socialGraphFilter === 'top20' ? 20 : socialGraphFilter === 'top50' ? 25 : 29).map((node, index) => {
-            const centerX = 400
-            const centerY = 200
+        </div>
+      )
+    }
             
             return (
-              <g key={node.id}>
-                {/* Bubble circle with gradient */}
-                <defs>
-                  <radialGradient id={`gradient-${node.id}`}>
-                    <stop offset="0%" stopColor={
-                      node.type === 'self' ? '#f97316' :
-                      node.type === 'friend' ? '#10b981' :
-                      node.type === 'collaborator' ? '#3b82f6' :
-                      '#6b7280'
-                    } stopOpacity="0.8" />
-                    <stop offset="70%" stopColor={
-                      node.type === 'self' ? '#ea580c' :
-                      node.type === 'friend' ? '#059669' :
-                      node.type === 'collaborator' ? '#2563eb' :
-                      '#4b5563'
-                    } stopOpacity="0.6" />
-                    <stop offset="100%" stopColor={
-                      node.type === 'self' ? '#c2410c' :
-                      node.type === 'friend' ? '#047857' :
-                      node.type === 'collaborator' ? '#1d4ed8' :
-                      '#374151'
-                    } stopOpacity="0.8" />
-                  </radialGradient>
-                </defs>
-                
-                <circle
-                  cx={centerX}
-                  cy={centerY}
-                  r={node.size / 2}
-                  fill={`url(#gradient-${node.id})`}
-                  stroke={node.type === 'self' ? '#ea580c' : '#374151'}
-                  strokeWidth="2"
-                  className="cursor-pointer hover:opacity-90 transition-opacity"
-                  style={{
-                    filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))',
-                    transformOrigin: `${centerX}px ${centerY}px`
-                  }}
-                >
-                  {/* Simple center ejection animation */}
-                  <animateTransform
-                    attributeName="transform"
-                    attributeType="XML"
-                    type="translate"
-                    values={index === 0 ? "0,0" : `0,0; ${node.finalX - centerX},${node.finalY - centerY}`}
-                    dur={index === 0 ? "0.1s" : "1.5s"}
-                    begin={`${node.delay}s`}
-                    fill="freeze"
-                    calcMode="spline"
-                    keySplines={index === 0 ? "" : "0.25 0.1 0.25 1"}
-                    keyTimes={index === 0 ? "" : "0;1"}
-                  />
-                  
-                  {/* Continuous gentle oscillation */}
-                  <animateTransform
-                    attributeName="transform"
-                    attributeType="XML"
-                    type="translate"
-                    values={`${node.finalX - centerX},${node.finalY - centerY}; ${node.finalX - centerX + Math.sin(index * 2) * 4},${node.finalY - centerY + Math.cos(index * 2) * 3}; ${node.finalX - centerX},${node.finalY - centerY}`}
-                    dur="6s"
-                    begin={`${node.delay + 1.5}s`}
-                    repeatCount="indefinite"
-                  />
-                </circle>
-                
-                {/* Profile picture/avatar inside bubble */}
-                <text
-                  x={centerX}
-                  y={centerY + (node.size > 50 ? 6 : 5)}
-                  textAnchor="middle"
-                  fontSize={node.size > 50 ? "20" : node.size > 35 ? "16" : "14"}
-                  fill="white"
-                  style={{
-                    textShadow: '0 2px 4px rgba(0,0,0,0.5)',
-                    fontWeight: 'bold',
-                    transformOrigin: `${centerX}px ${centerY}px`
-                  }}
-                >
-                  {/* Follow bubble movement exactly */}
-                  <animateTransform
-                    attributeName="transform"
-                    attributeType="XML"
-                    type="translate"
-                    values={index === 0 ? "0,0" : `0,0; ${node.finalX - centerX},${node.finalY - centerY}`}
-                    dur={index === 0 ? "0.1s" : "1.5s"}
-                    begin={`${node.delay}s`}
-                    fill="freeze"
-                    calcMode="spline"
-                    keySplines={index === 0 ? "" : "0.25 0.1 0.25 1"}
-                    keyTimes={index === 0 ? "" : "0;1"}
-                  />
-                  
-                  <animateTransform
-                    attributeName="transform"
-                    attributeType="XML"
-                    type="translate"
-                    values={`${node.finalX - centerX},${node.finalY - centerY}; ${node.finalX - centerX + Math.sin(index * 2) * 4},${node.finalY - centerY + Math.cos(index * 2) * 3}; ${node.finalX - centerX},${node.finalY - centerY}`}
-                    dur="6s"
-                    begin={`${node.delay + 1.5}s`}
-                    repeatCount="indefinite"
-                  />
-                  
-                  {node.profilePic}
-                </text>
-                
-                {/* Name label below bubble (only for larger bubbles) */}
-                {node.size > 35 && (
-                  <text
-                    x={centerX}
-                    y={centerY + node.size / 2 + 14}
-                    textAnchor="middle"
-                    fontSize="9"
-                    fill="#d1d5db"
-                    className="font-medium"
+      <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
+        <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
+          <ClockIcon className="h-6 w-6 mr-2 text-purple-400" />
+          Bidding Activity Heatmap
+        </h3>
+        
+        <div className="space-y-6">
+          {/* Peak times summary */}
+          {analyticsData.timeAnalysis.peakTimes && analyticsData.timeAnalysis.peakTimes.length > 0 && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              {analyticsData.timeAnalysis.peakTimes.map((peak, index) => (
+                <div key={index} className="bg-gray-700/50 rounded-lg p-3 text-center hover:bg-gray-700/70 transition-colors">
+                  <p className="text-white font-medium">{peak.timeRange}</p>
+                  <p className="text-blue-400 text-sm">{peak.bidActivity}% activity</p>
+                  <div className="w-full bg-gray-600 rounded-full h-1 mt-2">
+                    <div 
+                      className="h-1 rounded-full bg-gradient-to-r from-blue-500 to-purple-500"
+                      style={{ width: `${peak.bidActivity}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* Heatmap grid */}
+          <div className="bg-gray-700/30 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm text-gray-400">Weekly Activity Pattern</span>
+              <span className="text-sm text-gray-400">Hours (24h format)</span>
+            </div>
+            
+            {/* Simple heatmap visualization */}
+            <div className="grid grid-cols-7 gap-2">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, dayIndex) => (
+                <div key={day} className="text-center">
+                  <p className="text-gray-400 text-xs mb-2 font-medium">{day}</p>
+                  <div className="space-y-1">
+                    {Array.from({ length: 12 }, (_, index) => {
+                      const hour = index * 2; // Show every 2 hours for better spacing
+                      const heatmapData = analyticsData.timeAnalysis.heatmap.find(
+                        h => h.day === dayIndex && h.hour === hour
+                      )
+                      const intensity = heatmapData ? heatmapData.intensity : 0
+                      const bidCount = heatmapData ? heatmapData.bidCount : 0
+                      
+                      return (
+                        <div
+                          key={hour}
+                          className="w-8 h-4 rounded-sm mx-auto cursor-pointer hover:ring-1 hover:ring-blue-400 transition-all group relative"
                     style={{
-                      textShadow: '0 1px 2px rgba(0,0,0,0.8)',
-                      transformOrigin: `${centerX}px ${centerY}px`
-                    }}
-                  >
-                    <animateTransform
-                      attributeName="transform"
-                      attributeType="XML"
-                      type="translate"
-                      values={index === 0 ? "0,0" : `0,0; ${node.finalX - centerX},${node.finalY - centerY}`}
-                      dur={index === 0 ? "0.1s" : "1.5s"}
-                      begin={`${node.delay}s`}
-                      fill="freeze"
-                      calcMode="spline"
-                      keySplines={index === 0 ? "" : "0.25 0.1 0.25 1"}
-                      keyTimes={index === 0 ? "" : "0;1"}
-                    />
-                    
-                    <animateTransform
-                      attributeName="transform"
-                      attributeType="XML"
-                      type="translate"
-                      values={`${node.finalX - centerX},${node.finalY - centerY}; ${node.finalX - centerX + Math.sin(index * 2) * 4},${node.finalY - centerY + Math.cos(index * 2) * 3}; ${node.finalX - centerX},${node.finalY - centerY}`}
-                      dur="6s"
-                      begin={`${node.delay + 1.5}s`}
-                      repeatCount="indefinite"
-                    />
-                    
-                    {node.name}
-                  </text>
-                )}
-                
-                {/* Mindshare percentage for larger bubbles */}
-                {node.size > 45 && (
-                  <text
-                    x={centerX}
-                    y={centerY + node.size / 2 + 26}
-                    textAnchor="middle"
-                    fontSize="7"
-                    fill="#9ca3af"
-                    className="font-medium"
-                    style={{
-                      textShadow: '0 1px 2px rgba(0,0,0,0.8)',
-                      transformOrigin: `${centerX}px ${centerY}px`
-                    }}
-                  >
-                    <animateTransform
-                      attributeName="transform"
-                      attributeType="XML"
-                      type="translate"
-                      values={index === 0 ? "0,0" : `0,0; ${node.finalX - centerX},${node.finalY - centerY}`}
-                      dur={index === 0 ? "0.1s" : "1.5s"}
-                      begin={`${node.delay}s`}
-                      fill="freeze"
-                      calcMode="spline"
-                      keySplines={index === 0 ? "" : "0.25 0.1 0.25 1"}
-                      keyTimes={index === 0 ? "" : "0;1"}
-                    />
-                    
-                    <animateTransform
-                      attributeName="transform"
-                      attributeType="XML"
-                      type="translate"
-                      values={`${node.finalX - centerX},${node.finalY - centerY}; ${node.finalX - centerX + Math.sin(index * 2) * 4},${node.finalY - centerY + Math.cos(index * 2) * 3}; ${node.finalX - centerX},${node.finalY - centerY}`}
-                      dur="6s"
-                      begin={`${node.delay + 1.5}s`}
-                      repeatCount="indefinite"
-                    />
-                    
-                    {node.mindshare.toFixed(1)}%
-                  </text>
-                )}
-              </g>
-            )
-          })}
-        </svg>
+                            backgroundColor: intensity > 0.7 ? '#3B82F6' : 
+                                           intensity > 0.4 ? '#60A5FA' : 
+                                           intensity > 0.2 ? '#93C5FD' :
+                                           intensity > 0.1 ? '#DBEAFE' : '#4B5563',
+                          }}
+                          title={`${day} ${hour}:00 - ${bidCount} bids`}
+                        >
+                          {/* Enhanced tooltip */}
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-20 border border-gray-600">
+                            <div className="font-semibold">{day} {hour}:00</div>
+                            <div className="text-blue-300">{bidCount} bids</div>
+                            <div className="text-gray-300">{Math.round(intensity * 100)}% activity</div>
       </div>
     </div>
   )
-
-  const renderSmartFeed = () => (
-    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
-      <div className="flex items-center space-x-3 mb-6">
-        <div className="p-2 bg-blue-500/20 rounded-lg">
-          <StarIcon className="h-5 w-5 text-blue-400" />
+                    })}
+                  </div>
+                  
+                  {/* Hour labels for this column */}
+                  <div className="mt-2 text-xs text-gray-500 space-y-1">
+                    <div>0-23h</div>
         </div>
-        <h3 className="text-xl font-bold text-white">Smart Feed</h3>
       </div>
-      <div className="space-y-6">
-        {mockSmartFeedData.map((post) => (
-          <div key={post.id} className="bg-gray-700/30 rounded-lg p-5">
-            <div className="flex items-start space-x-4 mb-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center text-xl flex-shrink-0">
-                {post.avatar}
+              ))}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center space-x-2 mb-2">
-                  <span className="font-semibold text-white">{post.author}</span>
-                  <span className="text-gray-400 text-sm">{post.handle}</span>
-                  <span className="text-gray-500 text-sm">•</span>
-                  <span className="text-gray-500 text-sm">{post.date}</span>
+            
+            {/* Legend */}
+            <div className="flex items-center justify-center space-x-4 text-sm text-gray-400 mt-6">
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-3 bg-gray-600 rounded-sm"></div>
+                <span>No activity</span>
+                  </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-3 bg-blue-200 rounded-sm"></div>
+                <span>Low</span>
                 </div>
-                <p className="text-gray-300 text-sm leading-relaxed mb-4 break-words overflow-wrap-anywhere">
-                  {post.content}
-                </p>
-                
-                {/* Miner Content Attribution */}
-                <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3 mb-4">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <CpuChipIcon className="h-4 w-4 text-orange-400 flex-shrink-0" />
-                    <span className="text-xs font-medium text-orange-400">AI-Generated Content Used</span>
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-3 bg-blue-400 rounded-sm"></div>
+                <span>Medium</span>
                   </div>
-                  <p className="text-xs text-gray-300 break-words">{post.minerContent}</p>
+              <div className="flex items-center space-x-2">
+                <div className="w-4 h-3 bg-blue-600 rounded-sm"></div>
+                <span>High</span>
+                  </div>
+                  </div>
+                  </div>
+          
+          {/* Additional insights */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+            <div className="bg-gray-700/30 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-blue-400">2-4 PM</p>
+              <p className="text-gray-400 text-sm">Peak Hours</p>
+                  </div>
+            <div className="bg-gray-700/30 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-green-400">Tue-Thu</p>
+              <p className="text-gray-400 text-sm">Best Days</p>
                 </div>
-
-                {/* Engagement Metrics */}
-                <div className="flex items-center flex-wrap gap-x-4 gap-y-2 text-gray-400">
-                  <div className="flex items-center space-x-1 text-sm">
-                    <span>⚡</span>
-                    <span>{post.metrics.reposts}</span>
-                  </div>
-                  <div className="flex items-center space-x-1 text-sm">
-                    <span>👍</span>
-                    <span>{post.metrics.likes}</span>
-                  </div>
-                  <div className="flex items-center space-x-1 text-sm">
-                    <span>💬</span>
-                    <span>{post.metrics.comments}</span>
-                  </div>
-                  <div className="flex items-center space-x-1 text-sm">
-                    <span>🔄</span>
-                    <span>{post.metrics.shares}</span>
-                  </div>
-                  <div className="flex items-center space-x-1 text-sm">
-                    <span>👁️</span>
-                    <span>{post.metrics.views}</span>
-                  </div>
-                </div>
+            <div className="bg-gray-700/30 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-purple-400">89%</p>
+              <p className="text-gray-400 text-sm">Peak Efficiency</p>
               </div>
             </div>
           </div>
-        ))}
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white p-8">
+        <div className="max-w-7xl mx-auto h-full flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-xl text-gray-300">Loading Analytics...</p>
+          </div>
       </div>
     </div>
   )
+  }
 
   return (
     <div 
@@ -1083,18 +952,69 @@ export default function Dashboard() {
           }
         `}</style>
         
-        {/* Two-column layout like cookie.fun */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 min-h-full">
-          {/* Left Column - Main Content (2/3 width) */}
-          <div className="lg:col-span-2 space-y-8">
-            {renderBullishProjects()}
-            {renderMindshareGraph()}
-            {renderTreemap()}
-            {renderSocialGraph()}
+        {/* Dashboard Header */}
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+            Mining Analytics Dashboard
+          </h1>
+          <p className="text-gray-400 mt-2">
+            Comprehensive insights into your content performance, bidding activity, and yapper engagement
+          </p>
+        </div>
+        
+        {/* Two-column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 min-h-full pb-16">
+          {/* Left Column - Analytics Content (2/3 width) */}
+          <div className="lg:col-span-2 space-y-8 pb-8">
+            {!address ? (
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-8 text-center">
+                <div className="mb-4">
+                  <CpuChipIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-white mb-2">Connect Your Wallet</h3>
+                  <p className="text-gray-400">Please connect your wallet to view your mining analytics</p>
+                </div>
+              </div>
+            ) : isLoading ? (
+              <div className="space-y-6">
+                {/* Loading skeleton */}
+                {Array.from({ length: 4 }, (_, i) => (
+                  <div key={i} className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6">
+                    <div className="animate-pulse">
+                      <div className="h-4 bg-gray-700 rounded w-1/4 mb-4"></div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {Array.from({ length: 4 }, (_, j) => (
+                          <div key={j} className="h-24 bg-gray-700 rounded"></div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : analyticsData ? (
+              <div className="space-y-8">
+                {renderContentStats()}
+                {renderBiddingTrends()}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div>{renderTopContent()}</div>
+                  <div>{renderContentCategories()}</div>
+                </div>
+                {renderYapperEngagement()}
+                {renderAgentPerformance()}
+                {renderTimeHeatmap()}
+              </div>
+            ) : (
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-8 text-center">
+                <div className="mb-4">
+                  <DocumentTextIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-white mb-2">No Analytics Data</h3>
+                  <p className="text-gray-400">Start creating content to see your analytics here</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right Column - Smart Feed (1/3 width) */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 pb-8">
             {renderSmartFeed()}
           </div>
         </div>

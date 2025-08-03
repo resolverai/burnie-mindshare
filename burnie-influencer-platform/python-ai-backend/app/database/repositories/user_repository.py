@@ -13,8 +13,8 @@ class UserRepository:
         try:
             query = text("""
                 SELECT 
-                    id, wallet_address, username, email, twitter_handle, 
-                    role, created_at, updated_at
+                    id, "walletAddress", username, email, "twitterHandle", 
+                    "roleType", "createdAt", "updatedAt"
                 FROM users 
                 WHERE id = :user_id
             """)
@@ -25,15 +25,72 @@ class UserRepository:
             if result:
                 return {
                     "id": result.id,
-                    "wallet_address": result.wallet_address,
+                    "walletAddress": result.walletAddress,
                     "username": result.username,
                     "email": result.email,
-                    "twitter_handle": result.twitter_handle,
-                    "role": result.role,
-                    "created_at": result.created_at,
-                    "updated_at": result.updated_at
+                    "twitterHandle": result.twitterHandle,
+                    "roleType": result.roleType,
+                    "createdAt": result.createdAt,
+                    "updatedAt": result.updatedAt
                 }
             return None
         except Exception as e:
             logger.error(f"Failed to get user by ID: {e}")
-            return None 
+            return None
+    
+    def get_user_by_wallet_address(self, wallet_address: str) -> Optional[Dict[str, Any]]:
+        """Get user by wallet address"""
+        try:
+            query = text("""
+                SELECT 
+                    id, "walletAddress", username, email, "twitterHandle", 
+                    "roleType", "createdAt", "updatedAt"
+                FROM users 
+                WHERE LOWER("walletAddress") = LOWER(:wallet_address)
+            """)
+            
+            db = get_db_session()
+            result = db.execute(query, {"wallet_address": wallet_address}).fetchone()
+            
+            if result:
+                return {
+                    "id": result.id,
+                    "walletAddress": result.walletAddress,
+                    "username": result.username,
+                    "email": result.email,
+                    "twitterHandle": result.twitterHandle,
+                    "roleType": result.roleType,
+                    "createdAt": result.createdAt,
+                    "updatedAt": result.updatedAt
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get user by wallet address: {e}")
+            return None
+    
+    def create_user_from_wallet(self, wallet_address: str) -> Dict[str, Any]:
+        """Create a new user from wallet address"""
+        try:
+            query = text("""
+                INSERT INTO users ("walletAddress", "roleType", "createdAt", "updatedAt")
+                VALUES (:wallet_address, 'miner', NOW(), NOW())
+                RETURNING id, "walletAddress", "roleType", "createdAt", "updatedAt"
+            """)
+            
+            db = get_db_session()
+            result = db.execute(query, {"wallet_address": wallet_address}).fetchone()
+            db.commit()
+            
+            if result:
+                return {
+                    "id": result.id,
+                    "walletAddress": result.walletAddress,
+                    "roleType": result.roleType,
+                    "createdAt": result.createdAt,
+                    "updatedAt": result.updatedAt
+                }
+            else:
+                raise Exception("Failed to create user")
+        except Exception as e:
+            logger.error(f"Failed to create user from wallet: {e}")
+            raise e 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useAccount } from 'wagmi'
 import { 
   MagnifyingGlassIcon,
   FunnelIcon,
@@ -11,7 +12,8 @@ import {
   EyeIcon,
   HeartIcon,
   ChatBubbleLeftIcon,
-  ArrowUpIcon
+  ArrowUpIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline'
 import { 
   HeartIcon as HeartIconSolid,
@@ -21,6 +23,7 @@ import {
 interface ContentItem {
   id: number
   content_text: string
+  content_images?: any // JSON field containing image URLs and metadata
   predicted_mindshare: number
   quality_score: number
   asking_price: number
@@ -47,6 +50,7 @@ interface ContentItem {
   total_bids: number
   created_at: string
   is_liked?: boolean
+  agent_name?: string
 }
 
 export default function BiddingInterface() {
@@ -55,10 +59,244 @@ export default function BiddingInterface() {
   const [selectedSort, setSelectedSort] = useState<string>('quality')
   const [showBidModal, setShowBidModal] = useState<ContentItem | null>(null)
   const [bidAmount, setBidAmount] = useState('')
-  const [bidCurrency, setBidCurrency] = useState<'ROAST' | 'USDC'>('ROAST')
+  const [bidCurrency, setBidCurrency] = useState('ROAST')
+  const [showCopyProtectionModal, setShowCopyProtectionModal] = useState(false)
+  const [isScreenshotDetected, setIsScreenshotDetected] = useState(false)
+  const [watermarkPosition, setWatermarkPosition] = useState({ x: 0, y: 0 })
+  
+  // Content parsing functions similar to mining interface
+  const extractImageUrl = (contentText: string): string | null => {
+    // Pattern 1: Look for Image URL: prefix (backend format)
+    const prefixMatch = contentText.match(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i)
+    if (prefixMatch) {
+      return prefixMatch[1].replace(/[.,;'"]+$/, '')
+    }
+    
+    // Pattern 2: Look for OpenAI DALL-E URLs specifically
+    const dalleMatch = contentText.match(/(https?:\/\/oaidalleapiprodscus\.blob\.core\.windows\.net\/[^\s\n<>"'`]+)/i)
+    if (dalleMatch) {
+      return dalleMatch[1].replace(/[.,;'"]+$/, '')
+    }
+    
+    // Pattern 3: General blob URL detection
+    const blobMatch = contentText.match(/(https?:\/\/[^\s\n<>"'`]*blob\.core\.windows\.net[^\s\n<>"'`]+)/i)
+    if (blobMatch) {
+      return blobMatch[1].replace(/[.,;'"]+$/, '')
+    }
+    
+    return null
+  }
+
+  const formatTwitterContent = (contentText: string): { text: string; imageUrl: string | null } => {
+    const imageUrl = extractImageUrl(contentText)
+    
+    // Extract just the Twitter text (before the stats)
+    const lines = contentText.split('\n')
+    let twitterText = ""
+    
+    for (const line of lines) {
+      if (line.includes('📊 Content Stats') || 
+          line.includes('🖼️ [Image will be attached') ||
+          line.includes('💡 To post:')) {
+        break
+      }
+      if (line.trim() && !line.includes('Image URL:')) {
+        twitterText += line + "\n"
+      }
+    }
+    
+    return {
+      text: twitterText.trim(),
+      imageUrl
+    }
+  }
+
+  const extractHashtags = (text: string): string[] => {
+    const hashtags = text.match(/#\w+/g) || []
+    return hashtags
+  }
+
+  // Copy protection modal component
+  const CopyProtectionModal = () => (
+    showCopyProtectionModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
+        <div className="bg-white rounded-lg p-8 max-w-md mx-4 text-center">
+          <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-gray-900 mb-4">Content Protected</h3>
+          <p className="text-gray-600 mb-6">
+            This content is proprietary and protected. Copying, screenshots, and screen recording are prohibited. 
+            You can only access this content after winning the bid auction.
+          </p>
+          <button
+            onClick={() => setShowCopyProtectionModal(false)}
+            className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+          >
+            I Understand
+          </button>
+        </div>
+      </div>
+    )
+  )
+
+  // Get wallet address and connection status
+  const { address, isConnected } = useAccount()
+
+  // Screenshot protection functions
+  const handleVisibilityChange = () => {
+    if (document.hidden) {
+      // User switched away - potential screenshot attempt
+      setIsScreenshotDetected(true)
+      setTimeout(() => setIsScreenshotDetected(false), 3000)
+    }
+  }
+
+  const handleBlur = () => {
+    // Window lost focus - potential screenshot attempt
+    setIsScreenshotDetected(true)
+    setTimeout(() => setIsScreenshotDetected(false), 2000)
+  }
+
+  const preventScreenshot = () => {
+    setShowCopyProtectionModal(true)
+  }
+
+  // Block screen capture APIs
+  const blockScreenCapture = () => {
+    // Block getDisplayMedia (screen sharing/recording)
+    if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+      const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia
+      navigator.mediaDevices.getDisplayMedia = () => {
+        preventScreenshot()
+        return Promise.reject(new Error('Screen capture blocked'))
+      }
+    }
+
+    // Block getUserMedia for screen capture
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      const originalGetUserMedia = navigator.mediaDevices.getUserMedia
+      navigator.mediaDevices.getUserMedia = (constraints: any) => {
+        if (constraints?.video?.mediaSource === 'screen') {
+          preventScreenshot()
+          return Promise.reject(new Error('Screen capture blocked'))
+        }
+        return originalGetUserMedia.call(navigator.mediaDevices, constraints)
+      }
+    }
+  }
+
+  // Dynamic watermark positioning
+  useEffect(() => {
+    const moveWatermark = () => {
+      setWatermarkPosition({
+        x: Math.random() * 70, // 0-70% to keep within bounds
+        y: Math.random() * 70
+      })
+    }
+    
+    moveWatermark() // Initial position
+    const interval = setInterval(moveWatermark, 2000) // Move every 2 seconds (faster)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Copy protection functions
+  const preventCopy = (e: Event) => {
+    e.preventDefault()
+    setShowCopyProtectionModal(true)
+    return false
+  }
+
+  const preventRightClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setShowCopyProtectionModal(true)
+  }
+
+  const preventDrag = (e: React.DragEvent) => {
+    e.preventDefault()
+    setShowCopyProtectionModal(true)
+  }
+
+  const preventImageRightClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setShowCopyProtectionModal(true)
+  }
+
+  const preventKeyboardCopy = (e: React.KeyboardEvent) => {
+    // Prevent Ctrl+C, Ctrl+A, Ctrl+S, Ctrl+P, etc. but allow arrow keys for scrolling
+    if (e.ctrlKey || e.metaKey) {
+      if (['c', 'a', 's', 'p', 'v', 'x'].includes(e.key.toLowerCase())) {
+        e.preventDefault()
+        setShowCopyProtectionModal(true)
+      }
+    }
+    // Prevent F12, Ctrl+Shift+I, etc.
+    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
+      e.preventDefault()
+      setShowCopyProtectionModal(true)
+    }
+  }
+
+  // Add copy protection and screenshot detection on component mount
+  useEffect(() => {
+    const handleCopy = (e: ClipboardEvent) => preventCopy(e)
+    const handleCut = (e: ClipboardEvent) => preventCopy(e)
+    const handlePrint = (e: Event) => preventCopy(e)
+    const handleSelectStart = (e: Event) => preventCopy(e)
+    
+    // Screenshot detection events
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('blur', handleBlur)
+    
+    // Copy protection events
+    document.addEventListener('copy', handleCopy)
+    document.addEventListener('cut', handleCut)
+    document.addEventListener('selectstart', handleSelectStart)
+    document.addEventListener('dragstart', preventCopy)
+    window.addEventListener('beforeprint', handlePrint)
+    
+    // Block screen capture APIs
+    blockScreenCapture()
+    
+    // Mobile screenshot detection (Android/iOS)
+    const handleMobileScreenshot = () => {
+      setIsScreenshotDetected(true)
+      preventScreenshot()
+      setTimeout(() => setIsScreenshotDetected(false), 5000)
+    }
+    
+    // Android screenshot detection
+    document.addEventListener('deviceorientation', handleMobileScreenshot)
+    
+    // Keyboard screenshot shortcuts
+    const handleKeyboardScreenshot = (e: KeyboardEvent) => {
+      // Windows: PrintScreen, Alt+PrintScreen, Win+PrintScreen
+      if (e.key === 'PrintScreen') {
+        e.preventDefault()
+        preventScreenshot()
+      }
+      // Mac: Cmd+Shift+3, Cmd+Shift+4, Cmd+Shift+5
+      if (e.metaKey && e.shiftKey && ['3', '4', '5'].includes(e.key)) {
+        e.preventDefault()
+        preventScreenshot()
+      }
+    }
+    
+    document.addEventListener('keydown', handleKeyboardScreenshot)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('blur', handleBlur)
+      document.removeEventListener('copy', handleCopy)
+      document.removeEventListener('cut', handleCut)
+      document.removeEventListener('selectstart', handleSelectStart)
+      document.removeEventListener('dragstart', preventCopy)
+      window.removeEventListener('beforeprint', handlePrint)
+      document.removeEventListener('deviceorientation', handleMobileScreenshot)
+      document.removeEventListener('keydown', handleKeyboardScreenshot)
+    }
+  }, [])
 
   // Fetch content from marketplace API
-  const { data: content, isLoading } = useQuery({
+  const { data: content, isLoading, refetch } = useQuery({
     queryKey: ['marketplace-content', searchQuery, selectedPlatform, selectedSort],
     queryFn: async () => {
       const params = new URLSearchParams()
@@ -70,6 +308,7 @@ export default function BiddingInterface() {
         const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content?${params}`)
         if (response.ok) {
           const data = await response.json()
+          console.log('📦 Fetched marketplace content:', data)
           return data.data || []
         }
         return []
@@ -82,9 +321,18 @@ export default function BiddingInterface() {
   })
 
   const handleBid = async (contentId: number) => {
-    if (!bidAmount || !showBidModal) return
+    if (!bidAmount || !showBidModal) {
+      alert('Please enter a bid amount');
+      return;
+    }
+
+    if (!isConnected || !address) {
+      alert('Please connect your wallet first');
+      return;
+    }
 
     try {
+      console.log('Placing bid with wallet address:', address);
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/bid`, {
         method: 'POST',
         headers: {
@@ -94,18 +342,27 @@ export default function BiddingInterface() {
           content_id: contentId,
           bid_amount: parseFloat(bidAmount),
           bid_currency: bidCurrency,
-          yapper_id: 1 // TODO: Get from wallet/auth
+          wallet_address: address
         }),
       })
 
+      const result = await response.json();
+      console.log('Bid response:', result);
+
       if (response.ok) {
+        alert(`Bid placed successfully! ${result.message}`);
         // Refresh content and close modal
         setShowBidModal(null)
         setBidAmount('')
-        // Refetch data
+        // Refetch data to show updated bids
+        refetch();
+      } else {
+        console.error('Bid failed:', result);
+        alert(`Failed to place bid: ${result.message || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Error placing bid:', error)
+      alert('Network error occurred while placing bid');
     }
   }
 
@@ -120,7 +377,78 @@ export default function BiddingInterface() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-gray-50">
+    <div 
+      className={`bg-gray-50 h-screen select-none overflow-y-auto relative ${isScreenshotDetected ? 'blur-lg' : ''}`}
+      onContextMenu={preventRightClick}
+      onKeyDown={preventKeyboardCopy}
+      style={{
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        MozUserSelect: 'none',
+        msUserSelect: 'none',
+        WebkitTouchCallout: 'none',
+        WebkitTapHighlightColor: 'transparent'
+      }}
+    >
+      {/* Balanced Dynamic Watermarks - Less Distracting */}
+      <div 
+        className="fixed pointer-events-none z-30 text-red-600 opacity-25 text-6xl font-black transform -rotate-45"
+        style={{
+          left: `${watermarkPosition.x}%`,
+          top: `${watermarkPosition.y}%`,
+          transition: 'all 2s ease-in-out',
+          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
+        }}
+      >
+        PROTECTED CONTENT
+      </div>
+      
+      <div 
+        className="fixed pointer-events-none z-30 text-red-600 opacity-20 text-4xl font-black transform rotate-12"
+        style={{
+          left: `${(watermarkPosition.x + 30) % 100}%`,
+          top: `${(watermarkPosition.y + 20) % 100}%`,
+          transition: 'all 2s ease-in-out',
+          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
+        }}
+      >
+        NO SCREENSHOTS
+      </div>
+
+      <div 
+        className="fixed pointer-events-none z-30 text-red-600 opacity-22 text-5xl font-black transform -rotate-12"
+        style={{
+          left: `${(watermarkPosition.x + 55) % 100}%`,
+          top: `${(watermarkPosition.y + 40) % 100}%`,
+          transition: 'all 2s ease-in-out',
+          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
+        }}
+      >
+        BID TO ACCESS
+      </div>
+
+      <div 
+        className="fixed pointer-events-none z-30 text-red-600 opacity-18 text-3xl font-black transform rotate-30"
+        style={{
+          left: `${(watermarkPosition.x + 15) % 100}%`,
+          top: `${(watermarkPosition.y + 65) % 100}%`,
+          transition: 'all 2s ease-in-out',
+          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
+        }}
+      >
+        PREVIEW ONLY
+      </div>
+
+      {/* Screenshot Detection Overlay */}
+      {isScreenshotDetected && (
+        <div className="fixed inset-0 z-40 bg-red-500 bg-opacity-80 flex items-center justify-center">
+          <div className="text-white text-center">
+            <ExclamationTriangleIcon className="h-24 w-24 mx-auto mb-4" />
+            <h2 className="text-4xl font-bold mb-4">SCREENSHOT DETECTED</h2>
+            <p className="text-xl">This action has been logged</p>
+          </div>
+        </div>
+      )}
       <div className="p-6 space-y-6">
         {/* Header and Filters */}
         <div className="space-y-4">
@@ -167,130 +495,330 @@ export default function BiddingInterface() {
           </div>
         </div>
 
-        {/* Content Grid */}
+        {/* Content Display */}
         {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => (
+          <div className="space-y-6">
+            {[...Array(3)].map((_, i) => (
               <div key={i} className="card animate-pulse">
                 <div className="card-content space-y-4">
-                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                  <div className="h-20 bg-gray-200 rounded"></div>
+                  <div className="h-6 bg-gray-200 rounded w-3/4"></div>
+                  <div className="h-32 bg-gray-200 rounded"></div>
                   <div className="h-4 bg-gray-200 rounded w-1/2"></div>
                 </div>
               </div>
             ))}
           </div>
         ) : content && content.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {content.map((item: ContentItem) => (
-              <div key={item.id} className="card hover:shadow-lg transition-shadow">
-                <div className="card-content space-y-4">
-                  {/* Creator Info */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
-                        <span className="text-white text-xs font-bold">
+          <div className="space-y-8">
+            {content.map((item: ContentItem) => {
+              const { text, imageUrl } = formatTwitterContent(item.content_text)
+              const hashtags = extractHashtags(text)
+              
+              return (
+                <div key={item.id} className="card hover:shadow-xl transition-all duration-300 border-l-4 border-l-orange-500">
+                  <div className="card-content space-y-6">
+                    {/* Header with Creator Info */}
+                    <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
+                          <span className="text-white font-bold">
                           {item.creator.username.charAt(0).toUpperCase()}
                         </span>
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900 text-sm">{item.creator.username}</p>
+                          <div className="flex items-center space-x-2">
+                            <p className="font-medium text-gray-900">{item.creator.username}</p>
+                            {item.agent_name && (
+                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                                🤖 {item.agent_name}
+                              </span>
+                            )}
+                          </div>
                         <div className="flex items-center space-x-1">
                           <StarIconSolid className="h-3 w-3 text-yellow-400" />
-                          <span className="text-xs text-gray-500">{item.creator.reputation_score}</span>
+                            <span className="text-xs text-gray-500">{item.creator.reputation_score} reputation</span>
+                            <span className="text-xs text-gray-400">•</span>
+                            <span className="text-xs text-gray-500">{formatTimeAgo(item.created_at)}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <span className="text-xs text-gray-500">{formatTimeAgo(item.created_at)}</span>
-                  </div>
-
-                  {/* Content */}
-                  <div className="space-y-3">
-                    <p className="text-gray-900 text-sm leading-relaxed line-clamp-4">
-                      {item.content_text}
-                    </p>
-                    
-                    {/* Campaign Tag */}
+                      <div className="text-right">
                     <div className="flex items-center space-x-2">
                       <span className="status-indicator status-active text-xs">
                         {item.campaign.platform_source}
                       </span>
-                      <span className="text-xs text-gray-500 truncate">
-                        {item.campaign.title}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">{item.campaign.title}</p>
+                      </div>
+                    </div>
+
+                    {/* Twitter-Ready Content Display */}
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-blue-600 flex items-center">
+                          🐦 Twitter-Ready Content
+                        </h4>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        {/* Twitter Text */}
+                        <div className="bg-white rounded-lg p-4 border border-gray-200">
+                          <div className="text-gray-900 whitespace-pre-wrap font-medium leading-relaxed">
+                            {text}
+                          </div>
+                          <div className="mt-2 space-y-2 text-xs text-gray-500">
+                            <div className="flex items-center justify-between">
+                              <span>Characters: {text.length}/280</span>
+                              <span className="text-blue-600">Twitter-ready ✓</span>
+                            </div>
+                            {hashtags.length > 0 && (
+                              <div className="flex items-start space-x-2">
+                                <span className="whitespace-nowrap">Hashtags:</span>
+                                <div className="flex flex-wrap gap-1">
+                                  {hashtags.map((tag, index) => (
+                                    <span key={index} className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs whitespace-nowrap">
+                                      {tag}
                       </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                     </div>
                   </div>
 
-                  {/* Metrics */}
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div className="flex items-center space-x-1">
-                      <EyeIcon className="h-4 w-4 text-blue-500" />
-                      <span className="text-gray-600">Mindshare:</span>
-                      <span className="font-medium text-blue-600">{item.predicted_mindshare.toFixed(1)}%</span>
+                        {/* Visual Content */}
+                        {(imageUrl || (item.content_images && item.content_images.length > 0)) && (
+                          <div className="bg-white rounded-lg p-4 border border-gray-200">
+                            <h5 className="text-sm font-semibold text-purple-600 mb-3 flex items-center">
+                              🖼️ Generated Visuals
+                            </h5>
+                            <div className="space-y-4">
+                              {/* Primary Image from AI Generation */}
+                              {imageUrl && (
+                                <div className="space-y-2">
+                                  <div className="relative">
+                                    <img 
+                                      src={imageUrl} 
+                                      alt="AI Generated content image"
+                                      className="w-full max-w-md rounded-lg border border-gray-300 shadow-md"
+                                      onLoad={() => console.log('✅ Primary image loaded:', imageUrl)}
+                                      onError={(e) => {
+                                        console.error('❌ Primary image failed to load:', imageUrl)
+                                        e.currentTarget.style.display = 'none'
+                                        const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                                        if (fallback) fallback.style.display = 'block'
+                                      }}
+                                      onDragStart={preventDrag}
+                                      onContextMenu={preventImageRightClick}
+                                      style={{ 
+                                        userSelect: 'none',
+                                        WebkitUserSelect: 'none'
+                                      }}
+                                    />
+                                    {/* Image Watermarks */}
+                                    <div className="absolute inset-0 pointer-events-none">
+                                      <div className="absolute top-2 left-2 text-red-600 opacity-70 text-sm font-black transform -rotate-12 bg-white bg-opacity-60 px-1 rounded">
+                                        PROTECTED
+                                      </div>
+                                      <div className="absolute top-1/4 right-4 text-red-600 opacity-60 text-xs font-black transform rotate-45 bg-white bg-opacity-60 px-1 rounded">
+                                        PREVIEW
+                                      </div>
+                                      <div className="absolute bottom-4 left-1/3 text-red-600 opacity-70 text-sm font-black transform -rotate-45 bg-white bg-opacity-60 px-1 rounded">
+                                        NO COPY
+                                      </div>
+                                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-red-600 opacity-40 text-lg font-black bg-white bg-opacity-50 px-2 py-1 rounded">
+                                        BID TO ACCESS
+                                      </div>
+                                      <div className="absolute bottom-2 right-2 text-red-600 opacity-60 text-xs font-black transform rotate-12 bg-white bg-opacity-60 px-1 rounded">
+                                        WATERMARK
+                                      </div>
+                                    </div>
+                                    <div 
+                                      className="hidden bg-gradient-to-br from-gray-200 to-gray-300 rounded-lg border border-gray-300 p-8 text-center"
+                                    >
+                                      <span className="text-gray-600 text-sm">
+                                        🖼️ AI Generated Image
+                                        <br />
+                                        <span className="text-xs text-gray-500">Preview not available</span>
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="text-xs text-gray-500 bg-gray-100 p-2 rounded font-mono break-all">
+                                    <strong>Image URL:</strong> {imageUrl}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Additional Content Images */}
+                              {item.content_images && item.content_images.length > 0 && (
+                                <div className="grid grid-cols-2 gap-3">
+                                  {item.content_images.slice(0, 4).map((image: any, index: number) => (
+                                    <div key={index} className="space-y-1">
+                                      {image.url ? (
+                                        <div className="relative">
+                                          <img 
+                                            src={image.url} 
+                                            alt={image.description || `Generated image ${index + 1}`}
+                                            className="w-full h-24 object-cover rounded-md border border-gray-200"
+                                            onDragStart={preventDrag}
+                                            onContextMenu={preventImageRightClick}
+                                            style={{ 
+                                              userSelect: 'none',
+                                              WebkitUserSelect: 'none'
+                                            }}
+                                          />
+                                          {/* Small Image Watermarks */}
+                                          <div className="absolute inset-0 pointer-events-none">
+                                            <div className="absolute top-1 left-1 text-red-600 opacity-80 text-xs font-black bg-white bg-opacity-70 px-1 rounded">
+                                              ©
+                                            </div>
+                                            <div className="absolute top-1 right-1 text-red-600 opacity-70 text-xs font-black transform rotate-45 bg-white bg-opacity-60 px-1 rounded">
+                                              P
+                                            </div>
+                                            <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 text-red-600 opacity-60 text-xs font-black bg-white bg-opacity-60 px-1 rounded">
+                                              PREVIEW
+                                            </div>
+                                            <div className="absolute bottom-1 right-1 text-red-600 opacity-70 text-xs font-black transform -rotate-45 bg-white bg-opacity-60 px-1 rounded">
+                                              ®
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="w-full h-24 bg-gradient-to-br from-gray-200 to-gray-300 rounded-md border border-gray-200 flex items-center justify-center">
+                                          <span className="text-gray-500 text-xs">🖼️ Image {index + 1}</span>
+                                        </div>
+                                      )}
+                                      {image.description && (
+                                        <p className="text-xs text-gray-500 text-center">{image.description}</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-1">
+
+                    {/* Performance Metrics */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                        <div className="flex items-center space-x-2">
+                          <EyeIcon className="h-4 w-4 text-blue-500" />
+                          <span className="text-sm text-gray-600">Predicted Mindshare</span>
+                        </div>
+                        <p className="text-lg font-bold text-blue-600">{item.predicted_mindshare.toFixed(1)}%</p>
+                      </div>
+                      <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
+                        <div className="flex items-center space-x-2">
                       <StarIcon className="h-4 w-4 text-yellow-500" />
-                      <span className="text-gray-600">Quality:</span>
-                      <span className="font-medium text-yellow-600">{item.quality_score.toFixed(1)}</span>
+                          <span className="text-sm text-gray-600">Quality Score</span>
+                        </div>
+                        <p className="text-lg font-bold text-yellow-600">{item.quality_score.toFixed(1)}/100</p>
                     </div>
                   </div>
 
-                  {/* Bidding Info */}
-                  <div className="border-t border-gray-200 pt-4">
-                    <div className="flex items-center justify-between mb-3">
+                    {/* Bidding Section */}
+                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      <div className="flex items-center justify-between mb-4">
                       <div>
                         <p className="text-sm text-gray-600">Asking Price</p>
-                        <p className="font-bold text-lg text-gray-900">
-                          {item.asking_price} <span className="text-sm text-gray-500">ROAST</span>
+                          <p className="text-2xl font-bold text-gray-900">
+                            {item.asking_price} <span className="text-base text-gray-500">ROAST</span>
                         </p>
                       </div>
                       {item.highest_bid && (
                         <div className="text-right">
                           <p className="text-sm text-gray-600">Highest Bid</p>
-                          <p className="font-bold text-green-600">
-                            {item.highest_bid.amount} {item.highest_bid.currency}
+                            <p className="text-xl font-bold text-green-600">
+                              {item.highest_bid.amount} <span className="text-sm">{item.highest_bid.currency}</span>
                           </p>
+                            <p className="text-xs text-gray-500">by {item.highest_bid.bidder}</p>
                         </div>
                       )}
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex space-x-2">
+                      <div className="flex space-x-3">
                       <button
                         onClick={() => setShowBidModal(item)}
-                        className="flex-1 btn-primary text-sm py-2"
+                          className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center"
                       >
-                        <ArrowUpIcon className="h-4 w-4 mr-1" />
+                          <ArrowUpIcon className="h-5 w-5 mr-2" />
                         Place Bid
-                      </button>
-                      <button className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                        <HeartIcon className="h-4 w-4 text-gray-400" />
                       </button>
                     </div>
 
-                    {/* Bid Count */}
                     {item.total_bids > 0 && (
-                      <p className="text-xs text-gray-500 mt-2 text-center">
-                        {item.total_bids} bid{item.total_bids !== 1 ? 's' : ''}
-                      </p>
-                    )}
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <p className="text-xs text-gray-500">{item.total_bids} bid{item.total_bids !== 1 ? 's' : ''} received</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div className="text-center py-12">
             <MagnifyingGlassIcon className="h-16 w-16 mx-auto mb-4 text-gray-400" />
             <p className="text-gray-500 text-lg">No content found</p>
-            <p className="text-gray-400 text-sm">Try adjusting your search or filters</p>
+            <p className="text-gray-400 text-sm">Try adjusting your search or filters, or check back later for new AI-generated content</p>
           </div>
         )}
 
         {/* Bidding Modal */}
         {showBidModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl border border-gray-200 p-6 max-w-md w-full mx-4 shadow-xl">
+            <div 
+              className={`bg-white rounded-xl border border-gray-200 p-6 max-w-4xl w-full mx-4 shadow-xl max-h-[90vh] overflow-y-auto relative select-none ${isScreenshotDetected ? 'blur-lg' : ''}`}
+              onContextMenu={preventRightClick}
+              onKeyDown={preventKeyboardCopy}
+              style={{
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                MozUserSelect: 'none',
+                msUserSelect: 'none'
+              }}
+            >
+              {/* Enhanced Modal Watermarks */}
+              <div 
+                className="absolute pointer-events-none z-10 text-red-600 opacity-30 text-4xl font-black transform -rotate-45"
+                style={{
+                  left: `${watermarkPosition.x}%`,
+                  top: `${watermarkPosition.y}%`,
+                  transition: 'all 2s ease-in-out',
+                  textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
+                }}
+              >
+                PROTECTED
+              </div>
+              
+              <div 
+                className="absolute pointer-events-none z-10 text-red-600 opacity-25 text-3xl font-black transform rotate-45"
+                style={{
+                  right: `${watermarkPosition.x}%`,
+                  bottom: `${watermarkPosition.y}%`,
+                  transition: 'all 2s ease-in-out',
+                  textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
+                }}
+              >
+                NO SCREENSHOTS
+              </div>
+
+              <div 
+                className="absolute pointer-events-none z-10 text-red-600 opacity-20 text-2xl font-black transform rotate-12"
+                style={{
+                  left: `${(watermarkPosition.x + 40) % 100}%`,
+                  top: `${(watermarkPosition.y + 50) % 100}%`,
+                  transition: 'all 2s ease-in-out',
+                  textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
+                }}
+              >
+                PREVIEW ONLY
+              </div>
+
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-gray-900">Place Bid</h3>
                 <button
@@ -304,59 +832,146 @@ export default function BiddingInterface() {
               <div className="space-y-4">
                 {/* Content Preview */}
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-900 line-clamp-3">
-                    {showBidModal.content_text}
-                  </p>
-                  <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
+                  <div className="mb-4">
+                    <h4 className="text-sm font-semibold text-blue-600 mb-2">🐦 Full Twitter Content</h4>
+                    <div className="bg-white rounded-lg p-4 border border-gray-200 max-h-96 overflow-y-auto">
+                      <p className="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">
+                        {formatTwitterContent(showBidModal.content_text).text}
+                      </p>
+                      <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>Characters: {formatTwitterContent(showBidModal.content_text).text.length}/280</span>
+                          <span className="text-blue-600">Twitter-ready ✓</span>
+                        </div>
+                        {extractHashtags(formatTwitterContent(showBidModal.content_text).text).length > 0 && (
+                          <div className="flex items-start space-x-2 text-xs text-gray-500">
+                            <span className="whitespace-nowrap">Hashtags:</span>
+                            <div className="flex flex-wrap gap-1">
+                              {extractHashtags(formatTwitterContent(showBidModal.content_text).text).map((tag, index) => (
+                                <span key={index} className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs whitespace-nowrap">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Visual Content */}
+                    {(extractImageUrl(showBidModal.content_text) || (showBidModal.content_images && showBidModal.content_images.length > 0)) && (
+                      <div className="mt-4">
+                        <h5 className="text-sm font-semibold text-purple-600 mb-3">🖼️ Generated Visuals</h5>
+                        <div className="bg-white rounded-lg p-4 border border-gray-200">
+                          {extractImageUrl(showBidModal.content_text) && (
+                            <div className="space-y-2">
+                              <div className="relative max-w-md mx-auto">
+                                <img 
+                                  src={extractImageUrl(showBidModal.content_text)!} 
+                                  alt="AI Generated content image"
+                                  className="w-full rounded-lg border border-gray-300 shadow-md"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = 'none'
+                                  }}
+                                  onDragStart={preventDrag}
+                                  onContextMenu={preventImageRightClick}
+                                  style={{ 
+                                    userSelect: 'none',
+                                    WebkitUserSelect: 'none'
+                                  }}
+                                />
+                                {/* Modal Image Watermarks */}
+                                <div className="absolute inset-0 pointer-events-none">
+                                  <div className="absolute top-3 left-3 text-red-600 opacity-80 text-sm font-black transform -rotate-12 bg-white bg-opacity-70 px-2 py-1 rounded">
+                                    PROTECTED
+                                  </div>
+                                  <div className="absolute top-3 right-3 text-red-600 opacity-70 text-xs font-black transform rotate-45 bg-white bg-opacity-60 px-1 rounded">
+                                    PREVIEW
+                                  </div>
+                                  <div className="absolute bottom-4 left-1/4 text-red-600 opacity-75 text-sm font-black transform -rotate-45 bg-white bg-opacity-70 px-2 py-1 rounded">
+                                    NO COPY
+                                  </div>
+                                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-red-600 opacity-50 text-xl font-black bg-white bg-opacity-60 px-3 py-2 rounded">
+                                    BID TO ACCESS
+                                  </div>
+                                  <div className="absolute bottom-3 right-3 text-red-600 opacity-70 text-xs font-black transform rotate-12 bg-white bg-opacity-60 px-1 rounded">
+                                    WATERMARK
+                                  </div>
+                                  <div className="absolute top-1/4 left-1/4 text-red-600 opacity-60 text-xs font-black transform -rotate-30 bg-white bg-opacity-60 px-1 rounded">
+                                    ©
+                                  </div>
+                                  <div className="absolute bottom-1/4 right-1/4 text-red-600 opacity-60 text-xs font-black transform rotate-30 bg-white bg-opacity-60 px-1 rounded">
+                                    ®
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-500 bg-gray-100 p-2 rounded font-mono break-all">
+                                <strong>Image URL:</strong> {extractImageUrl(showBidModal.content_text)}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-500">
                     <span>Quality: {showBidModal.quality_score.toFixed(1)}</span>
                     <span>Mindshare: {showBidModal.predicted_mindshare.toFixed(1)}%</span>
                   </div>
                 </div>
 
                 {/* Current Pricing */}
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-gray-600">Asking Price</p>
-                    <p className="font-bold text-gray-900">{showBidModal.asking_price} ROAST</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                    <p className="text-blue-600 font-medium">Asking Price</p>
+                    <p className="font-bold text-blue-900 text-lg">{showBidModal.asking_price} ROAST</p>
                   </div>
                   {showBidModal.highest_bid && (
-                    <div>
-                      <p className="text-gray-600">Highest Bid</p>
-                      <p className="font-bold text-green-600">
+                    <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                      <p className="text-green-600 font-medium">Highest Bid</p>
+                      <p className="font-bold text-green-700 text-lg">
                         {showBidModal.highest_bid.amount} {showBidModal.highest_bid.currency}
                       </p>
                     </div>
                   )}
+                  <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+                    <p className="text-purple-600 font-medium">Total Bids</p>
+                    <p className="font-bold text-purple-700 text-lg">{showBidModal.total_bids || 0}</p>
+                  </div>
                 </div>
 
                 {/* Bid Input */}
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                <div className="space-y-4">
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
                       Your Bid Amount
                     </label>
-                    <div className="flex space-x-2">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="md:col-span-2">
                       <input
                         type="number"
                         value={bidAmount}
                         onChange={(e) => setBidAmount(e.target.value)}
                         placeholder="Enter amount"
-                        className="input-field flex-1"
+                          className="input-field w-full text-lg"
                         min="0"
                         step="0.1"
                       />
+                      </div>
+                      <div>
                       <select
                         value={bidCurrency}
                         onChange={(e) => setBidCurrency(e.target.value as 'ROAST' | 'USDC')}
-                        className="input-field w-20"
+                          className="input-field w-full text-lg"
                       >
                         <option value="ROAST">ROAST</option>
                         <option value="USDC">USDC</option>
                       </select>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <p className="text-sm text-blue-800">
                       💡 <strong>Tip:</strong> Higher bids increase your chances of winning premium content.
                       Consider the quality score and predicted mindshare when bidding.
@@ -365,17 +980,17 @@ export default function BiddingInterface() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex space-x-3 pt-4">
+                <div className="flex space-x-4 pt-6 border-t border-gray-200">
                   <button
                     onClick={() => setShowBidModal(null)}
-                    className="flex-1 btn-secondary"
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-lg transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={() => handleBid(showBidModal.id)}
                     disabled={!bidAmount || parseFloat(bidAmount) <= 0}
-                    className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-orange-600"
                   >
                     Place Bid
                   </button>
@@ -385,6 +1000,7 @@ export default function BiddingInterface() {
           </div>
         )}
       </div>
+      <CopyProtectionModal />
     </div>
   )
 } 

@@ -54,8 +54,15 @@ def get_db():
         db.close()
 
 def get_db_session():
-    """Get the global database session"""
-    global db_session
-    if not db_session:
-        db_session = SessionLocal()
-    return db_session 
+    """Get a new database session"""
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    
+    try:
+        # Ensure any previous failed transactions are rolled back
+        session.rollback()
+        session.begin()
+    except Exception:
+        pass  # Ignore rollback errors if no transaction is active
+    
+    return session 

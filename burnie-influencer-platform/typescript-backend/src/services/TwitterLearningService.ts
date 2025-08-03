@@ -138,6 +138,19 @@ export class TwitterLearningService {
       // Generate comprehensive insights for all 5 agent types
       const agentInsights = await this.generateAgentSpecificInsights(tweets, user);
       
+      // Get user's agent configurations to map agent types to agent IDs
+      const userAgents = await this.getUserAgentConfigurations(user.id);
+      const agentTypeToIdMap = new Map<string, number>();
+      
+      // Create mapping from agent type to agent ID
+      userAgents.forEach(agent => {
+        if (agent.agentType) {
+          agentTypeToIdMap.set(agent.agentType.toUpperCase(), agent.id);
+        }
+      });
+      
+      logger.info(`📋 Found ${userAgents.length} active agents for user ${user.id}`);
+      
       // Calculate overall learning metrics
       const overallMetrics = this.calculateOverallMetrics(tweets);
 
@@ -148,6 +161,16 @@ export class TwitterLearningService {
       for (const [agentType, insights] of Object.entries(agentInsights)) {
         const learningData = new TwitterLearningData();
         learningData.userId = user.id;
+        
+        // Map agent type to actual agent ID from user's configurations
+        const agentId = agentTypeToIdMap.get(agentType.toUpperCase());
+        if (agentId) {
+          learningData.agentId = agentId;
+          logger.info(`🎯 Associating learning data with agent ID ${agentId} (${agentType})`);
+        } else {
+          logger.warning(`⚠️ No agent ID found for type ${agentType} - storing without agent association`);
+        }
+
         learningData.tweetId = `bulk_analysis_${agentType}_${Date.now()}`;
         learningData.tweetText = `Comprehensive analysis of ${tweets.length} tweets for ${agentType} agent`;
         learningData.analysisType = 'comprehensive_agent_training';

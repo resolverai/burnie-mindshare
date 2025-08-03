@@ -18,13 +18,15 @@ import {
   EyeIcon,
   TrophyIcon,
   ArrowTrendingUpIcon,
-  ArrowRightOnRectangleIcon
+  ArrowRightOnRectangleIcon,
+  DocumentTextIcon
 } from '@heroicons/react/24/outline'
 import { 
   HomeIcon as HomeIconSolid,
   CurrencyDollarIcon as CurrencyDollarIconSolid,
   ClockIcon as ClockIconSolid,
-  MegaphoneIcon as MegaphoneIconSolid
+  MegaphoneIcon as MegaphoneIconSolid,
+  DocumentTextIcon as DocumentTextIconSolid
 } from '@heroicons/react/24/solid'
 
 // Import dashboard components
@@ -32,6 +34,7 @@ import YapperAnalytics from './yapper/YapperAnalytics'
 import BiddingInterface from './yapper/BiddingInterface'
 import YapperHistory from './yapper/YapperHistory'
 import YapperPortfolio from './yapper/YapperPortfolio'
+import YapperMyContent from './yapper/YapperMyContent'
 
 interface YapperDashboardProps {
   activeSection?: string
@@ -53,6 +56,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: HomeIcon, iconSolid: HomeIconSolid, route: '/dashboard' },
     { id: 'bidding', label: 'Bidding', icon: MegaphoneIcon, iconSolid: MegaphoneIconSolid, route: '/bidding' },
+    { id: 'mycontent', label: 'My Content', icon: DocumentTextIcon, iconSolid: DocumentTextIconSolid, route: '/my-content' },
     { id: 'history', label: 'History', icon: ClockIcon, iconSolid: ClockIconSolid, route: '/history' },
     { id: 'portfolio', label: 'Portfolio', icon: CurrencyDollarIcon, iconSolid: CurrencyDollarIconSolid, route: '/portfolio' }
   ]
@@ -61,6 +65,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
     switch (activeSection) {
       case 'dashboard': return <YapperAnalytics />
       case 'bidding': return <BiddingInterface />
+      case 'mycontent': return <YapperMyContent />
       case 'history': return <YapperHistory />
       case 'portfolio': return <YapperPortfolio />
       default: return <YapperAnalytics />
@@ -84,7 +89,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex overflow-hidden">
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex">
       {/* Left Sidebar Navigation */}
       <div className={`${isSidebarExpanded ? 'w-72' : 'w-20'} bg-white border-r border-gray-200 transition-all duration-300 flex flex-col h-screen shadow-sm`}>
         {/* Header */}
@@ -113,35 +118,33 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
         </div>
 
         {/* Navigation Items */}
-        <nav className="flex-1 p-4">
-          <div className="space-y-2">
-            {navigationItems.map((item) => {
-              const Icon = activeSection === item.id ? item.iconSolid : item.icon
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => router.push(item.route)}
-                  className={`nav-item w-full ${
-                    activeSection === item.id ? 'nav-item-active' : 'nav-item-inactive'
-                  }`}
-                >
-                  <Icon className="h-5 w-5 flex-shrink-0" />
-                  {isSidebarExpanded && (
-                    <span>{item.label}</span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        </nav>
+        <div className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+          {navigationItems.map((item) => {
+            const IconComponent = activeSection === item.id ? item.iconSolid : item.icon
+            const isActive = activeSection === item.id
+            
+            return (
+              <button
+                key={item.id}
+                onClick={() => router.push(item.route)}
+                className={`w-full flex items-center ${isSidebarExpanded ? 'justify-start px-4' : 'justify-center px-2'} py-3 rounded-lg transition-all duration-200 ${
+                  isActive 
+                    ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg' 
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`}
+              >
+                <IconComponent className="h-5 w-5" />
+                {isSidebarExpanded && (
+                  <span className="ml-3 font-medium">{item.label}</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
 
-        {/* Wallet Info - Fixed at bottom */}
+        {/* Bottom Section - Wallet Info */}
         {isSidebarExpanded && (
-          <div className="p-4 border-t border-gray-200 flex-shrink-0">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-gray-500 uppercase tracking-wide">Wallet</span>
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-            </div>
+          <div className="p-4 border-t border-gray-200 bg-gray-50 flex-shrink-0">
             <div className="text-sm font-medium text-gray-900">Base Mainnet</div>
             <div className="text-xs text-gray-500 font-mono">
               {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not connected'}
@@ -157,7 +160,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-screen">
         {/* Top Header */}
         <div className="bg-white border-b border-gray-200 flex-shrink-0 shadow-sm">
           <div className="px-8 py-4">
@@ -202,7 +205,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className={`flex-1 ${activeSection === 'dashboard' ? 'overflow-y-auto' : 'overflow-hidden'}`}>
           {renderContent()}
         </div>
       </div>

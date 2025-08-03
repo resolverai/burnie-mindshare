@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useAccount } from 'wagmi'
 import { 
   ChartBarIcon, 
   TrophyIcon, 
@@ -10,391 +11,657 @@ import {
   EyeIcon,
   StarIcon,
   FireIcon,
-  UsersIcon
+  UsersIcon,
+  CurrencyDollarIcon,
+  ClockIcon,
+  ShoppingBagIcon,
+  GlobeAltIcon,
+  CalendarIcon,
+  BanknotesIcon,
+  PresentationChartLineIcon,
+  ChartPieIcon,
+  MapIcon,
+  LightBulbIcon,
+  RocketLaunchIcon,
+  HeartIcon,
+  TagIcon,
+  AcademicCapIcon,
+  BeakerIcon
 } from '@heroicons/react/24/outline'
 import { 
   TrophyIcon as TrophyIconSolid,
-  StarIcon as StarIconSolid 
+  StarIcon as StarIconSolid,
+  FireIcon as FireIconSolid
 } from '@heroicons/react/24/solid'
 
-interface CampaignMindshare {
-  id: string
-  title: string
-  mindshare_percentage: number
-  mindshare_delta: number
-  platform_source: string
-  reward_token: string
-  content_count: number
-  quality_score: number
-}
-
-interface YapperLeaderboard {
-  rank: number
-  address: string
-  username: string
-  total_bids: number
-  successful_bids: number
-  total_spent: number
-  mindshare_generated: number
-  quality_score: number
-  badge: 'diamond' | 'gold' | 'silver' | 'bronze' | null
+interface YapperAnalytics {
+  financial: {
+    overview: any;
+    profitability: any;
+    trends: any[];
+  };
+  bidding: {
+    competition: any[];
+    timePatterns: any[];
+    categoryPreferences: any[];
+  };
+  mindshare: {
+    overview: any;
+    platforms: any[];
+    heatmap: any[];
+    predictions: any;
+  };
+  portfolio: {
+    overview: any;
+    content: any[];
+    topPerformers: any[];
+    categoryBreakdown: any;
+    insights: any;
+  };
 }
 
 export default function YapperAnalytics() {
   const [selectedTimeframe, setSelectedTimeframe] = useState<'24h' | '7d' | '30d'>('7d')
+  const [analyticsData, setAnalyticsData] = useState<YapperAnalytics | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const { address, isConnected } = useAccount()
 
-  // Mock data for treemap campaigns
-  const mockCampaigns: CampaignMindshare[] = [
-    {
-      id: '1',
-      title: 'AIXBT Mindshare Campaign',
-      mindshare_percentage: 24.8,
-      mindshare_delta: 5.2,
-      platform_source: 'cookie.fun',
-      reward_token: 'KAITO',
-      content_count: 42,
-      quality_score: 87.3
-    },
-    {
-      id: '2',
-      title: 'DeFi Protocol Roast',
-      mindshare_percentage: 18.6,
-      mindshare_delta: -2.1,
-      platform_source: 'yaps.kaito.ai',
-      reward_token: 'SNAP',
-      content_count: 31,
-      quality_score: 92.1
-    },
-    {
-      id: '3',
-      title: 'Blockchain Education Push',
-      mindshare_percentage: 15.2,
-      mindshare_delta: 3.8,
-      platform_source: 'yap.market',
-      reward_token: 'BURNIE',
-      content_count: 28,
-      quality_score: 84.7
-    },
-    {
-      id: '4',
-      title: 'NFT Market Analysis',
-      mindshare_percentage: 12.4,
-      mindshare_delta: 1.5,
-      platform_source: 'cookie.fun',
-      reward_token: 'KAITO',
-      content_count: 19,
-      quality_score: 79.2
-    },
-    {
-      id: '5',
-      title: 'Layer 2 Solutions Deep Dive',
-      mindshare_percentage: 10.8,
-      mindshare_delta: -0.8,
-      platform_source: 'yaps.kaito.ai',
-      reward_token: 'SNAP',
-      content_count: 15,
-      quality_score: 88.9
-    },
-    {
-      id: '6',
-      title: 'Web3 Gaming Revolution',
-      mindshare_percentage: 8.7,
-      mindshare_delta: 2.3,
-      platform_source: 'yap.market',
-      reward_token: 'BURNIE',
-      content_count: 12,
-      quality_score: 85.4
-    }
-  ]
+  // Fetch comprehensive analytics data
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      if (!address || !isConnected) {
+        setAnalyticsData(null)
+        setIsLoading(false)
+        return
+      }
 
-  // Mock leaderboard data
-  const mockLeaderboard: YapperLeaderboard[] = [
-    {
-      rank: 1,
-      address: '0x1234...5678',
-      username: 'CryptoYapper',
-      total_bids: 127,
-      successful_bids: 89,
-      total_spent: 2840.5,
-      mindshare_generated: 94.2,
-      quality_score: 92.8,
-      badge: 'diamond'
-    },
-    {
-      rank: 2,
-      address: '0x2345...6789',
-      username: 'MemeAmplifier',
-      total_bids: 98,
-      successful_bids: 71,
-      total_spent: 2156.3,
-      mindshare_generated: 87.6,
-      quality_score: 89.4,
-      badge: 'gold'
-    },
-    {
-      rank: 3,
-      address: '0x3456...7890',
-      username: 'ViralBooster',
-      total_bids: 84,
-      successful_bids: 62,
-      total_spent: 1892.7,
-      mindshare_generated: 83.1,
-      quality_score: 85.9,
-      badge: 'silver'
-    }
-  ]
+      try {
+        setIsLoading(true)
+        const baseUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL?.replace('/api', '') || 'http://localhost:3001'
 
-  const getBadgeIcon = (badge: YapperLeaderboard['badge']) => {
-    switch (badge) {
-      case 'diamond': return <StarIconSolid className="h-4 w-4 text-cyan-500" />
-      case 'gold': return <TrophyIconSolid className="h-4 w-4 text-yellow-500" />
-      case 'silver': return <TrophyIcon className="h-4 w-4 text-gray-400" />
-      case 'bronze': return <TrophyIcon className="h-4 w-4 text-orange-600" />
-      default: return null
-    }
+        const [
+          financialResponse,
+          biddingResponse,
+          mindshareResponse,
+          portfolioResponse
+        ] = await Promise.all([
+          fetch(`${baseUrl}/api/marketplace/analytics/yapper/financial/${address}`),
+          fetch(`${baseUrl}/api/marketplace/analytics/yapper/bidding/${address}`),
+          fetch(`${baseUrl}/api/marketplace/analytics/yapper/mindshare/${address}`),
+          fetch(`${baseUrl}/api/marketplace/analytics/yapper/portfolio/${address}`)
+        ]);
+
+        const [
+          financial,
+          bidding,
+          mindshare,
+          portfolio
+        ] = await Promise.all([
+          financialResponse.json(),
+          biddingResponse.json(),
+          mindshareResponse.json(),
+          portfolioResponse.json()
+        ]);
+
+        setAnalyticsData({
+          financial: financial.data || { overview: {}, profitability: {}, trends: [] },
+          bidding: bidding.data || { competition: [], timePatterns: [], categoryPreferences: [] },
+          mindshare: mindshare.data || { overview: {}, platforms: [], heatmap: [], predictions: {} },
+          portfolio: portfolio.data || { overview: {}, content: [], topPerformers: [], categoryBreakdown: {}, insights: {} }
+        });
+      } catch (error) {
+        console.error('Error fetching yapper analytics:', error);
+        setAnalyticsData(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchAnalytics();
+  }, [address, isConnected]);
+
+  if (!isConnected || !address) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Connect Your Wallet</h2>
+          <p className="text-gray-600">Please connect your wallet to view your yapper analytics</p>
+        </div>
+      </div>
+    )
   }
 
-  const getTreemapSize = (percentage: number) => {
-    const base = 120
-    const scale = percentage / 25 // Scale relative to max expected percentage
-    return Math.max(base, base + (scale * 180))
-  }
-
-  return (
-    <div className="h-full overflow-y-auto bg-gray-50">
-      <div className="p-6 space-y-6">
-        {/* Header with timeframe selector */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Analytics Dashboard</h1>
-            <p className="text-gray-600">Track campaign mindshare and yapper performance</p>
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-300 rounded w-1/3 mb-6"></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-32 bg-gray-300 rounded-xl"></div>
+            ))}
           </div>
-          <div className="flex space-x-2">
-            {['24h', '7d', '30d'].map((timeframe) => (
-              <button
-                key={timeframe}
-                onClick={() => setSelectedTimeframe(timeframe as any)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  selectedTimeframe === timeframe
-                    ? 'bg-orange-500 text-white'
-                    : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
-                }`}
-              >
-                {timeframe}
-              </button>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-64 bg-gray-300 rounded-xl"></div>
             ))}
           </div>
         </div>
+      </div>
+    )
+  }
 
-        {/* Key Metrics Row */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="metric-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Total Mindshare</p>
-                <p className="text-2xl font-bold text-gray-900">87.3%</p>
-                <div className="flex items-center mt-1">
-                  <ArrowTrendingUpIcon className="h-4 w-4 text-green-500 mr-1" />
-                  <span className="text-sm text-green-600">+5.2%</span>
-                </div>
-              </div>
-              <ChartBarIcon className="h-8 w-8 text-orange-500" />
-            </div>
+  if (!analyticsData) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">No Data Available</h2>
+          <p className="text-gray-600">Start bidding on content to see your analytics</p>
+        </div>
+      </div>
+    )
+  }
+
+  const renderFinancialOverview = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      {/* Net Profit */}
+      <div className="bg-gradient-to-br from-green-50 to-emerald-100 rounded-xl p-6 border border-green-200 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2">
+            <CurrencyDollarIcon className="h-6 w-6 text-green-600" />
+            <h3 className="text-lg font-semibold text-gray-900">Net Profit</h3>
           </div>
-
-          <div className="metric-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Active Bids</p>
-                <p className="text-2xl font-bold text-gray-900">24</p>
-                <div className="flex items-center mt-1">
-                  <ArrowTrendingUpIcon className="h-4 w-4 text-green-500 mr-1" />
-                  <span className="text-sm text-green-600">+8.1%</span>
-                </div>
-              </div>
-              <EyeIcon className="h-8 w-8 text-blue-500" />
-            </div>
-          </div>
-
-          <div className="metric-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Quality Score</p>
-                <p className="text-2xl font-bold text-gray-900">92.8</p>
-                <div className="flex items-center mt-1">
-                  <ArrowTrendingDownIcon className="h-4 w-4 text-red-500 mr-1" />
-                  <span className="text-sm text-red-600">-1.2%</span>
-                </div>
-              </div>
-              <StarIcon className="h-8 w-8 text-yellow-500" />
-            </div>
-          </div>
-
-          <div className="metric-card">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">ROAST Earned</p>
-                <p className="text-2xl font-bold text-gray-900">1,247</p>
-                <div className="flex items-center mt-1">
-                  <ArrowTrendingUpIcon className="h-4 w-4 text-green-500 mr-1" />
-                  <span className="text-sm text-green-600">+12.5%</span>
-                </div>
-              </div>
-              <FireIcon className="h-8 w-8 text-red-500" />
-            </div>
+          <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+            (analyticsData.financial.profitability.roiPercentage || 0) >= 0 
+              ? 'bg-green-100 text-green-700' 
+              : 'bg-red-100 text-red-700'
+          }`}>
+            {(analyticsData.financial.profitability.roiPercentage || 0) >= 0 ? '+' : ''}{analyticsData.financial.profitability.roiPercentage || 0}%
           </div>
         </div>
+        <div className="space-y-1">
+          <p className="text-3xl font-bold text-gray-900">
+            ${analyticsData.financial.profitability.netProfit || 0}
+          </p>
+          <p className="text-sm text-green-600">
+            ROI: {analyticsData.financial.profitability.roiPercentage || 0}%
+          </p>
+        </div>
+      </div>
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Mindshare Treemap */}
-          <div className="lg:col-span-2">
-            <div className="card">
-              <div className="card-header">
-                <h3 className="text-lg font-semibold text-gray-900">Campaign Mindshare Distribution</h3>
-                <p className="text-sm text-gray-500">Real-time mindshare percentages across active campaigns</p>
-              </div>
-              <div className="card-content">
-                <div className="flex flex-wrap gap-3 justify-center">
-                  {mockCampaigns.map((campaign) => (
-                    <div
-                      key={campaign.id}
-                      className="relative bg-gradient-to-br from-orange-500 to-red-600 rounded-lg text-white p-4 cursor-pointer hover:shadow-lg transition-all"
-                      style={{
-                        width: `${getTreemapSize(campaign.mindshare_percentage)}px`,
-                        height: `${getTreemapSize(campaign.mindshare_percentage) * 0.7}px`,
-                        minWidth: '140px',
-                        minHeight: '100px'
-                      }}
-                    >
-                      <div className="h-full flex flex-col justify-between">
-                        <div>
-                          <div className="text-lg font-bold">{campaign.mindshare_percentage}%</div>
-                          <div className="text-xs opacity-90 truncate" title={campaign.title}>
-                            {campaign.title}
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="bg-white/20 px-2 py-1 rounded">
-                            {campaign.platform_source}
-                          </span>
-                          <div className="flex items-center">
-                            {campaign.mindshare_delta > 0 ? (
-                              <ArrowTrendingUpIcon className="h-3 w-3 mr-1" />
-                            ) : (
-                              <ArrowTrendingDownIcon className="h-3 w-3 mr-1" />
-                            )}
-                            <span>{Math.abs(campaign.mindshare_delta)}%</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+      {/* Total Mindshare */}
+      <div className="bg-gradient-to-br from-purple-50 to-pink-100 rounded-xl p-6 border border-purple-200 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2">
+            <StarIcon className="h-6 w-6 text-purple-600" />
+            <h3 className="text-lg font-semibold text-gray-900">Total Mindshare</h3>
+          </div>
+          <div className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+            +{analyticsData.mindshare.overview.avgGrowth?.toFixed(1) || 0}%
+          </div>
+        </div>
+        <div className="space-y-1">
+          <p className="text-3xl font-bold text-gray-900">
+            {analyticsData.mindshare.overview.totalMindshare?.toLocaleString() || 0}
+          </p>
+          <p className="text-sm text-purple-600">
+            Across {analyticsData.mindshare.platforms?.length || 0} platforms
+          </p>
+        </div>
+      </div>
+
+      {/* Win Rate */}
+      <div className="bg-gradient-to-br from-blue-50 to-cyan-100 rounded-xl p-6 border border-blue-200 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2">
+            <TrophyIcon className="h-6 w-6 text-blue-600" />
+            <h3 className="text-lg font-semibold text-gray-900">Win Rate</h3>
+          </div>
+          <div className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+            {analyticsData.financial.overview.totalBids || 0} bids
+          </div>
+        </div>
+        <div className="space-y-1">
+          <p className="text-3xl font-bold text-gray-900">
+            {analyticsData.financial.overview.winRate?.toFixed(1) || 0}%
+          </p>
+          <p className="text-sm text-blue-600">
+            {analyticsData.financial.overview.wonBids || 0} / {analyticsData.financial.overview.totalBids || 0} won
+          </p>
+        </div>
+      </div>
+
+      {/* Total Investment */}
+      <div className="bg-gradient-to-br from-orange-50 to-yellow-100 rounded-xl p-6 border border-orange-200 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2">
+            <BanknotesIcon className="h-6 w-6 text-orange-600" />
+            <h3 className="text-lg font-semibold text-gray-900">Total Invested</h3>
+          </div>
+          <div className="px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
+            ${analyticsData.financial.overview.avgBidAmount?.toFixed(0) || 0} avg
+          </div>
+        </div>
+        <div className="space-y-1">
+          <p className="text-3xl font-bold text-gray-900">
+            ${analyticsData.financial.overview.totalInvestment || 0}
+          </p>
+          <p className="text-sm text-orange-600">
+            Current portfolio value
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderMindshareTracking = () => (
+    <div className="bg-white rounded-xl p-6 mb-8 border border-gray-200 shadow-sm">
+      <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+        <RocketLaunchIcon className="h-6 w-6 mr-2 text-purple-600" />
+        Mindshare Platform Performance
+      </h3>
+      
+      {analyticsData.mindshare.platforms?.length > 0 ? (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {analyticsData.mindshare.platforms.map((platform: any, index: number) => (
+              <div key={platform.name} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold text-gray-900">{platform.name}</h4>
+                  <div className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    (platform.monthlyGrowth || 0) >= 0 
+                      ? 'bg-green-100 text-green-700' 
+                      : 'bg-red-100 text-red-700'
+                  }`}>
+                    {(platform.monthlyGrowth || 0) >= 0 ? '+' : ''}{platform.monthlyGrowth?.toFixed(1) || 0}%
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Current Score:</span>
+                    <span className="text-gray-900 font-medium">{platform.currentScore?.toLocaleString() || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Ranking:</span>
+                    <span className="text-gray-900 font-medium">#{platform.ranking?.toLocaleString() || 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Rewards:</span>
+                    <span className="text-gray-900 font-medium">{platform.rewards || 0}</span>
+                  </div>
+                </div>
+
+                {/* Mini line chart */}
+                <div className="mt-4 h-16 bg-gray-100 rounded p-2">
+                  <div className="flex items-end justify-between h-full">
+                    {platform.data?.slice(-7).map((point: any, i: number) => (
+                      <div 
+                        key={i} 
+                        className="bg-purple-500 rounded-sm w-1 transition-all duration-300"
+                        style={{ 
+                          height: `${Math.max((point.score / Math.max(...platform.data.map((p: any) => p.score))) * 100, 10)}%` 
+                        }}
+                      />
+                    )) || <div className="text-gray-500 text-xs">No data</div>}
+                  </div>
                 </div>
               </div>
-            </div>
+            ))}
           </div>
 
-          {/* Yapper Leaderboard */}
-          <div>
-            <div className="card">
-              <div className="card-header">
-                <h3 className="text-lg font-semibold text-gray-900">Top Yappers</h3>
-                <p className="text-sm text-gray-500">Leading performers this week</p>
+          {/* Compact Growth Timeline */}
+          <div className="mt-6">
+            <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center justify-between">
+              <div className="flex items-center">
+                <ArrowTrendingUpIcon className="h-5 w-5 mr-2 text-purple-600" />
+                30-Day Growth Timeline
               </div>
-              <div className="card-content space-y-4">
-                {mockLeaderboard.map((yapper) => (
-                  <div key={yapper.rank} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-2">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                        yapper.rank === 1 ? 'bg-yellow-100 text-yellow-800' :
-                        yapper.rank === 2 ? 'bg-gray-100 text-gray-800' :
-                        yapper.rank === 3 ? 'bg-orange-100 text-orange-800' :
-                        'bg-blue-100 text-blue-800'
-                      }`}>
-                        {yapper.rank}
+              <div className="text-sm text-gray-600">
+                {analyticsData.mindshare.heatmap?.length > 0 && 
+                  `Avg: ${(analyticsData.mindshare.heatmap.reduce((sum: number, day: any) => sum + (day.growth || 0), 0) / analyticsData.mindshare.heatmap.length).toFixed(1)}%`
+                }
+              </div>
+            </h4>
+            {analyticsData.mindshare.heatmap?.length > 0 ? (
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg p-4 border border-purple-200">
+                {/* Compact timeline visualization */}
+                <div className="flex items-end justify-between h-20 mb-3">
+                  {analyticsData.mindshare.heatmap.map((day: any, index: number) => {
+                    const maxGrowth = Math.max(...analyticsData.mindshare.heatmap.map((d: any) => Math.abs(d.growth || 0)));
+                    const height = maxGrowth > 0 ? Math.abs(day.growth || 0) / maxGrowth * 100 : 0;
+                    const isPositive = (day.growth || 0) >= 0;
+                    
+                    return (
+                      <div 
+                        key={index} 
+                        className="flex flex-col items-center group cursor-pointer"
+                        title={`Day ${index + 1}: ${day.growth?.toFixed(1) || 0}% growth`}
+                      >
+                        <div 
+                          className={`w-1 rounded-full transition-all duration-200 group-hover:w-2 ${
+                            isPositive ? 'bg-gradient-to-t from-green-400 to-green-600' : 'bg-gradient-to-t from-red-400 to-red-600'
+                          }`}
+                          style={{ 
+                            height: `${Math.max(height, 8)}%`,
+                            minHeight: '4px'
+                          }}
+                        />
                       </div>
-                      {getBadgeIcon(yapper.badge)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2">
-                        <p className="font-medium text-gray-900 truncate">{yapper.username}</p>
-                      </div>
-                      <p className="text-xs text-gray-500 font-mono">{yapper.address}</p>
-                      <div className="flex items-center space-x-4 text-xs text-gray-600 mt-1">
-                        <span>{yapper.successful_bids}/{yapper.total_bids} bids</span>
-                        <span>{yapper.mindshare_generated}% mindshare</span>
-                      </div>
+                    );
+                  })}
+                </div>
+                
+                {/* Growth summary stats */}
+                <div className="grid grid-cols-4 gap-4 text-center">
+                  <div className="bg-white rounded-lg p-2 border border-purple-100">
+                    <div className="text-xs text-gray-600">Best Day</div>
+                    <div className="text-sm font-semibold text-green-600">
+                      +{Math.max(...(analyticsData.mindshare.heatmap.map((d: any) => d.growth || 0))).toFixed(1)}%
                     </div>
                   </div>
-                ))}
+                  <div className="bg-white rounded-lg p-2 border border-purple-100">
+                    <div className="text-xs text-gray-600">Worst Day</div>
+                    <div className="text-sm font-semibold text-red-600">
+                      {Math.min(...(analyticsData.mindshare.heatmap.map((d: any) => d.growth || 0))).toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg p-2 border border-purple-100">
+                    <div className="text-xs text-gray-600">Positive Days</div>
+                    <div className="text-sm font-semibold text-purple-600">
+                      {analyticsData.mindshare.heatmap.filter((d: any) => (d.growth || 0) > 0).length}/30
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg p-2 border border-purple-100">
+                    <div className="text-xs text-gray-600">Streak</div>
+                    <div className="text-sm font-semibold text-blue-600">
+                      {(() => {
+                        let maxStreak = 0;
+                        let currentStreak = 0;
+                        analyticsData.mindshare.heatmap.forEach((d: any) => {
+                          if ((d.growth || 0) > 0) {
+                            currentStreak++;
+                            maxStreak = Math.max(maxStreak, currentStreak);
+                          } else {
+                            currentStreak = 0;
+                          }
+                        });
+                        return maxStreak;
+                      })()}d
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="text-center py-6 bg-gray-50 rounded-lg border border-gray-200">
+                <ArrowTrendingUpIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-500 text-sm">No growth data available</p>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-12">
+          <RocketLaunchIcon className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+          <h4 className="text-lg font-medium text-gray-900 mb-2">No Platform Data</h4>
+          <p className="text-gray-600">Start engaging with platforms to see your mindshare performance</p>
+        </div>
+      )}
+    </div>
+  )
+
+  const renderBiddingPerformance = () => (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      {/* Time Pattern Analysis */}
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+        <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+          <ClockIcon className="h-6 w-6 mr-2 text-blue-600" />
+          Optimal Bidding Times
+        </h3>
+        
+        {analyticsData.bidding.timePatterns?.length > 0 ? (
+          <div className="space-y-3">
+            {analyticsData.bidding.timePatterns.map((pattern: any) => (
+              <div key={pattern.hour} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
+                    <span className="text-blue-600 font-semibold">{pattern.hour}:00</span>
+                  </div>
+                  <div>
+                    <p className="text-gray-900 font-medium">{pattern.bidCount || 0} bids</p>
+                    <p className="text-gray-600 text-sm">{pattern.winRate?.toFixed(1) || 0}% win rate</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-gray-900 font-semibold">${pattern.avgBid?.toFixed(0) || 0}</p>
+                  <p className="text-gray-600 text-sm">avg bid</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <ClockIcon className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+            <p className="text-gray-500">No bidding time data</p>
+            <p className="text-gray-400 text-sm">Place more bids to see optimal timing patterns</p>
+          </div>
+        )}
+      </div>
+
+      {/* Content Category Preferences */}
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+        <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+          <TagIcon className="h-6 w-6 mr-2 text-orange-600" />
+          Content Category Performance
+        </h3>
+        
+        {analyticsData.bidding.categoryPreferences?.length > 0 ? (
+          <div className="space-y-4">
+            {analyticsData.bidding.categoryPreferences.map((category: any, index: number) => (
+              <div key={category.category} className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-900 font-medium">{category.category}</span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-gray-600 text-sm">{category.winCount || 0}/{category.bidCount || 0}</span>
+                    <span className="text-orange-600 font-semibold">{category.winRate?.toFixed(1) || 0}%</span>
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${category.winRate || 0}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <TagIcon className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+            <p className="text-gray-500">No category data</p>
+            <p className="text-gray-400 text-sm">Bid on different content types to see preferences</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
+  const renderPortfolioAnalytics = () => (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      {/* Portfolio Overview */}
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+        <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+          <ShoppingBagIcon className="h-6 w-6 mr-2 text-green-600" />
+          Content Portfolio
+        </h3>
+        
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <p className="text-2xl font-bold text-gray-900">{analyticsData.portfolio.overview.totalContent || 0}</p>
+            <p className="text-gray-600 text-sm">Total Content</p>
+          </div>
+          <div className="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <p className="text-2xl font-bold text-green-600">{analyticsData.portfolio.overview.usedContent || 0}</p>
+            <p className="text-gray-600 text-sm">Posted</p>
+          </div>
+          <div className="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <p className="text-2xl font-bold text-gray-900">{analyticsData.portfolio.overview.usageRate?.toFixed(1) || 0}%</p>
+            <p className="text-gray-600 text-sm">Usage Rate</p>
+          </div>
+          <div className="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <p className="text-2xl font-bold text-green-600">{analyticsData.portfolio.overview.portfolioROI?.toFixed(1) || 0}%</p>
+            <p className="text-gray-600 text-sm">Portfolio ROI</p>
           </div>
         </div>
 
-        {/* Campaign Performance Table */}
-        <div className="card">
-          <div className="card-header">
-            <h3 className="text-lg font-semibold text-gray-900">Campaign Performance Details</h3>
-            <p className="text-sm text-gray-500">Detailed breakdown of campaign metrics</p>
+        {/* Top Performers */}
+        <div>
+          <h4 className="text-lg font-semibold text-gray-900 mb-3">Top Performing Content</h4>
+          {analyticsData.portfolio.topPerformers?.length > 0 ? (
+            <div className="space-y-2">
+              {analyticsData.portfolio.topPerformers.slice(0, 3).map((content: any, index: number) => (
+                <div key={content.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
+                      index === 0 ? 'bg-yellow-500' : index === 1 ? 'bg-gray-400' : 'bg-orange-600'
+                    }`}>
+                      {index + 1}
+                    </div>
+                    <div>
+                      <p className="text-gray-900 font-medium truncate w-32">{content.title || 'Untitled'}</p>
+                      <p className="text-gray-600 text-sm">{content.engagementRate || 0}% engagement</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-green-600 font-semibold">+{content.mindshareGain || 0}</p>
+                    <p className="text-gray-600 text-sm">mindshare</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <TrophyIcon className="h-10 w-10 text-gray-400 mx-auto mb-2" />
+              <p className="text-gray-500">No top performers yet</p>
+              <p className="text-gray-400 text-sm">Post content to see performance metrics</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Predictive Insights */}
+      <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+        <h3 className="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+          <LightBulbIcon className="h-6 w-6 mr-2 text-yellow-600" />
+          AI Insights & Predictions
+        </h3>
+        
+        <div className="space-y-4">
+          {/* Predicted Growth */}
+          <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+            <div className="flex items-center space-x-2 mb-2">
+              <ArrowTrendingUpIcon className="h-5 w-5 text-yellow-600" />
+              <span className="text-yellow-700 font-semibold">Growth Prediction</span>
+            </div>
+            <p className="text-gray-900">
+              Expected {analyticsData.mindshare.predictions?.nextWeekGrowth || 0}% mindshare growth next week
+            </p>
+            <p className="text-gray-600 text-sm">
+              Target: {analyticsData.mindshare.predictions?.nextMonthTarget?.toLocaleString() || 0} total mindshare
+            </p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Platform</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mindshare %</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Delta</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Content</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quality</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {mockCampaigns.map((campaign) => (
-                  <tr key={campaign.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div>
-                        <div className="font-medium text-gray-900">{campaign.title}</div>
-                        <div className="text-sm text-gray-500">{campaign.reward_token}</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="status-indicator status-active">{campaign.platform_source}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="font-bold text-gray-900">{campaign.mindshare_percentage}%</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className={`flex items-center ${campaign.mindshare_delta > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {campaign.mindshare_delta > 0 ? (
-                          <ArrowTrendingUpIcon className="h-4 w-4 mr-1" />
-                        ) : (
-                          <ArrowTrendingDownIcon className="h-4 w-4 mr-1" />
-                        )}
-                        {Math.abs(campaign.mindshare_delta)}%
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-900">{campaign.content_count}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center">
-                        <div className="w-16 bg-gray-200 rounded-full h-2 mr-2">
-                          <div 
-                            className="bg-orange-500 h-2 rounded-full" 
-                            style={{ width: `${campaign.quality_score}%` }}
-                          ></div>
-                        </div>
-                        <span className="text-sm font-medium text-gray-700">{campaign.quality_score}</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+          {/* Best Category */}
+          <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+            <div className="flex items-center space-x-2 mb-2">
+              <TrophyIconSolid className="h-5 w-5 text-green-600" />
+              <span className="text-green-700 font-semibold">Top Category</span>
+            </div>
+            <p className="text-gray-900">
+              {analyticsData.portfolio.insights?.bestCategory?.category || 'No data'} content performs best
+            </p>
+            <p className="text-gray-600 text-sm">
+              {analyticsData.portfolio.insights?.bestCategory?.avgROI || 0}% average ROI
+            </p>
+          </div>
+
+          {/* Optimal Posting Times */}
+          <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="flex items-center space-x-2 mb-2">
+              <ClockIcon className="h-5 w-5 text-blue-600" />
+              <span className="text-blue-700 font-semibold">Optimal Times</span>
+            </div>
+            <p className="text-gray-900 mb-2">Best posting times for maximum engagement:</p>
+            <div className="flex space-x-2">
+              {analyticsData.mindshare.predictions?.optimalPostingTimes?.length > 0 ? 
+                analyticsData.mindshare.predictions.optimalPostingTimes.map((time: string, index: number) => (
+                  <span key={index} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm">
+                    {time}
+                  </span>
+                )) : 
+                <span className="text-gray-500 text-sm">No data available</span>
+              }
+            </div>
+          </div>
+
+          {/* Content Velocity */}
+          <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+            <div className="flex items-center space-x-2 mb-2">
+              <RocketLaunchIcon className="h-5 w-5 text-purple-600" />
+              <span className="text-purple-700 font-semibold">Content Velocity</span>
+            </div>
+            <p className="text-gray-900">
+              {analyticsData.portfolio.insights?.contentVelocity?.toFixed(1) || 0} content pieces per week
+            </p>
+            <p className="text-gray-600 text-sm">
+              Avg time to use: {analyticsData.portfolio.insights?.avgTimeToUse?.toFixed(0) || 0} days
+            </p>
           </div>
         </div>
       </div>
+    </div>
+  )
+
+  return (
+    <div className="bg-gray-50 p-6 overflow-y-auto">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Yapper Analytics Dashboard</h1>
+            <p className="text-gray-600">Comprehensive insights into your content trading performance</p>
+          </div>
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2 bg-white rounded-lg p-2 border border-gray-200 shadow-sm">
+              {['24h', '7d', '30d'].map((period) => (
+                <button
+                  key={period}
+                  onClick={() => setSelectedTimeframe(period as any)}
+                  className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                    selectedTimeframe === period
+                      ? 'bg-purple-600 text-white'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {period}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Financial Overview Cards */}
+      {renderFinancialOverview()}
+
+      {/* Mindshare Tracking */}
+      {renderMindshareTracking()}
+
+      {/* Bidding Performance */}
+      {renderBiddingPerformance()}
+
+      {/* Portfolio Analytics */}
+      {renderPortfolioAnalytics()}
     </div>
   )
 } 

@@ -20,6 +20,9 @@ export class TwitterLearningData {
   @Column({ type: 'integer' })
   userId!: number;
 
+  @Column({ type: 'integer', nullable: true })
+  agentId?: number;
+
   @Column({ type: 'varchar', length: 50 })
   tweetId!: string;
 

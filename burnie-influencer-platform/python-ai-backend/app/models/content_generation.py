@@ -70,8 +70,10 @@ class MiningSession(BaseModel):
     session_id: str
     user_id: int
     campaign_id: int
+    agent_id: Optional[int] = None  # ID of the agent configuration being used
     campaign_context: Dict[str, Any]
     user_preferences: Dict[str, Any]
+    user_api_keys: Optional[Dict[str, str]] = None  # API keys from Neural Keys interface
     
     # Session state
     status: MiningStatus = MiningStatus.INITIALIZING

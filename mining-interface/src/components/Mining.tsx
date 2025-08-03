@@ -1,16 +1,33 @@
-import { useState } from 'react'
+'use client'
+
+import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAccount } from 'wagmi'
 import api from '../services/burnie-api'
 import { 
-  PlayIcon, StopIcon, ClockIcon, BoltIcon, TrophyIcon, RocketLaunchIcon, 
-  CheckCircleIcon, XCircleIcon, DocumentDuplicateIcon, ChevronRightIcon,
-  Cog6ToothIcon, ChartBarIcon
+  PlayIcon, 
+  StopIcon, 
+  ClockIcon,
+  BoltIcon,
+  TrophyIcon,
+  RocketLaunchIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  DocumentDuplicateIcon,
+  ChevronRightIcon,
+  Cog6ToothIcon,
+  ChartBarIcon,
+  ExclamationTriangleIcon,
+  SparklesIcon,
+  CpuChipIcon
 } from '@heroicons/react/24/outline'
 import { 
-  CheckCircleIcon as CheckCircleIconSolid, BoltIcon as BoltIconSolid,
-  CheckIcon, XMarkIcon
+  CheckCircleIcon as CheckCircleIconSolid, 
+  BoltIcon as BoltIconSolid,
+  CheckIcon, 
+  XMarkIcon
 } from '@heroicons/react/24/solid'
+import { getApiKeys } from '@/utils/api-keys'
 
 interface Campaign {
   id: number;
@@ -158,17 +175,118 @@ export default function Mining() {
     if (selectedCampaigns.length === 0) return
 
     try {
-      setMiningStatus({ status: 'analyzing', progress: 10, currentStep: 'Connecting to AI backend...' })
+      setMiningStatus({ status: 'analyzing', progress: 5, currentStep: 'Validating configuration...' })
       
-      // Start mining session with Python AI backend
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000'}/api/mining/start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: 1, // Mock user ID - should come from auth context
-          campaigns: selectedCampaigns.map(selection => ({
+      // Get user API keys from Neural Keys
+      const apiKeys = address ? getApiKeys(address) : null
+      
+      if (!apiKeys) {
+        setMiningStatus({ 
+          status: 'error', 
+          progress: 0, 
+          currentStep: 'No API keys found. Please configure your API keys in Neural Keys before mining.',
+          error: 'No API keys configured'
+        })
+        return
+      }
+
+      // Check for agent selection
+      for (const selection of selectedCampaigns) {
+        if (!selection.selectedAgent) {
+          setMiningStatus({ 
+            status: 'error', 
+            progress: 0, 
+            currentStep: `Please select an agent for campaign: ${selection.campaign.title}`,
+            error: 'Missing agent selection'
+          })
+          return
+        }
+
+        // CRITICAL: Validate text generation API keys (required)
+        const agentConfig = selection.selectedAgent.config
+        const modelPreferences = agentConfig?.modelPreferences
+        const textProvider = modelPreferences?.text?.provider || 'openai'
+        
+        let hasTextApiKey = false
+        const providerKeyMap = {
+          'openai': 'openai',
+          'anthropic': 'anthropic',
+          'google': 'google',
+          'replicate': 'replicate',
+          'elevenlabs': 'elevenlabs',
+          'stability': 'stability'
+        }
+        
+        const requiredTextKeyName = providerKeyMap[textProvider as keyof typeof providerKeyMap]
+        if (requiredTextKeyName && apiKeys[requiredTextKeyName as keyof typeof apiKeys] && apiKeys[requiredTextKeyName as keyof typeof apiKeys]?.trim()) {
+          hasTextApiKey = true
+        }
+        
+        // If primary text provider key is missing, check if user has alternative text providers
+        if (!hasTextApiKey) {
+          // Check for alternative text providers (OpenAI or Anthropic)
+          const textProviders = ['openai', 'anthropic']
+          for (const provider of textProviders) {
+            if (apiKeys[provider as keyof typeof apiKeys] && apiKeys[provider as keyof typeof apiKeys]?.trim()) {
+              hasTextApiKey = true
+              console.log(`✅ Using alternative text provider: ${provider.toUpperCase()} (user preferred ${textProvider.toUpperCase()} but key not available)`)
+              break
+            }
+          }
+        }
+        
+        if (!hasTextApiKey) {
+          setMiningStatus({ 
+            status: 'error', 
+            progress: 0, 
+            currentStep: `Text generation requires ${textProvider.toUpperCase()} API key for campaign "${selection.campaign.title}". Please configure it in Neural Keys. Text content is mandatory for Twitter posts.`,
+            error: `Missing required ${textProvider.toUpperCase()} API key for text generation`
+          })
+          return
+        }
+      }
+
+      // Log what API keys are available for optional content (visual)
+      const availableProviders = []
+      const unavailableProviders = []
+      
+      if (apiKeys) {
+        const providerKeys = {
+          'OpenAI': apiKeys.openai,
+          'Anthropic': apiKeys.anthropic,
+          'Google': apiKeys.google,
+          'Replicate': apiKeys.replicate,
+          'ElevenLabs': apiKeys.elevenlabs,
+          'Stability': apiKeys.stability
+        }
+        
+        Object.entries(providerKeys).forEach(([provider, key]) => {
+          if (key && key.trim()) {
+            availableProviders.push(provider)
+          } else {
+            unavailableProviders.push(provider)
+          }
+        })
+      }
+
+      console.log('🔑 Available API providers:', availableProviders)
+      if (unavailableProviders.length > 0) {
+        console.log('⚠️ Unavailable providers (visual content may be skipped):', unavailableProviders)
+      }
+
+      setMiningStatus({ status: 'analyzing', progress: 10, currentStep: 'Starting content generation...' })
+      
+      // Initialize content review items for each selected campaign
+      const initialReviewItems: ContentReviewItem[] = selectedCampaigns.map(selection => ({
+        campaign: selection.campaign,
+        agent: selection.selectedAgent!,
+        content: null,
+        status: 'generating'
+      }))
+      setContentReviewItems(initialReviewItems)
+      
+      // Prepare campaigns data for the new multi-campaign API
+      const campaignsData = selectedCampaigns.map(selection => ({
             campaign_id: selection.campaign.id,
             agent_id: selection.selectedAgent?.id,
             campaign_context: {
@@ -181,18 +299,39 @@ export default function Mining() {
               winner_reward: selection.campaign.winner_reward,
               platform_source: selection.campaign.platform_source
             }
-          })),
+      }))
+      
+      // Start mining session with Python AI backend
+      const response = await fetch(`${process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000'}/api/mining/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          wallet_address: address, // Send wallet address instead of hardcoded user_id
+          campaigns: campaignsData, // Send multiple campaigns
           user_preferences: {
             preferred_tone: "engaging",
             preferred_length: 250,
             hashtag_preference: 3,
             emoji_usage: "moderate"
-          }
+          },
+          user_api_keys: Object.fromEntries(
+            Object.entries({
+              openai: apiKeys?.openai,
+              anthropic: apiKeys?.anthropic,
+              google: apiKeys?.google,
+              replicate: apiKeys?.replicate,
+              elevenlabs: apiKeys?.elevenlabs,
+              stability: apiKeys?.stability
+            }).filter(([key, value]) => value && value.trim() !== '')
+          )
         })
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
       }
 
       const data = await response.json()
@@ -206,7 +345,7 @@ export default function Mining() {
           setMiningStatus({ 
             status: 'error', 
             progress: 0, 
-            currentStep: 'Failed to connect to AI backend. Please ensure the Python AI backend is running on port 8000.',
+        currentStep: error instanceof Error ? error.message : 'Failed to start mining. Please check your configuration.',
             error: error instanceof Error ? error.message : 'Unknown error'
           })
         }
@@ -214,96 +353,119 @@ export default function Mining() {
 
   const connectToWebSocket = async (sessionId: string) => {
     try {
-      const ws = new WebSocket(`${process.env.NEXT_PUBLIC_BURNIE_WS_URL || 'ws://localhost:8000/ws'}/${sessionId}`)
+      // Fix WebSocket URL pattern - /ws/{sessionId} is the correct endpoint
+      const wsUrl = process.env.NEXT_PUBLIC_BURNIE_WS_URL || 'ws://localhost:8000'
+      const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
       
       ws.onopen = () => {
-        console.log('🔌 WebSocket connected')
+        console.log('🔌 WebSocket connected successfully')
         setMiningStatus({ status: 'analyzing', progress: 15, currentStep: 'Connected to AI agents...' })
       }
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          console.log('📨 WebSocket message:', data)
+          console.log('📨 WebSocket message received:', data)
 
           switch (data.type) {
             case 'progress_update':
-              setMiningStatus({
-                status: data.status || 'generating',
-                progress: data.progress || 0,
-                currentStep: data.current_step || 'Processing...'
-              })
+              console.log('📊 Progress update:', data.progress, data.current_step)
+              setMiningStatus(prev => ({
+                ...prev,
+                status: data.error ? 'error' : 'generating',
+                progress: data.progress,
+                currentStep: data.current_step,
+                error: data.error
+              }))
               break
 
             case 'agent_update':
-              console.log(`🤖 Agent ${data.agent_type}: ${data.status}`)
+              console.log('🤖 Agent update:', data.agent_type, data.status, data.task)
+              setMiningStatus(prev => ({
+                ...prev,
+                // Only update currentStep if it's not a milestone message
+                currentStep: prev.currentStep?.includes('🎯') || prev.currentStep?.includes('✅') || prev.currentStep?.includes('📊') ? 
+                  prev.currentStep : 
+                  `${data.agent_info?.emoji || '🤖'} ${data.agent_info?.name || data.agent_type}: ${data.task}`,
+                progress: prev.progress // Keep existing progress
+              }))
               break
 
-            case 'completion':
-              // Handle multi-campaign content generation completion
-              if (data.generated_content && Array.isArray(data.generated_content)) {
-                // Multiple campaigns - update review items
-                const reviewItems: ContentReviewItem[] = data.generated_content.map((content: any, index: number) => {
-                  const selection = selectedCampaigns[index]
-                  return {
-                    campaign: selection.campaign,
-                    agent: selection.selectedAgent!,
+            case 'generation_milestone':
+              console.log('🎯 Generation milestone:', data.milestone, data.data)
+              // Update UI with milestone information - PRIORITY OVER AGENT UPDATES
+              const milestoneMessage = getMilestoneMessage(data.milestone, data.data)
+              const progressValue = getMilestoneProgress(data.milestone)
+              setMiningStatus(prev => ({
+                ...prev,
+                currentStep: milestoneMessage,
+                progress: progressValue || prev.progress, // Update progress if milestone has one
+                status: data.milestone === 'generation_error' ? 'error' : 
+                        data.milestone === 'generation_complete' ? 'completed' :
+                        prev.status
+              }))
+              break
+            
+            case 'content_preview':
+              console.log('👀 Content preview:', data.content_type, data.preview)
+              // Show real-time content preview
+              if (data.content_type === 'final_content') {
+                setMiningStatus(prev => ({
+                  ...prev,
+                  currentStep: `📝 Content ready! ${data.preview.char_count} characters, ${data.preview.has_image ? 'with image' : 'text only'}`
+                }))
+              }
+              break
+
+            case 'campaign_completed':
+              console.log('✅ Campaign completed:', data)
+              
+              // Find the campaign index by matching campaign_id
+              const campaignIndex = selectedCampaigns.findIndex(
+                selection => selection.campaign.id === data.campaign_content?.campaign_id
+              )
+              
+              if (campaignIndex >= 0) {
+                // Add the completed content to review items
+                setContentReviewItems(prev => {
+                  const newItems = [...prev]
+                  newItems[campaignIndex] = {
+                    ...newItems[campaignIndex],
                     content: {
-                      id: content.id || `${data.session_id}_${index}`,
-                      content_text: content.content_text,
-                      predicted_mindshare: content.predicted_mindshare,
-                      quality_score: content.quality_score,
-                      generation_metadata: content.generation_metadata,
-                      platformSource: selection.campaign.platform_source,
-                      campaignId: selection.campaign.id,
-                      agentUsed: selection.selectedAgent?.name,
-                      status: 'pending',
-                      createdAt: new Date().toISOString()
+                      id: data.campaign_content?.id || `gen_${Date.now()}`,
+                      content_text: data.campaign_content?.content_text || '',
+                      predicted_mindshare: data.campaign_content?.predicted_mindshare || 0,
+                      quality_score: data.campaign_content?.quality_score || 0,
+                      generation_metadata: data.campaign_content?.generation_metadata || {
+                        agents_used: ['CrewAI Constellation'],
+                        optimization_factors: ['mindshare', 'engagement'],
+                        generation_time: Date.now()
+                      }
                     },
                     status: 'reviewing'
                   }
+                  return newItems
                 })
-                setContentReviewItems(reviewItems)
-              } else {
-                // Single campaign - create review item
-                const content = data.generated_content
-                const selection = selectedCampaigns[0]
-                const reviewItem: ContentReviewItem = {
-                  campaign: selection.campaign,
-                  agent: selection.selectedAgent!,
-                  content: {
-                    id: content.id || data.session_id,
-                    content_text: content.content_text,
-                    predicted_mindshare: content.predicted_mindshare,
-                    quality_score: content.quality_score,
-                    generation_metadata: content.generation_metadata,
-                    platformSource: selection.campaign.platform_source,
-                    campaignId: selection.campaign.id,
-                    agentUsed: selection.selectedAgent?.name,
-                    status: 'pending',
-                    createdAt: new Date().toISOString()
-                  },
-                  status: 'reviewing'
-                }
-                setContentReviewItems([reviewItem])
               }
-              
+              break
+
+            case 'completion':
+              console.log('🎉 All campaigns completed:', data)
               setMiningStatus({
                 status: 'completed',
                 progress: 100,
-                currentStep: 'Content generated! Review and approve below.'
+                currentStep: '🎉 All content generated successfully!'
               })
-              ws.close()
               break
 
             case 'error':
-              console.error('❌ AI Backend Error:', data.error)
-              setMiningStatus({
-                status: 'idle',
-                progress: 0,
-                currentStep: `Error: ${data.error}`
-              })
-              ws.close()
+              console.error('❌ WebSocket error:', data)
+              setMiningStatus(prev => ({
+                ...prev,
+                status: 'error',
+                error: data.message || 'An error occurred during content generation',
+                currentStep: `❌ Error: ${data.message || 'Unknown error'}`
+              }))
               break
 
             case 'pong':
@@ -311,12 +473,12 @@ export default function Mining() {
               break
           }
         } catch (error) {
-          console.error('❌ Error parsing WebSocket message:', error)
+          console.error('❌ Error parsing WebSocket message:', error, event.data)
         }
       }
 
               ws.onerror = (error) => {
-          console.error('❌ WebSocket error:', error)
+        console.error('❌ WebSocket connection error:', error)
           setMiningStatus({
             status: 'error',
             progress: 0,
@@ -325,8 +487,8 @@ export default function Mining() {
           })
         }
 
-      ws.onclose = () => {
-        console.log('🔌 WebSocket disconnected')
+      ws.onclose = (event) => {
+        console.log('🔌 WebSocket disconnected:', event.code, event.reason)
       }
 
       // Send periodic ping to keep connection alive
@@ -394,34 +556,205 @@ export default function Mining() {
         i === index ? { ...item, status: 'approved' } : item
       ))
 
-      // TODO: Send to backend for publication to Burnie influencer platform
       const reviewItem = contentReviewItems[index]
-      console.log('✅ Content approved for publication:', {
-        campaign: reviewItem.campaign.title,
-        agent: reviewItem.agent.name,
-        content: reviewItem.content?.content_text
+      
+      // Send to backend for publication to Burnie influencer platform
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/marketplace/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          campaignId: reviewItem.campaign.id,
+          agentId: reviewItem.agent.id,
+          agentName: reviewItem.agent.name,
+          walletAddress: address,
+          contentText: reviewItem.content?.content_text,
+          contentImages: null, // Will be extracted from content_text when backend parses it
+          predictedMindshare: reviewItem.content?.predicted_mindshare,
+          qualityScore: reviewItem.content?.quality_score,
+          generationMetadata: reviewItem.content?.generation_metadata,
+          askingPrice: 100 // Default asking price
+        })
       })
 
-      // Here you would typically call the backend to publish to the marketplace
-      // const response = await fetch('/api/content/approve', { ... })
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      
+      console.log('✅ Content approved and added to marketplace:', {
+        campaign: reviewItem.campaign.title,
+        agent: reviewItem.agent.name,
+        marketplaceId: result.data?.id,
+        marketplaceUrl: result.data?.marketplace_url
+      })
+
+      // Show success notification
+      alert(`✅ Content approved! Added to marketplace with ID: ${result.data?.id}`)
       
     } catch (error) {
       console.error('❌ Failed to approve content:', error)
+      alert('❌ Failed to approve content. Please try again.')
+      
+      // Revert local state on error
+      setContentReviewItems(prev => prev.map((item, i) => 
+        i === index ? { ...item, status: 'reviewing' } : item
+      ))
     }
   }
 
-  const rejectContent = (index: number) => {
-    // Update local state
-    setContentReviewItems(prev => prev.map((item, i) => 
-      i === index ? { ...item, status: 'rejected' } : item
-    ))
+  const rejectContent = async (index: number) => {
+    try {
+      const item = contentReviewItems[index]
+      
+      // Make API call to record rejection in database
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL}/marketplace/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          campaignId: item.campaign.id,
+          agentId: item.agent.id,
+          walletAddress: address,
+          contentText: item.content?.content_text || '',
+          reason: 'Content rejected by user'
+        })
+      })
 
-    console.log('❌ Content rejected for campaign:', contentReviewItems[index].campaign.title)
+      const result = await response.json()
+
+      if (result.success) {
+        // Update local state only after successful API call
+        setContentReviewItems(prev => prev.map((item, i) => 
+          i === index ? { ...item, status: 'rejected' } : item
+        ))
+
+        console.log('✅ Content rejected and recorded in database:', {
+          campaignTitle: item.campaign.title,
+          recordId: result.data.id,
+          action: result.data.action,
+          rejectedAt: result.data.rejectedAt
+        })
+      } else {
+        console.error('❌ Failed to reject content:', result.error)
+        alert('Failed to reject content. Please try again.')
+      }
+    } catch (error) {
+      console.error('❌ Error rejecting content:', error)
+      alert('Error rejecting content. Please try again.')
+    }
   }
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
-    // You could add a toast notification here
+    alert('✅ Content copied to clipboard!')
+  }
+
+  const getMilestoneMessage = (milestone: string, data: any): string => {
+    switch (milestone) {
+      case 'crew_start':
+        return `🚀 Starting ${data?.agents_count || 5} AI agents (${data?.estimated_duration || '2-3 minutes'})`
+      case 'data_analysis_complete':
+        return `📊 Data analysis complete (${Math.round((data?.confidence || 0.92) * 100)}% confidence)`
+      case 'strategy_complete':
+        return `🎯 Strategy ready: ${data?.content_approach || 'data-driven'} approach`
+      case 'text_generation_progress':
+        return `✍️ Text generation ${data?.status || 'in progress'} (${data?.estimated_completion || '30 seconds'})`
+      case 'visual_generation_progress':
+        return `🎨 Creating ${data?.visual_type || 'image'} with ${data?.style || 'professional'} style`
+      case 'generation_complete':
+        return `✅ Content complete! Quality: ${Math.round(data?.quality_score || 85)}%, Mindshare: ${Math.round(data?.mindshare_score || 75)}%`
+      case 'generation_error':
+        return `❌ ${data?.error_type || 'Error'}: ${data?.error_message || 'Generation failed'}`
+      default:
+        return `🔄 ${milestone}: Processing...`
+    }
+  }
+
+  const getMilestoneProgress = (milestone: string): number | undefined => {
+    switch (milestone) {
+      case 'crew_start':
+        return 5
+      case 'data_analysis_complete':
+        return 15
+      case 'strategy_complete':
+        return 25
+      case 'text_generation_progress':
+        return 40
+      case 'visual_generation_progress':
+        return 60
+      case 'generation_complete':
+        return 90
+      default:
+        return undefined
+    }
+  }
+
+  const extractImageUrl = (contentText: string): string | null => {
+    console.log('🔍 Extracting image URL from content:', contentText.substring(0, 200) + '...')
+    
+    // Extract image URL from content text using enhanced regex
+    // Pattern 1: Look for Image URL: prefix (backend format)
+    const prefixMatch = contentText.match(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i)
+    if (prefixMatch) {
+      const url = prefixMatch[1].replace(/[.,;'"]+$/, '') // Remove trailing punctuation
+      console.log('✅ Found image URL via prefix pattern:', url)
+      return url
+    }
+    
+    // Pattern 2: Look for OpenAI DALL-E URLs specifically
+    const dalleMatch = contentText.match(/(https?:\/\/oaidalleapiprodscus\.blob\.core\.windows\.net\/[^\s\n<>"'`]+)/i)
+    if (dalleMatch) {
+      const url = dalleMatch[1].replace(/[.,;'"]+$/, '') // Remove trailing punctuation
+      console.log('✅ Found image URL via DALL-E pattern:', url)
+      return url
+    }
+    
+    // Pattern 3: General blob URL detection
+    const blobMatch = contentText.match(/(https?:\/\/[^\s\n<>"'`]*blob\.core\.windows\.net[^\s\n<>"'`]+)/i)
+    if (blobMatch) {
+      const url = blobMatch[1].replace(/[.,;'"]+$/, '') // Remove trailing punctuation
+      console.log('✅ Found image URL via blob pattern:', url)
+      return url
+    }
+    
+    // Pattern 4: Any HTTPS URL that looks like an image (fallback)
+    const generalMatch = contentText.match(/(https?:\/\/[^\s\n<>"'`]+\.(png|jpg|jpeg|gif|webp)(?:\?[^\s\n<>"'`]+)?)/i)
+    if (generalMatch) {
+      const url = generalMatch[1].replace(/[.,;'"]+$/, '') // Remove trailing punctuation
+      console.log('✅ Found image URL via general pattern:', url)
+      return url
+    }
+    
+    console.log('❌ No image URL found in content')
+    return null
+  }
+
+  const formatTwitterContent = (contentText: string): { text: string; imageUrl: string | null } => {
+    const imageUrl = extractImageUrl(contentText)
+    
+    // Extract just the Twitter text (before the stats)
+    const lines = contentText.split('\n')
+    let twitterText = ""
+    
+    for (const line of lines) {
+      if (line.includes('📊 Content Stats') || 
+          line.includes('🖼️ [Image will be attached') ||
+          line.includes('💡 To post:')) {
+        break
+      }
+      if (line.trim() && !line.includes('Image URL:')) {
+        twitterText += line + "\n"
+      }
+    }
+    
+    return {
+      text: twitterText.trim(),
+      imageUrl
+    }
   }
 
   const postToTwitter = (content: string) => {
@@ -586,7 +919,7 @@ export default function Mining() {
         <div className="bg-gray-800/50 backdrop-blur-md rounded-xl border border-gray-700/50 p-6">
           <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
             <Cog6ToothIcon className="h-6 w-6 text-blue-400 mr-2" />
-            AI Multi-Agentic System
+            Content Generation Engine
           </h2>
           
           {miningStatus.status === 'idle' ? (
@@ -626,14 +959,14 @@ export default function Mining() {
                 <span className="text-orange-400 font-semibold">{miningStatus.progress}%</span>
             </div>
 
-              {/* Agents Status */}
+              {/* Processing Stages */}
               <div className="grid grid-cols-5 gap-2 mt-4">
-                {['Data Analyst', 'Content Strategist', 'Text Content', 'Visual Creator', 'Orchestrator'].map((agent, index) => (
-                  <div key={agent} className={`p-2 rounded text-center text-xs ${
+                {['Analysis', 'Strategy', 'Creation', 'Optimization', 'Finalization'].map((stage, index) => (
+                  <div key={stage} className={`p-2 rounded text-center text-xs ${
                     miningStatus.progress > index * 20 ? 'bg-green-500/20 text-green-400' : 'bg-gray-700/50 text-gray-500'
                   }`}>
                     {miningStatus.progress > index * 20 && <CheckCircleIconSolid className="h-4 w-4 mx-auto mb-1" />}
-                    {agent}
+                    {stage}
                   </div>
                 ))}
               </div>
@@ -696,24 +1029,162 @@ export default function Mining() {
 
                 {reviewItem.content ? (
                   <>
-                    {/* Generated Content */}
-                    <div className="bg-gray-900/50 rounded-lg p-4 mb-4">
-                      <pre className="text-gray-200 whitespace-pre-wrap font-medium leading-relaxed">
-                        {reviewItem.content.content_text}
-                      </pre>
+                    {/* Twitter-Ready Content Display */}
+                    <div className="bg-gray-900/50 rounded-lg p-4 mb-4 border border-gray-700">
+                      <h4 className="text-sm font-semibold text-orange-400 mb-3 flex items-center">
+                        🐦 Twitter-Ready Content
+                      </h4>
+                      
+                      {(() => {
+                        const { text, imageUrl } = formatTwitterContent(reviewItem.content.content_text)
+                        
+                        return (
+                          <div className="space-y-4">
+                            {/* Twitter Text */}
+                            <div className="bg-white/5 rounded-lg p-4 border border-blue-500/20">
+                              <div className="text-gray-200 whitespace-pre-wrap font-medium leading-relaxed">
+                                {text}
+                              </div>
+                              <div className="mt-2 text-xs text-gray-400">
+                                Characters: {text.length}/280
+                              </div>
+                            </div>
+                            
+                            {/* Visual Content */}
+                            {imageUrl && (
+                              <div className="bg-white/5 rounded-lg p-4 border border-purple-500/20">
+                                <h5 className="text-sm font-semibold text-purple-400 mb-3">
+                                  🖼️ Generated Image
+                                </h5>
+                                <div className="space-y-4">
+                                  {/* Image Display with Fallback */}
+                                  <div className="relative">
+                                    <img 
+                                      src={imageUrl} 
+                                      alt="Generated content image"
+                                      className="w-full max-w-md rounded-lg border border-gray-600 shadow-lg"
+                                      onLoad={(e) => {
+                                        console.log('✅ Image loaded successfully:', imageUrl)
+                                        // Hide the fallback message if image loads
+                                        const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                                        if (fallback) fallback.style.display = 'none'
+                                      }}
+                                      onError={(e) => {
+                                        console.error('❌ Image failed to load:', imageUrl)
+                                        // Show fallback instead of hiding the image completely
+                                        e.currentTarget.style.display = 'none'
+                                        const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                                        if (fallback) fallback.style.display = 'block'
+                                      }}
+                                    />
+                                    {/* Fallback Display */}
+                                    <div className="hidden bg-gradient-to-br from-purple-900/20 to-blue-900/20 border-2 border-dashed border-purple-500/50 rounded-lg p-8 text-center">
+                                      <div className="text-4xl mb-3">🖼️</div>
+                                      <div className="text-purple-300 font-semibold mb-2">Generated Image Available</div>
+                                      <div className="text-sm text-gray-400 mb-4">
+                                        Image ready but cannot display due to browser restrictions.<br/>
+                                        Use the buttons below to view or download.
+                                      </div>
+                                      <div className="flex gap-2 justify-center">
+                                        <button
+                                          onClick={() => window.open(imageUrl, '_blank')}
+                                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
+                                        >
+                                          🔗 View Image
+                                        </button>
+                                        <button
+                                          onClick={async () => {
+                                            try {
+                                              const response = await fetch(imageUrl)
+                                              const blob = await response.blob()
+                                              const url = window.URL.createObjectURL(blob)
+                                              const a = document.createElement('a')
+                                              a.href = url
+                                              a.download = 'generated-image.png'
+                                              a.click()
+                                              window.URL.revokeObjectURL(url)
+                                            } catch (error) {
+                                              console.error('Download failed:', error)
+                                              alert('Download failed. Please try "View Image" instead.')
+                                            }
+                                          }}
+                                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
+                                        >
+                                          📥 Download
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Image URL Section */}
+                                  <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-600">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="font-semibold text-purple-300 text-sm">
+                                        📎 Image URL ({imageUrl.length} characters)
+                                      </div>
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(imageUrl)
+                                          alert('✅ Image URL copied to clipboard!')
+                                        }}
+                                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                                      >
+                                        📋 Copy URL
+                                      </button>
+                                    </div>
+                                    <div className="bg-gray-900 p-3 rounded border font-mono text-xs text-gray-300 break-all max-h-24 overflow-y-auto">
+                                      {imageUrl}
+                                    </div>
+                                    <div className="flex gap-2 mt-3">
+                                      <button
+                                        onClick={() => window.open(imageUrl, '_blank')}
+                                        className="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                                      >
+                                        🔗 Open in New Tab
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          const tweetText = `Check out this AI-generated image! ${imageUrl}`
+                                          const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`
+                                          window.open(twitterUrl, '_blank')
+                                        }}
+                                        className="flex-1 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                                      >
+                                        🐦 Share on Twitter
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Twitter Posting Instructions */}
+                            <div className="bg-blue-500/10 rounded-lg p-3 border border-blue-500/20">
+                              <div className="text-sm text-blue-300">
+                                💡 <strong>To Post on Twitter:</strong>
+                              </div>
+                              <div className="text-xs text-gray-300 mt-1">
+                                1. Copy the text above<br/>
+                                {imageUrl && "2. Save the image above\n3. "}
+                                {imageUrl ? "Paste text + attach image in Twitter" : "2. Paste text in Twitter"}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* Performance Metrics */}
                     <div className="grid grid-cols-3 gap-4 mb-4">
                       <div className="text-center p-3 bg-green-500/10 rounded-lg border border-green-500/20">
                         <div className="text-2xl font-bold text-green-400">
-                          {reviewItem.content.predicted_mindshare.toFixed(1)}%
+                          {(reviewItem.content.predicted_mindshare || 0).toFixed(1)}%
                         </div>
                         <div className="text-xs text-gray-400">Predicted Mindshare</div>
                       </div>
                       <div className="text-center p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
                         <div className="text-2xl font-bold text-blue-400">
-                          {reviewItem.content.quality_score.toFixed(1)}
+                          {(reviewItem.content.quality_score || 0).toFixed(1)}
                         </div>
                         <div className="text-xs text-gray-400">Quality Score</div>
                       </div>
@@ -746,11 +1217,14 @@ export default function Mining() {
                         </>
                       )}
                       <button
-                        onClick={() => copyToClipboard(reviewItem.content.content_text)}
+                        onClick={() => {
+                          const { text } = formatTwitterContent(reviewItem.content.content_text)
+                          copyToClipboard(text)
+                        }}
                         className="flex-1 px-4 py-3 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-colors flex items-center justify-center"
                       >
                         <DocumentDuplicateIcon className="h-5 w-5 mr-2" />
-                        Copy Content
+                        Copy Twitter Text
                       </button>
                     </div>
 

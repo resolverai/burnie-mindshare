@@ -13,7 +13,7 @@ class CampaignRepository:
         try:
             query = text("""
                 SELECT * FROM campaigns 
-                WHERE id = :campaign_id AND status = 'active'
+                WHERE id = :campaign_id AND status = 'ACTIVE'
             """)
             
             db = get_db_session()
@@ -31,8 +31,8 @@ class CampaignRepository:
         try:
             query = text("""
                 SELECT * FROM campaigns 
-                WHERE status = 'active'
-                ORDER BY created_at DESC
+                WHERE status = 'ACTIVE'
+                ORDER BY "createdAt" DESC
             """)
             
             db = get_db_session()

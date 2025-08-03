@@ -42,6 +42,12 @@ export class BiddingSystem {
   @Column({ type: 'boolean', default: false })
   isWinning!: boolean;
 
+  @Column({ type: 'boolean', default: false })
+  hasWon!: boolean; // True when auction ends and this is the winning bid
+
+  @Column({ type: 'timestamp', nullable: true })
+  wonAt?: Date | null; // When this bid won the auction
+
   // Relations
   @ManyToOne(() => ContentMarketplace, content => content.id)
   @JoinColumn({ name: 'contentId' })

@@ -1,0 +1,65 @@
+{
+  "platform_source": "cookie.fun",
+  "model_type": "ensemble",
+  "algorithms": [
+    "random_forest",
+    "gradient_boosting",
+    "linear_regression",
+    "ridge_regression",
+    "svr"
+  ],
+  "training_samples": 40,
+  "test_samples": 10,
+  "feature_count": 30,
+  "individual_metrics": {
+    "random_forest": {
+      "mse": 0.14943329405200118,
+      "rmse": 0.38656602806247886,
+      "mae": 0.3041624000000011,
+      "r2": 0.2168839549334507,
+      "cv_mean": -0.5614382281353568,
+      "cv_std": 0.557651602792521
+    },
+    "gradient_boosting": {
+      "mse": 0.22979055860421993,
+      "rmse": 0.4793647448490762,
+      "mae": 0.40056538134331,
+      "r2": -0.20423413396179457,
+      "cv_mean": -0.8898111582927287,
+      "cv_std": 0.6087720279932313
+    },
+    "linear_regression": {
+      "mse": 0.49948304078774497,
+      "rmse": 0.7067411412870662,
+      "mae": 0.5704590415603288,
+      "r2": -1.617577200321875,
+      "cv_mean": -1.5781813542843313,
+      "cv_std": 1.7209663252665637
+    },
+    "ridge_regression": {
+      "mse": 0.4079938171356906,
+      "rmse": 0.6387439370637428,
+      "mae": 0.5109052209113384,
+      "r2": -1.138121270188437,
+      "cv_mean": -0.5143523522761838,
+      "cv_std": 0.718504301549917
+    },
+    "svr": {
+      "mse": 0.2953743805650174,
+      "rmse": 0.5434835605287591,
+      "mae": 0.44497313658707166,
+      "r2": -0.5479309225530691,
+      "cv_mean": -0.09777823337799803,
+      "cv_std": 0.18365375235222664
+    }
+  },
+  "ensemble_metrics": {
+    "mse": 0.2709680636999729,
+    "rmse": 0.5205459285211756,
+    "mae": 0.40801652627097,
+    "r2": -0.4200278440641245
+  },
+  "trained_at": "2025-08-02T18:53:03.586153",
+  "ensemble_path": "/Users/taran/Documents/devdock/burnie-mindshare/burnie-influencer-platform/python-ai-backend/app/utils/../../../../models/mindshare/cookie.fun_ensemble_models.pkl",
+  "scaler_path": "/Users/taran/Documents/devdock/burnie-mindshare/burnie-influencer-platform/python-ai-backend/app/utils/../../../../models/mindshare/cookie.fun_ensemble_scaler.pkl"
+}

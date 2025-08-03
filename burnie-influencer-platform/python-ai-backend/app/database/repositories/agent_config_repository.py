@@ -13,8 +13,8 @@ class AgentConfigRepository:
         try:
             query = text("""
                 SELECT * FROM agent_configurations 
-                WHERE userId = :user_id AND isActive = true
-                ORDER BY createdAt DESC
+                WHERE "userId" = :user_id AND "isActive" = true
+                ORDER BY "createdAt" DESC
             """)
             
             db = get_db_session()
@@ -25,12 +25,30 @@ class AgentConfigRepository:
             logger.error(f"Failed to get user agents: {e}")
             return []
     
+    def get_agent_by_id(self, agent_id: int) -> Optional[Dict[str, Any]]:
+        """Get agent configuration by ID"""
+        try:
+            query = text("""
+                SELECT * FROM agent_configurations 
+                WHERE id = :agent_id AND "isActive" = true
+            """)
+            
+            db = get_db_session()
+            result = db.execute(query, {"agent_id": agent_id}).fetchone()
+            
+            if result:
+                return dict(result._mapping)
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get agent by ID: {e}")
+            return None
+    
     def create_agent(self, agent_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Create a new agent configuration"""
         try:
             query = text("""
                 INSERT INTO agent_configurations 
-                (userId, agentName, agentType, personalityType, systemMessage, configuration)
+                ("userId", "agentName", "agentType", "personalityType", "systemMessage", configuration)
                 VALUES (:user_id, :agent_name, :agent_type, :personality_type, :system_message, :configuration)
                 RETURNING *
             """)
