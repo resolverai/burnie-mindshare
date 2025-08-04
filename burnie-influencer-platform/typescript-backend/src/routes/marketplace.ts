@@ -1828,12 +1828,12 @@ router.get('/analytics/time-analysis/:walletAddress', async (req: Request, res: 
       .getRawMany();
 
     // Convert to heatmap format
-    const maxBids = Math.max(...heatmapData.map(d => parseInt(d.bidCount)), 1);
+    const maxBids = Math.max(...heatmapData.map(d => Number(d.bidcount) || 0), 1);
     const heatmap = heatmapData.map(data => ({
-      day: parseInt(data.day),
-      hour: parseInt(data.hour),
-      bidCount: parseInt(data.bidCount),
-      intensity: parseInt(data.bidCount) / maxBids
+      day: Number(data.day),
+      hour: Number(data.hour),
+      bidCount: Number(data.bidcount) || 0,
+      intensity: (Number(data.bidcount) || 0) / maxBids
     }));
 
     // Calculate peak times
@@ -1849,10 +1849,10 @@ router.get('/analytics/time-analysis/:walletAddress', async (req: Request, res: 
       .limit(4)
       .getRawMany();
 
-    const totalBids = heatmapData.reduce((sum, d) => sum + parseInt(d.bidCount), 0);
+    const totalBids = heatmapData.reduce((sum, d) => sum + (Number(d.bidcount) || 0), 0);
     const peakTimes = hourlyStats.map(stat => {
-      const hour = parseInt(stat.hour);
-      const bidCount = parseInt(stat.bidCount);
+      const hour = Number(stat.hour);
+      const bidCount = Number(stat.bidcount) || 0;
       const activity = totalBids > 0 ? Math.round((bidCount / totalBids) * 100) : 0;
       
       return {
@@ -2456,6 +2456,278 @@ router.get('/analytics/yapper/portfolio/:walletAddress', async (req: Request, re
   } catch (error) {
     console.error('Error fetching yapper portfolio analytics:', error);
     return res.status(500).json({ error: 'Failed to fetch portfolio analytics' });
+  }
+});
+
+/**
+ * GET /api/marketplace/analytics/miner/portfolio/:walletAddress
+ * Get token portfolio and earnings analytics for a miner
+ */
+router.get('/analytics/miner/portfolio/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'Wallet address is required' });
+    }
+
+    // Get earnings by token from winning bids
+    const tokenEarnings = await AppDataSource.query(`
+      SELECT 
+        b."bidCurrency" as token,
+        COUNT(b.id) as totalSales,
+        SUM(CAST(b."bidAmount" AS DECIMAL)) as totalAmount,
+        AVG(CAST(b."bidAmount" AS DECIMAL)) as avgAmount,
+        MAX(CAST(b."bidAmount" AS DECIMAL)) as maxAmount,
+        MIN(CAST(b."bidAmount" AS DECIMAL)) as minAmount
+      FROM bidding_system b
+      JOIN content_marketplace c ON b."contentId" = c.id 
+      WHERE LOWER(c."walletAddress") = LOWER($1)
+        AND b."hasWon" = true
+      GROUP BY b."bidCurrency"
+      ORDER BY totalAmount DESC
+    `, [walletAddress]);
+
+    // Get recent transactions
+    const recentTransactions = await AppDataSource.query(`
+      SELECT 
+        b."bidCurrency" as token,
+        CAST(b."bidAmount" AS DECIMAL) as amount,
+        b."wonAt" as date,
+        c."contentText",
+        c."agentName",
+        u."walletAddress" as buyerWallet
+      FROM bidding_system b
+      JOIN content_marketplace c ON b."contentId" = c.id 
+      JOIN users u ON b."bidderId" = u.id
+      WHERE LOWER(c."walletAddress") = LOWER($1)
+        AND b."hasWon" = true
+      ORDER BY b."wonAt" DESC
+      LIMIT 20
+    `, [walletAddress]);
+
+    // Get content performance by token
+    const contentByToken = await AppDataSource.query(`
+      SELECT 
+        b."bidCurrency" as token,
+        c.id as contentId,
+        c."contentText",
+        c."agentName",
+        c."predictedMindshare",
+        c."qualityScore",
+        CAST(b."bidAmount" AS DECIMAL) as salePrice,
+        b."wonAt" as saleDate,
+        COUNT(allBids.id) as totalBids
+      FROM bidding_system b
+      JOIN content_marketplace c ON b."contentId" = c.id 
+      LEFT JOIN bidding_system allBids ON allBids."contentId" = c.id
+      WHERE LOWER(c."walletAddress") = LOWER($1)
+        AND b."hasWon" = true
+      GROUP BY b."bidCurrency", c.id, c."contentText", c."agentName", c."predictedMindshare", 
+               c."qualityScore", b."bidAmount", b."wonAt"
+      ORDER BY b."wonAt" DESC
+    `, [walletAddress]);
+
+    // Calculate token rates (mock rates for now)
+    const tokenRates = {
+      ROAST: 0.1,
+      USDC: 1.0,
+      KAITO: 0.25,
+      COOKIE: 0.15,
+      AXR: 0.08,
+      NYKO: 0.12,
+    };
+
+    // Process token earnings with USD values
+    const processedEarnings = tokenEarnings.map((earning: any) => ({
+      token: earning.token,
+      amount: Number(earning.totalamount) || 0,
+      totalSales: Number(earning.totalsales) || 0,
+      avgSalePrice: Number(earning.avgamount) || 0,
+      maxSalePrice: Number(earning.maxamount) || 0,
+      minSalePrice: Number(earning.minamount) || 0,
+      usdValue: (Number(earning.totalamount) || 0) * (tokenRates[earning.token as keyof typeof tokenRates] || 0),
+      pricePerToken: tokenRates[earning.token as keyof typeof tokenRates] || 0,
+    }));
+
+    // Calculate portfolio metrics
+    const totalUSDValue = processedEarnings.reduce((sum: number, earning: any) => sum + earning.usdValue, 0);
+    const totalSales = processedEarnings.reduce((sum: number, earning: any) => sum + earning.totalSales, 0);
+    const uniqueTokens = processedEarnings.length;
+
+    // Get top performing token
+    const topToken = processedEarnings.length > 0 ? 
+      processedEarnings.reduce((top: any, current: any) => 
+        current.usdValue > top.usdValue ? current : top
+      ) : null;
+
+    // Calculate portfolio distribution
+    const distribution = processedEarnings.map((earning: any) => ({
+      token: earning.token,
+      percentage: totalUSDValue > 0 ? (earning.usdValue / totalUSDValue * 100) : 0,
+      usdValue: earning.usdValue,
+    }));
+
+    // Process recent transactions
+    const processedTransactions = recentTransactions.map((tx: any) => ({
+      ...tx,
+      amount: Number(tx.amount) || 0,
+      usdValue: (Number(tx.amount) || 0) * (tokenRates[tx.token as keyof typeof tokenRates] || 0),
+      contentPreview: tx.contentText ? tx.contentText.substring(0, 100) + '...' : '',
+    }));
+
+    // Group content by token
+    const contentGroupedByToken = contentByToken.reduce((acc: any, content: any) => {
+      if (!acc[content.token]) {
+        acc[content.token] = [];
+      }
+      acc[content.token].push({
+        ...content,
+        saleprice: Number(content.saleprice) || 0,
+        totalbids: Number(content.totalbids) || 0,
+        usdValue: (Number(content.saleprice) || 0) * (tokenRates[content.token as keyof typeof tokenRates] || 0),
+      });
+      return acc;
+    }, {});
+
+    return res.json({
+      portfolio: {
+        totalUSDValue,
+        totalSales,
+        uniqueTokens,
+        topToken: topToken ? {
+          token: topToken.token,
+          usdValue: topToken.usdValue,
+          changePercent: 0, // TODO: Calculate actual change
+        } : null,
+      },
+      earnings: processedEarnings,
+      distribution,
+      recentTransactions: processedTransactions,
+      contentByToken: contentGroupedByToken,
+      tokenRates,
+    });
+
+  } catch (error) {
+    console.error('Error fetching miner portfolio analytics:', error);
+    return res.status(500).json({ error: 'Failed to fetch portfolio analytics' });
+  }
+});
+
+// Add endpoint for pre-signed URL generation for marketplace content
+router.post('/content/:id/presigned-url', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Content ID is required' });
+    }
+    
+    const contentId = parseInt(id);
+    if (isNaN(contentId)) {
+      return res.status(400).json({ error: 'Invalid content ID' });
+    }
+    
+    // Get content item to extract S3 key
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const content = await contentRepository.findOne({
+      where: { id: contentId }
+    });
+    
+    if (!content) {
+      return res.status(404).json({ error: 'Content not found' });
+    }
+    
+    // Extract S3 key from content images or text
+    let s3Key: string | null = null;
+    
+    // Try to extract S3 key from content_images first
+    if (content.contentImages && Array.isArray(content.contentImages)) {
+      for (const image of content.contentImages) {
+        if (image && image.url && image.url.includes('ai-generated/')) {
+          // Extract S3 key from URL
+          const urlParts = image.url.split('/');
+          const aiGeneratedIndex = urlParts.findIndex((part: string) => part === 'ai-generated');
+          if (aiGeneratedIndex !== -1) {
+            s3Key = urlParts.slice(aiGeneratedIndex).join('/').split('?')[0]; // Remove query params
+            break;
+          }
+        }
+      }
+    }
+    
+    // If not found in contentImages, try to extract from contentText
+    if (!s3Key && content.contentText) {
+      const s3UrlMatch = content.contentText.match(/https?:\/\/[^\/]+\/([^?\s]+)/);
+      if (s3UrlMatch && s3UrlMatch[1] && s3UrlMatch[1].includes('ai-generated/')) {
+        s3Key = s3UrlMatch[1];
+      }
+    }
+    
+    if (!s3Key) {
+      return res.status(400).json({ 
+        error: 'No S3 content found for this item',
+        message: 'This content does not contain S3-stored images'
+      });
+    }
+    
+    // Call Python AI backend to generate pre-signed URL
+    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+    
+    try {
+      const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          s3_key: s3Key,
+          expiration: 3600 // 1 hour
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Python backend responded with ${response.status}`);
+      }
+      
+      const presignedResult = await response.json() as {
+        status: string;
+        presigned_url?: string;
+        details?: {
+          expires_at: string;
+          expires_in_seconds: number;
+        };
+        error?: string;
+      };
+      
+      if (presignedResult.status === 'success' && presignedResult.presigned_url) {
+        return res.json({
+          success: true,
+          presigned_url: presignedResult.presigned_url,
+          expires_at: presignedResult.details?.expires_at,
+          expires_in_seconds: presignedResult.details?.expires_in_seconds,
+          s3_key: s3Key,
+          content_id: id
+        });
+      } else {
+        return res.status(500).json({
+          error: 'Failed to generate pre-signed URL',
+          details: presignedResult.error
+        });
+      }
+      
+    } catch (fetchError) {
+      console.error('Error calling Python backend for pre-signed URL:', fetchError);
+      return res.status(503).json({
+        error: 'Unable to generate pre-signed URL',
+        message: 'Python AI backend is not available',
+        fallback: 'Original URLs may be used as fallback'
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error generating pre-signed URL for content:', error);
+    return res.status(500).json({ error: 'Failed to process pre-signed URL request' });
   }
 });
 

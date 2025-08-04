@@ -13,6 +13,10 @@ import { ContentMarketplace } from './ContentMarketplace';
 export enum BidCurrency {
   ROAST = 'ROAST',
   USDC = 'USDC',
+  KAITO = 'KAITO',
+  COOKIE = 'COOKIE',
+  AXR = 'AXR',
+  NYKO = 'NYKO',
 }
 
 @Entity('bidding_system')
@@ -84,8 +88,12 @@ export class BiddingSystem {
   // Convert bid to USD equivalent for comparison (mock rates)
   getBidValueInUSD(): number {
     const mockRates = {
-      ROAST: 0.1, // $0.10 per ROAST
-      USDC: 1.0,  // $1.00 per USDC
+      ROAST: 0.1,  // $0.10 per ROAST
+      USDC: 1.0,   // $1.00 per USDC
+      KAITO: 0.25, // $0.25 per KAITO
+      COOKIE: 0.15, // $0.15 per COOKIE
+      AXR: 0.08,   // $0.08 per AXR
+      NYKO: 0.12,  // $0.12 per NYKO
     };
     
     return this.getBidAmount() * mockRates[this.bidCurrency];

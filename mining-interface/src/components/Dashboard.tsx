@@ -87,23 +87,6 @@ interface MinerAnalytics {
   };
 }
 
-interface SmartFeedPost {
-  id: string;
-  author: string;
-  handle: string;
-  avatar: string;
-  date: string;
-  content: string;
-  metrics: {
-    reposts: number;
-    likes: string;
-    comments: string;
-    shares: number;
-    views: string;
-  };
-  minerContent: string;
-}
-
 export default function Dashboard() {
   const [analyticsData, setAnalyticsData] = useState<MinerAnalytics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -113,6 +96,13 @@ export default function Dashboard() {
   useEffect(() => {
     if (address) {
       fetchAnalytics();
+      
+      // Set up refresh interval to update analytics every 2 minutes
+      const interval = setInterval(() => {
+        fetchAnalytics();
+      }, 120000); // 2 minutes
+      
+      return () => clearInterval(interval);
     }
   }, [address]);
 
@@ -248,14 +238,14 @@ export default function Dashboard() {
           <CurrencyDollarIcon className="h-8 w-8 text-blue-300 mx-auto mb-2" />
           <h3 className="text-sm text-gray-300 mb-1">Total Bids</h3>
           <p className="text-3xl font-bold text-white">{stats.totalBids}</p>
-          <p className="text-sm text-blue-300">${stats.avgBidAmount.toFixed(2)} avg bid</p>
+          <p className="text-sm text-blue-300">{stats.avgBidAmount.toFixed(1)} avg bid</p>
         </div>
 
         {/* Total Revenue */}
         <div className="bg-gradient-to-br from-green-800 via-green-700 to-green-900 rounded-xl p-6 text-center">
           <BanknotesIcon className="h-8 w-8 text-green-300 mx-auto mb-2" />
           <h3 className="text-sm text-gray-300 mb-1">Total Revenue</h3>
-          <p className="text-3xl font-bold text-white">${stats.totalRevenue}</p>
+          <p className="text-3xl font-bold text-white">{stats.totalRevenue} Tokens</p>
           <p className="text-sm text-green-300">{stats.biddableContent} biddable</p>
         </div>
 
@@ -315,7 +305,7 @@ export default function Dashboard() {
           <div className="flex justify-between mb-2 text-xs text-gray-400">
             <span>0</span>
             <span className="text-blue-400">{maxBids} bids</span>
-            <span className="text-green-400">${maxRevenue}</span>
+            <span className="text-green-400">{maxRevenue} tokens</span>
           </div>
           
           <div className="flex items-end space-x-1 h-32 bg-gray-900 rounded p-2">
@@ -352,7 +342,7 @@ export default function Dashboard() {
                       backgroundColor: trend.revenue > 0 ? '#10B981' : 'transparent',
                       minHeight: trend.revenue > 0 ? '15px' : '0px'
                     }}
-                    title={`$${trend.revenue} revenue on ${trend.date}`}
+                    title={`${trend.revenue} tokens revenue on ${trend.date}`}
                   />
                 </div>
               );
@@ -386,7 +376,7 @@ export default function Dashboard() {
           </div>
           <div>
             <p className="text-2xl font-bold text-green-400">
-              ${trends.reduce((sum, t) => sum + t.revenue, 0)}
+              {trends.reduce((sum, t) => sum + t.revenue, 0)} Tokens
             </p>
             <p className="text-sm text-gray-400">Total Revenue</p>
           </div>
@@ -398,7 +388,7 @@ export default function Dashboard() {
           </div>
           <div>
             <p className="text-2xl font-bold text-orange-400">
-              ${trends.length > 0 ? Math.round(trends.reduce((sum, t) => sum + t.revenue, 0) / trends.length) : 0}
+              {trends.length > 0 ? Math.round(trends.reduce((sum, t) => sum + t.revenue, 0) / trends.length) : 0} Tokens
             </p>
             <p className="text-sm text-gray-400">Avg Daily Revenue</p>
           </div>
@@ -445,13 +435,13 @@ export default function Dashboard() {
                     <p className="text-white font-medium">{content.title}</p>
                     <div className="flex items-center space-x-4 text-sm text-gray-400">
                       <span>{content.bidCount} bids</span>
-                      <span>Max: ${content.maxBid}</span>
+                      <span>Max: {content.maxBid} tokens</span>
                       <span>Quality: {content.quality_score}/100</span>
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-green-400 font-semibold">${content.revenue}</p>
+                  <p className="text-green-400 font-semibold">{content.revenue} Tokens</p>
                   <p className="text-gray-400 text-sm">Revenue</p>
                 </div>
               </div>
@@ -498,7 +488,7 @@ export default function Dashboard() {
                   <div className="flex items-center space-x-4 text-sm">
                     <span className="text-gray-400">{category.count} posts</span>
                     <span className="text-blue-400">{category.avgBids} avg bids</span>
-                    <span className="text-green-400">${category.revenue}</span>
+                    <span className="text-green-400">{category.revenue} tokens</span>
           </div>
           </div>
                 <div className="w-full bg-gray-700 rounded-full h-2">
@@ -516,132 +506,25 @@ export default function Dashboard() {
   }
 
   const renderSmartFeed = () => {
-    // Generate dynamic feed posts based on miner's actual content
-    const generateSmartFeedPosts = (): SmartFeedPost[] => {
-      if (!analyticsData?.performance.topContent || analyticsData.performance.topContent.length === 0) {
-        return []
-      }
-
-      // Create realistic social media posts based on actual miner content
-      const topContent = analyticsData.performance.topContent.slice(0, 3)
-      const yapperNames = analyticsData?.yapperEngagement?.slice(0, 5).map(y => y.username) || []
-      
-      return topContent.map((content, index) => {
-        const yapperName = yapperNames[index] || `CryptoUser${index + 1}`
-        const contentPreview = content.title.length > 30 ? content.title.substring(0, 30) + '...' : content.title
-
-      return {
-          id: content.id,
-          author: yapperName,
-          handle: `@${yapperName.toLowerCase().replace(/[^a-z0-9]/g, '')}`,
-          avatar: ['🐋', '⚡', '🎨', '🔵', '😂'][index % 5],
-          date: `${index + 2}h`,
-          content: `Just used content from a miner on the platform! "${contentPreview}" - absolutely perfect for my latest post! Quality score: ${content.quality_score}/100 🔥 #ContentMining #ROAST`,
-      metrics: {
-            reposts: Math.floor(content.quality_score / 2) + 10,
-            likes: `${Math.floor(content.quality_score * 10) + 100}`,
-            comments: `${Math.floor(content.quality_score / 3) + 5}`,
-            shares: Math.floor(content.quality_score / 5) + 3,
-            views: `${Math.floor(content.quality_score * 50) + 500}`
-          },
-          minerContent: content.title
-        }
-      })
-    }
-
-    const smartFeedPosts = generateSmartFeedPosts()
-
-    if (smartFeedPosts.length === 0) {
-            return (
-        <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
-          <div className="flex items-center space-x-3 mb-6">
-            <div className="p-2 bg-blue-500/20 rounded-lg">
-              <StarIcon className="h-5 w-5 text-blue-400" />
-                  </div>
-            <h3 className="text-xl font-bold text-white">Smart Feed</h3>
-            <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded-full">No Activity</span>
-          </div>
-
-          <div className="h-48 flex items-center justify-center">
-            <div className="text-center">
-              <StarIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
-              <p className="text-gray-400">No Data</p>
-              <p className="text-gray-500 text-sm">Create quality content to see social activity</p>
-                    </div>
-                      </div>
-                        </div>
-      )
-    }
-
-            return (
+    return (
       <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
         <div className="flex items-center space-x-3 mb-6">
           <div className="p-2 bg-blue-500/20 rounded-lg">
             <StarIcon className="h-5 w-5 text-blue-400" />
-                    </div>
+          </div>
           <h3 className="text-xl font-bold text-white">Smart Feed</h3>
-          <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full">Live</span>
-                  </div>
-
-        <div className="space-y-4 max-h-[800px] overflow-y-auto">
-          {smartFeedPosts.map((post) => (
-            <div key={post.id} className="bg-gray-700/30 rounded-lg p-4 hover:bg-gray-700/50 transition-colors">
-              <div className="flex items-start space-x-3">
-                <div className="w-10 h-10 bg-gray-600 rounded-full flex items-center justify-center text-lg">
-                  {post.avatar}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <span className="font-semibold text-white text-sm">{post.author}</span>
-                    <span className="text-gray-400 text-xs">{post.handle}</span>
-                    <span className="text-gray-500 text-xs">·</span>
-                    <span className="text-gray-500 text-xs">{post.date}</span>
-                  </div>
-                  <p className="text-gray-200 text-sm leading-relaxed mb-3">{post.content}</p>
-                  
-                  {/* Miner content reference */}
-                  <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-2 mb-3">
-                    <div className="flex items-center space-x-2">
-                      <CpuChipIcon className="h-4 w-4 text-purple-400" />
-                      <span className="text-purple-300 text-xs">Used content: {post.minerContent}</span>
-                    </div>
-                  </div>
-
-                  {/* Engagement metrics */}
-                  <div className="flex items-center justify-between text-gray-400 text-xs">
-                    <div className="flex items-center space-x-1">
-                      <span>🔁</span>
-                      <span>{post.metrics.reposts}</span>
-                      </div>
-                    <div className="flex items-center space-x-1">
-                      <span>❤️</span>
-                      <span>{post.metrics.likes}</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <span>💬</span>
-                      <span>{post.metrics.comments}</span>
-                </div>
-                    <div className="flex items-center space-x-1">
-                      <span>📤</span>
-                      <span>{post.metrics.shares}</span>
-              </div>
-                    <div className="flex items-center space-x-1">
-                      <span>👁️</span>
-                      <span>{post.metrics.views}</span>
+          <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded-full">Coming Soon</span>
         </div>
-                    </div>
-                  </div>
-                    </div>
-                    </div>
-          ))}
-          
-          {/* Footer note */}
-          <div className="text-center text-xs text-gray-500 mt-4 pt-4 border-t border-gray-700">
-            Showing social activity from content usage. Real-time Twitter integration coming soon.
-                    </div>
-                  </div>
-                </div>
-              )
+
+        <div className="h-48 flex items-center justify-center">
+          <div className="text-center">
+            <StarIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
+            <p className="text-gray-400">No Data</p>
+            <p className="text-gray-500 text-sm">Twitter integration coming soon</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const renderYapperEngagement = () => {
@@ -689,7 +572,7 @@ export default function Dashboard() {
                     <p className="text-gray-400 text-xs">Bids</p>
                 </div>
                   <div>
-                    <p className="text-green-400 font-semibold">${yapper.totalAmount}</p>
+                    <p className="text-green-400 font-semibold">{yapper.totalAmount} Tokens</p>
                     <p className="text-gray-400 text-xs">Total</p>
               </div>
                   <div>
@@ -755,7 +638,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="text-gray-400">Revenue</p>
-                    <p className="text-green-400 font-medium">${agent.revenue}</p>
+                    <p className="text-green-400 font-medium">{agent.revenue} Tokens</p>
                   </div>
                   <div>
                     <p className="text-gray-400">Avg Quality</p>
@@ -901,18 +784,47 @@ export default function Dashboard() {
           {/* Additional insights */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
             <div className="bg-gray-700/30 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-blue-400">2-4 PM</p>
+              <p className="text-2xl font-bold text-blue-400">
+                {(() => {
+                  // Get the top peak time from peakTimes
+                  const topPeak = analyticsData.timeAnalysis.peakTimes?.[0];
+                  return topPeak ? topPeak.timeRange : 'No Data';
+                })()}
+              </p>
               <p className="text-gray-400 text-sm">Peak Hours</p>
-                  </div>
-            <div className="bg-gray-700/30 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-green-400">Tue-Thu</p>
-              <p className="text-gray-400 text-sm">Best Days</p>
-                </div>
-            <div className="bg-gray-700/30 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-purple-400">89%</p>
-              <p className="text-gray-400 text-sm">Peak Efficiency</p>
-              </div>
             </div>
+            <div className="bg-gray-700/30 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-green-400">
+                {(() => {
+                  // Calculate best days from heatmap data
+                  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                  const dayTotals: Record<number, number> = {};
+                  
+                  analyticsData.timeAnalysis.heatmap?.forEach(item => {
+                    dayTotals[item.day] = (dayTotals[item.day] || 0) + item.bidCount;
+                  });
+                  
+                  const sortedDays = Object.entries(dayTotals)
+                    .sort(([,a], [,b]) => (Number(b) || 0) - (Number(a) || 0))
+                    .slice(0, 2)
+                    .map(([day]) => dayNames[parseInt(day)]);
+                  
+                  return sortedDays.length > 0 ? sortedDays.join('-') : 'No Data';
+                })()}
+              </p>
+              <p className="text-gray-400 text-sm">Best Days</p>
+            </div>
+            <div className="bg-gray-700/30 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-purple-400">
+                {(() => {
+                  // Calculate peak efficiency from highest peak time activity
+                  const maxActivity = Math.max(...(analyticsData.timeAnalysis.peakTimes?.map(p => p.bidActivity) || [0]));
+                  return maxActivity > 0 ? `${maxActivity}%` : '0%';
+                })()}
+              </p>
+              <p className="text-gray-400 text-sm">Peak Efficiency</p>
+            </div>
+          </div>
           </div>
       </div>
     )

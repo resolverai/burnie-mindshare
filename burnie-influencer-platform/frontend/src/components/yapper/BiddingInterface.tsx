@@ -59,7 +59,7 @@ export default function BiddingInterface() {
   const [selectedSort, setSelectedSort] = useState<string>('quality')
   const [showBidModal, setShowBidModal] = useState<ContentItem | null>(null)
   const [bidAmount, setBidAmount] = useState('')
-  const [bidCurrency, setBidCurrency] = useState('ROAST')
+  const [bidCurrency, setBidCurrency] = useState<'ROAST' | 'USDC' | 'KAITO' | 'COOKIE' | 'AXR' | 'NYKO'>('ROAST')
   const [showCopyProtectionModal, setShowCopyProtectionModal] = useState(false)
   const [isScreenshotDetected, setIsScreenshotDetected] = useState(false)
   const [watermarkPosition, setWatermarkPosition] = useState({ x: 0, y: 0 })
@@ -961,11 +961,15 @@ export default function BiddingInterface() {
                       <div>
                       <select
                         value={bidCurrency}
-                        onChange={(e) => setBidCurrency(e.target.value as 'ROAST' | 'USDC')}
+                        onChange={(e) => setBidCurrency(e.target.value as 'ROAST' | 'USDC' | 'KAITO' | 'COOKIE' | 'AXR' | 'NYKO')}
                           className="input-field w-full text-lg"
                       >
-                        <option value="ROAST">ROAST</option>
-                        <option value="USDC">USDC</option>
+                        <option value="ROAST">🔥 ROAST</option>
+                        <option value="USDC">💰 USDC</option>
+                        <option value="KAITO">🤖 KAITO</option>
+                        <option value="COOKIE">🍪 COOKIE</option>
+                        <option value="AXR">⚡ AXR</option>
+                        <option value="NYKO">🎯 NYKO</option>
                       </select>
                       </div>
                     </div>

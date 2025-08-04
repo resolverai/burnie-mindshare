@@ -108,9 +108,12 @@ class OpenAIGenerator:
     
     async def generate_image(self, prompt: str, model: str = 'dall-e-3', 
                            size: str = '1024x1024', quality: str = 'standard', 
-                           style: str = 'natural') -> ContentGenerationResult:
-        """Generate images using DALL-E models"""
+                           style: str = 'natural', wallet_address: str = None, 
+                           agent_id: str = None, use_s3_storage: bool = True) -> ContentGenerationResult:
+        """Generate images using DALL-E models with S3 storage integration"""
         try:
+            logger.info(f"🎨 Generating image with {model}: {prompt[:100]}...")
+            
             model_id = self.image_models.get(model, 'dall-e-3')
             
             if model_id == 'dall-e-2':
@@ -130,16 +133,61 @@ class OpenAIGenerator:
                     n=1
                 )
             
+            original_url = response.data[0].url
+            final_url = original_url  # Default to original URL
+            
             metadata = {
                 "model": model_id,
-                "url": response.data[0].url,
+                "original_url": original_url,
+                "url": final_url,
                 "revised_prompt": getattr(response.data[0], 'revised_prompt', None),
                 "size": size,
                 "quality": quality,
                 "style": style if model_id == 'dall-e-3' else None
             }
             
-            return ContentGenerationResult(True, response.data[0].url, metadata)
+            # S3 Storage Integration
+            if use_s3_storage:
+                try:
+                    from app.services.s3_storage_service import get_s3_storage
+                    
+                    logger.info("📦 Uploading image to S3 storage...")
+                    s3_service = get_s3_storage()
+                    
+                    s3_result = s3_service.download_and_upload_to_s3(
+                        source_url=original_url,
+                        content_type="image",
+                        wallet_address=wallet_address,
+                        agent_id=agent_id,
+                        model_name=model_id
+                    )
+                    
+                    if s3_result['success']:
+                        # Replace URL with pre-signed S3 URL
+                        final_url = s3_result['presigned_url']
+                        metadata["url"] = final_url
+                        metadata["s3_storage"] = {
+                            "presigned_url": s3_result['presigned_url'],
+                            "s3_key": s3_result['s3_key'],
+                            "bucket": s3_result['bucket'],
+                            "file_size": s3_result['file_size'],
+                            "uploaded_at": s3_result['uploaded_at'],
+                            "expires_at": s3_result['expires_at'],
+                            "expires_in_seconds": s3_result['expires_in_seconds']
+                        }
+                        logger.info(f"✅ Image uploaded to S3 with pre-signed URL (expires: {s3_result['expires_at']})")
+                    else:
+                        logger.warning(f"⚠️ S3 upload failed, using original URL: {s3_result.get('error', 'Unknown error')}")
+                        metadata["s3_storage"] = {"error": s3_result.get('error', 'S3 upload failed')}
+                        
+                except ImportError as e:
+                    logger.warning(f"⚠️ S3 service not available: {e}")
+                    metadata["s3_storage"] = {"error": "S3 service not configured"}
+                except Exception as e:
+                    logger.error(f"❌ S3 upload error: {e}")
+                    metadata["s3_storage"] = {"error": f"S3 upload failed: {str(e)}"}
+            
+            return ContentGenerationResult(True, final_url, metadata)
             
         except Exception as e:
             logger.error(f"OpenAI image generation failed: {e}")

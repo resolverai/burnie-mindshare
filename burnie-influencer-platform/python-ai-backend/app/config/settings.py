@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     log_file: str = Field(default="logs/app.log", env="LOG_FILE")
     
+    # AWS S3 Configuration for Image/Video Storage
+    aws_access_key_id: Optional[str] = Field(default=None, env="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: Optional[str] = Field(default=None, env="AWS_SECRET_ACCESS_KEY")
+    aws_region: str = Field(default="us-east-1", env="AWS_REGION")
+    s3_bucket_name: Optional[str] = Field(default=None, env="S3_BUCKET_NAME")
+    s3_base_url: Optional[str] = Field(default=None, env="S3_BASE_URL")
+    
     @property
     def database_dsn(self) -> str:
         """Get database connection URL"""

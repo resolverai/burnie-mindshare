@@ -24,7 +24,10 @@ from PIL import Image
 import io
 import json
 import time
+import logging
 from typing import List, Dict, Optional, Union
+
+logger = logging.getLogger(__name__)
 
 class OpenAIImageGenerator:
     def __init__(self, api_key=None):
@@ -50,20 +53,26 @@ class OpenAIImageGenerator:
             'gpt-4o-mini': 'gpt-4o-mini'  # Efficient multimodal model
         }
     
-    def generate_image_with_gpt_image_1(self, prompt, size='1024x1024', quality='standard', style='natural'):
+    def generate_image_with_gpt_image_1(self, prompt, size='1024x1024', quality='standard', style='natural', 
+                                       wallet_address=None, agent_id=None, use_s3_storage=True):
         """
-        Generate images using the dedicated gpt-image-1 model.
+        Generate images using the dedicated gpt-image-1 model with S3 storage integration.
         
         Args:
             prompt (str): The image description prompt
             size (str): Image size ('1024x1024', '1792x1024', '1024x1792')
             quality (str): Image quality ('standard' or 'hd')
             style (str): Image style ('vivid' or 'natural')
+            wallet_address (str): User's wallet address for S3 organization
+            agent_id (str): Agent ID from mining interface for S3 organization
+            use_s3_storage (bool): Whether to upload to S3 (default: True)
         
         Returns:
-            dict: Result containing image URL and details
+            dict: Result containing S3 URL (if enabled) or original URL and details
         """
         try:
+            logger.info(f"🎨 Generating image with GPT-Image-1: {prompt[:100]}...")
+            
             response = self.client.images.generate(
                 model='gpt-image-1',
                 prompt=prompt,
@@ -73,18 +82,63 @@ class OpenAIImageGenerator:
                 n=1
             )
             
-            return {
+            original_url = response.data[0].url
+            logger.info(f"✅ Image generated successfully: {original_url}")
+            
+            result = {
                 "success": True,
                 "model": "gpt-image-1",
                 "prompt": prompt,
-                "url": response.data[0].url,
+                "original_url": original_url,
+                "url": original_url,  # Default to original URL
                 "revised_prompt": getattr(response.data[0], 'revised_prompt', None),
                 "size": size,
                 "quality": quality,
                 "style": style
             }
             
+            # S3 Storage Integration
+            if use_s3_storage:
+                try:
+                    from app.services.s3_storage_service import get_s3_storage
+                    
+                    logger.info("📦 Uploading image to S3 storage...")
+                    s3_service = get_s3_storage()
+                    
+                    s3_result = s3_service.download_and_upload_to_s3(
+                        source_url=original_url,
+                        content_type="image",
+                        wallet_address=wallet_address,
+                        agent_id=agent_id,
+                        model_name="gpt-image-1"
+                    )
+                    
+                    if s3_result['success']:
+                        # Replace URL with S3 URL
+                        result["url"] = s3_result['s3_url']
+                        result["s3_storage"] = {
+                            "s3_url": s3_result['s3_url'],
+                            "s3_key": s3_result['s3_key'],
+                            "bucket": s3_result['bucket'],
+                            "file_size": s3_result['file_size'],
+                            "uploaded_at": s3_result['uploaded_at']
+                        }
+                        logger.info(f"✅ Image uploaded to S3: {s3_result['s3_url']}")
+                    else:
+                        logger.warning(f"⚠️ S3 upload failed, using original URL: {s3_result.get('error', 'Unknown error')}")
+                        result["s3_storage"] = {"error": s3_result.get('error', 'S3 upload failed')}
+                        
+                except ImportError as e:
+                    logger.warning(f"⚠️ S3 service not available: {e}")
+                    result["s3_storage"] = {"error": "S3 service not configured"}
+                except Exception as e:
+                    logger.error(f"❌ S3 upload error: {e}")
+                    result["s3_storage"] = {"error": f"S3 upload failed: {str(e)}"}
+            
+            return result
+            
         except Exception as e:
+            logger.error(f"❌ Error generating image: {e}")
             return {
                 "success": False,
                 "model": "gpt-image-1",

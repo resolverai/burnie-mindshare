@@ -79,6 +79,7 @@ function Agents() {
       // Refetch agents data after learning update
       queryClient.invalidateQueries({ queryKey: ['user-agents', address] })
       queryClient.invalidateQueries({ queryKey: ['all-agents-learning-status', address] })
+      queryClient.invalidateQueries({ queryKey: ['agent-analytics', address] })
     }
   })
 
@@ -108,12 +109,35 @@ function Agents() {
     enabled: !!address && agents.length > 0 && !agentsLoading,
   })
 
+  // Fetch agent performance analytics for quality and deploys calculation
+  const { data: agentAnalytics = [] } = useQuery({
+    queryKey: ['agent-analytics', address],
+    queryFn: async () => {
+      if (!address) return []
+      
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/analytics/agent-performance/${address}`)
+        if (response.ok) {
+          const data = await response.json()
+          return data.data || []
+        }
+        return []
+      } catch (error) {
+        console.error('Error fetching agent analytics:', error)
+        return []
+      }
+    },
+    enabled: !!address,
+    refetchInterval: 60000, // Refetch every minute
+  })
+
   const handleCreateAgent = (agentData: any) => {
     setShowCreateAgent(false)
     setEditingAgent(null)
     // Agent creation will trigger automatic learning
     queryClient.invalidateQueries({ queryKey: ['user-agents', address] })
     queryClient.invalidateQueries({ queryKey: ['all-agents-learning-status', address] })
+    queryClient.invalidateQueries({ queryKey: ['agent-analytics', address] })
   }
 
   const handleEditAgent = (agent: PersonalizedAgent) => {
@@ -125,6 +149,48 @@ function Agents() {
 
   const handleUpdateAgentLearning = (agentId: string) => {
     updateAgentLearningMutation.mutate(agentId)
+  }
+
+  // Helper function to get agent analytics data for a specific agent
+  const getAgentAnalytics = (agentName: string) => {
+    return agentAnalytics.find(analytics => analytics.agentName === agentName) || {
+      agentName,
+      contentCount: 0,
+      bidCount: 0,
+      revenue: 0,
+      avgQuality: 0
+    }
+  }
+
+  // Helper function to calculate quality percentage using same logic as Dashboard
+  const calculateQualityPercentage = (agentName: string) => {
+    const analytics = getAgentAnalytics(agentName)
+    return Math.round(analytics.avgQuality) || 0
+  }
+
+  // Helper function to calculate deploys (number of content generated)
+  const calculateDeploys = (agentName: string) => {
+    const analytics = getAgentAnalytics(agentName)
+    return analytics.contentCount || 0
+  }
+
+  // Helper function to calculate experience using weighted formula
+  const calculateExperience = (agent: PersonalizedAgent) => {
+    const learningProgress = agentLearningStatuses.data?.[agent.id]?.progress || agent.learning || 0
+    const qualityPercentage = calculateQualityPercentage(agent.name)
+    const deploys = calculateDeploys(agent.name)
+    
+    // Normalize deploys to a percentage (assuming max 50 deploys = 100%)
+    const deploysPercentage = Math.min((deploys / 50) * 100, 100)
+    
+    // Weighted formula: 0.6 * learning% + 0.3 * deploys% + 0.1 * quality%
+    const experience = Math.round(
+      (learningProgress * 0.6) + 
+      (deploysPercentage * 0.3) + 
+      (qualityPercentage * 0.1)
+    )
+    
+    return Math.min(experience, 100) // Cap at 100
   }
 
   if (agentsLoading) {
@@ -319,15 +385,15 @@ function Agents() {
                       <div className="text-xs text-gray-400">Level</div>
                     </div>
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-400">{agent.quality}%</div>
+                      <div className="text-2xl font-bold text-blue-400">{calculateQualityPercentage(agent.name)}%</div>
                       <div className="text-xs text-gray-400">Quality</div>
                     </div>
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-green-400">{agent.learning}%</div>
+                      <div className="text-2xl font-bold text-green-400">{agentLearningStatuses.data?.[agent.id]?.progress || agent.learning || 0}%</div>
                       <div className="text-xs text-gray-400">Learning</div>
                     </div>
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-purple-400">{agent.deploys}</div>
+                      <div className="text-2xl font-bold text-purple-400">{calculateDeploys(agent.name)}</div>
                       <div className="text-xs text-gray-400">Deploys</div>
                     </div>
                   </div>
@@ -336,12 +402,12 @@ function Agents() {
                   <div className="mb-4">
                     <div className="flex justify-between text-sm text-gray-400 mb-1">
                       <span>Experience</span>
-                      <span>{agent.experience}/{agent.maxExperience}</span>
+                      <span>{calculateExperience(agent)}/100</span>
                     </div>
                     <div className="w-full bg-gray-700 rounded-full h-2">
                       <div 
                         className="bg-gradient-to-r from-orange-500 to-red-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${(agent.experience / agent.maxExperience) * 100}%` }}
+                        style={{ width: `${calculateExperience(agent)}%` }}
                       ></div>
                     </div>
                   </div>

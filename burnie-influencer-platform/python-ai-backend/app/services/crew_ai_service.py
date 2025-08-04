@@ -68,14 +68,20 @@ class CrewAIService:
         self.user_agent_config = None
         self.user_api_keys = {}
         self.model_preferences = {}
+        
+        # S3 organization parameters
+        self.wallet_address = None
+        self.agent_id = None
 
-    async def generate_content(self, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None) -> ContentGenerationResponse:
+    async def generate_content(self, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None, wallet_address: str = None) -> ContentGenerationResponse:
         """Main entry point for multi-agentic content generation"""
         try:
             logger.info(f"🚀 Starting CrewAI generation for user {mining_session.user_id}, campaign {mining_session.campaign_id}")
             
-            # Store user API keys and agent ID
+            # Store user API keys, agent ID, and wallet address for S3 organization
             self.user_api_keys = user_api_keys or {}
+            self.agent_id = agent_id
+            self.wallet_address = wallet_address
             
             # Debug: Log available API keys (without exposing actual keys)
             available_keys = list(self.user_api_keys.keys()) if self.user_api_keys else []
@@ -310,7 +316,9 @@ class CrewAIService:
                 agents=list(self.agents.values()),
                 tasks=list(self.tasks.values()),
                 process=Process.sequential,  # Sequential execution for better control
-                verbose=True
+                verbose=True,
+                max_execution_time=600,  # 10 minutes global timeout
+                memory=False  # Disable memory to prevent context conflicts
             )
             
             logger.info("🤖 All agents and tasks configured successfully")
@@ -363,7 +371,9 @@ class CrewAIService:
             verbose=True,
             allow_delegation=False,
             llm=llm,
-            tools=[mindshare_tool, engagement_tool]
+            tools=[mindshare_tool, engagement_tool],
+            max_iter=2,  # Maximum 2 iterations to prevent loops
+            max_execution_time=180  # 3 minutes max
         )
 
     def _create_content_strategist_agent(self, llm) -> Agent:
@@ -408,7 +418,9 @@ class CrewAIService:
             verbose=True,
             allow_delegation=False,
             llm=llm,
-            tools=tools
+            tools=tools,
+            max_iter=2,  # Maximum 2 iterations to prevent loops
+            max_execution_time=180  # 3 minutes max
         )
 
     def _create_text_content_agent(self, llm) -> Agent:
@@ -463,7 +475,9 @@ class CrewAIService:
             verbose=True,
             allow_delegation=False,
             llm=llm,
-            tools=tools
+            tools=tools,
+            max_iter=2,  # Maximum 2 iterations to prevent loops
+            max_execution_time=180  # 3 minutes max
         )
 
     def _create_visual_creator_agent(self, llm) -> Agent:
@@ -515,7 +529,9 @@ class CrewAIService:
             verbose=True,
             allow_delegation=False,
             llm=llm,
-            tools=tools
+            tools=tools,
+            max_iter=2,  # Maximum 2 iterations to prevent loops
+            max_execution_time=180  # 3 minutes max
         )
 
     def _create_orchestrator_agent(self) -> Agent:
@@ -532,13 +548,17 @@ class CrewAIService:
             4. Combine them into a final Twitter-ready format
             5. Ensure the content is optimized for {self.campaign_data.get("platform_source", "Twitter") if self.campaign_data else "Twitter"}
 
-            You DO NOT generate new content - you process and combine existing outputs.""",
+            You DO NOT generate new content - you process and combine existing outputs.
+            
+            CRITICAL: Complete your task in maximum 2 iterations. Do not repeat the same actions.""",
             verbose=True,
             allow_delegation=False,
             llm=self._get_llm_instance(),
             tools=[
                 ContentOrchestrationTool()
-            ]
+            ],
+            max_iter=2,  # Maximum 2 iterations to prevent loops
+            max_execution_time=120  # 2 minutes max for orchestration
         )
 
     def _create_data_analysis_task(self) -> Task:
@@ -850,6 +870,12 @@ class CrewAIService:
             3. **EXTRACT** the image URL from Visual Creator (look for the actual image URL link)
             4. **COMBINE** them into the final format below
             
+            **LOOK FOR THESE SPECIFIC PATTERNS IN THE CONTEXT:**
+            - Text Content: Look for "🐦 TWITTER-OPTIMIZED CONTENT:" or "🐦 FINAL TEXT:" 
+            - Image URL: Look for "Image URL:" or "📸" followed by a URL
+            - Hashtags: Extract all hashtags from the text content
+            - Emojis: Keep all emojis from the text content
+            
             MANDATORY OUTPUT FORMAT (copy this structure exactly):
             
             📱 TWITTER POST READY FOR PUBLICATION:
@@ -869,10 +895,10 @@ class CrewAIService:
             📊 CAMPAIGN: {self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}
             🎯 TYPE: {self.campaign_data.get('campaign_type', 'meme') if self.campaign_data else 'meme'}
             
-            REMEMBER: Extract existing content, don't generate new content.
+            REMEMBER: Extract existing content, don't generate new content. Look through ALL previous agent outputs.
             """,
             agent=self.agents[AgentType.ORCHESTRATOR],
-            expected_output="Complete Twitter post with final text selection and actual image URL, ready for immediate publication",
+            expected_output="Complete Twitter-ready post with extracted text content and image URL in the specified format",
             context=[
                 self.tasks[AgentType.DATA_ANALYST],
                 self.tasks[AgentType.CONTENT_STRATEGIST], 
@@ -1861,14 +1887,60 @@ class OpenAIContentTool(BaseTool):
                     try:
                         logger.info(f"🔄 Attempt {attempt + 1}: Trying image generation with {model}")
                         
-                        # Use advanced image generation that supports all models and APIs
-                        result = self.generator.generate_image_advanced(
-                            prompt=prompt,
-                            model=model,
-                            quality='hd',
-                            style='vivid',
-                            brand_config=brand_config
-                        )
+                        # Use unified content generator with S3 storage integration
+                        from app.services.llm_content_generators import unified_generator
+                        import asyncio
+                        
+                        # Determine provider from model
+                        provider = "openai"  # Default for most models
+                        if model.startswith("gemini"):
+                            provider = "google"
+                        elif model.startswith("claude"):
+                            provider = "anthropic"
+                        
+                        # Call unified generator with S3 integration (use asyncio.run for sync context)
+                        try:
+                            # Create a new event loop for the sync context
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                content_result = loop.run_until_complete(unified_generator.generate_content(
+                                    provider=provider,
+                                    content_type="image",
+                                    prompt=prompt,
+                                    model=model,
+                                    quality='hd',
+                                    style='vivid',
+                                    wallet_address=getattr(self, 'wallet_address', None),
+                                    agent_id=getattr(self, 'agent_id', None),
+                                    use_s3_storage=True
+                                ))
+                            finally:
+                                loop.close()
+                        except Exception as async_error:
+                            logger.error(f"Async call failed: {async_error}")
+                            content_result = type('Result', (), {
+                                'success': False, 
+                                'error': f"Async execution failed: {str(async_error)}"
+                            })()
+                        
+                        # Convert result format for compatibility
+                        if content_result.success:
+                            result = {
+                                'success': True,
+                                'url': content_result.content,  # This is the final URL (S3 or original)
+                                'model': content_result.metadata.get('model', model),
+                                'enhanced_prompt': content_result.metadata.get('revised_prompt', prompt),
+                                'size': content_result.metadata.get('size', 'N/A'),
+                                'quality': content_result.metadata.get('quality', 'hd'),
+                                'style': content_result.metadata.get('style', 'vivid'),
+                                's3_storage': content_result.metadata.get('s3_storage')
+                            }
+                        else:
+                            result = {
+                                'success': False,
+                                'error': content_result.error
+                            }
                         
                         if result['success']:
                             logger.info(f"✅ Image generation succeeded with {model}")

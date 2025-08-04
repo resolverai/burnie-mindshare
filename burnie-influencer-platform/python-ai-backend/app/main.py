@@ -20,6 +20,7 @@ from app.utils.logger import setup_logger
 from app.routes.admin_ml import router as admin_ml_router
 from app.routes.mindshare_prediction import router as mindshare_router
 from app.routes.llm_providers import router as llm_router
+from app.routes.s3_health import router as s3_health_router
 
 # Setup logging
 logger = setup_logger(__name__)
@@ -47,6 +48,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include routers
+app.include_router(admin_ml_router)
+app.include_router(mindshare_router)
+app.include_router(llm_router)
+app.include_router(s3_health_router)
 
 # Include routers
 app.include_router(admin_ml_router)
@@ -367,7 +374,8 @@ async def run_multi_campaign_generation(
     user_id: int,  # Back to int since it's the database primary key
     campaigns: List[CampaignAgentPair], 
     user_preferences: dict, 
-    user_api_keys: Dict[str, str]
+    user_api_keys: Dict[str, str],
+    wallet_address: str = None
 ):
     """Background task that runs content generation for multiple campaigns"""
     try:
@@ -440,7 +448,8 @@ async def run_multi_campaign_generation(
                 result = await crew_service.generate_content(
                     mining_session,
                     user_api_keys=user_api_keys,
-                    agent_id=campaign_pair.agent_id
+                    agent_id=campaign_pair.agent_id,
+                    wallet_address=wallet_address
                 )
                 
                 # Format the result for this campaign
@@ -507,7 +516,7 @@ async def run_multi_campaign_generation(
         })
 
 # Original single campaign generation (for backward compatibility)
-async def run_content_generation(session_id: str, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None):
+async def run_content_generation(session_id: str, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None, wallet_address: str = None):
     """Background task that runs the CrewAI multi-agentic content generation with user's preferences"""
     try:
         logger.info(f"🧠 Starting content generation for session: {session_id} with agent: {agent_id}")
@@ -523,7 +532,8 @@ async def run_content_generation(session_id: str, mining_session: MiningSession,
         result = await crew_service.generate_content(
             mining_session,
             user_api_keys=user_api_keys,
-            agent_id=agent_id
+            agent_id=agent_id,
+            wallet_address=wallet_address
         )
         
         # Update session with final result

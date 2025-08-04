@@ -24,6 +24,7 @@ import Dashboard from './Dashboard'
 import Agents from './Agents'
 import Mining from './Mining'
 import MinerMyContent from './MinerMyContent'
+import Portfolio from './Portfolio'
 import { NeuralKeysModal } from './NeuralKeysModal'
 
 interface MinerDashboardProps {
@@ -108,25 +109,7 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
           </div>
         )
       case 'portfolio': 
-        return (
-          <div className="p-8">
-            <h2 className="text-2xl font-bold text-white mb-4">Portfolio</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-gray-800 rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-white mb-2">Total Earnings</h3>
-                <p className="text-3xl font-bold text-orange-400">Loading...</p>
-              </div>
-              <div className="bg-gray-800 rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-white mb-2">Active Campaigns</h3>
-                <p className="text-3xl font-bold text-blue-400">Loading...</p>
-              </div>
-              <div className="bg-gray-800 rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-white mb-2">Content Generated</h3>
-                <p className="text-3xl font-bold text-green-400">Loading...</p>
-              </div>
-            </div>
-          </div>
-        )
+        return <Portfolio />
       case 'teams': 
         return (
           <div className="p-8">
