@@ -353,9 +353,17 @@ export default function Mining() {
 
   const connectToWebSocket = async (sessionId: string) => {
     try {
-      // Fix WebSocket URL pattern - /ws/{sessionId} is the correct endpoint
-      const wsUrl = process.env.NEXT_PUBLIC_BURNIE_WS_URL || 'ws://localhost:8000'
-      const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+      // Get base WebSocket URL and construct proper endpoint
+      const baseWsUrl = process.env.NEXT_PUBLIC_BURNIE_WS_URL || 'ws://localhost:8000'
+      
+      // Remove trailing /ws if it exists to avoid double /ws/ws
+      const cleanBaseUrl = baseWsUrl.replace(/\/ws\/?$/, '')
+      
+      // Construct the full WebSocket URL
+      const fullWsUrl = `${cleanBaseUrl}/ws/${sessionId}`
+      
+      console.log('🔌 Connecting to WebSocket:', fullWsUrl)
+      const ws = new WebSocket(fullWsUrl)
       
       ws.onopen = () => {
         console.log('🔌 WebSocket connected successfully')
