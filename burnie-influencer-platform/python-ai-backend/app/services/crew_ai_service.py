@@ -30,7 +30,7 @@ from app.database.repositories.agent_config_repository import AgentConfigReposit
 from app.database.repositories.twitter_learning_repository import TwitterLearningRepository
 from app.utils.quality_scorer import QualityScorer
 from app.utils.mindshare_predictor import MindsharePredictor
-from app.services.llm_content_generators import unified_generator
+from app.services.llm_content_generators import unified_generator, UnifiedContentGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -519,43 +519,120 @@ class CrewAIService:
         video_provider = self.model_preferences.get('video', {}).get('provider', 'google')
         video_model = self.model_preferences.get('video', {}).get('model', 'veo-3')
         
-        # Create tools based on user preferences
+        # Create tools based on available API keys
         tools = []
         
-        # Image generation tools
-        if image_provider == 'openai' and self.user_api_keys.get('openai'):
+        # Check all available API keys for comprehensive capability assessment
+        available_image_providers = []
+        available_video_providers = []
+        
+        # Image generation capabilities
+        if self.user_api_keys.get('openai'):
             tools.append(OpenAIContentTool(
                 api_key=self.user_api_keys['openai'],
                 model_preferences=self.model_preferences,
                 wallet_address=self.wallet_address,
                 agent_id=self.agent_id
             ))
+            available_image_providers.append('openai')
         
-        # Video generation tools  
-        if video_provider == 'google' and self.user_api_keys.get('google'):
+        if self.user_api_keys.get('claude'):
+            tools.append(ClaudeContentTool(
+                api_key=self.user_api_keys['claude'],
+                model_preferences=self.model_preferences,
+                wallet_address=self.wallet_address,
+                agent_id=self.agent_id
+            ))
+            available_image_providers.append('claude')
+        
+        # Video generation capabilities  
+        if self.user_api_keys.get('google'):
             tools.append(GeminiContentTool(
                 api_key=self.user_api_keys['google'],
                 model_preferences=self.model_preferences,
                 wallet_address=self.wallet_address,
                 agent_id=self.agent_id
             ))
+            available_video_providers.append('google')
         
-        # Add visual concept tool
+        # Add visual concept tool for fallback descriptions
         tools.append(VisualConceptTool())
+        
+        # Create capability summary
+        has_any_image_api = len(available_image_providers) > 0
+        has_any_video_api = len(available_video_providers) > 0
+        has_preferred_image_api = image_provider in available_image_providers
+        has_preferred_video_api = video_provider in available_video_providers
+        
+        # Build capability text
+        capabilities_text = []
+        if has_any_image_api:
+            preferred_status = "✅ PREFERRED" if has_preferred_image_api else "⚠️ FALLBACK"
+            capabilities_text.append(f"- Image Generation: {', '.join(available_image_providers).upper()} ({preferred_status}: {image_provider.upper()} {image_model})")
+        
+        if has_any_video_api:
+            preferred_status = "✅ PREFERRED" if has_preferred_video_api else "⚠️ FALLBACK"
+            capabilities_text.append(f"- Video Generation: {', '.join(available_video_providers).upper()} ({preferred_status}: {video_provider.upper()} {video_model})")
+        
+        # Create fallback strategy text
+        fallback_strategy = []
+        if has_any_image_api and has_any_video_api:
+            fallback_strategy.append("🎯 FULL CAPABILITIES: Both image and video generation available")
+            fallback_strategy.append("- Always try user's preferred model first")
+            fallback_strategy.append("- Use available alternative providers if preferred fails")
+            fallback_strategy.append("- Follow strategy recommendations (IMAGE vs VIDEO)")
+        elif has_any_image_api and not has_any_video_api:
+            fallback_strategy.append("⚠️ VIDEO → IMAGE FALLBACK: No video API keys available")
+            fallback_strategy.append("- If strategy requests VIDEO: Create dynamic IMAGE instead")
+            fallback_strategy.append("- Use motion-suggesting imagery to compensate")
+            fallback_strategy.append("- Clearly indicate fallback was used")
+        elif not has_any_image_api and has_any_video_api:
+            fallback_strategy.append("⚠️ IMAGE → VIDEO FALLBACK: No image API keys available")
+            fallback_strategy.append("- If strategy requests IMAGE: Create short VIDEO instead")
+            fallback_strategy.append("- Use static-like video content")
+            fallback_strategy.append("- Clearly indicate fallback was used")
+        else:
+            fallback_strategy.append("❌ TEXT-ONLY MODE: No visual API keys available")
+            fallback_strategy.append("- Provide detailed visual concept descriptions only")
+            fallback_strategy.append("- Focus on rich textual imagery")
+            fallback_strategy.append("- Suggest visual elements for manual creation")
         
         return Agent(
             role="Visual Content Creator",
-            goal="Create professional visual content including images and videos that enhance text content and drive engagement",
-            backstory=f"""You are a visual content strategist specializing in:
-            - Social media visual content optimization
-            - Image generation using AI tools ({image_provider.upper()} {image_model})
-            - Video concept development using {video_provider.upper()} {video_model}
-            - Visual trends in crypto/Web3 space
-            - Brand-aligned visual storytelling
+            goal="Create professional visual content following the preferred model hierarchy and intelligent fallback strategy",
+            backstory=f"""You are an intelligent visual content strategist with adaptive capabilities:
+
+            🔧 YOUR AVAILABLE TOOLS:
+            {chr(10).join(capabilities_text) if capabilities_text else "- Visual Concept Tool (descriptions only)"}
             
-            Your AI Tools Configuration:
-            - Image Generation: {image_provider.upper()} {image_model}
-            - Video Generation: {video_provider.upper()} {video_model}
+            🎯 CONTENT GENERATION HIERARCHY:
+            
+            PRIORITY 1: User's Preferred Models
+            - Image: {image_provider.upper()} {image_model} {'✅ AVAILABLE' if has_preferred_image_api else '❌ NO API KEY'}
+            - Video: {video_provider.upper()} {video_model} {'✅ AVAILABLE' if has_preferred_video_api else '❌ NO API KEY'}
+            
+            PRIORITY 2: Alternative Providers (same content type)
+            - Try other available providers if preferred fails
+            - Maintain the same content type (IMAGE stays IMAGE, VIDEO stays VIDEO)
+            
+            PRIORITY 3: Content Type Fallback
+            - Only if NO API keys available for requested content type
+            - VIDEO → IMAGE (if no video APIs but image APIs available)
+            - IMAGE → VIDEO (if no image APIs but video APIs available)
+            
+            PRIORITY 4: Text-Only Fallback
+            - If no visual generation APIs available at all
+            - Provide rich visual concept descriptions
+            
+            🛡️ INTELLIGENT FALLBACK STRATEGY:
+            {chr(10).join(fallback_strategy)}
+            
+            📋 EXECUTION RULES:
+            1. Always try user's preferred model FIRST
+            2. Use alternative providers for same content type BEFORE switching types
+            3. Clearly indicate when fallbacks are used
+            4. Maintain quality regardless of which tools are available
+            5. Be transparent about capability limitations
             
             Visual Preferences: {json.dumps(agent_config, indent=2)}
             """,
@@ -824,72 +901,100 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         """Create task for Visual Creator Agent"""
         return Task(
             description=f"""
-            Generate REAL visual content using AI tools based on the strategy agent's recommendation:
+            Generate REAL visual content using the intelligent fallback hierarchy:
             
             Campaign Context:
             - Title: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
             - Brand Guidelines: {self.campaign_data.get('brandGuidelines', 'Modern, professional, crypto-focused') if self.campaign_data else 'Modern, professional, crypto-focused'}
             - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
             
-            CRITICAL INSTRUCTION: SINGLE VISUAL CONTENT TYPE
+            📋 **STRATEGY-DRIVEN CONTENT TYPE**:
+            - Review the Content Strategist's recommendation (IMAGE or VIDEO)
+            - Follow the strategic decision as your PRIMARY goal
+            - Apply intelligent fallback hierarchy if needed
             
-            📋 **REVIEW STRATEGY DECISION**:
-            - Check the Content Strategist's output for visual content type selection
-            - The strategy will specify either "IMAGE" or "VIDEO" (not both)
-            - Follow the strategic recommendation EXACTLY
-            - Do NOT generate both types - only the recommended one
+            🎯 **EXECUTION HIERARCHY**:
             
-            🎨 **VISUAL CONTENT GENERATION**:
+            **STEP 1: Try User's Preferred Model**
+            - Check if user's preferred model is available for requested content type
+            - Use their preferred tool/provider first
+            - Only proceed to Step 2 if this fails or API is unavailable
             
-            IF STRATEGY RECOMMENDS IMAGE:
-            Use your OpenAI tool to generate: "Create image for {self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
-            - Professional quality image using user's preferred image model
+            **STEP 2: Try Alternative Providers (Same Content Type)**
+            - If preferred model fails, try other available providers
+            - Maintain the SAME content type (IMAGE stays IMAGE, VIDEO stays VIDEO)
+            - Example: If OpenAI DALL-E fails, try Claude Sonnet for images
+            
+            **STEP 3: Content Type Fallback (Only if NO APIs for requested type)**
+            IF STRATEGY REQUESTED VIDEO but NO video APIs available:
+            - Switch to IMAGE generation using any available image provider
+            - Create dynamic, motion-suggesting imagery
+            - Include visual elements that convey video-like energy
+            
+            IF STRATEGY REQUESTED IMAGE but NO image APIs available:
+            - Switch to VIDEO generation using any available video provider
+            - Create brief, static-like video content
+            - Focus on single compelling visual frame
+            
+            **STEP 4: Text-Only Fallback (Last Resort)**
+            IF NO visual generation APIs available at all:
+            - Provide rich, detailed visual concept description
+            - Include specific imagery suggestions
+            - Focus on textual visual storytelling
+            
+            🎨 **GENERATION INSTRUCTIONS**:
+            
+            FOR IMAGE GENERATION:
+            - Use: "Create image for {self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
             - Twitter-optimized dimensions (1200x675px or 1080x1080px)
-            - Brand-aligned visual style per strategy requirements
-            - High engagement potential for static content
-            - Include accessibility alt-text description
+            - High engagement potential
+            - Brand-aligned visual style
             
-            IF STRATEGY RECOMMENDS VIDEO:
-            Use your Gemini tool to generate: "Create video for {self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
-            - 8-second promotional video using user's preferred video model
-            - Twitter video specifications (max 2:20 duration, 1920x1080px)
-            - Native audio integration
-            - Mobile-optimized viewing experience
-            - Dynamic content for storytelling campaigns
+            FOR VIDEO GENERATION:
+            - Use: "Create video for {self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
+            - 8-second promotional video
+            - Twitter specifications (max 2:20, 1920x1080px)
+            - Mobile-optimized viewing
             
             🎯 **QUALITY REQUIREMENTS**:
             - Mobile-first design approach
             - High contrast for readability
             - Brand color consistency
             - Platform-specific optimization
-            - Accessibility compliance (alt-text, captions if video)
+            - Accessibility compliance
             
-            ⚠️ **IMPORTANT CONSTRAINTS**:
-            1. Generate ONLY the visual content type specified by strategy
+            ⚠️ **CRITICAL EXECUTION RULES**:
+            1. Follow the hierarchy: Preferred → Alternative → Fallback → Text-only
             2. Actually call your AI generation tools to create real content
-            3. Do not provide generic descriptions - generate actual assets
-            4. Justify your choice alignment with strategy recommendations
-            5. Provide technical specifications for the generated content
+            3. Do NOT provide generic descriptions unless in text-only mode
+            4. Clearly indicate which tier of the hierarchy was used
+            5. Explain why fallbacks were necessary (API unavailable, model failed, etc.)
+            6. Maintain campaign quality regardless of which tools are used
             
             OUTPUT FORMAT:
             ```
             🎨 VISUAL CONTENT GENERATED:
             
-            Content Type: [IMAGE or VIDEO] (as per strategy)
-            Strategy Alignment: [Explanation of how this aligns with strategy]
+            Content Type: [IMAGE/VIDEO/TEXT-ONLY] (Strategy requested: [STRATEGY_RECOMMENDATION])
+            Execution Tier: [PREFERRED_MODEL/ALTERNATIVE_PROVIDER/CONTENT_FALLBACK/TEXT_ONLY]
+            Strategy Alignment: [How this aligns with strategy despite any fallbacks]
+            Fallback Reason: [If applicable: API unavailable/Model failed/No visual APIs available]
             
-            📸 Image URL: [Insert the complete HTTPS URL here - NO brackets, NO markdown formatting]
+            📸 Image URL: [Complete HTTPS URL - NO brackets, NO markdown]
             OR
-            🎬 Video URL: [Insert the complete HTTPS URL here - NO brackets, NO markdown formatting]
+            🎬 Video URL: [Complete HTTPS URL - NO brackets, NO markdown]
+            OR
+            📝 Visual Concept: [Detailed description if text-only mode]
             
             Technical Specifications:
+            - Provider Used: [OpenAI/Claude/Google/Text-only]
+            - Model Used: [Specific model name]
             - Dimensions: [specific dimensions]
-            - File format: [format details]  
+            - File format: [format details]
             - Accessibility: [alt-text or captions]
-            - Brand compliance: [verification checklist]
             
-            Usage Instructions:
-            [How to implement this content in the Twitter post]
+            Execution Notes:
+            [Explain which tier was used and why - transparency about the process]
             ```
             
             CRITICAL OUTPUT RULES:
@@ -914,37 +1019,32 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             You are the Content Orchestrator with access to a powerful content_extraction_tool. Your task is simple:
             
-            1. Use the content_extraction_tool to extract content from all previous agents
-            2. Pass ALL agent outputs to the tool along with campaign context
+            1. Access the outputs from ALL previous agents in your context
+            2. Use the content_extraction_tool to extract the best content
             3. Return the tool's output as your final answer
             
-            STEP-BY-STEP PROCESS:
-            
-            1. **Collect Agent Outputs**: Gather all outputs from:
-               - Data Analyst Agent
-               - Content Strategist Agent  
-               - Text Content Creator Agent
-               - Visual Content Creator Agent
-            
-            2. **Use Content Extraction Tool**: Call the content_extraction_tool with:
-               - agent_outputs: All previous agent outputs combined as text
-               - campaign_context: "{self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}"
-            
-            3. **Return Tool Output**: Whatever the tool returns is your final answer
-            
             CRITICAL INSTRUCTIONS:
-            - ALWAYS use the content_extraction_tool - never try manual extraction
-            - Pass ALL available agent outputs to the tool
-            - The tool handles complex parsing, URL cleaning, and formatting
-            - Return the tool's output exactly as provided
-            - Do NOT add your own commentary or explanations
+            - Use the content_extraction_tool with the ACTUAL agent outputs from context
+            - The tool expects two parameters:
+              * agent_outputs: Pass the complete outputs from all previous tasks in context
+              * campaign_context: "{self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}"
             
-            This tool-based approach ensures reliable extraction regardless of agent output formats.
+            EXAMPLE TOOL USAGE:
+            Use content_extraction_tool with:
+            - agent_outputs: [PASTE ALL PREVIOUS AGENT OUTPUTS HERE - including the JSON from Text Creator and S3 URL from Visual Creator]
+            - campaign_context: "{self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}"
+            
+            The content_extraction_tool will:
+            - Parse the Text Content Creator's JSON to select the best tweet variation
+            - Extract the real S3 image URL from Visual Content Creator
+            - Format everything for Twitter
+            
+            DO NOT SUMMARIZE OR DESCRIBE - PASS THE ACTUAL OUTPUTS!
             
             Campaign: {self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}
             """,
             agent=self.agents[AgentType.ORCHESTRATOR],
-            expected_output="Complete Twitter post with extracted text and clean image URL using the content extraction tool",
+            expected_output="Final Twitter-ready content extracted using the content_extraction_tool",
             context=[
                 self.tasks[AgentType.DATA_ANALYST],
                 self.tasks[AgentType.CONTENT_STRATEGIST], 
@@ -1155,6 +1255,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             return {
                 "final_content": final_content,
+                "raw_orchestrator_output": raw_result,  # Add raw output for image extraction
                 "quality_metrics": {
                     "overall_quality": overall_quality,
                     "detailed_scores": quality_scores
@@ -1220,8 +1321,11 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Extract the final content
             final_content = generation_result["final_content"]
             
-            # Extract image URLs from the final content using the same extraction logic
-            image_urls = self._extract_image_urls_from_content(final_content)
+            # Extract image URLs from the raw orchestrator output (not processed final_content)
+            raw_output = generation_result.get("raw_orchestrator_output", final_content)
+            logger.info(f"🔍 Post-processing: Raw orchestrator output preview: {raw_output[:300]}...")
+            image_urls = self._extract_image_urls_from_content(raw_output)
+            logger.info(f"🖼️ Post-processing: Extracted {len(image_urls) if image_urls else 0} image URLs: {image_urls}")
             
             # Calculate final scores
             quality_metrics = generation_result["quality_metrics"]
@@ -1256,6 +1360,10 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             # Comprehensive URL patterns for all AI providers
             url_patterns = [
+                # LLM Content Extraction Tool format (highest priority)
+                r'Image URL:\s*([^\s\n\r]+)',  # "Image URL: https://..."
+                r'📸\s*Image URL:\s*([^\s\n\r]+)',  # "📸 Image URL: https://..."
+                
                 # S3 Burnie URLs (all variations)
                 r'https://burnie-mindshare-content-staging\.s3\.amazonaws\.com/[^\s\]<>"\'`\n\r\[\)]+',
                 r'https://burnie-mindshare-content\.s3\.amazonaws\.com/[^\s\]<>"\'`\n\r\[\)]+',
@@ -1300,8 +1408,10 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                         if "http" in lines[j]:
                             # Try all URL patterns
                             for pattern in url_patterns:
-                                url_matches = re.findall(pattern, lines[j])
-                                for url_match in url_matches:
+                                matches = re.finditer(pattern, lines[j])
+                                for match in matches:
+                                    # If pattern has capture groups, use the first group, otherwise use full match
+                                    url_match = match.group(1) if match.groups() else match.group(0)
                                     # Clean URL by removing brackets and quotes
                                     clean_url = re.sub(r'[\[\]"\'`]', '', url_match).strip()
                                     if clean_url and clean_url not in image_urls:
@@ -1316,8 +1426,10 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             if not image_urls:
                 full_text = ' '.join(lines)
                 for pattern in url_patterns:
-                    url_matches = re.findall(pattern, full_text)
-                    for url_match in url_matches:
+                    matches = re.finditer(pattern, full_text)
+                    for match in matches:
+                        # If pattern has capture groups, use the first group, otherwise use full match
+                        url_match = match.group(1) if match.groups() else match.group(0)
                         # Clean URL by removing brackets and quotes
                         clean_url = re.sub(r'[\[\]"\'`]', '', url_match).strip()
                         if clean_url and clean_url not in image_urls:
@@ -1760,19 +1872,49 @@ No image generated
             final_text = ""
             image_url = ""
             
-            # Pattern 1: Look for structured format (🐦 FINAL TEXT:)
+            # Pattern 1: Handle LLM Content Extraction Tool format
             for i, line in enumerate(lines):
-                if "🐦 FINAL TEXT:" in line or "🐦 TEXT:" in line:
-                    text_lines = []
-                    for j in range(i + 1, min(i + 5, len(lines))):
-                        if lines[j].strip() and not lines[j].startswith('🎨') and not lines[j].startswith('🎯'):
-                            text_lines.append(lines[j].strip())
-                        else:
+                line_clean = line.strip()
+                if line_clean.startswith("Tweet Text:"):
+                    # Extract text after "Tweet Text:" - handle multi-line content
+                    first_line_text = line_clean.replace("Tweet Text:", "").strip().strip('"')
+                    
+                    # Collect additional lines until we hit "Image URL:" or empty line
+                    text_lines = [first_line_text] if first_line_text else []
+                    
+                    for j in range(i + 1, len(lines)):
+                        next_line = lines[j].strip()
+                        if (next_line.startswith("Image URL:") or 
+                            next_line.startswith("```") or 
+                            (not next_line and j > i + 1)):  # Empty line after content
                             break
-                    final_text = ' '.join(text_lines) if text_lines else ""
-                    break
+                        if next_line:  # Non-empty line
+                            text_lines.append(next_line)
+                    
+                    final_text = '\n'.join(text_lines).strip()
+                    
+                elif line_clean.startswith("Image URL:"):
+                    # Extract URL after "Image URL:"
+                    image_url = line_clean.replace("Image URL:", "").strip().strip('"')
             
-            # Pattern 2: Look for quoted text content (current orchestrator format)
+            # Convert newlines to spaces for Twitter format (since Twitter treats newlines as spaces anyway)
+            if final_text:
+                final_text = ' '.join(final_text.split('\n')).strip()
+            
+            # Pattern 2: Look for structured format (🐦 FINAL TEXT:) - fallback
+            if not final_text:
+                for i, line in enumerate(lines):
+                    if "🐦 FINAL TEXT:" in line or "🐦 TEXT:" in line:
+                        text_lines = []
+                        for j in range(i + 1, min(i + 5, len(lines))):
+                            if lines[j].strip() and not lines[j].startswith('🎨') and not lines[j].startswith('🎯'):
+                                text_lines.append(lines[j].strip())
+                            else:
+                                break
+                        final_text = ' '.join(text_lines) if text_lines else ""
+                        break
+            
+            # Pattern 3: Look for quoted text content - fallback
             if not final_text:
                 for i, line in enumerate(lines):
                     if "final text content from the Text Content Creator is:" in line.lower():
@@ -1795,122 +1937,23 @@ No image generated
                         if final_text:
                             break
             
-            # Pattern 3: Look for any content with hashtags (fallback)
-            if not final_text:
-                for line in lines:
-                    if (('#' in line or '@' in line) and 
-                        len(line.strip()) > 30 and 
-                        len(line.strip()) < 280 and
-                        ('crypto' in line.lower() or 'defi' in line.lower() or 'meme' in line.lower() or 
-                         'trading' in line.lower() or 'wisdom' in line.lower())):
-                        final_text = line.strip().strip('"').strip()
-                        break
-            
-            # Extract image URL - Pattern 1: Structured format (including current orchestrator format)
-            for i, line in enumerate(lines):
-                if ("🎨 VISUAL CONTENT:" in line or "📸 Image URL:" in line or 
-                    "🎨 IMAGE:" in line):  # Added current orchestrator format
-                    for j in range(i, min(i + 5, len(lines))):  # Extended search range
-                        if "http" in lines[j]:
-                            # Enhanced regex to capture URLs, including those in square brackets
-                            url_match = re.search(r'\[?(https?://[^\s\]<>"\'`\n\r\[\)]+)\]?', lines[j])
-                            if url_match:
-                                image_url = url_match.group(1).rstrip(').,;"\']\[]')  # Extract URL without brackets
-                                logger.info(f"✅ Extracted image URL: {image_url[:100]}...")
-                                break
-                    if image_url:  # Break outer loop if found
-                        break
-            
-            # Extract image URL - Pattern 2: Quoted URL (current orchestrator format)
-            if not image_url:
-                for i, line in enumerate(lines):
-                    if "image url from the visual creator is:" in line.lower():
-                        # Look for quoted URL in next few lines
-                        for j in range(i + 1, min(i + 5, len(lines))):
-                            if lines[j].strip().startswith('"') and "http" in lines[j]:
-                                # Enhanced regex to capture full URL including query parameters
-                                url_match = re.search(r'\[?(https?://[^\s\]<>"\'`\n\r\[\)]+)\]?', lines[j])
-                                if url_match:
-                                    image_url = url_match.group(1).rstrip(').,;"\']\[]')
-                                    logger.info(f"✅ Extracted quoted image URL: {image_url[:100]}...")
-                                    break
-                        if image_url:
-                            break
-            
-            # Extract image URL - Pattern 3: S3 URLs (specific for current format)
-            if not image_url:
-                for line in lines:
-                    # Look for S3 URLs specifically (from the current orchestrator output)
-                    if ("burnie-mindshare-content-staging.s3.amazonaws.com" in line or 
-                        "ai-generated" in line) and "http" in line:
-                        url_match = re.search(r'\[?(https?://[^\s\]<>"\'`\n\r\[\)]+)\]?', line)
-                        if url_match:
-                            image_url = url_match.group(1).rstrip(').,;"\']\[]')
-                            logger.info(f"✅ Extracted S3 image URL: {image_url[:100]}...")
-                            break
-            
-            # Extract image URL - Pattern 4: Any line with blob URL (fallback)
-            if not image_url:
-                for line in lines:
-                    if "oaidalleapiprodscus.blob.core.windows.net" in line or "dalle" in line.lower():
-                        # Enhanced regex to capture full URL including query parameters
-                        url_match = re.search(r'\[?(https?://[^\s\]<>"\'`\n\r\[\)]+)\]?', line)
-                        if url_match:
-                            image_url = url_match.group(1).rstrip(').,;"\']\[]')
-                            logger.info(f"✅ Extracted blob image URL: {image_url[:100]}...")
-                            break
-            
-            # Fallback: use a reasonable portion of the raw result
-            if not final_text:
-                # Look for any substantial line that could be a tweet
-                for line in lines:
-                    clean_line = line.strip().strip('"').strip("'")
-                    if (len(clean_line) > 20 and len(clean_line) < 280 and
-                        not clean_line.startswith('I ') and not clean_line.startswith('The ') and
-                        not clean_line.startswith('And the ') and not clean_line.startswith('Now I')):
-                        final_text = clean_line
-                        break
-                if not final_text:
-                    final_text = "Generated crypto content ready for Twitter! 🚀 #CryptoWisdom"
-            
-            # Clean and format the final text for Twitter
-            final_text = self._format_for_twitter(final_text)
-            
-            # Create Twitter-ready output with extracted image URL
-            if image_url:
-                return f"""{final_text}
-
-📸 Image URL: {image_url}
-
-📊 Content Stats:
-• Characters: {len(final_text)}/280
-• Visual: Image included  
-• Ready to post: ✅
-
-💡 To Post on Twitter:
-1. Copy the text above
-2. Download and attach the image from the URL
-3. Post to Twitter!"""
+            # Log what we extracted
+            if final_text:
+                logger.info(f"✅ Extracted tweet text: {final_text[:100]}...")
             else:
-                return f"""{final_text}
-
-📊 Content Stats:  
-• Characters: {len(final_text)}/280
-• Visual: Text-only post
-• Ready to post: ✅
-
-💡 To Post on Twitter:
-Copy the text above and post directly to Twitter!"""
+                logger.warning(f"⚠️ No tweet text extracted from orchestrator output")
                 
+            if image_url and image_url != "No image generated":
+                logger.info(f"✅ Extracted image URL: {image_url[:80]}...")
+            else:
+                logger.warning(f"⚠️ No image URL extracted from orchestrator output")
+            
+            # Return just the text content (images are handled separately in _extract_image_urls_from_content)
+            return final_text if final_text else "Generated content from AI agents"
+            
         except Exception as e:
-            logger.error(f"Error extracting Twitter content: {e}")
-            return f"""Generated Twitter content ready for posting! 🚀
-
-🎯 Campaign: {self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}
-📱 Platform: Twitter
-✅ Content optimized for engagement
-
-💡 Professional content generated by AI agent constellation"""
+            logger.error(f"❌ Error extracting Twitter content: {e}")
+            return "Generated content from AI agents"
     
     def _format_for_twitter(self, text: str) -> str:
         """Clean and format text for Twitter posting"""
@@ -1999,23 +2042,12 @@ class MindshareAnalysisTool(BaseTool):
             if self.predictor:
                 try:
                     sample_content = f"Sample {campaign_type} content for {platform}"
-                    # Fix: Handle async call properly in sync context
-                    import asyncio
-                    try:
-                        # Try to use existing event loop
-                        prediction_result = asyncio.create_task(
-                            self.predictor.predict_performance(sample_content, self.campaign_context)
-                        )
-                        # Since we're in a sync context, we need to handle this differently
-                        # For now, skip async prediction in tools and use fallback
-                        logger.info("ℹ️ Skipping async mindshare prediction in sync tool context")
-                        mindshare_prediction = 75.0
-                    except Exception:
-                        # Use simplified synchronous prediction logic
-                        content_length = len(sample_content)
-                        hashtag_count = sample_content.count('#')
-                        # Simple heuristic for prediction
-                        mindshare_prediction = min(90.0, 60.0 + (hashtag_count * 5) + (content_length / 10))
+                    # Use synchronous prediction heuristic (avoid async in sync tool context)
+                    content_length = len(sample_content)
+                    hashtag_count = sample_content.count('#')
+                    # Simple heuristic for prediction
+                    mindshare_prediction = min(90.0, 60.0 + (hashtag_count * 5) + (content_length / 10))
+                    logger.info(f"💡 Using synchronous mindshare prediction: {mindshare_prediction}")
                         
                 except Exception as e:
                     logger.warning(f"Mindshare prediction error: {e}")
@@ -2188,44 +2220,154 @@ AGENT OUTPUTS TO ANALYZE:
 {agent_outputs}
 
 YOUR TASK:
-1. Find the tweet text from the Text Content Creator agent
-2. Find the image URL from the Visual Content Creator agent  
-3. Combine them into the exact format below
+1. Find the best tweet text from the Text Content Creator agent output
+2. Find the image URL from the Visual Content Creator agent output  
+3. Format them into the exact structure below
 
-EXTRACTION RULES:
-- Look for any JSON content with tweet variations (conservative, engaging, bold)
-- Extract the best tweet text (usually from "engaging" or "bold" variation)
-- Find any image URL (S3, blob, OpenAI, or any other format)
-- Clean URLs by removing brackets, quotes, or markdown formatting
-- NEVER return incomplete responses or task descriptions
+EXTRACTION RULES FOR TEXT CONTENT CREATOR:
+- Look for JSON format with "content_variations" array
+- Each variation has "approach" (Conservative/Engaging/Bold) and "content" 
+- Extract the "content" from the "Engaging" approach (best balance)
+- If no "Engaging", use "Bold", if no "Bold", use "Conservative"
+- Remove any character count or metadata, just get the pure tweet text
+
+EXTRACTION RULES FOR VISUAL CONTENT CREATOR:
+- Look for "📸 Image URL:" followed by an HTTPS URL
+- Extract the complete S3 URL (starts with https://burnie-mindshare-content)
+- Include all query parameters (AWSAccessKeyId, Signature, Expires)
+- Clean any brackets [ ] around the URL
 
 REQUIRED OUTPUT FORMAT (EXACT):
 ```
-Tweet Text: [extracted tweet text here]
+Tweet Text: [extracted tweet text here - no quotes, no extra formatting]
 
-Image URL: [extracted clean image URL here]
+Image URL: [extracted complete S3 URL here - no brackets, no quotes]
 ```
 
-CRITICAL: Return ONLY the extracted content in the exact format above. Do not explain your process or describe what you're doing.
+CRITICAL: 
+- Return ONLY the extracted content in the exact format above
+- Do not add explanations, analysis, or commentary
+- If no image URL found, write "No image generated"
+- If no tweet text found, write "Generated content from AI agents"
 """
 
-            # Use LLM to extract content
-            result = unified_generator.generate_content(
-                prompt=extraction_prompt,
-                provider="openai",  # Use OpenAI for reliable extraction
-                model_id="gpt-4o",
-                max_tokens=500,
-                temperature=0.1  # Low temperature for consistent extraction
-            )
-            
-            extracted_content = result.content.strip()
-            logger.info(f"🧠 LLM Content Extraction Result: {extracted_content}")
-            
-            return extracted_content
+            # Use LLM to extract content (handle async call in sync context)
+            try:
+                # Create new event loop for async operation
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                result = loop.run_until_complete(
+                    unified_generator.generate_content(
+                        provider="openai",  # Use OpenAI for reliable extraction
+                        content_type="text",  # We're extracting text content
+                        prompt=extraction_prompt,
+                        model="gpt-4o",  # Fixed: use 'model' instead of 'model_id'
+                        max_tokens=500,
+                        temperature=0.1  # Low temperature for consistent extraction
+                    )
+                )
+                
+                loop.close()
+                
+                extracted_content = result.content.strip()
+                logger.info(f"🧠 LLM Content Extraction Result: {extracted_content}")
+                
+                return extracted_content
+                
+            except Exception as async_error:
+                logger.error(f"❌ Async LLM extraction failed: {async_error}")
+                # Fallback to simple regex extraction if LLM fails
+                return self._fallback_regex_extraction(agent_outputs)
             
         except Exception as e:
             logger.error(f"❌ LLM content extraction error: {e}")
             return f"Content extraction failed: {str(e)}"
+    
+    def _fallback_regex_extraction(self, agent_outputs: str) -> str:
+        """Fallback regex-based content extraction if LLM fails"""
+        try:
+            logger.info("🔄 Using fallback regex extraction method")
+            
+            # Extract tweet text from JSON format (Text Content Creator output)
+            tweet_text = "Generated content from AI agents"
+            
+            # Pattern 1: Look for JSON with content_variations
+            json_match = re.search(r'"content_variations":\s*\[(.*?)\]', agent_outputs, re.DOTALL)
+            if json_match:
+                variations_content = json_match.group(1)
+                
+                # Try to find "Engaging" approach first
+                engaging_match = re.search(r'"approach":\s*"Engaging".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
+                if engaging_match:
+                    tweet_text = engaging_match.group(1)
+                else:
+                    # Try "Bold" approach
+                    bold_match = re.search(r'"approach":\s*"Bold".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
+                    if bold_match:
+                        tweet_text = bold_match.group(1)
+                    else:
+                        # Try "Conservative" approach
+                        conservative_match = re.search(r'"approach":\s*"Conservative".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
+                        if conservative_match:
+                            tweet_text = conservative_match.group(1)
+            
+            # Pattern 2: Fallback tweet patterns if JSON extraction fails
+            if tweet_text == "Generated content from AI agents":
+                # Try to find "Tweet Text:" format from LLM extraction tool
+                tweet_text_match = re.search(r'Tweet Text:\s*(.+?)(?=\n\nImage URL:|$)', agent_outputs, re.DOTALL | re.IGNORECASE)
+                if tweet_text_match:
+                    # Join lines and clean up
+                    tweet_text = ' '.join(tweet_text_match.group(1).strip().split('\n')).strip()
+                else:
+                    # Original fallback patterns
+                    tweet_patterns = [
+                        r'"content":\s*"([^"]+)"',
+                        r'Tweet.*?:\s*([^\n]+)',
+                        r'Content.*?:\s*([^\n]+)'
+                    ]
+                    
+                    for pattern in tweet_patterns:
+                        match = re.search(pattern, agent_outputs, re.IGNORECASE)
+                        if match:
+                            tweet_text = match.group(1).strip()
+                            break
+            
+            # Extract image URL patterns (Visual Content Creator output)
+            image_url = None
+            url_patterns = [
+                # S3 URLs with all query parameters
+                r'📸 Image URL:\s*([^\s\[\]]+\.amazonaws\.com[^\s\[\]]*)',
+                r'Image URL:\s*([^\s\[\]]+\.amazonaws\.com[^\s\[\]]*)',
+                r'https://burnie-mindshare-content[^\s\[\]]*\.amazonaws\.com[^\s\[\]]*',
+                r'https://[^\s\[\]]+\.amazonaws\.com[^\s\[\]]*ai-generated[^\s\[\]]*',
+                # Other URL patterns
+                r'https://[^\s\[\]]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s\[\]]*)?',
+                r'https://oaidalleapiprodscus\.blob\.core\.windows\.net[^\s\[\]]*'
+            ]
+            
+            for pattern in url_patterns:
+                match = re.search(pattern, agent_outputs, re.IGNORECASE)
+                if match:
+                    if '📸 Image URL:' in pattern or 'Image URL:' in pattern:
+                        image_url = match.group(1).strip().strip('[]")')
+                    else:
+                        image_url = match.group(0).strip().strip('[]")')
+                    break
+            
+            # Format output
+            result = f"Tweet Text: {tweet_text}\n\n"
+            if image_url:
+                result += f"Image URL: {image_url}"
+            else:
+                result += "Image URL: No image generated"
+            
+            logger.info(f"🔄 Fallback extraction result: {result}")
+            return result
+            
+        except Exception as fallback_error:
+            logger.error(f"❌ Fallback extraction failed: {fallback_error}")
+            return "Tweet Text: Content extraction failed\n\nImage URL: No content available"
 
 # Real LLM Provider Tools with User Configuration
 class OpenAIContentTool(BaseTool):

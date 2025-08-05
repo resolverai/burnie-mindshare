@@ -1046,7 +1046,15 @@ export default function Mining() {
                       </h4>
                       
                       {(() => {
-                        const { text, imageUrl } = formatTwitterContent(reviewItem.content.content_text)
+                        // Use content_images array directly instead of extracting from text
+                        const text = reviewItem.content.content_text
+                        const imageUrl = reviewItem.content.content_images && reviewItem.content.content_images.length > 0 
+                          ? reviewItem.content.content_images[0] 
+                          : null
+                        
+                        // Debug logging
+                        console.log('🖼️ Mining: Content images array:', reviewItem.content.content_images)
+                        console.log('🖼️ Mining: Selected image URL:', imageUrl)
                         
                         return (
                           <div className="space-y-4">

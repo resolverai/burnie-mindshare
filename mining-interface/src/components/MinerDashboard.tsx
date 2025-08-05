@@ -84,11 +84,11 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
 
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: HomeIcon, iconSolid: HomeIcon, route: '/dashboard' },
-    { id: 'agents', label: 'Agents', icon: UserGroupIcon, iconSolid: UserGroupIcon, route: '/agents' },
+    { id: 'agents', label: 'Agents', icon: CpuChipIcon, iconSolid: CpuChipIcon, route: '/agents' },
     { id: 'mining', label: 'Mining', icon: MegaphoneIcon, iconSolid: MegaphoneIcon, route: '/mining' },
     { id: 'mycontent', label: 'My Content', icon: DocumentTextIcon, iconSolid: DocumentTextIcon, route: '/my-content' },
     { id: 'portfolio', label: 'Portfolio', icon: ChartBarIcon, iconSolid: ChartBarIcon, route: '/portfolio' },
-    { id: 'teams', label: 'Teams', icon: CpuChipIcon, iconSolid: CpuChipIcon, route: '/teams' }
+    { id: 'teams', label: 'Teams', icon: UserGroupIcon, iconSolid: UserGroupIcon, route: '/teams' }
   ]
 
   const renderContent = () => {
