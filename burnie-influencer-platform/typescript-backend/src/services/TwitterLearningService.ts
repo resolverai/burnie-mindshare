@@ -6,6 +6,18 @@ import { TwitterUserConnection } from '../models/TwitterUserConnection';
 import { AgentConfiguration, AgentType } from '../models/AgentConfiguration';
 import { logger } from '../config/logger';
 
+// Twitter OAuth 2.0 configuration for token refresh
+const TWITTER_CLIENT_ID = process.env.TWITTER_CLIENT_ID || '';
+const TWITTER_CLIENT_SECRET = process.env.TWITTER_CLIENT_SECRET || '';
+
+interface TwitterTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in?: number;
+  refresh_token?: string;
+  scope?: string;
+}
+
 interface TwitterAPIResponse {
   data?: TwitterTweet[];
   meta?: {
@@ -102,7 +114,12 @@ export class TwitterLearningService {
       // Process each user's Twitter data
       for (const user of usersWithTwitter) {
         try {
-          await this.processUserTwitterData(user);
+          const result = await this.processUserTwitterData(user);
+          if (result.success) {
+            logger.info(`✅ Processed ${result.tweetsProcessed} tweets for user ${user.id}`);
+          } else {
+            logger.warn(`⚠️ Learning update failed for user ${user.id}: ${result.error}`);
+          }
           
           // Add delay between users to respect rate limits
           await this.delay(2000);
@@ -121,7 +138,7 @@ export class TwitterLearningService {
   /**
    * Process individual user's Twitter data
    */
-  public async processUserTwitterData(user: User): Promise<void> {
+  public async processUserTwitterData(user: User): Promise<{success: boolean, tweetsProcessed: number, error?: string}> {
     try {
       logger.info(`🧠 Starting comprehensive Twitter learning for user ${user.id}...`);
 
@@ -130,7 +147,7 @@ export class TwitterLearningService {
       
       if (tweets.length === 0) {
         logger.info(`📭 No tweets to process for user ${user.id}`);
-        return;
+        return { success: false, tweetsProcessed: 0, error: 'No tweets available - Twitter API may have failed or user has no tweets' };
       }
 
       logger.info(`📊 Processing ${tweets.length} tweets for comprehensive AI training...`);
@@ -168,7 +185,7 @@ export class TwitterLearningService {
           learningData.agentId = agentId;
           logger.info(`🎯 Associating learning data with agent ID ${agentId} (${agentType})`);
         } else {
-          logger.warning(`⚠️ No agent ID found for type ${agentType} - storing without agent association`);
+          logger.warn(`⚠️ No agent ID found for type ${agentType} - storing without agent association`);
         }
 
         learningData.tweetId = `bulk_analysis_${agentType}_${Date.now()}`;
@@ -249,27 +266,193 @@ export class TwitterLearningService {
       logger.info(`📈 Trained 5-agent constellation with ${tweets.length} tweets`);
       logger.info(`🤖 All agents ready for personalized content generation`);
 
+      return { success: true, tweetsProcessed: tweets.length };
+
     } catch (error) {
       logger.error(`❌ Error processing Twitter data for user ${user.id}:`, error);
-      throw error;
+      
+      // Provide more specific error messages for different types of failures
+      let errorMessage = 'Unknown error';
+      
+      if (error instanceof Error) {
+        const errorText = error.message.toLowerCase();
+        
+        if (errorText.includes('unauthorized') || errorText.includes('401')) {
+          errorMessage = 'Twitter API unauthorized - token may be expired or invalid';
+        } else if (errorText.includes('forbidden') || errorText.includes('403')) {
+          errorMessage = 'Twitter API forbidden - account may be private or suspended';
+        } else if (errorText.includes('rate limit') || errorText.includes('429')) {
+          errorMessage = 'Twitter API rate limit exceeded - please try again later';
+        } else if (errorText.includes('twitter') || errorText.includes('token')) {
+          errorMessage = `Twitter API error: ${error.message}`;
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
+      logger.error(`🔍 Categorized error for user ${user.id}: ${errorMessage}`);
+      
+      return { success: false, tweetsProcessed: 0, error: errorMessage };
     }
   }
 
   /**
-   * Fetch tweets from a user's timeline using Twitter API v2
+   * Refresh Twitter access token using refresh token
+   */
+  private async refreshTwitterToken(twitterConnection: TwitterUserConnection): Promise<TwitterUserConnection | null> {
+    try {
+      logger.info(`🔄 Attempting to refresh Twitter token for user ${twitterConnection.userId}`);
+      logger.info(`🔧 Current access token (last 10 chars): ...${twitterConnection.accessToken.slice(-10)}`);
+      logger.info(`🔧 Refresh token available: ${twitterConnection.refreshToken ? 'YES' : 'NO'}`);
+
+      if (!twitterConnection.refreshToken) {
+        logger.error(`❌ No refresh token available for user ${twitterConnection.userId}`);
+        return null;
+      }
+
+      // Twitter OAuth 2.0 token refresh endpoint
+      const tokenUrl = 'https://api.twitter.com/2/oauth2/token';
+      const tokenData = {
+        grant_type: 'refresh_token',
+        refresh_token: twitterConnection.refreshToken,
+        client_id: TWITTER_CLIENT_ID
+      };
+
+      // Create Basic Authentication header
+      const authHeader = Buffer.from(`${TWITTER_CLIENT_ID}:${TWITTER_CLIENT_SECRET}`).toString('base64');
+
+      logger.info(`📤 Making token refresh request to Twitter...`);
+      logger.info(`🔧 Request payload: grant_type=refresh_token, client_id=${TWITTER_CLIENT_ID ? 'SET' : 'MISSING'}`);
+
+      const tokenResponse = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${authHeader}`,
+          'User-Agent': 'BurnieAI/1.0'
+        },
+        body: new URLSearchParams(tokenData)
+      });
+
+      logger.info(`📨 Twitter refresh response status: ${tokenResponse.status}`);
+
+      if (!tokenResponse.ok) {
+        const errorData = await tokenResponse.text();
+        logger.error(`❌ Token refresh failed: ${tokenResponse.status}`, errorData);
+        logger.error(`🔧 Full Twitter API error response: ${errorData}`);
+        logger.error(`🔧 Request details: grant_type=refresh_token, client_id=${TWITTER_CLIENT_ID ? 'SET' : 'MISSING'}, refresh_token=${twitterConnection.refreshToken ? 'SET' : 'MISSING'}`);
+        
+        // If refresh token is invalid, mark connection as disconnected
+        if (tokenResponse.status === 400 || tokenResponse.status === 401) {
+          logger.error(`🔑 Refresh token invalid or expired for user ${twitterConnection.userId} - marking as disconnected`);
+          twitterConnection.isConnected = false;
+          await AppDataSource.getRepository(TwitterUserConnection).save(twitterConnection);
+        }
+        
+        return null;
+      }
+
+      const tokenResult = await tokenResponse.json() as TwitterTokenResponse;
+      logger.info(`✅ Successfully refreshed access token for user ${twitterConnection.userId}`);
+      logger.info(`🔧 New access token (last 10 chars): ...${tokenResult.access_token.slice(-10)}`);
+      logger.info(`🔧 New refresh token provided: ${tokenResult.refresh_token ? 'YES' : 'NO'}`);
+
+      // Update the connection with new tokens
+      const oldAccessToken = twitterConnection.accessToken;
+      twitterConnection.accessToken = tokenResult.access_token;
+      if (tokenResult.refresh_token) {
+        twitterConnection.refreshToken = tokenResult.refresh_token;
+      }
+      twitterConnection.lastSyncAt = new Date();
+
+      // Save updated connection
+      const updatedConnection = await AppDataSource.getRepository(TwitterUserConnection).save(twitterConnection);
+      logger.info(`💾 Updated Twitter connection tokens for user ${twitterConnection.userId}`);
+      logger.info(`🔧 Database update successful - Access token changed: ${oldAccessToken !== updatedConnection.accessToken}`);
+
+      return updatedConnection;
+
+    } catch (error) {
+      logger.error(`❌ Error refreshing Twitter token for user ${twitterConnection.userId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Make authenticated Twitter API request with automatic token refresh on 401
+   */
+  private async makeTwitterAPIRequest(url: string, twitterConnection: TwitterUserConnection, maxRetries: number = 1): Promise<Response | null> {
+    try {
+      logger.info(`🌐 Making Twitter API request for user ${twitterConnection.userId}`);
+      logger.info(`🔧 Using access token (last 10 chars): ...${twitterConnection.accessToken.slice(-10)}`);
+      logger.info(`🔧 Retries remaining: ${maxRetries}`);
+
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${twitterConnection.accessToken}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'BurnieAI/1.0'
+        },
+      });
+
+      logger.info(`📨 Twitter API response status: ${response.status}`);
+
+      // If 401 Unauthorized, attempt token refresh
+      if (response.status === 401 && maxRetries > 0) {
+        logger.warn(`🔑 Access token expired for user ${twitterConnection.userId}, attempting refresh...`);
+        
+        const refreshedConnection = await this.refreshTwitterToken(twitterConnection);
+        if (refreshedConnection) {
+          logger.info(`🔄 Token refreshed successfully, retrying API request...`);
+          logger.info(`🔧 Retrying with new token (last 10 chars): ...${refreshedConnection.accessToken.slice(-10)}`);
+          
+          // Retry the request with refreshed token
+          return await this.makeTwitterAPIRequest(url, refreshedConnection, maxRetries - 1);
+        } else {
+          logger.error(`❌ Failed to refresh token for user ${twitterConnection.userId}`);
+          return null;
+        }
+      }
+
+      if (response.status === 401) {
+        logger.error(`🔑 401 Unauthorized - No retries left for user ${twitterConnection.userId}`);
+      }
+
+      return response;
+
+    } catch (error) {
+      logger.error(`❌ Error making Twitter API request:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch user tweets from Twitter API with automatic token refresh
    */
   private async fetchUserTweets(user: User): Promise<TwitterTweet[]> {
     try {
       logger.info(`📡 Fetching real tweets for user ${user.id} (@${user.twitterHandle})`);
 
+      // Always get the latest Twitter connection (don't cache)
       const twitterConnection = await AppDataSource.getRepository(TwitterUserConnection).findOne({
-        where: { userId: user.id, isConnected: true }
+        where: { userId: user.id, isConnected: true },
+        order: { updatedAt: 'DESC' } // Get the most recently updated connection
       });
 
       if (!twitterConnection || !twitterConnection.accessToken) {
         logger.error(`❌ No valid Twitter access token for user ${user.id}`);
-        return [];
+        logger.error(`   Connection exists: ${!!twitterConnection}`);
+        logger.error(`   Access token exists: ${!!(twitterConnection?.accessToken)}`);
+        logger.error(`   Is connected: ${twitterConnection?.isConnected}`);
+        throw new Error('No valid Twitter connection or access token found');
       }
+
+      logger.info(`🔐 Using Twitter connection for user ${user.id}:`);
+      logger.info(`   Twitter User ID: ${twitterConnection.twitterUserId}`);
+      logger.info(`   Username: @${twitterConnection.twitterUsername}`);
+      logger.info(`   Connection ID: ${twitterConnection.id}`);
+      logger.info(`   Access Token (last 10): ...${twitterConnection.accessToken.slice(-10)}`);
+      logger.info(`   Last updated: ${twitterConnection.updatedAt}`);
 
       const url = `https://api.twitter.com/2/users/${twitterConnection.twitterUserId}/tweets`;
       const params = new URLSearchParams({
@@ -280,36 +463,34 @@ export class TwitterLearningService {
         'media.fields': 'type,url,preview_image_url'
       });
 
-      logger.info(`🔗 Making Twitter API request: ${url}?${params.toString()}`);
+      const fullUrl = `${url}?${params.toString()}`;
+      logger.info(`🔗 Making Twitter API request: ${fullUrl}`);
 
-      const response = await fetch(`${url}?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${twitterConnection.accessToken}`,
-          'Content-Type': 'application/json',
-          'User-Agent': 'BurnieAI/1.0'
-        },
-      });
+      const response = await this.makeTwitterAPIRequest(fullUrl, twitterConnection);
 
-      if (!response.ok) {
-        const errorText = await response.text();
+      if (!response || !response.ok) {
+        const errorText = await response?.text();
         let errorData;
         try {
-          errorData = JSON.parse(errorText);
+          errorData = JSON.parse(errorText || '');
         } catch {
-          errorData = { error: errorText };
+          errorData = { error: errorText || '' };
         }
         
-        logger.error(`❌ Twitter API error for user ${user.id} (${response.status}):`, errorData);
+        logger.error(`❌ Twitter API error for user ${user.id} (${response?.status || 'N/A'}):`, errorData);
         
-        if (response.status === 401) {
+        if (response?.status === 401) {
           logger.error(`🔑 Invalid or expired access token for user ${user.id}`);
-        } else if (response.status === 429) {
+          throw new Error('Twitter API unauthorized - access token may be expired or invalid');
+        } else if (response?.status === 429) {
           logger.error(`⏰ Rate limit exceeded for user ${user.id}`);
-        } else if (response.status === 403) {
+          throw new Error('Twitter API rate limit exceeded - please try again later');
+        } else if (response?.status === 403) {
           logger.error(`🚫 Access forbidden for user ${user.id} - account may be private`);
+          throw new Error('Twitter API forbidden - account may be private or suspended');
+        } else {
+          throw new Error(`Twitter API error: ${response?.status || 'Unknown'} - ${errorData.error || 'Unknown error'}`);
         }
-        
-        return [];
       }
 
       const data = await response.json() as TwitterAPIResponse;
@@ -347,8 +528,11 @@ export class TwitterLearningService {
       logger.error(`❌ Error fetching real tweets for user ${user.id}:`, error);
       if (error instanceof Error) {
         logger.error(`   Error details: ${error.message}`);
+        // Re-throw the error so it can be handled by the calling method
+        throw error;
+      } else {
+        throw new Error('Unknown error occurred while fetching tweets');
       }
-      return [];
     }
   }
 

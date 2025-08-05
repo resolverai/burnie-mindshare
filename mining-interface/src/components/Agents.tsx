@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccount } from 'wagmi'
 import { 
   PlusIcon, BeakerIcon, CpuChipIcon, AcademicCapIcon,
-  ArrowPathIcon, SparklesIcon, FireIcon, PencilIcon
+  ArrowPathIcon, SparklesIcon, FireIcon, PencilIcon, LinkIcon
 } from '@heroicons/react/24/outline'
 import { CreateAgentModal } from './CreateAgentModal'
 
@@ -31,6 +31,8 @@ interface PersonalizedAgent {
 function Agents() {
   const [showCreateAgent, setShowCreateAgent] = useState(false)
   const [editingAgent, setEditingAgent] = useState<PersonalizedAgent | null>(null)
+  const [isReconnectingTwitter, setIsReconnectingTwitter] = useState(false)
+  const [twitterConnectionError, setTwitterConnectionError] = useState(false)
   const { address } = useAccount()
   const queryClient = useQueryClient()
 
@@ -61,15 +63,74 @@ function Agents() {
     mutationFn: async (agentId: string) => {
       if (!address) throw new Error('No wallet connected')
       
-              const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/${agentId}/update-learning`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
+      // Helper function to attempt token refresh
+      const attemptTokenRefresh = async () => {
+        try {
+          const refreshResponse = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/twitter-auth/refresh-token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              wallet_address: address
+            })
+          });
+          
+          if (refreshResponse.ok) {
+            console.log('✅ Token refreshed successfully');
+            return true;
+          } else {
+            const errorData = await refreshResponse.json();
+            if (errorData.requires_reconnection) {
+              throw new Error('Twitter connection expired. Please reconnect your Twitter account in the Agents screen.');
+            }
+            throw new Error(errorData.error || 'Failed to refresh token');
+          }
+        } catch (error) {
+          console.error('❌ Token refresh failed:', error);
+          throw error;
         }
-      })
+      };
+      
+      // Main API call function
+      const makeUpdateRequest = async () => {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/${agentId}/update-learning`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        return response;
+      };
+      
+      // First attempt
+      let response = await makeUpdateRequest();
+      
+      // If 401 Unauthorized, attempt token refresh and retry
+      if (response.status === 401) {
+        console.warn('🔑 Access token expired, attempting refresh...');
+        
+        try {
+          await attemptTokenRefresh();
+          console.log('🔄 Token refreshed, retrying learning update...');
+          
+          // Retry the request
+          response = await makeUpdateRequest();
+        } catch (refreshError) {
+          // If refresh fails, throw the refresh error instead of the original 401
+          throw refreshError;
+        }
+      }
       
       if (!response.ok) {
         const errorData = await response.json()
+        
+        // Check if it's a Twitter connection issue
+        if (errorData.error?.includes('Twitter data') || errorData.details?.includes('Twitter API')) {
+          throw new Error('Twitter connection issue. Please check your Twitter connection and try again.')
+        }
+        
         throw new Error(errorData.error || 'Failed to update learning')
       }
       
@@ -80,6 +141,21 @@ function Agents() {
       queryClient.invalidateQueries({ queryKey: ['user-agents', address] })
       queryClient.invalidateQueries({ queryKey: ['all-agents-learning-status', address] })
       queryClient.invalidateQueries({ queryKey: ['agent-analytics', address] })
+      // Clear any Twitter connection errors on success
+      setTwitterConnectionError(false)
+    },
+    onError: (error: Error) => {
+      // Check if this is a Twitter connection error
+      if (error.message.includes('Twitter connection') || 
+          error.message.includes('Twitter API') || 
+          error.message.includes('Unauthorized') ||
+          error.message.includes('expired')) {
+        setTwitterConnectionError(true)
+      }
+      
+      // Also invalidate learning status on error to refresh Twitter connection status
+      queryClient.invalidateQueries({ queryKey: ['all-agents-learning-status', address] })
+      console.error('Learning update failed:', error.message)
     }
   })
 
@@ -131,6 +207,107 @@ function Agents() {
     refetchInterval: 60000, // Refetch every minute
   })
 
+  // Twitter re-connection mutation
+  const twitterReconnectMutation = useMutation({
+    mutationFn: async () => {
+      if (!address) throw new Error('No wallet connected')
+      
+      setIsReconnectingTwitter(true)
+      
+      // Step 1: Get Twitter OAuth URL
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/twitter-auth/twitter/url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          wallet_address: address,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to get Twitter OAuth URL')
+      }
+
+      const data = await response.json()
+      
+      if (!data.success || !data.data.oauth_url) {
+        throw new Error('Invalid OAuth URL response')
+      }
+
+      // Store state, code verifier, and wallet address for later use
+      localStorage.setItem('twitter_oauth_state', data.data.state)
+      localStorage.setItem('twitter_code_verifier', data.data.code_verifier)
+      localStorage.setItem('twitter_wallet_address', address || '')
+
+      // Step 2: Open Twitter OAuth in a new window
+      const authWindow = window.open(
+        data.data.oauth_url,
+        'twitter-auth',
+        'width=500,height=600,scrollbars=yes,resizable=yes'
+      )
+
+      if (!authWindow) {
+        throw new Error('Failed to open authentication window. Please disable popup blocker.')
+      }
+
+      // Step 3: Listen for messages from callback window
+      return new Promise<void>((resolve, reject) => {
+        let messageReceived = false
+        const handleMessage = (event: MessageEvent) => {
+          if (event.origin !== window.location.origin) {
+            return // Ignore messages from other origins
+          }
+
+          if (event.data.type === 'TWITTER_AUTH_SUCCESS') {
+            messageReceived = true
+            console.log('✅ Twitter re-connection successful')
+            window.removeEventListener('message', handleMessage)
+            clearInterval(checkForClose)
+            setIsReconnectingTwitter(false)
+            resolve()
+          } else if (event.data.type === 'TWITTER_AUTH_ERROR') {
+            messageReceived = true
+            console.log('❌ Twitter re-connection failed:', event.data.error)
+            window.removeEventListener('message', handleMessage)
+            clearInterval(checkForClose)
+            setIsReconnectingTwitter(false)
+            reject(new Error(event.data.error || 'Twitter authentication failed'))
+          }
+        }
+
+        window.addEventListener('message', handleMessage)
+
+        // Check if window is closed manually (fallback)
+        const checkForClose = setInterval(() => {
+          if (authWindow?.closed) {
+            clearInterval(checkForClose)
+            window.removeEventListener('message', handleMessage)
+            setIsReconnectingTwitter(false)
+            
+            if (!messageReceived) {
+              reject(new Error('Authentication window was closed'))
+            }
+          }
+        }, 1000)
+      })
+    },
+    onSuccess: () => {
+      // Refresh all queries after successful Twitter re-connection
+      queryClient.invalidateQueries({ queryKey: ['user-agents', address] })
+      queryClient.invalidateQueries({ queryKey: ['all-agents-learning-status', address] })
+      queryClient.invalidateQueries({ queryKey: ['agent-analytics', address] })
+      // Clear Twitter connection error state
+      setTwitterConnectionError(false)
+      console.log('✅ Twitter re-connection completed successfully')
+    },
+    onError: (error: Error) => {
+      // Also refresh learning status on error to update connection state
+      queryClient.invalidateQueries({ queryKey: ['all-agents-learning-status', address] })
+      console.error('❌ Twitter re-connection failed:', error.message)
+    }
+  })
+
   const handleCreateAgent = (agentData: any) => {
     setShowCreateAgent(false)
     setEditingAgent(null)
@@ -149,6 +326,10 @@ function Agents() {
 
   const handleUpdateAgentLearning = (agentId: string) => {
     updateAgentLearningMutation.mutate(agentId)
+  }
+
+  const handleTwitterReconnect = () => {
+    twitterReconnectMutation.mutate()
   }
 
   // Helper function to get agent analytics data for a specific agent
@@ -361,6 +542,25 @@ function Agents() {
                           <span>Edit</span>
                         </button>
                         
+                        {/* Twitter Re-connect Button - Show when Twitter is not connected or has issues */}
+                        {(agentLearningStatus && !agentLearningStatus.twitterConnected) || twitterConnectionError ? (
+                          <button
+                            onClick={handleTwitterReconnect}
+                            disabled={isReconnectingTwitter || twitterReconnectMutation.isPending}
+                            className="flex items-center space-x-2 px-3 py-2 bg-black hover:bg-gray-800 disabled:bg-gray-600 text-white text-sm rounded-lg transition-colors"
+                            title="Re-connect Twitter Account"
+                          >
+                            {(isReconnectingTwitter || twitterReconnectMutation.isPending) ? (
+                              <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <LinkIcon className="w-4 h-4" />
+                            )}
+                            <span>
+                              {(isReconnectingTwitter || twitterReconnectMutation.isPending) ? 'Connecting...' : 'Re-connect Twitter'}
+                            </span>
+                          </button>
+                        ) : null}
+                        
                         {/* Per-Agent Update Learning Button */}
                         <button
                           onClick={() => handleUpdateAgentLearning(agent.id)}
@@ -445,6 +645,32 @@ function Agents() {
             ✅ Learning updated successfully! Your agent now has the latest insights from your Twitter.
           </p>
       </div>
+      )}
+      
+      {/* Twitter Re-connection feedback */}
+      {twitterReconnectMutation.isError && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+          <p className="text-red-400">
+            Failed to re-connect Twitter: {twitterReconnectMutation.error?.message}
+          </p>
+        </div>
+      )}
+      
+      {/* Twitter connection error with guidance */}
+      {twitterConnectionError && !twitterReconnectMutation.isPending && (
+        <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+          <p className="text-yellow-400">
+            ⚠️ Twitter connection issue detected. Please click the "Re-connect Twitter" button to refresh your authentication.
+          </p>
+        </div>
+      )}
+      
+      {twitterReconnectMutation.isSuccess && (
+        <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+          <p className="text-green-400">
+            ✅ Twitter re-connected successfully! Your agent can now learn from your latest tweets.
+          </p>
+        </div>
       )}
     </div>
   )

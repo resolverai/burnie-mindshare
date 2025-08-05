@@ -321,6 +321,144 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
 });
 
 /**
+ * @route POST /api/twitter-auth/refresh-token
+ * @desc Refresh Twitter access token using refresh token
+ */
+router.post('/refresh-token', async (req: Request, res: Response) => {
+  try {
+    const { wallet_address } = req.body;
+
+    if (!wallet_address) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet address is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info(`🔄 Manual token refresh request for wallet: ${wallet_address}`);
+
+    // Find user by wallet address
+    const userRepository: Repository<User> = AppDataSource.getRepository(User);
+    const user = await userRepository.findOne({
+      where: { walletAddress: wallet_address.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Find Twitter connection
+    const twitterConnectionRepository: Repository<TwitterUserConnection> = AppDataSource.getRepository(TwitterUserConnection);
+    const twitterConnection = await twitterConnectionRepository.findOne({
+      where: { userId: user.id, isConnected: true }
+    });
+
+    if (!twitterConnection) {
+      return res.status(404).json({
+        success: false,
+        error: 'No active Twitter connection found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!twitterConnection.refreshToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'No refresh token available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Refresh the token
+    const tokenUrl = 'https://api.twitter.com/2/oauth2/token';
+    const tokenData = {
+      grant_type: 'refresh_token',
+      refresh_token: twitterConnection.refreshToken,
+      client_id: TWITTER_CLIENT_ID
+    };
+
+    const authHeader = Buffer.from(`${TWITTER_CLIENT_ID}:${TWITTER_CLIENT_SECRET}`).toString('base64');
+
+    logger.info(`📤 Making token refresh request to Twitter...`);
+
+    const tokenResponse = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${authHeader}`,
+        'User-Agent': 'BurnieAI/1.0'
+      },
+      body: new URLSearchParams(tokenData)
+    });
+
+    if (!tokenResponse.ok) {
+      const errorData = await tokenResponse.text();
+      logger.error(`❌ Token refresh failed: ${tokenResponse.status}`, errorData);
+      
+      // If refresh token is invalid, mark connection as disconnected
+      if (tokenResponse.status === 400 || tokenResponse.status === 401) {
+        logger.error(`🔑 Refresh token invalid for user ${user.id} - marking as disconnected`);
+        twitterConnection.isConnected = false;
+        await twitterConnectionRepository.save(twitterConnection);
+        
+        return res.status(401).json({
+          success: false,
+          error: 'Refresh token expired. Please reconnect your Twitter account.',
+          requires_reconnection: true,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to refresh token',
+        details: errorData,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const tokenResult = await tokenResponse.json() as TwitterTokenResponse;
+    logger.info(`✅ Successfully refreshed access token for user ${user.id}`);
+
+    // Update the connection with new tokens
+    twitterConnection.accessToken = tokenResult.access_token;
+    if (tokenResult.refresh_token) {
+      twitterConnection.refreshToken = tokenResult.refresh_token;
+    }
+    twitterConnection.lastSyncAt = new Date();
+
+    await twitterConnectionRepository.save(twitterConnection);
+
+    return res.json({
+      success: true,
+      message: 'Token refreshed successfully',
+      data: {
+        user: {
+          walletAddress: user.walletAddress,
+          twitterHandle: user.twitterHandle,
+          twitterUserId: user.twitterUserId
+        },
+        token_refreshed_at: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error: any) {
+    logger.error('❌ Error refreshing Twitter token:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to refresh Twitter token',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
  * @route GET /api/twitter-auth/twitter/status/:walletAddress
  * @desc Check Twitter connection status for a wallet
  */
@@ -388,6 +526,186 @@ router.get('/twitter/status/:walletAddress', async (req: Request, res: Response)
     return res.status(500).json({
       success: false,
       error: 'Failed to check Twitter status',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route POST /api/twitter-auth/test-refresh/:walletAddress
+ * @desc Test endpoint to manually trigger token refresh for debugging
+ */
+router.post('/test-refresh/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+
+    if (!walletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet address is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info(`🧪 Test token refresh for wallet: ${walletAddress}`);
+
+    // Find user by wallet address
+    const userRepository: Repository<User> = AppDataSource.getRepository(User);
+    const user = await userRepository.findOne({
+      where: { walletAddress: walletAddress.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Find Twitter connection (including disconnected ones for testing)
+    const twitterConnectionRepository: Repository<TwitterUserConnection> = AppDataSource.getRepository(TwitterUserConnection);
+    const twitterConnection = await twitterConnectionRepository.findOne({
+      where: { userId: user.id },
+      order: { updatedAt: 'DESC' }  // Get the most recent connection
+    });
+
+    if (!twitterConnection) {
+      return res.status(404).json({
+        success: false,
+        error: 'No Twitter connection found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Test the refresh flow using TwitterLearningService
+    const { TwitterLearningService } = await import('../services/TwitterLearningService');
+    const twitterService = new TwitterLearningService();
+    
+    // Access the private method via reflection for testing
+    const refreshMethod = (twitterService as any).refreshTwitterToken.bind(twitterService);
+    
+    logger.info(`🔧 Before refresh - Access token: ...${twitterConnection.accessToken.slice(-10)}`);
+    
+    const refreshResult = await refreshMethod(twitterConnection);
+    
+    if (refreshResult) {
+      logger.info(`🔧 After refresh - Access token: ...${refreshResult.accessToken.slice(-10)}`);
+      
+      return res.json({
+        success: true,
+        message: 'Token refresh test completed successfully',
+        data: {
+          oldTokenLastChars: `...${twitterConnection.accessToken.slice(-10)}`,
+          newTokenLastChars: `...${refreshResult.accessToken.slice(-10)}`,
+          tokensChanged: twitterConnection.accessToken !== refreshResult.accessToken,
+          refreshTokenUpdated: refreshResult.refreshToken ? true : false,
+          lastSyncAt: refreshResult.lastSyncAt
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Token refresh failed',
+        message: 'Check server logs for detailed error information',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+  } catch (error: any) {
+    logger.error('❌ Error in token refresh test:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to test token refresh',
+      details: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route GET /api/twitter-auth/debug/:walletAddress
+ * @desc Debug endpoint to check Twitter connection status and token info
+ */
+router.get('/debug/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+
+    if (!walletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet address is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info(`🔍 Debug Twitter connection for wallet: ${walletAddress}`);
+
+    // Find user by wallet address
+    const userRepository: Repository<User> = AppDataSource.getRepository(User);
+    const user = await userRepository.findOne({
+      where: { walletAddress: walletAddress.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Find Twitter connection (including disconnected ones for debugging)
+    const twitterConnectionRepository: Repository<TwitterUserConnection> = AppDataSource.getRepository(TwitterUserConnection);
+    const twitterConnection = await twitterConnectionRepository.findOne({
+      where: { userId: user.id },
+      order: { updatedAt: 'DESC' }  // Get the most recent connection
+    });
+
+    if (!twitterConnection) {
+      return res.status(404).json({
+        success: false,
+        error: 'No Twitter connection found',
+        data: {
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          twitterHandle: user.twitterHandle,
+          connections: await twitterConnectionRepository.find({ where: { userId: user.id } })
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        userId: user.id,
+        walletAddress: user.walletAddress,
+        twitterHandle: user.twitterHandle,
+        connection: {
+          id: twitterConnection.id,
+          twitterUserId: twitterConnection.twitterUserId,
+          twitterUsername: twitterConnection.twitterUsername,
+          isConnected: twitterConnection.isConnected,
+          connectionStatus: twitterConnection.isConnected ? 'ACTIVE' : 'DISCONNECTED',
+          accessTokenValid: twitterConnection.accessToken ? true : false,
+          accessTokenLastChars: twitterConnection.accessToken ? `...${twitterConnection.accessToken.slice(-10)}` : 'NONE',
+          refreshTokenAvailable: twitterConnection.refreshToken ? true : false,
+          refreshTokenLastChars: twitterConnection.refreshToken ? `...${twitterConnection.refreshToken.slice(-10)}` : 'NONE',
+          lastSyncAt: twitterConnection.lastSyncAt,
+          createdAt: twitterConnection.createdAt,
+          updatedAt: twitterConnection.updatedAt
+        }
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error: any) {
+    logger.error('❌ Error in Twitter debug:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to debug Twitter connection',
       timestamp: new Date().toISOString(),
     });
   }

@@ -304,13 +304,25 @@ router.post('/update-learning/:walletAddress', async (req: Request, res: Respons
     }
 
     // Trigger Twitter learning
-    await twitterLearningService.processUserTwitterData(user);
+    const learningResult = await twitterLearningService.processUserTwitterData(user);
 
-    logger.info(`✅ Learning update completed for user ${user.id}`);
+    if (!learningResult.success) {
+      logger.error(`❌ Learning update failed for user ${user.id}: ${learningResult.error}`);
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to update learning from Twitter data',
+        details: learningResult.error,
+        tweetsProcessed: learningResult.tweetsProcessed,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info(`✅ Learning update completed for user ${user.id} with ${learningResult.tweetsProcessed} tweets processed`);
 
     return res.json({
       success: true,
       message: 'Learning updated successfully',
+      tweetsProcessed: learningResult.tweetsProcessed,
       timestamp: new Date().toISOString()
     });
 
@@ -371,9 +383,20 @@ router.post('/:agentId/update-learning', async (req: Request, res: Response) => 
     logger.info(`🧠 Triggering Twitter learning for agent ${agentId} (${agent.agentName})`);
 
     // Trigger Twitter learning for this user (affects all agents but triggered by specific agent)
-    await twitterLearningService.processUserTwitterData(user);
+    const learningResult = await twitterLearningService.processUserTwitterData(user);
 
-    logger.info(`✅ Learning update completed for agent ${agentId}`);
+    if (!learningResult.success) {
+      logger.error(`❌ Learning update failed for agent ${agentId}: ${learningResult.error}`);
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to update learning from Twitter data',
+        details: learningResult.error,
+        tweetsProcessed: learningResult.tweetsProcessed,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info(`✅ Learning update completed for agent ${agentId} with ${learningResult.tweetsProcessed} tweets processed`);
 
     // Get updated agent data
     const updatedAgent = await agentRepository.findOne({ 
@@ -383,6 +406,7 @@ router.post('/:agentId/update-learning', async (req: Request, res: Response) => 
     return res.json({
       success: true,
       message: `Learning updated successfully for agent: ${agent.agentName}`,
+      tweetsProcessed: learningResult.tweetsProcessed,
       timestamp: new Date().toISOString(),
       agent: {
         id: agentId,
