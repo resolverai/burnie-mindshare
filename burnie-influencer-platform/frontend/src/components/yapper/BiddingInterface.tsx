@@ -651,49 +651,53 @@ export default function BiddingInterface() {
                               
                               {/* Additional Content Images */}
                               {item.content_images && item.content_images.length > 0 && (
-                                <div className="grid grid-cols-2 gap-3">
-                                  {item.content_images.slice(0, 4).map((image: any, index: number) => (
-                                    <div key={index} className="space-y-1">
-                                      {image.url ? (
-                                        <div className="relative">
-                                          <img 
-                                            src={image.url} 
-                                            alt={image.description || `Generated image ${index + 1}`}
-                                            className="w-full h-24 object-cover rounded-md border border-gray-200"
-                                            onDragStart={preventDrag}
-                                            onContextMenu={preventImageRightClick}
-                                            style={{ 
-                                              userSelect: 'none',
-                                              WebkitUserSelect: 'none'
-                                            }}
-                                          />
-                                          {/* Small Image Watermarks */}
-                                          <div className="absolute inset-0 pointer-events-none">
-                                            <div className="absolute top-1 left-1 text-red-600 opacity-80 text-xs font-black bg-white bg-opacity-70 px-1 rounded">
-                                              ©
-                                            </div>
-                                            <div className="absolute top-1 right-1 text-red-600 opacity-70 text-xs font-black transform rotate-45 bg-white bg-opacity-60 px-1 rounded">
-                                              P
-                                            </div>
-                                            <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 text-red-600 opacity-60 text-xs font-black bg-white bg-opacity-60 px-1 rounded">
-                                              PREVIEW
-                                            </div>
-                                            <div className="absolute bottom-1 right-1 text-red-600 opacity-70 text-xs font-black transform -rotate-45 bg-white bg-opacity-60 px-1 rounded">
-                                              ®
+                                (() => {
+                                  // Filter out invalid images (no URL or empty URL)
+                                  const validImages = item.content_images.filter((image: any) => 
+                                    image && image.url && image.url.trim() !== ''
+                                  );
+                                  
+                                  // Only render if there are valid images
+                                  return validImages.length > 0 ? (
+                                    <div className="grid grid-cols-2 gap-3">
+                                      {validImages.slice(0, 4).map((image: any, index: number) => (
+                                        <div key={index} className="space-y-1">
+                                          <div className="relative">
+                                            <img 
+                                              src={image.url} 
+                                              alt={image.description || `Generated image ${index + 1}`}
+                                              className="w-full h-24 object-cover rounded-md border border-gray-200"
+                                              onDragStart={preventDrag}
+                                              onContextMenu={preventImageRightClick}
+                                              style={{ 
+                                                userSelect: 'none',
+                                                WebkitUserSelect: 'none'
+                                              }}
+                                            />
+                                            {/* Small Image Watermarks */}
+                                            <div className="absolute inset-0 pointer-events-none">
+                                              <div className="absolute top-1 left-1 text-red-600 opacity-80 text-xs font-black bg-white bg-opacity-70 px-1 rounded">
+                                                ©
+                                              </div>
+                                              <div className="absolute top-1 right-1 text-red-600 opacity-70 text-xs font-black transform rotate-45 bg-white bg-opacity-60 px-1 rounded">
+                                                P
+                                              </div>
+                                              <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 text-red-600 opacity-60 text-xs font-black bg-white bg-opacity-60 px-1 rounded">
+                                                PREVIEW
+                                              </div>
+                                              <div className="absolute bottom-1 right-1 text-red-600 opacity-70 text-xs font-black transform -rotate-45 bg-white bg-opacity-60 px-1 rounded">
+                                                ®
+                                              </div>
                                             </div>
                                           </div>
+                                          {image.description && (
+                                            <p className="text-xs text-gray-500 text-center">{image.description}</p>
+                                          )}
                                         </div>
-                                      ) : (
-                                        <div className="w-full h-24 bg-gradient-to-br from-gray-200 to-gray-300 rounded-md border border-gray-200 flex items-center justify-center">
-                                          <span className="text-gray-500 text-xs">🖼️ Image {index + 1}</span>
-                                        </div>
-                                      )}
-                                      {image.description && (
-                                        <p className="text-xs text-gray-500 text-center">{image.description}</p>
-                                      )}
+                                      ))}
                                     </div>
-                                  ))}
-                                </div>
+                                  ) : null;
+                                })()
                               )}
                             </div>
                           </div>

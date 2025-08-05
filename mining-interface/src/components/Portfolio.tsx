@@ -205,7 +205,7 @@ export default function Portfolio() {
     );
   }
 
-    return (
+  return (
     <div 
       className="h-full bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white overflow-y-auto portfolio-scroll"
       style={{
@@ -399,7 +399,7 @@ export default function Portfolio() {
               <ArrowTrendingUpIcon className="h-5 w-5 text-gray-400" />
             </div>
             
-            <div className="space-y-6">
+          <div className="space-y-6">
               {Object.entries(portfolioData?.contentByToken || {}).map(([token, contents]) => {
                 const style = getTokenStyle(token);
                 return (
@@ -600,7 +600,7 @@ export default function Portfolio() {
                   <div className="bg-blue-900/20 rounded-lg p-3 border border-blue-500/30">
                     <p className="text-blue-400 font-medium">Created By</p>
                     <p className="font-bold text-blue-300 text-lg">{showContentModal.agentName || 'Unknown'}</p>
-                  </div>
+                </div>
                   <div className="bg-green-900/20 rounded-lg p-3 border border-green-500/30">
                     <p className="text-green-400 font-medium">Sale Date</p>
                     <p className="font-bold text-green-300 text-lg">

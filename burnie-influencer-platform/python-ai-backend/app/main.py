@@ -201,6 +201,9 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
     try:
         logger.info(f"🎯 Starting mining session for wallet: {request.wallet_address}")
         
+        # Debug: Log the wallet address
+        logger.info(f"🔍 DEBUG: Received wallet_address: {request.wallet_address}")
+        
         # Look up user by wallet address
         from app.database.repositories.user_repository import UserRepository
         user_repo = UserRepository()
@@ -213,6 +216,9 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
         
         user_id = user.get('id')
         logger.info(f"🔍 Found user ID: {user_id} for wallet: {request.wallet_address}")
+        
+        # Debug: Log what we're about to pass to background task
+        logger.info(f"🔍 DEBUG: About to pass wallet_address to background task: {request.wallet_address}")
         
         # Determine if this is single or multiple campaign request
         campaigns_to_process = []
@@ -268,7 +274,8 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
             user_id, # Pass user_id
             campaigns_to_process,
             request.user_preferences or {},
-            request.user_api_keys
+            request.user_api_keys,
+            request.wallet_address  # Added missing wallet_address parameter
         )
         
         logger.info(f"🚀 Started mining session: {session_id} for user {request.wallet_address} with {len(campaigns_to_process)} campaign(s) (Text: {len(available_text_keys)} keys, Visual: {len(available_visual_keys)} keys)")
@@ -381,6 +388,9 @@ async def run_multi_campaign_generation(
     try:
         logger.info(f"🧠 Starting multi-campaign generation for session: {session_id} with {len(campaigns)} campaigns")
         
+        # Debug: Log the received wallet_address
+        logger.info(f"🔍 DEBUG: Background task received wallet_address: {wallet_address}")
+        
         # Wait for WebSocket connection to be established before sending updates
         await asyncio.sleep(2)  # Give frontend 2 seconds to establish WebSocket connection
         
@@ -409,8 +419,9 @@ async def run_multi_campaign_generation(
         
         generated_content_list = []
         
-        # Process each campaign individually
-        for index, campaign_pair in enumerate(campaigns):
+        # Process campaigns in parallel for better performance
+        async def process_single_campaign(index: int, campaign_pair: CampaignAgentPair):
+            """Process a single campaign and return the result"""
             try:
                 campaign_progress = int(10 + (80 * index / len(campaigns)))
                 await manager.send_progress_update(session_id, {
@@ -437,11 +448,13 @@ async def run_multi_campaign_generation(
                 # Add to progress tracker
                 progress_tracker.add_session(campaign_session_id, mining_session)
                 
-                # Initialize CrewAI service for this campaign
+                # Initialize CrewAI service with UNIQUE session ID for this campaign
+                logger.info(f"🔧 Creating CrewAI service: internal_session={campaign_session_id}, websocket_session={session_id}")
                 crew_service = CrewAIService(
-                    session_id=session_id,  # Use main session_id for WebSocket updates
+                    session_id=campaign_session_id,  # Use unique campaign session ID instead of shared session
                     progress_tracker=progress_tracker,
-                    websocket_manager=manager
+                    websocket_manager=manager,
+                    websocket_session_id=session_id  # Use main session ID for WebSocket communication to frontend
                 )
                 
                 # Run content generation for this specific campaign
@@ -457,6 +470,7 @@ async def run_multi_campaign_generation(
                     "campaign_id": campaign_pair.campaign_id,
                     "agent_id": campaign_pair.agent_id,
                     "content_text": result.content_text,
+                    "content_images": result.content_images,  # Include images in WebSocket message
                     "quality_score": result.quality_score,
                     "predicted_mindshare": result.predicted_mindshare,
                     "generation_metadata": result.generation_metadata,
@@ -464,7 +478,8 @@ async def run_multi_campaign_generation(
                     "status": "completed"
                 }
                 
-                generated_content_list.append(campaign_content)
+                # Debug: Log the content being sent to frontend
+                logger.info(f"🖼️  Sending content with {len(result.content_images) if result.content_images else 0} image(s) to frontend")
                 
                 # Send individual campaign completion update
                 await manager.send_progress_update(session_id, {
@@ -477,17 +492,38 @@ async def run_multi_campaign_generation(
                 })
                 
                 logger.info(f"✅ Completed campaign {index + 1}/{len(campaigns)} for session: {session_id}")
+                return campaign_content
                 
             except Exception as e:
                 logger.error(f"❌ Error generating content for campaign {campaign_pair.campaign_id}: {e}")
-                # Add failed campaign to results
-                failed_content = {
+                return {
                     "campaign_id": campaign_pair.campaign_id,
                     "agent_id": campaign_pair.agent_id,
                     "error": str(e),
                     "status": "failed"
                 }
-                generated_content_list.append(failed_content)
+        
+        # Create tasks for parallel execution
+        logger.info(f"🚀 Starting {len(campaigns)} campaigns in parallel...")
+        campaign_tasks = [
+            process_single_campaign(index, campaign_pair) 
+            for index, campaign_pair in enumerate(campaigns)
+        ]
+        
+        # Execute all campaigns in parallel
+        campaign_results = await asyncio.gather(*campaign_tasks, return_exceptions=True)
+        
+        # Process results
+        for result in campaign_results:
+            if isinstance(result, Exception):
+                logger.error(f"❌ Campaign task failed with exception: {result}")
+                generated_content_list.append({
+                    "campaign_id": "unknown",
+                    "error": str(result),
+                    "status": "failed"
+                })
+            else:
+                generated_content_list.append(result)
         
         # Send final completion message with all results
         await manager.send_progress_update(session_id, {
@@ -525,7 +561,8 @@ async def run_content_generation(session_id: str, mining_session: MiningSession,
         crew_service = CrewAIService(
             session_id=session_id,
             progress_tracker=progress_tracker,
-            websocket_manager=manager
+            websocket_manager=manager,
+            websocket_session_id=session_id  # In single mode, both session IDs are the same
         )
         
         # Run the multi-agentic content generation with user's API keys and agent config

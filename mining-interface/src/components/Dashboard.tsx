@@ -48,7 +48,7 @@ interface MinerAnalytics {
       quality_score: number;
     }>;
     bidTrends: Array<{
-      date: string;
+  date: string;
       bidCount: number;
       revenue: number;
     }>;
@@ -364,8 +364,8 @@ export default function Dashboard() {
               );
             })}
           </div>
-        </div>
-        
+          </div>
+
         {/* Summary Stats */}
         <div className="grid grid-cols-4 gap-4 text-center">
           <div>
@@ -379,13 +379,13 @@ export default function Dashboard() {
               {trends.reduce((sum, t) => sum + t.revenue, 0)} Tokens
             </p>
             <p className="text-sm text-gray-400">Total Revenue</p>
-          </div>
+        </div>
           <div>
             <p className="text-2xl font-bold text-purple-400">
               {trends.length > 0 ? (trends.reduce((sum, t) => sum + t.bidCount, 0) / trends.length).toFixed(1) : '0.0'}
             </p>
             <p className="text-sm text-gray-400">Avg Daily Bids</p>
-          </div>
+      </div>
           <div>
             <p className="text-2xl font-bold text-orange-400">
               {trends.length > 0 ? Math.round(trends.reduce((sum, t) => sum + t.revenue, 0) / trends.length) : 0} Tokens
@@ -399,7 +399,7 @@ export default function Dashboard() {
 
   const renderTopContent = () => {
     if (!analyticsData?.performance.topContent || analyticsData.performance.topContent.length === 0) {
-      return (
+            return (
         <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
           <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
             <FireIcon className="h-6 w-6 mr-2 text-orange-400" />
@@ -410,7 +410,7 @@ export default function Dashboard() {
               <DocumentTextIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
               <p className="text-gray-400">No Data</p>
               <p className="text-gray-500 text-sm">Create content to see performance</p>
-            </div>
+                  </div>
           </div>
         </div>
       )
@@ -430,20 +430,20 @@ export default function Dashboard() {
                 <div className="flex items-center space-x-3">
                   <div className="flex items-center justify-center w-8 h-8 bg-orange-600 rounded-full text-white font-bold text-sm">
                     {index + 1}
-                  </div>
+                    </div>
                   <div>
                     <p className="text-white font-medium">{content.title}</p>
                     <div className="flex items-center space-x-4 text-sm text-gray-400">
                       <span>{content.bidCount} bids</span>
                       <span>Max: {content.maxBid} tokens</span>
                       <span>Quality: {content.quality_score}/100</span>
+                      </div>
+                        </div>
                     </div>
-                  </div>
-                </div>
                 <div className="text-right">
                   <p className="text-green-400 font-semibold">{content.revenue} Tokens</p>
                   <p className="text-gray-400 text-sm">Revenue</p>
-                </div>
+                  </div>
               </div>
             </div>
           ))}
@@ -465,8 +465,8 @@ export default function Dashboard() {
               <DocumentTextIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
               <p className="text-gray-400">No Data</p>
               <p className="text-gray-500 text-sm">Create diverse content to see categories</p>
-            </div>
-          </div>
+                    </div>
+                  </div>
         </div>
       )
     }
@@ -489,19 +489,19 @@ export default function Dashboard() {
                     <span className="text-gray-400">{category.count} posts</span>
                     <span className="text-blue-400">{category.avgBids} avg bids</span>
                     <span className="text-green-400">{category.revenue} tokens</span>
-          </div>
-          </div>
+                    </div>
+                      </div>
                 <div className="w-full bg-gray-700 rounded-full h-2">
                   <div 
                     className="h-2 rounded-full bg-gradient-to-r from-purple-500 to-blue-500"
                     style={{ width: `${maxRevenue > 0 ? (category.revenue / maxRevenue) * 100 : 0}%` }}
                   />
-        </div>
-      </div>
+                </div>
+              </div>
             )
           })}
         </div>
-      </div>
+                    </div>
     )
   }
 
@@ -511,7 +511,7 @@ export default function Dashboard() {
         <div className="flex items-center space-x-3 mb-6">
           <div className="p-2 bg-blue-500/20 rounded-lg">
             <StarIcon className="h-5 w-5 text-blue-400" />
-          </div>
+                    </div>
           <h3 className="text-xl font-bold text-white">Smart Feed</h3>
           <span className="px-2 py-1 bg-gray-500/20 text-gray-400 text-xs rounded-full">Coming Soon</span>
         </div>
@@ -521,10 +521,10 @@ export default function Dashboard() {
             <StarIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
             <p className="text-gray-400">No Data</p>
             <p className="text-gray-500 text-sm">Twitter integration coming soon</p>
-          </div>
-        </div>
-      </div>
-    )
+                    </div>
+                  </div>
+                </div>
+              )
   }
 
   const renderYapperEngagement = () => {
@@ -792,7 +792,7 @@ export default function Dashboard() {
                 })()}
               </p>
               <p className="text-gray-400 text-sm">Peak Hours</p>
-            </div>
+                  </div>
             <div className="bg-gray-700/30 rounded-lg p-4 text-center">
               <p className="text-2xl font-bold text-green-400">
                 {(() => {
@@ -813,7 +813,7 @@ export default function Dashboard() {
                 })()}
               </p>
               <p className="text-gray-400 text-sm">Best Days</p>
-            </div>
+                </div>
             <div className="bg-gray-700/30 rounded-lg p-4 text-center">
               <p className="text-2xl font-bold text-purple-400">
                 {(() => {
@@ -823,8 +823,8 @@ export default function Dashboard() {
                 })()}
               </p>
               <p className="text-gray-400 text-sm">Peak Efficiency</p>
+              </div>
             </div>
-          </div>
           </div>
       </div>
     )

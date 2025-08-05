@@ -419,6 +419,7 @@ export default function Mining() {
 
             case 'campaign_completed':
               console.log('✅ Campaign completed:', data)
+              console.log('🖼️  Campaign content images:', data.campaign_content?.content_images)
               
               // Find the campaign index by matching campaign_id
               const campaignIndex = selectedCampaigns.findIndex(
@@ -434,6 +435,7 @@ export default function Mining() {
                     content: {
                       id: data.campaign_content?.id || `gen_${Date.now()}`,
                       content_text: data.campaign_content?.content_text || '',
+                      content_images: data.campaign_content?.content_images || null, // Include images from backend
                       predicted_mindshare: data.campaign_content?.predicted_mindshare || 0,
                       quality_score: data.campaign_content?.quality_score || 0,
                       generation_metadata: data.campaign_content?.generation_metadata || {
@@ -570,7 +572,7 @@ export default function Mining() {
           agentName: reviewItem.agent.name,
           walletAddress: address,
           contentText: reviewItem.content?.content_text,
-          contentImages: null, // Will be extracted from content_text when backend parses it
+          contentImages: reviewItem.content?.content_images || null, // Pass actual images from content
           predictedMindshare: reviewItem.content?.predicted_mindshare,
           qualityScore: reviewItem.content?.quality_score,
           generationMetadata: reviewItem.content?.generation_metadata,
