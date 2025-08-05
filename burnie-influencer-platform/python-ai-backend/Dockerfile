@@ -23,11 +23,15 @@ COPY app ./app
 
 # Create non-root user
 RUN groupadd --gid 1001 python && \
-    useradd --uid 1001 --gid python --shell /bin/bash python
+    useradd --uid 1001 --gid python --shell /bin/bash --home-dir /app python
 
 # Create directories and set permissions
-RUN mkdir -p /app/logs /app/models/mindshare && \
-    chown -R python:python /app
+RUN mkdir -p /app/logs /app/models/mindshare /app/temp && \
+    chown -R python:python /app && \
+    chmod -R 755 /app
+
+# Set the home directory to /app for the python user
+ENV HOME=/app
 
 USER python
 

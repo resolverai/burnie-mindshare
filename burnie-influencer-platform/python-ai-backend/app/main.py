@@ -42,7 +42,8 @@ app.add_middleware(
         "https://mining.burnie.io",  # Mining interface (production)
         "https://influencer.burnie.io",  # Burnie Influencer Platform frontend (production)
         "https://mindshareapi.burnie.io",  # TypeScript backend (production)
-        "https://attentionai.burnie.io",  # Python AI backend (production)
+        "https://attentionai.burnie.io",  # Python AI backend (production - main)
+        "https://attention.burnie.io",  # Python AI backend (production - fallback)
     ],
     allow_credentials=True,
     allow_methods=["*"],
