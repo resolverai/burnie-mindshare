@@ -568,46 +568,37 @@ class CrewAIService:
         )
 
     def _create_orchestrator_agent(self) -> Agent:
-        """Create Orchestrator Agent without tools - pure LLM reasoning"""
+        """Create Orchestrator Agent with LLM-based content extraction tool"""
+        # Create the LLM content extraction tool
+        content_extraction_tool = LLMContentExtractionTool()
+        
         return Agent(
             role='Content Orchestrator',
             goal=f'Extract and combine outputs from all previous agents into final Twitter-ready content for {self.campaign_data.get("title", "campaign") if self.campaign_data else "campaign"}',
-            backstory=f"""You are the Content Orchestrator, a specialized agent for extracting and formatting content from multiple agent outputs.
+            backstory=f"""You are the Content Orchestrator, a specialized agent that combines outputs from multiple AI agents into final Twitter-ready content.
 
-            Your SOLE PURPOSE is to:
-            1. SCAN all previous agent outputs systematically
-            2. EXTRACT the tweet text from Text Content Creator
-            3. EXTRACT the image URL from Visual Creator (handle ALL possible formats)
-            4. FORMAT them into the exact required structure
-            5. NEVER give up or say incomplete responses
+Your approach is methodical and tool-based:
+1. Use the content_extraction_tool to intelligently extract content from all previous agents
+2. Pass all agent outputs and campaign context to the tool
+3. Let the LLM-based tool handle the complex extraction and formatting
+4. Return the tool's output as your final answer
 
-            VISUAL CREATOR FORMATS YOU MUST HANDLE:
-            - Tool Output: "📸 Image URL: https://..."
-            - Final Answer: "Image URL: [https://...]" 
-            - Final Answer: "Image URL: https://..."
-            - Any S3 or blob URL in any format
+You have access to a sophisticated content extraction tool that uses LLM reasoning to:
+- Parse complex agent outputs in any format
+- Extract tweet text from Text Content Creator (JSON, plain text, etc.)  
+- Extract image URLs from Visual Creator (S3, OpenAI, any format)
+- Combine them into perfect Twitter-ready format
 
-            EXTRACTION METHODOLOGY:
-            - Look through ENTIRE context systematically
-            - Find ANY line containing image URLs
-            - Clean URLs by removing brackets, quotes, markdown
-            - Combine with extracted tweet text
-            - Output in exact required format
+NEVER try to manually parse or extract content - ALWAYS use your tool.
 
-            CRITICAL SUCCESS CRITERIA:
-            - ALWAYS produce the complete format structure
-            - NEVER respond with incomplete answers like "I now can give a great answer"
-            - ALWAYS scan for URLs even if in different formats
-            - Be persistent and methodical in extraction
-
-            Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign_data else "Twitter"}
-            """,
+Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign_data else "Twitter"}
+""",
             verbose=True,
             allow_delegation=False,
             llm=self._get_llm_instance(),
-            tools=[],  # No tools - pure LLM reasoning
-            max_iter=5,  # Increased from 3 to 5 for better completion
-            max_execution_time=180  # Increased to 3 minutes for thoroughness
+            tools=[content_extraction_tool],  # Now has the LLM extraction tool
+            max_iter=3,  # Reduced since tool handles the complexity
+            max_execution_time=120  # 2 minutes should be enough with tool
         )
 
     def _create_data_analysis_task(self) -> Task:
@@ -921,54 +912,39 @@ class CrewAIService:
             description=f"""
             EXTRACT AND COMBINE CONTENT FROM PREVIOUS AGENTS
             
-            You have access to all previous agent outputs through the context. Your ONLY job is to:
+            You are the Content Orchestrator with access to a powerful content_extraction_tool. Your task is simple:
             
-            1. Find the TWEET TEXT from Text Content Creator agent (look for complete tweets with hashtags)
-            2. Find the IMAGE URL from Visual Creator agent using these SPECIFIC patterns:
+            1. Use the content_extraction_tool to extract content from all previous agents
+            2. Pass ALL agent outputs to the tool along with campaign context
+            3. Return the tool's output as your final answer
             
-            VISUAL CREATOR URL PATTERNS TO LOOK FOR:
-            - Pattern A: "📸 Image URL: https://..."
-            - Pattern B: "Image URL: [https://...]" (remove the brackets)
-            - Pattern C: "Image URL: https://..."
-            - Pattern D: "Image URL: [Image Link](https://...)" (markdown format - extract URL from parentheses)
-            - Pattern E: Any line containing "burnie-mindshare-content-staging.s3.amazonaws.com"
-            - Pattern F: Any line containing "burnie-mindshare-content.s3.amazonaws.com" 
-            - Pattern G: Any line containing "oaidalleapiprodscus.blob.core.windows.net"
-            - Pattern H: Any line containing "cdn.openai.com"
-            - Pattern I: Any line containing "storage.googleapis.com"
-            - Pattern J: Any line containing "firebasestorage.googleapis.com"
-            - Pattern K: Any line containing "replicate.delivery"
-            - Pattern L: Any line containing "stability.ai"
-            - Pattern M: Any S3 URL with "ai-generated" in the path
-            - Pattern N: Any HTTPS URL ending with .png, .jpg, .jpeg, .gif, .webp
-            - Pattern O: Any HTTPS URL with image-related query parameters
+            STEP-BY-STEP PROCESS:
             
-            3. Combine them into the exact format below
+            1. **Collect Agent Outputs**: Gather all outputs from:
+               - Data Analyst Agent
+               - Content Strategist Agent  
+               - Text Content Creator Agent
+               - Visual Content Creator Agent
             
-            OUTPUT THIS EXACT FORMAT (NO EXCEPTIONS):
+            2. **Use Content Extraction Tool**: Call the content_extraction_tool with:
+               - agent_outputs: All previous agent outputs combined as text
+               - campaign_context: "{self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}"
             
-            📱 FINAL TWITTER POST:
+            3. **Return Tool Output**: Whatever the tool returns is your final answer
             
-            🐦 TEXT:
-            [Insert the complete tweet text from Text Creator - with all hashtags and emojis]
+            CRITICAL INSTRUCTIONS:
+            - ALWAYS use the content_extraction_tool - never try manual extraction
+            - Pass ALL available agent outputs to the tool
+            - The tool handles complex parsing, URL cleaning, and formatting
+            - Return the tool's output exactly as provided
+            - Do NOT add your own commentary or explanations
             
-            🎨 IMAGE:
-            [Insert the CLEAN image URL from Visual Creator - NO brackets, NO quotes, just the URL]
-            
-            ✅ STATUS: Ready for publication
-            
-            CRITICAL EXTRACTION RULES:
-            - ALWAYS scan the entire context for image URLs
-            - Remove ALL brackets [] and quotes "" from URLs
-            - If you find multiple URLs, use the FIRST valid one
-            - If NO image URL found, write "No image generated"
-            - NEVER say "I now can give a great answer" - ALWAYS provide the format above
-            - IGNORE any explanatory text - EXTRACT and FORMAT only
+            This tool-based approach ensures reliable extraction regardless of agent output formats.
             
             Campaign: {self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}
             """,
             agent=self.agents[AgentType.ORCHESTRATOR],
-            expected_output="Complete Twitter post with extracted text and clean image URL in the exact format specified",
+            expected_output="Complete Twitter post with extracted text and clean image URL using the content extraction tool",
             context=[
                 self.tasks[AgentType.DATA_ANALYST],
                 self.tasks[AgentType.CONTENT_STRATEGIST], 
@@ -2182,6 +2158,74 @@ Optimal Posting Time: Peak hours (12-2 PM, 7-9 PM UTC)
 """
         except Exception as e:
             return f"Error in engagement prediction: {str(e)}"
+
+# LLM-based Content Extraction Tool for Content Orchestrator
+class ContentExtractionInput(BaseModel):
+    """Input schema for content extraction tool"""
+    agent_outputs: str = Field(..., description="All previous agent outputs combined as text")
+    campaign_context: str = Field(..., description="Campaign context and requirements")
+
+class LLMContentExtractionTool(BaseTool):
+    """LLM-based tool for intelligently extracting and combining content from previous agents"""
+    name: str = "content_extraction_tool"
+    description: str = "Extract text content and image URLs from previous agent outputs using LLM reasoning"
+    args_schema: Type[BaseModel] = ContentExtractionInput
+    
+    def _run(self, agent_outputs: str, campaign_context: str) -> str:
+        """Use LLM to intelligently extract and combine content"""
+        try:
+            # Initialize LLM for content extraction
+            unified_generator = UnifiedContentGenerator()
+            
+            # Create extraction prompt for LLM
+            extraction_prompt = f"""
+You are a content extraction specialist. Your job is to extract and combine content from multiple AI agent outputs into final Twitter-ready format.
+
+CAMPAIGN CONTEXT:
+{campaign_context}
+
+AGENT OUTPUTS TO ANALYZE:
+{agent_outputs}
+
+YOUR TASK:
+1. Find the tweet text from the Text Content Creator agent
+2. Find the image URL from the Visual Content Creator agent  
+3. Combine them into the exact format below
+
+EXTRACTION RULES:
+- Look for any JSON content with tweet variations (conservative, engaging, bold)
+- Extract the best tweet text (usually from "engaging" or "bold" variation)
+- Find any image URL (S3, blob, OpenAI, or any other format)
+- Clean URLs by removing brackets, quotes, or markdown formatting
+- NEVER return incomplete responses or task descriptions
+
+REQUIRED OUTPUT FORMAT (EXACT):
+```
+Tweet Text: [extracted tweet text here]
+
+Image URL: [extracted clean image URL here]
+```
+
+CRITICAL: Return ONLY the extracted content in the exact format above. Do not explain your process or describe what you're doing.
+"""
+
+            # Use LLM to extract content
+            result = unified_generator.generate_content(
+                prompt=extraction_prompt,
+                provider="openai",  # Use OpenAI for reliable extraction
+                model_id="gpt-4o",
+                max_tokens=500,
+                temperature=0.1  # Low temperature for consistent extraction
+            )
+            
+            extracted_content = result.content.strip()
+            logger.info(f"🧠 LLM Content Extraction Result: {extracted_content}")
+            
+            return extracted_content
+            
+        except Exception as e:
+            logger.error(f"❌ LLM content extraction error: {e}")
+            return f"Content extraction failed: {str(e)}"
 
 # Real LLM Provider Tools with User Configuration
 class OpenAIContentTool(BaseTool):

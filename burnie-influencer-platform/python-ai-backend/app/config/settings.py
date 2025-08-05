@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     google_gemini_api_key: Optional[str] = Field(default=None, env="GOOGLE_GEMINI_API_KEY")
     
     # CrewAI Configuration
-    crewai_model: str = Field(default="gpt-4", env="CREWAI_MODEL")
+    crewai_model: str = Field(default="gpt-4o", env="CREWAI_MODEL")
     crewai_temperature: float = Field(default=0.7, env="CREWAI_TEMPERATURE")
     crewai_max_tokens: int = Field(default=2000, env="CREWAI_MAX_TOKENS")
     crewai_telemetry_opt_out: bool = Field(default=True, env="CREWAI_TELEMETRY_OPT_OUT")

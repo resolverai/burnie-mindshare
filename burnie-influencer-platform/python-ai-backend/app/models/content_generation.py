@@ -35,7 +35,7 @@ class ContentGenerationRequest(BaseModel):
     campaign_context: Dict[str, Any]
     user_preferences: Optional[Dict[str, Any]] = None
     ai_provider: Optional[str] = "openai"
-    ai_model: Optional[str] = "gpt-4"
+    ai_model: Optional[str] = "gpt-4o"
     content_type: str = "text"
     target_length: Optional[int] = 280
     tone: Optional[str] = "engaging"
@@ -141,7 +141,7 @@ class AgentConfiguration(BaseModel):
     """Configuration for individual agents"""
     agent_type: AgentType
     model_provider: str = "openai"
-    model_name: str = "gpt-4"
+    model_name: str = "gpt-4o"
     temperature: float = Field(default=0.7, ge=0, le=1)
     max_tokens: int = Field(default=1000, gt=0)
     custom_instructions: Optional[str] = None
