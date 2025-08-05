@@ -692,6 +692,19 @@ router.post('/approve', async (req, res) => {
       askingPrice = 100 // Default asking price
     } = req.body;
 
+    // Debug: Log received data
+    console.log('🔍 Approval request received:', {
+      campaignId,
+      agentId,
+      agentName,
+      walletAddress,
+      contentText: contentText ? contentText.substring(0, 100) + '...' : null,
+      contentImages,
+      predictedMindshare,
+      qualityScore,
+      askingPrice
+    });
+
     // Validate required fields
     if (!campaignId || !contentText || !walletAddress) {
       console.error('❌ Missing required fields:', { campaignId, contentText: !!contentText, walletAddress });
@@ -758,6 +771,7 @@ router.post('/approve', async (req, res) => {
         agentName: savedContent.agentName,
         walletAddress: savedContent.walletAddress,
         contentText: savedContent.contentText.substring(0, 100) + '...',
+        contentImages: savedContent.contentImages,
         predictedMindshare: savedContent.predictedMindshare,
         qualityScore: savedContent.qualityScore,
         askingPrice: savedContent.askingPrice,
@@ -807,9 +821,8 @@ router.post('/approve', async (req, res) => {
       if (walletAddress) {
         existingContent.walletAddress = walletAddress;
       }
-      if (contentImages) {
-        existingContent.contentImages = contentImages;
-      }
+      // Always update contentImages regardless of value (null, array, etc.)
+      existingContent.contentImages = contentImages;
       if (generationMetadata) {
         existingContent.generationMetadata = generationMetadata;
       }
@@ -826,6 +839,7 @@ router.post('/approve', async (req, res) => {
         agentName: updatedContent.agentName,
         walletAddress: updatedContent.walletAddress,
         contentText: updatedContent.contentText.substring(0, 100) + '...',
+        contentImages: updatedContent.contentImages,
         predictedMindshare: updatedContent.predictedMindshare,
         qualityScore: updatedContent.qualityScore,
         askingPrice: updatedContent.askingPrice,
@@ -878,6 +892,7 @@ router.post('/approve', async (req, res) => {
         agentName: savedContent.agentName,
         walletAddress: savedContent.walletAddress,
         contentText: savedContent.contentText.substring(0, 100) + '...',
+        contentImages: savedContent.contentImages,
         predictedMindshare: savedContent.predictedMindshare,
         qualityScore: savedContent.qualityScore,
         askingPrice: savedContent.askingPrice,
