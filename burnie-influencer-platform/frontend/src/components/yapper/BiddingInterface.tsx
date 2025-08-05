@@ -23,7 +23,7 @@ import {
 interface ContentItem {
   id: number
   content_text: string
-  content_images?: any // JSON field containing image URLs and metadata
+  content_images?: string[] // Array of image URLs
   predicted_mindshare: number
   quality_score: number
   asking_price: number
@@ -111,9 +111,14 @@ export default function BiddingInterface() {
     }
   }
 
-  const extractHashtags = (text: string): string[] => {
-    const hashtags = text.match(/#\w+/g) || []
-    return hashtags
+  // Generate a consistent miner ID from username
+  const generateMinerId = (username: string): string => {
+    const hash = username.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0)
+      return a & a
+    }, 0)
+    const minerId = Math.abs(hash).toString().slice(0, 6).padStart(6, '0')
+    return `MINER-${minerId}`
   }
 
   // Copy protection modal component
@@ -511,8 +516,15 @@ export default function BiddingInterface() {
         ) : content && content.length > 0 ? (
           <div className="space-y-8">
             {content.map((item: ContentItem) => {
-              const { text, imageUrl } = formatTwitterContent(item.content_text)
-              const hashtags = extractHashtags(text)
+              // Use content_images array directly instead of extracting from text
+              const text = item.content_text
+              const imageUrl = item.content_images && item.content_images.length > 0 
+                ? item.content_images[0] 
+                : null
+              
+              // Debug logging
+              console.log('🖼️ BiddingInterface: Content images array:', item.content_images)
+              console.log('🖼️ BiddingInterface: Selected image URL:', imageUrl)
               
               return (
                 <div key={item.id} className="card hover:shadow-xl transition-all duration-300 border-l-4 border-l-orange-500">
@@ -522,12 +534,12 @@ export default function BiddingInterface() {
                       <div className="flex items-center space-x-3">
                         <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
                           <span className="text-white font-bold">
-                          {item.creator.username.charAt(0).toUpperCase()}
+                          {generateMinerId(item.creator.username).charAt(6).toUpperCase()}
                         </span>
                       </div>
                       <div>
                           <div className="flex items-center space-x-2">
-                            <p className="font-medium text-gray-900">{item.creator.username}</p>
+                            <p className="font-medium text-gray-900">{generateMinerId(item.creator.username)}</p>
                             {item.agent_name && (
                               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
                                 🤖 {item.agent_name}
@@ -552,157 +564,46 @@ export default function BiddingInterface() {
                       </div>
                     </div>
 
-                    {/* Twitter-Ready Content Display */}
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-semibold text-blue-600 flex items-center">
-                          🐦 Twitter-Ready Content
-                        </h4>
+                    {/* Clean Content Display */}
+                    <div className="space-y-4">
+                      {/* Tweet Text */}
+                      <div className="bg-white rounded-lg p-4 border border-gray-200">
+                        <div className="text-gray-900 whitespace-pre-wrap font-medium leading-relaxed">
+                          {text}
+                        </div>
                       </div>
-                      
-                      <div className="space-y-4">
-                        {/* Twitter Text */}
-                        <div className="bg-white rounded-lg p-4 border border-gray-200">
-                          <div className="text-gray-900 whitespace-pre-wrap font-medium leading-relaxed">
-                            {text}
-                          </div>
-                          <div className="mt-2 space-y-2 text-xs text-gray-500">
-                            <div className="flex items-center justify-between">
-                              <span>Characters: {text.length}/280</span>
-                              <span className="text-blue-600">Twitter-ready ✓</span>
-                            </div>
-                            {hashtags.length > 0 && (
-                              <div className="flex items-start space-x-2">
-                                <span className="whitespace-nowrap">Hashtags:</span>
-                                <div className="flex flex-wrap gap-1">
-                                  {hashtags.map((tag, index) => (
-                                    <span key={index} className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs whitespace-nowrap">
-                                      {tag}
-                      </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                    </div>
-                  </div>
 
-                        {/* Visual Content */}
-                        {(imageUrl || (item.content_images && item.content_images.length > 0)) && (
-                          <div className="bg-white rounded-lg p-4 border border-gray-200">
-                            <h5 className="text-sm font-semibold text-purple-600 mb-3 flex items-center">
-                              🖼️ Generated Visuals
-                            </h5>
-                            <div className="space-y-4">
-                              {/* Primary Image from AI Generation */}
-                              {imageUrl && (
-                                <div className="space-y-2">
-                                  <div className="relative">
-                                    <img 
-                                      src={imageUrl} 
-                                      alt="AI Generated content image"
-                                      className="w-full max-w-md rounded-lg border border-gray-300 shadow-md"
-                                      onLoad={() => console.log('✅ Primary image loaded:', imageUrl)}
-                                      onError={(e) => {
-                                        console.error('❌ Primary image failed to load:', imageUrl)
-                                        e.currentTarget.style.display = 'none'
-                                        const fallback = e.currentTarget.nextElementSibling as HTMLElement
-                                        if (fallback) fallback.style.display = 'block'
-                                      }}
-                                      onDragStart={preventDrag}
-                                      onContextMenu={preventImageRightClick}
-                                      style={{ 
-                                        userSelect: 'none',
-                                        WebkitUserSelect: 'none'
-                                      }}
-                                    />
-                                    {/* Image Watermarks */}
-                                    <div className="absolute inset-0 pointer-events-none">
-                                      <div className="absolute top-2 left-2 text-red-600 opacity-70 text-sm font-black transform -rotate-12 bg-white bg-opacity-60 px-1 rounded">
-                                        PROTECTED
-                                      </div>
-                                      <div className="absolute top-1/4 right-4 text-red-600 opacity-60 text-xs font-black transform rotate-45 bg-white bg-opacity-60 px-1 rounded">
-                                        PREVIEW
-                                      </div>
-                                      <div className="absolute bottom-4 left-1/3 text-red-600 opacity-70 text-sm font-black transform -rotate-45 bg-white bg-opacity-60 px-1 rounded">
-                                        NO COPY
-                                      </div>
-                                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-red-600 opacity-40 text-lg font-black bg-white bg-opacity-50 px-2 py-1 rounded">
-                                        BID TO ACCESS
-                                      </div>
-                                      <div className="absolute bottom-2 right-2 text-red-600 opacity-60 text-xs font-black transform rotate-12 bg-white bg-opacity-60 px-1 rounded">
-                                        WATERMARK
-                                      </div>
-                                    </div>
-                                    <div 
-                                      className="hidden bg-gradient-to-br from-gray-200 to-gray-300 rounded-lg border border-gray-300 p-8 text-center"
-                                    >
-                                      <span className="text-gray-600 text-sm">
-                                        🖼️ AI Generated Image
-                                        <br />
-                                        <span className="text-xs text-gray-500">Preview not available</span>
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="text-xs text-gray-500 bg-gray-100 p-2 rounded font-mono break-all">
-                                    <strong>Image URL:</strong> {imageUrl}
-                                  </div>
-                                </div>
-                              )}
-                              
-                              {/* Additional Content Images */}
-                              {item.content_images && item.content_images.length > 0 && (
-                                (() => {
-                                  // Filter out invalid images (no URL or empty URL)
-                                  const validImages = item.content_images.filter((image: any) => 
-                                    image && image.url && image.url.trim() !== ''
-                                  );
-                                  
-                                  // Only render if there are valid images
-                                  return validImages.length > 0 ? (
-                                    <div className="grid grid-cols-2 gap-3">
-                                      {validImages.slice(0, 4).map((image: any, index: number) => (
-                                        <div key={index} className="space-y-1">
-                                          <div className="relative">
-                                            <img 
-                                              src={image.url} 
-                                              alt={image.description || `Generated image ${index + 1}`}
-                                              className="w-full h-24 object-cover rounded-md border border-gray-200"
-                                              onDragStart={preventDrag}
-                                              onContextMenu={preventImageRightClick}
-                                              style={{ 
-                                                userSelect: 'none',
-                                                WebkitUserSelect: 'none'
-                                              }}
-                                            />
-                                            {/* Small Image Watermarks */}
-                                            <div className="absolute inset-0 pointer-events-none">
-                                              <div className="absolute top-1 left-1 text-red-600 opacity-80 text-xs font-black bg-white bg-opacity-70 px-1 rounded">
-                                                ©
-                                              </div>
-                                              <div className="absolute top-1 right-1 text-red-600 opacity-70 text-xs font-black transform rotate-45 bg-white bg-opacity-60 px-1 rounded">
-                                                P
-                                              </div>
-                                              <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 text-red-600 opacity-60 text-xs font-black bg-white bg-opacity-60 px-1 rounded">
-                                                PREVIEW
-                                              </div>
-                                              <div className="absolute bottom-1 right-1 text-red-600 opacity-70 text-xs font-black transform -rotate-45 bg-white bg-opacity-60 px-1 rounded">
-                                                ®
-                                              </div>
-                                            </div>
-                                          </div>
-                                          {image.description && (
-                                            <p className="text-xs text-gray-500 text-center">{image.description}</p>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : null;
-                                })()
-                              )}
+                      {/* Image */}
+                      {imageUrl && (
+                        <div className="bg-white rounded-lg p-4 border border-gray-200">
+                          <div className="relative">
+                            <img 
+                              src={imageUrl} 
+                              alt="AI Generated content image"
+                              className="w-full max-w-md rounded-lg border border-gray-300 shadow-md"
+                              onLoad={() => console.log('✅ BiddingInterface image loaded:', imageUrl)}
+                              onError={(e) => {
+                                console.error('❌ BiddingInterface image failed to load:', imageUrl)
+                                e.currentTarget.style.display = 'none'
+                                const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                                if (fallback) fallback.style.display = 'block'
+                              }}
+                              onDragStart={preventDrag}
+                              onContextMenu={preventImageRightClick}
+                              style={{ userSelect: 'none' }}
+                            />
+                            <div 
+                              className="hidden bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg border border-gray-300 p-8 text-center"
+                            >
+                              <span className="text-gray-500 text-sm">
+                                🖼️ AI Generated Image
+                                <br />
+                                <span className="text-xs text-gray-400">Preview not available</span>
+                              </span>
                             </div>
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Performance Metrics */}
@@ -837,90 +738,43 @@ export default function BiddingInterface() {
                 {/* Content Preview */}
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="mb-4">
-                    <h4 className="text-sm font-semibold text-blue-600 mb-2">🐦 Full Twitter Content</h4>
+                    <h4 className="text-sm font-semibold text-blue-600 mb-2">🐦 Content Preview</h4>
                     <div className="bg-white rounded-lg p-4 border border-gray-200 max-h-96 overflow-y-auto">
                       <p className="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">
-                        {formatTwitterContent(showBidModal.content_text).text}
+                        {showBidModal.content_text}
                       </p>
-                      <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
-                        <div className="flex items-center justify-between text-xs text-gray-500">
-                          <span>Characters: {formatTwitterContent(showBidModal.content_text).text.length}/280</span>
-                          <span className="text-blue-600">Twitter-ready ✓</span>
-                        </div>
-                        {extractHashtags(formatTwitterContent(showBidModal.content_text).text).length > 0 && (
-                          <div className="flex items-start space-x-2 text-xs text-gray-500">
-                            <span className="whitespace-nowrap">Hashtags:</span>
-                            <div className="flex flex-wrap gap-1">
-                              {extractHashtags(formatTwitterContent(showBidModal.content_text).text).map((tag, index) => (
-                                <span key={index} className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs whitespace-nowrap">
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
                     </div>
                     
-                    {/* Visual Content */}
-                    {(extractImageUrl(showBidModal.content_text) || (showBidModal.content_images && showBidModal.content_images.length > 0)) && (
+                    {/* Image */}
+                    {showBidModal.content_images && showBidModal.content_images.length > 0 && (
                       <div className="mt-4">
-                        <h5 className="text-sm font-semibold text-purple-600 mb-3">🖼️ Generated Visuals</h5>
                         <div className="bg-white rounded-lg p-4 border border-gray-200">
-                          {extractImageUrl(showBidModal.content_text) && (
-                            <div className="space-y-2">
-                              <div className="relative max-w-md mx-auto">
-                                <img 
-                                  src={extractImageUrl(showBidModal.content_text)!} 
-                                  alt="AI Generated content image"
-                                  className="w-full rounded-lg border border-gray-300 shadow-md"
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = 'none'
-                                  }}
-                                  onDragStart={preventDrag}
-                                  onContextMenu={preventImageRightClick}
-                                  style={{ 
-                                    userSelect: 'none',
-                                    WebkitUserSelect: 'none'
-                                  }}
-                                />
-                                {/* Modal Image Watermarks */}
-                                <div className="absolute inset-0 pointer-events-none">
-                                  <div className="absolute top-3 left-3 text-red-600 opacity-80 text-sm font-black transform -rotate-12 bg-white bg-opacity-70 px-2 py-1 rounded">
-                                    PROTECTED
-                                  </div>
-                                  <div className="absolute top-3 right-3 text-red-600 opacity-70 text-xs font-black transform rotate-45 bg-white bg-opacity-60 px-1 rounded">
-                                    PREVIEW
-                                  </div>
-                                  <div className="absolute bottom-4 left-1/4 text-red-600 opacity-75 text-sm font-black transform -rotate-45 bg-white bg-opacity-70 px-2 py-1 rounded">
-                                    NO COPY
-                                  </div>
-                                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-red-600 opacity-50 text-xl font-black bg-white bg-opacity-60 px-3 py-2 rounded">
-                                    BID TO ACCESS
-                                  </div>
-                                  <div className="absolute bottom-3 right-3 text-red-600 opacity-70 text-xs font-black transform rotate-12 bg-white bg-opacity-60 px-1 rounded">
-                                    WATERMARK
-                                  </div>
-                                  <div className="absolute top-1/4 left-1/4 text-red-600 opacity-60 text-xs font-black transform -rotate-30 bg-white bg-opacity-60 px-1 rounded">
-                                    ©
-                                  </div>
-                                  <div className="absolute bottom-1/4 right-1/4 text-red-600 opacity-60 text-xs font-black transform rotate-30 bg-white bg-opacity-60 px-1 rounded">
-                                    ®
-                                  </div>
-                                </div>
-                              </div>
-                              <div className="text-xs text-gray-500 bg-gray-100 p-2 rounded font-mono break-all">
-                                <strong>Image URL:</strong> {extractImageUrl(showBidModal.content_text)}
-                              </div>
+                          <div className="relative max-w-md mx-auto">
+                            <img 
+                              src={showBidModal.content_images?.[0] || ''} 
+                              alt="AI Generated content image"
+                              className="w-full rounded-lg border border-gray-300 shadow-sm"
+                              onLoad={() => console.log('✅ BidModal image loaded:', showBidModal.content_images?.[0])}
+                              onError={(e) => {
+                                console.error('❌ BidModal image failed to load:', showBidModal.content_images?.[0])
+                                e.currentTarget.style.display = 'none'
+                                const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                                if (fallback) fallback.style.display = 'block'
+                              }}
+                            />
+                            <div 
+                              className="hidden bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg border border-gray-300 p-8 text-center"
+                            >
+                              <span className="text-gray-500 text-sm">
+                                🖼️ AI Generated Image
+                                <br />
+                                <span className="text-xs text-gray-400">Preview not available</span>
+                              </span>
                             </div>
-                          )}
+                          </div>
                         </div>
                       </div>
                     )}
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>Quality: {showBidModal.quality_score.toFixed(1)}</span>
-                    <span>Mindshare: {showBidModal.predicted_mindshare.toFixed(1)}%</span>
                   </div>
                 </div>
 
