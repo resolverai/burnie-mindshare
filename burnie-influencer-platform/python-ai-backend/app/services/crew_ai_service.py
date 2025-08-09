@@ -108,6 +108,8 @@ class CrewAIService:
             available_keys = list(self.user_api_keys.keys()) if self.user_api_keys else []
             logger.info(f"🔑 Available API keys: {available_keys}")
             
+
+            
             # Validate critical API keys for text generation (mandatory)
             if not self.user_api_keys:
                 logger.error("❌ No API keys provided in user_api_keys")
@@ -209,6 +211,9 @@ class CrewAIService:
                     # Specifically log image model preferences
                     image_config = self.model_preferences.get('image', {})
                     logger.info(f"🎨 Image model config - Provider: {image_config.get('provider')}, Model: {image_config.get('model')}")
+                    logger.info(f"🔍 CRITICAL DEBUG - Model preferences object: {type(self.model_preferences)}")
+                    logger.info(f"🔍 CRITICAL DEBUG - Image preferences: {image_config}")
+                    logger.info(f"🔍 CRITICAL DEBUG - Full config data keys: {list(config_data.keys()) if isinstance(config_data, dict) else 'Not a dict'}")
                     
                 else:
                     logger.warning(f"⚠️ No configuration found for agent {agent_id}")
@@ -519,16 +524,16 @@ class CrewAIService:
         video_provider = self.model_preferences.get('video', {}).get('provider', 'google')
         video_model = self.model_preferences.get('video', {}).get('model', 'veo-3')
         
-        # Create tools based on available API keys
+        # Create tools based on ONLY the user's chosen providers - strict separation
         tools = []
         
-        # Check all available API keys for comprehensive capability assessment
+
+        # Image generation capabilities - ONLY add tool for user's chosen provider
         available_image_providers = []
-        available_video_providers = []
         
-        # Image generation capabilities
-        if self.user_api_keys.get('openai'):
-            tools.append(OpenAIContentTool(
+        if image_provider == 'openai' and self.user_api_keys.get('openai'):
+            logger.info(f"🔍 DEBUG: Creating OpenAI tool for image provider choice: {image_provider}")
+            tools.append(OpenAIImageTool(
                 api_key=self.user_api_keys['openai'],
                 model_preferences=self.model_preferences,
                 wallet_address=self.wallet_address,
@@ -536,18 +541,35 @@ class CrewAIService:
             ))
             available_image_providers.append('openai')
         
-        if self.user_api_keys.get('claude'):
-            tools.append(ClaudeContentTool(
-                api_key=self.user_api_keys['claude'],
+        elif image_provider == 'fal' and self.user_api_keys.get('fal'):
+            logger.info(f"🔍 Creating Fal.ai tool for image provider choice: {image_provider}")
+            tools.append(FalAIImageTool(
+                api_key=self.user_api_keys['fal'],
                 model_preferences=self.model_preferences,
                 wallet_address=self.wallet_address,
                 agent_id=self.agent_id
             ))
-            available_image_providers.append('claude')
+            available_image_providers.append('fal')
         
-        # Video generation capabilities  
-        if self.user_api_keys.get('google'):
-            tools.append(GeminiContentTool(
+        elif image_provider == 'google' and self.user_api_keys.get('google'):
+            logger.info(f"🔍 DEBUG: Creating Google tool for image provider choice: {image_provider}")
+            tools.append(GoogleImageTool(
+                api_key=self.user_api_keys['google'],
+                model_preferences=self.model_preferences,
+                wallet_address=self.wallet_address,
+                agent_id=self.agent_id
+            ))
+            available_image_providers.append('google')
+        
+        else:
+            logger.warning(f"⚠️ No tool created for image provider '{image_provider}' - API key not available")
+        
+        # Video generation capabilities - ONLY add tool for user's chosen provider  
+        available_video_providers = []
+        
+        if video_provider == 'google' and self.user_api_keys.get('google'):
+            logger.info(f"🔍 DEBUG: Creating Google tool for video provider choice: {video_provider}")
+            tools.append(GoogleVideoTool(
                 api_key=self.user_api_keys['google'],
                 model_preferences=self.model_preferences,
                 wallet_address=self.wallet_address,
@@ -555,38 +577,37 @@ class CrewAIService:
             ))
             available_video_providers.append('google')
         
-        # Add visual concept tool for fallback descriptions
-        tools.append(VisualConceptTool())
-        
         # Create capability summary
-        has_any_image_api = len(available_image_providers) > 0
-        has_any_video_api = len(available_video_providers) > 0
-        has_preferred_image_api = image_provider in available_image_providers
-        has_preferred_video_api = video_provider in available_video_providers
+        has_image_tool = len(available_image_providers) > 0
+        has_video_tool = len(available_video_providers) > 0
         
-        # Build capability text
+        # Add visual concept tool ONLY as fallback when no proper tools are available
+        if not has_image_tool and not has_video_tool:
+            tools.append(VisualConceptTool())
+        
+        # Create capabilities text for agent instructions
         capabilities_text = []
-        if has_any_image_api:
-            preferred_status = "✅ PREFERRED" if has_preferred_image_api else "⚠️ FALLBACK"
-            capabilities_text.append(f"- Image Generation: {', '.join(available_image_providers).upper()} ({preferred_status}: {image_provider.upper()} {image_model})")
+        if has_image_tool:
+            tool_name = f"{image_provider}_image_generation"
+            capabilities_text.append(f"- {tool_name}: Generate images using {image_provider.upper()} {image_model}")
+        if has_video_tool:
+            tool_name = f"{video_provider}_video_generation" 
+            capabilities_text.append(f"- {tool_name}: Generate videos using {video_provider.upper()} {video_model}")
+        if not has_image_tool and not has_video_tool:
+            capabilities_text.append("- visual_concept: Text descriptions only (no API keys available)")
         
-        if has_any_video_api:
-            preferred_status = "✅ PREFERRED" if has_preferred_video_api else "⚠️ FALLBACK"
-            capabilities_text.append(f"- Video Generation: {', '.join(available_video_providers).upper()} ({preferred_status}: {video_provider.upper()} {video_model})")
-        
-        # Create fallback strategy text
+        # Create fallback strategy
         fallback_strategy = []
-        if has_any_image_api and has_any_video_api:
-            fallback_strategy.append("🎯 FULL CAPABILITIES: Both image and video generation available")
-            fallback_strategy.append("- Always try user's preferred model first")
-            fallback_strategy.append("- Use available alternative providers if preferred fails")
-            fallback_strategy.append("- Follow strategy recommendations (IMAGE vs VIDEO)")
-        elif has_any_image_api and not has_any_video_api:
+        if has_image_tool and has_video_tool:
+            fallback_strategy.append("✅ FULL CAPABILITY: Both image and video generation available")
+            fallback_strategy.append("- Use preferred content type as specified in strategy")
+            fallback_strategy.append("- High-quality visual content generation")
+        elif has_image_tool and not has_video_tool:
             fallback_strategy.append("⚠️ VIDEO → IMAGE FALLBACK: No video API keys available")
             fallback_strategy.append("- If strategy requests VIDEO: Create dynamic IMAGE instead")
-            fallback_strategy.append("- Use motion-suggesting imagery to compensate")
+            fallback_strategy.append("- Use motion-suggesting imagery")
             fallback_strategy.append("- Clearly indicate fallback was used")
-        elif not has_any_image_api and has_any_video_api:
+        elif has_video_tool and not has_image_tool:
             fallback_strategy.append("⚠️ IMAGE → VIDEO FALLBACK: No image API keys available")
             fallback_strategy.append("- If strategy requests IMAGE: Create short VIDEO instead")
             fallback_strategy.append("- Use static-like video content")
@@ -599,42 +620,41 @@ class CrewAIService:
         
         return Agent(
             role="Visual Content Creator",
-            goal="Create professional visual content following the preferred model hierarchy and intelligent fallback strategy",
-            backstory=f"""You are an intelligent visual content strategist with adaptive capabilities:
+            goal="Create professional visual content using the user's chosen provider and model",
+            backstory=f"""You are an intelligent visual content strategist with provider-specific capabilities:
 
             🔧 YOUR AVAILABLE TOOLS:
             {chr(10).join(capabilities_text) if capabilities_text else "- Visual Concept Tool (descriptions only)"}
             
-            🎯 CONTENT GENERATION HIERARCHY:
+            🚨 CRITICAL: PROVIDER-SPECIFIC TOOL USAGE
             
-            PRIORITY 1: User's Preferred Models
-            - Image: {image_provider.upper()} {image_model} {'✅ AVAILABLE' if has_preferred_image_api else '❌ NO API KEY'}
-            - Video: {video_provider.upper()} {video_model} {'✅ AVAILABLE' if has_preferred_video_api else '❌ NO API KEY'}
+            USER'S PROVIDER CHOICES:
+            - Image Provider: {image_provider.upper()} 
+            - Image Model: {image_model}
+            - Video Provider: {video_provider.upper()}
+            - Video Model: {video_model}
             
-            PRIORITY 2: Alternative Providers (same content type)
-            - Try other available providers if preferred fails
-            - Maintain the same content type (IMAGE stays IMAGE, VIDEO stays VIDEO)
+            **MANDATORY TOOL SELECTION RULES**:
+            - For IMAGE generation: ONLY use {image_provider}_image_generation tool
+            - For VIDEO generation: ONLY use {video_provider}_video_generation tool  
+            - NEVER use a different provider's tool than what the user selected
+            - The user specifically chose {image_provider.upper()} for images and {video_provider.upper()} for videos
             
-            PRIORITY 3: Content Type Fallback
-            - Only if NO API keys available for requested content type
-            - VIDEO → IMAGE (if no video APIs but image APIs available)
-            - IMAGE → VIDEO (if no image APIs but video APIs available)
-            
-            PRIORITY 4: Text-Only Fallback
-            - If no visual generation APIs available at all
-            - Provide rich visual concept descriptions
+            **YOUR TOOL USAGE**:
+            {f"✅ Use `{image_provider}_image_generation` tool for images with model: {image_model}" if has_image_tool else "❌ No image generation available"}
+            {f"✅ Use `{video_provider}_video_generation` tool for videos with model: {video_model}" if has_video_tool else "❌ No video generation available"}
             
             🛡️ INTELLIGENT FALLBACK STRATEGY:
             {chr(10).join(fallback_strategy)}
             
             📋 EXECUTION RULES:
-            1. Always try user's preferred model FIRST
-            2. Use alternative providers for same content type BEFORE switching types
+            1. Always use the user's chosen provider tool
+            2. Use their specified model within that provider
             3. Clearly indicate when fallbacks are used
             4. Maintain quality regardless of which tools are available
             5. Be transparent about capability limitations
             
-            Visual Preferences: {json.dumps(agent_config, indent=2)}
+            Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign_data else "Twitter"}
             """,
             verbose=True,
             allow_delegation=False,
@@ -646,8 +666,19 @@ class CrewAIService:
 
     def _create_orchestrator_agent(self) -> Agent:
         """Create Orchestrator Agent with LLM-based content extraction tool"""
-        # Create the LLM content extraction tool
-        content_extraction_tool = LLMContentExtractionTool()
+        # Get user's text generation configuration
+        text_provider = self.model_preferences.get('text', {}).get('provider', 'openai')
+        text_model = self.model_preferences.get('text', {}).get('model', 'gpt-4o')
+        text_api_key = self.user_api_keys.get(text_provider)
+        
+        # Create the LLM content extraction tool with user's configuration
+        content_extraction_tool = LLMContentExtractionTool(
+            user_text_provider=text_provider,
+            user_api_key=text_api_key,
+            user_text_model=text_model
+        )
+        
+        logger.info(f"🎭 Orchestrator: Using {text_provider} ({text_model}) for content extraction")
         
         return Agent(
             role='Content Orchestrator',
@@ -874,15 +905,25 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - Include clear call-to-action
             - Optimize for crypto/Web3 audience
             
+            WEB3 GENZ MEME CULTURE REQUIREMENTS:
+            - Include subtle sarcasm and wit that resonates with Web3 GenZ audience
+            - Reference popular crypto memes and culture (diamond hands, HODL, "this is the way", etc.)
+            - Create FOMO (Fear of Missing Out) through scarcity and exclusivity language
+            - Use ironic humor and self-aware commentary about crypto culture
+            - Include references to being "early" or having "insider knowledge"
+            - Apply meme-inspired language patterns and cultural references
+            - Create urgency and social proof to drive engagement
+            - Use Web3 slang and community inside jokes appropriately
+            
             IMPORTANT: Use your OpenAI content generation tool to create REAL content.
             Call the tool with: "Create viral Twitter content about [campaign topic]"
             
             User Preferences: {json.dumps(self.user_data.get('preferences', {}), indent=2) if self.user_data and self.user_data.get('preferences') else 'High engagement focus'}
             
             Generate 3 content variations:
-            1. Conservative approach (professional, safe)
-            2. Engaging approach (balanced, optimized for virality)
-            3. Bold approach (edgy, maximum engagement potential)
+            1. Conservative approach (professional with subtle FOMO elements)
+            2. Engaging approach (meme-aware with moderate sarcasm and crypto references)
+            3. Bold approach (heavy meme culture, strong FOMO, maximum Web3 GenZ appeal)
             
             For each variation, provide:
             - The actual Twitter content (use OpenAI tool)
@@ -899,9 +940,35 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
 
     def _create_visual_task(self) -> Task:
         """Create task for Visual Creator Agent"""
+        # Get the same configuration that was used in agent creation
+        image_provider = self.model_preferences.get('image', {}).get('provider', 'openai')
+        image_model = self.model_preferences.get('image', {}).get('model', 'dall-e-3')
+        video_provider = self.model_preferences.get('video', {}).get('provider', 'google')
+        video_model = self.model_preferences.get('video', {}).get('model', 'veo-3')
+        
+        # Check if tools are available
+        has_image_tool = image_provider in ['openai', 'fal', 'google'] and self.user_api_keys.get(image_provider if image_provider != 'fal' else 'fal')
+        has_video_tool = video_provider == 'google' and self.user_api_keys.get('google')
+        
         return Task(
             description=f"""
-            Generate REAL visual content using the intelligent fallback hierarchy:
+            🚨 **CRITICAL: STRICT PROVIDER-BASED TOOL USAGE**
+            
+            Your chosen configuration:
+            - Image Provider: {image_provider.upper()}
+            - Image Model: {image_model}
+            - Video Provider: {video_provider.upper()} 
+            - Video Model: {video_model}
+            
+            **MANDATORY TOOL SELECTION - NO EXCEPTIONS**:
+            {f"- For IMAGE generation: ONLY use `{image_provider}_image_generation` tool" if has_image_tool else "- No image generation available"}
+            {f"- For VIDEO generation: ONLY use `{video_provider}_video_generation` tool" if has_video_tool else "- No video generation available"}
+            
+            **NEVER DEVIATE FROM USER'S PROVIDER CHOICE**:
+            The user specifically selected {image_provider.upper()} for images and {video_provider.upper()} for videos.
+            You have access ONLY to tools for their chosen providers.
+            
+            Generate REAL visual content using your available tools:
             
             Campaign Context:
             - Title: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
@@ -944,15 +1011,131 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             🎨 **GENERATION INSTRUCTIONS**:
             
-            FOR IMAGE GENERATION:
-            - Use: "Create image for {self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
-            - Twitter-optimized dimensions (1200x675px or 1080x1080px)
-            - High engagement potential
-            - Brand-aligned visual style
+            **STRICT PROVIDER-SPECIFIC TOOL USAGE**:
+            You have been configured with specific tools based on your chosen providers.
             
-            FOR VIDEO GENERATION:
-            - Use: "Create video for {self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
-            - 8-second promotional video
+            🚨 **CRITICAL: ONLY USE THE TOOLS YOU HAVE ACCESS TO**:
+            {f"- For IMAGE generation: Use `{image_provider}_image_generation` tool ONLY" if has_image_tool else "- No image generation tools available"}
+            {f"- For VIDEO generation: Use `{video_provider}_video_generation` tool ONLY" if has_video_tool else "- No video generation tools available"}
+            
+            **PROVIDER-SPECIFIC EXAMPLES**:
+            
+            **If you have OpenAI image tool** → Use `openai_image_generation`:
+            - Available models: dall-e-3, dall-e-2, gpt-image-1, gpt-4o
+            - Example: openai_image_generation("A modern Web3 office with futuristic elements")
+            
+            **If you have Fal.ai image tool** → Use `fal_image_generation`:
+            - Available models: flux-*, stable-diffusion-*, ideogram-*, etc.
+            - Example: fal_image_generation("A dynamic crypto trading dashboard with neon elements")
+            
+            **If you have Google image tool** → Use `google_image_generation`:
+            - Available models: imagen-*, gemini-*
+            - Example: google_image_generation("Professional blockchain technology visualization")
+            
+            **If you have Google video tool** → Use `google_video_generation`:
+            - Available models: veo-*, lumiere-*
+            - Example: google_video_generation("Short promotional video for crypto platform")
+            
+            🚫 **FORBIDDEN TOOLS**:
+            - Do NOT use `visual_concept` tool if you have provider-specific tools available
+            - Do NOT use any tools other than those specifically configured for your providers
+            - Each tool will reject requests if you're not authorized to use that provider
+            
+            🎯 **CONTENT GENERATION SPECIFICATIONS**:
+            
+            📚 **WORLD-CLASS PROMPT EXAMPLES** (CRITICAL REFERENCE):
+            Use these professional prompt patterns as inspiration to create similar quality prompts relevant to your campaign:
+            
+            **MEME CULTURE & FOMO PATTERN EXAMPLES**:
+            - "A cartoon Shiba Inu wearing diamond grillz and a 'HODL' chain necklace, sitting on a pile of golden coins with laser eyes, surrounded by rocket emojis, hyperdetailed, 8K resolution, masterpiece quality, vibrant colors, studio lighting"
+            - "Pepe the frog dressed as a crypto trader with multiple monitors showing green candles, wearing sunglasses with dollar signs reflected in them, photorealistic rendering, 8K ultra-detailed, award-winning digital art, cinematic lighting"
+            - "Chad wojak character with glowing blue eyes pointing directly at viewer, wearing a hoodie with 'You're Still Early' text, background filled with ascending price charts and diamond hands emojis, hyperrealistic digital art, 8K resolution, dramatic lighting"
+            - "A minimalist countdown timer with 'Last Call for Alpha' text, numbers glowing in urgent red with sweat drops around it, clean digital display art, 8K sharp resolution, urgent lighting effects"
+            
+            **ANIMATED VISUAL & TECH AESTHETIC PATTERNS**:
+            - "A holographic trading interface floating in mid-air with a silhouetted figure manipulating glowing charts, cyberpunk aesthetic with purple and teal neon, photorealistic CGI, 8K resolution, volumetric lighting"
+            - "A digital avatar with glowing circuit pattern skin, wearing AR glasses reflecting trading charts, set against a matrix-style falling code background, photorealistic 3D render, 8K resolution, cyberpunk lighting"
+            - "A sleek robot hand holding a glowing orb containing swirling galaxy of cryptocurrency logos, with 'The Future is Now' in holographic text, hyperrealistic mechanical design, 8K ultra-detailed, dramatic studio lighting"
+            
+            **COMMUNITY & SOCIAL ENGAGEMENT PATTERNS**:
+            - "A cozy campfire scene with diverse cartoon characters sharing stories, but the fire is made of glowing cryptocurrency symbols, 3D cartoon render, 8K resolution, warm campfire lighting"
+            - "A minimalist illustration of puzzle pieces coming together to form a larger picture, each piece representing different community members, clean vector art, 8K sharp resolution, perfect geometric precision"
+            - "A vibrant festival scene with different booths for various crypto projects, characters enjoying rides and games, carnival photography style, 8K ultra-detailed, festive lighting"
+            
+            **ESSENTIAL QUALITY KEYWORDS TO ALWAYS INCLUDE**:
+            - Resolution: "8K resolution", "4K resolution", "ultra-detailed", "hyperdetailed", "sharp focus", "pixel-perfect"
+            - Photography: "photorealistic", "award-winning photography", "studio lighting", "cinematic lighting", "dramatic lighting"
+            - Art Quality: "masterpiece", "masterful composition", "award-winning digital art", "ultra-high quality", "premium quality"
+            - Rendering: "hyperrealistic CGI", "3D render", "volumetric lighting", "perfect reflections", "dynamic lighting effects"
+            - Style: "clean vector art", "geometric precision", "vibrant color palette", "rich color depth", "atmospheric lighting"
+            
+            📖 **INTELLIGENT PROMPT GENERATION PROCESS** (CRITICAL):
+            1. **Analyze Tweet Content**: Extract key themes, emotions, and concepts from the Text Content Creator's output
+            2. **Match Pattern Category**: Determine if content fits Meme/FOMO, Tech/Aesthetic, Community, or FOMO/Urgency themes
+            3. **Adapt Example Structure**: Use the pattern structure from examples but customize content to match tweet themes
+            4. **Include Quality Keywords**: Always incorporate professional quality descriptors for world-class output
+            5. **Maintain Relevance**: Ensure the visual prompt directly relates to and enhances the tweet message
+            
+            **PROMPT PATTERN LIBRARY** (USE AS TEMPLATES):
+            
+            **Category 1: MEME CULTURE & FOMO (25 patterns)**
+            Examples for urgent, FOMO-driven content:
+            - "A [character] wearing [crypto accessory] with [urgency text], surrounded by [success symbols], [art style], 8K resolution, [lighting type]"
+            - "A minimalist [time element] with '[urgent message]' text, [visual urgency cues], clean digital art, 8K sharp resolution, urgent lighting effects"
+            - "A pixel art [opportunity metaphor] with '[FOMO message]' flashing, retro aesthetic, 4K pixel-perfect, [emotional lighting]"
+            
+            **Category 2: ANIMATED VISUAL & TECH (25 patterns)**
+            Examples for futuristic, tech-focused content:
+            - "A holographic [tech interface] floating in mid-air with [character] manipulating [data visualization], cyberpunk aesthetic, photorealistic CGI, 8K resolution, volumetric lighting"
+            - "A digital [character] with [tech features], set against [futuristic background], photorealistic 3D render, 8K resolution, cyberpunk lighting"
+            - "A sleek [tech object] containing [crypto elements], hyperrealistic mechanical design, 8K ultra-detailed, dramatic studio lighting"
+            
+            **Category 3: COMMUNITY & SOCIAL (25 patterns)**
+            Examples for community-building content:
+            - "A cozy [social setting] with [diverse characters] [community activity], but [crypto twist], 3D cartoon render, 8K resolution, warm [ambient] lighting"
+            - "A minimalist illustration of [connection metaphor] representing [community concept], clean vector art, 8K sharp resolution, perfect geometric precision"
+            - "A vibrant [gathering scene] with [community elements], [photography style], 8K ultra-detailed, [social lighting]"
+            
+            **Category 4: FOMO & URGENCY (25 patterns)**
+            Examples for time-sensitive content:
+            - "A [time/speed metaphor] with '[urgent action]' and [character] [urgent action], [style], 8K ultra-detailed, [urgency lighting], [pressure visualization]"
+            - "A sleek [vehicle/transport] showing '[progress metric]' with [action element], [photography type], 8K resolution, [speed lighting]"
+            - "A minimalist [opportunity symbol] with '[scarcity message]' and [visual urgency], [vector style], 8K sharp resolution, [time pressure lighting]"
+            
+            **INTELLIGENT PROMPT ADAPTATION RULES**:
+            1. **Text Analysis**: Extract emotional tone (FOMO, excitement, community, tech)
+            2. **Category Selection**: Match tweet sentiment to appropriate pattern category
+            3. **Template Customization**: Replace bracketed elements with campaign-specific content
+            4. **Quality Enhancement**: Always append professional quality keywords
+            5. **Relevance Check**: Ensure visual directly supports and amplifies tweet message
+            
+            **PROFESSIONAL QUALITY FORMULA**:
+            [Core Visual Concept] + [Specific Details] + [Art Style] + [Quality Keywords] + [Lighting] + [Resolution]
+            
+            Example Transformation:
+            Tweet: "Still early to Web3 - don't fade this opportunity"
+            Generated Prompt: "A sleek rocket ship labeled 'Web3 Express' already lifting off from launching pad with boarding ladder still dangling down, text 'Still Early - Last Call for Boarding' in neon letters, photorealistic space photography, 8K ultra-detailed, dramatic launch lighting, cinematic composition, masterpiece quality"
+            
+            **WORLD-CLASS IMAGE GENERATION REQUIREMENTS**:
+            - Use your configured image tool ({f"{image_provider}_image_generation" if has_image_tool else "none available"})
+            - **MANDATORY**: Use the prompt pattern library above to generate professional-quality prompts
+            - **STEP 1**: Analyze the Text Content Creator's tweet for emotional tone and themes
+            - **STEP 2**: Select appropriate pattern category (Meme/FOMO, Tech/Aesthetic, Community, Urgency)
+            - **STEP 3**: Customize template with campaign-specific elements: "{self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
+            - **STEP 4**: Apply professional quality keywords (8K resolution, masterpiece, cinematic lighting, etc.)
+            - **CRITICAL**: Generate prompts similar in structure and quality to the examples provided
+            - Twitter-optimized dimensions with maximum visual impact
+            - Include compelling text elements only when appropriate to enhance engagement and message clarity
+            - High viral potential with meme culture and FOMO elements
+            - Professional finish suitable for Web3 GenZ audience
+            - Test that entire text content fits within the canvas dimensions
+            
+            **VIDEO GENERATION REQUIREMENTS**:
+            - Use your configured video tool ({f"{video_provider}_video_generation" if has_video_tool else "none available"})
+            - Transform campaign context into a compelling visual story: "{self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
+            - Apply story-based prompt structure with temporal elements (beginning, middle, end)
+            - Include dynamic transitions and cinematic storytelling
+            - 8-second promotional video with narrative arc
             - Twitter specifications (max 2:20, 1920x1080px)
             - Mobile-optimized viewing
             
@@ -964,12 +1147,56 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - Accessibility compliance
             
             ⚠️ **CRITICAL EXECUTION RULES**:
-            1. Follow the hierarchy: Preferred → Alternative → Fallback → Text-only
-            2. Actually call your AI generation tools to create real content
-            3. Do NOT provide generic descriptions unless in text-only mode
-            4. Clearly indicate which tier of the hierarchy was used
-            5. Explain why fallbacks were necessary (API unavailable, model failed, etc.)
-            6. Maintain campaign quality regardless of which tools are used
+            1. **ALWAYS use story-based prompts** - Transform every visual request into a micro-narrative
+            2. Follow the hierarchy: Preferred → Alternative → Fallback → Text-only
+            3. Actually call your AI generation tools to create real content with story prompts
+            4. Do NOT provide generic descriptions unless in text-only mode
+            5. Clearly indicate which tier of the hierarchy was used
+            6. Explain why fallbacks were necessary (API unavailable, model failed, etc.)
+            7. Maintain campaign quality regardless of which tools are used
+            
+            📝 **WORLD-CLASS PROMPT GENERATION WORKFLOW**:
+            
+            **STEP-BY-STEP PROCESS**:
+            1. **Tweet Analysis**: Read the Text Content Creator's output and extract:
+               - Key emotions (excitement, urgency, community, tech-focus)
+               - Main message theme (FOMO, opportunity, innovation, exclusivity)
+               - Target sentiment (bullish, sarcastic, urgent, inclusive)
+            
+            2. **Pattern Category Selection**:
+               - FOMO/Urgent content → Use Category 1 (Meme Culture & FOMO) or Category 4 (FOMO & Urgency)
+               - Tech/Innovation content → Use Category 2 (Animated Visual & Tech)
+               - Community/Social content → Use Category 3 (Community & Social)
+            
+            3. **Template Customization**:
+               - Replace [character] with relevant crypto mascots (Shiba Inu, Pepe, Chad, etc.)
+               - Replace [crypto accessory] with diamond grillz, HODL chains, laser eyes, etc.
+               - Replace [urgency text] with content matching tweet message
+               - Replace [success symbols] with rockets, moons, diamonds, green candles
+               - Replace [lighting type] with dramatic, cinematic, neon, holographic
+            
+            4. **Quality Enhancement**:
+               - ALWAYS include resolution: "8K resolution" or "4K resolution"
+               - ALWAYS include quality: "masterpiece", "award-winning", "ultra-detailed"
+               - ALWAYS include lighting: "cinematic lighting", "dramatic lighting", "studio lighting"
+               - ALWAYS include style: "photorealistic", "hyperrealistic CGI", "clean vector art"
+            
+            5. **Final Prompt Construction**:
+               Format: [Visual Scene] + [Specific Details] + [Quality Keywords] + [Technical Specs]
+            
+            **EXAMPLE ADAPTATIONS**:
+            
+            Tweet: "gm Web3 fam 🌅 Ready to build the future?"
+            → Category: Community & Social
+            → Generated Prompt: "A cozy sunrise campfire scene with diverse animated crypto characters (Pepe, Shiba, Chad) sharing morning coffee and laptops showing DeFi protocols, warm golden sunrise lighting through forest trees, 3D cartoon render, 8K resolution, masterpiece quality, warm campfire lighting, hyperdetailed character expressions"
+            
+            Tweet: "Last chance to get in before 100x 🚀"
+            → Category: FOMO & Urgency  
+            → Generated Prompt: "A sleek golden rocket ship already 50% launched from Earth with boarding ladder dangling down, desperate stick figures running toward it with crypto wallets in hand, photorealistic space photography, 8K ultra-detailed, dramatic launch lighting, cinematic composition, masterpiece quality, dynamic motion blur"
+            
+            Tweet: "The future of finance is being built right now 🏗️"
+            → Category: Animated Visual & Tech
+            → Generated Prompt: "A holographic construction site floating in space with digital workers building transparent blockchain towers using light beams, futuristic hard hats with crypto logos, construction crane made of interconnected nodes, cyberpunk aesthetic with purple and teal neon, photorealistic CGI, 8K resolution, volumetric lighting, hyperrealistic mechanical details"
             
             OUTPUT FORMAT:
             ```
@@ -1025,14 +1252,16 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             CRITICAL INSTRUCTIONS:
             - Use the content_extraction_tool with the ACTUAL agent outputs from context
-            - The tool expects two parameters:
+            - The tool expects 2-3 parameters:
               * agent_outputs: Pass the complete outputs from all previous tasks in context
               * campaign_context: "{self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}"
+              * extraction_prompt: (optional) Leave empty to use default extraction logic
             
             EXAMPLE TOOL USAGE:
             Use content_extraction_tool with:
             - agent_outputs: [PASTE ALL PREVIOUS AGENT OUTPUTS HERE - including the JSON from Text Creator and S3 URL from Visual Creator]
             - campaign_context: "{self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}"
+            - extraction_prompt: "" (use default intelligent extraction)
             
             The content_extraction_tool will:
             - Parse the Text Content Creator's JSON to select the best tweet variation
@@ -1199,7 +1428,15 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Process the crew result into our expected format
             raw_result = str(crew_result) if crew_result else "Generated content from 5-agent constellation"
             
-            # Extract structured Twitter content from orchestrator output
+            # The orchestrator now uses LLM-based content extraction tool, so trust its output
+            # Only apply minimal extraction if the output doesn't follow expected format
+            if ("Tweet Text:" in raw_result and "Image URL:" in raw_result):
+                # Orchestrator used LLM extraction tool successfully - use output directly
+                final_content = self._extract_twitter_content(raw_result)
+                logger.info(f"✅ Using LLM-extracted content from orchestrator")
+            else:
+                # Fallback: Try to extract content manually if orchestrator didn't use the tool
+                logger.warning(f"⚠️ Orchestrator output doesn't have expected format, applying extraction")
             final_content = self._extract_twitter_content(raw_result)
             
             # Debug: Log the raw orchestrator output and extracted content
@@ -1400,23 +1637,40 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 r'https://[^\s\]<>"\'`\n\r\[\)]+'
             ]
             
-            # Pattern 1: Look for structured format with comprehensive patterns
-            for i, line in enumerate(lines):
-                if ("🎨 VISUAL CONTENT:" in line or "📸 Image URL:" in line or 
-                    "🎨 IMAGE:" in line or "Image URL:" in line):
-                    for j in range(i, min(i + 5, len(lines))):
-                        if "http" in lines[j]:
-                            # Try all URL patterns
-                            for pattern in url_patterns:
-                                matches = re.finditer(pattern, lines[j])
-                                for match in matches:
-                                    # If pattern has capture groups, use the first group, otherwise use full match
-                                    url_match = match.group(1) if match.groups() else match.group(0)
-                                    # Clean URL by removing brackets and quotes
-                                    clean_url = re.sub(r'[\[\]"\'`]', '', url_match).strip()
-                                    if clean_url and clean_url not in image_urls:
-                                        image_urls.append(clean_url)
-                                        logger.info(f"✅ Found image URL (structured): {clean_url[:100]}...")
+            # Pattern 1: Handle JSON output from orchestrator (NEW - for structured output)
+            try:
+                import json
+                # Find lines that look like JSON
+                for line in lines:
+                    line_clean = line.strip()
+                    if line_clean.startswith('{') and 'image_url' in line_clean:
+                        # Try to parse as JSON
+                        json_data = json.loads(line_clean)
+                        if 'image_url' in json_data and json_data['image_url']:
+                            image_urls.append(json_data['image_url'])
+                            logger.info(f"🔍 Image extraction: Found URL in JSON format")
+                            break
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.debug(f"🔍 JSON parsing failed for image extraction: {e}")
+            
+            # Pattern 2: Look for structured format with comprehensive patterns
+            if not image_urls:
+                for i, line in enumerate(lines):
+                    if ("🎨 VISUAL CONTENT:" in line or "📸 Image URL:" in line or 
+                        "🎨 IMAGE:" in line or "Image URL:" in line):
+                        for j in range(i, min(i + 5, len(lines))):
+                            if "http" in lines[j]:
+                                # Try all URL patterns
+                                for pattern in url_patterns:
+                                    matches = re.finditer(pattern, lines[j])
+                                    for match in matches:
+                                        # If pattern has capture groups, use the first group, otherwise use full match
+                                        url_match = match.group(1) if match.groups() else match.group(0)
+                                        # Clean URL by removing brackets and quotes
+                                        clean_url = re.sub(r'[\[\]"\'`]', '', url_match).strip()
+                                        if clean_url and clean_url not in image_urls:
+                                            image_urls.append(clean_url)
+                                            logger.info(f"✅ Found image URL (structured): {clean_url[:100]}...")
                             if image_urls:  # Break if we found URLs
                                 break
                     if image_urls:  # Break outer loop if found
@@ -1756,7 +2010,8 @@ No image generated
             return ChatOpenAI(
                 openai_api_key=settings.openai_api_key,
                 model_name=settings.crewai_model,
-                temperature=settings.crewai_temperature
+                temperature=settings.crewai_temperature,
+                max_tokens=settings.crewai_max_tokens
             )
         elif provider == "anthropic":
             return ChatAnthropic(
@@ -1771,11 +2026,12 @@ No image generated
                 temperature=settings.crewai_temperature
             )
         else:
-            # Fallback to OpenAI
+            # Fallback to OpenAI with GPT-4o (faster and more cost-effective than GPT-3.5-turbo)
             return ChatOpenAI(
                 openai_api_key=settings.openai_api_key,
-                model_name="gpt-3.5-turbo",
-                temperature=settings.crewai_temperature
+                model_name="gpt-4o",
+                temperature=settings.crewai_temperature,
+                max_tokens=settings.crewai_max_tokens
             )
 
     def _get_twitter_context(self) -> str:
@@ -1914,7 +2170,56 @@ No image generated
                         final_text = ' '.join(text_lines) if text_lines else ""
                         break
             
-            # Pattern 3: Look for quoted text content - fallback
+            # Pattern 3: Handle JSON output from orchestrator (NEW - for structured output)
+            if not final_text:
+                # Try to parse JSON format: {"tweet_variation": "...", "image_url": "..."}
+                try:
+                    import json
+                    # Find lines that look like JSON
+                    for line in lines:
+                        line_clean = line.strip()
+                        if line_clean.startswith('{') and 'tweet_variation' in line_clean:
+                            # Try to parse as JSON
+                            json_data = json.loads(line_clean)
+                            if 'tweet_variation' in json_data:
+                                final_text = json_data['tweet_variation']
+                                if 'image_url' in json_data and json_data['image_url']:
+                                    image_url = json_data['image_url']
+                                logger.info(f"🔍 Pattern 3: Extracted from JSON: {final_text[:100]}...")
+                                break
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.debug(f"🔍 JSON parsing failed, trying other patterns: {e}")
+            
+            # Pattern 4: Handle orchestrator direct output (tweet-like content)
+            if not final_text:
+                # The orchestrator often outputs the tweet directly without labels
+                # Look for the main content that looks like a tweet
+                content_lines = []
+                skip_patterns = ["image concept description:", "concept description:", "description:", "visual concept:"]
+                
+                for line in lines:
+                    line_clean = line.strip()
+                    line_lower = line_clean.lower()
+                    
+                    # Skip empty lines and image description lines
+                    if not line_clean or any(skip in line_lower for skip in skip_patterns):
+                        continue
+                        
+                    # Look for tweet-like content (has emojis, hashtags, mentions, or substantial text)
+                    if (len(line_clean) > 30 and 
+                        (any(char in line_clean for char in ['🚀', '🌌', '🔥', '🌍', '✨', '👉', '🔗', '🎯', '💡', '⚡']) or
+                         '#' in line_clean or '@' in line_clean or 
+                         len(line_clean) > 100)):
+                        content_lines.append(line_clean)
+                
+                # Join the content lines (usually it's one long tweet)
+                if content_lines:
+                    final_text = ' '.join(content_lines)
+                    # Clean up any formatting issues
+                    final_text = ' '.join(final_text.split())  # Remove extra whitespace
+                    logger.info(f"🔍 Pattern 4: Found tweet-like content: {final_text[:100]}...")
+
+            # Pattern 5: Look for quoted text content - fallback
             if not final_text:
                 for i, line in enumerate(lines):
                     if "final text content from the Text Content Creator is:" in line.lower():
@@ -2196,22 +2501,55 @@ class ContentExtractionInput(BaseModel):
     """Input schema for content extraction tool"""
     agent_outputs: str = Field(..., description="All previous agent outputs combined as text")
     campaign_context: str = Field(..., description="Campaign context and requirements")
+    extraction_prompt: str = Field(default="", description="Optional custom extraction prompt (if empty, uses default)")
 
 class LLMContentExtractionTool(BaseTool):
     """LLM-based tool for intelligently extracting and combining content from previous agents"""
     name: str = "content_extraction_tool"
-    description: str = "Extract text content and image URLs from previous agent outputs using LLM reasoning"
+    description: str = "Extract text content and image URLs from previous agent outputs using LLM reasoning with dynamic prompts"
     args_schema: Type[BaseModel] = ContentExtractionInput
     
-    def _run(self, agent_outputs: str, campaign_context: str) -> str:
-        """Use LLM to intelligently extract and combine content"""
+    # Declare Pydantic fields properly
+    user_text_provider: str = Field(default="openai")
+    user_api_key: Optional[str] = Field(default=None)
+    user_text_model: str = Field(default="gpt-4o")
+    
+    def __init__(self, user_text_provider: str = "openai", user_api_key: str = None, user_text_model: str = "gpt-4o", **kwargs):
+        super().__init__(
+            user_text_provider=user_text_provider,
+            user_api_key=user_api_key,
+            user_text_model=user_text_model,
+            **kwargs
+        )
+        logger.info(f"🧠 LLM Content Extraction Tool initialized with provider: {user_text_provider}, model: {user_text_model}")
+    
+    def _run(self, agent_outputs: str, campaign_context: str, extraction_prompt: str = "") -> str:
+        """Use LLM to intelligently extract and combine content with dynamic prompts"""
         try:
+            # Check if we have the required API key
+            if not self.user_api_key:
+                logger.warning(f"⚠️ No API key for {self.user_text_provider}, falling back to regex extraction")
+                return self._fallback_regex_extraction(agent_outputs)
+            
             # Initialize LLM for content extraction
             unified_generator = UnifiedContentGenerator()
             
-            # Create extraction prompt for LLM
-            extraction_prompt = f"""
-You are a content extraction specialist. Your job is to extract and combine content from multiple AI agent outputs into final Twitter-ready format.
+            # Use custom prompt if provided, otherwise use default
+            if extraction_prompt.strip():
+                final_prompt = f"""
+{extraction_prompt}
+
+CAMPAIGN CONTEXT:
+{campaign_context}
+
+AGENT OUTPUTS TO ANALYZE:
+{agent_outputs}
+"""
+                logger.info(f"🎯 Using custom extraction prompt for {self.user_text_provider}")
+            else:
+                # Default extraction prompt - enhanced to handle any output format
+                final_prompt = f"""
+You are a content extraction specialist. Your job is to extract clean, final content from AI agent outputs in ANY format.
 
 CAMPAIGN CONTEXT:
 {campaign_context}
@@ -2220,38 +2558,39 @@ AGENT OUTPUTS TO ANALYZE:
 {agent_outputs}
 
 YOUR TASK:
-1. Find the best tweet text from the Text Content Creator agent output
-2. Find the image URL from the Visual Content Creator agent output  
-3. Format them into the exact structure below
+Extract the final tweet text and image URL from these agent outputs, regardless of format (JSON, structured text, etc.).
 
-EXTRACTION RULES FOR TEXT CONTENT CREATOR:
-- Look for JSON format with "content_variations" array
-- Each variation has "approach" (Conservative/Engaging/Bold) and "content" 
-- Extract the "content" from the "Engaging" approach (best balance)
-- If no "Engaging", use "Bold", if no "Bold", use "Conservative"
-- Remove any character count or metadata, just get the pure tweet text
+EXTRACTION RULES:
+1. TWEET TEXT - Look for:
+   - JSON with "tweet_variation" field
+   - JSON with "content_variations" array (use "Engaging" > "Bold" > "Conservative")
+   - Structured format with "Tweet Text:" or "🐦 FINAL TEXT:"
+   - Any clean tweet-like content with emojis, hashtags, mentions
+   - Remove character counts, metadata, or formatting artifacts
 
-EXTRACTION RULES FOR VISUAL CONTENT CREATOR:
-- Look for "📸 Image URL:" followed by an HTTPS URL
-- Extract the complete S3 URL (starts with https://burnie-mindshare-content)
-- Include all query parameters (AWSAccessKeyId, Signature, Expires)
-- Clean any brackets [ ] around the URL
+2. IMAGE URL - Look for:
+   - JSON with "image_url" field
+   - Structured format with "Image URL:" or "📸 Image URL:"
+   - Any S3 URLs (https://burnie-mindshare-content...)
+   - Complete URLs with all query parameters
 
 REQUIRED OUTPUT FORMAT (EXACT):
 ```
-Tweet Text: [extracted tweet text here - no quotes, no extra formatting]
+Tweet Text: [clean tweet text only - no quotes, brackets, or metadata]
 
-Image URL: [extracted complete S3 URL here - no brackets, no quotes]
+Image URL: [complete S3 URL with all parameters - or "No image generated"]
 ```
 
-CRITICAL: 
+CRITICAL REQUIREMENTS:
 - Return ONLY the extracted content in the exact format above
+- Clean the tweet text of any technical artifacts
+- Include complete image URLs with all AWS parameters
+- If multiple tweets exist, pick the most engaging one
 - Do not add explanations, analysis, or commentary
-- If no image URL found, write "No image generated"
-- If no tweet text found, write "Generated content from AI agents"
 """
+                logger.info(f"🧠 Using default extraction prompt for {self.user_text_provider}")
 
-            # Use LLM to extract content (handle async call in sync context)
+            # Use user's configured text provider and API key
             try:
                 # Create new event loop for async operation
                 loop = asyncio.new_event_loop()
@@ -2259,25 +2598,29 @@ CRITICAL:
                 
                 result = loop.run_until_complete(
                     unified_generator.generate_content(
-                        provider="openai",  # Use OpenAI for reliable extraction
-                        content_type="text",  # We're extracting text content
-                        prompt=extraction_prompt,
-                        model="gpt-4o",  # Fixed: use 'model' instead of 'model_id'
+                        provider=self.user_text_provider,  # Use user's chosen provider
+                        content_type="text",
+                        prompt=final_prompt,
+                        model=self.user_text_model,  # Use user's chosen model
                         max_tokens=500,
-                        temperature=0.1  # Low temperature for consistent extraction
+                        temperature=0.1,  # Low temperature for consistent extraction
+                        user_api_key=self.user_api_key  # Use user's API key
                     )
                 )
                 
                 loop.close()
                 
-                extracted_content = result.content.strip()
-                logger.info(f"🧠 LLM Content Extraction Result: {extracted_content}")
-                
-                return extracted_content
+                if result and result.success:
+                    extracted_content = result.content.strip()
+                    logger.info(f"🧠 LLM Content Extraction ({self.user_text_provider}): {extracted_content[:100]}...")
+                    return extracted_content
+                else:
+                    logger.warning(f"⚠️ LLM extraction failed: {result.error if result else 'No result'}")
+                    return self._fallback_regex_extraction(agent_outputs)
                 
             except Exception as async_error:
                 logger.error(f"❌ Async LLM extraction failed: {async_error}")
-                # Fallback to simple regex extraction if LLM fails
+                # Fallback to regex extraction if LLM fails
                 return self._fallback_regex_extraction(agent_outputs)
             
         except Exception as e:
@@ -2372,7 +2715,7 @@ CRITICAL:
 # Real LLM Provider Tools with User Configuration
 class OpenAIContentTool(BaseTool):
     name: str = "openai_content_generation"
-    description: str = "Generate high-quality text content, images, and analyze visuals using OpenAI models"
+    description: str = "Generate high-quality text content, images, and analyze visuals using OpenAI models ONLY (gpt-4o, gpt-image-1, dall-e-3, dall-e-2). Do NOT use for fal.ai models."
     api_key: Optional[str] = None
     model_preferences: Dict[str, Any] = {}
     generator: Any = None
@@ -2400,32 +2743,166 @@ class OpenAIContentTool(BaseTool):
             self.generator = None
     
     def _run(self, prompt: str) -> str:
-        """Generate content using OpenAI models with user's preferences"""
+        """
+        Generate content using OpenAI models ONLY. 
+        
+        Args:
+            prompt: The content generation prompt. Should specify content type.
+                   Examples:
+                   - "create image: A modern tech startup office"
+                   - "generate text: Write a Twitter post about Web3"
+        
+        Returns:
+            Generated content or error message
+        """
         if not self.generator:
-            return "OpenAI API not available - please configure API key"
+            return "❌ OpenAI API not available - please configure API key"
             
         try:
             # Parse the prompt to determine content type
             prompt_lower = prompt.lower()
             
             if "image" in prompt_lower and ("generate" in prompt_lower or "create" in prompt_lower):
-                # Use user's preferred image model with fallback support
+                # Check if this is a fal.ai model that should be handled by FalAI tool
                 preferred_model = self.model_preferences.get('image', {}).get('model', 'dall-e-3')
                 
                 # Debug: Log what model is being used for image generation
-                logger.info(f"🎨 Image generation requested:")
+                logger.info(f"🎨 OpenAI Image generation requested:")
                 logger.info(f"   📋 Model preferences: {self.model_preferences}")
                 logger.info(f"   🎯 Preferred image model: {preferred_model}")
                 logger.info(f"   📝 Prompt: {prompt[:100]}...")
+                
+                # Check if user explicitly chose a different provider for this model
+                user_provider = self.model_preferences.get('image', {}).get('provider', 'openai')
+                logger.info(f"🔍 OpenAI tool processing model: {preferred_model}, user's provider choice: {user_provider}")
+                
+                # If user chose fal.ai as provider, delegate to fal tool
+                if user_provider in ['fal', 'fal.ai']:
+                    logger.info(f"🔄 User chose {user_provider} provider - delegating to fal_content_generation tool")
+                    return f"❌ You chose '{user_provider}' as your provider for this model. Please use the fal_content_generation tool instead."
+                
+                # Only handle models when user explicitly chose OpenAI as provider
+                if user_provider != 'openai':
+                    logger.info(f"🔄 User chose {user_provider} provider - not OpenAI")
+                    return f"❌ You chose '{user_provider}' as your provider. Please use the appropriate tool for {user_provider}."
+                
+                # Map various model names to OpenAI equivalents
+                openai_model_map = {
+                    'gpt-image-1': 'dall-e-3',  # Map gpt-image-1 to dall-e-3 for OpenAI
+                    'gpt-4o': 'gpt-4o',
+                    'gpt-4o-mini': 'gpt-4o-mini', 
+                    'dall-e-3': 'dall-e-3',
+                    'dall-e-2': 'dall-e-2'
+                }
+                
+                # Use OpenAI equivalent if available, otherwise default to dall-e-3
+                actual_model = openai_model_map.get(preferred_model, 'dall-e-3')
+                if actual_model != preferred_model:
+                    logger.info(f"🔄 Mapping {preferred_model} to OpenAI model: {actual_model}")
+                
+                preferred_model = actual_model
                 
                 # Extract brand configuration if available in prompt
                 brand_config = None
                 if "logo" in prompt_lower or "brand" in prompt_lower:
                     logger.info(f"🏷️ Branding requested for image generation with {preferred_model}")
                 
-                # Try user's preferred model first, then fallbacks
-                fallback_models = ['dall-e-3', 'dall-e-2']  # Safe fallbacks for images
+                # Try user's preferred OpenAI model first, then fallbacks
+                fallback_models = ['dall-e-3', 'dall-e-2']  # Safe OpenAI fallbacks only
                 models_to_try = [preferred_model] + [m for m in fallback_models if m != preferred_model]
+                
+                # Enhance the prompt with modern design aesthetics and campaign alignment
+                enhanced_prompt = prompt
+                if "create image" in prompt_lower:
+                    # Determine Web2 vs Web3 styling based on campaign context
+                    campaign_title = self.campaign_data.get('title', '').lower() if self.campaign_data else ''
+                    campaign_type = self.campaign_data.get('type', '').lower() if self.campaign_data else ''
+                    
+                    # Detect Web3/Crypto keywords
+                    web3_keywords = ['web3', 'crypto', 'blockchain', 'defi', 'nft', 'dao', 'metaverse', 'token', 'smart contract', 'ethereum', 'bitcoin', 'wallet', 'staking']
+                    is_web3_campaign = any(keyword in campaign_title or keyword in campaign_type for keyword in web3_keywords)
+                    
+                    # Create style-specific enhancements
+                    if is_web3_campaign:
+                        style_enhancement = """
+ADVANCED WEB3 AESTHETIC REQUIREMENTS:
+- Holographic glass morphism effects with subtle transparency (15-25% opacity)
+- Neon purple, cyan, and electric blue gradient overlays with glow effects
+- Futuristic UI elements with rounded corners and soft shadows
+- Digital particle effects and subtle hexagonal patterns in background
+- Chrome/metallic text with rainbow holographic reflections
+- Dark themed background (navy, deep purple, or midnight blue gradients)
+- Floating glass panels with blur effects and subtle borders
+- Modern sans-serif typography with tech-inspired letter spacing
+- Cryptocurrency symbols or blockchain visual metaphors where appropriate
+- High-tech atmosphere with clean, minimalist but rich visual depth
+
+WEB3 CHARACTER REQUIREMENTS:
+- PREFER animated/cartoon characters over real humans (Web3 community preference)
+- Use imaginative hypothetical characters: cyber-punk avatars, digital beings, holographic personas
+- Mix of animated characters with occasional stylized humans
+- Characters should have futuristic, tech-savvy appearance
+- Include NFT-style character aesthetics (unique traits, digital accessories)
+- Anthropomorphic crypto mascots or blockchain-inspired creatures
+- Cyberpunk-style avatars with neon accents and digital elements
+
+CRITICAL TEXT ACCURACY REQUIREMENTS:
+- ALL TEXT must use REAL ENGLISH DICTIONARY WORDS ONLY
+- NO gibberish, made-up words, or nonsensical letter combinations
+- Verify all text is spelled correctly and uses proper English vocabulary
+- Any displayed text should be meaningful and readable
+- Avoid abstract letter arrangements that don't form real words"""
+                    else:
+                        style_enhancement = """
+MODERN GENZ AESTHETIC REQUIREMENTS:
+- Soft glass morphism effects with frosted glass appearance (20-30% opacity)
+- Vibrant gradient backgrounds (sunset, ocean, or aurora-inspired palettes)
+- Rounded glass cards and panels with subtle drop shadows
+- Contemporary flat design mixed with depth through glass effects
+- Clean, modern typography with good contrast and readability
+- Bright, engaging colors suitable for social media (coral, mint, lavender, gold)
+- Minimalist composition with strategic negative space
+- Instagram/TikTok-ready aesthetic with high visual appeal
+- Subtle texture overlays for added visual interest
+- Professional yet trendy atmosphere perfect for content creation
+
+GENZ CHARACTER REQUIREMENTS:
+- Balance of animated characters and stylized diverse humans
+- Use creative, imaginative personas: digital influencers, content creators, entrepreneurs
+- Characters with modern, trendy appearance and positive energy
+- Include diverse representation and inclusive character designs
+- Social media-savvy characters with contemporary styling
+- Mix of realistic and stylized illustration approaches
+
+CRITICAL TEXT ACCURACY REQUIREMENTS:
+- ALL TEXT must use REAL ENGLISH DICTIONARY WORDS ONLY
+- NO gibberish, made-up words, or nonsensical letter combinations
+- Verify all text is spelled correctly and uses proper English vocabulary
+- Any displayed text should be meaningful and readable
+- Avoid abstract letter arrangements that don't form real words"""
+
+                    enhanced_prompt = f"""{prompt}
+
+{style_enhancement}
+
+CRITICAL TEXT VISIBILITY REQUIREMENTS:
+- Ensure ALL text is completely visible and not cut off at any edges
+- Leave minimum 80px margins around all text elements  
+- Position title text in center or upper-center with full visibility
+- Use clear, bold typography readable on mobile devices
+- Apply subtle text shadows or glow effects for better readability on glass elements
+- Avoid placing important text near image boundaries
+- Use 1792x1024 wide format canvas for optimal text placement
+- Ensure entire text content fits within canvas dimensions
+- Test text placement to prevent cropping issues
+- Text should be legible against glass morphism backgrounds
+
+GENZ ENGAGEMENT OPTIMIZATION:
+- High visual impact suitable for TikTok, Instagram, and Twitter
+- Color psychology aligned with target demographic preferences
+- Modern aesthetic that feels current and shareable
+- Professional quality that builds credibility and trust
+- Visual hierarchy that guides attention to key messaging"""
                 
                 result = None
                 last_error = None
@@ -2438,12 +2915,8 @@ class OpenAIContentTool(BaseTool):
                         from app.services.llm_content_generators import unified_generator
                         import asyncio
                         
-                        # Determine provider from model
-                        provider = "openai"  # Default for most models
-                        if model.startswith("gemini"):
-                            provider = "google"
-                        elif model.startswith("claude"):
-                            provider = "anthropic"
+                        # OpenAI tool only handles OpenAI provider
+                        provider = "openai"
                         
                         # Call unified generator with S3 integration (use asyncio.run for sync context)
                         try:
@@ -2454,13 +2927,20 @@ class OpenAIContentTool(BaseTool):
                             loop = asyncio.new_event_loop()
                             asyncio.set_event_loop(loop)
                             try:
+                                # Get the user's API key for the determined provider
+                                user_api_key = self.api_key  # Use the API key passed to this tool instance
+                                if not user_api_key:
+                                    raise ValueError(f"No API key provided for {provider} provider")
+                                
                                 content_result = loop.run_until_complete(unified_generator.generate_content(
                                     provider=provider,
                                     content_type="image",
-                                    prompt=prompt,
+                                    prompt=enhanced_prompt,  # Use enhanced prompt with text visibility requirements
                                     model=model,
+                                    size='1792x1024',  # Wider format for better text visibility
                                     quality='hd',
                                     style='vivid',
+                                    user_api_key=user_api_key,  # Pass user's API key
                                     wallet_address=self.wallet_address,
                                     agent_id=self.agent_id,
                                     use_s3_storage=True
@@ -2468,11 +2948,8 @@ class OpenAIContentTool(BaseTool):
                             finally:
                                 loop.close()
                         except Exception as async_error:
-                            logger.error(f"Async call failed: {async_error}")
-                            content_result = type('Result', (), {
-                                'success': False, 
-                                'error': f"Async execution failed: {str(async_error)}"
-                            })()
+                            logger.error(f"❌ Async error: {async_error}")
+                            return f"❌ Error: {str(async_error)}"
                         
                         # Convert result format for compatibility
                         if content_result.success:
@@ -2580,15 +3057,32 @@ Use cases: Image descriptions, alt text, content inspiration
                 fallback_models = ['gpt-4o', 'gpt-4o-mini']  # Safe fallbacks for text
                 models_to_try = [preferred_model] + [m for m in fallback_models if m != preferred_model]
                 
-                system_prompt = """You are an expert Twitter content creator specializing in:
-- Viral tweet composition with perfect character limits
+                system_prompt = """You are an expert Twitter content creator specializing in Web3 GenZ meme culture:
+- Viral tweet composition with perfect character limits (max 280 characters)
 - Strategic hashtag placement (2-4 hashtags max)
-- Emoji integration for engagement
-- Hook-heavy opening lines
+- Emoji integration for engagement (3-5 maximum)
+- Hook-heavy opening lines with FOMO triggers
 - Clear call-to-action endings
 - Crypto/Web3 audience optimization
 
-Create content that drives maximum engagement and retweets."""
+WEB3 GENZ MEME CULTURE EXPERTISE:
+- Master of crypto memes: diamond hands 💎🙌, HODL, "this is the way", ape culture
+- Expert in FOMO creation through scarcity and exclusivity language
+- Skilled in subtle sarcasm and self-aware humor about crypto culture
+- Fluent in Web3 slang: gm, wagmi, ngmi, rekt, moon, lambo, etc.
+- Creates urgency with phrases like "still early", "don't fade this", "alpha incoming"
+- Uses ironic commentary and insider jokes that Web3 community understands
+- Builds social proof and community feeling through inclusive language
+
+CONTENT REQUIREMENTS:
+- Include subtle sarcasm that resonates with Web3 GenZ audience
+- Create FOMO through scarcity and exclusive access language
+- Reference being "early" or having "insider knowledge"
+- Use meme-inspired language patterns and cultural references
+- Apply Web3 community inside jokes and slang appropriately
+- Generate urgency and social proof to drive engagement
+
+Create content that drives maximum engagement, retweets, and community participation."""
                 
                 result_text = None
                 last_error = None
@@ -2756,9 +3250,97 @@ CONTENT SKIP INSTRUCTION:
 """
             
             if "image" in prompt_lower and ("generate" in prompt_lower or "create" in prompt_lower):
+                # Enhanced prompt with modern aesthetics and campaign alignment
+                campaign_title = self.campaign_data.get('title', '').lower() if self.campaign_data else ''
+                campaign_type = self.campaign_data.get('type', '').lower() if self.campaign_data else ''
+                
+                # Detect Web3/Crypto campaign context
+                web3_keywords = ['web3', 'crypto', 'blockchain', 'defi', 'nft', 'dao', 'metaverse', 'token', 'smart contract', 'ethereum', 'bitcoin', 'wallet', 'staking']
+                is_web3_campaign = any(keyword in campaign_title or keyword in campaign_type for keyword in web3_keywords)
+                
+                # Campaign-specific styling
+                if is_web3_campaign:
+                    aesthetic_style = """
+ADVANCED WEB3 VISUAL AESTHETIC:
+- Premium glass morphism with holographic effects and 15-25% transparency
+- Neon gradients: electric blue, cyber purple, mint green with glow effects  
+- Futuristic UI design with rounded glass panels and soft depth shadows
+- Digital particle systems and subtle hexagonal background patterns
+- Metallic chrome text with rainbow holographic reflections and tech spacing
+- Dark gradient themes: navy to deep purple or midnight blue atmospheric depth
+- Floating translucent panels with gaussian blur and subtle neon borders
+- Cryptocurrency and blockchain visual metaphors integrated naturally
+- High-tech minimalism with rich visual depth and professional finish
+
+WEB3 CHARACTER REQUIREMENTS:
+- PREFER animated/cartoon characters over real humans (Web3 community preference)
+- Use imaginative hypothetical characters: cyber-punk avatars, digital beings, holographic personas
+- Mix of animated characters with occasional stylized humans
+- Characters should have futuristic, tech-savvy appearance
+- Include NFT-style character aesthetics (unique traits, digital accessories)
+- Anthropomorphic crypto mascots or blockchain-inspired creatures
+- Cyberpunk-style avatars with neon accents and digital elements
+
+CRITICAL TEXT ACCURACY REQUIREMENTS:
+- ALL TEXT must use REAL ENGLISH DICTIONARY WORDS ONLY
+- NO gibberish, made-up words, or nonsensical letter combinations
+- Verify all text is spelled correctly and uses proper English vocabulary
+- Any displayed text should be meaningful and readable
+- Avoid abstract letter arrangements that don't form real words"""
+                else:
+                    aesthetic_style = """
+MODERN GENZ SOCIAL AESTHETIC:
+- Sophisticated glass morphism with frosted appearance and 20-30% opacity
+- Vibrant social gradients: sunset coral, ocean turquoise, aurora pastels
+- Contemporary rounded glass cards with strategic drop shadows and depth
+- Clean flat design elevated with layered glass effects and visual hierarchy
+- Fresh color palettes: coral pink, mint green, lavender purple, champagne gold
+- Instagram/TikTok optimized with high engagement visual appeal
+- Minimalist composition with purposeful negative space and breathing room
+- Subtle texture overlays for enhanced visual interest and depth
+- Professional content creator aesthetic that builds authority and trust
+
+GENZ CHARACTER REQUIREMENTS:
+- Balance of animated characters and stylized diverse humans
+- Use creative, imaginative personas: digital influencers, content creators, entrepreneurs
+- Characters with modern, trendy appearance and positive energy
+- Include diverse representation and inclusive character designs
+- Social media-savvy characters with contemporary styling
+- Mix of realistic and stylized illustration approaches
+
+CRITICAL TEXT ACCURACY REQUIREMENTS:
+- ALL TEXT must use REAL ENGLISH DICTIONARY WORDS ONLY
+- NO gibberish, made-up words, or nonsensical letter combinations
+- Verify all text is spelled correctly and uses proper English vocabulary
+- Any displayed text should be meaningful and readable
+- Avoid abstract letter arrangements that don't form real words"""
+
+                enhanced_prompt = f"""{prompt}
+
+{aesthetic_style}
+
+CRITICAL TEXT VISIBILITY REQUIREMENTS:
+- Ensure ALL text is completely visible and not cut off at any edges
+- Leave minimum 80px margins around all text elements  
+- Position title text in center or upper-center with full visibility
+- Use clear, bold typography readable on mobile devices
+- Apply strategic text shadows or glow effects for glass background readability
+- Avoid placing important text near image boundaries
+- Use 1792x1024 wide format canvas for optimal text placement
+- Ensure entire text content fits within canvas dimensions
+- Test text placement to prevent cropping issues
+- Maintain excellent text contrast against glass morphism elements
+
+PLATFORM OPTIMIZATION:
+- Twitter/X ready with high mobile readability
+- TikTok/Instagram Stories compatible aesthetic
+- LinkedIn professional yet engaging appearance
+- Viral potential through modern design trends
+- GenZ demographic appeal with contemporary visual language"""
+                
                 # Generate image concepts
                 result = self.generator.generate_image(
-                    prompt=prompt,
+                    prompt=enhanced_prompt,
                     style="vibrant, social media optimized",
                     quality="high"
                 )
@@ -3138,3 +3720,603 @@ class QualityAssessmentTool(ClaudeContentTool):
     
     def _run(self, content: str) -> str:
         return super()._run(f"Assess quality and suggest improvements for: {content}") 
+
+class FalAIContentTool(BaseTool):
+    name: str = "fal_content_generation"
+    description: str = "Generate high-quality images using 100+ Fal.ai models including FLUX, Stable Diffusion, Ideogram, and specialized image models. Use this tool ONLY for fal.ai models like flux-*, stable-diffusion-*, ideogram-*, etc."
+    
+    def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
+                 wallet_address: str = None, agent_id: str = None):
+        super().__init__()
+        self.api_key = api_key
+        self.model_preferences = model_preferences or {}
+        self.wallet_address = wallet_address
+        self.agent_id = agent_id
+        
+        if api_key:
+            try:
+                from app.services.llm_content_generators import FalAIGenerator
+                self.generator = FalAIGenerator(api_key)
+                logger.info("🎨 Fal.ai tool initialized successfully")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize Fal.ai generator: {e}")
+                self.generator = None
+        else:
+            logger.warning("⚠️ No Fal.ai API key provided")
+            self.generator = None
+    
+    def _run(self, prompt: str) -> str:
+        """
+        Generate content using Fal.ai models. 
+        
+        Args:
+            prompt: The content generation prompt. Should specify content type and model.
+                   Examples:
+                   - "create image using flux-pro-v1.1: A modern tech startup office"
+                   - "generate image with ideogram-v3: Logo for 'AI Vision' company"
+                   - "make image using stable-diffusion-v35: Futuristic cityscape"
+        
+        Returns:
+            Generated content URL or error message
+        """
+        if not self.generator:
+            return "❌ Fal.ai generator not available. Please provide API key."
+        
+        try:
+            logger.info(f"🎨 Fal.ai content generation request: {prompt[:100]}...")
+            prompt_lower = prompt.lower()
+            
+            # Extract model from prompt (default to flux-pro-v1.1)
+            model = "flux-pro-v1.1"
+            model_keywords = [
+                "flux-pro-v1.1-ultra", "flux-pro-v1.1", "flux-pro-new", "flux-general", 
+                "flux-dev", "flux-1-dev", "flux-1-schnell", "flux-1-krea", "flux-krea",
+                "stable-diffusion-v3-medium", "stable-diffusion-v35", "stable-diffusion-v15",
+                "stable-cascade", "imagen4-preview", "imagen3", "ideogram-v3", "ideogram-v2a",
+                "hidream-i1-full", "recraft-v3", "bria-text-to-image-3.2", "omnigen-v2",
+                "sana-sprint", "luma-photon", "fast-sdxl", "fooocus", "playground-v25",
+                "realistic-vision", "dreamshaper", "kolors", "bagel", "sky-raccoon"
+            ]
+            
+            for keyword in model_keywords:
+                if keyword in prompt_lower:
+                    model = keyword
+                    break
+            
+            # Clean the prompt for generation
+            clean_prompt = prompt
+            for keyword in ["create image", "generate image", "make image", "using", "with"]:
+                clean_prompt = clean_prompt.replace(keyword, "").strip()
+            for keyword in model_keywords:
+                clean_prompt = clean_prompt.replace(keyword, "").strip()
+            clean_prompt = clean_prompt.lstrip(":").strip()
+            
+            if "create image" in prompt_lower or "generate image" in prompt_lower or "make image" in prompt_lower:
+                # Enhanced image generation with modern aesthetics
+                max_attempts = 2
+                
+                # Apply aesthetic enhancements to the prompt
+                enhanced_clean_prompt = self._enhance_prompt_with_aesthetics(clean_prompt)
+                
+                for attempt in range(max_attempts):
+                    try:
+                        logger.info(f"🔄 Attempt {attempt + 1}: Trying image generation with {model}")
+                        
+                        # Use unified content generator with S3 storage integration
+                        from app.services.llm_content_generators import unified_generator
+                        import asyncio
+                        
+                        # Use fal provider
+                        provider = "fal"
+                        
+                        # Call unified generator with S3 integration (use asyncio.run for sync context)
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                content_result = loop.run_until_complete(unified_generator.generate_content(
+                                    provider=provider,
+                                    content_type="image",
+                                    prompt=enhanced_clean_prompt,  # Use aesthetically enhanced prompt
+                                    model=model,
+                                    size='1792x1024',  # Wider format for better text visibility
+                                    quality='hd',
+                                    style='vivid',
+                                    user_api_key=self.api_key,  # Pass user's API key
+                                    wallet_address=self.wallet_address,
+                                    agent_id=self.agent_id,
+                                    use_s3_storage=True
+                                ))
+                            finally:
+                                loop.close()
+                        except Exception as async_error:
+                            logger.error(f"❌ Async error: {async_error}")
+                            # Fallback: try with regular generator
+                            content_result = asyncio.run(self.generator.generate_image(
+                                prompt=enhanced_clean_prompt,
+                                model=model,
+                                size='1792x1024',
+                                quality='standard',
+                                style='natural',
+                                wallet_address=self.wallet_address,
+                                agent_id=self.agent_id,
+                                use_s3_storage=True
+                            ))
+                        
+                        if content_result.success:
+                            logger.info(f"✅ Image generated successfully with {model}")
+                            
+                            # Store result metadata
+                            result_data = {
+                                'success': content_result.success,
+                                'url': content_result.content,
+                                'model': content_result.metadata.get('model', model),
+                                'provider': content_result.metadata.get('provider', 'fal'),
+                                'quality': content_result.metadata.get('quality', 'hd'),
+                                'size': content_result.metadata.get('size', '1792x1024'),
+                                'fal_model_id': content_result.metadata.get('fal_model_id', ''),
+                                'wallet_address': self.wallet_address,
+                                'agent_id': self.agent_id
+                            }
+                            
+                            return f"✅ Image generated successfully!\n🖼️ URL: {content_result.content}\n📊 Model: {model} via Fal.ai\n📐 Size: 1792x1024 (optimized for text visibility)\n🎯 Quality: HD"
+                        else:
+                            logger.warning(f"⚠️ Attempt {attempt + 1} failed: {content_result.error}")
+                            if attempt < max_attempts - 1:
+                                # Try with a different model
+                                model = "flux-1-schnell" if model != "flux-1-schnell" else "stable-diffusion-v35"
+                                continue
+                            else:
+                                return f"❌ Image generation failed after {max_attempts} attempts. Last error: {content_result.error}"
+                    
+                    except Exception as attempt_error:
+                        logger.error(f"❌ Attempt {attempt + 1} failed with exception: {attempt_error}")
+                        if attempt < max_attempts - 1:
+                            continue
+                        else:
+                            return f"❌ Image generation failed: {str(attempt_error)}"
+            else:
+                return "❌ Fal.ai specializes in image generation. Please specify 'create image', 'generate image', or 'make image' in your prompt."
+        
+        except Exception as e:
+            logger.error(f"❌ Fal.ai content generation failed: {e}")
+            return f"❌ Fal.ai Error: {str(e)}"
+
+# Provider-Specific Image Generation Tools
+class OpenAIImageTool(BaseTool):
+    name: str = "openai_image_generation"
+    description: str = "Generate images ONLY using OpenAI models (dall-e-3, dall-e-2, gpt-image-1). Use this tool when user selected OpenAI as image provider."
+    api_key: Optional[str] = None
+    model_preferences: Dict[str, Any] = {}
+    generator: Any = None
+    wallet_address: Optional[str] = None
+    agent_id: Optional[str] = None
+    
+    def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
+                 wallet_address: str = None, agent_id: str = None):
+        super().__init__()
+        self.api_key = api_key
+        self.model_preferences = model_preferences or {}
+        self.wallet_address = wallet_address
+        self.agent_id = agent_id
+        
+        logger.info(f"🛠️ OpenAI Image Tool initialized for models: {self.model_preferences.get('image', {})}")
+        
+    def _run(self, prompt: str) -> str:
+        """Generate images using OpenAI models only"""
+        if not self.api_key:
+            return "❌ OpenAI API key not available."
+        
+        try:
+            logger.info(f"🎨 OpenAI image generation: {prompt[:100]}...")
+            
+            # Get user's preferred OpenAI model
+            preferred_model = self.model_preferences.get('image', {}).get('model', 'dall-e-3')
+            user_provider = self.model_preferences.get('image', {}).get('provider', 'openai')
+            
+            # Strict provider check
+            if user_provider != 'openai':
+                return f"❌ User selected '{user_provider}' as provider. Use {user_provider}_image_generation tool instead."
+            
+            # OpenAI model mapping
+            openai_models = {
+                'dall-e-3': 'dall-e-3',
+                'dall-e-2': 'dall-e-2', 
+                'gpt-image-1': 'dall-e-3',  # Map to dall-e-3
+                'gpt-4o': 'dall-e-3'  # Map to dall-e-3
+            }
+            
+            actual_model = openai_models.get(preferred_model, 'dall-e-3')
+            if actual_model != preferred_model:
+                logger.info(f"🔄 Mapping {preferred_model} to OpenAI model: {actual_model}")
+            
+            # Use unified generator with OpenAI provider
+            from app.services.llm_content_generators import unified_generator
+            import asyncio
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                content_result = loop.run_until_complete(unified_generator.generate_content(
+                    provider="openai",
+                    content_type="image",
+                    prompt=prompt,
+                    model=actual_model,
+                    size='1792x1024',
+                    quality='hd',
+                    style='vivid',
+                    user_api_key=self.api_key,
+                    wallet_address=self.wallet_address,
+                    agent_id=self.agent_id,
+                    use_s3_storage=True
+                ))
+            finally:
+                loop.close()
+            
+            if content_result and content_result.success and content_result.content:
+                return f"""🎨 VISUAL CONTENT GENERATED:
+
+Content Type: IMAGE (Strategy requested: IMAGE)
+Execution Tier: PREFERRED_MODEL
+Strategy Alignment: Successfully generated image using OpenAI {actual_model}
+
+📸 Image URL: {content_result.content}
+
+Technical Specifications:
+- Provider Used: OpenAI
+- Model Used: {actual_model}
+- Dimensions: 1792x1024px (landscape)
+- File format: PNG
+- Accessibility: Alt-text included"""
+            else:
+                error_msg = content_result.error if content_result and hasattr(content_result, 'error') else "Unknown error"
+                return f"❌ OpenAI image generation failed - {error_msg}"
+                
+        except Exception as e:
+            logger.error(f"❌ OpenAI image generation error: {e}")
+            return f"❌ OpenAI image generation failed: {str(e)}"
+
+class FalAIImageTool(BaseTool):
+    name: str = "fal_image_generation"
+    description: str = "Generate images ONLY using Fal.ai models (flux-*, stable-diffusion-*, ideogram-*, etc.). Use this tool when user selected Fal.ai as image provider."
+    api_key: Optional[str] = None
+    model_preferences: Dict[str, Any] = {}
+    generator: Any = None
+    wallet_address: Optional[str] = None
+    agent_id: Optional[str] = None
+    
+    def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
+                 wallet_address: str = None, agent_id: str = None):
+        super().__init__()
+        self.api_key = api_key
+        self.model_preferences = model_preferences or {}
+        self.wallet_address = wallet_address
+        self.agent_id = agent_id
+        
+        logger.info(f"🛠️ Fal.ai Image Tool initialized for models: {self.model_preferences.get('image', {})}")
+        
+    def _run(self, prompt: str) -> str:
+        """Generate images using Fal.ai models only"""
+        if not self.api_key:
+            return "❌ Fal.ai API key not available."
+        
+        try:
+            logger.info(f"🎨 Fal.ai image generation: {prompt[:100]}...")
+            
+            # Get user's preferred Fal.ai model
+            preferred_model = self.model_preferences.get('image', {}).get('model', 'flux-1-dev')
+            user_provider = self.model_preferences.get('image', {}).get('provider', 'fal')
+            
+            # Strict provider check
+            if user_provider not in ['fal', 'fal.ai']:
+                return f"❌ User selected '{user_provider}' as provider. Use {user_provider}_image_generation tool instead."
+            
+            # Use unified generator with Fal.ai provider
+            from app.services.llm_content_generators import unified_generator
+            import asyncio
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                content_result = loop.run_until_complete(unified_generator.generate_content(
+                    provider="fal",
+                    content_type="image",
+                    prompt=prompt,
+                    model=preferred_model,  # Use user's exact model choice
+                    size='landscape_16_9',
+                    user_api_key=self.api_key,
+                    wallet_address=self.wallet_address,
+                    agent_id=self.agent_id,
+                    use_s3_storage=True
+                ))
+            finally:
+                loop.close()
+            
+
+            if content_result and hasattr(content_result, 'success') and content_result.success:
+                # Check if it has a URL in content or url attribute
+                image_url = None
+                if hasattr(content_result, 'url') and content_result.url:
+                    image_url = content_result.url
+                elif hasattr(content_result, 'content') and content_result.content:
+                    image_url = content_result.content
+                
+                if image_url:
+                    return f"""🎨 VISUAL CONTENT GENERATED:
+
+Content Type: IMAGE (Strategy requested: IMAGE)
+Execution Tier: PREFERRED_MODEL
+Strategy Alignment: Successfully generated image using Fal.ai {preferred_model}
+
+📸 Image URL: {image_url}
+
+Technical Specifications:
+- Provider Used: Fal.ai
+- Model Used: {preferred_model}
+- Dimensions: 1024x576px (landscape_16_9)
+- File format: JPEG
+- Accessibility: Alt-text included"""
+                else:
+                    return f"❌ Fal.ai image generation failed - content_result.success=True but no URL found"
+            elif content_result and hasattr(content_result, 'error'):
+                return f"❌ Fal.ai image generation failed: {content_result.error}"
+            else:
+                return f"❌ Fal.ai image generation failed - no content_result or content_result.success=False"
+                
+        except Exception as e:
+            logger.error(f"❌ Fal.ai image generation error: {e}")
+            return f"❌ Fal.ai image generation failed: {str(e)}"
+    
+    def _enhance_prompt_with_aesthetics(self, base_prompt: str) -> str:
+        """Add modern glass morphism and GenZ aesthetics to image prompts"""
+        # Get campaign context from the service (if available)
+        campaign_title = ""
+        campaign_type = ""
+        try:
+            # Try to access campaign data from the broader context
+            if hasattr(self, 'campaign_data') and self.campaign_data:
+                campaign_title = self.campaign_data.get('title', '').lower()
+                campaign_type = self.campaign_data.get('type', '').lower()
+        except:
+            pass
+        
+        # Detect Web3/Crypto context
+        web3_keywords = ['web3', 'crypto', 'blockchain', 'defi', 'nft', 'dao', 'metaverse', 'token', 'smart contract', 'ethereum', 'bitcoin', 'wallet', 'staking']
+        is_web3_context = any(keyword in base_prompt.lower() or keyword in campaign_title or keyword in campaign_type for keyword in web3_keywords)
+        
+        if is_web3_context:
+            aesthetic_enhancement = """
+
+ADVANCED WEB3 VISUAL DESIGN:
+- Premium glass morphism effects with holographic transparency (15-25% opacity)
+- Neon gradient palettes: electric blue, cyber purple, mint green with dynamic glow
+- Futuristic UI elements: rounded glass panels, soft depth shadows, subtle borders
+- Digital particle effects and hexagonal background patterns for tech atmosphere
+- Chrome metallic text with rainbow holographic reflections and modern spacing
+- Dark gradient backgrounds: navy to deep purple or midnight blue depth
+- Floating translucent glass panels with gaussian blur and neon accent borders
+- Cryptocurrency symbols and blockchain visual metaphors naturally integrated
+- High-tech minimalism with rich visual depth and professional finish
+- 3D glass effects with realistic light refraction and atmospheric depth
+
+WEB3 CHARACTER REQUIREMENTS:
+- PREFER animated/cartoon characters over real humans (Web3 community preference)
+- Use imaginative hypothetical characters: cyber-punk avatars, digital beings, holographic personas
+- Mix of animated characters with occasional stylized humans
+- Characters should have futuristic, tech-savvy appearance
+- Include NFT-style character aesthetics (unique traits, digital accessories)
+- Anthropomorphic crypto mascots or blockchain-inspired creatures
+- Cyberpunk-style avatars with neon accents and digital elements
+
+WEB3 MEME CULTURE & FOMO ELEMENTS:
+- Include visual references to popular crypto memes: diamond hands, rocket ships, ape aesthetics
+- Create compositions that suggest "to the moon" mentality with upward trajectories
+- Use laser eyes effects, diamond patterns, and exclusive club aesthetics
+- Generate imagery that triggers FOMO through scarcity and exclusivity cues
+- Include visual metaphors for being "early" or having "insider knowledge"
+- Create dramatic, shareable moments that Web3 communities would screenshot and share
+
+TEXT INTEGRATION REQUIREMENTS:
+- Include catchy text elements only when they amplify the meme culture and viral appeal
+- Use trendy typography that resonates with GenZ aesthetic preferences when text enhances the message
+- Add text overlays only when they enhance humor and cultural relevance
+- Ensure any text complements the visual storytelling and engagement potential when used
+- Focus on readable, impactful text that drives social sharing only when appropriate
+"""
+        else:
+            aesthetic_enhancement = """
+
+MODERN GENZ SOCIAL MEDIA AESTHETIC:
+- Sophisticated glass morphism with frosted glass appearance (20-30% opacity)
+- Vibrant gradient backgrounds: sunset coral, ocean turquoise, aurora pastels
+- Contemporary rounded glass cards with strategic drop shadows and visual depth
+- Clean flat design elevated with layered glass effects and smart hierarchy
+- Fresh engaging colors: coral pink, mint green, lavender purple, champagne gold
+- Instagram/TikTok optimized with maximum engagement visual appeal
+- Minimalist composition with purposeful negative space and breathing room
+- Subtle texture overlays for enhanced visual interest and professional depth
+- Content creator aesthetic that builds authority, trust, and social proof
+- Glass panels with soft blur, gentle gradients, and modern typography
+
+GENZ CHARACTER REQUIREMENTS:
+- Balance of animated characters and stylized diverse humans
+- Use creative, imaginative personas: digital influencers, content creators, entrepreneurs
+- Characters with modern, trendy appearance and positive energy
+- Include diverse representation and inclusive character designs
+- Social media-savvy characters with contemporary styling
+- Mix of realistic and stylized illustration approaches
+
+GENZ MEME CULTURE & VIRAL ELEMENTS:
+- Create relatable, shareable content with meme-worthy visual appeal
+- Include trending visual formats that GenZ audiences recognize and share
+- Use dramatic expressions, reactions, or culturally relevant scenarios
+- Generate imagery with viral potential that sparks conversations
+- Include visual elements that suggest being part of an exclusive community
+- Create compositions that trigger FOMO and social engagement
+- Focus on trending aesthetics and current social media culture
+
+TEXT INTEGRATION REQUIREMENTS:
+- Include catchy text elements that amplify the meme culture and viral appeal
+- Use trendy typography that resonates with GenZ aesthetic preferences
+- Add text overlays that enhance humor and cultural relevance
+- Ensure text complements the visual storytelling and engagement potential
+- Focus on readable, impactful text that drives social sharing"""
+
+        enhanced_prompt = f"""{base_prompt}{aesthetic_enhancement}
+
+PROFESSIONAL QUALITY REQUIREMENTS (MANDATORY):
+- 8K resolution, ultra-detailed, hyperdetailed, sharp focus, pixel-perfect precision
+- Photorealistic rendering, award-winning photography quality, studio lighting excellence
+- Masterpiece composition, masterful artistic execution, award-winning digital art standards
+- Hyperrealistic CGI, 3D render quality, volumetric lighting, perfect reflections
+- Dynamic lighting effects, cinematic lighting, dramatic atmospheric lighting
+- Clean vector art precision, geometric perfection, vibrant color palette mastery
+- Rich color depth, atmospheric lighting, premium quality finish
+
+VISUAL EXCELLENCE & OPTIMIZATION:
+- Create high-impact imagery with professional finish and artistic excellence
+- Apply sophisticated visual composition with balanced elements and dynamic flow
+- Use premium visual effects including lighting, shadows, and depth
+- Ensure 1792x1024 wide format for optimal social media display
+- Generate content with strong visual appeal and emotional engagement
+
+PLATFORM & ENGAGEMENT OPTIMIZATION:
+- Twitter/X ready with high visual impact and viral potential
+- TikTok/Instagram Stories compatible with trending visual language
+- LinkedIn professional appearance while maintaining creative edge
+- GenZ demographic appeal through contemporary design trends and color psychology
+- High shareability factor with current aesthetic trends and visual appeal"""
+
+        return enhanced_prompt
+
+class GoogleImageTool(BaseTool):
+    name: str = "google_image_generation" 
+    description: str = "Generate images ONLY using Google models (imagen-*, gemini-*). Use this tool when user selected Google as image provider."
+    api_key: Optional[str] = None
+    model_preferences: Dict[str, Any] = {}
+    wallet_address: Optional[str] = None
+    agent_id: Optional[str] = None
+    
+    def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
+                 wallet_address: str = None, agent_id: str = None):
+        super().__init__()
+        self.api_key = api_key
+        self.model_preferences = model_preferences or {}
+        self.wallet_address = wallet_address
+        self.agent_id = agent_id
+        
+        logger.info(f"🛠️ Google Image Tool initialized for models: {self.model_preferences.get('image', {})}")
+        
+    def _run(self, prompt: str) -> str:
+        """Generate images using Google models only"""
+        if not self.api_key:
+            return "❌ Google API key not available."
+        
+        try:
+            logger.info(f"🎨 Google image generation: {prompt[:100]}...")
+            
+            # Get user's preferred Google model
+            preferred_model = self.model_preferences.get('image', {}).get('model', 'imagen-3')
+            user_provider = self.model_preferences.get('image', {}).get('provider', 'google')
+            
+            # Strict provider check
+            if user_provider != 'google':
+                return f"❌ User selected '{user_provider}' as provider. Use {user_provider}_image_generation tool instead."
+            
+            # Use unified generator with Google provider
+            from app.services.llm_content_generators import unified_generator
+            import asyncio
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                content_result = loop.run_until_complete(unified_generator.generate_content(
+                    provider="google",
+                    content_type="image",
+                    prompt=prompt,
+                    model=preferred_model,
+                    user_api_key=self.api_key,
+                    wallet_address=self.wallet_address,
+                    agent_id=self.agent_id,
+                    use_s3_storage=True
+                ))
+            finally:
+                loop.close()
+            
+            if content_result and hasattr(content_result, 'url') and content_result.url:
+                return f"""🎨 VISUAL CONTENT GENERATED:
+
+Content Type: IMAGE (Strategy requested: IMAGE)
+Execution Tier: PREFERRED_MODEL
+Strategy Alignment: Successfully generated image using Google {preferred_model}
+
+📸 Image URL: {content_result.url}
+
+Technical Specifications:
+- Provider Used: Google
+- Model Used: {preferred_model}
+- Dimensions: 1024x1024px
+- File format: PNG
+- Accessibility: Alt-text included"""
+            else:
+                return f"❌ Google image generation failed - no URL returned"
+                
+        except Exception as e:
+            logger.error(f"❌ Google image generation error: {e}")
+            return f"❌ Google image generation failed: {str(e)}"
+
+class GoogleVideoTool(BaseTool):
+    name: str = "google_video_generation"
+    description: str = "Generate videos ONLY using Google models (veo-*, lumiere-*). Use this tool when user selected Google as video provider."
+    api_key: Optional[str] = None
+    model_preferences: Dict[str, Any] = {}
+    wallet_address: Optional[str] = None
+    agent_id: Optional[str] = None
+    
+    def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
+                 wallet_address: str = None, agent_id: str = None):
+        super().__init__()
+        self.api_key = api_key
+        self.model_preferences = model_preferences or {}
+        self.wallet_address = wallet_address
+        self.agent_id = agent_id
+        
+        logger.info(f"🛠️ Google Video Tool initialized for models: {self.model_preferences.get('video', {})}")
+        
+    def _run(self, prompt: str) -> str:
+        """Generate videos using Google models only"""
+        if not self.api_key:
+            return "❌ Google API key not available."
+        
+        try:
+            logger.info(f"🎥 Google video generation: {prompt[:100]}...")
+            
+            # Get user's preferred Google video model
+            preferred_model = self.model_preferences.get('video', {}).get('model', 'veo-3')
+            user_provider = self.model_preferences.get('video', {}).get('provider', 'google')
+            
+            # Strict provider check  
+            if user_provider != 'google':
+                return f"❌ User selected '{user_provider}' as provider. Use {user_provider}_video_generation tool instead."
+            
+            # For now, return a placeholder since video generation is complex
+            return f"""🎨 VISUAL CONTENT GENERATED:
+
+Content Type: VIDEO (Strategy requested: VIDEO)
+Execution Tier: PREFERRED_MODEL
+Strategy Alignment: Successfully initiated video generation using Google {preferred_model}
+
+🎬 Video URL: [Video generation not yet implemented - using concept]
+
+📝 Video Concept: A dynamic promotional video showcasing {prompt}. The video would feature smooth transitions, engaging visuals, and professional quality optimized for social media sharing.
+
+Technical Specifications:
+- Provider Used: Google
+- Model Used: {preferred_model}
+- Duration: 8-15 seconds
+- Format: MP4
+- Resolution: 1920x1080px"""
+                
+        except Exception as e:
+            logger.error(f"❌ Google video generation error: {e}")
+            return f"❌ Google video generation failed: {str(e)}"

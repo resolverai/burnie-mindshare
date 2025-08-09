@@ -10,6 +10,7 @@ export interface ApiKeyConfig {
   replicate?: string;
   elevenlabs?: string;
   stability?: string;
+  fal?: string;
   updatedAt: string;
   walletAddress: string;
 }
@@ -84,6 +85,8 @@ export function getApiKey(walletAddress: string, provider: string): string | nul
       return config.elevenlabs || null;
     case 'stability':
       return config.stability || null;
+    case 'fal':
+      return config.fal || null;
     default:
       return null;
   }

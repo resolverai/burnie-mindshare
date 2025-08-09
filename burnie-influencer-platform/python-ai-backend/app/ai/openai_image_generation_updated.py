@@ -61,8 +61,8 @@ class OpenAIImageGenerator:
         Args:
             prompt (str): The image description prompt
             size (str): Image size ('1024x1024', '1792x1024', '1024x1792')
-            quality (str): Image quality ('standard' or 'hd')
-            style (str): Image style ('vivid' or 'natural')
+            quality (str): Image quality ('standard' or 'hd') - will be mapped to gpt-image-1 values
+            style (str): Image style ('vivid' or 'natural') - NOTE: Not supported by gpt-image-1
             wallet_address (str): User's wallet address for S3 organization
             agent_id (str): Agent ID from mining interface for S3 organization
             use_s3_storage (bool): Whether to upload to S3 (default: True)
@@ -73,28 +73,57 @@ class OpenAIImageGenerator:
         try:
             logger.info(f"🎨 Generating image with GPT-Image-1: {prompt[:100]}...")
             
+            # Map quality parameters for gpt-image-1 compatibility
+            # DALL-E 3 uses: 'standard', 'hd'
+            # gpt-image-1 uses: 'low', 'medium', 'high', 'auto'
+            quality_mapping = {
+                'standard': 'medium',
+                'hd': 'high',
+                'low': 'low',
+                'medium': 'medium', 
+                'high': 'high',
+                'auto': 'auto'
+            }
+            gpt_image_1_quality = quality_mapping.get(quality, 'high')  # Default to 'high' for best quality
+            logger.info(f"🔧 Quality mapping: {quality} -> {gpt_image_1_quality} for gpt-image-1")
+            
+            # gpt-image-1 supports: model, prompt, size, quality ('low'|'medium'|'high'|'auto'), n
+            # gpt-image-1 does NOT support: style, response_format parameters
             response = self.client.images.generate(
                 model='gpt-image-1',
                 prompt=prompt,
                 size=size,
-                quality=quality,
-                style=style,
+                quality=gpt_image_1_quality,  # Use mapped quality value
                 n=1
             )
             
-            original_url = response.data[0].url
-            logger.info(f"✅ Image generated successfully: {original_url}")
+            # Handle both possible response formats
+            image_url = None
+            image_base64 = None
+            
+            if hasattr(response.data[0], 'url') and response.data[0].url:
+                # URL format response
+                image_url = response.data[0].url
+                logger.info(f"✅ Image generated successfully (URL format): {image_url}")
+            elif hasattr(response.data[0], 'b64_json') and response.data[0].b64_json:
+                # Base64 format response
+                image_base64 = response.data[0].b64_json
+                image_url = f"data:image/png;base64,{image_base64}"
+                logger.info(f"✅ Image generated successfully (base64 format)")
+            else:
+                raise Exception("gpt-image-1 response contains neither URL nor base64 data")
             
             result = {
                 "success": True,
                 "model": "gpt-image-1",
                 "prompt": prompt,
-                "original_url": original_url,
-                "url": original_url,  # Default to original URL
+                "image_base64": image_base64,
+                "url": image_url,
                 "revised_prompt": getattr(response.data[0], 'revised_prompt', None),
                 "size": size,
-                "quality": quality,
-                "style": style
+                "quality": gpt_image_1_quality,  # Show the actual quality used
+                "quality_mapped_from": quality,  # Show the original quality requested
+                "style_note": "style parameter not supported by gpt-image-1 model"
             }
             
             # S3 Storage Integration
@@ -105,13 +134,27 @@ class OpenAIImageGenerator:
                     logger.info("📦 Uploading image to S3 storage...")
                     s3_service = get_s3_storage()
                     
-                    s3_result = s3_service.download_and_upload_to_s3(
-                        source_url=original_url,
+                    # Decode base64 and create temporary file for S3 upload
+                    import base64
+                    import tempfile
+                    import os
+                    image_data = base64.b64decode(image_base64)
+                    
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_file:
+                        temp_file.write(image_data)
+                        temp_file_path = temp_file.name
+                    
+                    # Upload to S3
+                    s3_result = s3_service.upload_file_to_s3(
+                        file_path=temp_file_path,
                         content_type="image",
                         wallet_address=wallet_address,
                         agent_id=agent_id,
                         model_name="gpt-image-1"
                     )
+                    
+                    # Clean up temp file
+                    os.unlink(temp_file_path)
                     
                     if s3_result['success']:
                         # Replace URL with S3 URL
@@ -120,12 +163,12 @@ class OpenAIImageGenerator:
                             "s3_url": s3_result['s3_url'],
                             "s3_key": s3_result['s3_key'],
                             "bucket": s3_result['bucket'],
-                            "file_size": s3_result['file_size'],
-                            "uploaded_at": s3_result['uploaded_at']
+                            "file_size": len(image_data),
+                            "uploaded_at": s3_result.get('uploaded_at')
                         }
                         logger.info(f"✅ Image uploaded to S3: {s3_result['s3_url']}")
                     else:
-                        logger.warning(f"⚠️ S3 upload failed, using original URL: {s3_result.get('error', 'Unknown error')}")
+                        logger.warning(f"⚠️ S3 upload failed, using data URL: {s3_result.get('error', 'Unknown error')}")
                         result["s3_storage"] = {"error": s3_result.get('error', 'S3 upload failed')}
                         
                 except ImportError as e:

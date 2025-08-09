@@ -13,12 +13,17 @@ import {
   HeartIcon,
   ChatBubbleLeftIcon,
   ArrowUpIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  ShoppingCartIcon
 } from '@heroicons/react/24/outline'
 import { 
   HeartIcon as HeartIconSolid,
   StarIcon as StarIconSolid 
 } from '@heroicons/react/24/solid'
+
+// Import the new Purchase Content Modal
+import PurchaseContentModal from './PurchaseContentModal'
+import { transferROAST, checkROASTBalance, verifyTransfer } from '../../utils/walletUtils'
 
 interface ContentItem {
   id: number
@@ -54,17 +59,20 @@ interface ContentItem {
 }
 
 export default function BiddingInterface() {
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedPlatform, setSelectedPlatform] = useState<string>('all')
-  const [selectedSort, setSelectedSort] = useState<string>('quality')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedPlatform, setSelectedPlatform] = useState('all')
+  const [selectedQuality, setSelectedQuality] = useState('all')
+  // Keep bidding state for future use but don't expose UI for now
   const [showBidModal, setShowBidModal] = useState<ContentItem | null>(null)
+  const [showPurchaseModal, setShowPurchaseModal] = useState<ContentItem | null>(null)
   const [bidAmount, setBidAmount] = useState('')
   const [bidCurrency, setBidCurrency] = useState<'ROAST' | 'USDC' | 'KAITO' | 'COOKIE' | 'AXR' | 'NYKO'>('ROAST')
-  const [showCopyProtectionModal, setShowCopyProtectionModal] = useState(false)
+  const [isPlacingBid, setIsPlacingBid] = useState(false)
+  const [showCopyProtection, setShowCopyProtection] = useState(false)
   const [isScreenshotDetected, setIsScreenshotDetected] = useState(false)
   const [watermarkPosition, setWatermarkPosition] = useState({ x: 0, y: 0 })
   
-  // Content parsing functions similar to mining interface
+  // Content parsing functions
   const extractImageUrl = (contentText: string): string | null => {
     // Pattern 1: Look for Image URL: prefix (backend format)
     const prefixMatch = contentText.match(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i)
@@ -87,26 +95,51 @@ export default function BiddingInterface() {
     return null
   }
 
-  const formatTwitterContent = (contentText: string): { text: string; imageUrl: string | null } => {
+  const formatTwitterContent = (contentText: string): { text: string; hashtags: string[]; characterCount: number; imageUrl: string | null } => {
     const imageUrl = extractImageUrl(contentText)
     
-    // Extract just the Twitter text (before the stats)
-    const lines = contentText.split('\n')
+    // Start with the full content
+    let cleanText = contentText
+    
+    // Remove image URL patterns from the text
+    cleanText = cleanText.replace(/📸 Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/https?:\/\/burnie-mindshare-content[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*amazonaws[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*s3[^\s\n<>"'`]+/gi, '')
+    
+    // Extract just the Twitter text (before the stats and metadata)
+    const lines = cleanText.split('\n')
     let twitterText = ""
     
     for (const line of lines) {
       if (line.includes('📊 Content Stats') || 
           line.includes('🖼️ [Image will be attached') ||
-          line.includes('💡 To post:')) {
+          line.includes('💡 To post:') ||
+          line.includes('AWSAccessKeyId=') ||
+          line.includes('Signature=') ||
+          line.includes('Expires=')) {
         break
       }
-      if (line.trim() && !line.includes('Image URL:')) {
+      
+      const trimmedLine = line.trim()
+      // Skip lines that are just URLs or AWS parameters
+      if (trimmedLine && 
+          !trimmedLine.startsWith('http') && 
+          !trimmedLine.includes('AWSAccessKeyId') &&
+          !trimmedLine.includes('Signature=') &&
+          !trimmedLine.includes('Expires=')) {
         twitterText += line + "\n"
       }
     }
     
+    const finalText = twitterText.trim()
+    const hashtags = finalText.match(/#\w+/g) || []
+    
     return {
-      text: twitterText.trim(),
+      text: finalText,
+      hashtags,
+      characterCount: finalText.length,
       imageUrl
     }
   }
@@ -123,17 +156,17 @@ export default function BiddingInterface() {
 
   // Copy protection modal component
   const CopyProtectionModal = () => (
-    showCopyProtectionModal && (
+    showCopyProtection && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
         <div className="bg-white rounded-lg p-8 max-w-md mx-4 text-center">
           <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <h3 className="text-xl font-bold text-gray-900 mb-4">Content Protected</h3>
           <p className="text-gray-600 mb-6">
             This content is proprietary and protected. Copying, screenshots, and screen recording are prohibited. 
-            You can only access this content after winning the bid auction.
+            You can only access this content after purchasing it.
           </p>
           <button
-            onClick={() => setShowCopyProtectionModal(false)}
+            onClick={() => setShowCopyProtection(false)}
             className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
           >
             I Understand
@@ -149,25 +182,22 @@ export default function BiddingInterface() {
   // Screenshot protection functions
   const handleVisibilityChange = () => {
     if (document.hidden) {
-      // User switched away - potential screenshot attempt
       setIsScreenshotDetected(true)
       setTimeout(() => setIsScreenshotDetected(false), 3000)
     }
   }
 
   const handleBlur = () => {
-    // Window lost focus - potential screenshot attempt
     setIsScreenshotDetected(true)
     setTimeout(() => setIsScreenshotDetected(false), 2000)
   }
 
   const preventScreenshot = () => {
-    setShowCopyProtectionModal(true)
+    setShowCopyProtection(true)
   }
 
   // Block screen capture APIs
   const blockScreenCapture = () => {
-    // Block getDisplayMedia (screen sharing/recording)
     if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
       const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia
       navigator.mediaDevices.getDisplayMedia = () => {
@@ -176,7 +206,6 @@ export default function BiddingInterface() {
       }
     }
 
-    // Block getUserMedia for screen capture
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       const originalGetUserMedia = navigator.mediaDevices.getUserMedia
       navigator.mediaDevices.getUserMedia = (constraints: any) => {
@@ -193,50 +222,48 @@ export default function BiddingInterface() {
   useEffect(() => {
     const moveWatermark = () => {
       setWatermarkPosition({
-        x: Math.random() * 70, // 0-70% to keep within bounds
+        x: Math.random() * 70,
         y: Math.random() * 70
       })
     }
     
-    moveWatermark() // Initial position
-    const interval = setInterval(moveWatermark, 2000) // Move every 2 seconds (faster)
+    moveWatermark()
+    const interval = setInterval(moveWatermark, 3000)
     return () => clearInterval(interval)
   }, [])
 
   // Copy protection functions
   const preventCopy = (e: Event) => {
     e.preventDefault()
-    setShowCopyProtectionModal(true)
+    setShowCopyProtection(true)
     return false
   }
 
   const preventRightClick = (e: React.MouseEvent) => {
     e.preventDefault()
-    setShowCopyProtectionModal(true)
+    setShowCopyProtection(true)
   }
 
   const preventDrag = (e: React.DragEvent) => {
     e.preventDefault()
-    setShowCopyProtectionModal(true)
+    setShowCopyProtection(true)
   }
 
   const preventImageRightClick = (e: React.MouseEvent) => {
     e.preventDefault()
-    setShowCopyProtectionModal(true)
+    setShowCopyProtection(true)
   }
 
   const preventKeyboardCopy = (e: React.KeyboardEvent) => {
-    // Prevent Ctrl+C, Ctrl+A, Ctrl+S, Ctrl+P, etc. but allow arrow keys for scrolling
     if (e.ctrlKey || e.metaKey) {
       if (['c', 'a', 's', 'p', 'v', 'x'].includes(e.key.toLowerCase())) {
         e.preventDefault()
-        setShowCopyProtectionModal(true)
+        setShowCopyProtection(true)
       }
     }
-    // Prevent F12, Ctrl+Shift+I, etc.
     if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
       e.preventDefault()
-      setShowCopyProtectionModal(true)
+      setShowCopyProtection(true)
     }
   }
 
@@ -247,38 +274,29 @@ export default function BiddingInterface() {
     const handlePrint = (e: Event) => preventCopy(e)
     const handleSelectStart = (e: Event) => preventCopy(e)
     
-    // Screenshot detection events
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('blur', handleBlur)
-    
-    // Copy protection events
     document.addEventListener('copy', handleCopy)
     document.addEventListener('cut', handleCut)
     document.addEventListener('selectstart', handleSelectStart)
     document.addEventListener('dragstart', preventCopy)
     window.addEventListener('beforeprint', handlePrint)
     
-    // Block screen capture APIs
     blockScreenCapture()
     
-    // Mobile screenshot detection (Android/iOS)
     const handleMobileScreenshot = () => {
       setIsScreenshotDetected(true)
       preventScreenshot()
       setTimeout(() => setIsScreenshotDetected(false), 5000)
     }
     
-    // Android screenshot detection
     document.addEventListener('deviceorientation', handleMobileScreenshot)
     
-    // Keyboard screenshot shortcuts
     const handleKeyboardScreenshot = (e: KeyboardEvent) => {
-      // Windows: PrintScreen, Alt+PrintScreen, Win+PrintScreen
       if (e.key === 'PrintScreen') {
         e.preventDefault()
         preventScreenshot()
       }
-      // Mac: Cmd+Shift+3, Cmd+Shift+4, Cmd+Shift+5
       if (e.metaKey && e.shiftKey && ['3', '4', '5'].includes(e.key)) {
         e.preventDefault()
         preventScreenshot()
@@ -302,12 +320,12 @@ export default function BiddingInterface() {
 
   // Fetch content from marketplace API
   const { data: content, isLoading, refetch } = useQuery({
-    queryKey: ['marketplace-content', searchQuery, selectedPlatform, selectedSort],
+    queryKey: ['marketplace-content', searchTerm, selectedPlatform, selectedQuality],
     queryFn: async () => {
       const params = new URLSearchParams()
-      if (searchQuery) params.append('search', searchQuery)
+      if (searchTerm) params.append('search', searchTerm)
       if (selectedPlatform !== 'all') params.append('platform_source', selectedPlatform)
-      params.append('sort_by', selectedSort)
+      if (selectedQuality !== 'all') params.append('quality_score', selectedQuality)
       
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content?${params}`)
@@ -325,6 +343,141 @@ export default function BiddingInterface() {
     refetchInterval: 30000,
   })
 
+  // Handle purchase function
+  const handlePurchase = async (contentId: number, price: number) => {
+    if (!address) {
+      alert('Please connect your wallet to purchase content');
+      return;
+    }
+
+    try {
+      console.log('🛒 Starting purchase process for content:', contentId, 'Price:', price, 'ROAST');
+      
+      // Step 1: Check ROAST balance
+      console.log('🔍 Checking ROAST balance...');
+      const hasBalance = await checkROASTBalance(address, price);
+      if (!hasBalance) {
+        alert(`Insufficient ROAST balance. You need ${price} ROAST tokens to purchase this content.`);
+        return;
+      }
+
+      // Step 2: Create purchase record
+      console.log('📝 Creating purchase record...');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/purchase`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contentId,
+          buyerWalletAddress: address,
+          purchasePrice: price,
+          currency: 'ROAST'
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to initiate purchase');
+      }
+
+      console.log('✅ Purchase record created:', result);
+
+      // Step 3: Execute ROAST token transfer to treasury
+      const treasuryAddress = result.data.treasuryAddress || process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS;
+      
+      if (!treasuryAddress) {
+        throw new Error('Treasury wallet address not configured');
+      }
+
+      console.log('💰 Executing ROAST token transfer...');
+      console.log(`📤 From: ${address}`);
+      console.log(`📥 To: ${treasuryAddress}`);
+      console.log(`💎 Amount: ${price} ROAST`);
+
+      const transferResult = await transferROAST(price, treasuryAddress);
+      
+      if (!transferResult.success) {
+        console.error('❌ Wallet transaction failed or cancelled:', transferResult.error);
+        alert(`Payment failed or cancelled: ${transferResult.error}. The content remains available for purchase.`);
+        // DO NOT refresh content list here - user cancelled or failed transaction
+        return;
+      }
+
+      console.log('🎉 Wallet transaction successful:', transferResult.transactionHash);
+
+      // Step 4: Verify transaction was successful
+      console.log('🔍 Verifying blockchain transaction...');
+      const isVerified = await verifyTransfer(
+        transferResult.transactionHash!,
+        treasuryAddress,
+        price
+      );
+
+      if (!isVerified) {
+        console.error('❌ Transaction verification failed');
+        alert('Payment verification failed. Please contact support with transaction hash: ' + transferResult.transactionHash);
+        return;
+      }
+
+      console.log('✅ Transaction verified on blockchain');
+
+      // Step 5: Confirm purchase with backend
+      console.log('📋 Confirming purchase with backend...');
+      const confirmResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/purchase/${result.data.purchaseId}/confirm`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          transactionHash: transferResult.transactionHash
+        }),
+      });
+
+      const confirmResult = await confirmResponse.json();
+      
+      if (!confirmResponse.ok) {
+        console.error('❌ Failed to confirm purchase:', confirmResult);
+        alert('Payment completed but there was an issue confirming with our servers. Your transaction hash: ' + transferResult.transactionHash);
+        return;
+      }
+
+      console.log('🎊 Purchase confirmed:', confirmResult);
+
+      // Step 6: Trigger treasury-to-miner distribution
+      console.log('💸 Triggering treasury-to-miner distribution...');
+      try {
+        const distributionResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/purchase/${result.data.purchaseId}/distribute`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        const distributionResult = await distributionResponse.json();
+        
+        if (distributionResponse.ok) {
+          console.log('✅ Treasury distribution successful:', distributionResult);
+        } else {
+          console.warn('⚠️ Treasury distribution will be processed automatically:', distributionResult.message);
+        }
+      } catch (error) {
+        console.warn('⚠️ Treasury distribution will be processed automatically:', error);
+      }
+
+      // ONLY refresh content list after successful purchase confirmation
+      alert('🎉 Purchase successful! Content has been added to your library.');
+      refetch(); // Refresh the content list only on successful purchase
+      
+    } catch (error) {
+      console.error('❌ Purchase error:', error);
+      alert(`Purchase failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // DO NOT refresh content list on error - content should remain available
+    }
+  }
+
+  // Keep bidding function for future use (but don't expose in UI for now)
   const handleBid = async (contentId: number) => {
     if (!bidAmount || !showBidModal) {
       alert('Please enter a bid amount');
@@ -356,10 +509,8 @@ export default function BiddingInterface() {
 
       if (response.ok) {
         alert(`Bid placed successfully! ${result.message}`);
-        // Refresh content and close modal
         setShowBidModal(null)
         setBidAmount('')
-        // Refetch data to show updated bids
         refetch();
       } else {
         console.error('Bid failed:', result);
@@ -395,13 +546,13 @@ export default function BiddingInterface() {
         WebkitTapHighlightColor: 'transparent'
       }}
     >
-      {/* Balanced Dynamic Watermarks - Less Distracting */}
+      {/* Dynamic Watermarks */}
       <div 
-        className="fixed pointer-events-none z-30 text-red-600 opacity-25 text-6xl font-black transform -rotate-45"
+        className="fixed pointer-events-none z-30 text-red-600 opacity-25 text-5xl font-black transform -rotate-45"
         style={{
           left: `${watermarkPosition.x}%`,
           top: `${watermarkPosition.y}%`,
-          transition: 'all 2s ease-in-out',
+          transition: 'all 3s ease-in-out',
           textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
         }}
       >
@@ -409,11 +560,11 @@ export default function BiddingInterface() {
       </div>
       
       <div 
-        className="fixed pointer-events-none z-30 text-red-600 opacity-20 text-4xl font-black transform rotate-12"
+        className="fixed pointer-events-none z-30 text-red-600 opacity-20 text-3xl font-black transform rotate-12"
         style={{
           left: `${(watermarkPosition.x + 30) % 100}%`,
           top: `${(watermarkPosition.y + 20) % 100}%`,
-          transition: 'all 2s ease-in-out',
+          transition: 'all 3s ease-in-out',
           textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
         }}
       >
@@ -421,23 +572,23 @@ export default function BiddingInterface() {
       </div>
 
       <div 
-        className="fixed pointer-events-none z-30 text-red-600 opacity-22 text-5xl font-black transform -rotate-12"
+        className="fixed pointer-events-none z-30 text-red-600 opacity-22 text-4xl font-black transform -rotate-12"
         style={{
           left: `${(watermarkPosition.x + 55) % 100}%`,
           top: `${(watermarkPosition.y + 40) % 100}%`,
-          transition: 'all 2s ease-in-out',
+          transition: 'all 3s ease-in-out',
           textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
         }}
       >
-        BID TO ACCESS
+        BUY TO ACCESS
       </div>
 
       <div 
-        className="fixed pointer-events-none z-30 text-red-600 opacity-18 text-3xl font-black transform rotate-30"
+        className="fixed pointer-events-none z-30 text-red-600 opacity-18 text-2xl font-black transform rotate-30"
         style={{
           left: `${(watermarkPosition.x + 15) % 100}%`,
           top: `${(watermarkPosition.y + 65) % 100}%`,
-          transition: 'all 2s ease-in-out',
+          transition: 'all 3s ease-in-out',
           textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
         }}
       >
@@ -454,12 +605,13 @@ export default function BiddingInterface() {
           </div>
         </div>
       )}
+
       <div className="p-6 space-y-6">
         {/* Header and Filters */}
         <div className="space-y-4">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Content Marketplace</h1>
-            <p className="text-gray-600">Browse and bid on AI-generated content</p>
+            <p className="text-gray-600">Browse and purchase AI-generated content</p>
           </div>
 
           {/* Search and Filters */}
@@ -469,8 +621,8 @@ export default function BiddingInterface() {
               <input
                 type="text"
                 placeholder="Search content..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="input-field pl-10"
               />
             </div>
@@ -487,25 +639,24 @@ export default function BiddingInterface() {
             </select>
 
             <select
-              value={selectedSort}
-              onChange={(e) => setSelectedSort(e.target.value)}
+              value={selectedQuality}
+              onChange={(e) => setSelectedQuality(e.target.value)}
               className="input-field md:w-48"
             >
-              <option value="quality">Quality Score</option>
-              <option value="mindshare">Predicted Mindshare</option>
-              <option value="price_low">Price: Low to High</option>
-              <option value="price_high">Price: High to Low</option>
-              <option value="newest">Newest First</option>
+              <option value="all">All Quality Scores</option>
+              <option value="90">90+</option>
+              <option value="80">80+</option>
+              <option value="70">70+</option>
             </select>
           </div>
         </div>
 
-        {/* Content Display */}
+        {/* Content Display - 2 Column Grid */}
         {isLoading ? (
-          <div className="space-y-6">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="card animate-pulse">
-                <div className="card-content space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="bg-white rounded-lg shadow-md animate-pulse">
+                <div className="p-4 space-y-4">
                   <div className="h-6 bg-gray-200 rounded w-3/4"></div>
                   <div className="h-32 bg-gray-200 rounded"></div>
                   <div className="h-4 bg-gray-200 rounded w-1/2"></div>
@@ -514,151 +665,174 @@ export default function BiddingInterface() {
             ))}
           </div>
         ) : content && content.length > 0 ? (
-          <div className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {content.map((item: ContentItem) => {
-              // Use content_images array directly instead of extracting from text
-              const text = item.content_text
-              const imageUrl = item.content_images && item.content_images.length > 0 
+              const { text, hashtags, characterCount, imageUrl } = formatTwitterContent(item.content_text)
+              const displayImage = item.content_images && item.content_images.length > 0 
                 ? item.content_images[0] 
-                : null
-              
-              // Debug logging
-              console.log('🖼️ BiddingInterface: Content images array:', item.content_images)
-              console.log('🖼️ BiddingInterface: Selected image URL:', imageUrl)
+                : imageUrl
               
               return (
-                <div key={item.id} className="card hover:shadow-xl transition-all duration-300 border-l-4 border-l-orange-500">
-                  <div className="card-content space-y-6">
+                <div key={item.id} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 border border-gray-200">
+                  <div className="p-4 space-y-4">
                     {/* Header with Creator Info */}
-                    <div className="flex items-center justify-between pb-4 border-b border-gray-200">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
-                          <span className="text-white font-bold">
-                          {generateMinerId(item.creator.username).charAt(6).toUpperCase()}
-                        </span>
-                      </div>
-                      <div>
-                          <div className="flex items-center space-x-2">
-                            <p className="font-medium text-gray-900">{generateMinerId(item.creator.username)}</p>
-                            {item.agent_name && (
-                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                                🤖 {item.agent_name}
-                              </span>
-                            )}
-                          </div>
-                        <div className="flex items-center space-x-1">
-                          <StarIconSolid className="h-3 w-3 text-yellow-400" />
-                            <span className="text-xs text-gray-500">{item.creator.reputation_score} reputation</span>
-                            <span className="text-xs text-gray-400">•</span>
-                            <span className="text-xs text-gray-500">{formatTimeAgo(item.created_at)}</span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
+                          <span className="text-white font-bold text-sm">
+                            {generateMinerId(item.creator.username).charAt(6).toUpperCase()}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900 text-sm">{generateMinerId(item.creator.username)}</p>
+                          <div className="flex items-center space-x-1">
+                            <StarIconSolid className="h-3 w-3 text-yellow-400" />
+                            <span className="text-xs text-gray-500">{item.creator.reputation_score}</span>
                           </div>
                         </div>
                       </div>
                       <div className="text-right">
-                    <div className="flex items-center space-x-2">
-                      <span className="status-indicator status-active text-xs">
-                        {item.campaign.platform_source}
-                      </span>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">{item.campaign.title}</p>
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                          {item.campaign.platform_source}
+                        </span>
+                        <p className="text-xs text-gray-500 mt-1">{formatTimeAgo(item.created_at)}</p>
                       </div>
                     </div>
 
-                    {/* Clean Content Display */}
-                    <div className="space-y-4">
-                      {/* Tweet Text */}
-                      <div className="bg-white rounded-lg p-4 border border-gray-200">
-                        <div className="text-gray-900 whitespace-pre-wrap font-medium leading-relaxed">
-                          {text}
+                    {/* Content Text */}
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 relative">
+                      {/* Text Watermark */}
+                      <div className="absolute inset-0 pointer-events-none z-10 flex items-center justify-center">
+                        <div 
+                          className="text-red-500 opacity-15 text-4xl font-black transform -rotate-45"
+                          style={{
+                            textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
+                          }}
+                        >
+                          PROTECTED
                         </div>
                       </div>
-
-                      {/* Image */}
-                      {imageUrl && (
-                        <div className="bg-white rounded-lg p-4 border border-gray-200">
-                          <div className="relative">
-                            <img 
-                              src={imageUrl} 
-                              alt="AI Generated content image"
-                              className="w-full max-w-md rounded-lg border border-gray-300 shadow-md"
-                              onLoad={() => console.log('✅ BiddingInterface image loaded:', imageUrl)}
-                              onError={(e) => {
-                                console.error('❌ BiddingInterface image failed to load:', imageUrl)
-                                e.currentTarget.style.display = 'none'
-                                const fallback = e.currentTarget.nextElementSibling as HTMLElement
-                                if (fallback) fallback.style.display = 'block'
-                              }}
-                              onDragStart={preventDrag}
-                              onContextMenu={preventImageRightClick}
-                              style={{ userSelect: 'none' }}
-                            />
-                            <div 
-                              className="hidden bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg border border-gray-300 p-8 text-center"
-                            >
-                              <span className="text-gray-500 text-sm">
-                                🖼️ AI Generated Image
-                                <br />
-                                <span className="text-xs text-gray-400">Preview not available</span>
+                      
+                      <div className="text-gray-900 text-sm leading-relaxed line-clamp-4 relative z-20">
+                        {text}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs text-gray-500 relative z-20">
+                        <span>{characterCount}/280</span>
+                        {hashtags.length > 0 && (
+                          <div className="flex space-x-1">
+                            {hashtags.slice(0, 2).map((tag, index) => (
+                              <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded">
+                                {tag}
                               </span>
+                            ))}
+                            {hashtags.length > 2 && <span>+{hashtags.length - 2}</span>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Image with Watermark */}
+                    {displayImage && (
+                      <div className="relative">
+                        <div className="relative overflow-hidden rounded-lg border border-gray-300">
+                          <img 
+                            src={displayImage} 
+                            alt="AI Generated content"
+                            className="w-full h-auto object-cover rounded-lg"
+                            onLoad={() => console.log('✅ Card image loaded:', displayImage)}
+                            onError={(e) => {
+                              console.error('❌ Card image failed to load:', displayImage)
+                              e.currentTarget.style.display = 'none'
+                              const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                              if (fallback) fallback.style.display = 'block'
+                            }}
+                            onDragStart={preventDrag}
+                            onContextMenu={preventImageRightClick}
+                            style={{ userSelect: 'none' }}
+                          />
+                          
+                          {/* Enhanced Image Watermarks */}
+                          <div className="absolute inset-0 pointer-events-none">
+                            <div 
+                              className="absolute text-white opacity-70 text-3xl font-black transform -rotate-45"
+                              style={{
+                                left: '20%',
+                                top: '30%',
+                                textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
+                              }}
+                            >
+                              PROTECTED
+                            </div>
+                            <div 
+                              className="absolute text-white opacity-60 text-xl font-black transform rotate-12"
+                              style={{
+                                right: '15%',
+                                bottom: '20%',
+                                textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
+                              }}
+                            >
+                              BUY TO ACCESS
+                            </div>
+                            <div 
+                              className="absolute text-white opacity-50 text-lg font-black transform -rotate-12"
+                              style={{
+                                left: '10%',
+                                bottom: '10%',
+                                textShadow: '1px 1px 2px rgba(0,0,0,0.8)'
+                              }}
+                            >
+                              PREVIEW ONLY
                             </div>
                           </div>
+                          
+                          <div 
+                            className="hidden bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-8 text-center h-40 flex items-center justify-center"
+                          >
+                            <span className="text-gray-500 text-sm">
+                              🖼️ AI Generated Image
+                              <br />
+                              <span className="text-xs text-gray-400">Preview not available</span>
+                            </span>
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
 
                     {/* Performance Metrics */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                        <div className="flex items-center space-x-2">
-                          <EyeIcon className="h-4 w-4 text-blue-500" />
-                          <span className="text-sm text-gray-600">Predicted Mindshare</span>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-blue-50 rounded-lg p-2 border border-blue-200">
+                        <div className="flex items-center space-x-1">
+                          <EyeIcon className="h-3 w-3 text-blue-500" />
+                          <span className="text-xs text-gray-600">Mindshare</span>
                         </div>
-                        <p className="text-lg font-bold text-blue-600">{item.predicted_mindshare.toFixed(1)}%</p>
+                        <p className="text-sm font-bold text-blue-600">{item.predicted_mindshare.toFixed(1)}%</p>
                       </div>
-                      <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
-                        <div className="flex items-center space-x-2">
-                      <StarIcon className="h-4 w-4 text-yellow-500" />
-                          <span className="text-sm text-gray-600">Quality Score</span>
+                      <div className="bg-yellow-50 rounded-lg p-2 border border-yellow-200">
+                        <div className="flex items-center space-x-1">
+                          <StarIcon className="h-3 w-3 text-yellow-500" />
+                          <span className="text-xs text-gray-600">Quality</span>
                         </div>
-                        <p className="text-lg font-bold text-yellow-600">{item.quality_score.toFixed(1)}/100</p>
+                        <p className="text-sm font-bold text-yellow-600">{item.quality_score.toFixed(1)}/100</p>
+                      </div>
                     </div>
-                  </div>
 
-                    {/* Bidding Section */}
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <p className="text-sm text-gray-600">Asking Price</p>
-                          <p className="text-2xl font-bold text-gray-900">
-                            {item.asking_price} <span className="text-base text-gray-500">ROAST</span>
-                        </p>
-                      </div>
-                      {item.highest_bid && (
-                        <div className="text-right">
-                          <p className="text-sm text-gray-600">Highest Bid</p>
-                            <p className="text-xl font-bold text-green-600">
-                              {item.highest_bid.amount} <span className="text-sm">{item.highest_bid.currency}</span>
+                    {/* Purchase Section */}
+                    <div className="bg-orange-50 rounded-lg p-3 border border-orange-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <p className="text-xs text-gray-600">Price</p>
+                          <p className="text-lg font-bold text-orange-600">
+                            {item.asking_price} <span className="text-sm text-gray-500">ROAST</span>
                           </p>
-                            <p className="text-xs text-gray-500">by {item.highest_bid.bidder}</p>
                         </div>
-                      )}
-                    </div>
-
-                      <div className="flex space-x-3">
-                      <button
-                        onClick={() => setShowBidModal(item)}
-                          className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center"
-                      >
-                          <ArrowUpIcon className="h-5 w-5 mr-2" />
-                        Place Bid
-                      </button>
-                    </div>
-
-                    {item.total_bids > 0 && (
-                        <div className="mt-3 pt-3 border-t border-gray-200">
-                          <p className="text-xs text-gray-500">{item.total_bids} bid{item.total_bids !== 1 ? 's' : ''} received</p>
-                        </div>
-                      )}
+                        <button
+                          onClick={() => setShowPurchaseModal(item)}
+                          className="bg-orange-600 hover:bg-orange-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center space-x-2 text-sm"
+                        >
+                          <ShoppingCartIcon className="h-4 w-4" />
+                          <span>Buy Now</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -673,196 +847,23 @@ export default function BiddingInterface() {
           </div>
         )}
 
-        {/* Bidding Modal */}
-        {showBidModal && (
+        {/* Hidden Bidding Modal (keep for future use) */}
+        {false && showBidModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-            <div 
-              className={`bg-white rounded-xl border border-gray-200 p-6 max-w-4xl w-full mx-4 shadow-xl max-h-[90vh] overflow-y-auto relative select-none ${isScreenshotDetected ? 'blur-lg' : ''}`}
-              onContextMenu={preventRightClick}
-              onKeyDown={preventKeyboardCopy}
-              style={{
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                MozUserSelect: 'none',
-                msUserSelect: 'none'
-              }}
-            >
-              {/* Enhanced Modal Watermarks */}
-              <div 
-                className="absolute pointer-events-none z-10 text-red-600 opacity-30 text-4xl font-black transform -rotate-45"
-                style={{
-                  left: `${watermarkPosition.x}%`,
-                  top: `${watermarkPosition.y}%`,
-                  transition: 'all 2s ease-in-out',
-                  textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
-                }}
-              >
-                PROTECTED
-              </div>
-              
-              <div 
-                className="absolute pointer-events-none z-10 text-red-600 opacity-25 text-3xl font-black transform rotate-45"
-                style={{
-                  right: `${watermarkPosition.x}%`,
-                  bottom: `${watermarkPosition.y}%`,
-                  transition: 'all 2s ease-in-out',
-                  textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
-                }}
-              >
-                NO SCREENSHOTS
-              </div>
-
-              <div 
-                className="absolute pointer-events-none z-10 text-red-600 opacity-20 text-2xl font-black transform rotate-12"
-                style={{
-                  left: `${(watermarkPosition.x + 40) % 100}%`,
-                  top: `${(watermarkPosition.y + 50) % 100}%`,
-                  transition: 'all 2s ease-in-out',
-                  textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
-                }}
-              >
-                PREVIEW ONLY
-              </div>
-
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-gray-900">Place Bid</h3>
-                <button
-                  onClick={() => setShowBidModal(null)}
-                  className="text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {/* Content Preview */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="mb-4">
-                    <h4 className="text-sm font-semibold text-blue-600 mb-2">🐦 Content Preview</h4>
-                    <div className="bg-white rounded-lg p-4 border border-gray-200 max-h-96 overflow-y-auto">
-                      <p className="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">
-                        {showBidModal.content_text}
-                      </p>
-                    </div>
-                    
-                    {/* Image */}
-                    {showBidModal.content_images && showBidModal.content_images.length > 0 && (
-                      <div className="mt-4">
-                        <div className="bg-white rounded-lg p-4 border border-gray-200">
-                          <div className="relative max-w-md mx-auto">
-                            <img 
-                              src={showBidModal.content_images?.[0] || ''} 
-                              alt="AI Generated content image"
-                              className="w-full rounded-lg border border-gray-300 shadow-sm"
-                              onLoad={() => console.log('✅ BidModal image loaded:', showBidModal.content_images?.[0])}
-                              onError={(e) => {
-                                console.error('❌ BidModal image failed to load:', showBidModal.content_images?.[0])
-                                e.currentTarget.style.display = 'none'
-                                const fallback = e.currentTarget.nextElementSibling as HTMLElement
-                                if (fallback) fallback.style.display = 'block'
-                              }}
-                            />
-                            <div 
-                              className="hidden bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg border border-gray-300 p-8 text-center"
-                            >
-                              <span className="text-gray-500 text-sm">
-                                🖼️ AI Generated Image
-                                <br />
-                                <span className="text-xs text-gray-400">Preview not available</span>
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Current Pricing */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                    <p className="text-blue-600 font-medium">Asking Price</p>
-                    <p className="font-bold text-blue-900 text-lg">{showBidModal.asking_price} ROAST</p>
-                  </div>
-                  {showBidModal.highest_bid && (
-                    <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-                      <p className="text-green-600 font-medium">Highest Bid</p>
-                      <p className="font-bold text-green-700 text-lg">
-                        {showBidModal.highest_bid.amount} {showBidModal.highest_bid.currency}
-                      </p>
-                    </div>
-                  )}
-                  <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
-                    <p className="text-purple-600 font-medium">Total Bids</p>
-                    <p className="font-bold text-purple-700 text-lg">{showBidModal.total_bids || 0}</p>
-                  </div>
-                </div>
-
-                {/* Bid Input */}
-                <div className="space-y-4">
-                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      Your Bid Amount
-                    </label>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="md:col-span-2">
-                      <input
-                        type="number"
-                        value={bidAmount}
-                        onChange={(e) => setBidAmount(e.target.value)}
-                        placeholder="Enter amount"
-                          className="input-field w-full text-lg"
-                        min="0"
-                        step="0.1"
-                      />
-                      </div>
-                      <div>
-                      <select
-                        value={bidCurrency}
-                        onChange={(e) => setBidCurrency(e.target.value as 'ROAST' | 'USDC' | 'KAITO' | 'COOKIE' | 'AXR' | 'NYKO')}
-                          className="input-field w-full text-lg"
-                      >
-                        <option value="ROAST">🔥 ROAST</option>
-                        <option value="USDC">💰 USDC</option>
-                        <option value="KAITO">🤖 KAITO</option>
-                        <option value="COOKIE">🍪 COOKIE</option>
-                        <option value="AXR">⚡ AXR</option>
-                        <option value="NYKO">🎯 NYKO</option>
-                      </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <p className="text-sm text-blue-800">
-                      💡 <strong>Tip:</strong> Higher bids increase your chances of winning premium content.
-                      Consider the quality score and predicted mindshare when bidding.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex space-x-4 pt-6 border-t border-gray-200">
-                  <button
-                    onClick={() => setShowBidModal(null)}
-                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => handleBid(showBidModal.id)}
-                    disabled={!bidAmount || parseFloat(bidAmount) <= 0}
-                    className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-orange-600"
-                  >
-                    Place Bid
-                  </button>
-                </div>
-              </div>
-            </div>
+            {/* Bidding modal content - hidden for now */}
           </div>
         )}
       </div>
+      
       <CopyProtectionModal />
+      
+      {/* Purchase Content Modal */}
+      <PurchaseContentModal
+        content={showPurchaseModal}
+        isOpen={!!showPurchaseModal}
+        onClose={() => setShowPurchaseModal(null)}
+        onPurchase={handlePurchase}
+      />
     </div>
   )
 } 

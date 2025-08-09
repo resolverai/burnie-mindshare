@@ -7,8 +7,130 @@ import { User, UserRoleType } from '../models/User';
 import { Campaign } from '../models/Campaign';
 import { env } from '../config/env';
 import { MoreThan, LessThan } from 'typeorm';
+import { ContentPurchase } from '../models/ContentPurchase';
+import { logger } from '../config/logger';
+import { TreasuryService } from '../services/TreasuryService';
+const AWS = require('aws-sdk');
 
 const router = Router();
+
+// Configure AWS S3 for pre-signed URL generation
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION || 'us-east-1',
+  signatureVersion: 'v4'
+});
+
+const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging';
+
+/**
+ * Check if a pre-signed URL has expired
+ */
+function isUrlExpired(preSignedUrl: string): boolean {
+  try {
+    const url = new URL(preSignedUrl);
+    const expiresParam = url.searchParams.get('Expires') || url.searchParams.get('X-Amz-Expires');
+    
+    if (!expiresParam) {
+      return true; // Assume expired if no expiration parameter
+    }
+
+    const expirationTime = parseInt(expiresParam, 10);
+    const currentTime = Math.floor(Date.now() / 1000);
+    
+    return currentTime >= expirationTime;
+  } catch (error) {
+    logger.error(`❌ Failed to check URL expiration: ${preSignedUrl}`, error);
+    return true; // Assume expired if we can't parse
+  }
+}
+
+/**
+ * Extract S3 key from pre-signed URL
+ */
+function extractS3KeyFromUrl(preSignedUrl: string): string | null {
+  try {
+    const url = new URL(preSignedUrl);
+    
+    // Handle bucket.s3.amazonaws.com format
+    if (url.hostname.includes('.s3.amazonaws.com')) {
+      return url.pathname.substring(1); // Remove leading slash
+    }
+    
+    return null;
+  } catch (error) {
+    logger.error(`❌ Failed to extract S3 key from URL: ${preSignedUrl}`, error);
+    return null;
+  }
+}
+
+/**
+ * Generate fresh pre-signed URL
+ */
+function generateFreshPreSignedUrl(s3Key: string): string | null {
+  try {
+    const params = {
+      Bucket: S3_BUCKET_NAME,
+      Key: s3Key,
+      Expires: 3600 // 1 hour
+    };
+
+    const url = s3.getSignedUrl('getObject', params);
+    logger.info(`🔄 Generated fresh pre-signed URL for: ${s3Key}`);
+    return url;
+  } catch (error) {
+    logger.error(`❌ Failed to generate fresh pre-signed URL for ${s3Key}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Process content and refresh expired URLs
+ */
+async function refreshExpiredUrls(content: any): Promise<any> {
+  // Process content text (contains S3 URLs)
+  if (content.contentText && typeof content.contentText === 'string') {
+    const s3UrlRegex = /https:\/\/[^.\s]+\.s3\.amazonaws\.com\/[^\s)]+/g;
+    const urls = content.contentText.match(s3UrlRegex) || [];
+
+    let updatedText = content.contentText;
+    for (const url of urls) {
+      if (isUrlExpired(url)) {
+        const s3Key = extractS3KeyFromUrl(url);
+        if (s3Key) {
+          const freshUrl = generateFreshPreSignedUrl(s3Key);
+          if (freshUrl) {
+            updatedText = updatedText.replace(url, freshUrl);
+            logger.info(`🔄 Refreshed expired URL in content ${content.id}`);
+          }
+        }
+      }
+    }
+    content.contentText = updatedText;
+  }
+
+  // Process content images
+  if (content.contentImages) {
+    if (Array.isArray(content.contentImages)) {
+      content.contentImages = content.contentImages.map((imageUrl: string) => {
+        if (typeof imageUrl === 'string' && isUrlExpired(imageUrl)) {
+          const s3Key = extractS3KeyFromUrl(imageUrl);
+          if (s3Key) {
+            const freshUrl = generateFreshPreSignedUrl(s3Key);
+            if (freshUrl) {
+              logger.info(`🔄 Refreshed expired image URL in content ${content.id}`);
+              return freshUrl;
+            }
+          }
+        }
+        return imageUrl;
+      });
+    }
+  }
+
+  return content;
+}
 
 /**
  * Automatically process expired auctions and select winners
@@ -86,12 +208,12 @@ async function processExpiredAuctions(): Promise<void> {
 
 /**
  * @route GET /api/marketplace/content
- * @desc Get available content in marketplace with filters (with mock data for demonstration)
+ * @desc Get available content in marketplace with filters (updated for immediate purchase system)
  */
 router.get('/content', async (req, res) => {
   try {
-    // First, process any expired auctions to select winners
-    await processExpiredAuctions();
+    // SUPPRESSED: Don't process expired auctions for immediate purchase system
+    // await processExpiredAuctions();
     
     const { 
       search,
@@ -103,15 +225,20 @@ router.get('/content', async (req, res) => {
 
     // Get approved content from the database
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
     
     let query = contentRepository
       .createQueryBuilder('content')
       .leftJoinAndSelect('content.creator', 'creator')
       .leftJoinAndSelect('content.campaign', 'campaign')
       .where('content.approvalStatus = :status', { status: 'approved' })
-      .andWhere('content.isAvailable = :available', { available: true })
-      .andWhere('content.isBiddable = :biddable', { biddable: true })
-      .andWhere('(content.biddingEndDate IS NULL OR content.biddingEndDate > :now)', { now: new Date() });
+      .andWhere('content.isAvailable = true')
+      .andWhere('content.isBiddable = true');
+      
+    // Exclude content that has been purchased using EXISTS
+    query = query.andWhere(
+      'NOT EXISTS (SELECT 1 FROM content_purchases cp WHERE cp.content_id = content.id AND cp.payment_status = \'completed\')'
+    );
 
     if (platform_source) {
       query = query.andWhere('campaign.platformSource = :platform', { platform: platform_source });
@@ -147,70 +274,44 @@ router.get('/content', async (req, res) => {
       .take(Number(limit))
       .getManyAndCount();
 
-    // Get bidding information for each content
-    const biddingRepository = AppDataSource.getRepository(BiddingSystem);
-    const contentIds = contents.map(c => c.id);
-    
-    const bids = contentIds.length > 0 ? await biddingRepository
-      .createQueryBuilder('bid')
-      .leftJoinAndSelect('bid.bidder', 'bidder')
-      .where('bid.contentId IN (:...contentIds)', { contentIds })
-      .orderBy('bid.bidAmount', 'DESC')
-      .getMany() : [];
+    // Refresh expired pre-signed URLs in all content
+    const refreshedContents = await Promise.all(
+      contents.map(content => refreshExpiredUrls(content))
+    );
 
-    // Group bids by content ID
-    const bidsByContent = bids.reduce((acc, bid) => {
-      const contentId = bid.contentId;
-      if (contentId && !acc[contentId]) {
-        acc[contentId] = [];
-      }
-      if (contentId) {
-        acc[contentId]!.push(bid);
-      }
-      return acc;
-    }, {} as Record<number, any[]>);
+    // For immediate purchase system, we don't need bidding data
+    // but we'll keep a simplified structure for frontend compatibility
+    const formattedContents = refreshedContents.map(content => ({
+      id: content.id,
+      content_text: content.contentText,
+      content_images: content.contentImages || [],
+      predicted_mindshare: Number(content.predictedMindshare || 0),
+      quality_score: Number(content.qualityScore || 0),
+      asking_price: Number(content.biddingAskPrice || content.askingPrice || 0),
+      creator: {
+        id: content.creator?.id,
+        username: content.creator?.username || 'Anonymous',
+        reputation_score: Number(content.creator?.reputationScore || 0),
+        wallet_address: content.creator?.walletAddress
+      },
+      campaign: {
+        id: content.campaign?.id,
+        title: content.campaign?.title || 'Unknown Campaign',
+        platform_source: content.campaign?.platformSource || 'unknown',
+        reward_token: content.campaign?.rewardToken || 'ROAST'
+      },
+      agent_name: content.agentName,
+      created_at: content.createdAt.toISOString(),
+      approved_at: content.approvedAt?.toISOString(),
+      // For immediate purchase system - no bidding data needed
+      current_highest_bid: null,
+      total_bids: 0,
+      bids: []
+    }));
 
     res.json({
       success: true,
-      data: contents.map(content => {
-        const contentBids = bidsByContent[content.id] || [];
-        const highestBid = contentBids.length > 0 ? contentBids[0] : null;
-        
-        return {
-          id: content.id,
-          content_text: content.contentText,
-          content_images: content.contentImages,
-          predicted_mindshare: Number(content.predictedMindshare),
-          quality_score: Number(content.qualityScore),
-          asking_price: content.isBiddable && content.biddingAskPrice 
-            ? Number(content.biddingAskPrice) 
-            : Number(content.askingPrice),
-          creator: {
-            username: content.creator?.username || 'Anonymous',
-            reputation_score: content.creator?.reputationScore || 0
-          },
-          campaign: {
-            title: content.campaign?.title || 'Unknown Campaign',
-            platform_source: content.campaign?.platformSource || 'unknown',
-            reward_token: content.campaign?.rewardToken || 'ROAST'
-          },
-          bids: contentBids.map(bid => ({
-            amount: Number(bid.bidAmount),
-            currency: bid.bidCurrency,
-            bidder: bid.bidder?.username || 'Anonymous',
-            is_winning: bid.isWinning
-          })),
-          highest_bid: highestBid ? {
-            amount: Number(highestBid.bidAmount),
-            currency: highestBid.bidCurrency,
-            bidder: highestBid.bidder?.username || 'Anonymous'
-          } : null,
-          total_bids: contentBids.length,
-          agent_name: content.agentName,
-          created_at: content.createdAt.toISOString(),
-          approved_at: content.approvedAt?.toISOString()
-        };
-      }),
+      data: formattedContents,
       pagination: {
         page: Number(page),
         limit: Number(limit),
@@ -220,10 +321,11 @@ router.get('/content', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching marketplace content:', error);
+    console.error('Error fetching marketplace content:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch marketplace content'
+      message: 'Failed to fetch marketplace content',
+      error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -568,7 +670,7 @@ router.post('/content/:id/purchase', async (req: Request, res: Response): Promis
       amount: content.askingPrice,
       currency: payment_currency as Currency,
       transactionType: TransactionType.CONTENT_PURCHASE,
-      platformFee: platformFee,
+      platformFee,
       metadata: {
         contentId: content.id,
         contentPreview: content.contentText.substring(0, 100)
@@ -1099,7 +1201,12 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       .orderBy('content.createdAt', 'DESC')
       .getMany();
 
-    const formattedContents = contents.map(content => ({
+    // Refresh expired pre-signed URLs in miner content
+    const refreshedContents = await Promise.all(
+      contents.map(content => refreshExpiredUrls(content))
+    );
+
+    const formattedContents = refreshedContents.map(content => ({
       id: content.id,
       content_text: content.contentText,
       content_images: content.contentImages,
@@ -1205,84 +1312,86 @@ router.get('/my-content/miner/:userId', async (req: Request, res: Response) => {
 
 /**
  * @route GET /api/marketplace/my-content/yapper/wallet/:walletAddress
- * @desc Get yapper's won content for My Content section by wallet address
+ * @desc Get yapper's owned content (direct purchases only) for My Content section
  */
-router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res: Response) => {
+router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res: Response): Promise<void> => {
   try {
     const { walletAddress } = req.params;
     
     if (!walletAddress) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: 'Invalid wallet address'
       });
+      return;
     }
 
-    // First find the user by wallet address
-    const userRepository = AppDataSource.getRepository(User);
-    const user = await userRepository.findOne({
-      where: { walletAddress: walletAddress.toLowerCase() }
-    });
-
-    if (!user) {
-      return res.json({
-        success: true,
-        data: []
-      });
-    }
-
-    // Get content where this user has the winning bid
-    const biddingRepository = AppDataSource.getRepository(BiddingSystem);
+    // For immediate purchase system, only show content from purchases (not won bids)
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
     
-    const winningBids = await biddingRepository
-      .createQueryBuilder('bid')
-      .leftJoinAndSelect('bid.bidder', 'bidder')
-      .leftJoinAndSelect('bid.content', 'content')
+    // Get content purchased directly
+    const purchases = await purchaseRepository
+      .createQueryBuilder('purchase')
+      .leftJoinAndSelect('purchase.content', 'content')
       .leftJoinAndSelect('content.creator', 'creator')
       .leftJoinAndSelect('content.campaign', 'campaign')
-      .where('bid.bidderId = :userId', { userId: user.id })
-      .andWhere('bid.hasWon = :hasWon', { hasWon: true }) // Show content actually won after auction ended
-      .orderBy('bid.wonAt', 'DESC') // Order by when they won
-      .addOrderBy('bid.createdAt', 'DESC')
+      .where('LOWER(purchase.buyerWalletAddress) = LOWER(:walletAddress)', { walletAddress })
+      .andWhere('purchase.paymentStatus = :status', { status: 'completed' })
+      .orderBy('purchase.purchasedAt', 'DESC')
       .getMany();
 
-    const formattedContents = winningBids.map(bid => ({
-      id: bid.content.id,
-      content_text: bid.content.contentText,
-      content_images: bid.content.contentImages,
-      predicted_mindshare: Number(bid.content.predictedMindshare),
-      quality_score: Number(bid.content.qualityScore),
-      asking_price: Number(bid.content.askingPrice),
+    // Refresh expired pre-signed URLs in purchased content
+    const refreshedPurchases = await Promise.all(
+      purchases.map(async purchase => {
+        purchase.content = await refreshExpiredUrls(purchase.content);
+        return purchase;
+      })
+    );
+
+    // Format content from direct purchases
+    const formattedPurchaseContent = refreshedPurchases.map(purchase => ({
+      id: purchase.content.id,
+      content_text: purchase.content.contentText,
+      content_images: purchase.content.contentImages,
+      predicted_mindshare: Number(purchase.content.predictedMindshare),
+      quality_score: Number(purchase.content.qualityScore),
+      asking_price: Number(purchase.content.askingPrice),
       creator: {
-        username: bid.content.creator?.username || 'Anonymous',
-        reputation_score: bid.content.creator?.reputationScore || 0
+        username: purchase.content.creator?.username || 'Anonymous',
+        reputation_score: purchase.content.creator?.reputationScore || 0
       },
       campaign: {
-        title: bid.content.campaign?.title || 'Unknown Campaign',
-        platform_source: bid.content.campaign?.platformSource || 'unknown',
-        reward_token: bid.content.campaign?.rewardToken || 'ROAST'
+        title: purchase.content.campaign?.title || 'Unknown Campaign',
+        platform_source: purchase.content.campaign?.platformSource || 'unknown',
+        reward_token: purchase.content.campaign?.rewardToken || 'ROAST'
       },
-      agent_name: bid.content.agentName,
-      created_at: bid.content.createdAt.toISOString(),
-      approved_at: bid.content.approvedAt?.toISOString(),
+      agent_name: purchase.content.agentName,
+      created_at: purchase.content.createdAt.toISOString(),
+      approved_at: purchase.content.approvedAt?.toISOString(),
       winning_bid: {
-        amount: Number(bid.bidAmount),
-        currency: bid.bidCurrency,
-        bid_date: bid.createdAt.toISOString()
-      }
+        amount: Number(purchase.purchasePrice),
+        currency: purchase.currency,
+        bid_date: purchase.purchasedAt?.toISOString() || purchase.createdAt.toISOString()
+      },
+      transaction_hash: purchase.transactionHash, // Add transaction hash for BaseScan link
+      treasury_transaction_hash: purchase.treasuryTransactionHash, // Treasury payout transaction
+      acquisition_type: 'purchase' // Only purchased content for immediate purchase system
     }));
 
-    return res.json({
-      success: true,
-      data: formattedContents
-    });
+    console.log(`📦 Found ${formattedPurchaseContent.length} purchases for yapper ${walletAddress}`);
 
-  } catch (error) {
-    console.error('❌ Error fetching yapper content by wallet:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fetch yapper content'
+    res.json({
+      success: true,
+      data: formattedPurchaseContent,
+      metadata: {
+        total: formattedPurchaseContent.length,
+        won_bids: 0, // No longer showing won bids
+        direct_purchases: formattedPurchaseContent.length
+      }
     });
+  } catch (error) {
+    console.error('Error fetching yapper content:', error);
+    res.status(500).json({ error: 'Failed to fetch yapper content' });
   }
 });
 
@@ -2746,4 +2855,910 @@ router.post('/content/:id/presigned-url', async (req: Request, res: Response) =>
   }
 });
 
-export default router; 
+/**
+ * @route POST /api/marketplace/purchase
+ * @desc Create a direct content purchase record (new immediate purchase system)
+ */
+router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { contentId, buyerWalletAddress, purchasePrice, currency = 'ROAST' } = req.body;
+
+    // Validate required fields
+    if (!contentId || !buyerWalletAddress || !purchasePrice) {
+      res.status(400).json({
+        success: false,
+        message: 'Missing required fields: contentId, buyerWalletAddress, purchasePrice'
+      });
+      return;
+    }
+
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const userRepository = AppDataSource.getRepository(User);
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+
+    // Find the content
+    const content = await contentRepository.findOne({
+      where: { id: parseInt(contentId) },
+      relations: ['creator']
+    });
+
+    if (!content) {
+      res.status(404).json({
+        success: false,
+        message: 'Content not found'
+      });
+      return;
+    }
+
+    // Check if content is available
+    if (!content.isAvailable) {
+      res.status(400).json({
+        success: false,
+        message: 'Content is no longer available for purchase'
+      });
+      return;
+    }
+
+    // Check if content has a creator with wallet address
+    if (!content.creator || !content.creator.walletAddress) {
+      res.status(400).json({
+        success: false,
+        message: 'Content creator information is incomplete'
+      });
+      return;
+    }
+
+    // Find buyer - create if doesn't exist (wallet-based auth)
+    let buyer = await userRepository.findOne({
+      where: { walletAddress: buyerWalletAddress }
+    });
+
+    if (!buyer) {
+      // Auto-create user when they connect wallet (similar to other endpoints)
+      buyer = userRepository.create({
+        walletAddress: buyerWalletAddress,
+        username: `User_${buyerWalletAddress.slice(0, 8)}`,
+        roleType: UserRoleType.YAPPER,
+        roastBalance: 0,
+        usdcBalance: 0,
+        reputationScore: 0,
+        totalEarnings: 0,
+        isVerified: false,
+        isAdmin: false
+      });
+      
+      await userRepository.save(buyer);
+      console.log(`🆕 Auto-created new buyer: ${buyerWalletAddress}`);
+    }
+
+    // Calculate platform fee (20%) and miner payout (80%)
+    const platformFeePercent = 0.20;
+    const platformFee = purchasePrice * platformFeePercent;
+    const minerPayout = purchasePrice * (1 - platformFeePercent);
+
+    // Extract miner wallet address (already validated above)
+    const minerWalletAddress = content.creator!.walletAddress;
+
+    // Create purchase record
+    const purchase = purchaseRepository.create({
+      contentId: parseInt(contentId),
+      buyerWalletAddress,
+      minerWalletAddress,
+      purchasePrice,
+      currency,
+      platformFee,
+      minerPayout,
+      paymentStatus: 'pending',
+      payoutStatus: 'pending'
+    });
+
+    await purchaseRepository.save(purchase);
+
+    // Mark content as no longer available (since it's a direct purchase)
+    content.isAvailable = false;
+    await contentRepository.save(content);
+
+    logger.info(`Purchase record created: Content ${contentId} by ${buyerWalletAddress} for ${purchasePrice} ${currency}`);
+
+    res.json({
+      success: true,
+      message: 'Purchase record created successfully',
+      data: {
+        purchaseId: purchase.id,
+        contentId: purchase.contentId,
+        purchasePrice: purchase.purchasePrice,
+        currency: purchase.currency,
+        platformFee: purchase.platformFee,
+        minerPayout: purchase.minerPayout,
+        treasuryAddress: process.env.TREASURY_WALLET_ADDRESS,
+        roastTokenContract: process.env.CONTRACT_ROAST_TOKEN
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error creating purchase record:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create purchase record',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/purchase/:id/confirm
+ * @desc Confirm payment and trigger treasury-to-miner transfer
+ */
+router.post('/purchase/:id/confirm', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { transactionHash } = req.body;
+
+    if (!id || !transactionHash) {
+      res.status(400).json({
+        success: false,
+        message: 'Purchase ID and transaction hash are required'
+      });
+      return;
+    }
+
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+    
+    const purchase = await purchaseRepository.findOne({
+      where: { id: parseInt(id) },
+      relations: ['content', 'miner']
+    });
+
+    if (!purchase) {
+      res.status(404).json({
+        success: false,
+        message: 'Purchase not found'
+      });
+      return;
+    }
+
+    // Update purchase with transaction hash and mark as completed
+    purchase.transactionHash = transactionHash;
+    purchase.paymentStatus = 'completed';
+    purchase.purchasedAt = new Date();
+
+    await purchaseRepository.save(purchase);
+
+    // TODO: Trigger treasury-to-miner transfer using private key
+    // This will be implemented in the wallet integration step
+
+    logger.info(`Purchase confirmed: ${id} with transaction ${transactionHash}`);
+
+    res.json({
+      success: true,
+      message: 'Purchase confirmed successfully',
+      data: {
+        purchaseId: purchase.id,
+        paymentStatus: purchase.paymentStatus,
+        purchasedAt: purchase.purchasedAt
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error confirming purchase:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to confirm purchase',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/purchase/:id/distribute
+ * @desc Trigger treasury-to-miner ROAST token distribution (80/20 split)
+ */
+router.post('/purchase/:id/distribute', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: 'Purchase ID is required'
+      });
+      return;
+    }
+
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+    
+    const purchase = await purchaseRepository.findOne({
+      where: { id: parseInt(id) },
+      relations: ['content', 'content.creator']
+    });
+
+    if (!purchase) {
+      res.status(404).json({
+        success: false,
+        message: 'Purchase not found'
+      });
+      return;
+    }
+
+    if (purchase.paymentStatus !== 'completed') {
+      res.status(400).json({
+        success: false,
+        message: 'Purchase payment not completed yet'
+      });
+      return;
+    }
+
+    if (purchase.payoutStatus === 'completed') {
+      res.status(400).json({
+        success: false,
+        message: 'Payout already completed'
+      });
+      return;
+    }
+
+    // Check if we have the required environment variables
+    const treasuryPrivateKey = process.env.TREASURY_WALLET_PRIVATE_KEY;
+    const roastTokenAddress = process.env.CONTRACT_ROAST_TOKEN;
+    const treasuryAddress = process.env.TREASURY_WALLET_ADDRESS;
+
+    if (!treasuryPrivateKey || !roastTokenAddress || !treasuryAddress) {
+      logger.error('Missing treasury configuration');
+      res.status(500).json({
+        success: false,
+        message: 'Treasury configuration incomplete'
+      });
+      return;
+    }
+
+    const minerAddress = purchase.minerWalletAddress;
+    const minerPayout = purchase.minerPayout;
+
+    logger.info(`🏦 Starting treasury distribution: ${minerPayout} ROAST to ${minerAddress}`);
+
+    // Initialize treasury service
+    const treasuryService = new TreasuryService();
+
+    // Validate treasury has sufficient balance
+    const hasSufficientBalance = await treasuryService.validateSufficientBalance(minerPayout);
+    if (!hasSufficientBalance) {
+      logger.error('❌ Insufficient treasury balance for payout');
+      res.status(500).json({
+        success: false,
+        message: 'Insufficient treasury balance for payout'
+      });
+      return;
+    }
+
+    // Execute the distribution
+    const distributionResult = await treasuryService.distributeToMiner(minerAddress, minerPayout);
+
+    if (!distributionResult.success) {
+      logger.error('❌ Treasury distribution failed:', distributionResult.error);
+      res.status(500).json({
+        success: false,
+        message: 'Treasury distribution failed',
+        error: distributionResult.error
+      });
+      return;
+    }
+    
+    // Update purchase record
+    purchase.treasuryTransactionHash = distributionResult.transactionHash!;
+    purchase.payoutStatus = 'completed';
+    
+    await purchaseRepository.save(purchase);
+
+    logger.info(`✅ Treasury distribution completed: ${distributionResult.transactionHash}`);
+
+    res.json({
+      success: true,
+      message: 'Treasury distribution completed',
+      data: {
+        purchaseId: purchase.id,
+        minerAddress,
+        minerPayout,
+        treasuryTransactionHash: distributionResult.transactionHash,
+        payoutStatus: purchase.payoutStatus
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error processing treasury distribution:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process treasury distribution',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Export router
+export default router;
+
+// ==========================================
+// NEW CONTENT PURCHASE ANALYTICS ENDPOINTS
+// ==========================================
+
+/**
+ * GET /api/marketplace/analytics/purchase/content-stats/:walletAddress
+ * Get comprehensive content statistics for a miner based on content purchases
+ */
+router.get('/analytics/purchase/content-stats/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+
+    // Get miner's content
+    const minerContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('LOWER(content.walletAddress) = LOWER(:walletAddress)', { walletAddress })
+      .andWhere('content.approvalStatus = :status', { status: 'approved' })
+      .getMany();
+
+    const contentIds = minerContent.map(c => c.id);
+    
+    // Calculate basic content stats
+    const totalContent = minerContent.length;
+    const avgQualityScore = minerContent.length > 0 
+      ? minerContent.reduce((sum, c) => sum + (Number(c.qualityScore) || 0), 0) / minerContent.length 
+      : 0;
+
+    if (contentIds.length === 0) {
+      return res.json({ 
+        data: {
+          totalContent: 0,
+          totalPurchases: 0,
+          totalRevenue: 0,
+          contentReputation: Math.round(avgQualityScore),
+          purchasableContent: 0,
+          avgPurchasePrice: 0
+        }
+      });
+    }
+
+    // Get purchase statistics using raw SQL
+    const purchaseStatsRaw = await AppDataSource.query(`
+      SELECT 
+        COUNT(p.id) as "totalPurchases",
+        COUNT(DISTINCT p."buyer_wallet_address") as "uniqueBuyers",
+        SUM(CAST(p."purchase_price" AS DECIMAL)) as "totalRevenue",
+        AVG(CAST(p."purchase_price" AS DECIMAL)) as "avgPurchasePrice"
+      FROM content_purchases p 
+      WHERE p."content_id" = ANY($1)
+        AND p."payment_status" = 'completed'
+    `, [contentIds]);
+
+    const purchaseStats = purchaseStatsRaw[0] || {};
+
+    const data = {
+      totalContent,
+      totalPurchases: parseInt(purchaseStats.totalPurchases) || 0,
+      totalRevenue: parseFloat(purchaseStats.totalRevenue) || 0,
+      contentReputation: Math.round(avgQualityScore),
+      purchasableContent: totalContent, // All approved content is purchasable
+      avgPurchasePrice: parseFloat(purchaseStats.avgPurchasePrice) || 0
+    };
+
+    return res.json({ data });
+
+  } catch (error) {
+    console.error('Error fetching purchase content stats:', error);
+    return res.status(500).json({ error: 'Failed to fetch content purchase statistics' });
+  }
+});
+
+/**
+ * GET /api/marketplace/analytics/purchase/trends/:walletAddress
+ * Get real purchase trends for a miner's content over the last 30 days
+ */
+router.get('/analytics/purchase/trends/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+
+    // Get miner's content IDs
+    const minerContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('LOWER(content.walletAddress) = LOWER(:walletAddress)', { walletAddress })
+      .select(['content.id'])
+      .getMany();
+
+    const contentIds = minerContent.map(c => c.id);
+
+    if (contentIds.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    // Get purchase trends for the last 30 days using raw SQL
+    const rawData = await AppDataSource.query(`
+      SELECT 
+        TO_CHAR(DATE(p."purchased_at"), 'YYYY-MM-DD') as date,
+        COUNT(*) as "purchaseCount",
+        SUM(CAST(p."purchase_price" AS DECIMAL)) as "totalRevenue"
+      FROM content_purchases p 
+      WHERE p."content_id" = ANY($1)
+        AND p."payment_status" = 'completed'
+        AND p."purchased_at" >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY DATE(p."purchased_at")
+      ORDER BY DATE(p."purchased_at") ASC
+    `, [contentIds]);
+
+    // Fill in missing days with zero values for the last 30 days
+    const trends = [];
+    const today = new Date();
+    
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      const dayData = rawData.find((d: any) => d.date === dateStr);
+      
+      trends.push({
+        date: dateStr,
+        bidCount: dayData ? parseInt(dayData.purchaseCount) : 0, // Keep same property name for frontend compatibility
+        revenue: dayData ? parseFloat(dayData.totalRevenue) : 0
+      });
+    }
+
+    return res.json({ data: trends });
+  } catch (error) {
+    console.error('Error fetching purchase trends:', error);
+    return res.status(500).json({ error: 'Failed to fetch purchase trends' });
+  }
+});
+
+/**
+ * GET /api/marketplace/analytics/purchase/top-content/:walletAddress
+ * Get top performing content with real purchase data
+ */
+router.get('/analytics/purchase/top-content/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+
+    // Get miner's content IDs
+    const minerContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('LOWER(content.walletAddress) = LOWER(:walletAddress)', { walletAddress })
+      .select(['content.id'])
+      .getMany();
+
+    const contentIds = minerContent.map(c => c.id);
+
+    if (contentIds.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    // Get top content by purchase performance
+    const topContentRaw = await AppDataSource.query(`
+      SELECT 
+        c.id,
+        LEFT(c."contentText", 50) || '...' as title,
+        COUNT(p.id) as "purchaseCount",
+        MAX(CAST(p."purchase_price" AS DECIMAL)) as "maxPrice",
+        SUM(CAST(p."purchase_price" AS DECIMAL)) as revenue,
+        c."qualityScore" as quality_score
+      FROM content_marketplace c
+      LEFT JOIN content_purchases p ON c.id = p."content_id" 
+        AND p."payment_status" = 'completed'
+      WHERE c.id = ANY($1)
+      GROUP BY c.id, c."contentText", c."qualityScore"
+      ORDER BY revenue DESC NULLS LAST, "purchaseCount" DESC
+      LIMIT 10
+    `, [contentIds]);
+
+    const topContent = topContentRaw.map((content: any) => ({
+      id: content.id.toString(),
+      title: content.title || 'Untitled Content',
+      bidCount: parseInt(content.purchaseCount) || 0, // Keep same property for frontend compatibility
+      maxBid: parseFloat(content.maxPrice) || 0, // Keep same property for frontend compatibility
+      revenue: parseFloat(content.revenue) || 0,
+      quality_score: parseFloat(content.quality_score) || 0
+    }));
+
+    return res.json({ data: topContent });
+  } catch (error) {
+    console.error('Error fetching top content by purchases:', error);
+    return res.status(500).json({ error: 'Failed to fetch top content' });
+  }
+});
+
+/**
+ * GET /api/marketplace/analytics/purchase/yapper-engagement/:walletAddress
+ * Get real yapper engagement data for a miner's content (purchase-based)
+ */
+router.get('/analytics/purchase/yapper-engagement/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+
+    // Get miner's content IDs
+    const minerContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('LOWER(content.walletAddress) = LOWER(:walletAddress)', { walletAddress })
+      .select(['content.id'])
+      .getMany();
+
+    const contentIds = minerContent.map(c => c.id);
+
+    if (contentIds.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    // Get yapper engagement data using raw SQL
+    const engagementRaw = await AppDataSource.query(`
+      SELECT 
+        u.id as "buyerId",
+        u."walletAddress",
+        u.username,
+        COUNT(p.id) as "totalPurchases",
+        SUM(CAST(p."purchase_price" AS DECIMAL)) as "totalAmount",
+        COUNT(p.id) as "purchasedContent"
+      FROM content_purchases p
+      INNER JOIN users u ON p."buyer_wallet_address" = u."walletAddress"
+      WHERE p."content_id" = ANY($1)
+        AND p."payment_status" = 'completed'
+      GROUP BY u.id, u."walletAddress", u.username
+      ORDER BY "totalAmount" DESC
+      LIMIT 10
+    `, [contentIds]);
+
+    const yappers = engagementRaw.map((data: any) => ({
+      walletAddress: data.walletAddress || 'Unknown',
+      username: data.username || `User${data.buyerId}`,
+      totalBids: parseInt(data.totalPurchases) || 0, // Keep same property for frontend compatibility
+      totalAmount: parseFloat(data.totalAmount) || 0,
+      wonContent: parseInt(data.purchasedContent) || 0 // Keep same property for frontend compatibility
+    }));
+
+    return res.json({ data: yappers });
+  } catch (error) {
+    console.error('Error fetching yapper purchase engagement:', error);
+    return res.status(500).json({ error: 'Failed to fetch yapper engagement' });
+  }
+});
+
+/**
+ * GET /api/marketplace/analytics/purchase/agent-performance/:walletAddress
+ * Get real agent performance data for a miner based on purchases
+ */
+router.get('/analytics/purchase/agent-performance/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+
+    // Get miner's content IDs
+    const minerContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('LOWER(content.walletAddress) = LOWER(:walletAddress)', { walletAddress })
+      .select(['content.id'])
+      .getMany();
+
+    const contentIds = minerContent.map(c => c.id);
+
+    if (contentIds.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    // Get agent performance based on purchases
+    const agentPerformanceRaw = await AppDataSource.query(`
+      SELECT 
+        c."agentName",
+        COUNT(c.id) as "contentCount",
+        COUNT(p.id) as "purchaseCount",
+        SUM(CAST(p."purchase_price" AS DECIMAL)) as revenue,
+        AVG(c."qualityScore") as "avgQuality"
+      FROM content_marketplace c
+      LEFT JOIN content_purchases p ON c.id = p."content_id" 
+        AND p."payment_status" = 'completed'
+      WHERE c.id = ANY($1)
+        AND c."agentName" IS NOT NULL
+        AND c."agentName" != ''
+      GROUP BY c."agentName"
+      ORDER BY revenue DESC NULLS LAST
+    `, [contentIds]);
+
+    const agentPerformance = agentPerformanceRaw.map((agent: any) => ({
+      agentName: agent.agentName || 'Unknown Agent',
+      contentCount: parseInt(agent.contentCount) || 0,
+      bidCount: parseInt(agent.purchaseCount) || 0, // Keep same property for frontend compatibility
+      revenue: parseFloat(agent.revenue) || 0,
+      avgQuality: Math.round(parseFloat(agent.avgQuality) || 0) // Round to whole number
+    }));
+
+    return res.json({ data: agentPerformance });
+  } catch (error) {
+    console.error('Error fetching agent purchase performance:', error);
+    return res.status(500).json({ error: 'Failed to fetch agent performance' });
+  }
+});
+
+/**
+ * GET /api/marketplace/analytics/purchase/time-analysis/:walletAddress
+ * Get purchase activity time analysis for a miner's content
+ */
+router.get('/analytics/purchase/time-analysis/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+
+    // Get miner's content IDs
+    const minerContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('LOWER(content.walletAddress) = LOWER(:walletAddress)', { walletAddress })
+      .select(['content.id'])
+      .getMany();
+
+    const contentIds = minerContent.map(c => c.id);
+
+    if (contentIds.length === 0) {
+      return res.json({ data: { heatmap: [], peakTimes: [] } });
+    }
+
+    // Get time-based purchase patterns
+    const heatmapRaw = await AppDataSource.query(`
+      SELECT 
+        EXTRACT(dow FROM p."purchased_at") as day,
+        EXTRACT(hour FROM p."purchased_at") as hour,
+        COUNT(*) as "purchaseCount"
+      FROM content_purchases p 
+      WHERE p."content_id" = ANY($1)
+        AND p."payment_status" = 'completed'
+        AND p."purchased_at" >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY EXTRACT(dow FROM p."purchased_at"), EXTRACT(hour FROM p."purchased_at")
+      ORDER BY day, hour
+    `, [contentIds]);
+
+    // Calculate intensity and create heatmap
+    const maxPurchases = Math.max(...heatmapRaw.map((h: any) => parseInt(h.purchaseCount)), 1);
+    console.log('🔍 Heatmap Debug:', { 
+      rawDataCount: heatmapRaw.length, 
+      maxPurchases, 
+      sampleData: heatmapRaw.slice(0, 3) 
+    });
+    
+    const heatmap = heatmapRaw.map((h: any) => ({
+      day: parseInt(h.day),
+      hour: parseInt(h.hour),
+      bidCount: parseInt(h.purchaseCount), // Keep same property for frontend compatibility
+      intensity: parseInt(h.purchaseCount) / maxPurchases
+    }));
+
+    // Calculate peak times
+    const hourlyTotals: Record<number, number> = {};
+    heatmapRaw.forEach((h: any) => {
+      const hour = parseInt(h.hour);
+      hourlyTotals[hour] = (hourlyTotals[hour] || 0) + parseInt(h.purchaseCount);
+    });
+
+    const totalPurchases = Object.values(hourlyTotals).reduce((sum, count) => sum + count, 0);
+    const peakTimes = Object.entries(hourlyTotals)
+      .map(([hour, count]) => ({
+        timeRange: `${hour}:00-${parseInt(hour) + 1}:00`,
+        bidActivity: totalPurchases > 0 ? Math.round((count / totalPurchases) * 100) : 0 // Keep same property for frontend compatibility
+      }))
+      .sort((a, b) => b.bidActivity - a.bidActivity)
+      .slice(0, 4);
+
+    console.log('🔍 Final Result:', { 
+      heatmapCount: heatmap.length, 
+      peakTimesCount: peakTimes.length,
+      totalPurchases 
+    });
+
+    return res.json({ 
+      data: { 
+        heatmap, 
+        peakTimes 
+      } 
+    });
+  } catch (error) {
+    console.error('Error fetching purchase time analysis:', error);
+    return res.status(500).json({ error: 'Failed to fetch time analysis' });
+  }
+});
+
+/**
+ * GET /api/marketplace/analytics/purchase/content-categories/:walletAddress
+ * Get content categories performance based on purchases
+ */
+router.get('/analytics/purchase/content-categories/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+
+    // Get miner's content IDs
+    const minerContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('LOWER(content.walletAddress) = LOWER(:walletAddress)', { walletAddress })
+      .select(['content.id'])
+      .getMany();
+
+    const contentIds = minerContent.map(c => c.id);
+
+    if (contentIds.length === 0) {
+      return res.json({ data: [] });
+    }
+
+    // Analyze content categories based on campaign platform
+    const categoryPerformanceRaw = await AppDataSource.query(`
+      SELECT 
+        COALESCE(camp."platformSource", 'General') as category,
+        COUNT(c.id) as count,
+        COUNT(p.id) as "purchaseCount",
+        SUM(CAST(p."purchase_price" AS DECIMAL)) as revenue
+      FROM content_marketplace c
+      LEFT JOIN campaigns camp ON c."campaignId" = camp.id
+      LEFT JOIN content_purchases p ON c.id = p."content_id" 
+        AND p."payment_status" = 'completed'
+      WHERE c.id = ANY($1)
+      GROUP BY COALESCE(camp."platformSource", 'General')
+      ORDER BY revenue DESC NULLS LAST
+    `, [contentIds]);
+
+    const categoryPerformance = categoryPerformanceRaw.map((category: any) => ({
+      category: category.category || 'General',
+      count: parseInt(category.count) || 0,
+      avgBids: parseFloat(category.purchaseCount) || 0, // Keep same property for frontend compatibility  
+      revenue: parseFloat(category.revenue) || 0
+    }));
+
+    return res.json({ data: categoryPerformance });
+  } catch (error) {
+    console.error('Error fetching content categories by purchases:', error);
+    return res.status(500).json({ error: 'Failed to fetch content categories' });
+  }
+});
+
+/**
+ * GET /api/marketplace/analytics/purchase/miner/portfolio/:walletAddress
+ * Get token portfolio and earnings analytics for a miner based on content purchases
+ */
+router.get('/analytics/purchase/miner/portfolio/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'Wallet address is required' });
+    }
+
+    // Get earnings by token from content purchases
+    const tokenEarnings = await AppDataSource.query(`
+      SELECT 
+        p."currency" as token,
+        COUNT(p.id) as totalSales,
+        SUM(CAST(p."purchase_price" AS DECIMAL)) as totalAmount,
+        AVG(CAST(p."purchase_price" AS DECIMAL)) as avgAmount,
+        MAX(CAST(p."purchase_price" AS DECIMAL)) as maxAmount,
+        MIN(CAST(p."purchase_price" AS DECIMAL)) as minAmount
+      FROM content_purchases p
+      JOIN content_marketplace c ON p."content_id" = c.id 
+      WHERE LOWER(c."walletAddress") = LOWER($1)
+        AND p."payment_status" = 'completed'
+      GROUP BY p."currency"
+      ORDER BY totalAmount DESC
+    `, [walletAddress]);
+
+    // Get recent transactions
+    const recentTransactions = await AppDataSource.query(`
+      SELECT 
+        p."currency" as token,
+        CAST(p."purchase_price" AS DECIMAL) as amount,
+        p."purchased_at" as date,
+        c."contentText",
+        c."agentName",
+        p."buyer_wallet_address" as buyerWallet
+      FROM content_purchases p
+      JOIN content_marketplace c ON p."content_id" = c.id 
+      WHERE LOWER(c."walletAddress") = LOWER($1)
+        AND p."payment_status" = 'completed'
+      ORDER BY p."purchased_at" DESC
+      LIMIT 20
+    `, [walletAddress]);
+
+    // Get content performance by token
+    const contentByToken = await AppDataSource.query(`
+      SELECT 
+        p."currency" as token,
+        c.id as contentId,
+        c."contentText",
+        c."agentName",
+        c."predictedMindshare",
+        c."qualityScore",
+        CAST(p."purchase_price" AS DECIMAL) as salePrice,
+        p."purchased_at" as saleDate,
+        1 as totalBids
+      FROM content_purchases p
+      JOIN content_marketplace c ON p."content_id" = c.id 
+      WHERE LOWER(c."walletAddress") = LOWER($1)
+        AND p."payment_status" = 'completed'
+      ORDER BY p."purchased_at" DESC
+    `, [walletAddress]);
+
+    // Calculate token rates (mock rates for now)
+    const tokenRates = {
+      ROAST: 0.1,
+      USDC: 1.0,
+      KAITO: 0.25,
+      COOKIE: 0.15,
+      AXR: 0.08,
+      NYKO: 0.12,
+    };
+
+    // Process token earnings with USD values
+    const processedEarnings = tokenEarnings.map((earning: any) => ({
+      token: earning.token,
+      amount: Number(earning.totalamount) || 0,
+      totalSales: Number(earning.totalsales) || 0,
+      avgSalePrice: Number(earning.avgamount) || 0,
+      maxSalePrice: Number(earning.maxamount) || 0,
+      minSalePrice: Number(earning.minamount) || 0,
+      usdValue: (Number(earning.totalamount) || 0) * (tokenRates[earning.token as keyof typeof tokenRates] || 0),
+      pricePerToken: tokenRates[earning.token as keyof typeof tokenRates] || 0,
+    }));
+
+    // Calculate portfolio metrics
+    const totalUSDValue = processedEarnings.reduce((sum: number, earning: any) => sum + earning.usdValue, 0);
+    const totalSales = processedEarnings.reduce((sum: number, earning: any) => sum + earning.totalSales, 0);
+    const uniqueTokens = processedEarnings.length;
+
+    // Get top performing token
+    const topToken = processedEarnings.length > 0 ? 
+      processedEarnings.reduce((top: any, current: any) => 
+        current.usdValue > top.usdValue ? current : top
+      ) : null;
+
+    // Calculate portfolio distribution
+    const distribution = processedEarnings.map((earning: any) => ({
+      token: earning.token,
+      percentage: totalUSDValue > 0 ? (earning.usdValue / totalUSDValue * 100) : 0,
+      usdValue: earning.usdValue,
+    }));
+
+    // Process recent transactions
+    const processedTransactions = recentTransactions.map((tx: any) => ({
+      ...tx,
+      amount: Number(tx.amount) || 0,
+      usdValue: (Number(tx.amount) || 0) * (tokenRates[tx.token as keyof typeof tokenRates] || 0),
+      contentPreview: tx.contentText ? tx.contentText.substring(0, 100) + '...' : '',
+    }));
+
+    // Group content by token
+    const contentGroupedByToken = contentByToken.reduce((acc: any, content: any) => {
+      if (!acc[content.token]) {
+        acc[content.token] = [];
+      }
+      acc[content.token].push({
+        ...content,
+        saleprice: Number(content.saleprice) || 0,
+        totalbids: Number(content.totalbids) || 0,
+        usdValue: (Number(content.saleprice) || 0) * (tokenRates[content.token as keyof typeof tokenRates] || 0),
+      });
+      return acc;
+    }, {});
+
+    return res.json({
+      portfolio: {
+        totalUSDValue,
+        totalSales,
+        uniqueTokens,
+        topToken: topToken ? {
+          token: topToken.token,
+          usdValue: topToken.usdValue,
+          changePercent: 0, // TODO: Calculate actual change
+        } : null,
+      },
+      earnings: processedEarnings,
+      distribution,
+      recentTransactions: processedTransactions,
+      contentByToken: contentGroupedByToken,
+      tokenRates,
+    });
+
+  } catch (error) {
+    console.error('Error fetching miner purchase portfolio analytics:', error);
+    return res.status(500).json({ error: 'Failed to fetch portfolio analytics' });
+  }
+}); 

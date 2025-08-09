@@ -177,6 +177,183 @@ const PROVIDER_OPTIONS = [
     imageModels: [],
     audioModels: [],
     videoModels: []
+  },
+  {
+    name: 'Fal.ai',
+    value: 'fal',
+    description: 'Comprehensive text-to-image models platform with 100+ models',
+    textModels: [],
+    imageModels: [
+      // Imagen Models
+      'imagen4-preview',
+      'imagen4-preview-fast',
+      'imagen4-preview-ultra',
+      'imagen3',
+      'imagen3-fast',
+      
+      // FLUX Models
+      'flux-pro-v1.1',
+      'flux-pro-v1.1-ultra',
+      'flux-pro-v1.1-ultra-finetuned',
+      'flux-pro-new',
+      'flux-pro-kontext',
+      'flux-pro-kontext-max',
+      'flux-general',
+      'flux-dev',
+      'flux-1-dev',
+      'flux-1-schnell',
+      'flux-schnell',
+      'flux-1-krea',
+      'flux-krea',
+      'flux-lora',
+      'flux-lora-stream',
+      'flux-lora-inpainting',
+      'flux-krea-lora',
+      'flux-krea-lora-stream',
+      'flux-subject',
+      'flux-kontext-lora',
+      'flux-control-lora-canny',
+      'flux-control-lora-depth',
+      
+      // Recraft Models
+      'recraft-v3',
+      'recraft-v2',
+      
+      // Bria Models
+      'bria-text-to-image-3.2',
+      'bria-text-to-image-base',
+      'bria-text-to-image-fast',
+      'bria-text-to-image-hd',
+      
+      // HiDream Models
+      'hidream-i1-full',
+      'hidream-i1-dev',
+      'hidream-i1-fast',
+      
+      // Ideogram Models
+      'ideogram-v2',
+      'ideogram-v2-turbo',
+      'ideogram-v2a',
+      'ideogram-v2a-turbo',
+      'ideogram-v3',
+      'ideogram-character-edit',
+      'ideogram-character-remix',
+      
+      // Stable Diffusion Models
+      'stable-diffusion-v35-large',
+      'stable-diffusion-v35-medium',
+      'stable-diffusion-v3-medium',
+      'stable-diffusion-v15',
+      'stable-cascade',
+      'stable-cascade-sote-diffusion',
+      
+      // Bytedance Models
+      'dreamina-v3.1',
+      'seedream-3.0',
+      
+      // Wan Models
+      'wan-v2.2-a14b',
+      'wan-v2.2-a14b-lora',
+      'wan-v2.2-5b',
+      
+      // Other Popular Models
+      'qwen-image',
+      'omnigen-v1',
+      'omnigen-v2',
+      'sky-raccoon',
+      'bagel',
+      'dreamo',
+      'flowedit',
+      'cogview4',
+      
+      // Minimax Models
+      'minimax-image-01',
+      
+      // F-Lite Models
+      'f-lite-standard',
+      'f-lite-texture',
+      
+      // GPT Models
+      'gpt-image-1',
+      
+      // Sana Models
+      'sana',
+      'sana-v1.5-1.6b',
+      'sana-v1.5-4.8b',
+      'sana-sprint',
+      
+      // RunDiffusion Models
+      'rundiffusion-juggernaut-flux-lightning',
+      'rundiffusion-photo-flux',
+      'rundiffusion-juggernaut-flux-lora',
+      'rundiffusion-juggernaut-flux-pro',
+      'rundiffusion-juggernaut-flux-base',
+      
+      // Switti Models
+      'switti',
+      'switti-512',
+      
+      // Lumina Models
+      'lumina-image-v2',
+      
+      // Luma Models
+      'luma-photon',
+      'luma-photon-flash',
+      
+      // Aura Flow
+      'aura-flow',
+      
+      // Fast SDXL Models
+      'fast-sdxl',
+      'fast-sdxl-controlnet-canny',
+      'fast-lightning-sdxl',
+      'fast-lcm-diffusion',
+      'fast-fooocus-sdxl',
+      'fast-fooocus-sdxl-image-to-image',
+      
+      // Fooocus Models
+      'fooocus',
+      'fooocus-upscale-or-vary',
+      'fooocus-image-prompt',
+      
+      // Hyper SDXL
+      'hyper-sdxl',
+      
+      // Illusion Diffusion
+      'illusion-diffusion',
+      
+      // LCM Models
+      'lcm',
+      
+      // Lightning Models
+      'lightning-models',
+      
+      // Playground Models
+      'playground-v25',
+      
+      // Realistic Vision
+      'realistic-vision',
+      
+      // Dreamshaper
+      'dreamshaper',
+      
+      // SDXL ControlNet Union
+      'sdxl-controlnet-union',
+      
+      // Kolors
+      'kolors',
+      
+      // Pixart Sigma
+      'pixart-sigma',
+      
+      // LoRA
+      'lora',
+      
+      // Easel Avatar
+      'easel-avatar'
+    ],
+    audioModels: [],
+    videoModels: []
   }
 ]
 

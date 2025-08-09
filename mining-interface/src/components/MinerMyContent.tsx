@@ -75,16 +75,37 @@ export default function MinerMyContent() {
   const formatTwitterContent = (contentText: string): { text: string; imageUrl: string | null } => {
     const imageUrl = extractImageUrl(contentText)
     
-    const lines = contentText.split('\n')
+    // Start with the full content
+    let cleanText = contentText
+    
+    // Remove image URL patterns from the text
+    cleanText = cleanText.replace(/📸 Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/https?:\/\/burnie-mindshare-content[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*amazonaws[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*s3[^\s\n<>"'`]+/gi, '')
+    
+    // Extract just the Twitter text (before the stats and metadata)
+    const lines = cleanText.split('\n')
     let twitterText = ""
     
     for (const line of lines) {
       if (line.includes('📊 Content Stats') || 
           line.includes('🖼️ [Image will be attached') ||
-          line.includes('💡 To post:')) {
+          line.includes('💡 To post:') ||
+          line.includes('AWSAccessKeyId=') ||
+          line.includes('Signature=') ||
+          line.includes('Expires=')) {
         break
       }
-      if (line.trim() && !line.includes('Image URL:')) {
+      
+      const trimmedLine = line.trim()
+      // Skip lines that are just URLs or AWS parameters
+      if (trimmedLine && 
+          !trimmedLine.startsWith('http') && 
+          !trimmedLine.includes('AWSAccessKeyId') &&
+          !trimmedLine.includes('Signature=') &&
+          !trimmedLine.includes('Expires=')) {
         twitterText += line + "\n"
       }
     }
@@ -229,11 +250,12 @@ export default function MinerMyContent() {
         ) : content && content.length > 0 ? (
           <div className="space-y-8">
             {content.map((item: ContentItem) => {
-              // Use content_images array directly instead of extracting from text
-              const text = item.content_text
+              // Parse the content to separate tweet text from image URLs
+              const { text, imageUrl: extractedImageUrl } = formatTwitterContent(item.content_text)
+              // Use content_images array if available, otherwise fall back to extracted URL
               const imageUrl = item.content_images && item.content_images.length > 0 
                 ? item.content_images[0] 
-                : null
+                : extractedImageUrl
               const hashtags = extractHashtags(text)
               
               // Debug logging

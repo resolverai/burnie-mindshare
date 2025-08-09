@@ -35,7 +35,9 @@
   "author": "RoastPower Team",
   "license": "MIT",
   "dependencies": {
+    "@types/aws-sdk": "^2.7.4",
     "@types/bcrypt": "^6.0.0",
+    "aws-sdk": "^2.1692.0",
     "axios": "^1.6.2",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^2.4.3",
@@ -44,7 +46,7 @@
     "cron": "^3.1.6",
     "date-fns": "^2.30.0",
     "dotenv": "^16.3.1",
-    "ethers": "^6.8.1",
+    "ethers": "6",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",

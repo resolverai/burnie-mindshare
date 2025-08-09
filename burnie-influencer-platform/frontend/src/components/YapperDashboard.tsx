@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAccount, useDisconnect } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAuth } from '../hooks/useAuth'
 import { useRouter } from 'next/navigation'
+import { useYapperTwitterConnection } from '../hooks/useYapperTwitterConnection'
 import { 
   Bars3Icon, 
   HomeIcon, 
@@ -35,6 +36,7 @@ import BiddingInterface from './yapper/BiddingInterface'
 import YapperHistory from './yapper/YapperHistory'
 import YapperPortfolio from './yapper/YapperPortfolio'
 import YapperMyContent from './yapper/YapperMyContent'
+import YapperTwitterConnection from './yapper/YapperTwitterConnection'
 
 interface YapperDashboardProps {
   activeSection?: string
@@ -42,10 +44,19 @@ interface YapperDashboardProps {
 
 export default function YapperDashboard({ activeSection = 'dashboard' }: YapperDashboardProps) {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true)
+  const [isReconnectingTwitter, setIsReconnectingTwitter] = useState(false)
   const { address, isConnected } = useAccount()
   const { disconnect } = useDisconnect()
   const { logout } = useAuth()
   const router = useRouter()
+  
+  // Check Twitter connection status for Yappers
+  const { 
+    isConnected: isTwitterConnected, 
+    isLoading: isTwitterLoading, 
+    twitterUsername,
+    refetch: refetchTwitterStatus 
+  } = useYapperTwitterConnection(address)
 
   // Handle manual logout
   const handleLogout = () => {
@@ -53,9 +64,97 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
     router.push('/')
   }
 
+  // Twitter re-connection mutation
+  const twitterReconnectMutation = useMutation({
+    mutationFn: async () => {
+      if (!address) throw new Error('No wallet connected')
+      
+      setIsReconnectingTwitter(true)
+      
+      // Step 1: Get Twitter OAuth URL
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          wallet_address: address,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to get Twitter OAuth URL')
+      }
+
+      const data = await response.json()
+      
+      if (!data.success || !data.data.oauth_url) {
+        throw new Error('Invalid OAuth URL response')
+      }
+
+      // Store state, code verifier, and wallet address for later use
+      localStorage.setItem('yapper_twitter_oauth_state', data.data.state)
+      localStorage.setItem('yapper_twitter_code_verifier', data.data.code_verifier)
+      localStorage.setItem('yapper_twitter_wallet_address', address || '')
+
+      // Step 2: Open Twitter OAuth in a new window
+      const authWindow = window.open(
+        data.data.oauth_url,
+        'yapper-twitter-auth',
+        'width=500,height=600,scrollbars=yes,resizable=yes'
+      )
+
+      if (!authWindow) {
+        throw new Error('Failed to open authentication window. Please disable popup blocker.')
+      }
+
+      // Step 3: Listen for messages from callback window
+      return new Promise((resolve, reject) => {
+        const messageHandler = (event: MessageEvent) => {
+          if (event.origin !== window.location.origin) return
+
+          if (event.data.type === 'YAPPER_TWITTER_AUTH_SUCCESS') {
+            authWindow.close()
+            window.removeEventListener('message', messageHandler)
+            setIsReconnectingTwitter(false)
+            refetchTwitterStatus()
+            resolve(event.data)
+          } else if (event.data.type === 'YAPPER_TWITTER_AUTH_ERROR') {
+            authWindow.close()
+            window.removeEventListener('message', messageHandler)
+            setIsReconnectingTwitter(false)
+            reject(new Error(event.data.error))
+          }
+        }
+
+        window.addEventListener('message', messageHandler)
+
+        // Handle window closed manually
+        const checkClosed = setInterval(() => {
+          if (authWindow.closed) {
+            clearInterval(checkClosed)
+            window.removeEventListener('message', messageHandler)
+            setIsReconnectingTwitter(false)
+            reject(new Error('Authentication window was closed'))
+          }
+        }, 1000)
+      })
+    },
+    onSuccess: () => {
+      console.log('✅ Twitter reconnection successful')
+    },
+    onError: (error) => {
+      console.error('❌ Twitter reconnection failed:', error)
+    }
+  })
+
+  const handleTwitterReconnect = () => {
+    twitterReconnectMutation.mutate()
+  }
+
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: HomeIcon, iconSolid: HomeIconSolid, route: '/dashboard' },
-    { id: 'bidding', label: 'Bidding', icon: MegaphoneIcon, iconSolid: MegaphoneIconSolid, route: '/bidding' },
+    { id: 'bidding', label: 'Content Marketplace', icon: MegaphoneIcon, iconSolid: MegaphoneIconSolid, route: '/bidding' },
     { id: 'mycontent', label: 'My Content', icon: DocumentTextIcon, iconSolid: DocumentTextIconSolid, route: '/my-content' },
     { id: 'history', label: 'History', icon: ClockIcon, iconSolid: ClockIconSolid, route: '/history' },
     { id: 'portfolio', label: 'Portfolio', icon: CurrencyDollarIcon, iconSolid: CurrencyDollarIconSolid, route: '/portfolio' }
@@ -83,6 +182,23 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Connect Your Wallet</h2>
           <p className="text-gray-600 mb-6">Connect your wallet to access the Burnie yapper platform</p>
           <ConnectButton />
+        </div>
+      </div>
+    )
+  }
+
+  // Show Twitter connection if wallet is connected but Twitter is not
+  if (isConnected && !isTwitterLoading && !isTwitterConnected) {
+    return <YapperTwitterConnection onConnected={() => refetchTwitterStatus()} />
+  }
+
+  // Show loading while checking Twitter connection
+  if (isConnected && isTwitterLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Checking Twitter connection...</p>
         </div>
       </div>
     )
@@ -149,9 +265,26 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
             <div className="text-xs text-gray-500 font-mono">
               {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not connected'}
             </div>
+            
+            {/* Twitter Connection Status */}
+            {isTwitterConnected && twitterUsername && (
+              <div className="mt-2 text-xs text-green-600">
+                Connected: @{twitterUsername}
+              </div>
+            )}
+            
+            {/* Twitter Reconnect Button */}
+            <button
+              onClick={handleTwitterReconnect}
+              disabled={isReconnectingTwitter}
+              className="mt-2 text-xs text-blue-600 hover:text-blue-700 transition-colors block disabled:opacity-50"
+            >
+              {isReconnectingTwitter ? 'Reconnecting...' : 'Reconnect Twitter'}
+            </button>
+            
             <button
               onClick={handleLogout}
-              className="mt-2 text-xs text-orange-600 hover:text-orange-700 transition-colors"
+              className="mt-2 text-xs text-orange-600 hover:text-orange-700 transition-colors block"
             >
               Disconnect
             </button>
@@ -167,7 +300,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 capitalize">
-                  {activeSection === 'bidding' ? 'Content Bidding' : activeSection.replace('-', ' ')}
+                  {activeSection === 'bidding' ? 'Content Marketplace' : activeSection.replace('-', ' ')}
                 </h2>
                 <p className="text-sm text-gray-500">
                   {activeSection === 'dashboard' && 'Analytics and performance overview'}

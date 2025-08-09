@@ -22,6 +22,8 @@ import { PaymentTransaction } from '../models/PaymentTransaction';
 import { TwitterLearningData } from '../models/TwitterLearningData';
 import { Admin } from '../models/Admin';
 import { TwitterUserConnection } from '../models/TwitterUserConnection';
+import { YapperTwitterConnection } from '../models/YapperTwitterConnection';
+import { ContentPurchase } from '../models/ContentPurchase';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -56,6 +58,8 @@ export const AppDataSource = new DataSource({
     TwitterLearningData,
     Admin,
     TwitterUserConnection,
+    YapperTwitterConnection,
+    ContentPurchase,
   ],
   migrations: [],
   subscribers: [],

@@ -96,7 +96,8 @@ class S3StorageService:
                     return {
                         'success': True,
                         'original_url': source_url,
-                        'presigned_url': presigned_result['presigned_url'],
+                        's3_url': presigned_result['presigned_url'],  # Use s3_url for consistency with upload_file_to_s3
+                        'presigned_url': presigned_result['presigned_url'],  # Keep for backward compatibility
                         's3_key': s3_key,
                         'bucket': self.bucket_name,
                         'content_type': download_result['content_type'],
@@ -359,6 +360,111 @@ class S3StorageService:
                 'success': False,
                 'error': f"Unexpected error: {str(e)}",
                 's3_key': s3_key
+            }
+
+    def upload_file_to_s3(self, file_path: str, content_type: str = "image", 
+                          wallet_address: Optional[str] = None,
+                          agent_id: Optional[str] = None, 
+                          model_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Upload a local file directly to S3
+        
+        Args:
+            file_path (str): Local file path to upload
+            content_type (str): Type of content ("image" or "video")
+            wallet_address (str): User's wallet address for organization
+            agent_id (str): Agent ID from the Agents screen on mining interface
+            model_name (str): AI model used for generation (e.g., "dall-e-3", "gpt-image-1")
+            
+        Returns:
+            dict: Result containing S3 URL and metadata
+        """
+        try:
+            logger.info(f"📦 Starting direct file upload to S3: {file_path}")
+            
+            # Check if file exists
+            if not os.path.exists(file_path):
+                return {
+                    'success': False,
+                    'error': f"File not found: {file_path}"
+                }
+            
+            # Get file info
+            file_size = os.path.getsize(file_path)
+            file_extension = os.path.splitext(file_path)[1] or '.png'
+            
+            # Determine MIME type
+            mime_type, _ = mimetypes.guess_type(file_path)
+            if not mime_type:
+                mime_type = 'image/png' if content_type == "image" else 'video/mp4'
+            
+            # Generate S3 key/filename
+            s3_key = self._generate_s3_key(content_type, file_extension, 
+                                         wallet_address, agent_id, model_name)
+            
+            # Upload file to S3
+            logger.info(f"⬆️ Uploading file to S3: {s3_key}")
+            
+            with open(file_path, 'rb') as file_obj:
+                self.s3_client.upload_fileobj(
+                    file_obj,
+                    self.bucket_name,
+                    s3_key,
+                    ExtraArgs={
+                        'ContentType': mime_type,
+                        'CacheControl': 'max-age=31536000',  # 1 year cache
+                        'ServerSideEncryption': 'AES256'
+                    }
+                )
+            
+            # Generate pre-signed URL for secure access
+            presigned_result = self.generate_presigned_url(s3_key, expiration=2592000)  # 30 days
+            
+            if presigned_result['success']:
+                result = {
+                    'success': True,
+                    's3_url': presigned_result['presigned_url'],
+                    's3_key': s3_key,
+                    'bucket': self.bucket_name,
+                    'file_size': file_size,
+                    'content_type': mime_type,
+                    'uploaded_at': datetime.utcnow().isoformat(),
+                    'expires_at': presigned_result['expires_at'],
+                    'expires_in_seconds': presigned_result['expires_in_seconds']
+                }
+                
+                logger.info(f"✅ File uploaded successfully to S3: {s3_key}")
+                logger.info(f"📊 File size: {file_size} bytes, Content-Type: {mime_type}")
+                return result
+            else:
+                # Fallback to public URL if pre-signed URL generation fails
+                public_url = f"https://{self.bucket_name}.s3.{self.aws_region}.amazonaws.com/{s3_key}"
+                logger.warning(f"⚠️ Pre-signed URL generation failed, using public URL: {public_url}")
+                
+                return {
+                    'success': True,
+                    's3_url': public_url,
+                    's3_key': s3_key,
+                    'bucket': self.bucket_name,
+                    'file_size': file_size,
+                    'content_type': mime_type,
+                    'uploaded_at': datetime.utcnow().isoformat(),
+                    'error': f"Pre-signed URL generation failed: {presigned_result.get('error')}"
+                }
+                
+        except ClientError as e:
+            logger.error(f"❌ AWS S3 error during file upload: {e}")
+            return {
+                'success': False,
+                'error': f"S3 upload failed: {str(e)}",
+                'file_path': file_path
+            }
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during file upload: {e}")
+            return {
+                'success': False,
+                'error': f"Upload failed: {str(e)}",
+                'file_path': file_path
             }
 
 # Global instance

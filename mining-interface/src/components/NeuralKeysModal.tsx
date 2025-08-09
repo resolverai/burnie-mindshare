@@ -19,7 +19,8 @@ export function NeuralKeysModal({ isOpen, onClose }: NeuralKeysModalProps) {
     google: '',
     replicate: '',
     elevenlabs: '',
-    stability: ''
+    stability: '',
+    fal: ''
   })
   const [isLoading, setIsLoading] = useState(false)
 
@@ -34,7 +35,8 @@ export function NeuralKeysModal({ isOpen, onClose }: NeuralKeysModalProps) {
           google: existingKeys.google || '',
           replicate: existingKeys.replicate || '',
           elevenlabs: existingKeys.elevenlabs || '',
-          stability: existingKeys.stability || ''
+          stability: existingKeys.stability || '',
+          fal: existingKeys.fal || ''
         })
       }
     }
@@ -54,6 +56,7 @@ export function NeuralKeysModal({ isOpen, onClose }: NeuralKeysModalProps) {
         .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {})
 
       saveApiKeys(address, keysToSave)
+      
       toast.success('API Keys saved locally!')
       onClose()
     } catch (error) {
@@ -180,6 +183,20 @@ export function NeuralKeysModal({ isOpen, onClose }: NeuralKeysModalProps) {
                 placeholder="sk-..."
                 value={apiKeys.stability || ''}
                 onChange={(e) => handleInputChange('stability', e.target.value)}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+
+            {/* Fal.ai */}
+            <div>
+              <label className="block text-gray-300 font-medium mb-2">
+                Fal.ai API Key
+              </label>
+              <input
+                type="password"
+                placeholder="fal_..."
+                value={apiKeys.fal || ''}
+                onChange={(e) => handleInputChange('fal', e.target.value)}
                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             </div>

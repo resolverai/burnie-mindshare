@@ -20,6 +20,7 @@ import marketplaceRoutes from './routes/marketplace';
 import { adminRoutes } from './routes/admin';
 import agentRoutes from './routes/agents';
 import twitterAuthRoutes from './routes/twitter-auth';
+import yapperTwitterAuthRoutes from './routes/yapper-twitter-auth';
 
 const app = express();
 const server = createServer(app);
@@ -86,7 +87,8 @@ app.use('/api/mining', miningRoutes);
 app.use('/api/marketplace', marketplaceRoutes); // MVP Marketplace for content bidding
 app.use('/api/admin', adminRoutes); // Admin routes
 app.use('/api/agents', agentRoutes); // Agent routes
-app.use('/api/twitter-auth', twitterAuthRoutes); // Twitter auth routes
+app.use('/api/twitter-auth', twitterAuthRoutes); // Twitter auth routes for miners
+app.use('/api/yapper-twitter-auth', yapperTwitterAuthRoutes); // Twitter auth routes for yappers
 
 // Start server
 const startServer = async () => {

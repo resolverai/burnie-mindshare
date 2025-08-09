@@ -8,14 +8,15 @@ import {
   EyeIcon,
   StarIcon,
   CurrencyDollarIcon,
-  CalendarIcon
+  CalendarIcon,
+  CheckCircleIcon
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 
 interface ContentItem {
   id: number
   content_text: string
-  content_images?: any
+  content_images: string[]
   predicted_mindshare: number
   quality_score: number
   asking_price: number
@@ -36,12 +37,15 @@ interface ContentItem {
     currency: string
     bid_date: string
   }
+  transaction_hash?: string // BaseScan transaction hash
+  treasury_transaction_hash?: string // Treasury payout transaction hash
+  acquisition_type: 'bid' | 'purchase' // How the content was acquired
 }
 
 export default function YapperMyContent() {
   const { address } = useAccount()
 
-  // Content parsing functions (same as bidding interface)
+  // Content parsing functions
   const extractImageUrl = (contentText: string): string | null => {
     const prefixMatch = contentText.match(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i)
     if (prefixMatch) {
@@ -61,32 +65,53 @@ export default function YapperMyContent() {
     return null
   }
 
-  const formatTwitterContent = (contentText: string): { text: string; imageUrl: string | null } => {
+  const formatTwitterContent = (contentText: string): { text: string; hashtags: string[]; characterCount: number; imageUrl: string | null } => {
     const imageUrl = extractImageUrl(contentText)
     
-    const lines = contentText.split('\n')
+    // Start with the full content
+    let cleanText = contentText
+    
+    // Remove image URL patterns from the text
+    cleanText = cleanText.replace(/📸 Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/https?:\/\/burnie-mindshare-content[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*amazonaws[^\s\n<>"'`]+/gi, '')
+    cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*s3[^\s\n<>"'`]+/gi, '')
+    
+    // Extract just the Twitter text (before the stats and metadata)
+    const lines = cleanText.split('\n')
     let twitterText = ""
     
     for (const line of lines) {
       if (line.includes('📊 Content Stats') || 
           line.includes('🖼️ [Image will be attached') ||
-          line.includes('💡 To post:')) {
+          line.includes('💡 To post:') ||
+          line.includes('AWSAccessKeyId=') ||
+          line.includes('Signature=') ||
+          line.includes('Expires=')) {
         break
       }
-      if (line.trim() && !line.includes('Image URL:')) {
+      
+      const trimmedLine = line.trim()
+      // Skip lines that are just URLs or AWS parameters
+      if (trimmedLine && 
+          !trimmedLine.startsWith('http') && 
+          !trimmedLine.includes('AWSAccessKeyId') &&
+          !trimmedLine.includes('Signature=') &&
+          !trimmedLine.includes('Expires=')) {
         twitterText += line + "\n"
       }
     }
     
+    const finalText = twitterText.trim()
+    const hashtags = finalText.match(/#\w+/g) || []
+    
     return {
-      text: twitterText.trim(),
+      text: finalText,
+      hashtags,
+      characterCount: finalText.length,
       imageUrl
     }
-  }
-
-  const extractHashtags = (text: string): string[] => {
-    const hashtagRegex = /#\w+/g
-    return text.match(hashtagRegex) || []
   }
 
   const copyToClipboard = async (text: string) => {
@@ -116,7 +141,22 @@ export default function YapperMyContent() {
     window.open(twitterUrl, '_blank')
   }
 
-  // Fetch yapper's won content
+  const generateMinerId = (username: string): string => {
+    // Convert username to a consistent miner ID
+    const hash = username.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0)
+      return a & a
+    }, 0)
+    const minerId = Math.abs(hash) % 900000 + 100000 // 6-digit number
+    return `MINER-${minerId}`
+  }
+
+  const getBaseScanUrl = (transactionHash: string): string => {
+    // Base network explorer URL
+    return `https://basescan.org/tx/${transactionHash}`
+  }
+
+  // Fetch yapper's purchased content (immediate purchase system)
   const { data: content, isLoading } = useQuery({
     queryKey: ['yapper-content', address],
     queryFn: async () => {
@@ -126,12 +166,12 @@ export default function YapperMyContent() {
         const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/my-content/yapper/wallet/${address}`)
         if (response.ok) {
           const data = await response.json()
-          console.log('📦 Fetched yapper content:', data)
+          console.log('📦 Fetched yapper purchased content:', data)
           return data.data || []
         }
         return []
       } catch (error) {
-        console.error('Error fetching yapper content:', error)
+        console.error('Error fetching yapper purchased content:', error)
         return []
       }
     },
@@ -143,19 +183,17 @@ export default function YapperMyContent() {
     <div className="h-full overflow-y-auto bg-gray-50">
       <div className="p-6 space-y-6">
         {/* Header */}
-        <div className="space-y-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">My Content</h1>
-            <p className="text-gray-600">Content you've won through bidding and own</p>
-          </div>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">My Content</h1>
+          <p className="text-gray-600">Content you've purchased - ready to use for your campaigns</p>
         </div>
 
-        {/* Content Display */}
+        {/* Content Display - 2 Column Grid */}
         {isLoading ? (
-          <div className="space-y-6">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="card animate-pulse">
-                <div className="card-content space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="bg-white rounded-lg shadow-md animate-pulse">
+                <div className="p-4 space-y-4">
                   <div className="h-6 bg-gray-200 rounded w-3/4"></div>
                   <div className="h-32 bg-gray-200 rounded"></div>
                   <div className="h-4 bg-gray-200 rounded w-1/2"></div>
@@ -164,59 +202,56 @@ export default function YapperMyContent() {
             ))}
           </div>
         ) : content && content.length > 0 ? (
-          <div className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {content.map((item: ContentItem) => {
-              const { text, imageUrl } = formatTwitterContent(item.content_text)
-              const hashtags = extractHashtags(text)
+              const { text, hashtags, characterCount, imageUrl } = formatTwitterContent(item.content_text)
+              const displayImage = item.content_images && item.content_images.length > 0 
+                ? item.content_images[0] 
+                : imageUrl
               
               return (
-                <div key={item.id} className="card hover:shadow-xl transition-all duration-300 border-l-4 border-l-green-500">
-                  <div className="card-content space-y-6">
+                <div key={item.id} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 border border-gray-200">
+                  <div className="p-4 space-y-4">
                     {/* Header with Creator Info */}
-                    <div className="flex items-center justify-between pb-4 border-b border-gray-200">
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
-                          <span className="text-white font-bold">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
+                          <span className="text-white font-bold text-sm">
                             {item.creator.username.charAt(0).toUpperCase()}
                           </span>
                         </div>
                         <div>
                           <div className="flex items-center space-x-2">
-                            <p className="font-medium text-gray-900">{item.creator.username}</p>
+                            <p className="font-medium text-gray-900 text-sm">{item.creator.username}</p>
                             {item.agent_name && (
                               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
                                 🤖 {item.agent_name}
                               </span>
                             )}
-                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-                              ✅ Owned
-                            </span>
                           </div>
                           <div className="flex items-center space-x-1">
                             <StarIconSolid className="h-3 w-3 text-yellow-400" />
-                            <span className="text-xs text-gray-500">{item.creator.reputation_score} reputation</span>
-                            <span className="text-xs text-gray-400">•</span>
-                            <span className="text-xs text-gray-500">Won {formatTimeAgo(item.winning_bid.bid_date)}</span>
+                            <span className="text-xs text-gray-500">{item.creator.reputation_score}</span>
                           </div>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="flex items-center space-x-2">
-                          <span className="status-indicator status-active text-xs">
-                            {item.campaign.platform_source}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">{item.campaign.title}</p>
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          item.acquisition_type === 'purchase' 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {item.acquisition_type === 'purchase' ? '🛒 Purchased' : '🏆 Won'}
+                        </span>
+                        <p className="text-xs text-gray-500 mt-1">{formatTimeAgo(item.winning_bid.bid_date)}</p>
                       </div>
                     </div>
 
-                    {/* Twitter-Ready Content Display */}
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-semibold text-blue-600 flex items-center">
-                          🐦 Twitter-Ready Content
-                        </h4>
-                        <div className="flex space-x-2">
+                    {/* Content Text */}
+                    <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-blue-700">🐦 Ready to Post</span>
+                        <div className="flex space-x-1">
                           <button
                             onClick={() => copyToClipboard(text)}
                             className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 transition-colors flex items-center"
@@ -228,124 +263,146 @@ export default function YapperMyContent() {
                             onClick={() => postToTwitter(text)}
                             className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 transition-colors"
                           >
-                            Post to Twitter
+                            Tweet
                           </button>
                         </div>
                       </div>
-                      
-                      <div className="space-y-4">
-                        {/* Twitter Text */}
-                        <div className="bg-white rounded-lg p-4 border border-gray-200">
-                          <div className="text-gray-900 whitespace-pre-wrap font-medium leading-relaxed">
-                            {text}
-                          </div>
-                          <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
-                            <span>Characters: {text.length}/280</span>
-                            {hashtags.length > 0 && (
-                              <div className="flex items-center space-x-1">
-                                <span>Hashtags:</span>
-                                <div className="flex space-x-1">
-                                  {hashtags.slice(0, 3).map((tag, index) => (
-                                    <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded text-xs">
-                                      {tag}
-                                    </span>
-                                  ))}
-                                  {hashtags.length > 3 && <span>+{hashtags.length - 3}</span>}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {/* Visual Content */}
-                        {(imageUrl || (item.content_images && item.content_images.length > 0)) && (
-                          <div className="bg-white rounded-lg p-4 border border-gray-200">
-                            <h5 className="text-sm font-semibold text-purple-600 mb-3 flex items-center">
-                              🖼️ Generated Visuals
-                            </h5>
-                            <div className="space-y-4">
-                              {/* Primary Image from AI Generation */}
-                              {imageUrl && (
-                                <div className="space-y-2">
-                                  <div className="relative">
-                                    <img 
-                                      src={imageUrl} 
-                                      alt="AI Generated content image"
-                                      className="w-full max-w-md rounded-lg border border-gray-300 shadow-md"
-                                      onLoad={() => console.log('✅ Primary image loaded:', imageUrl)}
-                                      onError={(e) => {
-                                        console.error('❌ Primary image failed to load:', imageUrl)
-                                        e.currentTarget.style.display = 'none'
-                                        const fallback = e.currentTarget.nextElementSibling as HTMLElement
-                                        if (fallback) fallback.style.display = 'block'
-                                      }}
-                                    />
-                                    <div 
-                                      className="hidden bg-gradient-to-br from-gray-200 to-gray-300 rounded-lg border border-gray-300 p-8 text-center"
-                                    >
-                                      <span className="text-gray-600 text-sm">
-                                        🖼️ AI Generated Image
-                                        <br />
-                                        <span className="text-xs text-gray-500">Preview not available</span>
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="text-xs text-gray-500 bg-gray-100 p-2 rounded font-mono break-all">
-                                    <strong>Image URL:</strong> {imageUrl}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
+                      <div className="text-gray-900 text-sm leading-relaxed line-clamp-4">
+                        {text}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                        <span>{characterCount}/280 chars</span>
+                        {hashtags.length > 0 && (
+                          <div className="flex space-x-1">
+                            {hashtags.slice(0, 2).map((tag, index) => (
+                              <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded">
+                                {tag}
+                              </span>
+                            ))}
+                            {hashtags.length > 2 && <span>+{hashtags.length - 2}</span>}
                           </div>
                         )}
                       </div>
                     </div>
 
-                    {/* Performance Metrics */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                        <div className="flex items-center space-x-2">
-                          <EyeIcon className="h-4 w-4 text-blue-500" />
-                          <span className="text-sm text-gray-600">Predicted Mindshare</span>
+                    {/* Image - No Watermark (Owned Content) */}
+                    {displayImage && (
+                      <div className="relative">
+                        <div className="relative overflow-hidden rounded-lg border border-gray-300">
+                          <img 
+                            src={displayImage} 
+                            alt="AI Generated content"
+                            className="w-full h-auto object-cover rounded-lg"
+                            onLoad={() => console.log('✅ My content image loaded:', displayImage)}
+                            onError={(e) => {
+                              console.error('❌ My content image failed to load:', displayImage)
+                              e.currentTarget.style.display = 'none'
+                              const fallback = e.currentTarget.nextElementSibling as HTMLElement
+                              if (fallback) fallback.style.display = 'block'
+                            }}
+                          />
+                          
+                          {/* "OWNED" Badge instead of watermarks */}
+                          <div className="absolute top-2 right-2">
+                            <div className="bg-green-600 text-white px-2 py-1 rounded-full text-xs font-bold flex items-center space-x-1">
+                              <CheckCircleIcon className="h-3 w-3" />
+                              <span>OWNED</span>
+                            </div>
+                          </div>
+                          
+                          <div 
+                            className="hidden bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-8 text-center h-40 flex items-center justify-center"
+                          >
+                            <span className="text-gray-500 text-sm">
+                              🖼️ AI Generated Image
+                              <br />
+                              <span className="text-xs text-gray-400">Preview not available</span>
+                            </span>
+                          </div>
                         </div>
-                        <p className="text-lg font-bold text-blue-600">{item.predicted_mindshare.toFixed(1)}%</p>
+                        
+                        {/* Image URL Display */}
+                        <div className="mt-2 p-2 bg-gray-100 rounded text-xs text-gray-600 font-mono break-all border border-gray-200">
+                          <div className="flex items-center space-x-2 mb-1">
+                            <span className="font-semibold text-gray-700">🖼️ Image URL:</span>
+                            <button
+                              onClick={() => copyToClipboard(displayImage)}
+                              className="text-blue-600 hover:text-blue-800 underline"
+                              title="Copy image URL"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          <div className="text-gray-800">
+                            {displayImage}
+                          </div>
+                        </div>
                       </div>
-                      <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
-                        <div className="flex items-center space-x-2">
-                          <StarIcon className="h-4 w-4 text-yellow-500" />
-                          <span className="text-sm text-gray-600">Quality Score</span>
+                    )}
+
+                    {/* Performance Metrics */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-blue-50 rounded-lg p-2 border border-blue-200">
+                        <div className="flex items-center space-x-1">
+                          <EyeIcon className="h-3 w-3 text-blue-500" />
+                          <span className="text-xs text-gray-600">Mindshare</span>
                         </div>
-                        <p className="text-lg font-bold text-yellow-600">{item.quality_score.toFixed(1)}/100</p>
+                        <p className="text-sm font-bold text-blue-600">{item.predicted_mindshare.toFixed(1)}%</p>
+                      </div>
+                      <div className="bg-yellow-50 rounded-lg p-2 border border-yellow-200">
+                        <div className="flex items-center space-x-1">
+                          <StarIcon className="h-3 w-3 text-yellow-500" />
+                          <span className="text-xs text-gray-600">Quality</span>
+                        </div>
+                        <p className="text-sm font-bold text-yellow-600">{item.quality_score.toFixed(1)}/100</p>
                       </div>
                     </div>
 
                     {/* Purchase Information */}
-                    <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-semibold text-green-700">Purchase Details</h4>
-                        <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">
-                          Winning Bid
+                    <div className={`rounded-lg p-3 border ${
+                      item.acquisition_type === 'purchase' 
+                        ? 'bg-green-50 border-green-200' 
+                        : 'bg-blue-50 border-blue-200'
+                    }`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center space-x-2">
+                          <CurrencyDollarIcon className={`h-4 w-4 ${
+                            item.acquisition_type === 'purchase' ? 'text-green-600' : 'text-blue-600'
+                          }`} />
+                          <span className={`text-sm font-semibold ${
+                            item.acquisition_type === 'purchase' ? 'text-green-700' : 'text-blue-700'
+                          }`}>
+                            Paid: {item.winning_bid.amount} {item.winning_bid.currency}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-500">
+                          {new Date(item.winning_bid.bid_date).toLocaleDateString()}
                         </span>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="text-gray-600">Amount Paid:</span>
-                          <span className="text-green-700 font-bold ml-2">
-                            {item.winning_bid.amount} {item.winning_bid.currency}
-                          </span>
+                      {/* Transaction Links */}
+                      {item.acquisition_type === 'purchase' && item.transaction_hash && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-gray-600">Purchase Transaction:</span>
+                            <a
+                              href={getBaseScanUrl(item.transaction_hash)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 text-xs font-medium flex items-center space-x-1 hover:underline"
+                            >
+                              <span>View</span>
+                              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                            </a>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-gray-600">Purchase Date:</span>
-                          <span className="text-gray-900 font-medium ml-2">
-                            {new Date(item.winning_bid.bid_date).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </div>
+                      )}
                       
-                      <div className="mt-3 pt-3 border-t border-green-200">
+                      <div className="mt-2 pt-2 border-t border-green-200">
                         <p className="text-xs text-green-600">
-                          This content is now exclusively yours. You can use it for your Twitter campaigns.
+                          ✅ This content is exclusively yours. Ready to use for campaigns.
                         </p>
                       </div>
                     </div>
@@ -357,7 +414,7 @@ export default function YapperMyContent() {
         ) : (
           <div className="text-center py-12">
             <div className="text-gray-400 text-lg mb-2">No content owned yet</div>
-            <div className="text-gray-500">Start bidding on content in the marketplace to see it here</div>
+            <div className="text-gray-500">Purchase content from the marketplace to see it here</div>
           </div>
         )}
       </div>

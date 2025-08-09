@@ -11,8 +11,12 @@ langchain-google-genai
 openai
 anthropic
 google-generativeai
-psycopg2-binary
+replicate
+requests
+python-dotenv
+pydantic
 sqlalchemy
+psycopg2-binary
 asyncpg
 redis
 pydantic
@@ -39,3 +43,4 @@ celery
 kombu
 eventlet
 pydantic-settings
+fal-client

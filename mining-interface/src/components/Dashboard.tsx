@@ -113,31 +113,31 @@ export default function Dashboard() {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api';
       
-      // Fetch all analytics data in parallel
+      // Fetch all analytics data in parallel using new purchase-based endpoints
       const [
         contentStatsResponse,
         myContentResponse,
-        biddingTrendsResponse,
+        purchaseTrendsResponse,
         topContentResponse,
         yapperEngagementResponse,
         agentPerformanceResponse,
         timeAnalysisResponse,
         contentCategoriesResponse
       ] = await Promise.all([
-        fetch(`${baseUrl}/marketplace/analytics/content-stats/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/purchase/content-stats/${address}`),
         fetch(`${baseUrl}/marketplace/my-content/miner/wallet/${address}`),
-        fetch(`${baseUrl}/marketplace/analytics/bidding-trends/${address}`),
-        fetch(`${baseUrl}/marketplace/analytics/top-content/${address}`),
-        fetch(`${baseUrl}/marketplace/analytics/yapper-engagement/${address}`),
-        fetch(`${baseUrl}/marketplace/analytics/agent-performance/${address}`),
-        fetch(`${baseUrl}/marketplace/analytics/time-analysis/${address}`),
-        fetch(`${baseUrl}/marketplace/analytics/content-categories/${address}`)
+        fetch(`${baseUrl}/marketplace/analytics/purchase/trends/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/purchase/top-content/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/purchase/yapper-engagement/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/purchase/agent-performance/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/purchase/time-analysis/${address}`),
+        fetch(`${baseUrl}/marketplace/analytics/purchase/content-categories/${address}`)
       ]);
 
       const [
         contentStats,
         myContent,
-        biddingTrends,
+        purchaseTrends,
         topContent,
         yapperEngagement,
         agentPerformance,
@@ -146,7 +146,7 @@ export default function Dashboard() {
       ] = await Promise.all([
         contentStatsResponse.json(),
         myContentResponse.json(),
-        biddingTrendsResponse.json(),
+        purchaseTrendsResponse.json(),
         topContentResponse.json(),
         yapperEngagementResponse.json(),
         agentPerformanceResponse.json(),
@@ -158,7 +158,7 @@ export default function Dashboard() {
       const processedData = processRealAnalyticsData({
         contentStats: contentStats.data,
         myContent: myContent.data,
-        biddingTrends: biddingTrends.data,
+        biddingTrends: purchaseTrends.data, // Keep property name for compatibility
         topContent: topContent.data,
         yapperEngagement: yapperEngagement.data,
         agentPerformance: agentPerformance.data,
@@ -190,11 +190,11 @@ export default function Dashboard() {
       contentStats: {
         totalContent: contentStats?.totalContent || 0,
         approvedContent: contentStats?.totalContent || 0, // All content from this endpoint is approved
-        totalBids: contentStats?.totalBids || 0,
+        totalBids: contentStats?.totalPurchases || 0, // Map purchases to bids for UI compatibility
         totalRevenue: contentStats?.totalRevenue || 0,
         contentReputation: contentStats?.contentReputation || 0,
-        biddableContent: contentStats?.biddableContent || 0,
-        avgBidAmount: contentStats?.avgBidAmount || 0
+        biddableContent: contentStats?.purchasableContent || 0, // Map purchasable to biddable for UI compatibility
+        avgBidAmount: contentStats?.avgPurchasePrice || 0 // Map purchase price to bid amount for UI compatibility
       },
       performance: {
         topContent: topContent || [],
@@ -236,9 +236,9 @@ export default function Dashboard() {
         {/* Total Bids */}
         <div className="bg-gradient-to-br from-blue-800 via-blue-700 to-blue-900 rounded-xl p-6 text-center">
           <CurrencyDollarIcon className="h-8 w-8 text-blue-300 mx-auto mb-2" />
-          <h3 className="text-sm text-gray-300 mb-1">Total Bids</h3>
+          <h3 className="text-sm text-gray-300 mb-1">Total Purchases</h3>
           <p className="text-3xl font-bold text-white">{stats.totalBids}</p>
-          <p className="text-sm text-blue-300">{stats.avgBidAmount.toFixed(1)} avg bid</p>
+          <p className="text-sm text-blue-300">{stats.avgBidAmount.toFixed(1)} avg price</p>
         </div>
 
         {/* Total Revenue */}
@@ -246,7 +246,7 @@ export default function Dashboard() {
           <BanknotesIcon className="h-8 w-8 text-green-300 mx-auto mb-2" />
           <h3 className="text-sm text-gray-300 mb-1">Total Revenue</h3>
           <p className="text-3xl font-bold text-white">{stats.totalRevenue} Tokens</p>
-          <p className="text-sm text-green-300">{stats.biddableContent} biddable</p>
+          <p className="text-sm text-green-300">{stats.biddableContent} purchasable</p>
         </div>
 
         {/* Content Reputation */}
@@ -267,7 +267,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center space-x-2">
               <ChartBarIcon className="h-6 w-6 text-blue-400" />
-              <h2 className="text-xl font-bold text-white">Bidding Trends (30 Days)</h2>
+              <h2 className="text-xl font-bold text-white">Purchase Trends (30 Days)</h2>
             </div>
           </div>
           <div className="text-center text-gray-400 py-8">No Data</div>
@@ -292,10 +292,10 @@ export default function Dashboard() {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-2">
             <ChartBarIcon className="h-6 w-6 text-blue-400" />
-            <h2 className="text-xl font-bold text-white">Bidding Trends (30 Days)</h2>
+            <h2 className="text-xl font-bold text-white">Purchase Trends (30 Days)</h2>
           </div>
           <div className="flex space-x-2">
-            <span className="px-3 py-1 bg-blue-600 text-white text-sm rounded-full">Bids</span>
+            <span className="px-3 py-1 bg-blue-600 text-white text-sm rounded-full">Purchases</span>
             <span className="px-3 py-1 bg-green-600 text-white text-sm rounded-full">Revenue</span>
           </div>
         </div>
@@ -304,7 +304,7 @@ export default function Dashboard() {
         <div className="mb-6">
           <div className="flex justify-between mb-2 text-xs text-gray-400">
             <span>0</span>
-            <span className="text-blue-400">{maxBids} bids</span>
+            <span className="text-blue-400">{maxBids} purchases</span>
             <span className="text-green-400">{maxRevenue} tokens</span>
           </div>
           
@@ -333,7 +333,7 @@ export default function Dashboard() {
                       backgroundColor: trend.bidCount > 0 ? '#3B82F6' : 'transparent',
                       minHeight: trend.bidCount > 0 ? '15px' : '0px'
                     }}
-                    title={`${trend.bidCount} bids on ${trend.date}`}
+                    title={`${trend.bidCount} purchases on ${trend.date}`}
                   />
                   <div 
                     className="bg-green-500 rounded-sm transition-all duration-300 min-w-[3px]" 
@@ -372,7 +372,7 @@ export default function Dashboard() {
             <p className="text-2xl font-bold text-blue-400">
               {trends.reduce((sum, t) => sum + t.bidCount, 0)}
             </p>
-            <p className="text-sm text-gray-400">Total Bids</p>
+            <p className="text-sm text-gray-400">Total Purchases</p>
           </div>
           <div>
             <p className="text-2xl font-bold text-green-400">
@@ -384,7 +384,7 @@ export default function Dashboard() {
             <p className="text-2xl font-bold text-purple-400">
               {trends.length > 0 ? (trends.reduce((sum, t) => sum + t.bidCount, 0) / trends.length).toFixed(1) : '0.0'}
             </p>
-            <p className="text-sm text-gray-400">Avg Daily Bids</p>
+            <p className="text-sm text-gray-400">Avg Daily Purchases</p>
       </div>
           <div>
             <p className="text-2xl font-bold text-orange-400">
@@ -434,7 +434,7 @@ export default function Dashboard() {
                   <div>
                     <p className="text-white font-medium">{content.title}</p>
                     <div className="flex items-center space-x-4 text-sm text-gray-400">
-                      <span>{content.bidCount} bids</span>
+                      <span>{content.bidCount} purchases</span>
                       <span>Max: {content.maxBid} tokens</span>
                       <span>Quality: {content.quality_score}/100</span>
                       </div>
@@ -487,7 +487,7 @@ export default function Dashboard() {
                   <span className="text-white font-medium">{category.category}</span>
                   <div className="flex items-center space-x-4 text-sm">
                     <span className="text-gray-400">{category.count} posts</span>
-                    <span className="text-blue-400">{category.avgBids} avg bids</span>
+                    <span className="text-blue-400">{category.avgBids} avg purchases</span>
                     <span className="text-green-400">{category.revenue} tokens</span>
                     </div>
                       </div>
@@ -539,7 +539,7 @@ export default function Dashboard() {
             <div className="text-center">
               <UserGroupIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
               <p className="text-gray-400">No Data</p>
-              <p className="text-gray-500 text-sm">Enable bidding to attract yappers</p>
+              <p className="text-gray-500 text-sm">Enable sales to attract yappers</p>
         </div>
           </div>
     </div>
@@ -569,7 +569,7 @@ export default function Dashboard() {
                 <div className="grid grid-cols-3 gap-4 text-center">
                   <div>
                     <p className="text-blue-400 font-semibold">{yapper.totalBids}</p>
-                    <p className="text-gray-400 text-xs">Bids</p>
+                    <p className="text-gray-400 text-xs">Purchases</p>
                 </div>
                   <div>
                     <p className="text-green-400 font-semibold">{yapper.totalAmount} Tokens</p>
@@ -577,7 +577,7 @@ export default function Dashboard() {
               </div>
                   <div>
                     <p className="text-orange-400 font-semibold">{yapper.wonContent}</p>
-                    <p className="text-gray-400 text-xs">Won</p>
+                    <p className="text-gray-400 text-xs">Purchased</p>
                   </div>
               </div>
             </div>
@@ -633,7 +633,7 @@ export default function Dashboard() {
                     <p className="text-white font-medium">{agent.contentCount}</p>
                   </div>
                   <div>
-                    <p className="text-gray-400">Bids</p>
+                    <p className="text-gray-400">Purchases</p>
                     <p className="text-blue-400 font-medium">{agent.bidCount}</p>
                   </div>
                   <div>
@@ -675,7 +675,7 @@ export default function Dashboard() {
             <div className="text-center">
               <ClockIcon className="h-12 w-12 text-gray-500 mx-auto mb-2" />
               <p className="text-gray-400">No Data</p>
-              <p className="text-gray-500 text-sm">Bidding activity will appear here</p>
+              <p className="text-gray-500 text-sm">Purchase activity will appear here</p>
         </div>
       </div>
         </div>
@@ -686,7 +686,7 @@ export default function Dashboard() {
       <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 mb-8">
         <h3 className="text-xl font-semibold text-white mb-6 flex items-center">
           <ClockIcon className="h-6 w-6 mr-2 text-purple-400" />
-          Bidding Activity Heatmap
+          Purchase Activity Heatmap
         </h3>
         
         <div className="space-y-6">
@@ -715,50 +715,63 @@ export default function Dashboard() {
               <span className="text-sm text-gray-400">Hours (24h format)</span>
             </div>
             
+            {/* Debug: Log heatmap data */}
+            {(() => {
+              console.log('🔍 Dashboard Heatmap Data:', {
+                heatmapLength: analyticsData.timeAnalysis.heatmap?.length || 0,
+                sampleData: analyticsData.timeAnalysis.heatmap?.slice(0, 5) || [],
+                peakTimes: analyticsData.timeAnalysis.peakTimes || []
+              });
+              return null;
+            })()}
+            
             {/* Simple heatmap visualization */}
             <div className="grid grid-cols-7 gap-2">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, dayIndex) => (
                 <div key={day} className="text-center">
                   <p className="text-gray-400 text-xs mb-2 font-medium">{day}</p>
                   <div className="space-y-1">
-                    {Array.from({ length: 12 }, (_, index) => {
-                      const hour = index * 2; // Show every 2 hours for better spacing
+                    {Array.from({ length: 24 }, (_, hour) => {
+                      // Look for exact hour match in heatmap data
                       const heatmapData = analyticsData.timeAnalysis.heatmap.find(
                         h => h.day === dayIndex && h.hour === hour
                       )
                       const intensity = heatmapData ? heatmapData.intensity : 0
                       const bidCount = heatmapData ? heatmapData.bidCount : 0
                       
+                      // Only show every 3rd hour for better spacing (0, 3, 6, 9, 12, 15, 18, 21)
+                      if (hour % 3 !== 0) return null;
+                      
                       return (
                         <div
                           key={hour}
-                          className="w-8 h-4 rounded-sm mx-auto cursor-pointer hover:ring-1 hover:ring-blue-400 transition-all group relative"
-                    style={{
+                          className="w-8 h-3 rounded-sm mx-auto cursor-pointer hover:ring-1 hover:ring-blue-400 transition-all group relative"
+                          style={{
                             backgroundColor: intensity > 0.7 ? '#3B82F6' : 
                                            intensity > 0.4 ? '#60A5FA' : 
                                            intensity > 0.2 ? '#93C5FD' :
                                            intensity > 0.1 ? '#DBEAFE' : '#4B5563',
                           }}
-                          title={`${day} ${hour}:00 - ${bidCount} bids`}
+                          title={`${day} ${hour}:00 - ${bidCount} purchases`}
                         >
                           {/* Enhanced tooltip */}
                           <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-20 border border-gray-600">
                             <div className="font-semibold">{day} {hour}:00</div>
-                            <div className="text-blue-300">{bidCount} bids</div>
+                            <div className="text-blue-300">{bidCount} purchases</div>
                             <div className="text-gray-300">{Math.round(intensity * 100)}% activity</div>
-      </div>
-    </div>
-  )
+                          </div>
+                        </div>
+                      )
                     })}
                   </div>
                   
                   {/* Hour labels for this column */}
                   <div className="mt-2 text-xs text-gray-500 space-y-1">
                     <div>0-23h</div>
-        </div>
-      </div>
+                  </div>
+                </div>
               ))}
-              </div>
+            </div>
             
             {/* Legend */}
             <div className="flex items-center justify-center space-x-4 text-sm text-gray-400 mt-6">
@@ -870,7 +883,7 @@ export default function Dashboard() {
             Mining Analytics Dashboard
           </h1>
           <p className="text-gray-400 mt-2">
-            Comprehensive insights into your content performance, bidding activity, and yapper engagement
+            Comprehensive insights into your content performance, purchase activity, and yapper engagement
           </p>
         </div>
         

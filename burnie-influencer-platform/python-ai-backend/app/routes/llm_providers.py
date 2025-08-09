@@ -26,6 +26,7 @@ class ContentGenerationRequest(BaseModel):
     max_tokens: Optional[int] = 1000
     temperature: Optional[float] = 0.7
     system_prompt: Optional[str] = ""
+    user_api_key: Optional[str] = None  # User's API key for the provider
     # Additional provider-specific parameters
     style: Optional[str] = ""
     voice: Optional[str] = "alloy"
@@ -153,6 +154,7 @@ async def generate_content(request: ContentGenerationRequest):
             content_type=request.content_type,
             prompt=request.prompt,
             model=request.model,
+            user_api_key=request.user_api_key,  # Pass user's API key
             **generation_params
         )
         

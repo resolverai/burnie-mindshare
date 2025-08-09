@@ -497,24 +497,54 @@ class OpenAIContentGenerator:
     def _generate_with_gpt_image_1(self, prompt, size='1024x1024', quality='standard', style='natural'):
         """Generate images using the dedicated gpt-image-1 model."""
         try:
+            # Map quality parameters for gpt-image-1 compatibility
+            # DALL-E 3 uses: 'standard', 'hd'
+            # gpt-image-1 uses: 'low', 'medium', 'high', 'auto'
+            quality_mapping = {
+                'standard': 'medium',
+                'hd': 'high',
+                'low': 'low',
+                'medium': 'medium', 
+                'high': 'high',
+                'auto': 'auto'
+            }
+            gpt_image_1_quality = quality_mapping.get(quality, 'high')  # Default to 'high' for best quality
+            
+            # gpt-image-1 supports: model, prompt, size, quality ('low'|'medium'|'high'|'auto'), n
+            # gpt-image-1 does NOT support: style, response_format parameters
             response = self.client.images.generate(
                 model='gpt-image-1',
                 prompt=prompt,
                 size=size,
-                quality=quality,
-                style=style,
+                quality=gpt_image_1_quality,  # Use mapped quality value
                 n=1
             )
+            
+            # Handle both possible response formats
+            image_url = None
+            image_base64 = None
+            
+            if hasattr(response.data[0], 'url') and response.data[0].url:
+                # URL format response
+                image_url = response.data[0].url
+            elif hasattr(response.data[0], 'b64_json') and response.data[0].b64_json:
+                # Base64 format response
+                image_base64 = response.data[0].b64_json
+                image_url = f"data:image/png;base64,{image_base64}"
+            else:
+                raise Exception("gpt-image-1 response contains neither URL nor base64 data")
             
             return {
                 "success": True,
                 "model": "gpt-image-1",
                 "prompt": prompt,
-                "url": response.data[0].url,
+                "url": image_url,
+                "image_base64": image_base64,
                 "revised_prompt": getattr(response.data[0], 'revised_prompt', None),
                 "size": size,
-                "quality": quality,
-                "style": style
+                "quality": gpt_image_1_quality,  # Show the actual quality used
+                "quality_mapped_from": quality,  # Show the original quality requested
+                "style_note": "style parameter not supported by gpt-image-1 model"
             }
             
         except Exception as e:

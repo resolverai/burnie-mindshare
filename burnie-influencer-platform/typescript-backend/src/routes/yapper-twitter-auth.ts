@@ -1,0 +1,440 @@
+import { Router, Request, Response } from 'express';
+import { AppDataSource } from '../config/database';
+import { User, UserRoleType } from '../models/User';
+import { YapperTwitterConnection } from '../models/YapperTwitterConnection';
+import { logger } from '../config/logger';
+import { Repository } from 'typeorm';
+import crypto from 'crypto';
+
+const router = Router();
+
+// Twitter OAuth 2.0 configuration
+const TWITTER_CLIENT_ID = process.env.TWITTER_CLIENT_ID || '';
+const TWITTER_CLIENT_SECRET = process.env.TWITTER_CLIENT_SECRET || '';
+const TWITTER_REDIRECT_URI = process.env.YAPPER_TWITTER_REDIRECT_URI || 'http://localhost:3000/yapper-twitter-callback';
+
+// Simple in-memory cache to prevent duplicate authorization code processing
+const processedCodes = new Map<string, { timestamp: number, wallet: string }>();
+
+// Clean up old entries every 10 minutes
+setInterval(() => {
+  const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+  for (const [code, data] of processedCodes.entries()) {
+    if (data.timestamp < tenMinutesAgo) {
+      processedCodes.delete(code);
+    }
+  }
+}, 10 * 60 * 1000);
+
+// Type definitions for Twitter API responses
+interface TwitterTokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  scope?: string;
+}
+
+interface TwitterUserData {
+  id: string;
+  username: string;
+  name: string;
+  profile_image_url?: string;
+}
+
+/**
+ * POST /api/yapper-twitter-auth/twitter/url
+ * Generate Twitter OAuth URL for Yappers
+ */
+router.post('/twitter/url', async (req: Request, res: Response) => {
+  try {
+    const { wallet_address } = req.body;
+
+    if (!wallet_address) {
+      return res.status(400).json({
+        success: false,
+        error: 'wallet_address is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!TWITTER_CLIENT_ID || !TWITTER_CLIENT_SECRET) {
+      return res.status(500).json({
+        success: false,
+        error: 'Twitter OAuth credentials not configured',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info(`🔗 Generating Twitter OAuth URL for Yapper wallet: ${wallet_address}`);
+
+    // Generate state parameter for security
+    const state = crypto.randomBytes(32).toString('hex');
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+
+    // Build OAuth URL
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: TWITTER_CLIENT_ID,
+      redirect_uri: TWITTER_REDIRECT_URI,
+      scope: 'tweet.read users.read follows.read offline.access',
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+    });
+
+    const authUrl = `https://twitter.com/i/oauth2/authorize?${params.toString()}`;
+
+    logger.info(`✅ Generated Twitter OAuth URL for Yapper: ${wallet_address}`);
+
+    return res.json({
+      success: true,
+      data: {
+        oauth_url: authUrl,
+        state,
+        code_verifier: codeVerifier,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ Failed to generate Twitter OAuth URL for Yapper:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to generate OAuth URL',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/yapper-twitter-auth/exchange-code
+ * Exchange authorization code for tokens and save Yapper connection
+ */
+router.post('/exchange-code', async (req: Request, res: Response) => {
+  try {
+    const { code, walletAddress, codeVerifier, state } = req.body;
+
+    if (!code || !walletAddress || !codeVerifier) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: code, walletAddress, codeVerifier'
+      });
+    }
+
+    logger.info(`🔄 Exchanging code for tokens for Yapper wallet: ${walletAddress}`);
+
+    // Check for duplicate code processing
+    if (processedCodes.has(code)) {
+      logger.warn(`⚠️ Authorization code already processed for Yapper wallet: ${walletAddress}`);
+      
+      // Check if user already has a Yapper Twitter connection
+      const userRepository: Repository<User> = AppDataSource.getRepository(User);
+      const existingUser = await userRepository.findOne({
+        where: { walletAddress: walletAddress.toLowerCase() }
+      });
+
+      if (existingUser) {
+        const yapperTwitterRepository: Repository<YapperTwitterConnection> = AppDataSource.getRepository(YapperTwitterConnection);
+        const existingConnection = await yapperTwitterRepository.findOne({
+          where: { userId: existingUser.id, isConnected: true }
+        });
+
+        if (existingConnection) {
+          logger.info(`✅ Yapper already has Twitter connection: @${existingConnection.twitterUsername}`);
+          return res.status(200).json({
+            success: true,
+            message: 'Twitter account already connected for Yapper',
+            data: {
+              user: {
+                walletAddress: existingUser.walletAddress,
+                twitterHandle: `@${existingConnection.twitterUsername}`,
+                twitterUserId: existingConnection.twitterUserId
+              }
+            }
+          });
+        }
+      }
+      
+      return res.status(400).json({
+        success: false,
+        error: 'This authorization code has already been processed'
+      });
+    }
+
+    // Mark code as being processed
+    processedCodes.set(code, { timestamp: Date.now(), wallet: walletAddress });
+
+    // Exchange authorization code for access token
+    const tokenUrl = 'https://api.twitter.com/2/oauth2/token';
+    const tokenData = {
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: TWITTER_REDIRECT_URI,
+      code_verifier: codeVerifier,
+      client_id: TWITTER_CLIENT_ID,
+    };
+
+    const authString = Buffer.from(`${TWITTER_CLIENT_ID}:${TWITTER_CLIENT_SECRET}`).toString('base64');
+
+    const tokenResponse = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${authString}`,
+      },
+      body: new URLSearchParams(tokenData),
+    });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      logger.error(`❌ Twitter token exchange failed: ${tokenResponse.status} - ${errorText}`);
+      return res.status(400).json({
+        success: false,
+        error: `Twitter authentication failed: ${tokenResponse.status}`,
+      });
+    }
+
+    const tokenResult = await tokenResponse.json() as TwitterTokenResponse;
+    logger.info(`✅ Token exchange successful for Yapper: ${walletAddress}`);
+
+    // Get user data from Twitter
+    const userResponse = await fetch('https://api.twitter.com/2/users/me?user.fields=profile_image_url', {
+      headers: {
+        'Authorization': `Bearer ${tokenResult.access_token}`,
+      },
+    });
+
+    if (!userResponse.ok) {
+      logger.error(`❌ Failed to fetch Twitter user data: ${userResponse.status}`);
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to fetch Twitter user data',
+      });
+    }
+
+    const userData = await userResponse.json() as { data: TwitterUserData };
+    const twitterUser: TwitterUserData = userData.data;
+
+    logger.info(`👤 Twitter user data for Yapper: @${twitterUser.username} (${twitterUser.name})`);
+
+    // Save to database
+    const userRepository: Repository<User> = AppDataSource.getRepository(User);
+    const yapperTwitterRepository: Repository<YapperTwitterConnection> = AppDataSource.getRepository(YapperTwitterConnection);
+
+    // Find or create user
+    let user = await userRepository.findOne({
+      where: { walletAddress: walletAddress.toLowerCase() }
+    });
+
+    if (!user) {
+      user = new User();
+      user.walletAddress = walletAddress.toLowerCase();
+      user.roleType = UserRoleType.YAPPER;
+      user = await userRepository.save(user);
+      logger.info(`✨ Created new Yapper user: ${user.walletAddress}`);
+    } else {
+      // Update role to include Yapper if not already
+      if (user.roleType === UserRoleType.MINER) {
+        user.roleType = UserRoleType.BOTH;
+      } else if (user.roleType !== UserRoleType.YAPPER && user.roleType !== UserRoleType.BOTH) {
+        user.roleType = UserRoleType.YAPPER;
+      }
+      await userRepository.save(user);
+    }
+
+    // Check for existing Twitter connection for this Yapper
+    const existingConnection = await yapperTwitterRepository.findOne({
+      where: { twitterUserId: twitterUser.id }
+    });
+
+    if (existingConnection && existingConnection.userId !== user.id) {
+      logger.error(`❌ Twitter account @${twitterUser.username} already connected to another Yapper`);
+      return res.status(400).json({
+        success: false,
+        error: 'This Twitter account is already connected to another Yapper account'
+      });
+    } else if (existingConnection && existingConnection.userId === user.id) {
+      // Same user, same Twitter account - UPDATE tokens
+      logger.info(`🔄 Refreshing tokens for existing Yapper connection @${twitterUser.username}`);
+      
+      existingConnection.accessToken = tokenResult.access_token;
+      existingConnection.refreshToken = tokenResult.refresh_token || null;
+      existingConnection.isConnected = true;
+      existingConnection.profileImageUrl = twitterUser.profile_image_url || null;
+      
+      await yapperTwitterRepository.save(existingConnection);
+      
+    } else {
+      // New Twitter connection for this Yapper
+      logger.info(`✨ Creating new Yapper Twitter connection for @${twitterUser.username}`);
+      
+      const newConnection = new YapperTwitterConnection();
+      newConnection.userId = user.id;
+      newConnection.twitterUserId = twitterUser.id;
+      newConnection.twitterUsername = twitterUser.username;
+      newConnection.twitterDisplayName = twitterUser.name;
+      newConnection.accessToken = tokenResult.access_token;
+      newConnection.refreshToken = tokenResult.refresh_token || null;
+      newConnection.isConnected = true;
+      newConnection.profileImageUrl = twitterUser.profile_image_url || null;
+      
+      await yapperTwitterRepository.save(newConnection);
+    }
+
+    logger.info(`✅ Yapper Twitter connection successful for wallet ${walletAddress} -> @${twitterUser.username}`);
+
+    return res.json({
+      success: true,
+      message: 'Twitter account connected successfully for Yapper',
+      data: {
+        user: {
+          id: user.id,
+          walletAddress: user.walletAddress,
+          roleType: user.roleType
+        },
+        twitter: {
+          username: twitterUser.username,
+          name: twitterUser.name,
+          id: twitterUser.id,
+          profile_image_url: twitterUser.profile_image_url
+        }
+      }
+    });
+
+  } catch (error) {
+    logger.error('❌ Twitter OAuth exchange failed for Yapper:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error during Twitter authentication',
+    });
+  }
+});
+
+/**
+ * @route GET /api/yapper-twitter-auth/twitter/status/:walletAddress
+ * @desc Check Twitter connection status for a Yapper wallet
+ */
+router.get('/twitter/status/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+
+    if (!walletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet address is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const userRepository: Repository<User> = AppDataSource.getRepository(User);
+    const yapperTwitterRepository: Repository<YapperTwitterConnection> = AppDataSource.getRepository(YapperTwitterConnection);
+
+    const user = await userRepository.findOne({
+      where: { walletAddress: walletAddress.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.json({
+        success: true,
+        data: { connected: false },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const twitterData = await yapperTwitterRepository.findOne({
+      where: { userId: user.id, isConnected: true }
+    });
+
+    if (!twitterData) {
+      return res.json({
+        success: true,
+        data: { connected: false },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        connected: true,
+        twitter_username: twitterData.twitterUsername,
+        twitter_display_name: twitterData.twitterDisplayName,
+        profile_image_url: twitterData.profileImageUrl,
+        last_sync: twitterData.lastSyncAt
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to check Yapper Twitter status:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to check Twitter status',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route POST /api/yapper-twitter-auth/disconnect/:walletAddress
+ * @desc Disconnect Twitter account for a Yapper
+ */
+router.post('/disconnect/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+
+    if (!walletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet address is required',
+      });
+    }
+
+    const userRepository: Repository<User> = AppDataSource.getRepository(User);
+    const yapperTwitterRepository: Repository<YapperTwitterConnection> = AppDataSource.getRepository(YapperTwitterConnection);
+
+    const user = await userRepository.findOne({
+      where: { walletAddress: walletAddress.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
+    }
+
+    const twitterConnection = await yapperTwitterRepository.findOne({
+      where: { userId: user.id }
+    });
+
+    if (twitterConnection) {
+      twitterConnection.isConnected = false;
+      await yapperTwitterRepository.save(twitterConnection);
+    }
+
+    logger.info(`🔌 Disconnected Twitter for Yapper: ${walletAddress}`);
+
+    return res.json({
+      success: true,
+      message: 'Twitter account disconnected successfully',
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to disconnect Yapper Twitter:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to disconnect Twitter account',
+    });
+  }
+});
+
+export default router; 

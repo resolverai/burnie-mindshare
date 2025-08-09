@@ -96,7 +96,7 @@ export default function Portfolio() {
       if (!address) throw new Error('No wallet connected');
       
       const baseUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api';
-      const response = await fetch(`${baseUrl}/marketplace/analytics/miner/portfolio/${address}`);
+      const response = await fetch(`${baseUrl}/marketplace/analytics/purchase/miner/portfolio/${address}`);
       
       if (!response.ok) {
         throw new Error('Failed to fetch portfolio data');
@@ -146,13 +146,28 @@ export default function Portfolio() {
   };
 
   const formatTwitterContent = (contentText: string) => {
-    const imageUrlMatch = contentText.match(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i);
     let cleanText = contentText;
     
-    if (imageUrlMatch) {
-      cleanText = contentText.replace(/📸 Image URL:\s*https?:\/\/[^\s\n<>"'`]+/i, '').trim();
-    }
+    // Remove image URL patterns from the text
+    cleanText = cleanText.replace(/📸 Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '');
+    cleanText = cleanText.replace(/Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '');
+    cleanText = cleanText.replace(/https?:\/\/burnie-mindshare-content[^\s\n<>"'`]+/gi, '');
+    cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*amazonaws[^\s\n<>"'`]+/gi, '');
+    cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*s3[^\s\n<>"'`]+/gi, '');
     
+    // Remove AWS parameters that might appear on separate lines
+    const lines = cleanText.split('\n');
+    const filteredLines = lines.filter(line => {
+      const trimmedLine = line.trim();
+      return trimmedLine && 
+             !trimmedLine.startsWith('http') && 
+             !trimmedLine.includes('AWSAccessKeyId') &&
+             !trimmedLine.includes('Signature=') &&
+             !trimmedLine.includes('Expires=');
+    });
+    cleanText = filteredLines.join('\n');
+    
+    // Remove content stats and posting instructions
     cleanText = cleanText.replace(/📊 Content Stats:[\s\S]*$/i, '').trim();
     cleanText = cleanText.replace(/💡 To Post on Twitter:[\s\S]*$/i, '').trim();
     
@@ -236,7 +251,7 @@ export default function Portfolio() {
         {/* Header */}
         <div className="mb-8">
           <h2 className="text-3xl font-bold text-white">Token Portfolio</h2>
-          <p className="text-gray-400 mt-2">Track your token earnings from content sales</p>
+          <p className="text-gray-400 mt-2">Track your token earnings from content purchases</p>
         </div>
         
         {/* Portfolio Overview */}
@@ -250,7 +265,7 @@ export default function Portfolio() {
               {portfolioData?.earnings?.reduce((total, earning) => total + (earning?.amount || 0), 0).toLocaleString() || 0} Tokens
             </div>
             <div className="text-sm text-green-400">
-              {portfolioData?.portfolio?.totalSales || 0} total sales
+              {portfolioData?.portfolio?.totalSales || 0} total purchases
             </div>
           </div>
 
@@ -309,7 +324,9 @@ export default function Portfolio() {
                           </div>
                           <div>
                             <div className="font-semibold text-white">{earning?.token || 'Unknown'}</div>
-                            <div className="text-sm text-gray-400">{earning?.totalSales || 0} sales</div>
+                            <div className="text-sm text-gray-400">
+                              {earning.totalSales} purchases
+                            </div>
                           </div>
                         </div>
                                                   <div className="text-right">
@@ -335,7 +352,7 @@ export default function Portfolio() {
           {/* Recent Transactions */}
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-white">Recent Sales</h3>
+              <h3 className="text-xl font-semibold text-white">Recent Purchases</h3>
               <ClockIcon className="h-5 w-5 text-gray-400" />
             </div>
             
@@ -343,7 +360,7 @@ export default function Portfolio() {
               <div className="text-center py-8">
                 <DocumentTextIcon className="h-12 w-12 text-gray-500 mx-auto mb-3" />
                 <p className="text-gray-400">No recent transactions</p>
-                <p className="text-sm text-gray-500 mt-1">Your sales will appear here</p>
+                <p className="text-sm text-gray-500 mt-1">Your purchases will appear here</p>
               </div>
             ) : (
                                 <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -372,7 +389,7 @@ export default function Portfolio() {
                             {tx?.amount?.toLocaleString() || 0} {tx?.token}
                           </div>
                           <div className="text-xs text-gray-400">
-                            Sale Date
+                            Purchase Date
                           </div>
                         </div>
                       </div>
@@ -435,7 +452,7 @@ export default function Portfolio() {
                                 {content?.agentName || 'Unknown Agent'}
                               </div>
                               <div className="text-xs text-gray-400 line-clamp-2">
-                                {content?.contentText ? content.contentText.substring(0, 100) + '...' : 'No content preview'}
+                                {content?.contentText ? formatTwitterContent(content.contentText).text.substring(0, 100) + '...' : 'No content preview'}
                               </div>
                             </div>
                             <div className="text-right ml-3">
@@ -443,7 +460,7 @@ export default function Portfolio() {
                                 {content?.saleprice?.toLocaleString() || 0} {token}
                               </div>
                               <div className="text-xs text-gray-400">
-                                Sale Price
+                                Purchase Price
                               </div>
                             </div>
                           </div>
@@ -542,7 +559,7 @@ export default function Portfolio() {
                       <div className="mt-3 pt-3 border-t border-gray-600 space-y-2">
                         <div className="flex items-center justify-between text-xs text-gray-400">
                           <span>Characters: {formatTwitterContent(showContentModal.content_text).text.length}/280</span>
-                          <span className="text-orange-400">Sold Content ✓</span>
+                          <span className="text-orange-400">Purchased Content ✓</span>
                         </div>
                         {extractHashtags(formatTwitterContent(showContentModal.content_text).text).length > 0 && (
                           <div className="flex items-start space-x-2 text-xs text-gray-400">
@@ -592,7 +609,7 @@ export default function Portfolio() {
                 {/* Sales Information */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                   <div className="bg-orange-900/20 rounded-lg p-3 border border-orange-500/30">
-                    <p className="text-orange-400 font-medium">Sale Price</p>
+                    <p className="text-orange-400 font-medium">Purchase Price</p>
                     <p className="font-bold text-orange-300 text-lg">
                       {showContentModal.amount?.toLocaleString() || 0} {showContentModal.token || 'Tokens'}
                     </p>
@@ -602,7 +619,7 @@ export default function Portfolio() {
                     <p className="font-bold text-blue-300 text-lg">{showContentModal.agentName || 'Unknown'}</p>
                 </div>
                   <div className="bg-green-900/20 rounded-lg p-3 border border-green-500/30">
-                    <p className="text-green-400 font-medium">Sale Date</p>
+                    <p className="text-green-400 font-medium">Purchase Date</p>
                     <p className="font-bold text-green-300 text-lg">
                       {showContentModal.date ? formatDate(showContentModal.date) : 'N/A'}
                     </p>

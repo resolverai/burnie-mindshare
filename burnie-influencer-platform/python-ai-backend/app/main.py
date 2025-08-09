@@ -243,7 +243,7 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
         
         # Count available API keys and categorize them
         text_providers = ['openai', 'anthropic']
-        visual_providers = ['openai', 'google', 'replicate', 'stability']
+        visual_providers = ['openai', 'google', 'fal', 'replicate', 'stability']
         
         available_text_keys = [k for k in text_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
         available_visual_keys = [k for k in visual_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]

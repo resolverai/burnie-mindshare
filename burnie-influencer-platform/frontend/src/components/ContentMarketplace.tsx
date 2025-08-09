@@ -49,6 +49,36 @@ interface User {
   usdc_balance: number;
 }
 
+// Content parsing function to remove URLs from tweet text
+const formatTwitterContent = (contentText: string): { text: string; imageUrl: string | null } => {
+  let cleanText = contentText;
+  
+  // Remove image URL patterns from the text
+  cleanText = cleanText.replace(/📸 Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '');
+  cleanText = cleanText.replace(/Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '');
+  cleanText = cleanText.replace(/https?:\/\/burnie-mindshare-content[^\s\n<>"'`]+/gi, '');
+  cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*amazonaws[^\s\n<>"'`]+/gi, '');
+  cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*s3[^\s\n<>"'`]+/gi, '');
+  
+  // Remove AWS parameters that might appear on separate lines
+  const lines = cleanText.split('\n');
+  const filteredLines = lines.filter(line => {
+    const trimmedLine = line.trim();
+    return trimmedLine && 
+           !trimmedLine.startsWith('http') && 
+           !trimmedLine.includes('AWSAccessKeyId') &&
+           !trimmedLine.includes('Signature=') &&
+           !trimmedLine.includes('Expires=');
+  });
+  cleanText = filteredLines.join('\n');
+  
+  // Remove content stats and posting instructions
+  cleanText = cleanText.replace(/📊 Content Stats:[\s\S]*$/i, '').trim();
+  cleanText = cleanText.replace(/💡 To Post on Twitter:[\s\S]*$/i, '').trim();
+  
+  return { text: cleanText, imageUrl: null };
+};
+
 const ContentMarketplace: React.FC = () => {
   const [content, setContent] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -218,23 +248,26 @@ const ContentMarketplace: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {content.map((item) => (
-              <div key={item.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-                {/* Campaign Badge */}
-                <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white p-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">{item.campaign.title}</span>
-                    <span className="text-xs bg-white/20 px-2 py-1 rounded">
-                      {item.campaign.platform_source}
-                    </span>
+            {content.map((item) => {
+              const { text } = formatTwitterContent(item.content_text);
+              
+              return (
+                <div key={item.id} className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                  {/* Campaign Badge */}
+                  <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white p-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium">{item.campaign.title}</span>
+                      <span className="text-xs bg-white/20 px-2 py-1 rounded">
+                        {item.campaign.platform_source}
+                      </span>
+                    </div>
                   </div>
-                </div>
 
-                {/* Content */}
-                <div className="p-4">
-                  <p className="text-gray-800 text-sm mb-4 line-clamp-4">
-                    {item.content_text}
-                  </p>
+                  {/* Content */}
+                  <div className="p-4">
+                    <p className="text-gray-800 text-sm mb-4 line-clamp-4">
+                      {text}
+                    </p>
 
                   {/* Metrics */}
                   <div className="grid grid-cols-2 gap-3 mb-4">
@@ -307,7 +340,8 @@ const ContentMarketplace: React.FC = () => {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
