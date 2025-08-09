@@ -72,7 +72,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
       setIsReconnectingTwitter(true)
       
       // Step 1: Get Twitter OAuth URL
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/url`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/url`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

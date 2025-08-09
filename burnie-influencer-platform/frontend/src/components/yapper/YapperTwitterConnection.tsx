@@ -30,7 +30,7 @@ export default function YapperTwitterConnection({ onConnected }: YapperTwitterCo
       console.log('🔗 Starting Twitter OAuth flow for Yapper address:', address)
 
       // Step 1: Get Twitter OAuth URL from backend
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/url`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/url`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

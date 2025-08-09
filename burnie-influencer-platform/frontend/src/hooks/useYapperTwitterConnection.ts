@@ -30,7 +30,7 @@ export function useYapperTwitterConnection(walletAddress?: string) {
       setStatus(prev => ({ ...prev, isLoading: true, error: null }))
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/status/${walletAddress}`
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/status/${walletAddress}`
       )
 
       if (response.ok) {
