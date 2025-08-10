@@ -1107,15 +1107,16 @@ router.get('/logo-presigned-url/:s3Key(*)', async (req: Request, res: Response) 
 });
 
 // GET /api/campaigns/download-image/:s3Key - Download image with proper Content-Disposition header
-router.get('/download-image/:s3Key(*)', async (req: Request, res: Response) => {
+router.get('/download-image/:s3Key(*)', async (req: Request, res: Response): Promise<void> => {
   try {
     const { s3Key } = req.params;
     
     if (!s3Key) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         error: 'S3 key is required'
       });
+      return;
     }
 
     // Generate random UUID filename with original extension
@@ -1142,10 +1143,11 @@ router.get('/download-image/:s3Key(*)', async (req: Request, res: Response) => {
 
   } catch (error) {
     logger.error('❌ Image download failed:', error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       error: 'Failed to download image'
     });
+    return;
   }
 });
 
