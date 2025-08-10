@@ -245,7 +245,7 @@ export default function Dashboard() {
         <div className="bg-gradient-to-br from-green-800 via-green-700 to-green-900 rounded-xl p-6 text-center">
           <BanknotesIcon className="h-8 w-8 text-green-300 mx-auto mb-2" />
           <h3 className="text-sm text-gray-300 mb-1">Total Revenue</h3>
-          <p className="text-3xl font-bold text-white">{stats.totalRevenue} Tokens</p>
+                          <p className="text-3xl font-bold text-white">{stats.totalRevenue} ROAST</p>
           <p className="text-sm text-green-300">{stats.biddableContent} purchasable</p>
         </div>
 
@@ -305,7 +305,7 @@ export default function Dashboard() {
           <div className="flex justify-between mb-2 text-xs text-gray-400">
             <span>0</span>
             <span className="text-blue-400">{maxBids} purchases</span>
-            <span className="text-green-400">{maxRevenue} tokens</span>
+                                  <span className="text-green-400">{maxRevenue} ROAST</span>
           </div>
           
           <div className="flex items-end space-x-1 h-32 bg-gray-900 rounded p-2">
@@ -342,7 +342,7 @@ export default function Dashboard() {
                       backgroundColor: trend.revenue > 0 ? '#10B981' : 'transparent',
                       minHeight: trend.revenue > 0 ? '15px' : '0px'
                     }}
-                    title={`${trend.revenue} tokens revenue on ${trend.date}`}
+                                          title={`${trend.revenue} ROAST revenue on ${trend.date}`}
                   />
                 </div>
               );
@@ -376,7 +376,7 @@ export default function Dashboard() {
           </div>
           <div>
             <p className="text-2xl font-bold text-green-400">
-              {trends.reduce((sum, t) => sum + t.revenue, 0)} Tokens
+              {trends.reduce((sum, t) => sum + t.revenue, 0)} ROAST
             </p>
             <p className="text-sm text-gray-400">Total Revenue</p>
         </div>
@@ -388,7 +388,7 @@ export default function Dashboard() {
       </div>
           <div>
             <p className="text-2xl font-bold text-orange-400">
-              {trends.length > 0 ? Math.round(trends.reduce((sum, t) => sum + t.revenue, 0) / trends.length) : 0} Tokens
+              {trends.length > 0 ? Math.round(trends.reduce((sum, t) => sum + t.revenue, 0) / trends.length) : 0} ROAST
             </p>
             <p className="text-sm text-gray-400">Avg Daily Revenue</p>
           </div>
@@ -435,13 +435,13 @@ export default function Dashboard() {
                     <p className="text-white font-medium">{content.title}</p>
                     <div className="flex items-center space-x-4 text-sm text-gray-400">
                       <span>{content.bidCount} purchases</span>
-                      <span>Max: {content.maxBid} tokens</span>
+                      <span>Max: {content.maxBid} ROAST</span>
                       <span>Quality: {content.quality_score}/100</span>
                       </div>
                         </div>
                     </div>
                 <div className="text-right">
-                  <p className="text-green-400 font-semibold">{content.revenue} Tokens</p>
+                  <p className="text-green-400 font-semibold">{content.revenue} ROAST</p>
                   <p className="text-gray-400 text-sm">Revenue</p>
                   </div>
               </div>
@@ -488,7 +488,7 @@ export default function Dashboard() {
                   <div className="flex items-center space-x-4 text-sm">
                     <span className="text-gray-400">{category.count} posts</span>
                     <span className="text-blue-400">{category.avgBids} avg purchases</span>
-                    <span className="text-green-400">{category.revenue} tokens</span>
+                    <span className="text-green-400">{category.revenue} ROAST</span>
                     </div>
                       </div>
                 <div className="w-full bg-gray-700 rounded-full h-2">
@@ -572,7 +572,7 @@ export default function Dashboard() {
                     <p className="text-gray-400 text-xs">Purchases</p>
                 </div>
                   <div>
-                    <p className="text-green-400 font-semibold">{yapper.totalAmount} Tokens</p>
+                    <p className="text-green-400 font-semibold">{yapper.totalAmount} ROAST</p>
                     <p className="text-gray-400 text-xs">Total</p>
               </div>
                   <div>
@@ -638,7 +638,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="text-gray-400">Revenue</p>
-                    <p className="text-green-400 font-medium">{agent.revenue} Tokens</p>
+                    <p className="text-green-400 font-medium">{agent.revenue} ROAST</p>
                   </div>
                   <div>
                     <p className="text-gray-400">Avg Quality</p>

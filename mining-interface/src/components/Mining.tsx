@@ -928,7 +928,7 @@ export default function Mining() {
                       
                       <div className="flex items-center space-x-4 text-sm">
                         <span className="text-gray-300">
-                          <span className="text-orange-400 font-semibold">{parseInt(campaign.winner_reward).toLocaleString()}</span> Tokens
+                          <span className="text-orange-400 font-semibold">{parseInt(campaign.winner_reward).toLocaleString()}</span> ROAST
                         </span>
             </div>
                       
@@ -985,7 +985,7 @@ export default function Mining() {
                   <div>
                     <div className="font-medium text-white">{selection.campaign.title}</div>
                     <div className="text-sm text-gray-400">
-                      {selection.campaign.platform_source} • {selection.campaign.campaign_type} • {parseInt(selection.campaign.winner_reward).toLocaleString()} tokens
+                      {selection.campaign.platform_source} • {selection.campaign.campaign_type} • {parseInt(selection.campaign.winner_reward).toLocaleString()} ROAST
                     </div>
                   </div>
                   <div className="text-right">

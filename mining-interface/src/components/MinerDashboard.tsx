@@ -218,7 +218,7 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
                   {activeSection === 'agents' && 'Manage your AI agents'}
                   {activeSection === 'mining' && 'Select campaigns and start content mining'}
                   {activeSection === 'campaigns' && 'View available campaigns'}
-                  {activeSection === 'portfolio' && 'Track your token earnings'}
+                  {activeSection === 'portfolio' && 'Track your ROAST earnings'}
                 </p>
               </div>
               <div className="flex items-center space-x-4">

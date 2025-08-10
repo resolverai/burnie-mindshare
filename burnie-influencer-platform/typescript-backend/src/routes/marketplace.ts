@@ -650,8 +650,11 @@ router.post('/content/:id/purchase', async (req: Request, res: Response): Promis
       return;
     }
 
+    // Use biddingAskPrice for purchase calculations (fallback to askingPrice for legacy content)
+    const purchasePrice = content.biddingAskPrice || content.askingPrice || 0;
+
     // Check balance
-    const hasBalance = buyer.canAfford(content.askingPrice, payment_currency as 'ROAST' | 'USDC');
+    const hasBalance = buyer.canAfford(purchasePrice, payment_currency as 'ROAST' | 'USDC');
     if (!hasBalance) {
       res.status(400).json({
         success: false,
@@ -661,15 +664,15 @@ router.post('/content/:id/purchase', async (req: Request, res: Response): Promis
     }
 
     // Calculate platform fee
-    const platformFee = content.askingPrice * (env.platform.platformFeePercentage / 100);
-    const creatorAmount = content.askingPrice - platformFee;
+    const platformFee = purchasePrice * (env.platform.platformFeePercentage / 100);
+    const creatorAmount = purchasePrice - platformFee;
 
     // Create payment transaction
     const transactionRepository = AppDataSource.getRepository(PaymentTransaction);
     const transaction = transactionRepository.create({
       fromUserId: user_id,
       toUserId: content.creatorId,
-      amount: content.askingPrice,
+      amount: purchasePrice,
       currency: payment_currency as Currency,
       transactionType: TransactionType.CONTENT_PURCHASE,
       platformFee,
@@ -683,10 +686,10 @@ router.post('/content/:id/purchase', async (req: Request, res: Response): Promis
 
     // Update user balances
     if (payment_currency === 'ROAST') {
-      buyer.roastBalance -= content.askingPrice;
+      buyer.roastBalance -= purchasePrice;
       content.creator.roastBalance += creatorAmount;
     } else {
-      buyer.usdcBalance -= content.askingPrice;
+      buyer.usdcBalance -= purchasePrice;
       content.creator.usdcBalance += creatorAmount;
     }
 
@@ -2946,13 +2949,24 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
     // Get current ROAST price for conversion tracking
     const roastPrice = await fetchROASTPrice();
     
-    // The original asking price is always in ROAST (from content.askingPrice)
-    const originalRoastPrice = content.askingPrice;
+    // The original asking price is always in ROAST (from content.biddingAskPrice)
+    const originalRoastPrice = content.biddingAskPrice || 0;
+    
+    // Calculate normalized purchase price in ROAST based on payment currency
+    let normalizedPurchasePriceROAST: number;
+    if (currency === 'ROAST') {
+      // User paid in ROAST, so purchase price in ROAST is the same as what they paid
+      normalizedPurchasePriceROAST = purchasePrice;
+    } else {
+      // User paid in USDC, convert to ROAST using conversion rate
+      // purchasePrice (USDC) / roastPrice (ROAST/USD) = ROAST amount
+      normalizedPurchasePriceROAST = purchasePrice / roastPrice;
+    }
     
     // Calculate miner payout: ALWAYS 80% of original ROAST asking price
     const minerPayoutRoast = originalRoastPrice * 0.80;
     
-    // Calculate platform fee based on payment currency
+    // Calculate platform fee based on payment currency (still in payment currency)
     let platformFee: number;
     if (currency === 'ROAST') {
       // For ROAST payments: 20% of original asking price
@@ -2967,14 +2981,14 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
     // Extract miner wallet address (already validated above)
     const minerWalletAddress = content.creator!.walletAddress;
 
-    // Create purchase record with proper currency tracking
+    // Create purchase record with normalized ROAST pricing
     const purchase = purchaseRepository.create({
       contentId: parseInt(contentId),
       buyerWalletAddress,
       minerWalletAddress,
-      purchasePrice, // Amount actually paid by yapper (in their chosen currency)
-      currency, // For backward compatibility (will be same as paymentCurrency)
-      paymentCurrency: currency, // Currency actually paid by yapper
+      purchasePrice: normalizedPurchasePriceROAST, // ALWAYS in ROAST (converted if needed)
+      currency: 'ROAST', // ALWAYS 'ROAST' for consistency
+      paymentCurrency: currency, // Currency actually paid by yapper (ROAST or USDC)
       conversionRate: roastPrice, // ROAST to USD rate at time of purchase
       originalRoastPrice, // Original asking price in ROAST
       platformFee, // In payment currency
@@ -2990,7 +3004,7 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
     content.isAvailable = false;
     await contentRepository.save(content);
 
-    logger.info(`Purchase record created: Content ${contentId} by ${buyerWalletAddress} for ${purchasePrice} ${currency}`);
+    logger.info(`Purchase record created: Content ${contentId} by ${buyerWalletAddress} - Paid: ${purchasePrice} ${currency}, Normalized: ${normalizedPurchasePriceROAST} ROAST`);
 
     res.json({
       success: true,
@@ -2998,8 +3012,10 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       data: {
         purchaseId: purchase.id,
         contentId: purchase.contentId,
-        purchasePrice: purchase.purchasePrice,
-        paymentCurrency: purchase.paymentCurrency,
+        purchasePrice: purchase.purchasePrice, // Always in ROAST now
+        currency: purchase.currency, // Always 'ROAST' now
+        paymentCurrency: purchase.paymentCurrency, // What user actually paid with
+        actualPaymentAmount: purchasePrice, // What user actually paid (original amount)
         originalRoastPrice: purchase.originalRoastPrice,
         conversionRate: purchase.conversionRate,
         platformFee: purchase.platformFee,
