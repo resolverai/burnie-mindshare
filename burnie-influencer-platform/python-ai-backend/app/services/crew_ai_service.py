@@ -886,24 +886,54 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         )
 
     def _create_content_creation_task(self) -> Task:
-        """Create task for Text Content Agent"""
+        """Create task for Text Content Agent to generate tweet threads"""
+        
+        # Check if campaign has description for thread generation
+        campaign_description = self.campaign_data.get('description', '') if self.campaign_data else ''
+        has_description = campaign_description and campaign_description.strip()
+        
+        # Extract additional campaign details
+        brand_guidelines = self.campaign_data.get('brandGuidelines', '') if self.campaign_data else ''
+        token_ticker = self.campaign_data.get('tokenTicker', 'TOKEN') if self.campaign_data else 'TOKEN'
+        project_name = self.campaign_data.get('projectName', 'Project') if self.campaign_data else 'Project'
+        
         return Task(
             description=f"""
             Create engaging Twitter content using real AI models and tools:
             
             Campaign Requirements:
             - Title: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
-            - Description: {self.campaign_data.get('description', 'N/A') if self.campaign_data else 'N/A'}
+            - Project Name: {project_name}
+            - Token Ticker: {token_ticker}
+            - Description: {campaign_description if has_description else 'N/A'}
+            - Brand Guidelines: {brand_guidelines if brand_guidelines else 'N/A'}
             - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
             - Target Audience: {self.campaign_data.get('targetAudience', 'crypto/Web3 enthusiasts') if self.campaign_data else 'crypto/Web3 enthusiasts'}
             
+            CONTENT FORMAT:
+            {'TWITTER THREAD GENERATION:' if has_description else 'SINGLE TWEET GENERATION:'}
+            {'- Generate a compelling tweet thread (2-5 tweets) when campaign description is available' if has_description else '- Generate a single tweet when no campaign description is available'}
+            {'- First tweet (main tweet): Hook with image-worthy content' if has_description else '- Maximum 280 characters for Twitter'}
+            {'- Follow-up tweets: Expand on project details, use brand guidelines, create FOMO' if has_description else ''}
+            {'- Include project name, token ticker, and key benefits from description' if has_description else ''}
+            
+            CRITICAL CHARACTER LIMITS (STRICTLY ENFORCE):
+            - Main tweet: Maximum 250 characters for text content
+            - Hashtags in main tweet: Maximum 30 characters total (including # symbols)
+            - Overall main tweet: Must fit within 280 characters (250 text + 30 hashtags = 280 max)
+            {'- Each thread tweet: Maximum 280 characters including hashtags' if has_description else ''}
+            {'- Thread tweets: Ideally 200-240 characters for optimal readability' if has_description else ''}
+            
             Content Specifications:
-            - Maximum 280 characters for Twitter
-            - Include 2-4 relevant, trending hashtags
+            - ALWAYS include project token hashtag (#{token_ticker}) in main tweet
+            - Include project name hashtag (#ProjectName format) in main tweet when possible
+            - Use 2-3 additional relevant, trending hashtags maximum
             - Use strategic emojis for engagement (3-5 maximum)
             - Create hook-heavy opening line
             - Include clear call-to-action
             - Optimize for crypto/Web3 audience
+            {'- Incorporate project-specific details from description and guidelines' if has_description else ''}
+            {'- Thread tweets may optionally include project token hashtag' if has_description else ''}
             
             WEB3 GENZ MEME CULTURE REQUIREMENTS:
             - Include subtle sarcasm and wit that resonates with Web3 GenZ audience
@@ -914,28 +944,74 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - Apply meme-inspired language patterns and cultural references
             - Create urgency and social proof to drive engagement
             - Use Web3 slang and community inside jokes appropriately
+            {'- Weave project-specific benefits and features into meme culture references' if has_description else ''}
             
-            IMPORTANT: Use your OpenAI content generation tool to create REAL content.
-            Call the tool with: "Create viral Twitter content about [campaign topic]"
+            CRITICAL RESTRICTIONS (NEVER VIOLATE):
+            - NEVER use "WAGMI" hashtag or reference in any tweet (main tweet or thread items)
+            - PRONOUN USAGE RULES:
+              * When referring to THE READER: Use second-person pronouns (you/your/yours)
+              * When referring to THE PROJECT: Use third-person singular gender-neutral pronouns (it/its)
+              * When referring to OTHER USERS/COMMUNITY: Use third-person pronouns (they/them/their)
+            - Examples: "You can join the movement" (reader), "BOB revolutionizes DeFi" (project), "Users love its features" (project), "They are earning rewards" (other users)
             
-            User Preferences: {json.dumps(self.user_data.get('preferences', {}), indent=2) if self.user_data and self.user_data.get('preferences') else 'High engagement focus'}
+            IMPORTANT: Use your content generation tool to create REAL content.
+            """ + ('Call the tool with: "Create Twitter thread about ' + project_name + ' (' + token_ticker + ') based on: ' + campaign_description[:100] + '... CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet and thread_array keys. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include #' + token_ticker + ' hashtag. 4) Main tweet max 250 chars + 30 hashtag chars. 5) NO explanations, just pure JSON."' if has_description else 'Call the tool with: "Create viral Twitter content about [campaign topic]. CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet key. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include relevant hashtags. 4) NO explanations, just pure JSON."') + """
             
-            Generate 3 content variations:
-            1. Conservative approach (professional with subtle FOMO elements)
-            2. Engaging approach (meme-aware with moderate sarcasm and crypto references)
-            3. Bold approach (heavy meme culture, strong FOMO, maximum Web3 GenZ appeal)
+            CRITICAL OUTPUT FORMAT - MUST FOLLOW EXACTLY:
+            You MUST return ONLY a valid JSON object with NO additional text, explanations, or formatting.
             
-            For each variation, provide:
-            - The actual Twitter content (use OpenAI tool)
-            - Character count verification
-            - Hashtag strategy explanation
-            - Expected engagement reasoning
-            - Risk/reward assessment
+            {'FOR THREAD CAMPAIGNS (when description available), use this EXACT JSON structure:' if has_description else 'FOR SINGLE TWEET CAMPAIGNS, use this EXACT JSON structure:'}
             
-            Return as structured JSON with all three variations and tool-generated content.
+            """ + ('''{
+  "main_tweet": "Your main tweet text here (≤250 chars + ≤30 hashtag chars)",
+  "thread_array": [
+    "Second tweet text here (≤280 chars)",
+    "Third tweet text here (≤280 chars)", 
+    "Fourth tweet text here (≤280 chars)"
+  ],
+  "hashtags_used": ["''' + token_ticker + '''", "DeFi", "Crypto"],
+  "character_counts": {
+    "main_tweet_text": 245,
+    "main_tweet_hashtags": 28,
+    "thread_tweet_1": 275,
+    "thread_tweet_2": 280,
+    "thread_tweet_3": 265
+  },
+  "approach": "engaging"
+}''' if has_description else '''{
+  "main_tweet": "Your single tweet text here (≤280 chars total)",
+  "hashtags_used": ["''' + (token_ticker if token_ticker else 'TOKEN') + '''", "DeFi", "Crypto"],
+  "character_count": 275,
+  "approach": "engaging"
+}''') + """
+
+            CRITICAL JSON RULES:
+            - Return ONLY the JSON object, no other text
+            - Use double quotes for all strings
+            - Ensure all JSON syntax is valid
+            - No trailing commas
+            - No comments or explanations outside the JSON
+            - Test JSON validity before returning
+            
+            """ + (f'EXAMPLE VALID JSON OUTPUT:\\n{{\\n  "main_tweet": "🚀 {project_name} is revolutionizing crypto gains! You can join the movement and start earning with its innovative DeFi solutions 💰🔥 #{token_ticker} #DeFi",\\n  "thread_array": [\\n    "With {project_name}, you get the best of both worlds - security and yield opportunities",\\n    "Thousands of users are already earning with its innovative platform",\\n    "You can maximize your potential - the opportunity is available now! 🚀"\\n  ],\\n  "hashtags_used": ["{token_ticker}", "DeFi"],\\n  "character_counts": {{\\n    "main_tweet_text": 245,\\n    "main_tweet_hashtags": 28,\\n    "thread_tweet_1": 275,\\n    "thread_tweet_2": 280,\\n    "thread_tweet_3": 265\\n  }},\\n  "approach": "engaging"\\n}}' if has_description else f'EXAMPLE VALID JSON OUTPUT:\\n{{\\n  "main_tweet": "🚀 {project_name} is revolutionizing crypto gains! You can join and start earning 💰🔥 #{token_ticker} #DeFi",\\n  "hashtags_used": ["{token_ticker}", "DeFi"],\\n  "character_count": 275,\\n  "approach": "engaging"\\n}}') + """
+            
+            STRICT VALIDATION REQUIREMENTS:
+            ✓ Return ONLY valid JSON - no extra text, explanations, or formatting
+            ✓ Use exact key names: "main_tweet", "thread_array", "hashtags_used", "character_counts"
+            ✓ Main tweet text content ≤ 250 characters
+            ✓ Main tweet hashtags ≤ 30 characters total  
+            ✓ Main tweet includes #{token_ticker} hashtag
+            {'✓ Each thread tweet ≤ 280 characters total' if has_description else ''}
+            {'✓ Thread tweets ideally 200-240 characters' if has_description else ''}
+            ✓ No "WAGMI" references anywhere
+            ✓ Correct pronoun usage: YOU/YOUR (reader), THEY/THEM (other users), IT/ITS (project)
+            ✓ Direct engagement with reader using second-person pronouns
+            ✓ JSON syntax must be perfect (no trailing commas, proper quotes)
+            
+            REMEMBER: Generate engaging approach content ONLY. Return pure JSON with no additional commentary.
             """,
             agent=self.agents[AgentType.TEXT_CONTENT],
-            expected_output="Three real Twitter content variations generated using OpenAI tools with detailed analysis and character counts"
+            expected_output="Single JSON object with main_tweet, thread_array, hashtags_used, and character_counts fields - no additional text or explanations"
         )
 
     def _create_visual_task(self) -> Task:
@@ -1198,44 +1274,67 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             → Category: Animated Visual & Tech
             → Generated Prompt: "A holographic construction site floating in space with digital workers building transparent blockchain towers using light beams, futuristic hard hats with crypto logos, construction crane made of interconnected nodes, cyberpunk aesthetic with purple and teal neon, photorealistic CGI, 8K resolution, volumetric lighting, hyperrealistic mechanical details"
             
-            OUTPUT FORMAT:
-            ```
-            🎨 VISUAL CONTENT GENERATED:
+            CRITICAL OUTPUT FORMAT - MUST FOLLOW EXACTLY:
+            You MUST return ONLY a valid JSON object with NO additional text, explanations, or formatting.
             
-            Content Type: [IMAGE/VIDEO/TEXT-ONLY] (Strategy requested: [STRATEGY_RECOMMENDATION])
-            Execution Tier: [PREFERRED_MODEL/ALTERNATIVE_PROVIDER/CONTENT_FALLBACK/TEXT_ONLY]
-            Strategy Alignment: [How this aligns with strategy despite any fallbacks]
-            Fallback Reason: [If applicable: API unavailable/Model failed/No visual APIs available]
+            USE THIS EXACT JSON STRUCTURE:
+            {{
+              "content_type": "IMAGE", 
+              "image_url": "https://complete-s3-url-with-all-parameters.amazonaws.com/...",
+              "video_url": null,
+              "visual_concept": null,
+              "provider_used": "Fal.ai",
+              "model_used": "imagen4-preview", 
+              "dimensions": "1024x576px",
+              "file_format": "JPEG",
+              "execution_tier": "PREFERRED_MODEL",
+              "strategy_alignment": "Generated image matches strategic recommendation",
+              "alt_text": "Digital avatar with glowing circuit patterns showing crypto earnings"
+            }}
             
-            📸 Image URL: [Complete HTTPS URL - NO brackets, NO markdown]
-            OR
-            🎬 Video URL: [Complete HTTPS URL - NO brackets, NO markdown]
-            OR
-            📝 Visual Concept: [Detailed description if text-only mode]
+            FOR VIDEO CONTENT, USE:
+            {{
+              "content_type": "VIDEO",
+              "image_url": null, 
+              "video_url": "https://complete-video-url.amazonaws.com/...",
+              "visual_concept": null,
+              "provider_used": "Google",
+              "model_used": "veo-3",
+              "dimensions": "1920x1080",
+              "file_format": "MP4", 
+              "execution_tier": "PREFERRED_MODEL",
+              "strategy_alignment": "Generated video matches strategic recommendation",
+              "alt_text": "Dynamic video showing crypto trading dashboard"
+            }}
             
-            Technical Specifications:
-            - Provider Used: [OpenAI/Claude/Google/Text-only]
-            - Model Used: [Specific model name]
-            - Dimensions: [specific dimensions]
-            - File format: [format details]
-            - Accessibility: [alt-text or captions]
+            FOR TEXT-ONLY FALLBACK, USE:
+            {{
+              "content_type": "TEXT_ONLY",
+              "image_url": null,
+              "video_url": null, 
+              "visual_concept": "Detailed visual description here",
+              "provider_used": "Text-only",
+              "model_used": "N/A",
+              "dimensions": "N/A",
+              "file_format": "N/A",
+              "execution_tier": "TEXT_ONLY",
+              "strategy_alignment": "Provides visual guidance without generation",
+              "alt_text": "Visual concept description"
+            }}
             
-            Execution Notes:
-            [Explain which tier was used and why - transparency about the process]
-            ```
-            
-            CRITICAL OUTPUT RULES:
-            - ALWAYS include "📸 Image URL:" or "🎬 Video URL:" prefix
-            - ALWAYS provide the complete HTTPS URL after the prefix
-            - NEVER use brackets, markdown links, or other formatting around the URL
-            - NEVER write "[Image Link](URL)" or similar markdown syntax
-            - The URL should be directly extractable by the Content Orchestrator
-            - Example: "📸 Image URL: https://burnie-mindshare-content-staging.s3.amazonaws.com/..."
+            CRITICAL JSON RULES:
+            - Return ONLY the JSON object, no other text
+            - Use double quotes for all strings  
+            - Set unused fields to null (not empty strings)
+            - Ensure all JSON syntax is valid
+            - No trailing commas
+            - No comments or explanations outside the JSON
+            - Include complete URLs with all query parameters
             
             Remember: Only ONE visual content type per Twitter post for optimal performance!
             """,
             agent=self.agents[AgentType.VISUAL_CREATOR],
-            expected_output="Single visual content piece (either image OR video) generated using real AI tools, aligned with strategy recommendations"
+            expected_output="Single JSON object with content_type, image_url/video_url, provider_used, and technical specifications - no additional text or explanations"
         )
 
     def _create_orchestration_task(self) -> Task:
@@ -1428,20 +1527,36 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Process the crew result into our expected format
             raw_result = str(crew_result) if crew_result else "Generated content from 5-agent constellation"
             
+            # Log the raw result for debugging
+            logger.info(f"🔍 Raw result from orchestrator (first 500 chars): {raw_result[:500]}...")
+            logger.info(f"🔍 Raw result contains 'main_tweet': {'main_tweet' in raw_result}")
+            logger.info(f"🔍 Raw result contains 'thread_array': {'thread_array' in raw_result}")
+            
             # The orchestrator now uses LLM-based content extraction tool, so trust its output
             # Only apply minimal extraction if the output doesn't follow expected format
             if ("Tweet Text:" in raw_result and "Image URL:" in raw_result):
                 # Orchestrator used LLM extraction tool successfully - use output directly
-                final_content = self._extract_twitter_content(raw_result)
+                extraction_result = self._extract_twitter_content(raw_result)
                 logger.info(f"✅ Using LLM-extracted content from orchestrator")
             else:
                 # Fallback: Try to extract content manually if orchestrator didn't use the tool
                 logger.warning(f"⚠️ Orchestrator output doesn't have expected format, applying extraction")
-            final_content = self._extract_twitter_content(raw_result)
+                extraction_result = self._extract_twitter_content(raw_result)
+            
+            # Extract the content and thread
+            final_content = extraction_result["content_text"]
+            tweet_thread = extraction_result["tweet_thread"]
+            
+            # Debug: Log extraction results
+            logger.info(f"🔍 Extracted content_text: {final_content}")
+            logger.info(f"🔍 Extracted tweet_thread: {tweet_thread}")
+            logger.info(f"🔍 Tweet thread type: {type(tweet_thread)}")
+            logger.info(f"🔍 Tweet thread length: {len(tweet_thread) if tweet_thread else 0}")
             
             # Debug: Log the raw orchestrator output and extracted content
             logger.info(f"🎭 Orchestrator raw output length: {len(raw_result)} chars")
-            logger.info(f"🎭 Orchestrator raw output preview: {raw_result[:300]}...")
+            logger.info(f"🎭 Orchestrator raw output preview: {raw_result[:500]}...")
+            logger.info(f"🔍 Full orchestrator output for debugging: {raw_result}")  # Full output for debugging
             
             # Debug: Check if orchestrator produced incomplete response
             if "I now can give a great answer" in raw_result or len(raw_result) < 100:
@@ -1492,6 +1607,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             return {
                 "final_content": final_content,
+                "tweet_thread": tweet_thread,  # Include extracted tweet thread
                 "raw_orchestrator_output": raw_result,  # Add raw output for image extraction
                 "quality_metrics": {
                     "overall_quality": overall_quality,
@@ -1568,9 +1684,13 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             quality_metrics = generation_result["quality_metrics"]
             performance_prediction = generation_result["performance_prediction"]
             
-            # Create the response with properly extracted images
+            # Extract tweet thread if available
+            tweet_thread = generation_result.get("tweet_thread")
+            
+            # Create the response with properly extracted images and thread
             response = ContentGenerationResponse(
                 content_text=final_content,
+                tweet_thread=tweet_thread,  # Include tweet thread
                 content_images=image_urls if image_urls else None,  # Populate content_images field
                 predicted_mindshare=performance_prediction["mindshare_score"],
                 quality_score=quality_metrics["overall_quality"],
@@ -2080,6 +2200,7 @@ No image generated
             # Prepare content data for marketplace
             content_data = {
                 "content_text": content.content_text,
+                "tweet_thread": getattr(content, 'tweet_thread', None),  # Include tweet thread if available
                 "content_images": content.content_images,  # Include images in sync payload
                 "predicted_mindshare": content.predicted_mindshare,
                 "quality_score": content.quality_score,
@@ -2121,11 +2242,12 @@ No image generated
             logger.error(f"❌ Error syncing content to marketplace: {e}")
             return False
 
-    def _extract_twitter_content(self, raw_result: str) -> str:
-        """Extract and format final Twitter content from orchestrator output"""
+    def _extract_twitter_content(self, raw_result: str) -> Dict[str, Any]:
+        """Extract and format final Twitter content and thread from orchestrator output"""
         try:
             lines = raw_result.split('\n')
             final_text = ""
+            tweet_thread = None
             image_url = ""
             
             # Pattern 1: Handle LLM Content Extraction Tool format
@@ -2135,12 +2257,13 @@ No image generated
                     # Extract text after "Tweet Text:" - handle multi-line content
                     first_line_text = line_clean.replace("Tweet Text:", "").strip().strip('"')
                     
-                    # Collect additional lines until we hit "Image URL:" or empty line
+                    # Collect additional lines until we hit "Tweet Thread:", "Image URL:" or empty line
                     text_lines = [first_line_text] if first_line_text else []
                     
                     for j in range(i + 1, len(lines)):
                         next_line = lines[j].strip()
-                        if (next_line.startswith("Image URL:") or 
+                        if (next_line.startswith("Tweet Thread:") or 
+                            next_line.startswith("Image URL:") or 
                             next_line.startswith("```") or 
                             (not next_line and j > i + 1)):  # Empty line after content
                             break
@@ -2149,6 +2272,27 @@ No image generated
                     
                     final_text = '\n'.join(text_lines).strip()
                     
+                elif line_clean.startswith("Tweet Thread:"):
+                    # Extract thread after "Tweet Thread:"
+                    thread_text = line_clean.replace("Tweet Thread:", "").strip().strip('"')
+                    logger.info(f"🔍 Found Tweet Thread line: {thread_text}")
+                    if thread_text and thread_text != "No thread generated":
+                        try:
+                            # Try to parse as JSON array
+                            import json
+                            if thread_text.startswith('[') and thread_text.endswith(']'):
+                                tweet_thread = json.loads(thread_text)
+                                logger.info(f"🔍 Parsed as JSON array: {tweet_thread}")
+                            else:
+                                # Split by common delimiters if not JSON
+                                tweet_thread = [t.strip().strip('"') for t in thread_text.split('", "') if t.strip()]
+                                logger.info(f"🔍 Parsed by delimiter split: {tweet_thread}")
+                        except Exception as e:
+                            logger.warning(f"🔍 JSON parsing failed: {e}")
+                            # Fallback: split by quotes or newlines
+                            tweet_thread = [t.strip().strip('"') for t in thread_text.split('", "') if t.strip()]
+                            logger.info(f"🔍 Fallback parsing: {tweet_thread}")
+                    
                 elif line_clean.startswith("Image URL:"):
                     # Extract URL after "Image URL:"
                     image_url = line_clean.replace("Image URL:", "").strip().strip('"')
@@ -2156,6 +2300,144 @@ No image generated
             # Convert newlines to spaces for Twitter format (since Twitter treats newlines as spaces anyway)
             if final_text:
                 final_text = ' '.join(final_text.split('\n')).strip()
+                
+            # CRITICAL: Ensure final_text doesn't contain the thread content
+            if final_text and tweet_thread:
+                # Remove any thread content that might have leaked into final_text
+                for thread_tweet in tweet_thread:
+                    if thread_tweet.strip() in final_text:
+                        final_text = final_text.replace(thread_tweet.strip(), '').strip()
+                
+                # Also check for common thread patterns and remove them
+                import re
+                # Remove numbered tweet patterns (1/, 2/, 3/) from main tweet
+                final_text = re.sub(r'\d+/\d+.*?(?=\d+/\d+|$)', '', final_text, flags=re.DOTALL).strip()
+                # Remove excessive content if it looks like it includes thread
+                if len(final_text) > 400:  # Likely includes thread content
+                    # Try to extract just the first sentence or up to first period/question mark
+                    sentences = re.split(r'[.!?]\s+', final_text)
+                    if sentences and len(sentences[0]) <= 280:
+                        final_text = sentences[0]
+                        if not final_text.endswith(('.', '!', '?')):
+                            final_text += '...'
+                    else:
+                        # Fallback: truncate to 280 chars
+                        final_text = final_text[:277] + '...'
+                
+            # Pattern 1.5: Handle Agent JSON Structure (main_tweet/thread_array)
+            if not final_text or not tweet_thread:
+                logger.info("🔍 Looking for agent JSON structure...")
+                try:
+                    import json
+                    import re
+                    
+                    # Look for JSON structure in the raw result
+                    json_pattern = r'\{[^{}]*"main_tweet"[^{}]*"thread_array"[^{}]*\}'
+                    json_matches = re.findall(json_pattern, raw_result, re.DOTALL)
+                    
+                    if json_matches:
+                        logger.info(f"🔍 Found JSON structure: {len(json_matches)} matches")
+                        for json_match in json_matches:
+                            try:
+                                # Try to parse the JSON
+                                parsed_json = json.loads(json_match)
+                                if 'main_tweet' in parsed_json and 'thread_array' in parsed_json:
+                                    if not final_text:
+                                        final_text = parsed_json['main_tweet']
+                                        logger.info(f"✅ Extracted main_tweet: {final_text[:100]}...")
+                                    if not tweet_thread and isinstance(parsed_json['thread_array'], list):
+                                        tweet_thread = parsed_json['thread_array']
+                                        logger.info(f"✅ Extracted thread_array: {len(tweet_thread)} tweets")
+                                    break
+                            except json.JSONDecodeError as e:
+                                logger.debug(f"🔍 JSON parsing failed for match: {e}")
+                                continue
+                    
+                    # Also look for nested approach structures (conservative_approach, etc.)
+                    if not final_text or not tweet_thread:
+                        approach_pattern = r'"(conservative_approach|engaging_approach|bold_approach)":\s*\{[^{}]*"main_tweet"[^{}]*"thread_array"[^{}]*\}'
+                        approach_matches = re.findall(approach_pattern, raw_result, re.DOTALL)
+                        
+                        if approach_matches:
+                            logger.info(f"🔍 Found approach structures: {len(approach_matches)} matches")
+                            # Try to extract the full JSON object containing approaches
+                            full_json_pattern = r'\{(?:[^{}]|\{[^{}]*\})*\}'
+                            full_json_matches = re.findall(full_json_pattern, raw_result, re.DOTALL)
+                            
+                            for full_json_match in full_json_matches:
+                                try:
+                                    parsed_full_json = json.loads(full_json_match)
+                                    # Try to find an approach with main_tweet and thread_array
+                                    for approach_name in ['engaging_approach', 'conservative_approach', 'bold_approach']:
+                                        if approach_name in parsed_full_json:
+                                            approach_data = parsed_full_json[approach_name]
+                                            if isinstance(approach_data, dict) and 'main_tweet' in approach_data and 'thread_array' in approach_data:
+                                                if not final_text:
+                                                    final_text = approach_data['main_tweet']
+                                                    logger.info(f"✅ Extracted main_tweet from {approach_name}: {final_text[:100]}...")
+                                                if not tweet_thread and isinstance(approach_data['thread_array'], list):
+                                                    tweet_thread = approach_data['thread_array']
+                                                    logger.info(f"✅ Extracted thread_array from {approach_name}: {len(tweet_thread)} tweets")
+                                                break
+                                    if final_text and tweet_thread:
+                                        break
+                                except json.JSONDecodeError as e:
+                                    logger.debug(f"🔍 Full JSON parsing failed: {e}")
+                                    continue
+                                    
+                except Exception as e:
+                    logger.warning(f"🔍 Agent JSON structure parsing failed: {e}")
+            
+            # Pattern 1.6: Look for thread patterns if not found yet
+            if not tweet_thread:
+                logger.info("🔍 Looking for thread patterns in full output...")
+                # Look for JSON arrays in the content - use the full raw input
+                import re
+                # Reconstruct the full text for pattern search
+                full_text = '\n'.join(lines)
+                
+                # Try multiple patterns
+                patterns_to_try = [
+                    # JSON object with thread_array field
+                    r'"thread_array":\s*(\[[^\]]+\])',
+                    # JSON array pattern
+                    r'\["[^"]+",?\s*(?:"[^"]+",?\s*)*\]',
+                    # Thread: followed by array
+                    r'Thread:\s*\[(.*?)\]',
+                    # Tweet Thread: followed by array
+                    r'Tweet Thread:\s*\[(.*?)\]',
+                    # main_tweet and thread_array structure
+                    r'"main_tweet".*?"thread_array":\s*(\[[^\]]+\])',
+                    # Numbered tweets pattern (1/, 2/, 3/)
+                    r'(?:1/.*?)(?:2/.*?)(?:3/.*?)',
+                ]
+                
+                for pattern in patterns_to_try:
+                    matches = re.findall(pattern, full_text, re.DOTALL)
+                    if matches:
+                        logger.info(f"🔍 Found matches with pattern: {pattern} -> {matches}")
+                        for match in matches:
+                            try:
+                                import json
+                                if pattern.startswith(r'\['):  # JSON array
+                                    potential_thread = json.loads(match)
+                                else:  # Other patterns
+                                    # Try to parse as JSON or split by commas
+                                    if match.startswith('[') and match.endswith(']'):
+                                        potential_thread = json.loads(match)
+                                    else:
+                                        # Split and clean
+                                        potential_thread = [t.strip().strip('"') for t in match.split(',') if t.strip()]
+                                
+                                if isinstance(potential_thread, list) and len(potential_thread) > 1:
+                                    tweet_thread = potential_thread
+                                    logger.info(f"🔍 Successfully extracted thread: {tweet_thread}")
+                                    break
+                            except Exception as e:
+                                logger.debug(f"🔍 Failed to parse match: {e}")
+                                continue
+                    if tweet_thread:
+                        break
             
             # Pattern 2: Look for structured format (🐦 FINAL TEXT:) - fallback
             if not final_text:
@@ -2253,12 +2535,23 @@ No image generated
             else:
                 logger.warning(f"⚠️ No image URL extracted from orchestrator output")
             
-            # Return just the text content (images are handled separately in _extract_image_urls_from_content)
-            return final_text if final_text else "Generated content from AI agents"
+            # Return both text and thread
+            result = {
+                "content_text": final_text if final_text else "Generated content from AI agents",
+                "tweet_thread": tweet_thread if tweet_thread else None
+            }
+            
+            if tweet_thread:
+                logger.info(f"✅ Extracted tweet thread: {len(tweet_thread)} tweets")
+            
+            return result
             
         except Exception as e:
             logger.error(f"❌ Error extracting Twitter content: {e}")
-            return "Generated content from AI agents"
+            return {
+                "content_text": "Generated content from AI agents",
+                "tweet_thread": None
+            }
     
     def _format_for_twitter(self, text: str) -> str:
         """Clean and format text for Twitter posting"""
@@ -2547,9 +2840,9 @@ AGENT OUTPUTS TO ANALYZE:
 """
                 logger.info(f"🎯 Using custom extraction prompt for {self.user_text_provider}")
             else:
-                # Default extraction prompt - enhanced to handle any output format
+                # Default extraction prompt - designed for new JSON agent outputs
                 final_prompt = f"""
-You are a content extraction specialist. Your job is to extract clean, final content from AI agent outputs in ANY format.
+You are a content extraction specialist. Your job is to extract clean, final content from AI agent JSON outputs.
 
 CAMPAIGN CONTEXT:
 {campaign_context}
@@ -2558,35 +2851,66 @@ AGENT OUTPUTS TO ANALYZE:
 {agent_outputs}
 
 YOUR TASK:
-Extract the final tweet text and image URL from these agent outputs, regardless of format (JSON, structured text, etc.).
+Extract the final tweet text, tweet thread, and image URL from these JSON agent outputs.
+
+NEW AGENT OUTPUT FORMATS TO EXPECT:
+
+1. TEXT CONTENT CREATOR OUTPUT (JSON):
+{{
+  "main_tweet": "🚀 BOB is revolutionizing crypto gains! You can join...",
+  "thread_array": ["With BOB, you get...", "Thousands of users...", "You can maximize..."],
+  "hashtags_used": ["BOB", "DeFi", "Crypto"],
+  "character_counts": {{"main_tweet_text": 245, "main_tweet_hashtags": 28}},
+  "approach": "engaging"
+}}
+
+2. VISUAL CONTENT CREATOR OUTPUT (JSON):
+{{
+  "content_type": "IMAGE",
+  "image_url": "https://burnie-mindshare-content-staging.s3.amazonaws.com/...",
+  "video_url": null,
+  "visual_concept": null,
+  "provider_used": "Fal.ai",
+  "model_used": "imagen4-preview",
+  "dimensions": "1024x576px",
+  "file_format": "JPEG"
+}}
 
 EXTRACTION RULES:
-1. TWEET TEXT - Look for:
-   - JSON with "tweet_variation" field
-   - JSON with "content_variations" array (use "Engaging" > "Bold" > "Conservative")
-   - Structured format with "Tweet Text:" or "🐦 FINAL TEXT:"
-   - Any clean tweet-like content with emojis, hashtags, mentions
-   - Remove character counts, metadata, or formatting artifacts
+1. FIND TEXT CONTENT CREATOR JSON:
+   - Look for JSON with "main_tweet" field
+   - Extract the "main_tweet" value for Tweet Text
+   - Extract the "thread_array" value for Tweet Thread
+   - Handle both pure JSON and JSON within agent output text
 
-2. IMAGE URL - Look for:
-   - JSON with "image_url" field
-   - Structured format with "Image URL:" or "📸 Image URL:"
-   - Any S3 URLs (https://burnie-mindshare-content...)
-   - Complete URLs with all query parameters
+2. FIND VISUAL CONTENT CREATOR JSON:
+   - Look for JSON with "image_url" or "video_url" field
+   - Extract the non-null URL value for Image/Video URL
+   - Handle both pure JSON and JSON within agent output text
+
+3. HANDLE LEGACY FORMATS (FALLBACK):
+   - Text patterns like "📸 Image URL: https://..."
+   - Approach-based structures with "engaging_approach"
+   - Any other structured content
 
 REQUIRED OUTPUT FORMAT (EXACT):
 ```
 Tweet Text: [clean tweet text only - no quotes, brackets, or metadata]
+
+Tweet Thread: [if thread available, array format: ["tweet 1", "tweet 2", "tweet 3"] - or "No thread generated"]
 
 Image URL: [complete S3 URL with all parameters - or "No image generated"]
 ```
 
 CRITICAL REQUIREMENTS:
 - Return ONLY the extracted content in the exact format above
+- Parse JSON fields directly when available
 - Clean the tweet text of any technical artifacts
-- Include complete image URLs with all AWS parameters
-- If multiple tweets exist, pick the most engaging one
+- Extract thread_array as JSON array format
+- Include complete URLs with all AWS parameters
+- If JSON parsing fails, use regex fallback patterns
 - Do not add explanations, analysis, or commentary
+- Prioritize JSON field extraction over regex patterns
 """
                 logger.info(f"🧠 Using default extraction prompt for {self.user_text_provider}")
 
@@ -2632,30 +2956,80 @@ CRITICAL REQUIREMENTS:
         try:
             logger.info("🔄 Using fallback regex extraction method")
             
-            # Extract tweet text from JSON format (Text Content Creator output)
+            # Extract tweet text and thread from JSON format (Text Content Creator output)
             tweet_text = "Generated content from AI agents"
+            tweet_thread = None
             
-            # Pattern 1: Look for JSON with content_variations
-            json_match = re.search(r'"content_variations":\s*\[(.*?)\]', agent_outputs, re.DOTALL)
-            if json_match:
-                variations_content = json_match.group(1)
-                
-                # Try to find "Engaging" approach first
-                engaging_match = re.search(r'"approach":\s*"Engaging".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
-                if engaging_match:
-                    tweet_text = engaging_match.group(1)
-                else:
-                    # Try "Bold" approach
-                    bold_match = re.search(r'"approach":\s*"Bold".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
-                    if bold_match:
-                        tweet_text = bold_match.group(1)
+            # Pattern 1: Look for new direct JSON format with main_tweet/thread_array
+            import json
+            try:
+                # Try to find and parse JSON objects in the output
+                json_objects = re.findall(r'\{[^{}]*"main_tweet"[^{}]*\}', agent_outputs, re.DOTALL)
+                for json_str in json_objects:
+                    try:
+                        json_obj = json.loads(json_str)
+                        if 'main_tweet' in json_obj:
+                            tweet_text = json_obj['main_tweet']
+                            logger.info(f"✅ Found main_tweet in new JSON format: {tweet_text[:50]}...")
+                            
+                            if 'thread_array' in json_obj and json_obj['thread_array']:
+                                tweet_thread = json_obj['thread_array']
+                                logger.info(f"✅ Found thread_array in new JSON format: {len(tweet_thread)} tweets")
+                            break
+                    except json.JSONDecodeError:
+                        continue
+            except Exception as e:
+                logger.debug(f"New JSON parsing failed: {e}")
+            
+            # Pattern 2: Look for legacy approach-based JSON format (fallback)
+            if tweet_text == "Generated content from AI agents":
+                approach_patterns = ['engaging_approach', 'bold_approach', 'conservative_approach']
+                for approach in approach_patterns:
+                    # Look for main_tweet in this approach
+                    main_tweet_match = re.search(f'"{approach}":\s*{{[^}}]*"main_tweet":\s*"([^"]+)"', agent_outputs, re.DOTALL)
+                    if main_tweet_match:
+                        tweet_text = main_tweet_match.group(1)
+                        logger.info(f"✅ Found main_tweet in {approach}: {tweet_text[:50]}...")
+                        
+                        # Look for thread_array in the same approach
+                        thread_match = re.search(f'"{approach}":\s*{{[^}}]*"thread_array":\s*\[([^\]]+)\]', agent_outputs, re.DOTALL)
+                        if thread_match:
+                            thread_content = thread_match.group(1)
+                            # Parse the array elements
+                            try:
+                                thread_items = json.loads(f'[{thread_content}]')
+                                tweet_thread = thread_items
+                                logger.info(f"✅ Found thread_array in {approach}: {len(tweet_thread)} tweets")
+                            except json.JSONDecodeError:
+                                # Fallback: split by quotes if JSON parsing fails
+                                thread_items = re.findall(r'"([^"]+)"', thread_content)
+                                if thread_items:
+                                    tweet_thread = thread_items
+                                    logger.info(f"✅ Found thread_array (regex) in {approach}: {len(tweet_thread)} tweets")
+                        break
+            
+            # Pattern 3: Look for legacy JSON with content_variations (fallback)
+            if tweet_text == "Generated content from AI agents":
+                json_match = re.search(r'"content_variations":\s*\[(.*?)\]', agent_outputs, re.DOTALL)
+                if json_match:
+                    variations_content = json_match.group(1)
+                    
+                    # Try to find "Engaging" approach first
+                    engaging_match = re.search(r'"approach":\s*"Engaging".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
+                    if engaging_match:
+                        tweet_text = engaging_match.group(1)
                     else:
-                        # Try "Conservative" approach
-                        conservative_match = re.search(r'"approach":\s*"Conservative".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
-                        if conservative_match:
-                            tweet_text = conservative_match.group(1)
+                        # Try "Bold" approach
+                        bold_match = re.search(r'"approach":\s*"Bold".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
+                        if bold_match:
+                            tweet_text = bold_match.group(1)
+                        else:
+                            # Try "Conservative" approach
+                            conservative_match = re.search(r'"approach":\s*"Conservative".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
+                            if conservative_match:
+                                tweet_text = conservative_match.group(1)
             
-            # Pattern 2: Fallback tweet patterns if JSON extraction fails
+            # Pattern 4: Fallback tweet patterns if JSON extraction fails
             if tweet_text == "Generated content from AI agents":
                 # Try to find "Tweet Text:" format from LLM extraction tool
                 tweet_text_match = re.search(r'Tweet Text:\s*(.+?)(?=\n\nImage URL:|$)', agent_outputs, re.DOTALL | re.IGNORECASE)
@@ -2676,30 +3050,70 @@ CRITICAL REQUIREMENTS:
                             tweet_text = match.group(1).strip()
                             break
             
-            # Extract image URL patterns (Visual Content Creator output)
+            # Extract image URL from Visual Content Creator output
             image_url = None
-            url_patterns = [
-                # S3 URLs with all query parameters
-                r'📸 Image URL:\s*([^\s\[\]]+\.amazonaws\.com[^\s\[\]]*)',
-                r'Image URL:\s*([^\s\[\]]+\.amazonaws\.com[^\s\[\]]*)',
-                r'https://burnie-mindshare-content[^\s\[\]]*\.amazonaws\.com[^\s\[\]]*',
-                r'https://[^\s\[\]]+\.amazonaws\.com[^\s\[\]]*ai-generated[^\s\[\]]*',
-                # Other URL patterns
-                r'https://[^\s\[\]]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s\[\]]*)?',
-                r'https://oaidalleapiprodscus\.blob\.core\.windows\.net[^\s\[\]]*'
-            ]
             
-            for pattern in url_patterns:
-                match = re.search(pattern, agent_outputs, re.IGNORECASE)
-                if match:
-                    if '📸 Image URL:' in pattern or 'Image URL:' in pattern:
-                        image_url = match.group(1).strip().strip('[]")')
-                    else:
-                        image_url = match.group(0).strip().strip('[]")')
-                    break
+            # Pattern 1: Look for new JSON format with image_url field
+            try:
+                json_objects = re.findall(r'\{[^{}]*"image_url"[^{}]*\}', agent_outputs, re.DOTALL)
+                for json_str in json_objects:
+                    try:
+                        json_obj = json.loads(json_str)
+                        if 'image_url' in json_obj and json_obj['image_url']:
+                            image_url = json_obj['image_url']
+                            logger.info(f"✅ Found image_url in new JSON format: {image_url[:50]}...")
+                            break
+                    except json.JSONDecodeError:
+                        continue
+                        
+                # Also check for video_url if no image_url found
+                if not image_url:
+                    json_objects = re.findall(r'\{[^{}]*"video_url"[^{}]*\}', agent_outputs, re.DOTALL)
+                    for json_str in json_objects:
+                        try:
+                            json_obj = json.loads(json_str)
+                            if 'video_url' in json_obj and json_obj['video_url']:
+                                image_url = json_obj['video_url']
+                                logger.info(f"✅ Found video_url in new JSON format: {image_url[:50]}...")
+                                break
+                        except json.JSONDecodeError:
+                            continue
+            except Exception as e:
+                logger.debug(f"New JSON image URL parsing failed: {e}")
+            
+            # Pattern 2: Fallback to legacy URL patterns
+            if not image_url:
+                url_patterns = [
+                    # S3 URLs with all query parameters
+                    r'📸 Image URL:\s*([^\s\[\]]+\.amazonaws\.com[^\s\[\]]*)',
+                    r'Image URL:\s*([^\s\[\]]+\.amazonaws\.com[^\s\[\]]*)',
+                    r'https://burnie-mindshare-content[^\s\[\]]*\.amazonaws\.com[^\s\[\]]*',
+                    r'https://[^\s\[\]]+\.amazonaws\.com[^\s\[\]]*ai-generated[^\s\[\]]*',
+                    # Other URL patterns
+                    r'https://[^\s\[\]]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s\[\]]*)?',
+                    r'https://oaidalleapiprodscus\.blob\.core\.windows\.net[^\s\[\]]*'
+                ]
+                
+                for pattern in url_patterns:
+                    match = re.search(pattern, agent_outputs, re.IGNORECASE)
+                    if match:
+                        if '📸 Image URL:' in pattern or 'Image URL:' in pattern:
+                            image_url = match.group(1).strip().strip('[]")')
+                        else:
+                            image_url = match.group(0).strip().strip('[]")')
+                            logger.info(f"✅ Found image URL using regex pattern: {image_url[:50]}...")
+                        break
             
             # Format output
             result = f"Tweet Text: {tweet_text}\n\n"
+            
+            # Add tweet thread if available
+            if tweet_thread and len(tweet_thread) > 0:
+                import json
+                result += f"Tweet Thread: {json.dumps(tweet_thread)}\n\n"
+            else:
+                result += "Tweet Thread: No thread generated\n\n"
+            
             if image_url:
                 result += f"Image URL: {image_url}"
             else:

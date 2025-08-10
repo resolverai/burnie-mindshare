@@ -4,10 +4,13 @@ import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
 import { XMarkIcon, ShoppingCartIcon, CurrencyDollarIcon, EyeIcon, StarIcon } from '@heroicons/react/24/outline'
 import { addROASTTokenToWallet } from '../../utils/walletUtils'
+import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
+import TweetThreadDisplay from '../TweetThreadDisplay'
 
 interface ContentItem {
   id: number
   content_text: string
+  tweet_thread?: string[] // Add tweet thread support
   content_images?: string[]
   predicted_mindshare: number
   quality_score: number
@@ -29,7 +32,7 @@ interface PurchaseContentModalProps {
   content: ContentItem | null
   isOpen: boolean
   onClose: () => void
-  onPurchase: (contentId: number, price: number) => Promise<void>
+  onPurchase: (contentId: number, price: number, currency: 'ROAST' | 'USDC') => Promise<void>
 }
 
 export default function PurchaseContentModal({
@@ -39,8 +42,13 @@ export default function PurchaseContentModal({
   onPurchase
 }: PurchaseContentModalProps) {
   const { address, isConnected } = useAccount()
+  const { price: roastPrice } = useROASTPrice()
   const [isPurchasing, setIsPurchasing] = useState(false)
   const [watermarkPosition, setWatermarkPosition] = useState({ x: 0, y: 0 })
+  const [selectedCurrency, setSelectedCurrency] = useState<'ROAST' | 'USDC'>('ROAST')
+
+  // Constants
+  const USDC_FEE = 0.03 // 0.03 USDC fee for USDC purchases
 
   // Generate a consistent miner ID from username
   const generateMinerId = (username: string): string => {
@@ -115,24 +123,38 @@ export default function PurchaseContentModal({
     }
   }, [isOpen])
 
+  // Calculate prices for both currencies
+  const roastPriceAmount = content?.asking_price || 0
+  const usdcPriceWithoutFee = roastPriceAmount * roastPrice
+  const usdcPriceWithFee = usdcPriceWithoutFee + USDC_FEE
+
   const handlePurchase = async () => {
     if (!content || !isConnected || !address) return
 
     setIsPurchasing(true)
     try {
+      const finalPrice = selectedCurrency === 'ROAST' 
+        ? content.asking_price 
+        : parseFloat(usdcPriceWithFee.toFixed(6))
+
       console.log('🛒 Purchase initiated:', {
         contentId: content.id,
-        price: content.asking_price,
+        price: finalPrice,
+        currency: selectedCurrency,
         userAddress: address,
         treasuryAddress: process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS
       });
 
-      // Show user what's happening
-      console.log(`💰 You will transfer ${content.asking_price} ROAST tokens to treasury wallet`);
-      console.log(`📍 ROAST Contract: ${process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN}`);
+      if (selectedCurrency === 'ROAST') {
+        console.log(`💰 You will transfer ${finalPrice} ROAST tokens to treasury wallet`);
+        console.log(`📍 ROAST Contract: ${process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN}`);
+      } else {
+        console.log(`💰 You will transfer ${finalPrice} USDC (including 0.03 USDC fee) to treasury wallet`);
+        console.log(`📍 USDC Contract: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`); // BASE USDC
+      }
       console.log(`📍 Treasury Address: ${process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS}`);
 
-      await onPurchase(content.id, content.asking_price)
+      await onPurchase(content.id, finalPrice, selectedCurrency)
       onClose()
     } catch (error) {
       console.error('Purchase failed:', error)
@@ -234,27 +256,17 @@ export default function PurchaseContentModal({
                 </div>
               </div>
 
-              {/* Content Text */}
-              <div className="bg-white rounded-lg p-4 border border-gray-200 mb-4">
-                <p className="text-sm text-gray-900 whitespace-pre-wrap leading-relaxed">
-                  {text}
-                </p>
-                <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
-                  <span>Characters: {characterCount}/280</span>
-                  {hashtags.length > 0 && (
-                    <div className="flex items-center space-x-1">
-                      <span>Hashtags:</span>
-                      <div className="flex space-x-1">
-                        {hashtags.slice(0, 3).map((tag, index) => (
-                          <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded text-xs">
-                            {tag}
-                          </span>
-                        ))}
-                        {hashtags.length > 3 && <span>+{hashtags.length - 3}</span>}
-                      </div>
-                    </div>
-                  )}
-                </div>
+              {/* Tweet Thread Display */}
+              <div className="mb-4">
+                <TweetThreadDisplay 
+                  mainTweet={text}
+                  tweetThread={content.tweet_thread}
+                  imageUrl={content.content_images?.[0] || null}
+                  characterCount={characterCount}
+                  hashtags={hashtags}
+                  showImage={false} // We'll display image separately with watermarks
+                  isProtected={true} // Enable protected watermarks
+                />
               </div>
               
               {/* Content Image with Watermark */}
@@ -342,23 +354,96 @@ export default function PurchaseContentModal({
             </div>
           </div>
 
-          {/* Price & Purchase */}
+          {/* Currency Selection & Price */}
           <div className="border-t border-gray-200 pt-6">
-            <div className="bg-orange-50 rounded-lg p-4 border border-orange-200 mb-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Purchase Price</p>
-                  <div className="flex items-center space-x-2">
-                    <CurrencyDollarIcon className="h-5 w-5 text-orange-600" />
-                    <span className="text-2xl font-bold text-orange-600">{content.asking_price}</span>
-                    <span className="text-lg text-orange-600 font-semibold">ROAST</span>
+            {/* Currency Selection */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">Choose Payment Currency</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setSelectedCurrency('ROAST')}
+                  className={`p-4 rounded-lg border-2 transition-all ${
+                    selectedCurrency === 'ROAST'
+                      ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-200'
+                      : 'border-gray-200 bg-white hover:border-orange-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-left">
+                      <div className="font-semibold text-orange-600">ROAST</div>
+                      <div className="text-2xl font-bold text-gray-900">{roastPriceAmount}</div>
+                      <div className="text-xs text-gray-500">Platform Token</div>
+                    </div>
+                    <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">R</span>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setSelectedCurrency('USDC')}
+                  className={`p-4 rounded-lg border-2 transition-all ${
+                    selectedCurrency === 'USDC'
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                      : 'border-gray-200 bg-white hover:border-blue-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="text-left">
+                      <div className="font-semibold text-blue-600">USDC</div>
+                      <div className="text-2xl font-bold text-gray-900">
+                        {formatUSDCPrice(usdcPriceWithFee)}
+                      </div>
+                      <div className="text-xs text-red-500">+0.03 USDC fee</div>
+                    </div>
+                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">$</span>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Fee Information */}
+              {selectedCurrency === 'USDC' && (
+                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <div className="flex-shrink-0">
+                      <svg className="h-4 w-4 text-yellow-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 text-xs text-yellow-800">
+                      <div className="font-medium">USDC Payment Notice</div>
+                      <div className="mt-1">
+                        • Base content price: {formatUSDCPrice(usdcPriceWithoutFee)} USDC<br/>
+                        • Platform fee: +0.03 USDC<br/>
+                        • <strong>Total: {formatUSDCPrice(usdcPriceWithFee)} USDC</strong><br/>
+                        • 💡 Save money by using ROAST tokens (no extra fees!)
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-gray-500">Instant Purchase</p>
-                  <p className="text-xs text-gray-500">No bidding required</p>
+              )}
+
+              {selectedCurrency === 'ROAST' && (
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <div className="flex-shrink-0">
+                      <svg className="h-4 w-4 text-green-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 text-xs text-green-800">
+                      <div className="font-medium">ROAST Payment - No Extra Fees! 🎉</div>
+                      <div className="mt-1">
+                        • No platform fees when using ROAST<br/>
+                        • Equivalent value: ~{formatUSDCPrice(usdcPriceWithoutFee)} USDC<br/>
+                        • Support the platform ecosystem with native tokens
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Purchase Button */}
@@ -372,7 +457,11 @@ export default function PurchaseContentModal({
               <button
                 onClick={handlePurchase}
                 disabled={!isConnected || isPurchasing}
-                className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-orange-600 flex items-center justify-center space-x-2"
+                className={`flex-1 font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 ${
+                  selectedCurrency === 'ROAST'
+                    ? 'bg-orange-600 hover:bg-orange-700 text-white disabled:hover:bg-orange-600'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white disabled:hover:bg-blue-600'
+                }`}
               >
                 {isPurchasing ? (
                   <>
@@ -382,7 +471,9 @@ export default function PurchaseContentModal({
                 ) : (
                   <>
                     <ShoppingCartIcon className="h-4 w-4" />
-                    <span>Buy Content for {content.asking_price} ROAST</span>
+                    <span>
+                      Buy with {selectedCurrency === 'ROAST' ? `${roastPriceAmount} ROAST` : `${formatUSDCPrice(usdcPriceWithFee)} USDC`}
+                    </span>
                   </>
                 )}
               </button>
@@ -399,18 +490,32 @@ export default function PurchaseContentModal({
                 <div className="flex-1">
                   <h4 className="text-sm font-medium text-blue-800">Wallet Transaction Info</h4>
                   <div className="mt-1 text-xs text-blue-700 space-y-1">
-                    <p>• Your wallet will open to confirm a ROAST token transfer</p>
-                    <p>• Amount: <strong>{content.asking_price} ROAST</strong></p>
-                    <p>• To: Treasury Wallet ({process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS?.slice(0,10)}...)</p>
-                    <p>• The wallet may not show the token amount if ROAST isn't recognized</p>
-                    <p>• This is normal - the transaction is correct!</p>
+                    {selectedCurrency === 'ROAST' ? (
+                      <>
+                        <p>• Your wallet will open to confirm a ROAST token transfer</p>
+                        <p>• Amount: <strong>{roastPriceAmount} ROAST</strong></p>
+                        <p>• To: Treasury Wallet ({process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS?.slice(0,10)}...)</p>
+                        <p>• The wallet may not show the token amount if ROAST isn't recognized</p>
+                        <p>• This is normal - the transaction is correct!</p>
+                      </>
+                    ) : (
+                      <>
+                        <p>• Your wallet will open to confirm a USDC token transfer</p>
+                        <p>• Amount: <strong>{formatUSDCPrice(usdcPriceWithFee)} USDC</strong> (includes 0.03 USDC fee)</p>
+                        <p>• To: Treasury Wallet ({process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS?.slice(0,10)}...)</p>
+                        <p>• Network: BASE blockchain</p>
+                        <p>• USDC is a widely recognized stablecoin</p>
+                      </>
+                    )}
                   </div>
-                  <button
-                    onClick={handleAddROASTToken}
-                    className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors"
-                  >
-                    ➕ Add ROAST Token to Wallet
-                  </button>
+                  {selectedCurrency === 'ROAST' && (
+                    <button
+                      onClick={handleAddROASTToken}
+                      className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors"
+                    >
+                      ➕ Add ROAST Token to Wallet
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

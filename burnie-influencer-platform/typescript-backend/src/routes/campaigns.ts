@@ -1,14 +1,92 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../config/logger';
 import { AppDataSource } from '../config/database';
-import { Campaign, CampaignStatus, CampaignType } from '../models/Campaign';
+import { Campaign, CampaignStatus, CampaignType, CampaignCategory } from '../models/Campaign';
 import { Project } from '../models/Project';
 import { User } from '../models/User';
 import { ContentMarketplace } from '../models/ContentMarketplace';
 import { Repository } from 'typeorm';
 import { env } from '../config/env';
+import multer from 'multer';
+import AWS from 'aws-sdk';
+import path from 'path';
 
 const router = Router();
+
+// Configure AWS S3
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+  region: process.env.AWS_REGION || 'us-east-1'
+});
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.'));
+    }
+  }
+});
+
+// POST /api/campaigns/upload-logo - Upload project logo to S3
+router.post('/upload-logo', upload.single('logo'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      });
+    }
+
+    const { projectName } = req.body;
+    const file = req.file;
+    
+    // Generate unique filename
+    const timestamp = Date.now();
+    const fileExtension = path.extname(file.originalname);
+    const fileName = `${projectName || 'project'}-${timestamp}${fileExtension}`;
+    const s3Key = `brand_logos/${fileName}`;
+
+    // Upload to S3
+    const uploadParams = {
+      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Key: s3Key,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+      CacheControl: 'max-age=31536000', // 1 year cache
+      ServerSideEncryption: 'AES256'
+    };
+
+    const uploadResult = await s3.upload(uploadParams).promise();
+    
+    logger.info(`✅ Logo uploaded successfully: ${uploadResult.Location}`);
+
+    return res.json({
+      success: true,
+      data: {
+        logoUrl: uploadResult.Location,
+        fileName: fileName,
+        s3Key: s3Key
+      },
+      message: 'Logo uploaded successfully'
+    });
+
+  } catch (error) {
+    logger.error('❌ Logo upload failed:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to upload logo'
+    });
+  }
+});
 
 // GET /api/campaigns/marketplace-ready - Get marketplace-ready campaigns for mining interface
 router.get('/marketplace-ready', async (req: Request, res: Response) => {
@@ -52,12 +130,13 @@ router.get('/marketplace-ready', async (req: Request, res: Response) => {
       title: campaign.title,
       slug: campaign.title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-'),
       description: campaign.description,
+      brandGuidelines: campaign.brandGuidelines || '', // Use actual brandGuidelines column
       topic: campaign.category,
       campaign_type: campaign.campaignType,
       category: campaign.category,
       platform_source: campaign.platformSource,
       keywords: campaign.metadata?.tags || [],
-      guidelines: campaign.metadata?.brandGuidelines || '',
+      guidelines: campaign.metadata?.brandGuidelines || campaign.brandGuidelines || '', // Fallback
       min_token_spend: campaign.requirements?.minStake || 100,
       winner_reward: campaign.rewardPool,
       max_submissions: campaign.maxSubmissions,
@@ -173,27 +252,30 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const {
       projectId,
+      projectName,
+      projectLogo,
       title,
       description,
       category,
       campaignType,
       rewardPool,
       entryFee,
-      maxSubmissions,
+      maxSubmissions = 1500, // Default value
       startDate,
       endDate,
+      brandGuidelines,
       requirements,
       metadata,
       isActive = true
     } = req.body;
 
-    logger.info('📝 Creating new campaign:', { title, projectId, campaignType, rewardPool });
+    logger.info('📝 Creating new campaign:', { title, projectName, campaignType, rewardPool, category });
 
     // Validate required fields
-    if (!title || !description || !category || !campaignType || !rewardPool || !maxSubmissions || !startDate || !endDate) {
+    if (!title || !description || !category || !campaignType || !rewardPool || !startDate || !endDate) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: title, description, category, campaignType, rewardPool, maxSubmissions, startDate, endDate',
+        error: 'Missing required fields: title, description, category, campaignType, rewardPool, startDate, endDate',
         timestamp: new Date().toISOString(),
       });
     }
@@ -249,7 +331,9 @@ router.post('/', async (req: Request, res: Response) => {
     const campaignData = {
       title,
       description,
-      category,
+      projectName: projectName || undefined,
+      projectLogo: projectLogo || undefined,
+      category: category as CampaignCategory,
       campaignType: campaignType as CampaignType,
       rewardPool,
       entryFee: entryFee || 0,
@@ -257,6 +341,7 @@ router.post('/', async (req: Request, res: Response) => {
       currentSubmissions: 0,
       startDate: new Date(startDate),
       endDate: new Date(endDate),
+      brandGuidelines: brandGuidelines || undefined,
       requirements: requirements || {},
       metadata: metadata || {},
       status: isActive ? CampaignStatus.ACTIVE : CampaignStatus.DRAFT,
@@ -944,18 +1029,18 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
       });
     }
 
-    // Create marketplace content
+    // Create marketplace content with pending status (awaiting user approval)
     const marketplaceContent = contentRepository.create({
       creatorId: creator_id,
       campaignId: campaignId,
       contentText: content_data.content_text,
+      tweetThread: content_data.tweet_thread || null, // Store tweet thread array
       contentImages: content_data.content_images || null,
       predictedMindshare: content_data.predicted_mindshare || 75,
       qualityScore: content_data.quality_score || 80,
       askingPrice: asking_price || env.platform.minimumBidAmount,
-      isAvailable: true,
-      approvalStatus: 'approved', // Auto-approve in MVP
-      approvedAt: new Date(),
+      isAvailable: false, // Not available until approved
+      approvalStatus: 'pending', // Awaiting user approval in mining interface
       generationMetadata: content_data.generation_metadata || {}
     });
 
@@ -976,6 +1061,46 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
       success: false,
       error: 'Failed to sync content to marketplace',
       timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+// GET /api/campaigns/logo-presigned-url/:s3Key - Get pre-signed URL for logo display
+router.get('/logo-presigned-url/:s3Key(*)', async (req: Request, res: Response) => {
+  try {
+    const s3Key = req.params.s3Key;
+    
+    if (!s3Key) {
+      return res.status(400).json({
+        success: false,
+        error: 'S3 key is required'
+      });
+    }
+
+    // Generate pre-signed URL for GET operation (viewing the image)
+    const presignedUrl = s3.getSignedUrl('getObject', {
+      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Key: s3Key,
+      Expires: 3600 // URL expires in 1 hour
+    });
+
+    logger.info(`✅ Pre-signed URL generated for: ${s3Key}`);
+
+    return res.json({
+      success: true,
+      data: {
+        presignedUrl,
+        s3Key,
+        expiresIn: 3600
+      },
+      message: 'Pre-signed URL generated successfully'
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to generate pre-signed URL:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to generate pre-signed URL'
     });
   }
 });

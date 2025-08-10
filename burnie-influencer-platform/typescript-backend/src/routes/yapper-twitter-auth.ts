@@ -121,6 +121,15 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       });
     }
 
+    // Check database connection before proceeding
+    if (!AppDataSource.isInitialized) {
+      logger.error('❌ Database not initialized for Yapper Twitter auth');
+      return res.status(503).json({
+        success: false,
+        error: 'Database service unavailable. Please try again later.'
+      });
+    }
+
     logger.info(`🔄 Exchanging code for tokens for Yapper wallet: ${walletAddress}`);
 
     // Check for duplicate code processing
@@ -216,6 +225,15 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
     const twitterUser: TwitterUserData = userData.data;
 
     logger.info(`👤 Twitter user data for Yapper: @${twitterUser.username} (${twitterUser.name})`);
+
+    // Check database connection again before saving (connection might have been lost during API calls)
+    if (!AppDataSource.isInitialized) {
+      logger.error('❌ Database connection lost during Yapper Twitter auth process');
+      return res.status(503).json({
+        success: false,
+        error: 'Database connection lost. Please try again.'
+      });
+    }
 
     // Save to database
     const userRepository: Repository<User> = AppDataSource.getRepository(User);

@@ -15,6 +15,8 @@ import {
   XCircleIcon,
   DocumentDuplicateIcon,
   ChevronRightIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   Cog6ToothIcon,
   ChartBarIcon,
   ExclamationTriangleIcon,
@@ -28,12 +30,14 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/solid'
 import { getApiKeys } from '@/utils/api-keys'
+import TweetThreadDisplay from './TweetThreadDisplay'
 
 interface Campaign {
   id: number;
   title: string;
   slug: string;
   description: string;
+  brandGuidelines: string; // Add brandGuidelines field
   topic: string;
   campaign_type: 'roast' | 'meme' | 'creative' | 'viral' | 'social' | 'educational';
   category: string;
@@ -77,6 +81,7 @@ interface CampaignSelection {
 interface GeneratedContent {
   id: string;
   content_text: string;
+  tweet_thread?: string[]; // Array of tweet thread messages
   content_images?: string[];
   predicted_mindshare: number;
   quality_score: number;
@@ -111,6 +116,7 @@ interface MiningStatus {
 
 export default function Mining() {
   const [selectedCampaigns, setSelectedCampaigns] = useState<CampaignSelection[]>([])
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<number>>(new Set())
   const [miningStatus, setMiningStatus] = useState<MiningStatus>({ status: 'idle', progress: 0, currentStep: 'Ready to mine' })
   const [contentReviewItems, setContentReviewItems] = useState<ContentReviewItem[]>([])
   const { address } = useAccount()
@@ -432,6 +438,12 @@ export default function Mining() {
             case 'campaign_completed':
               console.log('✅ Campaign completed:', data)
               console.log('🖼️  Campaign content images:', data.campaign_content?.content_images)
+              console.log('🧵 Campaign tweet thread from WebSocket:', {
+                thread: data.campaign_content?.tweet_thread,
+                type: typeof data.campaign_content?.tweet_thread,
+                length: data.campaign_content?.tweet_thread?.length,
+                isArray: Array.isArray(data.campaign_content?.tweet_thread)
+              })
               
               // Find the campaign index by matching campaign_id
               const campaignIndex = selectedCampaigns.findIndex(
@@ -447,6 +459,7 @@ export default function Mining() {
                     content: {
                       id: data.campaign_content?.id || `gen_${Date.now()}`,
                       content_text: data.campaign_content?.content_text || '',
+                      tweet_thread: data.campaign_content?.tweet_thread || null, // Include tweet thread
                       content_images: data.campaign_content?.content_images || null, // Include images from backend
                       predicted_mindshare: data.campaign_content?.predicted_mindshare || 0,
                       quality_score: data.campaign_content?.quality_score || 0,
@@ -563,6 +576,18 @@ export default function Mining() {
     return selectedCampaigns.find(selection => selection.campaign.id === campaignId)?.selectedAgent || null
   }
 
+  const toggleCampaignExpansion = (campaignId: number) => {
+    setExpandedCampaigns(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(campaignId)) {
+        newSet.delete(campaignId)
+      } else {
+        newSet.add(campaignId)
+      }
+      return newSet
+    })
+  }
+
   const approveContent = async (index: number) => {
     try {
       // Update local state immediately
@@ -584,6 +609,7 @@ export default function Mining() {
           agentName: reviewItem.agent.name,
           walletAddress: address,
           contentText: reviewItem.content?.content_text,
+          tweetThread: reviewItem.content?.tweet_thread || null, // Include tweet thread
           contentImages: reviewItem.content?.content_images || null, // Pass actual images from content
           predictedMindshare: reviewItem.content?.predicted_mindshare,
           qualityScore: reviewItem.content?.quality_score,
@@ -844,38 +870,65 @@ export default function Mining() {
                     </div>
                     
                     <div className="flex-1">
-                      <div className="flex items-center mb-2">
-                        <h3 className="text-lg font-semibold text-white">{campaign.title}</h3>
-                        <span className="ml-2 px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded-full">
-                          {campaign.category}
-                        </span>
-                        <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
-                          campaign.platform_source === 'cookie.fun' ? 'bg-cyan-500/20 text-cyan-400' :
-                          campaign.platform_source === 'yaps.kaito.ai' ? 'bg-purple-500/20 text-purple-400' :
-                          campaign.platform_source === 'yap.market' ? 'bg-pink-500/20 text-pink-400' :
-                          'bg-gray-500/20 text-gray-400'
-                        }`}>
-                          {campaign.platform_source}
-                        </span>
-                        <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
-                          campaign.campaign_type === 'social' ? 'bg-green-500/20 text-green-400' :
-                          campaign.campaign_type === 'meme' ? 'bg-purple-500/20 text-purple-400' :
-                          campaign.campaign_type === 'educational' ? 'bg-blue-500/20 text-blue-400' :
-                          campaign.campaign_type === 'roast' ? 'bg-red-500/20 text-red-400' :
-                          campaign.campaign_type === 'creative' ? 'bg-cyan-500/20 text-cyan-400' :
-                          campaign.campaign_type === 'viral' ? 'bg-pink-500/20 text-pink-400' :
-                          'bg-orange-500/20 text-orange-400'
-                        }`}>
-                          {campaign.campaign_type.charAt(0).toUpperCase() + campaign.campaign_type.slice(1)}
-                        </span>
-              </div>
-                      <p className="text-gray-400 text-sm mb-2">{campaign.description}</p>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center">
+                          <h3 className="text-lg font-semibold text-white">{campaign.title}</h3>
+                          <span className="ml-2 px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded-full">
+                            {campaign.category}
+                          </span>
+                          <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
+                            campaign.platform_source === 'cookie.fun' ? 'bg-cyan-500/20 text-cyan-400' :
+                            campaign.platform_source === 'yaps.kaito.ai' ? 'bg-purple-500/20 text-purple-400' :
+                            campaign.platform_source === 'yap.market' ? 'bg-pink-500/20 text-pink-400' :
+                            'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {campaign.platform_source}
+                          </span>
+                          <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
+                            campaign.campaign_type === 'social' ? 'bg-green-500/20 text-green-400' :
+                            campaign.campaign_type === 'meme' ? 'bg-purple-500/20 text-purple-400' :
+                            campaign.campaign_type === 'educational' ? 'bg-blue-500/20 text-blue-400' :
+                            campaign.campaign_type === 'roast' ? 'bg-red-500/20 text-red-400' :
+                            campaign.campaign_type === 'creative' ? 'bg-cyan-500/20 text-cyan-400' :
+                            campaign.campaign_type === 'viral' ? 'bg-pink-500/20 text-pink-400' :
+                            'bg-orange-500/20 text-orange-400'
+                          }`}>
+                            {campaign.campaign_type.charAt(0).toUpperCase() + campaign.campaign_type.slice(1)}
+                          </span>
+                        </div>
+                        
+                        {/* Expand/Collapse Button */}
+                        <button
+                          onClick={() => toggleCampaignExpansion(campaign.id)}
+                          className="flex items-center text-gray-400 hover:text-white transition-colors text-sm"
+                        >
+                          {expandedCampaigns.has(campaign.id) ? (
+                            <>
+                              <span className="mr-1">Hide Details</span>
+                              <ChevronUpIcon className="h-4 w-4" />
+                            </>
+                          ) : (
+                            <>
+                              <span className="mr-1">Show Details</span>
+                              <ChevronDownIcon className="h-4 w-4" />
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      
+                      {/* Expandable Campaign Details */}
+                      {expandedCampaigns.has(campaign.id) && (
+                        <div className="mb-3 p-3 bg-gray-800/30 rounded-lg border border-gray-700/50">
+                          <h4 className="text-sm font-medium text-orange-400 mb-2">📋 Brand Guidelines</h4>
+                          <p className="text-gray-300 text-sm leading-relaxed">
+                            {campaign.brandGuidelines || campaign.guidelines || 'No specific brand guidelines provided.'}
+                          </p>
+                        </div>
+                      )}
+                      
                       <div className="flex items-center space-x-4 text-sm">
                         <span className="text-gray-300">
                           <span className="text-orange-400 font-semibold">{parseInt(campaign.winner_reward).toLocaleString()}</span> Tokens
-                        </span>
-                        <span className="text-gray-300">
-                          Submissions: <span className="text-green-400 font-semibold">{campaign.current_submissions}/{campaign.max_submissions}</span>
                         </span>
             </div>
                       
@@ -1080,123 +1133,64 @@ export default function Mining() {
                         // Debug logging
                         console.log('🖼️ Mining: Content images array:', reviewItem.content.content_images)
                         console.log('🖼️ Mining: Selected image URL:', imageUrl)
+                        console.log('🔍 Mining: Tweet thread:', {
+                          thread: reviewItem.content.tweet_thread,
+                          type: typeof reviewItem.content.tweet_thread,
+                          length: reviewItem.content.tweet_thread?.length,
+                          isArray: Array.isArray(reviewItem.content.tweet_thread)
+                        })
+                        
+                        const hashtags = text.match(/#\w+/g) || []
                         
                         return (
                           <div className="space-y-4">
-                            {/* Twitter Text */}
-                            <div className="bg-white/5 rounded-lg p-4 border border-blue-500/20">
-                              <div className="text-gray-200 whitespace-pre-wrap font-medium leading-relaxed">
-                                {text}
-                              </div>
-                              <div className="mt-2 text-xs text-gray-400">
-                                Characters: {text.length}/280
-                              </div>
-                            </div>
+                            {/* Use TweetThreadDisplay Component */}
+                            <TweetThreadDisplay
+                              mainTweet={text}
+                              tweetThread={reviewItem.content.tweet_thread}
+                              imageUrl={imageUrl}
+                              characterCount={text.length}
+                              hashtags={hashtags}
+                              showImage={true}
+                            />
                             
-                            {/* Visual Content */}
+                            {/* Image URL Section - only if image exists */}
                             {imageUrl && (
-                              <div className="bg-white/5 rounded-lg p-4 border border-purple-500/20">
-                                <h5 className="text-sm font-semibold text-purple-400 mb-3">
-                                  🖼️ Generated Image
-                                </h5>
-                                <div className="space-y-4">
-                                  {/* Image Display with Fallback */}
-                                  <div className="relative">
-                                    <img 
-                                      src={imageUrl} 
-                                      alt="Generated content image"
-                                      className="w-full max-w-md rounded-lg border border-gray-600 shadow-lg"
-                                      onLoad={(e) => {
-                                        console.log('✅ Image loaded successfully:', imageUrl)
-                                        // Hide the fallback message if image loads
-                                        const fallback = e.currentTarget.nextElementSibling as HTMLElement
-                                        if (fallback) fallback.style.display = 'none'
-                                      }}
-                                      onError={(e) => {
-                                        console.error('❌ Image failed to load:', imageUrl)
-                                        // Show fallback instead of hiding the image completely
-                                        e.currentTarget.style.display = 'none'
-                                        const fallback = e.currentTarget.nextElementSibling as HTMLElement
-                                        if (fallback) fallback.style.display = 'block'
-                                      }}
-                                    />
-                                    {/* Fallback Display */}
-                                    <div className="hidden bg-gradient-to-br from-purple-900/20 to-blue-900/20 border-2 border-dashed border-purple-500/50 rounded-lg p-8 text-center">
-                                      <div className="text-4xl mb-3">🖼️</div>
-                                      <div className="text-purple-300 font-semibold mb-2">Generated Image Available</div>
-                                      <div className="text-sm text-gray-400 mb-4">
-                                        Image ready but cannot display due to browser restrictions.<br/>
-                                        Use the buttons below to view or download.
-                                      </div>
-                                      <div className="flex gap-2 justify-center">
-                                        <button
-                                          onClick={() => window.open(imageUrl, '_blank')}
-                                          className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
-                                        >
-                                          🔗 View Image
-                                        </button>
-                                        <button
-                                          onClick={async () => {
-                                            try {
-                                              const response = await fetch(imageUrl)
-                                              const blob = await response.blob()
-                                              const url = window.URL.createObjectURL(blob)
-                                              const a = document.createElement('a')
-                                              a.href = url
-                                              a.download = 'generated-image.png'
-                                              a.click()
-                                              window.URL.revokeObjectURL(url)
-                                            } catch (error) {
-                                              console.error('Download failed:', error)
-                                              alert('Download failed. Please try "View Image" instead.')
-                                            }
-                                          }}
-                                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
-                                        >
-                                          📥 Download
-                                        </button>
-                                      </div>
-                                    </div>
+                              <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-600">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="font-semibold text-purple-300 text-sm">
+                                    📎 Image URL ({imageUrl.length} characters)
                                   </div>
-                                  
-                                  {/* Image URL Section */}
-                                  <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-600">
-                                    <div className="flex items-center justify-between mb-2">
-                                      <div className="font-semibold text-purple-300 text-sm">
-                                        📎 Image URL ({imageUrl.length} characters)
-                                      </div>
-                                      <button
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(imageUrl)
-                                          alert('✅ Image URL copied to clipboard!')
-                                        }}
-                                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-                                      >
-                                        📋 Copy URL
-                                      </button>
-                                    </div>
-                                    <div className="bg-gray-900 p-3 rounded border font-mono text-xs text-gray-300 break-all max-h-24 overflow-y-auto">
-                                      {imageUrl}
-                                    </div>
-                                    <div className="flex gap-2 mt-3">
-                                      <button
-                                        onClick={() => window.open(imageUrl, '_blank')}
-                                        className="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
-                                      >
-                                        🔗 Open in New Tab
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          const tweetText = `Check out this AI-generated image! ${imageUrl}`
-                                          const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`
-                                          window.open(twitterUrl, '_blank')
-                                        }}
-                                        className="flex-1 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
-                                      >
-                                        🐦 Share on Twitter
-                                      </button>
-                                    </div>
-                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(imageUrl)
+                                      alert('✅ Image URL copied to clipboard!')
+                                    }}
+                                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                                  >
+                                    📋 Copy URL
+                                  </button>
+                                </div>
+                                <div className="bg-gray-900 p-3 rounded border font-mono text-xs text-gray-300 break-all max-h-24 overflow-y-auto">
+                                  {imageUrl}
+                                </div>
+                                <div className="flex gap-2 mt-3">
+                                  <button
+                                    onClick={() => window.open(imageUrl, '_blank')}
+                                    className="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                                  >
+                                    🔗 Open in New Tab
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const tweetText = `Check out this AI-generated image! ${imageUrl}`
+                                      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`
+                                      window.open(twitterUrl, '_blank')
+                                    }}
+                                    className="flex-1 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                                  >
+                                    🐦 Share on Twitter
+                                  </button>
                                 </div>
                               </div>
                             )}
@@ -1207,9 +1201,12 @@ export default function Mining() {
                                 💡 <strong>To Post on Twitter:</strong>
                               </div>
                               <div className="text-xs text-gray-300 mt-1">
-                                1. Copy the text above<br/>
+                                1. Copy the text from the main tweet above<br/>
                                 {imageUrl && "2. Save the image above\n3. "}
                                 {imageUrl ? "Paste text + attach image in Twitter" : "2. Paste text in Twitter"}
+                                {reviewItem.content.tweet_thread && reviewItem.content.tweet_thread.length > 0 && (
+                                  <><br/>4. Expand thread details above for additional tweets to post as replies</>
+                                )}
                               </div>
                             </div>
                           </div>

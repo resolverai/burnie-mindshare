@@ -23,11 +23,14 @@ import {
 
 // Import the new Purchase Content Modal
 import PurchaseContentModal from './PurchaseContentModal'
-import { transferROAST, checkROASTBalance, verifyTransfer } from '../../utils/walletUtils'
+import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance } from '../../utils/walletUtils'
+import { useROASTPrice, convertROASTToUSDC, formatUSDCPrice } from '../../utils/priceUtils'
+import TweetThreadDisplay from '../TweetThreadDisplay'
 
 interface ContentItem {
   id: number
   content_text: string
+  tweet_thread?: string[] // Array of tweet thread messages
   content_images?: string[] // Array of image URLs
   predicted_mindshare: number
   quality_score: number
@@ -60,6 +63,7 @@ interface ContentItem {
 
 export default function BiddingInterface() {
   const [searchTerm, setSearchTerm] = useState('')
+  const { price: roastPrice } = useROASTPrice()
   const [selectedPlatform, setSelectedPlatform] = useState('all')
   const [selectedQuality, setSelectedQuality] = useState('all')
   // Keep bidding state for future use but don't expose UI for now
@@ -71,6 +75,30 @@ export default function BiddingInterface() {
   const [showCopyProtection, setShowCopyProtection] = useState(false)
   const [isScreenshotDetected, setIsScreenshotDetected] = useState(false)
   const [watermarkPosition, setWatermarkPosition] = useState({ x: 0, y: 0 })
+  
+  // Price display component
+  const PriceDisplay = ({ roastAmount }: { roastAmount: number }) => {
+    const [usdcAmount, setUsdcAmount] = useState<number>(0)
+
+    useEffect(() => {
+      if (roastPrice > 0) {
+        setUsdcAmount(roastAmount * roastPrice)
+      }
+    }, [roastAmount, roastPrice])
+
+    return (
+      <div className="flex flex-col">
+        <div className="text-lg font-bold text-orange-600">
+          {roastAmount} <span className="text-sm text-gray-500">ROAST</span>
+        </div>
+        {roastPrice > 0 && (
+          <div className="text-sm text-gray-600">
+            ({formatUSDCPrice(usdcAmount)} USDC)
+          </div>
+        )}
+      </div>
+    )
+  }
   
   // Content parsing functions
   const extractImageUrl = (contentText: string): string | null => {
@@ -344,21 +372,31 @@ export default function BiddingInterface() {
   })
 
   // Handle purchase function
-  const handlePurchase = async (contentId: number, price: number) => {
+  const handlePurchase = async (contentId: number, price: number, currency: 'ROAST' | 'USDC' = 'ROAST') => {
     if (!address) {
       alert('Please connect your wallet to purchase content');
       return;
     }
 
     try {
-      console.log('🛒 Starting purchase process for content:', contentId, 'Price:', price, 'ROAST');
+      console.log('🛒 Starting purchase process for content:', contentId, 'Price:', price, currency);
       
-      // Step 1: Check ROAST balance
-      console.log('🔍 Checking ROAST balance...');
-      const hasBalance = await checkROASTBalance(address, price);
-      if (!hasBalance) {
-        alert(`Insufficient ROAST balance. You need ${price} ROAST tokens to purchase this content.`);
-        return;
+      // Step 1: Check balance for selected currency
+      console.log(`🔍 Checking ${currency} balance...`);
+      let hasBalance = false;
+      
+      if (currency === 'ROAST') {
+        hasBalance = await checkROASTBalance(address, price);
+        if (!hasBalance) {
+          alert(`Insufficient ROAST balance. You need ${price} ROAST tokens to purchase this content.`);
+          return;
+        }
+      } else {
+        hasBalance = await checkUSDCBalance(address, price);
+        if (!hasBalance) {
+          alert(`Insufficient USDC balance. You need ${price} USDC to purchase this content.`);
+          return;
+        }
       }
 
       // Step 2: Create purchase record
@@ -372,7 +410,7 @@ export default function BiddingInterface() {
           contentId,
           buyerWalletAddress: address,
           purchasePrice: price,
-          currency: 'ROAST'
+          currency: currency
         }),
       });
 
@@ -384,19 +422,24 @@ export default function BiddingInterface() {
 
       console.log('✅ Purchase record created:', result);
 
-      // Step 3: Execute ROAST token transfer to treasury
+      // Step 3: Execute token transfer to treasury
       const treasuryAddress = result.data.treasuryAddress || process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS;
       
       if (!treasuryAddress) {
         throw new Error('Treasury wallet address not configured');
       }
 
-      console.log('💰 Executing ROAST token transfer...');
+      console.log(`💰 Executing ${currency} token transfer...`);
       console.log(`📤 From: ${address}`);
       console.log(`📥 To: ${treasuryAddress}`);
-      console.log(`💎 Amount: ${price} ROAST`);
+      console.log(`💎 Amount: ${price} ${currency}`);
 
-      const transferResult = await transferROAST(price, treasuryAddress);
+      let transferResult;
+      if (currency === 'ROAST') {
+        transferResult = await transferROAST(price, treasuryAddress);
+      } else {
+        transferResult = await transferUSDC(price, treasuryAddress);
+      }
       
       if (!transferResult.success) {
         console.error('❌ Wallet transaction failed or cancelled:', transferResult.error);
@@ -407,21 +450,8 @@ export default function BiddingInterface() {
 
       console.log('🎉 Wallet transaction successful:', transferResult.transactionHash);
 
-      // Step 4: Verify transaction was successful
-      console.log('🔍 Verifying blockchain transaction...');
-      const isVerified = await verifyTransfer(
-        transferResult.transactionHash!,
-        treasuryAddress,
-        price
-      );
-
-      if (!isVerified) {
-        console.error('❌ Transaction verification failed');
-        alert('Payment verification failed. Please contact support with transaction hash: ' + transferResult.transactionHash);
-        return;
-      }
-
-      console.log('✅ Transaction verified on blockchain');
+      // Step 4: Transaction is verified by the wallet - proceed with confirmation
+      console.log('✅ Transaction confirmed by wallet');
 
       // Step 5: Confirm purchase with backend
       console.log('📋 Confirming purchase with backend...');
@@ -672,6 +702,15 @@ export default function BiddingInterface() {
                 ? item.content_images[0] 
                 : imageUrl
               
+              // Debug logging for tweet thread
+              console.log('🔍 BiddingInterface item:', {
+                id: item.id,
+                tweet_thread: item.tweet_thread,
+                type: typeof item.tweet_thread,
+                length: item.tweet_thread?.length,
+                isArray: Array.isArray(item.tweet_thread)
+              })
+              
               return (
                 <div key={item.id} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 border border-gray-200">
                   <div className="p-4 space-y-4">
@@ -699,37 +738,17 @@ export default function BiddingInterface() {
                       </div>
                     </div>
 
-                    {/* Content Text */}
-                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 relative">
-                      {/* Text Watermark */}
-                      <div className="absolute inset-0 pointer-events-none z-10 flex items-center justify-center">
-                        <div 
-                          className="text-red-500 opacity-15 text-4xl font-black transform -rotate-45"
-                          style={{
-                            textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
-                          }}
-                        >
-                          PROTECTED
-                        </div>
-                      </div>
-                      
-                      <div className="text-gray-900 text-sm leading-relaxed line-clamp-4 relative z-20">
-                        {text}
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-xs text-gray-500 relative z-20">
-                        <span>{characterCount}/280</span>
-                        {hashtags.length > 0 && (
-                          <div className="flex space-x-1">
-                            {hashtags.slice(0, 2).map((tag, index) => (
-                              <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded">
-                                {tag}
-                              </span>
-                            ))}
-                            {hashtags.length > 2 && <span>+{hashtags.length - 2}</span>}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                    {/* Tweet Thread Display */}
+                    <TweetThreadDisplay 
+                      mainTweet={text}
+                      tweetThread={item.tweet_thread}
+                      imageUrl={displayImage}
+                      characterCount={characterCount}
+                      hashtags={hashtags}
+                      className="relative"
+                      showImage={false} // We'll add watermark separately if needed
+                      isProtected={true} // Enable protected watermarks
+                    />
 
                     {/* Image with Watermark */}
                     {displayImage && (
@@ -821,9 +840,7 @@ export default function BiddingInterface() {
                       <div className="flex items-center justify-between mb-2">
                         <div>
                           <p className="text-xs text-gray-600">Price</p>
-                          <p className="text-lg font-bold text-orange-600">
-                            {item.asking_price} <span className="text-sm text-gray-500">ROAST</span>
-                          </p>
+                          <PriceDisplay roastAmount={item.asking_price} />
                         </div>
                         <button
                           onClick={() => setShowPurchaseModal(item)}

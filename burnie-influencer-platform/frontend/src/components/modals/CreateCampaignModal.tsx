@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
-import { campaignsApi, projectsApi } from '@/services/api'
-import { XMarkIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { campaignsApi } from '@/services/api'
+import { XMarkIcon, CheckCircleIcon, PhotoIcon } from '@heroicons/react/24/outline'
 
 interface CreateCampaignModalProps {
   isOpen: boolean
@@ -12,54 +12,91 @@ interface CreateCampaignModalProps {
 }
 
 const CAMPAIGN_TYPES = [
+  { value: 'feature_launch', label: '🚀 Feature Launch' },
+  { value: 'showcase', label: '✨ Showcase' },
+  { value: 'awareness', label: '📢 Awareness' },
   { value: 'roast', label: '🔥 Roast' },
   { value: 'meme', label: '😂 Meme' },
   { value: 'creative', label: '🎨 Creative' },
   { value: 'viral', label: '⚡ Viral' },
+  { value: 'social', label: '👥 Social' },
+  { value: 'educational', label: '📚 Educational' },
+  { value: 'technical', label: '🔧 Technical' },
 ]
 
-const CATEGORIES = [
-  'DeFi', 'NFT', 'Gaming', 'Social', 'Infrastructure', 'Trading', 'Meme', 'Other'
+const WEB3_CATEGORIES = [
+  { value: 'defi', label: '🏦 DeFi' },
+  { value: 'nft', label: '🖼️ NFT' },
+  { value: 'gaming', label: '🎮 Gaming' },
+  { value: 'metaverse', label: '🌐 Metaverse' },
+  { value: 'dao', label: '🏛️ DAO' },
+  { value: 'infrastructure', label: '🏗️ Infrastructure' },
+  { value: 'layer1', label: '1️⃣ Layer 1' },
+  { value: 'layer2', label: '2️⃣ Layer 2' },
+  { value: 'trading', label: '📈 Trading' },
+  { value: 'meme_coins', label: '🐕 Meme Coins' },
+  { value: 'social_fi', label: '💬 SocialFi' },
+  { value: 'ai_crypto', label: '🤖 AI & Crypto' },
+  { value: 'rwa', label: '🏠 Real World Assets' },
+  { value: 'prediction_markets', label: '🔮 Prediction Markets' },
+  { value: 'privacy', label: '🔒 Privacy' },
+  { value: 'cross_chain', label: '🌉 Cross Chain' },
+  { value: 'yield_farming', label: '🌾 Yield Farming' },
+  { value: 'liquid_staking', label: '💧 Liquid Staking' },
+  { value: 'derivatives', label: '📊 Derivatives' },
+  { value: 'payments', label: '💳 Payments' },
+  { value: 'identity', label: '🆔 Identity' },
+  { value: 'security', label: '🛡️ Security' },
+  { value: 'tools', label: '🔨 Tools' },
+  { value: 'analytics', label: '📊 Analytics' },
+  { value: 'education', label: '🎓 Education' },
+  { value: 'other', label: '📦 Other' },
 ]
 
 export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: CreateCampaignModalProps) {
   const [formData, setFormData] = useState({
-    projectId: '',
     title: '',
     description: '',
+    projectName: '',
+    projectLogo: null as File | null,
     category: '',
     campaignType: '',
     rewardPool: '',
-    maxSubmissions: '100',
+    startDate: '',
+    endDate: '',
+    guidelines: '',
   })
   const [showSuccess, setShowSuccess] = useState(false)
+  const [logoPreview, setLogoPreview] = useState<string>('')
 
   const queryClient = useQueryClient()
 
-  // Fetch available projects
-  const { data: projectsResponse, isLoading: projectsLoading, error: projectsError } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => projectsApi.getAll(),
-    enabled: isOpen
-  })
-
-  const projects = projectsResponse?.items || []
-
-  // Debug logging
-  useEffect(() => {
-    if (isOpen) {
-      console.log('📊 Campaign Modal Debug:', {
-        projectsLoading,
-        projectsError,
-        projectsResponse,
-        projects: projects.length,
-        projectsList: projects
-      })
-    }
-  }, [isOpen, projectsLoading, projectsError, projectsResponse, projects])
-
   const createCampaignMutation = useMutation({
-    mutationFn: campaignsApi.create,
+    mutationFn: async (data: any) => {
+      // If there's a logo, upload it first
+      let logoUrl = ''
+      if (formData.projectLogo) {
+        const logoFormData = new FormData()
+        logoFormData.append('logo', formData.projectLogo)
+        logoFormData.append('projectName', formData.projectName || 'untitled')
+        
+        const logoResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/campaigns/upload-logo`, {
+          method: 'POST',
+          body: logoFormData,
+        })
+        
+        if (logoResponse.ok) {
+          const logoResult = await logoResponse.json()
+          logoUrl = logoResult.data.logoUrl
+        }
+      }
+      
+      // Create campaign with logo URL
+      return campaignsApi.create({
+        ...data,
+        projectLogo: logoUrl
+      })
+    },
     onSuccess: (data) => {
       // Invalidate all relevant queries to update dashboard numbers
       queryClient.invalidateQueries({ queryKey: ['campaigns'] })
@@ -69,20 +106,24 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
       // Show success message
       setShowSuccess(true)
       
-      // Auto close after 1.5 seconds (shorter for better UX)
+      // Auto close after 1.5 seconds
       setTimeout(() => {
         setShowSuccess(false)
         onSuccess?.()
         onClose()
         setFormData({
-          projectId: '',
           title: '',
           description: '',
+          projectName: '',
+          projectLogo: null,
           category: '',
           campaignType: '',
           rewardPool: '',
-          maxSubmissions: '100',
+          startDate: '',
+          endDate: '',
+          guidelines: '',
         })
+        setLogoPreview('')
       }, 1500)
     },
     onError: (error) => {
@@ -93,21 +134,24 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!formData.title.trim() || !formData.description.trim() || !formData.category || !formData.campaignType || !formData.rewardPool) {
+    if (!formData.title.trim() || !formData.description.trim() || !formData.category || !formData.campaignType || !formData.rewardPool || !formData.startDate) {
       return
     }
 
-    // Map frontend fields to backend fields
+    // Calculate end date if not provided (30 days from start date)
+    const startDate = new Date(formData.startDate)
+    const endDate = formData.endDate ? new Date(formData.endDate) : new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000)
+
     const campaignData = {
-      projectId: formData.projectId ? parseInt(formData.projectId) : undefined,
       title: formData.title,
       description: formData.description,
+      projectName: formData.projectName || undefined,
       category: formData.category,
       campaignType: formData.campaignType,
       rewardPool: parseInt(formData.rewardPool),
-      maxSubmissions: parseInt(formData.maxSubmissions),
-      startDate: new Date().toISOString(),
-      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      brandGuidelines: formData.guidelines || undefined,
     }
 
     console.log('🚀 Submitting campaign data:', campaignData)
@@ -121,11 +165,33 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
     }))
   }
 
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setFormData(prev => ({ ...prev, projectLogo: file }))
+      
+      // Create preview
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setLogoPreview(e.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  // Set default start date to today
+  useEffect(() => {
+    if (isOpen && !formData.startDate) {
+      const today = new Date().toISOString().split('T')[0]
+      setFormData(prev => ({ ...prev, startDate: today }))
+    }
+  }, [isOpen, formData.startDate])
+
   if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b">
           <h3 className="text-lg font-semibold text-gray-900">Create New Campaign</h3>
           <button
@@ -144,41 +210,6 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            <div>
-              <label htmlFor="projectId" className="block text-sm font-medium text-gray-700 mb-1">
-                Project {projectsLoading ? '(Loading...)' : projects.length === 0 ? '(No projects available)' : '(Optional)'}
-              </label>
-              <select
-                id="projectId"
-                name="projectId"
-                value={formData.projectId}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                disabled={projectsLoading || projects.length === 0}
-              >
-                <option value="">
-                  {projectsLoading ? 'Loading projects...' : 
-                   projects.length === 0 ? 'No projects available - Create a project first' : 
-                   'Select project (optional)'}
-                </option>
-                {projects.map(project => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-              {projectsError && (
-                <p className="mt-1 text-sm text-red-600">
-                  Failed to load projects. Please try again.
-                </p>
-              )}
-              {projects.length === 0 && !projectsLoading && (
-                <p className="mt-1 text-sm text-gray-500">
-                  You can create campaigns without projects, or create a project first for better organization.
-                </p>
-              )}
-            </div>
-
             <div>
               <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
                 Campaign Title *
@@ -206,15 +237,58 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
                 onChange={handleChange}
                 rows={3}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Describe your campaign"
+                placeholder="Describe your campaign objectives and requirements"
                 required
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
+                <label htmlFor="projectName" className="block text-sm font-medium text-gray-700 mb-1">
+                  Project Name
+                </label>
+                <input
+                  type="text"
+                  id="projectName"
+                  name="projectName"
+                  value={formData.projectName}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="Enter project name"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="projectLogo" className="block text-sm font-medium text-gray-700 mb-1">
+                  Project Logo
+                </label>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="file"
+                    id="projectLogo"
+                    name="projectLogo"
+                    accept="image/*"
+                    onChange={handleLogoChange}
+                    className="hidden"
+                  />
+                  <label
+                    htmlFor="projectLogo"
+                    className="flex items-center px-3 py-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50"
+                  >
+                    <PhotoIcon className="h-5 w-5 mr-2 text-gray-400" />
+                    Choose File
+                  </label>
+                  {logoPreview && (
+                    <img src={logoPreview} alt="Logo preview" className="h-8 w-8 rounded object-cover" />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
                 <label htmlFor="campaignType" className="block text-sm font-medium text-gray-700 mb-1">
-                  Type *
+                  Campaign Type *
                 </label>
                 <select
                   id="campaignType"
@@ -246,9 +320,9 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
                   required
                 >
                   <option value="">Select category</option>
-                  {CATEGORIES.map(category => (
-                    <option key={category} value={category}>
-                      {category}
+                  {WEB3_CATEGORIES.map(category => (
+                    <option key={category.value} value={category.value}>
+                      {category.label}
                     </option>
                   ))}
                 </select>
@@ -258,7 +332,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="rewardPool" className="block text-sm font-medium text-gray-700 mb-1">
-                  Reward Pool *
+                  Reward Pool (ROAST) *
                 </label>
                 <input
                   type="number"
@@ -274,20 +348,52 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
               </div>
 
               <div>
-                <label htmlFor="maxSubmissions" className="block text-sm font-medium text-gray-700 mb-1">
-                  Max Submissions
+                <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">
+                  Start Date *
                 </label>
                 <input
-                  type="number"
-                  id="maxSubmissions"
-                  name="maxSubmissions"
-                  value={formData.maxSubmissions}
+                  type="date"
+                  id="startDate"
+                  name="startDate"
+                  value={formData.startDate}
                   onChange={handleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  min="1"
                   required
                 />
               </div>
+            </div>
+
+            <div>
+              <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">
+                End Date (Optional)
+              </label>
+              <input
+                type="date"
+                id="endDate"
+                name="endDate"
+                value={formData.endDate}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                min={formData.startDate}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                If not specified, campaign will run for 30 days from start date
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="guidelines" className="block text-sm font-medium text-gray-700 mb-1">
+                Brand Guidelines (Optional)
+              </label>
+              <textarea
+                id="guidelines"
+                name="guidelines"
+                value={formData.guidelines}
+                onChange={handleChange}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder="Optional content guidelines and requirements"
+              />
             </div>
 
             <div className="flex justify-end space-x-3 pt-4">

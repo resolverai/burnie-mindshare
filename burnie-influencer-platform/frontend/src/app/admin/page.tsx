@@ -133,15 +133,10 @@ export default function AdminLogin() {
               </button>
             </form>
 
-            {/* Development Credentials */}
-            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800 font-medium mb-2">Development Credentials:</p>
-              <div className="text-sm text-blue-700 space-y-1">
-                <p><strong>Username:</strong> admin</p>
-                <p><strong>Password:</strong> admin123</p>
-              </div>
-              <p className="text-xs text-blue-600 mt-2">
-                These credentials are for development only. In production, use secure credentials.
+            {/* Login Help */}
+            <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <p className="text-sm text-gray-700">
+                Contact your system administrator for login credentials.
               </p>
             </div>
           </div>

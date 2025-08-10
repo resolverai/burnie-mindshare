@@ -27,15 +27,20 @@ interface Campaign {
   id: string
   title: string
   description: string
+  projectName?: string
+  projectLogo?: string
+  tokenTicker?: string
   category: string
   rewardPool: string | number // bigint from database comes as string
   entryFee: string | number   // bigint from database comes as string
   maxSubmissions: string | number  // may come as string
   currentSubmissions: string | number // may come as string
+  maxYappers?: number
   status: string
   campaignType: string
   platformSource?: string
   rewardToken?: string
+  brandGuidelines?: string
   startDate?: string
   endDate?: string
   createdAt: string
@@ -45,7 +50,12 @@ interface Campaign {
 export default function AdminDashboard() {
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
+  const [showEditForm, setShowEditForm] = useState(false)
+  const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null)
   const [loading, setLoading] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10)
   const [mlTraining, setMlTraining] = useState({
     isTraining: false,
     trainingId: '',
@@ -57,13 +67,74 @@ export default function AdminDashboard() {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    topic: '',
-    guidelines: '',
-    budget: '',
-    reward_per_roast: '',
-    max_submissions: '',
-    end_date: ''
+    projectName: '',
+    projectLogo: null as File | null,
+    tokenTicker: 'ROAST',
+    category: '',
+    campaignType: '',
+    rewardPool: '',
+    maxYappers: '100',
+    platformSource: 'burnie',
+    startDate: '',
+    endDate: '',
+    guidelines: ''
   })
+  const [logoPreview, setLogoPreview] = useState<string>('')
+
+  // Web3 Campaign Types
+  const CAMPAIGN_TYPES = [
+    { value: 'feature_launch', label: '🚀 Feature Launch' },
+    { value: 'showcase', label: '✨ Showcase' },
+    { value: 'awareness', label: '📢 Awareness' },
+    { value: 'roast', label: '🔥 Roast' },
+    { value: 'meme', label: '😂 Meme' },
+    { value: 'creative', label: '🎨 Creative' },
+    { value: 'viral', label: '⚡ Viral' },
+    { value: 'social', label: '👥 Social' },
+    { value: 'educational', label: '📚 Educational' },
+    { value: 'technical', label: '🔧 Technical' },
+  ]
+
+  // Comprehensive Web3 Categories
+  const WEB3_CATEGORIES = [
+    { value: 'defi', label: '🏦 DeFi' },
+    { value: 'nft', label: '🖼️ NFT' },
+    { value: 'gaming', label: '🎮 Gaming' },
+    { value: 'metaverse', label: '🌐 Metaverse' },
+    { value: 'dao', label: '🏛️ DAO' },
+    { value: 'infrastructure', label: '🏗️ Infrastructure' },
+    { value: 'layer1', label: '1️⃣ Layer 1' },
+    { value: 'layer2', label: '2️⃣ Layer 2' },
+    { value: 'trading', label: '📈 Trading' },
+    { value: 'meme_coins', label: '🐕 Meme Coins' },
+    { value: 'social_fi', label: '💬 SocialFi' },
+    { value: 'ai_crypto', label: '🤖 AI & Crypto' },
+    { value: 'rwa', label: '🏠 Real World Assets' },
+    { value: 'prediction_markets', label: '🔮 Prediction Markets' },
+    { value: 'privacy', label: '🔒 Privacy' },
+    { value: 'cross_chain', label: '🌉 Cross Chain' },
+    { value: 'yield_farming', label: '🌾 Yield Farming' },
+    { value: 'liquid_staking', label: '💧 Liquid Staking' },
+    { value: 'derivatives', label: '📊 Derivatives' },
+    { value: 'payments', label: '💳 Payments' },
+    { value: 'identity', label: '🆔 Identity' },
+    { value: 'security', label: '🛡️ Security' },
+    { value: 'tools', label: '🔨 Tools' },
+    { value: 'analytics', label: '📊 Analytics' },
+    { value: 'education', label: '🎓 Education' },
+    { value: 'other', label: '📦 Other' },
+  ]
+
+  // Campaign Source Options
+  const PLATFORM_SOURCES = [
+    { value: 'burnie', label: '🔥 Burnie (Internal)' },
+    { value: 'cookie.fun', label: '🍪 Cookie.fun' },
+    { value: 'yaps.kaito.ai', label: '🤖 Yaps.Kaito.ai' },
+    { value: 'yap.market', label: '💬 Yap.market' },
+    { value: 'amplifi.now', label: '📢 Amplifi.now' },
+    { value: 'arbus', label: '🚌 Arbus' },
+    { value: 'trendsage.xyz', label: '📈 Trendsage.xyz' },
+  ]
   const router = useRouter()
 
   // Check admin authentication on mount
@@ -110,6 +181,49 @@ export default function AdminDashboard() {
     },
     enabled: !!adminUser,
     refetchInterval: 30000,
+  })
+
+  // Filter and paginate campaigns
+  const filteredCampaigns = campaigns?.items?.filter((campaign: Campaign) =>
+    campaign.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    campaign.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    campaign.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (campaign.platformSource || '').toLowerCase().includes(searchTerm.toLowerCase())
+  ) || []
+
+  const totalPages = Math.ceil(filteredCampaigns.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const paginatedCampaigns = filteredCampaigns.slice(startIndex, startIndex + itemsPerPage)
+
+  // Reset page when search changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm])
+
+  // Fetch admin analytics
+  const { data: adminAnalytics, isLoading: analyticsLoading, error: analyticsError } = useQuery({
+    queryKey: ['admin-analytics'],
+    queryFn: async () => {
+      const token = getAdminToken()
+      if (!token) throw new Error('No admin token')
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/analytics`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch analytics')
+      }
+
+      const data = await response.json()
+      return data.data
+    },
+    enabled: !!adminUser,
+    refetchInterval: 30000, // Refresh every 30 seconds
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   })
 
   const handleLogout = () => {
@@ -207,7 +321,44 @@ export default function AdminDashboard() {
     }
   }
 
-  const handleCreateCampaign = async (e: React.FormEvent) => {
+  const handleEditCampaign = async (campaign: Campaign) => {
+    setEditingCampaign(campaign)
+    setFormData({
+      title: campaign.title,
+      description: campaign.description,
+      projectName: campaign.projectName || '',
+      projectLogo: null,
+      tokenTicker: campaign.tokenTicker || 'ROAST',
+      category: campaign.category,
+      campaignType: campaign.campaignType,
+      rewardPool: campaign.rewardPool?.toString() || '',
+      maxYappers: campaign.maxYappers?.toString() || '100',
+      platformSource: campaign.platformSource || 'burnie',
+      startDate: campaign.startDate ? new Date(campaign.startDate).toISOString().split('T')[0] : '',
+      endDate: campaign.endDate ? new Date(campaign.endDate).toISOString().split('T')[0] : '',
+      guidelines: campaign.brandGuidelines || ''
+    })
+    
+    // Set logo preview if campaign has a project logo
+    if (campaign.projectLogo) {
+      try {
+        const { getDisplayableLogoUrl } = await import('../../../utils/s3Utils')
+        const displayUrl = await getDisplayableLogoUrl(campaign.projectLogo)
+        if (displayUrl) {
+          setLogoPreview(displayUrl)
+        }
+      } catch (error) {
+        console.error('Error loading campaign logo for editing:', error)
+        setLogoPreview('')
+      }
+    } else {
+      setLogoPreview('')
+    }
+    
+    setShowEditForm(true)
+  }
+
+  const handleUpdateCampaign = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
 
@@ -215,22 +366,52 @@ export default function AdminDashboard() {
       const token = getAdminToken()
       if (!token) throw new Error('No admin token')
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/campaigns`, {
-        method: 'POST',
+      // Handle logo upload first if present
+      let logoUrl = editingCampaign?.projectLogo || ''
+      if (formData.projectLogo) {
+        const logoFormData = new FormData()
+        logoFormData.append('logo', formData.projectLogo)
+        logoFormData.append('projectName', formData.projectName || 'untitled')
+        
+        const logoResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/campaigns/upload-logo`, {
+          method: 'POST',
+          body: logoFormData,
+        })
+        
+        if (logoResponse.ok) {
+          const logoResult = await logoResponse.json()
+          logoUrl = logoResult.data.logoUrl
+        }
+      }
+
+      // Prepare campaign data
+      const campaignData = {
+        title: formData.title,
+        description: formData.description,
+        projectName: formData.projectName,
+        projectLogo: logoUrl,
+        tokenTicker: formData.tokenTicker,
+        category: formData.category,
+        campaignType: formData.campaignType,
+        rewardPool: formData.rewardPool,
+        maxYappers: formData.maxYappers,
+        platformSource: formData.platformSource,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        guidelines: formData.guidelines
+      }
+
+      console.log('📝 Updating campaign with data:', campaignData)
+      console.log('🖼️ Logo URL being sent:', logoUrl)
+      console.log('🔍 Existing campaign logo:', editingCampaign?.projectLogo)
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/campaigns/${editingCampaign?.id}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          title: formData.title,
-          description: formData.description,
-          topic: formData.topic,
-          guidelines: formData.guidelines,
-          budget: parseInt(formData.budget),
-          reward_per_roast: parseFloat(formData.reward_per_roast),
-          max_submissions: parseInt(formData.max_submissions),
-          end_date: formData.end_date,
-        }),
+        body: JSON.stringify(campaignData),
       })
 
       const data = await response.json()
@@ -240,13 +421,109 @@ export default function AdminDashboard() {
         setFormData({
           title: '',
           description: '',
-          topic: '',
-          guidelines: '',
-          budget: '',
-          reward_per_roast: '',
-          max_submissions: '',
-          end_date: ''
+          projectName: '',
+          projectLogo: null,
+          tokenTicker: 'ROAST',
+          category: '',
+          campaignType: '',
+          rewardPool: '',
+          maxYappers: '100',
+          platformSource: 'burnie',
+          startDate: '',
+          endDate: '',
+          guidelines: ''
         })
+        setLogoPreview('')
+        setShowEditForm(false)
+        setEditingCampaign(null)
+        
+        // Refresh campaigns list
+        refetchCampaigns()
+      } else {
+        alert(data.error || 'Failed to update campaign')
+      }
+    } catch (error) {
+      alert('Failed to update campaign')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCreateCampaign = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+
+    try {
+      const token = getAdminToken()
+      if (!token) throw new Error('No admin token')
+
+      // Handle logo upload first if present
+      let logoUrl = ''
+      if (formData.projectLogo) {
+        const logoFormData = new FormData()
+        logoFormData.append('logo', formData.projectLogo)
+        logoFormData.append('projectName', formData.projectName || 'untitled')
+        
+        const logoResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/campaigns/upload-logo`, {
+          method: 'POST',
+          body: logoFormData,
+        })
+        
+        if (logoResponse.ok) {
+          const logoResult = await logoResponse.json()
+          logoUrl = logoResult.data.logoUrl
+        }
+      }
+
+      // Prepare campaign data
+      const campaignData = {
+        title: formData.title,
+        description: formData.description,
+        projectName: formData.projectName,
+        projectLogo: logoUrl,
+        tokenTicker: formData.tokenTicker,
+        category: formData.category,
+        campaignType: formData.campaignType,
+        rewardPool: formData.rewardPool,
+        maxYappers: formData.maxYappers,
+        platformSource: formData.platformSource,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        guidelines: formData.guidelines
+      }
+
+      console.log('📊 Creating campaign with data:', campaignData)
+      console.log('🖼️ Logo URL being sent:', logoUrl)
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/campaigns`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(campaignData),
+      })
+
+      const data = await response.json()
+
+      if (response.ok && data.success) {
+        // Reset form and close modal
+        setFormData({
+          title: '',
+          description: '',
+          projectName: '',
+          projectLogo: null,
+          tokenTicker: 'ROAST',
+          category: '',
+          campaignType: '',
+          rewardPool: '',
+          maxYappers: '100',
+          platformSource: 'burnie',
+          startDate: '',
+          endDate: '',
+          guidelines: ''
+        })
+        setLogoPreview('')
         setShowCreateForm(false)
         
         // Refresh campaigns list
@@ -321,7 +598,10 @@ export default function AdminDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500">Total Campaigns</p>
-                  <p className="text-2xl font-bold text-gray-900">{campaigns?.items?.length || 0}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {analyticsLoading ? 'Loading...' : (adminAnalytics?.totalCampaigns || campaigns?.items?.length || 0)}
+                  </p>
+                  {analyticsError && <p className="text-xs text-red-500">Using fallback data</p>}
                 </div>
                 <MegaphoneIcon className="h-8 w-8 text-orange-500" />
               </div>
@@ -332,8 +612,9 @@ export default function AdminDashboard() {
                 <div>
                   <p className="text-sm text-gray-500">Active Campaigns</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {campaigns?.items?.filter((c: Campaign) => c.status === 'active').length || 0}
+                    {analyticsLoading ? 'Loading...' : (adminAnalytics?.activeCampaigns || campaigns?.items?.filter((c: Campaign) => c.status === 'active').length || 0)}
                   </p>
+                  {analyticsError && <p className="text-xs text-red-500">Using fallback data</p>}
                 </div>
                 <ChartBarIcon className="h-8 w-8 text-green-500" />
               </div>
@@ -342,24 +623,29 @@ export default function AdminDashboard() {
             <div className="metric-card">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Total Budget</p>
+                  <p className="text-sm text-gray-500">Number of Yappers</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {campaigns?.items?.reduce((sum: number, c: Campaign) => sum + Number(c.rewardPool || 0), 0)?.toLocaleString() || '0'} ROAST
+                    {analyticsLoading ? 'Loading...' : (adminAnalytics?.totalYappers?.toLocaleString() || '0')}
                   </p>
+                  {analyticsError && <p className="text-xs text-red-500">Database unavailable</p>}
                 </div>
-                <CurrencyDollarIcon className="h-8 w-8 text-blue-500" />
+                <UsersIcon className="h-8 w-8 text-blue-500" />
               </div>
             </div>
 
             <div className="metric-card">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Max Submissions</p>
+                  <p className="text-sm text-gray-500">Total Purchase Value</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {campaigns?.items?.reduce((sum: number, c: Campaign) => sum + Number(c.maxSubmissions || 0), 0)?.toLocaleString() || '0'}
+                    {analyticsLoading ? 'Loading...' : `$${adminAnalytics?.totalPurchaseValue?.toLocaleString() || '0'} USDC`}
                   </p>
+                  <p className="text-xs text-gray-400">
+                    {analyticsLoading ? '' : `${adminAnalytics?.totalTransactions || 0} transactions`}
+                  </p>
+                  {analyticsError && <p className="text-xs text-red-500">Price data unavailable</p>}
                 </div>
-                <UsersIcon className="h-8 w-8 text-purple-500" />
+                <CurrencyDollarIcon className="h-8 w-8 text-purple-500" />
               </div>
             </div>
           </div>
@@ -570,7 +856,26 @@ export default function AdminDashboard() {
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-semibold text-gray-900">Campaign Management</h3>
           <button
-            onClick={() => setShowCreateForm(true)}
+            onClick={() => {
+              // Clear form data before opening create modal
+              setFormData({
+                title: '',
+                description: '',
+                projectName: '',
+                projectLogo: null,
+                tokenTicker: 'ROAST',
+                category: '',
+                campaignType: '',
+                rewardPool: '',
+                maxYappers: '100',
+                platformSource: 'burnie',
+                startDate: '',
+                endDate: '',
+                guidelines: ''
+              })
+              setLogoPreview('')
+              setShowCreateForm(true)
+            }}
             className="btn-primary flex items-center space-x-2"
           >
             <PlusIcon className="h-5 w-5" />
@@ -584,56 +889,120 @@ export default function AdminDashboard() {
             <h4 className="text-lg font-semibold text-gray-900">All Campaigns</h4>
             <p className="text-sm text-gray-500">Manage your platform campaigns</p>
           </div>
+
+          {/* Search Bar */}
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search campaigns by title, description, category, or platform..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              />
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            </div>
+            {searchTerm && (
+              <p className="mt-2 text-sm text-gray-600">
+                Found {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} matching "{searchTerm}"
+              </p>
+            )}
+          </div>
           
           {campaignsLoading ? (
             <div className="card-content text-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-4"></div>
               <p className="text-gray-600">Loading campaigns...</p>
             </div>
-          ) : campaigns?.items && campaigns.items.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reward Pool</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Submissions</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {campaigns.items.map((campaign: Campaign) => (
-                    <tr key={campaign.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div>
-                          <div className="font-medium text-gray-900">{campaign.title}</div>
-                          <div className="text-sm text-gray-500 truncate max-w-xs">{campaign.description}</div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{campaign.category}</td>
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                        {Number(campaign.rewardPool || 0).toLocaleString()} {campaign.rewardToken || 'ROAST'}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{Number(campaign.maxSubmissions || 0).toLocaleString()}</td>
-                      <td className="px-6 py-4">
-                        <span className={`status-indicator ${
-                          campaign.status === 'ACTIVE' ? 'status-active' :
-                          campaign.status === 'COMPLETED' ? 'status-completed' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {campaign.status.charAt(0).toUpperCase() + campaign.status.slice(1).toLowerCase()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {campaign.endDate ? formatDate(campaign.endDate) : 'No end date'}
-                      </td>
+          ) : filteredCampaigns.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Platform</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reward Pool</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Max Yappers</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {paginatedCampaigns.map((campaign: Campaign) => (
+                      <tr key={campaign.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4">
+                          <div>
+                            <div className="font-medium text-gray-900">{campaign.title}</div>
+                            <div className="text-sm text-gray-500 truncate max-w-xs">{campaign.description}</div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900 capitalize">{campaign.category?.replace('_', ' ')}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900 capitalize">{campaign.platformSource || 'burnie'}</td>
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                          {Number(campaign.rewardPool || 0).toLocaleString()} {campaign.tokenTicker || campaign.rewardToken || 'ROAST'}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">{campaign.maxYappers || 100}</td>
+                        <td className="px-6 py-4">
+                          <span className={`status-indicator ${
+                            campaign.status === 'ACTIVE' ? 'status-active' :
+                            campaign.status === 'COMPLETED' ? 'status-completed' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {campaign.status.charAt(0).toUpperCase() + campaign.status.slice(1).toLowerCase()}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          {campaign.endDate ? formatDate(campaign.endDate) : 'No end date'}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          <button
+                            onClick={() => handleEditCampaign(campaign)}
+                            className="text-orange-600 hover:text-orange-700 font-medium"
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => setCurrentPage(Math.max(currentPage - 1, 1))}
+                      disabled={currentPage === 1}
+                      className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Previous
+                    </button>
+                    <span className="px-3 py-1 text-sm text-gray-600">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage(Math.min(currentPage + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    Showing {filteredCampaigns.length} campaigns
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="card-content text-center py-12">
               <MegaphoneIcon className="h-16 w-16 mx-auto mb-4 text-gray-400" />
@@ -643,6 +1012,306 @@ export default function AdminDashboard() {
           )}
         </div>
       </div>
+
+      {/* Edit Campaign Modal */}
+      {showEditForm && editingCampaign && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl border border-gray-200 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Edit Campaign</h3>
+                <button
+                  onClick={() => {
+                    setShowEditForm(false)
+                    setEditingCampaign(null)
+                    setFormData({
+                      title: '',
+                      description: '',
+                      projectName: '',
+                      projectLogo: null,
+                      tokenTicker: 'ROAST',
+                      category: '',
+                      campaignType: '',
+                      rewardPool: '',
+                      maxYappers: '100',
+                      platformSource: 'burnie',
+                      startDate: '',
+                      endDate: '',
+                      guidelines: ''
+                    })
+                    setLogoPreview('')
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <form onSubmit={handleUpdateCampaign} className="p-6 space-y-6">
+              {/* Same form structure as create campaign */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
+                    Campaign Title *
+                  </label>
+                  <input
+                    type="text"
+                    id="title"
+                    required
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    className="input-field"
+                    placeholder="Enter campaign title"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="projectName" className="block text-sm font-medium text-gray-700 mb-2">
+                    Project Name *
+                  </label>
+                  <input
+                    type="text"
+                    id="projectName"
+                    required
+                    value={formData.projectName}
+                    onChange={(e) => setFormData({ ...formData, projectName: e.target.value })}
+                    className="input-field"
+                    placeholder="Enter project name"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="projectLogo" className="block text-sm font-medium text-gray-700 mb-2">
+                  Project Logo (Optional)
+                </label>
+                <input
+                  type="file"
+                  id="projectLogo"
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      setFormData({ ...formData, projectLogo: e.target.files[0] });
+                      setLogoPreview(URL.createObjectURL(e.target.files[0]));
+                    } else {
+                      setFormData({ ...formData, projectLogo: null });
+                      setLogoPreview('');
+                    }
+                  }}
+                  className="input-field"
+                />
+                {logoPreview && (
+                  <div className="mt-2">
+                    <img 
+                      src={logoPreview} 
+                      alt="Project Logo Preview" 
+                      className="max-w-sm h-auto rounded-md" 
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
+                  Project Description *
+                </label>
+                <textarea
+                  id="description"
+                  required
+                  rows={3}
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="input-field"
+                  placeholder="Describe the project and its objectives"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="tokenTicker" className="block text-sm font-medium text-gray-700 mb-2">
+                    Token Ticker *
+                  </label>
+                  <input
+                    type="text"
+                    id="tokenTicker"
+                    required
+                    value={formData.tokenTicker}
+                    onChange={(e) => setFormData({ ...formData, tokenTicker: e.target.value.toUpperCase() })}
+                    className="input-field"
+                    placeholder="ROAST"
+                    maxLength={10}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="platformSource" className="block text-sm font-medium text-gray-700 mb-2">
+                    Platform Source *
+                  </label>
+                  <select
+                    id="platformSource"
+                    required
+                    value={formData.platformSource}
+                    onChange={(e) => setFormData({ ...formData, platformSource: e.target.value })}
+                    className="input-field"
+                  >
+                    {PLATFORM_SOURCES.map((platform) => (
+                      <option key={platform.value} value={platform.value}>
+                        {platform.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="guidelines" className="block text-sm font-medium text-gray-700 mb-2">
+                  Campaign Guidelines
+                </label>
+                <textarea
+                  id="guidelines"
+                  rows={2}
+                  value={formData.guidelines}
+                  onChange={(e) => setFormData({ ...formData, guidelines: e.target.value })}
+                  className="input-field"
+                  placeholder="Optional campaign guidelines and requirements"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-2">
+                    Category *
+                  </label>
+                  <select
+                    id="category"
+                    required
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    className="input-field"
+                  >
+                    <option value="">Select a category</option>
+                    {WEB3_CATEGORIES.map((cat) => (
+                      <option key={cat.value} value={cat.value}>
+                        {cat.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="campaignType" className="block text-sm font-medium text-gray-700 mb-2">
+                    Campaign Type *
+                  </label>
+                  <select
+                    id="campaignType"
+                    required
+                    value={formData.campaignType}
+                    onChange={(e) => setFormData({ ...formData, campaignType: e.target.value })}
+                    className="input-field"
+                  >
+                    <option value="">Select a campaign type</option>
+                    {CAMPAIGN_TYPES.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="rewardPool" className="block text-sm font-medium text-gray-700 mb-2">
+                    Reward Pool ({formData.tokenTicker || 'TOKEN'}) *
+                  </label>
+                  <input
+                    type="number"
+                    id="rewardPool"
+                    required
+                    min="1"
+                    value={formData.rewardPool}
+                    onChange={(e) => setFormData({ ...formData, rewardPool: e.target.value })}
+                    className="input-field"
+                    placeholder="10000"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="maxYappers" className="block text-sm font-medium text-gray-700 mb-2">
+                    Max Yappers *
+                  </label>
+                  <input
+                    type="number"
+                    id="maxYappers"
+                    required
+                    min="1"
+                    value={formData.maxYappers}
+                    onChange={(e) => setFormData({ ...formData, maxYappers: e.target.value })}
+                    className="input-field"
+                    placeholder="100"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Number of yappers to distribute the reward pool among
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date *
+                  </label>
+                  <input
+                    type="date"
+                    id="startDate"
+                    required
+                    value={formData.startDate}
+                    onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                    className="input-field"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date *
+                  </label>
+                  <input
+                    type="date"
+                    id="endDate"
+                    required
+                    value={formData.endDate}
+                    onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                    className="input-field"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditForm(false)
+                    setEditingCampaign(null)
+                  }}
+                  className="flex-1 btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? 'Updating...' : 'Update Campaign'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Create Campaign Modal */}
       {showCreateForm && (
@@ -678,24 +1347,50 @@ export default function AdminDashboard() {
                 </div>
 
                 <div>
-                  <label htmlFor="topic" className="block text-sm font-medium text-gray-700 mb-2">
-                    Topic *
+                  <label htmlFor="projectName" className="block text-sm font-medium text-gray-700 mb-2">
+                    Project Name *
                   </label>
                   <input
                     type="text"
-                    id="topic"
+                    id="projectName"
                     required
-                    value={formData.topic}
-                    onChange={(e) => setFormData({ ...formData, topic: e.target.value })}
+                    value={formData.projectName}
+                    onChange={(e) => setFormData({ ...formData, projectName: e.target.value })}
                     className="input-field"
-                    placeholder="Campaign topic"
+                    placeholder="Enter project name"
                   />
                 </div>
               </div>
 
               <div>
+                <label htmlFor="projectLogo" className="block text-sm font-medium text-gray-700 mb-2">
+                  Project Logo (Optional)
+                </label>
+                <input
+                  type="file"
+                  id="projectLogo"
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      setFormData({ ...formData, projectLogo: e.target.files[0] });
+                      setLogoPreview(URL.createObjectURL(e.target.files[0]));
+                    } else {
+                      setFormData({ ...formData, projectLogo: null });
+                      setLogoPreview('');
+                    }
+                  }}
+                  className="input-field"
+                />
+                {logoPreview && (
+                  <div className="mt-2">
+                    <img src={logoPreview} alt="Project Logo Preview" className="max-w-sm h-auto rounded-md" />
+                  </div>
+                )}
+              </div>
+
+              <div>
                 <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
-                  Description *
+                  Project Description *
                 </label>
                 <textarea
                   id="description"
@@ -704,13 +1399,50 @@ export default function AdminDashboard() {
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   className="input-field"
-                  placeholder="Describe the campaign objectives and requirements"
+                  placeholder="Describe the project and its objectives"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="tokenTicker" className="block text-sm font-medium text-gray-700 mb-2">
+                    Token Ticker *
+                  </label>
+                  <input
+                    type="text"
+                    id="tokenTicker"
+                    required
+                    value={formData.tokenTicker}
+                    onChange={(e) => setFormData({ ...formData, tokenTicker: e.target.value.toUpperCase() })}
+                    className="input-field"
+                    placeholder="ROAST"
+                    maxLength={10}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="platformSource" className="block text-sm font-medium text-gray-700 mb-2">
+                    Platform Source *
+                  </label>
+                  <select
+                    id="platformSource"
+                    required
+                    value={formData.platformSource}
+                    onChange={(e) => setFormData({ ...formData, platformSource: e.target.value })}
+                    className="input-field"
+                  >
+                    {PLATFORM_SOURCES.map((platform) => (
+                      <option key={platform.value} value={platform.value}>
+                        {platform.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div>
                 <label htmlFor="guidelines" className="block text-sm font-medium text-gray-700 mb-2">
-                  Guidelines
+                  Campaign Guidelines
                 </label>
                 <textarea
                   id="guidelines"
@@ -718,74 +1450,119 @@ export default function AdminDashboard() {
                   value={formData.guidelines}
                   onChange={(e) => setFormData({ ...formData, guidelines: e.target.value })}
                   className="input-field"
-                  placeholder="Optional content guidelines and requirements"
+                  placeholder="Optional campaign guidelines and requirements"
                 />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
-                  <label htmlFor="budget" className="block text-sm font-medium text-gray-700 mb-2">
-                    Budget (ROAST) *
+                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-2">
+                    Category *
+                  </label>
+                  <select
+                    id="category"
+                    required
+                    value={formData.category}
+                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    className="input-field"
+                  >
+                    <option value="">Select a category</option>
+                    {WEB3_CATEGORIES.map((cat) => (
+                      <option key={cat.value} value={cat.value}>
+                        {cat.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="campaignType" className="block text-sm font-medium text-gray-700 mb-2">
+                    Campaign Type *
+                  </label>
+                  <select
+                    id="campaignType"
+                    required
+                    value={formData.campaignType}
+                    onChange={(e) => setFormData({ ...formData, campaignType: e.target.value })}
+                    className="input-field"
+                  >
+                    <option value="">Select a campaign type</option>
+                    {CAMPAIGN_TYPES.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="rewardPool" className="block text-sm font-medium text-gray-700 mb-2">
+                    Reward Pool ({formData.tokenTicker || 'TOKEN'}) *
                   </label>
                   <input
                     type="number"
-                    id="budget"
+                    id="rewardPool"
                     required
                     min="1"
-                    value={formData.budget}
-                    onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
+                    value={formData.rewardPool}
+                    onChange={(e) => setFormData({ ...formData, rewardPool: e.target.value })}
                     className="input-field"
                     placeholder="10000"
                   />
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label htmlFor="reward_per_roast" className="block text-sm font-medium text-gray-700 mb-2">
-                    Reward per ROAST *
+                  <label htmlFor="maxYappers" className="block text-sm font-medium text-gray-700 mb-2">
+                    Max Yappers *
                   </label>
                   <input
                     type="number"
-                    id="reward_per_roast"
-                    required
-                    min="0.01"
-                    step="0.01"
-                    value={formData.reward_per_roast}
-                    onChange={(e) => setFormData({ ...formData, reward_per_roast: e.target.value })}
-                    className="input-field"
-                    placeholder="1.5"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="max_submissions" className="block text-sm font-medium text-gray-700 mb-2">
-                    Max Submissions *
-                  </label>
-                  <input
-                    type="number"
-                    id="max_submissions"
+                    id="maxYappers"
                     required
                     min="1"
-                    value={formData.max_submissions}
-                    onChange={(e) => setFormData({ ...formData, max_submissions: e.target.value })}
+                    value={formData.maxYappers}
+                    onChange={(e) => setFormData({ ...formData, maxYappers: e.target.value })}
                     className="input-field"
-                    placeholder="1000"
+                    placeholder="100"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Number of yappers to distribute the reward pool among
+                  </p>
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="end_date" className="block text-sm font-medium text-gray-700 mb-2">
-                  End Date *
-                </label>
-                <input
-                  type="date"
-                  id="end_date"
-                  required
-                  value={formData.end_date}
-                  onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                  className="input-field"
-                  min={new Date().toISOString().split('T')[0]}
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date *
+                  </label>
+                  <input
+                    type="date"
+                    id="startDate"
+                    required
+                    value={formData.startDate}
+                    onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                    className="input-field"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date *
+                  </label>
+                  <input
+                    type="date"
+                    id="endDate"
+                    required
+                    value={formData.endDate}
+                    onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                    className="input-field"
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
               </div>
 
               <div className="flex space-x-3 pt-4">

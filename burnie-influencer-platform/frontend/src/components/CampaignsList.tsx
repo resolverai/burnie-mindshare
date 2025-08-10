@@ -42,8 +42,8 @@ export default function CampaignsList({ campaigns, loading, compact = false }: C
                 {campaign.description}
               </p>
               <div className="flex items-center space-x-4 text-sm text-gray-500 mb-2">
-                <span>🎯 {campaign.topic}</span>
-                <span>💰 ${campaign.budget.toLocaleString()}</span>
+                <span>🎯 {campaign.category?.replace('_', ' ')}</span>
+                <span>💰 {Number(campaign.rewardPool || 0).toLocaleString()} {campaign.tokenTicker || 'ROAST'}</span>
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                   campaign.status === 'active' 
                     ? 'bg-green-100 text-green-800'

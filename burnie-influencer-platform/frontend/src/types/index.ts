@@ -21,14 +21,19 @@ export interface Project {
 
 export interface Campaign {
   id: string
-  project_id: string
+  project_id?: string
+  projectName?: string
+  projectLogo?: string
   title: string
   description: string
-  topic: string
-  guidelines?: string
-  budget: number
-  reward_per_roast: number
-  max_submissions: number
+  tokenTicker?: string
+  category: string
+  campaignType: string
+  platformSource?: string
+  rewardPool: number | string
+  maxYappers?: number
+  brandGuidelines?: string
+  max_submissions?: number
   status: 'draft' | 'active' | 'completed' | 'cancelled'
   start_date?: string
   end_date?: string
@@ -37,6 +42,11 @@ export interface Campaign {
   submissions_count?: number
   current_submissions?: number
   project?: Project
+  // Legacy fields for backward compatibility
+  topic?: string
+  guidelines?: string
+  budget?: number
+  reward_per_roast?: number
 }
 
 export interface Submission {

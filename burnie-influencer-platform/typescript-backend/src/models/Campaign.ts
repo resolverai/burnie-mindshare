@@ -23,6 +23,9 @@ export enum CampaignStatus {
 }
 
 export enum CampaignType {
+  FEATURE_LAUNCH = 'feature_launch',
+  SHOWCASE = 'showcase', 
+  AWARENESS = 'awareness',
   ROAST = 'roast',
   MEME = 'meme',
   CREATIVE = 'creative',
@@ -30,6 +33,45 @@ export enum CampaignType {
   SOCIAL = 'social',
   EDUCATIONAL = 'educational',
   TECHNICAL = 'technical',
+}
+
+export enum CampaignCategory {
+  DEFI = 'defi',
+  NFT = 'nft',
+  GAMING = 'gaming',
+  METAVERSE = 'metaverse',
+  DAO = 'dao',
+  INFRASTRUCTURE = 'infrastructure',
+  LAYER1 = 'layer1',
+  LAYER2 = 'layer2',
+  TRADING = 'trading',
+  MEME_COINS = 'meme_coins',
+  SOCIAL_FI = 'social_fi',
+  AI_CRYPTO = 'ai_crypto',
+  RWA = 'rwa',
+  PREDICTION_MARKETS = 'prediction_markets',
+  PRIVACY = 'privacy',
+  CROSS_CHAIN = 'cross_chain',
+  YIELD_FARMING = 'yield_farming',
+  LIQUID_STAKING = 'liquid_staking',
+  DERIVATIVES = 'derivatives',
+  PAYMENTS = 'payments',
+  IDENTITY = 'identity',
+  SECURITY = 'security',
+  TOOLS = 'tools',
+  ANALYTICS = 'analytics',
+  EDUCATION = 'education',
+  OTHER = 'other'
+}
+
+export enum PlatformSource {
+  BURNIE = 'burnie',
+  COOKIE_FUN = 'cookie.fun',
+  YAPS_KAITO = 'yaps.kaito.ai',
+  YAP_MARKET = 'yap.market',
+  AMPLIFI_NOW = 'amplifi.now',
+  ARBUS = 'arbus',
+  TRENDSAGE = 'trendsage.xyz'
 }
 
 @Entity('campaigns')
@@ -47,12 +89,36 @@ export class Campaign {
   @Column({ type: 'text' })
   description!: string
 
-  @Column({ type: 'varchar', length: 255 })
-  category!: string
+  // Project Name (instead of projectId relationship)
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  projectName?: string
+
+  // Project Logo S3 URL
+  @Column({ type: 'text', nullable: true })
+  projectLogo?: string
+
+  @Column({
+    type: 'enum',
+    enum: CampaignCategory,
+    default: CampaignCategory.OTHER,
+  })
+  category!: CampaignCategory
+
+  // Token information
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  tokenTicker?: string // e.g., 'ROAST', 'USDC', 'ETH'
+
+  // Max yappers for reward distribution
+  @Column({ type: 'integer', default: 100 })
+  maxYappers!: number
 
   // New fields for aggregated campaigns
-  @Column({ type: 'varchar', length: 50, nullable: true })
-  platformSource?: string // 'cookie.fun', 'yaps.kaito.ai', 'yap.market', etc.
+  @Column({
+    type: 'enum',
+    enum: PlatformSource,
+    default: PlatformSource.BURNIE,
+  })
+  platformSource!: PlatformSource
 
   @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
   externalCampaignId?: string // ID from external platform
@@ -78,7 +144,7 @@ export class Campaign {
   @Column({
     type: 'enum',
     enum: CampaignType,
-    default: CampaignType.ROAST,
+    default: CampaignType.AWARENESS,
   })
   campaignType!: CampaignType
 
@@ -92,7 +158,7 @@ export class Campaign {
   @Column({ type: 'bigint' })
   rewardPool!: number
 
-  @Column({ type: 'bigint' })
+  @Column({ type: 'bigint', default: 0 })
   entryFee!: number
 
   @Column({ type: 'integer', default: 1500 })
@@ -119,7 +185,7 @@ export class Campaign {
   @Column({ type: 'integer', nullable: true })
   projectId?: number
 
-  // Project relationship
+  // Keep project relationship for backwards compatibility
   @ManyToOne(() => Project, project => project.campaigns)
   @JoinColumn({ name: 'projectId' })
   project?: Project

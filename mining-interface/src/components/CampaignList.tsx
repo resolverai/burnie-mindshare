@@ -7,6 +7,8 @@ interface Campaign {
   title: string
   slug: string
   description: string
+  brandGuidelines?: string
+  guidelines?: string
   topic: string
   campaign_type: string
   category?: string
@@ -153,22 +155,8 @@ export function CampaignList({ campaigns, selectedCampaign, onCampaignSelect }: 
               </div>
 
               <p className="text-xs text-gray-300 mb-3 line-clamp-2">
-                {campaign.description}
+                {campaign.brandGuidelines || campaign.guidelines || 'No brand guidelines provided.'}
               </p>
-
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-gray-400 uppercase tracking-wide">Progress</span>
-                <span className="neon-text neon-blue text-xs font-mono">
-                  {campaign.current_submissions || 0}/{campaign.max_submissions || 0}
-                </span>
-              </div>
-
-              <div className="neon-progress h-2 mb-3">
-                <div
-                  className={`h-2 rounded-full ${getProgressColor(campaign.submission_rate || 0)}`}
-                  style={{ width: `${(campaign.submission_rate || 0) * 100}%` }}
-                ></div>
-              </div>
 
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center space-x-2">

@@ -1032,7 +1032,7 @@ class FalAIGenerator:
         if is_web3_context:
             enhancement = """
 
-WEB3 MEME CULTURE & FOMO VISUAL REQUIREMENTS:
+Visual Style Guidelines:
 - Create visually striking content that triggers FOMO (Fear of Missing Out)
 - Include visual elements that suggest scarcity, exclusivity, or trending momentum
 - Use meme-inspired compositions: dramatic reactions, exaggerated expressions, trending formats
@@ -1041,11 +1041,11 @@ WEB3 MEME CULTURE & FOMO VISUAL REQUIREMENTS:
 - Include visual cues of success, wealth, or exclusive access
 - Use dramatic lighting, bold contrasts, and eye-catching color schemes
 - Create imagery that suggests "insider knowledge" or "being early" to trends
-- Include compelling text overlays only when they enhance the message and visual impact"""
+- Add text overlays ONLY when they directly relate to the main tweet content, not instructional text"""
         else:
             enhancement = """
 
-GENZ MEME CULTURE & VIRAL CONTENT REQUIREMENTS:
+Visual Style Guidelines:
 - Create relatable, shareable content with meme-worthy visual appeal
 - Include trending visual elements that GenZ audiences recognize and share
 - Use compositions that suggest humor, irony, or insider cultural references
@@ -1054,7 +1054,7 @@ GENZ MEME CULTURE & VIRAL CONTENT REQUIREMENTS:
 - Create visual content that feels current, trendy, and conversation-starting
 - Include visual elements that suggest being part of an exclusive community
 - Generate content that sparks FOMO and social engagement
-- Include catchy text elements that amplify the meme culture and engagement"""
+- Add text elements ONLY when they relate to the main tweet content, avoid meta/instructional text"""
 
         enhanced_prompt = f"""{base_prompt}{enhancement}
 
@@ -1067,16 +1067,17 @@ PROFESSIONAL QUALITY REQUIREMENTS (MANDATORY):
 - Clean vector art precision, geometric perfection, vibrant color palette mastery
 
 CRITICAL VISUAL QUALITY REQUIREMENTS:
-- Create clean, professional imagery with compelling text elements only when appropriate
-- Focus on visual storytelling through composition, colors, subjects, and optional impactful text
+- Create clean, professional imagery focused on visual storytelling
+- Focus on composition, colors, subjects, and project-relevant elements
 - Use high-quality rendering with sharp details and vivid colors
-- Ensure balanced composition with proper subject placement and optional text integration
+- Ensure balanced composition with proper subject placement
 - Apply cinematic lighting and artistic visual effects
 - Generate content suitable for social media with strong visual impact
 - Maintain 1792x1024 wide format for optimal display quality
 - Create imagery that makes viewers want to screenshot, save, and share
 - Generate content that sparks conversations and community engagement
-- Include readable, engaging text only when it enhances the overall message"""
+- NEVER include meta-text like "VISUAL REQUIREMENTS" or instructional guidelines
+- Only include text that directly relates to the tweet content and project branding"""
 
         return enhanced_prompt
     

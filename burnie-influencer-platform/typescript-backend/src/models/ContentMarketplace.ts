@@ -29,6 +29,9 @@ export class ContentMarketplace {
   contentText!: string;
 
   @Column({ type: 'jsonb', nullable: true })
+  tweetThread?: string[]; // Array of tweet thread messages
+
+  @Column({ type: 'jsonb', nullable: true })
   contentImages?: any;
 
   @Column({ type: 'decimal', precision: 10, scale: 4 })

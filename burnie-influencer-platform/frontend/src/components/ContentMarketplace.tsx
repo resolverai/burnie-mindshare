@@ -11,6 +11,7 @@ import {
   HeartIcon,
   ArrowPathIcon
 } from '@heroicons/react/24/outline';
+import { useROASTPrice, formatUSDCPrice } from '../utils/priceUtils';
 
 interface ContentItem {
   id: number;
@@ -81,6 +82,7 @@ const formatTwitterContent = (contentText: string): { text: string; imageUrl: st
 
 const ContentMarketplace: React.FC = () => {
   const [content, setContent] = useState<ContentItem[]>([]);
+  const { price: roastPrice } = useROASTPrice();
   const [loading, setLoading] = useState(true);
   const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null);
   const [bidAmount, setBidAmount] = useState('');
@@ -356,7 +358,7 @@ const ContentMarketplace: React.FC = () => {
                   {selectedContent.content_text.substring(0, 100)}...
                 </p>
                 <div className="text-sm text-gray-600">
-                  Asking Price: {selectedContent.asking_price} {selectedContent.campaign.reward_token}
+                  Asking Price: {selectedContent.asking_price} {selectedContent.campaign.reward_token} {roastPrice > 0 && `(${formatUSDCPrice(selectedContent.asking_price * roastPrice)} USDC)`}
                 </div>
                 {selectedContent.highest_bid && (
                   <div className="text-sm text-green-600">

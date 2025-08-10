@@ -45,6 +45,7 @@ class ContentGenerationRequest(BaseModel):
 class ContentGenerationResponse(BaseModel):
     """Response model for generated content"""
     content_text: str
+    tweet_thread: Optional[List[str]] = None  # Array of tweet thread messages
     content_images: Optional[List[str]] = None
     predicted_mindshare: float = Field(ge=0, le=100)
     quality_score: float = Field(ge=0, le=100)

@@ -16,6 +16,7 @@ import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 interface ContentItem {
   id: number
   content_text: string
+  tweet_thread?: string[] // Array of tweet thread messages
   content_images: string[]
   predicted_mindshare: number
   quality_score: number

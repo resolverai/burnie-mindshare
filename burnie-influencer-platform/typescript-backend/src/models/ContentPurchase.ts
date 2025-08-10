@@ -22,6 +22,15 @@ export class ContentPurchase {
   @Column({ type: 'varchar', length: 20, default: 'ROAST', name: 'currency' })
   currency!: string
 
+  @Column({ type: 'varchar', length: 20, name: 'payment_currency' })
+  paymentCurrency!: string // Currency actually paid by yapper (ROAST/USDC)
+
+  @Column({ type: 'decimal', precision: 20, scale: 8, name: 'conversion_rate' })
+  conversionRate!: number // ROAST to USD rate at time of purchase
+
+  @Column({ type: 'decimal', precision: 20, scale: 8, name: 'original_roast_price' })
+  originalRoastPrice!: number // Original asking price in ROAST (from bidding)
+
   @Column({ name: 'transaction_hash', length: 255, nullable: true })
   transactionHash!: string
 
@@ -29,10 +38,13 @@ export class ContentPurchase {
   paymentStatus!: 'pending' | 'completed' | 'failed' | 'refunded'
 
   @Column({ type: 'decimal', precision: 20, scale: 8, name: 'platform_fee', default: 0 })
-  platformFee!: number
+  platformFee!: number // Always in payment currency
 
   @Column({ type: 'decimal', precision: 20, scale: 8, name: 'miner_payout', default: 0 })
-  minerPayout!: number
+  minerPayout!: number // Always in ROAST (80% of original asking price)
+
+  @Column({ type: 'decimal', precision: 20, scale: 8, name: 'miner_payout_roast', default: 0 })
+  minerPayoutRoast!: number // Explicit ROAST amount for miner (for clarity)
 
   @Column({ name: 'treasury_transaction_hash', length: 255, nullable: true })
   treasuryTransactionHash!: string

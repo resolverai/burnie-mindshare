@@ -3,9 +3,11 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { AppDataSource } from '../config/database';
 import { Admin } from '../models/Admin';
-import { Campaign, CampaignStatus, CampaignType } from '../models/Campaign';
-import { User } from '../models/User';
+import { Campaign, CampaignStatus, CampaignType, CampaignCategory, PlatformSource } from '../models/Campaign';
+import { User, UserRoleType } from '../models/User';
+import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
+import { convertROASTToUSD } from '../services/priceService';
 import { Repository } from 'typeorm';
 
 const router = Router();
@@ -205,24 +207,29 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
 
     const {
       projectId,
+      projectName,
+      projectLogo,
       title,
       description,
-      topic,
-      guidelines,
-      budget,
-      reward_per_roast,
-      max_submissions,
-      start_date,
-      end_date
+      tokenTicker,
+      category,
+      campaignType,
+      rewardPool,
+      maxYappers,
+      platformSource,
+      startDate,
+      endDate,
+      guidelines
     } = req.body;
 
-    logger.info('📝 Admin creating new campaign:', { title, budget, admin: req.admin.username });
+    logger.info('📝 Admin creating new campaign:', { title, rewardPool, category, projectLogo, admin: req.admin.username });
+    logger.info('🖼️ Project logo URL received:', projectLogo);
 
     // Validate required fields
-    if (!title || !description || !topic || !budget || !reward_per_roast || !max_submissions || !end_date) {
+    if (!title || !description || !category || !campaignType || !rewardPool || !startDate || !endDate) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: title, description, topic, budget, reward_per_roast, max_submissions, end_date',
+        error: 'Missing required fields: title, description, category, campaignType, rewardPool, startDate, endDate',
         timestamp: new Date().toISOString(),
       });
     }
@@ -262,20 +269,24 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
     const campaignData = {
       title,
       description,
-      category: topic, // topic maps to category
-      brandGuidelines: guidelines || '', // guidelines maps to brandGuidelines  
-      rewardPool: budget, // budget maps to rewardPool
+      projectName: projectName || undefined,
+      projectLogo: projectLogo || undefined,
+      tokenTicker: tokenTicker || 'ROAST',
+      category: category as CampaignCategory,
+      campaignType: campaignType as CampaignType,
+      brandGuidelines: guidelines || undefined,
+      rewardPool: parseInt(rewardPool),
+      maxYappers: parseInt(maxYappers) || 100,
       entryFee: 0, // Default entry fee
-      maxSubmissions: max_submissions,
-      startDate: start_date ? new Date(start_date) : new Date(),
-      endDate: new Date(end_date),
+      maxSubmissions: 1500, // Default max submissions
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
       status: CampaignStatus.ACTIVE, // Use proper enum value
-      campaignType: CampaignType.ROAST, // Use proper enum value
-      projectId: projectId || null,
+      projectId: projectId || undefined,
       creatorId: defaultUser.id, // Use the default user ID
       isActive: true,
-      platformSource: 'burnie', // Mark as admin-created
-      rewardToken: 'ROAST',
+      platformSource: (platformSource as PlatformSource) || PlatformSource.BURNIE,
+      rewardToken: tokenTicker || 'ROAST',
       targetAudience: 'General',
       predictedMindshare: 80, // Default mindshare score
       currentSubmissions: 0
@@ -298,6 +309,224 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
     return res.status(500).json({
       success: false,
       error: 'Failed to create campaign',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route PUT /api/admin/campaigns/:id
+ * @desc Update a campaign (admin only)
+ */
+router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Response) => {
+  try {
+    if (!req.admin) {
+      return res.status(401).json({
+        success: false,
+        error: 'Admin authentication required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const campaignId = parseInt(req.params.id || '0');
+    const {
+      projectId,
+      projectName,
+      projectLogo,
+      title,
+      description,
+      tokenTicker,
+      category,
+      campaignType,
+      rewardPool,
+      maxYappers,
+      platformSource,
+      startDate,
+      endDate,
+      guidelines
+    } = req.body;
+
+    logger.info('📝 Admin updating campaign:', { campaignId, title, projectLogo, admin: req.admin.username });
+    logger.info('🖼️ Project logo URL received for update:', projectLogo);
+
+    // Validate required fields
+    if (!title || !description || !category || !campaignType || !rewardPool || !startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: title, description, category, campaignType, rewardPool, startDate, endDate',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
+
+    // Find existing campaign
+    const existingCampaign = await campaignRepository.findOne({
+      where: { id: campaignId }
+    });
+
+    if (!existingCampaign) {
+      return res.status(404).json({
+        success: false,
+        error: 'Campaign not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Update campaign data
+    const updateData = {
+      title,
+      description,
+      projectName: projectName || undefined,
+      projectLogo: projectLogo || undefined,
+      tokenTicker: tokenTicker || 'ROAST',
+      category: category as CampaignCategory,
+      campaignType: campaignType as CampaignType,
+      brandGuidelines: guidelines || undefined,
+      rewardPool: parseInt(rewardPool),
+      maxYappers: parseInt(maxYappers) || 100,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      projectId: projectId || undefined,
+      platformSource: (platformSource as PlatformSource) || PlatformSource.BURNIE,
+      rewardToken: tokenTicker || 'ROAST',
+    };
+
+    // Update the campaign
+    await campaignRepository.update(campaignId, updateData);
+
+    // Fetch updated campaign
+    const updatedCampaign = await campaignRepository.findOne({
+      where: { id: campaignId }
+    });
+
+    logger.info(`✅ Campaign updated by admin: ${campaignId} - ${title}`);
+
+    return res.status(200).json({
+      success: true,
+      data: updatedCampaign,
+      message: 'Campaign updated successfully',
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to update campaign:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to update campaign',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route GET /api/admin/analytics
+ * @desc Get admin dashboard analytics (admin only)
+ */
+router.get('/analytics', verifyAdminToken, async (req: Request, res: Response) => {
+  try {
+    if (!req.admin) {
+      return res.status(401).json({
+        success: false,
+        error: 'Admin authentication required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info('📊 Admin fetching analytics:', { admin: req.admin.username });
+
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const userRepository = AppDataSource.getRepository(User);
+    const campaignRepository = AppDataSource.getRepository(Campaign);
+    const contentPurchaseRepository = AppDataSource.getRepository(ContentPurchase);
+
+    // Get total campaigns
+    const totalCampaigns = await campaignRepository.count();
+
+    // Get active campaigns
+    const activeCampaigns = await campaignRepository.count({
+      where: { status: CampaignStatus.ACTIVE }
+    });
+
+    // Get total yappers (role = 'yapper' or 'both')
+    const totalYappers = await userRepository.count({
+      where: [
+        { roleType: UserRoleType.YAPPER },
+        { roleType: UserRoleType.BOTH }
+      ]
+    });
+
+    // Get all content purchases to calculate total value
+    const contentPurchases = await contentPurchaseRepository.find({
+      where: { paymentStatus: 'completed' }
+    });
+
+    // Calculate total purchase value in USDC
+    let totalPurchaseValueUSDC = 0;
+    
+    for (const purchase of contentPurchases) {
+      const purchasePrice = parseFloat((purchase.purchasePrice || 0).toString());
+      const currency = purchase.currency || 'ROAST';
+
+      try {
+        // Convert to USDC based on currency type
+      let usdcValue = 0;
+      if (currency === 'USDC') {
+        usdcValue = purchasePrice;
+      } else if (currency === 'ROAST') {
+        usdcValue = await convertROASTToUSD(purchasePrice);
+      } else {
+        // For other currencies, assume they're already in USD equivalent
+        usdcValue = purchasePrice;
+      }
+        totalPurchaseValueUSDC += usdcValue;
+      } catch (error) {
+        logger.error(`Failed to convert ${purchasePrice} ${currency} to USDC:`, error);
+        // Use fallback conversion
+        const fallbackRate = currency === 'USDC' ? 1 : 0.01;
+        totalPurchaseValueUSDC += purchasePrice * fallbackRate;
+      }
+    }
+
+    const analytics = {
+      totalCampaigns,
+      activeCampaigns,
+      totalYappers,
+      totalPurchaseValue: Math.round(totalPurchaseValueUSDC * 100) / 100, // Round to 2 decimal places
+      totalTransactions: contentPurchases.length,
+      averageTransactionSize: contentPurchases.length > 0 
+        ? Math.round((totalPurchaseValueUSDC / contentPurchases.length) * 100) / 100 
+        : 0
+    };
+
+    logger.info('✅ Analytics fetched successfully:', analytics);
+
+    return res.status(200).json({
+      success: true,
+      data: analytics,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to fetch analytics:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch analytics',
       timestamp: new Date().toISOString(),
     });
   }

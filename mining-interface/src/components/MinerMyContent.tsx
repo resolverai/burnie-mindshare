@@ -13,10 +13,12 @@ import {
   CurrencyDollarIcon
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
+import TweetThreadDisplay from './TweetThreadDisplay'
 
 interface ContentItem {
   id: number
   content_text: string
+  tweet_thread?: string[] // Array of tweet thread messages
   content_images?: string[]
   predicted_mindshare: number
   quality_score: number
@@ -315,70 +317,23 @@ export default function MinerMyContent() {
                         </button>
                       </div>
                       
-                      <div className="space-y-4">
-                        {/* Twitter Text */}
-                        <div className="bg-gray-800 rounded-lg p-4 border border-gray-600">
-                          <div className="text-gray-200 whitespace-pre-wrap font-medium leading-relaxed">
-                            {text}
-                          </div>
-                          <div className="mt-2 flex items-center justify-between text-xs text-gray-400">
-                            <span>Characters: {text.length}/280</span>
-                            {hashtags.length > 0 && (
-                              <div className="flex items-center space-x-1">
-                                <span>Hashtags:</span>
-                                <div className="flex space-x-1">
-                                  {hashtags.slice(0, 3).map((tag, index) => (
-                                    <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded text-xs">
-                                      {tag}
-                                    </span>
-                                  ))}
-                                  {hashtags.length > 3 && <span>+{hashtags.length - 3}</span>}
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                      {/* Tweet Thread Display */}
+                      <TweetThreadDisplay
+                        mainTweet={text}
+                        tweetThread={item.tweet_thread}
+                        imageUrl={imageUrl}
+                        characterCount={text.length}
+                        hashtags={hashtags}
+                        showImage={true}
+                        isProtected={false} // Mining interface doesn't need protection for owned content
+                      />
+                      
+                      {/* Image URL display for mining interface */}
+                      {imageUrl && (
+                        <div className="mt-4 text-xs text-gray-400 bg-gray-800 p-2 rounded font-mono break-all">
+                          <strong>Image URL:</strong> {imageUrl}
                         </div>
-                        
-                        {/* Visual Content */}
-                        {imageUrl && (
-                          <div className="bg-gray-800 rounded-lg p-4 border border-gray-600">
-                            <h5 className="text-sm font-semibold text-purple-400 mb-3 flex items-center">
-                              🖼️ Generated Visuals
-                            </h5>
-                            <div className="space-y-4">
-                              {/* AI Generated Image */}
-                              <div className="space-y-2">
-                                <div className="relative">
-                                  <img 
-                                    src={imageUrl} 
-                                    alt="AI Generated content image"
-                                    className="w-full max-w-md rounded-lg border border-gray-500 shadow-md"
-                                    onLoad={() => console.log('✅ MyContent image loaded:', imageUrl)}
-                                    onError={(e) => {
-                                      console.error('❌ MyContent image failed to load:', imageUrl)
-                                      e.currentTarget.style.display = 'none'
-                                      const fallback = e.currentTarget.nextElementSibling as HTMLElement
-                                      if (fallback) fallback.style.display = 'block'
-                                    }}
-                                  />
-                                  <div 
-                                    className="hidden bg-gradient-to-br from-gray-600 to-gray-700 rounded-lg border border-gray-500 p-8 text-center"
-                                  >
-                                    <span className="text-gray-300 text-sm">
-                                      🖼️ AI Generated Image
-                                      <br />
-                                      <span className="text-xs text-gray-400">Preview not available</span>
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="text-xs text-gray-400 bg-gray-800 p-2 rounded font-mono break-all">
-                                  <strong>Image URL:</strong> {imageUrl}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </div>
 
                     {/* Performance Metrics */}

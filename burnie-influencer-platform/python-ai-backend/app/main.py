@@ -471,6 +471,7 @@ async def run_multi_campaign_generation(
                     "campaign_id": campaign_pair.campaign_id,
                     "agent_id": campaign_pair.agent_id,
                     "content_text": result.content_text,
+                    "tweet_thread": result.tweet_thread,  # Include tweet thread in WebSocket message
                     "content_images": result.content_images,  # Include images in WebSocket message
                     "quality_score": result.quality_score,
                     "predicted_mindshare": result.predicted_mindshare,

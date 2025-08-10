@@ -10,6 +10,7 @@ import { MoreThan, LessThan } from 'typeorm';
 import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
 import { TreasuryService } from '../services/TreasuryService';
+import { fetchROASTPrice } from '../services/priceService';
 const AWS = require('aws-sdk');
 
 const router = Router();
@@ -284,6 +285,7 @@ router.get('/content', async (req, res) => {
     const formattedContents = refreshedContents.map(content => ({
       id: content.id,
       content_text: content.contentText,
+      tweet_thread: content.tweetThread || null, // Include tweet thread data
       content_images: content.contentImages || [],
       predicted_mindshare: Number(content.predictedMindshare || 0),
       quality_score: Number(content.qualityScore || 0),
@@ -787,6 +789,7 @@ router.post('/approve', async (req, res) => {
       agentName,
       walletAddress,
       contentText,
+      tweetThread,
       contentImages,
       predictedMindshare,
       qualityScore,
@@ -801,6 +804,7 @@ router.post('/approve', async (req, res) => {
       agentName,
       walletAddress,
       contentText: contentText ? contentText.substring(0, 100) + '...' : null,
+      tweetThread: tweetThread ? `Array with ${tweetThread.length} tweets` : null,
       contentImages,
       predictedMindshare,
       qualityScore,
@@ -895,14 +899,15 @@ router.post('/approve', async (req, res) => {
     console.log('✅ Found existing user:', creator.id, creator.walletAddress);
 
     // Try to find existing pending content record to update instead of creating new
-    let existingContent = await contentRepository.findOne({
-      where: {
-        campaignId: Number(campaignId),
-        creatorId: creator.id,
-        contentText: contentText,
-        approvalStatus: 'pending'
-      }
-    });
+    // Find the most recent pending content for this campaign and creator
+    let existingContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('content.campaignId = :campaignId', { campaignId: Number(campaignId) })
+      .andWhere('content.creatorId = :creatorId', { creatorId: creator.id })
+      .andWhere('content.contentText = :contentText', { contentText })
+      .andWhere('content.approvalStatus = :status', { status: 'pending' })
+      .orderBy('content.createdAt', 'DESC')
+      .getOne();
 
     if (existingContent) {
       // UPDATE existing record
@@ -923,8 +928,9 @@ router.post('/approve', async (req, res) => {
       if (walletAddress) {
         existingContent.walletAddress = walletAddress;
       }
-      // Always update contentImages regardless of value (null, array, etc.)
+      // Always update contentImages and tweetThread regardless of value (null, array, etc.)
       existingContent.contentImages = contentImages;
+      existingContent.tweetThread = tweetThread;
       if (generationMetadata) {
         existingContent.generationMetadata = generationMetadata;
       }
@@ -941,6 +947,7 @@ router.post('/approve', async (req, res) => {
         agentName: updatedContent.agentName,
         walletAddress: updatedContent.walletAddress,
         contentText: updatedContent.contentText.substring(0, 100) + '...',
+        tweetThread: updatedContent.tweetThread ? `Array with ${updatedContent.tweetThread.length} tweets` : null,
         contentImages: updatedContent.contentImages,
         predictedMindshare: updatedContent.predictedMindshare,
         qualityScore: updatedContent.qualityScore,
@@ -968,6 +975,7 @@ router.post('/approve', async (req, res) => {
       newContent.creatorId = creator.id;
       newContent.campaignId = Number(campaignId);
       newContent.contentText = contentText;
+      newContent.tweetThread = tweetThread || null;
       newContent.contentImages = contentImages || null;
       newContent.predictedMindshare = Number(predictedMindshare) || 75;
       newContent.qualityScore = Number(qualityScore) || 80;
@@ -994,6 +1002,7 @@ router.post('/approve', async (req, res) => {
         agentName: savedContent.agentName,
         walletAddress: savedContent.walletAddress,
         contentText: savedContent.contentText.substring(0, 100) + '...',
+        tweetThread: savedContent.tweetThread ? `Array with ${savedContent.tweetThread.length} tweets` : null,
         contentImages: savedContent.contentImages,
         predictedMindshare: savedContent.predictedMindshare,
         qualityScore: savedContent.qualityScore,
@@ -1067,14 +1076,15 @@ router.post('/reject', async (req, res) => {
     }
 
     // Try to find existing pending content record to update
-    let existingContent = await contentRepository.findOne({
-      where: {
-        campaignId: Number(campaignId),
-        creatorId: creator.id,
-        contentText: contentText,
-        approvalStatus: 'pending'
-      }
-    });
+    // Find the most recent pending content for this campaign and creator
+    let existingContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('content.campaignId = :campaignId', { campaignId: Number(campaignId) })
+      .andWhere('content.creatorId = :creatorId', { creatorId: creator.id })
+      .andWhere('content.contentText = :contentText', { contentText })
+      .andWhere('content.approvalStatus = :status', { status: 'pending' })
+      .orderBy('content.createdAt', 'DESC')
+      .getOne();
 
     if (existingContent) {
       // UPDATE existing record
@@ -1209,6 +1219,7 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
     const formattedContents = refreshedContents.map(content => ({
       id: content.id,
       content_text: content.contentText,
+      tweet_thread: content.tweetThread || null, // Include tweet thread data
       content_images: content.contentImages,
       predicted_mindshare: Number(content.predictedMindshare),
       quality_score: Number(content.qualityScore),
@@ -1274,6 +1285,7 @@ router.get('/my-content/miner/:userId', async (req: Request, res: Response) => {
     const formattedContents = contents.map(content => ({
       id: content.id,
       content_text: content.contentText,
+      tweet_thread: content.tweetThread || null, // Include tweet thread data
       content_images: content.contentImages,
       predicted_mindshare: Number(content.predictedMindshare),
       quality_score: Number(content.qualityScore),
@@ -2931,23 +2943,43 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       console.log(`🆕 Auto-created new buyer: ${buyerWalletAddress}`);
     }
 
-    // Calculate platform fee (20%) and miner payout (80%)
-    const platformFeePercent = 0.20;
-    const platformFee = purchasePrice * platformFeePercent;
-    const minerPayout = purchasePrice * (1 - platformFeePercent);
+    // Get current ROAST price for conversion tracking
+    const roastPrice = await fetchROASTPrice();
+    
+    // The original asking price is always in ROAST (from content.askingPrice)
+    const originalRoastPrice = content.askingPrice;
+    
+    // Calculate miner payout: ALWAYS 80% of original ROAST asking price
+    const minerPayoutRoast = originalRoastPrice * 0.80;
+    
+    // Calculate platform fee based on payment currency
+    let platformFee: number;
+    if (currency === 'ROAST') {
+      // For ROAST payments: 20% of original asking price
+      platformFee = originalRoastPrice * 0.20;
+    } else {
+      // For USDC payments: 20% of asking price (converted to USDC) + 0.03 USDC fee
+      const baseUsdcFee = originalRoastPrice * roastPrice * 0.20;
+      const extraUsdcFee = 0.03;
+      platformFee = baseUsdcFee + extraUsdcFee;
+    }
 
     // Extract miner wallet address (already validated above)
     const minerWalletAddress = content.creator!.walletAddress;
 
-    // Create purchase record
+    // Create purchase record with proper currency tracking
     const purchase = purchaseRepository.create({
       contentId: parseInt(contentId),
       buyerWalletAddress,
       minerWalletAddress,
-      purchasePrice,
-      currency,
-      platformFee,
-      minerPayout,
+      purchasePrice, // Amount actually paid by yapper (in their chosen currency)
+      currency, // For backward compatibility (will be same as paymentCurrency)
+      paymentCurrency: currency, // Currency actually paid by yapper
+      conversionRate: roastPrice, // ROAST to USD rate at time of purchase
+      originalRoastPrice, // Original asking price in ROAST
+      platformFee, // In payment currency
+      minerPayout: minerPayoutRoast, // ALWAYS in ROAST (80% of original)
+      minerPayoutRoast, // Explicit ROAST amount for clarity
       paymentStatus: 'pending',
       payoutStatus: 'pending'
     });
@@ -2967,9 +2999,11 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
         purchaseId: purchase.id,
         contentId: purchase.contentId,
         purchasePrice: purchase.purchasePrice,
-        currency: purchase.currency,
+        paymentCurrency: purchase.paymentCurrency,
+        originalRoastPrice: purchase.originalRoastPrice,
+        conversionRate: purchase.conversionRate,
         platformFee: purchase.platformFee,
-        minerPayout: purchase.minerPayout,
+        minerPayoutRoast: purchase.minerPayoutRoast,
         treasuryAddress: process.env.TREASURY_WALLET_ADDRESS,
         roastTokenContract: process.env.CONTRACT_ROAST_TOKEN
       }
@@ -3111,15 +3145,16 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
     }
 
     const minerAddress = purchase.minerWalletAddress;
-    const minerPayout = purchase.minerPayout;
+    // Always use ROAST payout amount (80% of original ROAST asking price)
+    const minerPayoutRoast = purchase.minerPayoutRoast || purchase.minerPayout;
 
-    logger.info(`🏦 Starting treasury distribution: ${minerPayout} ROAST to ${minerAddress}`);
+    logger.info(`🏦 Starting treasury distribution: ${minerPayoutRoast} ROAST to ${minerAddress}`);
 
     // Initialize treasury service
     const treasuryService = new TreasuryService();
 
     // Validate treasury has sufficient balance
-    const hasSufficientBalance = await treasuryService.validateSufficientBalance(minerPayout);
+    const hasSufficientBalance = await treasuryService.validateSufficientBalance(minerPayoutRoast);
     if (!hasSufficientBalance) {
       logger.error('❌ Insufficient treasury balance for payout');
       res.status(500).json({
@@ -3130,7 +3165,7 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
     }
 
     // Execute the distribution
-    const distributionResult = await treasuryService.distributeToMiner(minerAddress, minerPayout);
+    const distributionResult = await treasuryService.distributeToMiner(minerAddress, minerPayoutRoast);
 
     if (!distributionResult.success) {
       logger.error('❌ Treasury distribution failed:', distributionResult.error);
@@ -3156,7 +3191,7 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
       data: {
         purchaseId: purchase.id,
         minerAddress,
-        minerPayout,
+        minerPayoutRoast,
         treasuryTransactionHash: distributionResult.transactionHash,
         payoutStatus: purchase.payoutStatus
       }
