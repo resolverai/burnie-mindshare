@@ -1367,6 +1367,7 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
     const formattedPurchaseContent = refreshedPurchases.map(purchase => ({
       id: purchase.content.id,
       content_text: purchase.content.contentText,
+      tweet_thread: purchase.content.tweetThread || null,
       content_images: purchase.content.contentImages,
       predicted_mindshare: Number(purchase.content.predictedMindshare),
       quality_score: Number(purchase.content.qualityScore),
@@ -1387,6 +1388,12 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
         amount: Number(purchase.purchasePrice),
         currency: purchase.currency,
         bid_date: purchase.purchasedAt?.toISOString() || purchase.createdAt.toISOString()
+      },
+      payment_details: {
+        payment_currency: purchase.paymentCurrency || 'ROAST',
+        conversion_rate: Number(purchase.conversionRate || 0),
+        original_roast_price: Number(purchase.originalRoastPrice || 0),
+        miner_payout_roast: Number(purchase.minerPayoutRoast || 0)
       },
       transaction_hash: purchase.transactionHash, // Add transaction hash for BaseScan link
       treasury_transaction_hash: purchase.treasuryTransactionHash, // Treasury payout transaction

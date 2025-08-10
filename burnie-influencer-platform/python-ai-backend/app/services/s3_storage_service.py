@@ -163,12 +163,16 @@ class S3StorageService:
         try:
             logger.info(f"⬆️ Uploading to S3: {s3_key}")
             
+            # Extract filename for Content-Disposition header
+            filename = s3_key.split('/')[-1]  # Get the last part of the S3 key
+            
             # Upload with NO public ACL - keep bucket and objects private
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=s3_key,
                 Body=content,
                 ContentType=content_type,
+                ContentDisposition=f'attachment; filename="{filename}"',  # Force download
                 CacheControl='max-age=31536000',  # Cache for 1 year
                 Metadata={
                     'uploaded_by': 'burnie-ai-backend',
@@ -405,6 +409,9 @@ class S3StorageService:
             # Upload file to S3
             logger.info(f"⬆️ Uploading file to S3: {s3_key}")
             
+            # Extract filename for Content-Disposition header
+            filename = s3_key.split('/')[-1]  # Get the last part of the S3 key
+            
             with open(file_path, 'rb') as file_obj:
                 self.s3_client.upload_fileobj(
                     file_obj,
@@ -412,6 +419,7 @@ class S3StorageService:
                     s3_key,
                     ExtraArgs={
                         'ContentType': mime_type,
+                        'ContentDisposition': f'attachment; filename="{filename}"',  # Force download
                         'CacheControl': 'max-age=31536000',  # 1 year cache
                         'ServerSideEncryption': 'AES256'
                     }

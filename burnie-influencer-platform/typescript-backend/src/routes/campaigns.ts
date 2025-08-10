@@ -61,6 +61,7 @@ router.post('/upload-logo', upload.single('logo'), async (req: Request, res: Res
       Key: s3Key,
       Body: file.buffer,
       ContentType: file.mimetype,
+      ContentDisposition: `attachment; filename="${fileName}"`, // Force download
       CacheControl: 'max-age=31536000', // 1 year cache
       ServerSideEncryption: 'AES256'
     };
@@ -1101,6 +1102,49 @@ router.get('/logo-presigned-url/:s3Key(*)', async (req: Request, res: Response) 
     return res.status(500).json({
       success: false,
       error: 'Failed to generate pre-signed URL'
+    });
+  }
+});
+
+// GET /api/campaigns/download-image/:s3Key - Download image with proper Content-Disposition header
+router.get('/download-image/:s3Key(*)', async (req: Request, res: Response) => {
+  try {
+    const { s3Key } = req.params;
+    
+    if (!s3Key) {
+      return res.status(400).json({
+        success: false,
+        error: 'S3 key is required'
+      });
+    }
+
+    // Generate random UUID filename with original extension
+    const originalFilename = s3Key.split('/').pop() || 'image.png';
+    const fileExtension = originalFilename.split('.').pop() || 'png';
+    const { v4: uuidv4 } = require('uuid');
+    const randomFilename = `${uuidv4()}.${fileExtension}`;
+    
+    // Get object from S3
+    const getObjectParams = {
+      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Key: s3Key
+    };
+
+    const s3Object = await s3.getObject(getObjectParams).promise();
+    
+    // Set proper headers for download with random UUID filename
+    res.setHeader('Content-Type', s3Object.ContentType || 'image/png');
+    res.setHeader('Content-Disposition', `attachment; filename="${randomFilename}"`);
+    res.setHeader('Content-Length', s3Object.ContentLength || 0);
+    
+    // Send the image data
+    res.send(s3Object.Body);
+
+  } catch (error) {
+    logger.error('❌ Image download failed:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to download image'
     });
   }
 });

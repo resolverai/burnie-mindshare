@@ -9,9 +9,11 @@ import {
   StarIcon,
   CurrencyDollarIcon,
   CalendarIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
+import TweetThreadDisplay from '../TweetThreadDisplay'
 
 interface ContentItem {
   id: number
@@ -37,6 +39,12 @@ interface ContentItem {
     amount: number
     currency: string
     bid_date: string
+  }
+  payment_details: {
+    payment_currency: string
+    conversion_rate: number
+    original_roast_price: number
+    miner_payout_roast: number
   }
   transaction_hash?: string // BaseScan transaction hash
   treasury_transaction_hash?: string // Treasury payout transaction hash
@@ -137,9 +145,104 @@ export default function YapperMyContent() {
     return `${Math.floor(diffInHours / 24)}d ago`
   }
 
-  const postToTwitter = (text: string) => {
-    const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`
-    window.open(twitterUrl, '_blank')
+  const downloadImage = async (imageUrl: string, filename: string = 'ai-generated-image.png') => {
+    try {
+      // Try direct download first (for new images with Content-Disposition header)
+      let downloadUrl = imageUrl
+      
+      // For S3 URLs, try using the backend proxy for better Content-Disposition support
+      if (imageUrl.includes('s3.amazonaws.com') || imageUrl.includes('amazonaws.com')) {
+        try {
+          // Extract S3 key from URL
+          const urlParts = imageUrl.split('amazonaws.com/')[1]
+          if (urlParts) {
+            const s3Key = urlParts.split('?')[0] // Remove query parameters
+            downloadUrl = `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/campaigns/download-image/${s3Key}`
+          }
+        } catch (e) {
+          console.log('Using original URL for download')
+        }
+      }
+      
+      const response = await fetch(downloadUrl)
+      
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.status}`)
+      }
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      console.log('✅ Image download initiated')
+    } catch (error) {
+      console.error('❌ Failed to download image:', error)
+      // Fallback: open image in new tab
+      window.open(imageUrl, '_blank')
+    }
+  }
+
+  const postToTwitter = (mainTweet: string, tweetThread?: string[]) => {
+    if (tweetThread && tweetThread.length > 0) {
+      // For threads: start with first tweet and thread indicator
+      const firstTweet = `${mainTweet}\n\n🧵 Thread (1/${tweetThread.length + 1})`
+      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(firstTweet)}`
+      
+      // Open Twitter with first tweet
+      window.open(twitterUrl, '_blank')
+      
+      // Show thread helper modal with remaining tweets
+      showThreadHelper(tweetThread)
+    } else {
+      // Single tweet: post normally
+      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(mainTweet)}`
+      window.open(twitterUrl, '_blank')
+    }
+  }
+
+  const showThreadHelper = (tweetThread: string[]) => {
+    // Create a temporary modal showing remaining tweets with copy buttons
+    const modalId = `thread-helper-${Date.now()}`
+    const modalContent = `
+      <div id="${modalId}" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center; font-family: system-ui;">
+        <div style="background: white; border-radius: 12px; padding: 24px; max-width: 500px; max-height: 80vh; overflow-y: auto;">
+          <h3 style="margin: 0 0 16px 0; color: #1d4ed8;">🧵 Complete Your Thread</h3>
+          <p style="margin: 0 0 16px 0; color: #6b7280; font-size: 14px;">
+            First tweet is ready to post! After posting, use the <strong>+ button</strong> on Twitter to add these replies:
+          </p>
+          ${tweetThread.map((tweet, index) => `
+            <div style="margin: 12px 0; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <strong style="color: #374151;">Tweet ${index + 2}:</strong>
+                <button onclick="navigator.clipboard.writeText('${tweet.replace(/'/g, "\\'")}'); this.textContent='✅ Copied!'; setTimeout(() => this.textContent='📋 Copy', 2000)" 
+                        style="padding: 4px 8px; background: #dbeafe; color: #1d4ed8; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                  📋 Copy
+                </button>
+              </div>
+              <div style="color: #374151; font-size: 14px; line-height: 1.4;">${tweet}</div>
+            </div>
+          `).join('')}
+          <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e5e7eb;">
+            <p style="margin: 0 0 12px 0; color: #6b7280; font-size: 13px;">
+              💡 <strong>How to thread:</strong> After posting the first tweet, click the <strong>+ button</strong> on Twitter, paste Tweet 2, post it, then repeat for Tweet 3, etc.
+            </p>
+            <button onclick="const modal = document.getElementById('${modalId}'); if(modal) modal.remove();" 
+                    style="width: 100%; padding: 8px; background: #1d4ed8; color: white; border: none; border-radius: 6px; cursor: pointer;">
+              Got it! Close
+            </button>
+          </div>
+        </div>
+      </div>
+    `
+    
+    const modalDiv = document.createElement('div')
+    modalDiv.innerHTML = modalContent
+    document.body.appendChild(modalDiv)
   }
 
   const generateMinerId = (username: string): string => {
@@ -155,6 +258,26 @@ export default function YapperMyContent() {
   const getBaseScanUrl = (transactionHash: string): string => {
     // Base network explorer URL
     return `https://basescan.org/tx/${transactionHash}`
+  }
+
+  // Calculate actual amount paid by user based on payment currency
+  const calculateActualAmountPaid = (item: ContentItem): { amount: number; currency: string } => {
+    const { payment_details } = item
+    
+    if (payment_details.payment_currency === 'USDC') {
+      // User paid in USDC: (purchase_price * conversion_rate) + 0.03 USDC fee
+      const usdcAmount = (item.winning_bid.amount * payment_details.conversion_rate) + 0.03
+      return {
+        amount: Number(usdcAmount.toFixed(3)), // Round to 3 decimal places for USDC
+        currency: 'USDC'
+      }
+    } else {
+      // User paid in ROAST: use the normalized purchase_price from winning_bid
+      return {
+        amount: item.winning_bid.amount,
+        currency: 'ROAST'
+      }
+    }
   }
 
   // Fetch yapper's purchased content (immediate purchase system)
@@ -248,42 +371,49 @@ export default function YapperMyContent() {
                       </div>
                     </div>
 
-                    {/* Content Text */}
-                    <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-blue-700">🐦 Ready to Post</span>
-                        <div className="flex space-x-1">
-                          <button
-                            onClick={() => copyToClipboard(text)}
-                            className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 transition-colors flex items-center"
-                          >
-                            <DocumentDuplicateIcon className="h-3 w-3 mr-1" />
-                            Copy
-                          </button>
-                          <button
-                            onClick={() => postToTwitter(text)}
-                            className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 transition-colors"
-                          >
-                            Tweet
-                          </button>
-                        </div>
-                      </div>
-                      <div className="text-gray-900 text-sm leading-relaxed line-clamp-4">
-                        {text}
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
-                        <span>{characterCount}/280 chars</span>
-                        {hashtags.length > 0 && (
-                          <div className="flex space-x-1">
-                            {hashtags.slice(0, 2).map((tag, index) => (
-                              <span key={index} className="bg-blue-100 text-blue-700 px-1 rounded">
-                                {tag}
-                              </span>
-                            ))}
-                            {hashtags.length > 2 && <span>+{hashtags.length - 2}</span>}
-                          </div>
-                        )}
-                      </div>
+                    {/* Content Text with Thread Display */}
+                    <TweetThreadDisplay
+                      mainTweet={text}
+                      tweetThread={item.tweet_thread}
+                      imageUrl={displayImage}
+                      characterCount={characterCount}
+                      hashtags={hashtags}
+                      showImage={false}
+                      isProtected={false}
+                    />
+                    
+                    {/* Action Buttons */}
+                    <div className="flex space-x-2">
+                      {displayImage && (
+                        <button
+                          onClick={() => downloadImage(displayImage, `ai-content-${item.id}.png`)}
+                          className="flex-1 text-xs bg-green-100 text-green-700 px-3 py-2 rounded hover:bg-green-200 transition-colors flex items-center justify-center"
+                        >
+                          <ArrowDownTrayIcon className="h-3 w-3 mr-1" />
+                          Download Image
+                        </button>
+                      )}
+                      <button
+                        onClick={() => postToTwitter(text, item.tweet_thread)}
+                        className="flex-1 text-xs bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 transition-colors"
+                      >
+                        {item.tweet_thread && item.tweet_thread.length > 0 ? 'Post Thread to Twitter' : 'Post to Twitter'}
+                      </button>
+                    </div>
+                    
+                    {/* Posting Instructions */}
+                    <div className="text-xs text-gray-500 bg-gray-50 rounded-lg p-2 border border-gray-200">
+                      <span className="font-semibold text-gray-700">💡 Quick Post: </span>
+                      {displayImage ? (
+                        <>Download image → Post to Twitter → Attach downloaded image → Share!</>
+                      ) : (
+                        <>Click "Post to Twitter" → Review content → Share!</>
+                      )}
+                      {item.tweet_thread && item.tweet_thread.length > 0 && (
+                        <span className="block mt-1 text-blue-600">
+                          🧵 First tweet opens in Twitter, then use the <strong>+ button</strong> to add replies!
+                        </span>
+                      )}
                     </div>
 
                     {/* Image - No Watermark (Owned Content) */}
@@ -373,13 +503,23 @@ export default function YapperMyContent() {
                           <span className={`text-sm font-semibold ${
                             item.acquisition_type === 'purchase' ? 'text-green-700' : 'text-blue-700'
                           }`}>
-                            Paid: {item.winning_bid.amount} {item.winning_bid.currency}
+                            {(() => {
+                              const actualPayment = calculateActualAmountPaid(item)
+                              return `Paid: ${actualPayment.amount} ${actualPayment.currency}`
+                            })()}
                           </span>
                         </div>
                         <span className="text-xs text-gray-500">
                           {new Date(item.winning_bid.bid_date).toLocaleDateString()}
                         </span>
                       </div>
+                      
+                      {/* Payment Details */}
+                      {item.payment_details.payment_currency === 'USDC' && (
+                        <div className="text-xs text-gray-600 bg-gray-100 rounded px-2 py-1 mb-2">
+                          💡 Paid in USDC (includes 0.03 USDC fee) • Rate: {item.payment_details.conversion_rate.toFixed(4)} ROAST/USD
+                        </div>
+                      )}
                       
                       {/* Transaction Links */}
                       {item.acquisition_type === 'purchase' && item.transaction_hash && (
