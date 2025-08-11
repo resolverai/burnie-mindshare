@@ -179,13 +179,8 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
     }
   }
 
-  // Set default start date to today
-  useEffect(() => {
-    if (isOpen && !formData.startDate) {
-      const today = new Date().toISOString().split('T')[0]
-      setFormData(prev => ({ ...prev, startDate: today }))
-    }
-  }, [isOpen, formData.startDate])
+  // Allow any start date - no automatic default to today
+  // Users can select past, present, or future dates freely
 
   if (!isOpen) return null
 

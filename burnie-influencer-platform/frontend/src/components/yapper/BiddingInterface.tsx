@@ -14,7 +14,9 @@ import {
   ChatBubbleLeftIcon,
   ArrowUpIcon,
   ExclamationTriangleIcon,
-  ShoppingCartIcon
+  ShoppingCartIcon,
+  ChevronDownIcon,
+  ChevronUpIcon
 } from '@heroicons/react/24/outline'
 import { 
   HeartIcon as HeartIconSolid,
@@ -26,6 +28,7 @@ import PurchaseContentModal from './PurchaseContentModal'
 import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance } from '../../utils/walletUtils'
 import { useROASTPrice, convertROASTToUSDC, formatUSDCPrice } from '../../utils/priceUtils'
 import TweetThreadDisplay from '../TweetThreadDisplay'
+import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
 
 interface ContentItem {
   id: number
@@ -35,6 +38,7 @@ interface ContentItem {
   predicted_mindshare: number
   quality_score: number
   asking_price: number
+  post_type?: string // Type of post: 'shitpost', 'longpost', or 'thread'
   creator: {
     username: string
     reputation_score: number
@@ -65,7 +69,9 @@ export default function BiddingInterface() {
   const [searchTerm, setSearchTerm] = useState('')
   const { price: roastPrice } = useROASTPrice()
   const [selectedPlatform, setSelectedPlatform] = useState('all')
-  const [selectedQuality, setSelectedQuality] = useState('all')
+  const [selectedPostType, setSelectedPostType] = useState('all')
+  const [sortBy, setSortBy] = useState<'mindshare' | 'quality'>('mindshare')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   // Keep bidding state for future use but don't expose UI for now
   const [showBidModal, setShowBidModal] = useState<ContentItem | null>(null)
   const [showPurchaseModal, setShowPurchaseModal] = useState<ContentItem | null>(null)
@@ -75,6 +81,7 @@ export default function BiddingInterface() {
   const [showCopyProtection, setShowCopyProtection] = useState(false)
   const [isScreenshotDetected, setIsScreenshotDetected] = useState(false)
   const [watermarkPosition, setWatermarkPosition] = useState({ x: 0, y: 0 })
+  const [expandedLongposts, setExpandedLongposts] = useState<Set<number>>(new Set())
   
   // Price display component
   const PriceDisplay = ({ roastAmount }: { roastAmount: number }) => {
@@ -180,6 +187,37 @@ export default function BiddingInterface() {
     }, 0)
     const minerId = Math.abs(hash).toString().slice(0, 6).padStart(6, '0')
     return `MINER-${minerId}`
+  }
+
+  // Toggle longpost expansion
+  const toggleLongpostExpansion = (contentId: number) => {
+    setExpandedLongposts(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(contentId)) {
+        newSet.delete(contentId)
+      } else {
+        newSet.add(contentId)
+      }
+      return newSet
+    })
+  }
+
+  // Truncate longpost content for preview
+  const truncateLongpost = (content: string, maxLength: number = 300): string => {
+    if (content.length <= maxLength) return content
+    
+    // Find a good breaking point (end of sentence or paragraph)
+    let truncatedContent = content.substring(0, maxLength)
+    const lastSentence = truncatedContent.lastIndexOf('.')
+    const lastParagraph = truncatedContent.lastIndexOf('\n\n')
+    
+    if (lastSentence > maxLength * 0.7) {
+      truncatedContent = content.substring(0, lastSentence + 1)
+    } else if (lastParagraph > maxLength * 0.5) {
+      truncatedContent = content.substring(0, lastParagraph)
+    }
+    
+    return truncatedContent + '...'
   }
 
   // Copy protection modal component
@@ -348,12 +386,12 @@ export default function BiddingInterface() {
 
   // Fetch content from marketplace API
   const { data: content, isLoading, refetch } = useQuery({
-    queryKey: ['marketplace-content', searchTerm, selectedPlatform, selectedQuality],
+    queryKey: ['marketplace-content', searchTerm, selectedPlatform, selectedPostType],
     queryFn: async () => {
       const params = new URLSearchParams()
       if (searchTerm) params.append('search', searchTerm)
       if (selectedPlatform !== 'all') params.append('platform_source', selectedPlatform)
-      if (selectedQuality !== 'all') params.append('quality_score', selectedQuality)
+              if (selectedPostType !== 'all') params.append('post_type', selectedPostType)
       
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content?${params}`)
@@ -669,14 +707,29 @@ export default function BiddingInterface() {
             </select>
 
             <select
-              value={selectedQuality}
-              onChange={(e) => setSelectedQuality(e.target.value)}
+              value={selectedPostType}
+              onChange={(e) => setSelectedPostType(e.target.value)}
               className="input-field md:w-48"
             >
-              <option value="all">All Quality Scores</option>
-              <option value="90">90+</option>
-              <option value="80">80+</option>
-              <option value="70">70+</option>
+              <option value="all">All Post Types</option>
+              <option value="thread">Thread</option>
+              <option value="longpost">Long Post</option>
+                              <option value="shitpost">Meme Post</option>
+            </select>
+
+            <select
+              value={`${sortBy}-${sortOrder}`}
+              onChange={(e) => {
+                const [newSortBy, newSortOrder] = e.target.value.split('-') as ['mindshare' | 'quality', 'asc' | 'desc']
+                setSortBy(newSortBy)
+                setSortOrder(newSortOrder)
+              }}
+              className="input-field md:w-48"
+            >
+              <option value="mindshare-desc">Mindshare: High to Low</option>
+              <option value="mindshare-asc">Mindshare: Low to High</option>
+              <option value="quality-desc">Quality: High to Low</option>
+              <option value="quality-asc">Quality: Low to High</option>
             </select>
           </div>
         </div>
@@ -695,9 +748,58 @@ export default function BiddingInterface() {
             ))}
           </div>
         ) : content && content.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {content.map((item: ContentItem) => {
-              const { text, hashtags, characterCount, imageUrl } = formatTwitterContent(item.content_text)
+          (() => {
+            // Filter and sort content
+            let filteredContent = content.filter((item: ContentItem) => {
+              // Search filter
+              const matchesSearch = !searchTerm || 
+                item.content_text?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.campaign.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.creator.username?.toLowerCase().includes(searchTerm.toLowerCase())
+              
+              // Platform filter
+              const matchesPlatform = selectedPlatform === 'all' || 
+                item.campaign.platform_source === selectedPlatform
+              
+              // Post type filter
+              const matchesPostType = selectedPostType === 'all' || 
+                (item.post_type || 'thread') === selectedPostType
+              
+              return matchesSearch && matchesPlatform && matchesPostType
+            })
+            
+            // Sort content
+            filteredContent.sort((a: ContentItem, b: ContentItem) => {
+              let aValue: number, bValue: number
+              
+              if (sortBy === 'mindshare') {
+                aValue = a.predicted_mindshare || 0
+                bValue = b.predicted_mindshare || 0
+              } else {
+                aValue = a.quality_score || 0
+                bValue = b.quality_score || 0
+              }
+              
+              return sortOrder === 'asc' ? aValue - bValue : bValue - aValue
+            })
+            
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {filteredContent.map((item: ContentItem) => {
+              // Check if this is a longpost that should be rendered as markdown
+              const shouldUseMarkdown = isMarkdownContent(item.post_type)
+              
+              // FORCE TEST: Check if content has markdown syntax
+              const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
+              
+              // FORCE TEST: Override markdown detection for testing
+              const forceMarkdown = hasMarkdownSyntax // Force markdown if we detect markdown syntax
+              
+              // For longposts, use raw content; for others, use parsed content
+              const { text, hashtags, characterCount, imageUrl } = (shouldUseMarkdown || forceMarkdown)
+                ? { text: item.content_text, hashtags: [], characterCount: item.content_text?.length || 0, imageUrl: null }
+                : formatTwitterContent(item.content_text)
+              
               const displayImage = item.content_images && item.content_images.length > 0 
                 ? item.content_images[0] 
                 : imageUrl
@@ -708,7 +810,12 @@ export default function BiddingInterface() {
                 tweet_thread: item.tweet_thread,
                 type: typeof item.tweet_thread,
                 length: item.tweet_thread?.length,
-                isArray: Array.isArray(item.tweet_thread)
+                isArray: Array.isArray(item.tweet_thread),
+                post_type: item.post_type,
+                shouldUseMarkdown,
+                hasMarkdownSyntax,
+                forceMarkdown,
+                content_length: item.content_text?.length
               })
               
               return (
@@ -734,27 +841,96 @@ export default function BiddingInterface() {
                         <div className="text-xs font-semibold text-gray-700 mb-1 max-w-32 truncate" title={item.campaign.title}>
                           📢 {item.campaign.title}
                         </div>
-                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                          {item.campaign.platform_source}
-                        </span>
+                        <div className="flex flex-wrap gap-1 justify-end">
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                            {item.campaign.platform_source}
+                          </span>
+                          <span className={`text-xs px-2 py-1 rounded-full ${getPostTypeInfo(item.post_type).className}`}>
+                            {getPostTypeInfo(item.post_type).text}
+                          </span>
+                        </div>
                         <p className="text-xs text-gray-500 mt-1">{formatTimeAgo(item.created_at)}</p>
                       </div>
                     </div>
 
                     {/* Tweet Thread Display */}
-                    <TweetThreadDisplay 
-                      mainTweet={text}
-                      tweetThread={item.tweet_thread}
-                      imageUrl={displayImage}
-                      characterCount={characterCount}
-                      hashtags={hashtags}
-                      className="relative"
-                      showImage={false} // We'll add watermark separately if needed
-                      isProtected={true} // Enable protected watermarks
-                    />
+                    {forceMarkdown ? (
+                      // Render longpost with markdown formatting and show/hide details
+                      <div className="relative">
+                        <div className="absolute top-2 right-2 z-10">
+                          <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(item.post_type).className}`}>
+                            {getPostTypeInfo(item.post_type).text}
+                          </span>
+                        </div>
+                        
+                        {/* Longpost content - truncated or full */}
+                        {expandedLongposts.has(item.id) ? (
+                          <div>
+                            {renderMarkdown(text, { className: 'longpost-content' })}
+                            
+                            {/* Show/Hide details button - above image when expanded */}
+                            {text.length > 300 && (
+                              <button
+                                onClick={() => toggleLongpostExpansion(item.id)}
+                                className="mt-3 flex items-center space-x-2 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                              >
+                                <ChevronUpIcon className="h-4 w-4" />
+                                <span>Hide details</span>
+                              </button>
+                            )}
+                            
+                            {displayImage && (
+                              <div className="mt-4">
+                                <img 
+                                  src={displayImage} 
+                                  alt="Content image" 
+                                  className="w-full h-auto object-contain rounded-lg"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            {renderMarkdown(truncateLongpost(text), { className: 'longpost-content' })}
+                            
+                            {/* Show/Hide details button - above image when collapsed */}
+                            {text.length > 300 && (
+                              <button
+                                onClick={() => toggleLongpostExpansion(item.id)}
+                                className="mt-3 flex items-center space-x-2 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                              >
+                                <ChevronDownIcon className="h-4 w-4" />
+                                <span>Show details</span>
+                              </button>
+                            )}
+                            
+                            {displayImage && (
+                              <div className="mt-4">
+                                <img 
+                                  src={displayImage} 
+                                  alt="Content image" 
+                                  className="w-full h-auto object-contain rounded-lg"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <TweetThreadDisplay 
+                        mainTweet={text}
+                        tweetThread={item.tweet_thread}
+                        imageUrl={displayImage}
+                        characterCount={characterCount}
+                        hashtags={hashtags}
+                        className="relative"
+                        showImage={false} // We'll add watermark separately if needed
+                        isProtected={true} // Enable protected watermarks
+                      />
+                    )}
 
-                    {/* Image with Watermark */}
-                    {displayImage && (
+                    {/* Image with Watermark - Only for non-longpost content */}
+                    {displayImage && !forceMarkdown && (
                       <div className="relative">
                         <div className="relative overflow-hidden rounded-lg border border-gray-300">
                           <img 
@@ -857,8 +1033,10 @@ export default function BiddingInterface() {
                   </div>
                 </div>
               )
-            })}
-          </div>
+                })}
+              </div>
+            )
+          })()
         ) : (
           <div className="text-center py-12">
             <MagnifyingGlassIcon className="h-16 w-16 mx-auto mb-4 text-gray-400" />

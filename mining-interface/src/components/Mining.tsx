@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAccount } from 'wagmi'
 import api from '../services/burnie-api'
+import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../utils/markdownParser'
 import { 
   PlayIcon, 
   StopIcon, 
@@ -98,6 +99,7 @@ interface GeneratedContent {
   agentUsed?: string;
   status?: 'pending' | 'approved' | 'rejected';
   createdAt?: string;
+  post_type?: string; // Type of post: 'shitpost', 'longpost', or 'thread'
 }
 
 interface ContentReviewItem {
@@ -1038,11 +1040,7 @@ export default function Mining() {
                         </div>
                       )}
                       
-                      <div className="flex items-center space-x-4 text-sm">
-                        <span className="text-gray-300">
-                          <span className="text-orange-400 font-semibold">{parseInt(campaign.winner_reward).toLocaleString()}</span> ROAST
-                        </span>
-            </div>
+
                       
                       {/* Agent Selection for Selected Campaigns */}
                       {isCampaignSelected(campaign.id) && (
@@ -1177,7 +1175,7 @@ export default function Mining() {
                   <div>
                     <div className="font-medium text-white">{selection.campaign.title}</div>
                     <div className="text-sm text-gray-400">
-                      {selection.campaign.platform_source} • {selection.campaign.campaign_type} • {parseInt(selection.campaign.winner_reward).toLocaleString()} ROAST
+                      {selection.campaign.platform_source} • {selection.campaign.campaign_type}
                     </div>
                   </div>
                   <div className="text-right">
@@ -1315,8 +1313,20 @@ export default function Mining() {
                       </h4>
                       
                       {(() => {
-                        // Parse the content to separate tweet text from image URLs
-                        const { text, imageUrl: extractedImageUrl } = formatTwitterContent(reviewItem.content.content_text)
+                        // Check if this is a longpost that should be rendered as markdown
+                        const shouldUseMarkdown = isMarkdownContent(reviewItem.content.post_type)
+                        
+                        // FORCE TEST: Check if content has markdown syntax
+                        const hasMarkdownSyntax = reviewItem.content.content_text?.includes('##') || reviewItem.content.content_text?.includes('**')
+                        
+                        // FORCE TEST: Override markdown detection for testing
+                        const forceMarkdown = hasMarkdownSyntax // Force markdown if we detect markdown syntax
+                        
+                        // For longposts, use raw content; for others, use parsed content
+                        const { text, imageUrl: extractedImageUrl } = (shouldUseMarkdown || forceMarkdown)
+                          ? { text: reviewItem.content.content_text, imageUrl: null }
+                          : formatTwitterContent(reviewItem.content.content_text)
+                        
                         // Use content_images array if available, otherwise fall back to extracted URL
                         const imageUrl = reviewItem.content.content_images && reviewItem.content.content_images.length > 0 
                           ? reviewItem.content.content_images[0] 
@@ -1325,6 +1335,12 @@ export default function Mining() {
                         // Debug logging
                         console.log('🖼️ Mining: Content images array:', reviewItem.content.content_images)
                         console.log('🖼️ Mining: Selected image URL:', imageUrl)
+                        console.log('🔍 Mining: Post type:', reviewItem.content.post_type)
+                        console.log('🔍 Mining: Should use markdown:', shouldUseMarkdown)
+                        console.log('🔍 Mining: Has markdown syntax:', hasMarkdownSyntax)
+                        console.log('🔍 Mining: Force markdown:', forceMarkdown)
+                        console.log('🔍 Mining: Raw content length:', reviewItem.content.content_text?.length)
+                        console.log('🔍 Mining: Processed text length:', text?.length)
                         console.log('🔍 Mining: Tweet thread:', {
                           thread: reviewItem.content.tweet_thread,
                           type: typeof reviewItem.content.tweet_thread,
@@ -1336,15 +1352,47 @@ export default function Mining() {
                         
                         return (
                           <div className="space-y-4">
-                            {/* Use TweetThreadDisplay Component */}
-                            <TweetThreadDisplay
-                              mainTweet={text}
-                              tweetThread={reviewItem.content.tweet_thread}
-                              imageUrl={imageUrl}
-                              characterCount={text.length}
-                              hashtags={hashtags}
-                              showImage={true}
-                            />
+                            {forceMarkdown ? (
+                              // Render longpost with markdown formatting
+                              <div className="relative">
+                                <div className="absolute top-2 right-2 z-10">
+                                  <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(reviewItem.content.post_type).className}`}>
+                                    {getPostTypeInfo(reviewItem.content.post_type).text}
+                                  </span>
+                                </div>
+                                {renderMarkdown(text, { className: 'longpost-content' })}
+                                {imageUrl && (
+                                  <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
+                                    <img 
+                                      src={imageUrl} 
+                                      alt="Content image" 
+                                      className="w-full h-auto object-contain"
+                                      onError={(e) => {
+                                        const target = e.target as HTMLImageElement
+                                        target.style.display = 'none'
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              // Use regular TweetThreadDisplay for other post types
+                              <div className="relative">
+                                <div className="absolute top-2 right-2 z-10">
+                                  <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(reviewItem.content.post_type).className}`}>
+                                    {getPostTypeInfo(reviewItem.content.post_type).text}
+                                  </span>
+                                </div>
+                                <TweetThreadDisplay
+                                  mainTweet={text}
+                                  tweetThread={reviewItem.content.tweet_thread}
+                                  imageUrl={imageUrl}
+                                  characterCount={text.length}
+                                  hashtags={hashtags}
+                                  showImage={true}
+                                />
+                              </div>
+                            )}
                             
                             {/* Image URL Section - only if image exists */}
                             {imageUrl && (

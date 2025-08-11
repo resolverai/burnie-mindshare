@@ -166,7 +166,7 @@ export default function AdminDashboard() {
       const token = getAdminToken()
       if (!token) throw new Error('No admin token')
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/campaigns`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/campaigns?limit=1000`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },

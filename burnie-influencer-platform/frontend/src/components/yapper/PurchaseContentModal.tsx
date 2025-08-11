@@ -6,6 +6,7 @@ import { XMarkIcon, ShoppingCartIcon, CurrencyDollarIcon, EyeIcon, StarIcon } fr
 import { addROASTTokenToWallet } from '../../utils/walletUtils'
 import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
 import TweetThreadDisplay from '../TweetThreadDisplay'
+import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
 
 interface ContentItem {
   id: number
@@ -26,6 +27,7 @@ interface ContentItem {
   }
   agent_name?: string
   created_at: string
+  post_type?: string // Type of post: 'shitpost', 'longpost', or 'thread'
 }
 
 interface PurchaseContentModalProps {
@@ -47,21 +49,32 @@ export default function PurchaseContentModal({
   const [watermarkPosition, setWatermarkPosition] = useState({ x: 0, y: 0 })
   const [selectedCurrency, setSelectedCurrency] = useState<'ROAST' | 'USDC'>('ROAST')
 
-  // Constants
-  const USDC_FEE = 0.03 // 0.03 USDC fee for USDC purchases
-
-  // Generate a consistent miner ID from username
-  const generateMinerId = (username: string): string => {
-    const hash = username.split('').reduce((a, b) => {
-      a = ((a << 5) - a) + b.charCodeAt(0)
-      return a & a
-    }, 0)
-    const minerId = Math.abs(hash).toString().slice(0, 6).padStart(6, '0')
-    return `MINER-${minerId}`
+  // Content parsing functions
+  const extractImageUrl = (contentText: string): string | null => {
+    // Pattern 1: Look for Image URL: prefix (backend format)
+    const prefixMatch = contentText.match(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i)
+    if (prefixMatch) {
+      return prefixMatch[1].replace(/[.,;'"]+$/, '')
+    }
+    
+    // Pattern 2: Look for OpenAI DALL-E URLs specifically
+    const dalleMatch = contentText.match(/(https?:\/\/oaidalleapiprodscus\.blob\.core\.windows\.net\/[^\s\n<>"'`]+)/i)
+    if (dalleMatch) {
+      return dalleMatch[1].replace(/[.,;'"]+$/, '')
+    }
+    
+    // Pattern 3: General blob URL detection
+    const blobMatch = contentText.match(/(https?:\/\/[^\s\n<>"'`]*blob\.core\.windows\.net[^\s\n<>"'`]+)/i)
+    if (blobMatch) {
+      return blobMatch[1].replace(/[.,;'"]+$/, '')
+    }
+    
+    return null
   }
 
-  // Content parsing function
-  const formatTwitterContent = (contentText: string): { text: string; hashtags: string[]; characterCount: number } => {
+  const formatTwitterContent = (contentText: string): { text: string; hashtags: string[]; characterCount: number; imageUrl: string | null } => {
+    const imageUrl = extractImageUrl(contentText)
+    
     // Start with the full content
     let cleanText = contentText
     
@@ -103,9 +116,25 @@ export default function PurchaseContentModal({
     return {
       text: finalText,
       hashtags,
-      characterCount: finalText.length
+      characterCount: finalText.length,
+      imageUrl
     }
   }
+
+  // Constants
+  const USDC_FEE = 0.03 // 0.03 USDC fee for USDC purchases
+
+  // Generate a consistent miner ID from username
+  const generateMinerId = (username: string): string => {
+    const hash = username.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0)
+      return a & a
+    }, 0)
+    const minerId = Math.abs(hash).toString().slice(0, 6).padStart(6, '0')
+    return `MINER-${minerId}`
+  }
+
+
 
   // Dynamic watermark positioning for modal
   useEffect(() => {
@@ -180,7 +209,24 @@ export default function PurchaseContentModal({
 
   if (!isOpen || !content) return null
 
-  const { text, hashtags, characterCount } = formatTwitterContent(content.content_text)
+  // Check if this is a longpost that should be rendered as markdown
+  const shouldUseMarkdown = isMarkdownContent(content.post_type)
+  
+  // FORCE TEST: Check if content has markdown syntax
+  const hasMarkdownSyntax = content.content_text?.includes('##') || content.content_text?.includes('**')
+  
+  // FORCE TEST: Override markdown detection for testing
+  const forceMarkdown = hasMarkdownSyntax // Force markdown if we detect markdown syntax
+  
+  // For longposts, use raw content; for others, use parsed content
+  const { text, hashtags, characterCount, imageUrl } = (shouldUseMarkdown || forceMarkdown)
+    ? { text: content.content_text, hashtags: [], characterCount: content.content_text?.length || 0, imageUrl: null }
+    : formatTwitterContent(content.content_text)
+
+  // Use content_images array if available, otherwise fall back to extracted URL
+  const displayImage = content.content_images && content.content_images.length > 0 
+    ? content.content_images[0] 
+    : imageUrl
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -256,21 +302,33 @@ export default function PurchaseContentModal({
                 </div>
               </div>
 
-              {/* Tweet Thread Display */}
+              {/* Content Display - Markdown for longposts, TweetThread for others */}
               <div className="mb-4">
-                <TweetThreadDisplay 
-                  mainTweet={text}
-                  tweetThread={content.tweet_thread}
-                  imageUrl={content.content_images?.[0] || null}
-                  characterCount={characterCount}
-                  hashtags={hashtags}
-                  showImage={false} // We'll display image separately with watermarks
-                  isProtected={true} // Enable protected watermarks
-                />
+                {forceMarkdown ? (
+                  // Render longpost with markdown formatting
+                  <div className="relative">
+                    <div className="absolute top-2 right-2 z-10">
+                      <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(content.post_type).className}`}>
+                        {getPostTypeInfo(content.post_type).text}
+                      </span>
+                    </div>
+                    {renderMarkdown(text, { className: 'longpost-content' })}
+                  </div>
+                ) : (
+                  <TweetThreadDisplay 
+                    mainTweet={text}
+                    tweetThread={content.tweet_thread}
+                    imageUrl={displayImage}
+                    characterCount={characterCount}
+                    hashtags={hashtags}
+                    showImage={false} // We'll display image separately with watermarks
+                    isProtected={true} // Enable protected watermarks
+                  />
+                )}
               </div>
               
-              {/* Content Image with Watermark */}
-              {content.content_images && content.content_images.length > 0 && (
+              {/* Content Image with Watermark - Only for non-longpost content */}
+              {content.content_images && content.content_images.length > 0 && !forceMarkdown && (
                 <div className="bg-white rounded-lg p-4 border border-gray-200">
                   <div className="relative w-full">
                     <div className="relative overflow-hidden rounded-lg border border-gray-300">
@@ -329,6 +387,49 @@ export default function PurchaseContentModal({
                         <br />
                         <span className="text-xs text-gray-400">Preview not available</span>
                       </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Longpost Image with Watermark - Only for longpost content */}
+              {content.content_images && content.content_images.length > 0 && forceMarkdown && (
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <div className="relative w-full">
+                    <div className="relative overflow-hidden rounded-lg border border-gray-300">
+                      <img 
+                        src={content.content_images[0]} 
+                        alt="AI Generated longpost image"
+                        className="w-full h-auto object-contain rounded-lg shadow-sm"
+                        onError={(e) => {
+                          console.error('❌ Purchase modal longpost image failed to load:', content.content_images?.[0])
+                          e.currentTarget.style.display = 'none'
+                        }}
+                      />
+                      
+                      {/* Image Watermarks */}
+                      <div className="absolute inset-0 pointer-events-none">
+                        <div 
+                          className="absolute text-white opacity-70 text-3xl font-black transform -rotate-45"
+                          style={{
+                            left: '25%',
+                            top: '35%',
+                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
+                          }}
+                        >
+                          PROTECTED
+                        </div>
+                        <div 
+                          className="absolute text-white opacity-60 text-2xl font-black transform rotate-12"
+                          style={{
+                            right: '20%',
+                            bottom: '25%',
+                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
+                          }}
+                        >
+                          BUY TO ACCESS
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

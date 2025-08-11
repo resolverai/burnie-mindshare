@@ -15,6 +15,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 import TweetThreadDisplay from '../TweetThreadDisplay'
+import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
 
 interface ContentItem {
   id: number
@@ -24,6 +25,7 @@ interface ContentItem {
   predicted_mindshare: number
   quality_score: number
   asking_price: number
+  post_type?: string // Type of post: 'shitpost', 'longpost', or 'thread'
   creator: {
     username: string
     reputation_score: number
@@ -58,8 +60,9 @@ export default function YapperMyContent() {
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedPlatform, setSelectedPlatform] = useState('all')
-  const [selectedQuality, setSelectedQuality] = useState('all')
-  const [sortBy, setSortBy] = useState('newest') // newest, oldest, price_high, price_low, quality
+  const [selectedPostType, setSelectedPostType] = useState('all')
+  const [sortBy, setSortBy] = useState<'mindshare' | 'quality'>('mindshare')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
   // Content parsing functions
   const extractImageUrl = (contentText: string): string | null => {
@@ -327,28 +330,22 @@ export default function YapperMyContent() {
         return false
       }
       
-      // Quality filter
-      if (selectedQuality !== 'all') {
-        const minQuality = parseInt(selectedQuality)
-        if (item.quality_score < minQuality) return false
-      }
+      // Post type filter
+      const matchesPostType = selectedPostType === 'all' || 
+        (item.post_type || 'thread') === selectedPostType
       
-      return true
+      return matchesPostType
     })
     .sort((a: ContentItem, b: ContentItem) => {
-      switch (sortBy) {
-        case 'oldest':
-          return new Date(a.winning_bid.bid_date).getTime() - new Date(b.winning_bid.bid_date).getTime()
-        case 'price_high':
-          return b.winning_bid.amount - a.winning_bid.amount
-        case 'price_low':
-          return a.winning_bid.amount - b.winning_bid.amount
-        case 'quality':
-          return b.quality_score - a.quality_score
-        case 'newest':
-        default:
-          return new Date(b.winning_bid.bid_date).getTime() - new Date(a.winning_bid.bid_date).getTime()
+      let aValue: number, bValue: number
+      if (sortBy === 'mindshare') {
+        aValue = a.predicted_mindshare || 0
+        bValue = b.predicted_mindshare || 0
+      } else {
+        aValue = a.quality_score || 0
+        bValue = b.quality_score || 0
       }
+      return sortOrder === 'asc' ? aValue - bValue : bValue - aValue
     }) : []
 
   return (
@@ -387,27 +384,29 @@ export default function YapperMyContent() {
             </select>
 
             <select
-              value={selectedQuality}
-              onChange={(e) => setSelectedQuality(e.target.value)}
+              value={selectedPostType}
+              onChange={(e) => setSelectedPostType(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent lg:w-48"
             >
-              <option value="all">All Quality Scores</option>
-              <option value="90">90+ (Excellent)</option>
-              <option value="80">80+ (Good)</option>
-              <option value="70">70+ (Fair)</option>
-              <option value="60">60+ (Basic)</option>
+              <option value="all">All Post Types</option>
+              <option value="thread">Thread</option>
+              <option value="longpost">Long Post</option>
+              <option value="shitpost">Meme Post</option>
             </select>
 
             <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
+              value={`${sortBy}-${sortOrder}`}
+              onChange={(e) => {
+                const [newSortBy, newSortOrder] = e.target.value.split('-') as ['mindshare' | 'quality', 'asc' | 'desc']
+                setSortBy(newSortBy)
+                setSortOrder(newSortOrder)
+              }}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent lg:w-48"
             >
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-              <option value="price_high">Price: High to Low</option>
-              <option value="price_low">Price: Low to High</option>
-              <option value="quality">Quality: High to Low</option>
+              <option value="mindshare-desc">Mindshare: High to Low</option>
+              <option value="mindshare-asc">Mindshare: Low to High</option>
+              <option value="quality-desc">Quality: High to Low</option>
+              <option value="quality-asc">Quality: Low to High</option>
             </select>
           </div>
           
@@ -424,13 +423,14 @@ export default function YapperMyContent() {
               <span>
                 Showing {filteredAndSortedContent.length} of {content.length} items
               </span>
-              {(selectedPlatform !== 'all' || selectedQuality !== 'all') && (
+              {(selectedPlatform !== 'all' || selectedPostType !== 'all') && (
                 <button
                   onClick={() => {
                     setSearchTerm('')
                     setSelectedPlatform('all')
-                    setSelectedQuality('all')
-                    setSortBy('newest')
+                    setSelectedPostType('all')
+                    setSortBy('mindshare')
+                    setSortOrder('desc')
                   }}
                   className="text-orange-600 hover:text-orange-700 font-medium"
                 >
@@ -457,7 +457,20 @@ export default function YapperMyContent() {
         ) : filteredAndSortedContent && filteredAndSortedContent.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {filteredAndSortedContent.map((item: ContentItem) => {
-              const { text, hashtags, characterCount, imageUrl } = formatTwitterContent(item.content_text)
+              // Check if this is a longpost that should be rendered as markdown
+              const shouldUseMarkdown = isMarkdownContent(item.post_type)
+              
+              // FORCE TEST: Check if content has markdown syntax
+              const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
+              
+              // FORCE TEST: Override markdown detection for testing
+              const forceMarkdown = hasMarkdownSyntax // Force markdown if we detect markdown syntax
+              
+              // For longposts, use raw content; for others, use parsed content
+              const { text, hashtags, characterCount, imageUrl } = (shouldUseMarkdown || forceMarkdown)
+                ? { text: item.content_text, hashtags: [], characterCount: item.content_text?.length || 0, imageUrl: null }
+                : formatTwitterContent(item.content_text)
+              
               const displayImage = item.content_images && item.content_images.length > 0 
                 ? item.content_images[0] 
                 : imageUrl
@@ -481,6 +494,9 @@ export default function YapperMyContent() {
                                 🤖 {item.agent_name}
                               </span>
                             )}
+                            <span className={`text-xs px-2 py-1 rounded-full font-medium border ${getPostTypeInfo(item.post_type).className}`}>
+                              {getPostTypeInfo(item.post_type).text}
+                            </span>
                           </div>
                           <div className="flex items-center space-x-1">
                             <StarIconSolid className="h-3 w-3 text-yellow-400" />
@@ -504,7 +520,27 @@ export default function YapperMyContent() {
                     </div>
 
                     {/* Content Text with Thread Display */}
-                    <TweetThreadDisplay
+                    {forceMarkdown ? (
+                      // Render longpost with markdown formatting
+                      <div className="relative">
+                        <div className="absolute top-2 right-2 z-10">
+                          <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(item.post_type).className}`}>
+                            {getPostTypeInfo(item.post_type).text}
+                          </span>
+                        </div>
+                        {renderMarkdown(text, { className: 'longpost-content' })}
+                        {displayImage && (
+                          <div className="mt-4">
+                            <img 
+                              src={displayImage} 
+                              alt="Content image" 
+                              className="w-full h-auto object-contain rounded-lg"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <TweetThreadDisplay
                       mainTweet={text}
                       tweetThread={item.tweet_thread}
                       imageUrl={displayImage}
@@ -513,6 +549,7 @@ export default function YapperMyContent() {
                       showImage={false}
                       isProtected={false}
                     />
+                    )}
                     
                     {/* Action Buttons */}
                     <div className="flex space-x-2">

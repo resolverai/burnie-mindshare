@@ -219,6 +219,7 @@ router.get('/content', async (req, res) => {
     const { 
       search,
       platform_source,
+      post_type,
       sort_by = 'quality',
       page = 1,
       limit = 20 
@@ -243,6 +244,10 @@ router.get('/content', async (req, res) => {
 
     if (platform_source) {
       query = query.andWhere('campaign.platformSource = :platform', { platform: platform_source });
+    }
+
+    if (post_type) {
+      query = query.andWhere('content.postType = :postType', { postType: post_type });
     }
 
     if (search) {
@@ -290,6 +295,7 @@ router.get('/content', async (req, res) => {
       predicted_mindshare: Number(content.predictedMindshare || 0),
       quality_score: Number(content.qualityScore || 0),
       asking_price: Number(content.biddingAskPrice || content.askingPrice || 0),
+      post_type: content.postType || 'thread', // Include post type
       creator: {
         id: content.creator?.id,
         username: content.creator?.username || 'Anonymous',
@@ -1227,6 +1233,7 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       predicted_mindshare: Number(content.predictedMindshare),
       quality_score: Number(content.qualityScore),
       asking_price: Number(content.askingPrice),
+      post_type: content.postType || 'thread', // Include post type
       creator: {
         username: content.creator?.username || 'Anonymous',
         reputation_score: content.creator?.reputationScore || 0
@@ -1372,6 +1379,7 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
       predicted_mindshare: Number(purchase.content.predictedMindshare),
       quality_score: Number(purchase.content.qualityScore),
       asking_price: Number(purchase.content.askingPrice),
+      post_type: purchase.content.postType || 'thread', // Include post type
       creator: {
         username: purchase.content.creator?.username || 'Anonymous',
         reputation_score: purchase.content.creator?.reputationScore || 0

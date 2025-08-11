@@ -672,22 +672,33 @@ class CrewAIService:
 
     def _create_orchestrator_agent(self) -> Agent:
         """Create Orchestrator Agent that directly combines JSON outputs - NO TOOLS"""
+        post_type = getattr(self.mining_session, 'post_type', 'thread')
+        
+        # Define format based on post type
+        if post_type == 'longpost':
+            expected_format = '''{{
+    "main_tweet": "the comprehensive longpost content here",
+    "image_url": "the S3 or image URL here"
+}}'''
+            task_description = "1. Find the JSON output from Text Content Creator (contains main_tweet for longpost)\n2. Find the image URL from Visual Content Creator\n3. Combine them into a single clean JSON output"
+        else:
+            expected_format = '''{{
+    "main_tweet": "the main tweet text here",
+    "thread_array": ["first thread tweet", "second thread tweet", "third thread tweet"],
+    "image_url": "the S3 or image URL here"
+}}'''
+            task_description = "1. Find the JSON output from Text Content Creator (contains main_tweet and thread_array)\n2. Find the image URL from Visual Content Creator\n3. Combine them into a single clean JSON output"
+        
         return Agent(
             role='Content Orchestrator',
             goal=f'Combine JSON outputs from Text Content Creator and Visual Content Creator into a single clean JSON response for {(self.campaign_data.get("title") or "campaign") if self.campaign_data else "campaign"}',
             backstory=f"""You are the Content Orchestrator, a specialized agent that combines JSON outputs from previous agents into a single, clean JSON response.
 
 Your task is simple and direct:
-1. Find the JSON output from Text Content Creator (contains main_tweet and thread_array)
-2. Find the image URL from Visual Content Creator 
-3. Combine them into a single clean JSON output
+{task_description}
 
 CRITICAL: You must output ONLY valid JSON in exactly this format:
-{{
-    "main_tweet": "the main tweet text here",
-    "thread_array": ["first thread tweet", "second thread tweet", "third thread tweet"],
-    "image_url": "the S3 or image URL here"
-}}
+{expected_format}
 
 Do NOT use any tools, do NOT add extra text or explanations. Just find the JSON from previous agents and combine them into the format above.
 
@@ -1007,6 +1018,9 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         project_name = self.campaign_data.get('projectName', 'Project') if self.campaign_data else 'Project'
         project_name = project_name or 'Project'  # Ensure it's never None
         
+        # Debug logging for token ticker
+        logger.info(f"📊 Campaign token ticker: {token_ticker} (from campaign data: {self.campaign_data.get('tokenTicker') if self.campaign_data else 'None'})")
+        
         return Task(
             description=f"""
             Create engaging Twitter content using real AI models and tools:
@@ -1022,23 +1036,23 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             CONTENT FORMAT:
             {content_type_desc}:
-            {f'- Generate a {post_type.upper()} with maximum {max_main_chars} characters for main content' if post_type == 'longpost' else 
+            {f'- Generate a comprehensive {post_type.upper()} with minimum 2000 and maximum {max_main_chars} characters formatted in MARKDOWN' if post_type == 'longpost' else 
              f'- Generate a humorous, ironic {post_type.upper()} with 2-4 follow-up tweets (280 chars each)' if post_type == 'shitpost' else 
              f'- Generate a compelling tweet thread (2-5 tweets) when campaign description is available' if should_generate_thread else 
              '- Generate a single tweet when no campaign description is available'}
-            {f'- Use comprehensive, detailed content with thorough analysis' if post_type == 'longpost' else 
+            {f'- Use comprehensive, detailed content with thorough analysis, structured with markdown headers, paragraphs, and formatting' if post_type == 'longpost' else 
              f'- Use deliberately casual, ironic humor connecting random activities to crypto' if post_type == 'shitpost' else 
              f'- First tweet (main tweet): Hook with image-worthy content' if should_generate_thread else 
              '- Maximum 280 characters for Twitter'}
             {f'- Include data, statistics, and in-depth explanations' if post_type == 'longpost' else 
              f'- Include crypto memes, "few understand", "NFA obvs", engagement hooks' if post_type == 'shitpost' else 
              f'- Follow-up tweets: Expand on project details, use brand guidelines, create FOMO' if should_generate_thread else ''}
-            {f'- Structure content logically with clear sections and professional tone' if post_type == 'longpost' else 
+            {f'- Structure content logically with clear markdown sections (## headers), **bold** emphasis, and professional tone' if post_type == 'longpost' else 
              f'- Reference diamond hands, moon, wen lambo, bullish on [random thing]' if post_type == 'shitpost' else 
              f'- Include project name, token ticker, and key benefits from description' if should_generate_thread else ''}
             
             CRITICAL CHARACTER LIMITS (STRICTLY ENFORCE):
-            {f'- Main content: Maximum {max_main_chars} characters total (no thread needed)' if post_type == 'longpost' else 
+            {f'- Main content: Minimum 2000, maximum {max_main_chars} characters total in MARKDOWN format (no thread needed)' if post_type == 'longpost' else 
              f'- Main tweet: Maximum 250 characters + 30 hashtag characters for {post_type.upper()}' if post_type == 'shitpost' else 
              '- Main tweet: Maximum 250 characters for text content + 30 hashtag characters'}
             {f'- Include relevant hashtags within the character limit' if post_type == 'longpost' else 
@@ -1058,7 +1072,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - Use 2-3 additional relevant, trending hashtags maximum
             - Use strategic emojis for engagement (3-5 maximum)
             - Create hook-heavy opening line
-            - Include clear call-to-action
+            {f'- Focus on informative, analytical content without explicit calls-to-action' if post_type == 'longpost' else '- Include clear call-to-action'}
             - Optimize for crypto/Web3 audience
             {'- Incorporate project-specific details from description and guidelines' if has_description else ''}
             {'- Thread tweets may optionally include project token hashtag' if has_description else ''}
@@ -1077,10 +1091,12 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             CRITICAL RESTRICTIONS (NEVER VIOLATE):
             - NEVER use "WAGMI" hashtag or reference in any tweet (main tweet or thread items)
             - PRONOUN USAGE RULES:
-              * When referring to THE READER: Use second-person pronouns (you/your/yours)
-              * When referring to THE PROJECT: Use third-person singular gender-neutral pronouns (it/its)
-              * When referring to OTHER USERS/COMMUNITY: Use third-person pronouns (they/them/their)
-            - Examples: "You can join the movement" (reader), "BOB revolutionizes DeFi" (project), "Users love its features" (project), "They are earning rewards" (other users)
+              * When referring to THE READER: Use second-person pronouns (you/your/yours) - "You can explore", "Your portfolio"
+              * When referring to THE PROJECT/PROTOCOL: Use third-person singular gender-neutral pronouns (it/its) - "BOB revolutionizes", "It offers", "Its features"
+              * When referring to THE TEAM/DEVELOPERS: Use third-person pronouns (they/them/their) - "They built", "Their vision"
+              * When referring to OTHER USERS/COMMUNITY: Use third-person pronouns (they/them/their) - "Users love", "They are earning"
+              * LONGPOST SPECIFIC: Use professional third-person analysis while addressing readers with "you" when relevant
+            - Examples: "You can join the movement" (reader), "BOB revolutionizes DeFi" (project), "It provides seamless integration" (project), "They are earning rewards" (other users)
             
             {f'''
             📚 **SHITPOST PROMPT LIBRARY** (Use for {post_type.upper()} content ONLY):
@@ -1100,10 +1116,12 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             IMPORTANT: Use your content generation tool to create REAL content.
             """ + (
+                # Longpost specific tool call
+                f'Call the tool with: "Create comprehensive longpost content for {project_name} ({token_ticker}) based on: {campaign_description[:200] if has_description else "campaign topic"}... CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet, hashtags_used, character_count, and approach keys (NO thread_array). 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include #{token_ticker} hashtag. 4) Main tweet: 2000-25000 characters total formatted in MARKDOWN with proper paragraphs, headers, and structure. 5) Use markdown formatting like **bold**, *italic*, ## headers, and line breaks for readability. 6) NO explanations, just pure JSON."' if post_type == 'longpost' else
                 # Shitpost specific tool call
-                f'Call the tool with: "Generate shitpost content for {project_name} ({token_ticker}) using the SHITPOST PROMPT LIBRARY. CRITICAL REQUIREMENTS: 1) Use ONE template from Food/Daily Life, Morning Routine, Household Activities, or Random Observations categories. 2) Replace [placeholders] with specific relatable details about daily life. 3) Connect mundane activity to {project_name} benefits naturally. 4) Include #{token_ticker} hashtag organically. 5) Add engagement hook (Thoughts? Few understand this, etc.). 6) Return ONLY valid JSON with main_tweet key. 7) Max 250 chars + 30 hashtag chars. 8) NO explanations, just pure JSON. Example approach: Take Template 1 (pizza tokenomics) but adapt for your project benefits."' if post_type == 'shitpost' else
+                f'Call the tool with: "Generate shitpost content for {project_name} ({token_ticker}) using the SHITPOST PROMPT LIBRARY. CRITICAL REQUIREMENTS: 1) Use ONE template from Food/Daily Life, Morning Routine, Household Activities, or Random Observations categories. 2) Replace [placeholders] with specific relatable details about daily life. 3) Connect mundane activity to {project_name} benefits naturally. 4) Include #{token_ticker} hashtag organically ONLY in main_tweet. 5) HASHTAG RULE: All hashtags (especially #{token_ticker}) must appear ONLY in main_tweet, NEVER in thread_array items. 6) Add engagement hook (Thoughts? Few understand this, etc.). 7) Return ONLY valid JSON with main_tweet key. 8) Max 250 chars + 30 hashtag chars. 9) NO explanations, just pure JSON. Example approach: Take Template 1 (pizza tokenomics) but adapt for your project benefits."' if post_type == 'shitpost' else
                 # Thread specific tool call  
-                f'Call the tool with: "Create Twitter thread about {project_name} ({token_ticker}) based on: {campaign_description[:100] if has_description else "campaign topic"}... CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet and thread_array keys. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include #{token_ticker} hashtag. 4) Main tweet max 250 chars + 30 hashtag chars. 5) NO explanations, just pure JSON."' if has_description else 
+                f'Call the tool with: "Create Twitter thread about {project_name} ({token_ticker}) based on: {campaign_description[:100] if has_description else "campaign topic"}... CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet and thread_array keys. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include #{token_ticker} hashtag ONLY in main_tweet. 4) HASHTAG RULE: All hashtags (especially #{token_ticker}) must appear ONLY in main_tweet, NEVER in thread_array items. 5) Thread array items should be plain text without hashtags. 6) Main tweet max 250 chars + 30 hashtag chars. 7) NO explanations, just pure JSON."' if has_description else 
                 # Single tweet tool call
                 f'Call the tool with: "Create viral Twitter content about {project_name} ({token_ticker}). CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet key. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include relevant hashtags. 4) NO explanations, just pure JSON."'
             ) + """
@@ -1116,15 +1134,15 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
              'FOR SINGLE TWEET CAMPAIGNS, use this EXACT JSON structure:'}
             
             """ + ('''{
-  "main_tweet": "Your comprehensive longpost content here (≤25000 chars including hashtags)",
+  "main_tweet": "## Your Comprehensive Longpost Title\n\nYour comprehensive longpost content here with **bold emphasis**, *italic text*, and proper markdown formatting (2000-25000 chars including hashtags)",
   "hashtags_used": ["''' + token_ticker + '''", "DeFi", "Crypto", "Analysis"],
   "character_count": 5247,
   "approach": "comprehensive"
 }''' if post_type == 'longpost' else '''{
-  "main_tweet": "Your humorous shitpost main tweet here (≤280 chars)",
+  "main_tweet": "Your humorous shitpost main tweet here with hashtags #''' + token_ticker + ''' #shitpost #crypto (≤280 chars)",
   "thread_array": [
-    "Second shitpost tweet building the joke (≤280 chars)",
-    "Third shitpost tweet continuing the absurdity (≤280 chars)"
+    "Second shitpost tweet building the joke - plain text, no hashtags (≤280 chars)",
+    "Third shitpost tweet continuing the absurdity - plain text, no hashtags (≤280 chars)"
   ],
   "hashtags_used": ["''' + token_ticker + '''", "shitpost", "crypto"],
   "character_counts": {
@@ -1134,11 +1152,11 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
   },
   "approach": "humorous"
 }''' if post_type == 'shitpost' else '''{
-  "main_tweet": "Your main tweet text here (≤250 chars + ≤30 hashtag chars)",
+  "main_tweet": "Your main tweet text here with hashtags (≤250 chars + ≤30 hashtag chars) #''' + token_ticker + ''' #DeFi #Crypto",
   "thread_array": [
-    "Second tweet text here (≤280 chars)",
-    "Third tweet text here (≤280 chars)", 
-    "Fourth tweet text here (≤280 chars)"
+    "Second tweet text here - plain text, no hashtags (≤280 chars)",
+    "Third tweet text here - plain text, no hashtags (≤280 chars)", 
+    "Fourth tweet text here - plain text, no hashtags (≤280 chars)"
   ],
   "hashtags_used": ["''' + token_ticker + '''", "DeFi", "Crypto"],
   "character_counts": {
@@ -1163,6 +1181,8 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - No trailing commas
             - No comments or explanations outside the JSON
             - Test JSON validity before returning
+            - HASHTAG PLACEMENT: All hashtags (especially token hashtag) MUST appear ONLY in main_tweet, NEVER in thread_array items
+            - Thread array items should be plain text without any hashtags
             
             """ + ("""EXAMPLE VALID JSON OUTPUT:
 {
@@ -1191,12 +1211,17 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             STRICT VALIDATION REQUIREMENTS:
             ✓ Return ONLY valid JSON - no extra text, explanations, or formatting
-            ✓ Use exact key names: "main_tweet", "thread_array", "hashtags_used", "character_counts"
-            ✓ Main tweet text content ≤ 250 characters
-            ✓ Main tweet hashtags ≤ 30 characters total  
+            {f'✓ Use exact key names: "main_tweet", "hashtags_used", "character_counts", "approach" (NO thread_array for longpost)' if post_type == 'longpost' else 
+             '✓ Use exact key names: "main_tweet", "thread_array", "hashtags_used", "character_counts"'}
+            {f'✓ Main tweet content: 2000-25000 characters total (comprehensive longpost)' if post_type == 'longpost' else 
+             '✓ Main tweet text content ≤ 250 characters'}
+            {f'✓ Include relevant hashtags within the character limit' if post_type == 'longpost' else 
+             '✓ Main tweet hashtags ≤ 30 characters total'}
             ✓ Main tweet includes #{token_ticker} hashtag
-            {'✓ Each thread tweet ≤ 280 characters total' if has_description else ''}
-            {'✓ Thread tweets ideally 200-240 characters' if has_description else ''}
+            {'' if post_type == 'longpost' else 
+             f'{"✓ Each thread tweet ≤ 280 characters total" if has_description else ""}'}
+            {'' if post_type == 'longpost' else 
+             f'{"✓ Thread tweets ideally 200-240 characters" if has_description else ""}'}
             ✓ No "WAGMI" references anywhere
             ✓ Correct pronoun usage: YOU/YOUR (reader), THEY/THEM (other users), IT/ITS (project)
             ✓ Direct engagement with reader using second-person pronouns
@@ -1205,7 +1230,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             REMEMBER: Generate engaging approach content ONLY. Return pure JSON with no additional commentary.
             """,
             agent=self.agents[AgentType.TEXT_CONTENT],
-            expected_output="Single JSON object with main_tweet, thread_array, hashtags_used, and character_counts fields - no additional text or explanations"
+            expected_output=f"Single JSON object with main_tweet, {'hashtags_used, character_counts, and approach fields' if post_type == 'longpost' else 'thread_array, hashtags_used, and character_counts fields'} - no additional text or explanations"
         )
 
     def _create_visual_task(self) -> Task:
@@ -1545,6 +1570,31 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
 
     def _create_orchestration_task(self) -> Task:
         """Create task for Orchestrator Agent"""
+        post_type = getattr(self.mining_session, 'post_type', 'thread')
+        
+        # Define task instructions based on post type
+        if post_type == 'longpost':
+            format_example = '''{
+    "main_tweet": "copy the comprehensive longpost content here",
+    "image_url": "copy the image URL here"
+}'''
+            instructions = """1. Look for the JSON output from Text Content Creator (has "main_tweet" for longpost)
+2. Look for the image URL from Visual Content Creator (S3 URL or other image URL)
+3. Combine them into exactly this JSON format:"""
+            fallback_rules = """- If no image URL exists, use empty string: ""
+- Do NOT include thread_array for longposts"""
+        else:
+            format_example = '''{
+    "main_tweet": "copy the main tweet text here",
+    "thread_array": ["copy", "the", "thread", "array", "here"],
+    "image_url": "copy the image URL here"
+}'''
+            instructions = """1. Look for the JSON output from Text Content Creator (has "main_tweet" and "thread_array")
+2. Look for the image URL from Visual Content Creator (S3 URL or other image URL)
+3. Combine them into exactly this JSON format:"""
+            fallback_rules = """- If no thread_array exists, use an empty array: []
+- If no image URL exists, use empty string: \"\""""
+        
         return Task(
             description=f"""
             COMBINE JSON OUTPUTS INTO SINGLE CLEAN JSON
@@ -1552,23 +1602,16 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             You must find and combine the outputs from the Text Content Creator and Visual Content Creator.
             
             INSTRUCTIONS:
-            1. Look for the JSON output from Text Content Creator (has "main_tweet" and "thread_array")
-            2. Look for the image URL from Visual Content Creator (S3 URL or other image URL)
-            3. Combine them into exactly this JSON format:
+            {instructions}
             
-            {{
-                "main_tweet": "copy the main tweet text here",
-                "thread_array": ["copy", "the", "thread", "array", "here"],
-                "image_url": "copy the image URL here"
-            }}
+            {format_example}
             
             CRITICAL REQUIREMENTS:
             - Output ONLY valid JSON in the exact format above
             - Do NOT add explanations, descriptions, or extra text
             - Do NOT use tools
             - Find the actual content from previous agents and combine it
-            - If no thread_array exists, use an empty array: []
-            - If no image URL exists, use empty string: ""
+            {fallback_rules}
             
             Campaign: {self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}
             """,
@@ -1740,19 +1783,41 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             try:
                 import json
-                # Look for JSON in the orchestrator output - handle nested objects and arrays
+                
+                # Try multiple approaches to extract JSON from orchestrator output
+                json_found = False
+                
+                # Approach 1: Look for complete JSON object with main_tweet
                 json_match = re.search(r'\{(?:[^{}]|{[^{}]*}|\[[^\]]*\])*"main_tweet"(?:[^{}]|{[^{}]*}|\[[^\]]*\])*\}', raw_result, re.DOTALL)
                 if json_match:
-                    json_str = json_match.group(0)
-                    parsed_json = json.loads(json_str)
-                    
-                    final_content = parsed_json.get("main_tweet", "")
-                    tweet_thread = parsed_json.get("thread_array", [])
-                    
-                    logger.info(f"✅ Successfully parsed orchestrator JSON output")
-                    logger.info(f"✅ Extracted main_tweet: {final_content[:100]}...")
-                    logger.info(f"✅ Extracted thread_array: {len(tweet_thread) if tweet_thread else 0} tweets")
-                else:
+                    try:
+                        json_str = json_match.group(0)
+                        parsed_json = json.loads(json_str)
+                        
+                        final_content = parsed_json.get("main_tweet", "")
+                        tweet_thread = parsed_json.get("thread_array", [])
+                        json_found = True
+                        
+                        logger.info(f"✅ Successfully parsed orchestrator JSON output (approach 1)")
+                        logger.info(f"✅ Extracted main_tweet length: {len(final_content)} chars")
+                        logger.info(f"✅ Extracted thread_array: {len(tweet_thread) if tweet_thread else 0} tweets")
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"⚠️ JSON parsing failed for approach 1: {e}")
+                
+                # Approach 2: If approach 1 failed, try to find main_tweet content more broadly
+                if not json_found:
+                    # Look for main_tweet with content that may span multiple lines
+                    main_tweet_pattern = r'"main_tweet"\s*:\s*"((?:[^"\\]|\\.|\\n|\\r|\\t)*)"'
+                    main_tweet_match = re.search(main_tweet_pattern, raw_result, re.DOTALL)
+                    if main_tweet_match:
+                        final_content = main_tweet_match.group(1)
+                        # Unescape common escape sequences
+                        final_content = final_content.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
+                        tweet_thread = []  # No thread for longpost anyway
+                        json_found = True
+                        logger.info(f"✅ Extracted main_tweet using approach 2, length: {len(final_content)} chars")
+                        
+                if not json_found:
                     logger.warning(f"⚠️ No JSON found in orchestrator output, falling back to extraction")
                     extraction_result = self._extract_twitter_content(raw_result)
                     final_content = extraction_result["content_text"]
@@ -1765,7 +1830,12 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 tweet_thread = extraction_result["tweet_thread"]
             
             # Debug: Log extraction results
-            logger.info(f"🔍 Extracted content_text: {final_content}")
+            post_type = getattr(self.mining_session, 'post_type', 'thread')
+            logger.info(f"🔍 POST TYPE: {post_type}")
+            logger.info(f"🔍 Extracted content_text length: {len(final_content)} chars")
+            logger.info(f"🔍 Extracted content_text preview: {final_content[:200]}...")
+            if len(final_content) > 200:
+                logger.info(f"🔍 Extracted content_text ending: ...{final_content[-200:]}")
             logger.info(f"🔍 Extracted tweet_thread: {tweet_thread}")
             logger.info(f"🔍 Tweet thread type: {type(tweet_thread)}")
             logger.info(f"🔍 Tweet thread length: {len(tweet_thread) if tweet_thread else 0}")
@@ -1773,7 +1843,8 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Debug: Log the raw orchestrator output and extracted content
             logger.info(f"🎭 Orchestrator raw output length: {len(raw_result)} chars")
             logger.info(f"🎭 Orchestrator raw output preview: {raw_result[:500]}...")
-            logger.info(f"🔍 Full orchestrator output for debugging: {raw_result}")  # Full output for debugging
+            if post_type == 'longpost':
+                logger.info(f"🔍 LONGPOST - Full orchestrator output for debugging: {raw_result}")  # Full output for debugging longpost issues
             
             # Debug: Check if orchestrator produced incomplete response
             if "I now can give a great answer" in raw_result or len(raw_result) < 100:
@@ -2474,10 +2545,13 @@ No image generated
         # STEP 1: Extract from Text Content Creator JSON
         try:
             # Look for main_tweet and thread_array in JSON
-            main_tweet_match = re.search(r'"main_tweet"\s*:\s*"([^"]*)"', raw_result)
+            # Use a more robust regex that handles escaped quotes and quoted content
+            main_tweet_match = re.search(r'"main_tweet"\s*:\s*"((?:[^"\\]|\\.|\\n|\\r|\\t)*)"', raw_result, re.DOTALL)
             if main_tweet_match:
                 final_text = main_tweet_match.group(1)
-                logger.info(f"✅ Found main_tweet: {final_text[:100]}...")
+                # Unescape any escaped quotes and other escape sequences in the content
+                final_text = final_text.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
+                logger.info(f"✅ Found main_tweet in _extract_twitter_content: {len(final_text)} chars")
             
             # Look for thread_array
             thread_match = re.search(r'"thread_array"\s*:\s*(\[[^\]]*\])', raw_result)
@@ -2547,14 +2621,15 @@ No image generated
             "image_url": image_url
         }
     
-    def _format_for_twitter(self, text: str) -> str:
+    def _format_for_twitter(self, text: str, post_type: str = "thread") -> str:
         """Clean and format text for Twitter posting"""
         text = text.strip()
         text = re.sub(r'^[🐦📱🎨🎯📊✅⚙️⏰💡]+\s*', '', text)
         text = re.sub(r'\s+', ' ', text)
         text = text.strip('"').strip("'")
         
-        if len(text) > 280:
+        # Only apply Twitter character limit for threads and shitposts, NOT for longposts
+        if post_type != "longpost" and len(text) > 280:
             text = text[:276] + "..."
         
         return text

@@ -36,6 +36,7 @@
     "react-dom": "18.2.0",
     "react-hook-form": "7.47.0",
     "react-hot-toast": "2.4.1",
+    "react-markdown": "^10.1.0",
     "replicate": "^0.22.0",
     "siwe": "^3.0.0",
     "socket.io-client": "4.8.0",

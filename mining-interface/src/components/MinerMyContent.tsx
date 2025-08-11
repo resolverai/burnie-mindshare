@@ -14,6 +14,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 import TweetThreadDisplay from './TweetThreadDisplay'
+import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../utils/markdownParser'
 
 interface ContentItem {
   id: number
@@ -39,6 +40,7 @@ interface ContentItem {
   bidding_end_date?: string
   bidding_ask_price?: number
   bidding_enabled_at?: string
+  post_type?: string // Type of post: 'shitpost', 'longpost', or 'thread'
 }
 
 interface BiddingModalData {
@@ -252,8 +254,20 @@ export default function MinerMyContent() {
         ) : content && content.length > 0 ? (
           <div className="space-y-8">
             {content.map((item: ContentItem) => {
-              // Parse the content to separate tweet text from image URLs
-              const { text, imageUrl: extractedImageUrl } = formatTwitterContent(item.content_text)
+              // Check if this is a longpost that should be rendered as markdown
+              const shouldUseMarkdown = isMarkdownContent(item.post_type)
+              
+              // FORCE TEST: Check if content has markdown syntax
+              const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
+              
+              // FORCE TEST: Override markdown detection for testing
+              const forceMarkdown = hasMarkdownSyntax // Force markdown if we detect markdown syntax
+              
+              // For longposts, use raw content; for others, use parsed content
+              const { text, imageUrl: extractedImageUrl } = (shouldUseMarkdown || forceMarkdown)
+                ? { text: item.content_text, imageUrl: null }
+                : formatTwitterContent(item.content_text)
+              
               // Use content_images array if available, otherwise fall back to extracted URL
               const imageUrl = item.content_images && item.content_images.length > 0 
                 ? item.content_images[0] 
@@ -263,6 +277,14 @@ export default function MinerMyContent() {
               // Debug logging
               console.log('🖼️ MyContent: Content images array:', item.content_images)
               console.log('🖼️ MyContent: Selected image URL:', imageUrl)
+              console.log('🔍 MyContent: Post type:', item.post_type)
+              console.log('🔍 MyContent: Should use markdown:', shouldUseMarkdown)
+              console.log('🔍 MyContent: Has markdown syntax:', hasMarkdownSyntax)
+              console.log('🔍 MyContent: Force markdown:', forceMarkdown)
+              console.log('🔍 MyContent: Raw content length:', item.content_text?.length)
+              console.log('🔍 MyContent: Processed text length:', text?.length)
+              console.log('🔍 MyContent: Raw content preview:', item.content_text?.substring(0, 200))
+              console.log('🔍 MyContent: Processed text preview:', text?.substring(0, 200))
               
               return (
                 <div key={item.id} className="bg-gray-800/50 rounded-lg border border-gray-700 hover:border-orange-500/50 transition-all duration-300">
@@ -317,16 +339,49 @@ export default function MinerMyContent() {
                         </button>
                       </div>
                       
-                      {/* Tweet Thread Display */}
-                      <TweetThreadDisplay
-                        mainTweet={text}
-                        tweetThread={item.tweet_thread}
-                        imageUrl={imageUrl}
-                        characterCount={text.length}
-                        hashtags={hashtags}
-                        showImage={true}
-                        isProtected={false} // Mining interface doesn't need protection for owned content
-                      />
+                      {/* Content Display - Markdown for longposts, regular for others */}
+                      {forceMarkdown ? (
+                        // Render longpost with markdown formatting
+                        <div className="relative">
+                          <div className="absolute top-2 right-2 z-10">
+                            <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(item.post_type).className}`}>
+                              {getPostTypeInfo(item.post_type).text}
+                            </span>
+                          </div>
+                          {renderMarkdown(text, { className: 'longpost-content' })}
+                          {imageUrl && (
+                            <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
+                              <img 
+                                src={imageUrl} 
+                                alt="Content image" 
+                                className="w-full h-auto object-contain"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement
+                                  target.style.display = 'none'
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        // Use regular TweetThreadDisplay for other post types
+                        <div className="relative">
+                          <div className="absolute top-2 right-2 z-10">
+                            <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(item.post_type).className}`}>
+                              {getPostTypeInfo(item.post_type).text}
+                            </span>
+                          </div>
+                          <TweetThreadDisplay
+                            mainTweet={text}
+                            tweetThread={item.tweet_thread}
+                            imageUrl={imageUrl}
+                            characterCount={text.length}
+                            hashtags={hashtags}
+                            showImage={true}
+                            isProtected={false} // Mining interface doesn't need protection for owned content
+                          />
+                        </div>
+                      )}
                       
                       {/* Image URL display for mining interface */}
                         {imageUrl && (
