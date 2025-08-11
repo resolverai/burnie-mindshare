@@ -238,7 +238,7 @@ export async function transferUSDC(
 export async function getROASTBalance(address: string): Promise<number> {
   try {
     const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN
-    
+
     if (!contractAddress) {
       throw new Error('ROAST token contract address not configured')
     }
@@ -318,7 +318,7 @@ export async function checkUSDCBalance(address: string, requiredAmount: number):
     console.error('Failed to check USDC balance:', error)
     return false
   }
-}
+} 
 
 /**
  * Add ROAST token to wallet

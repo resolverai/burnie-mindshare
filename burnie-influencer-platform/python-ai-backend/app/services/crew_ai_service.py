@@ -1547,6 +1547,15 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             final_content = extraction_result["content_text"]
             tweet_thread = extraction_result["tweet_thread"]
             
+            # NEW: Simple direct JSON extraction approach
+            if not final_content or not tweet_thread:
+                logger.info("🔧 Trying direct JSON extraction from raw result...")
+                direct_extraction = self._direct_json_extraction(raw_result)
+                if direct_extraction["content_text"]:
+                    final_content = direct_extraction["content_text"]
+                if direct_extraction["tweet_thread"]:
+                    tweet_thread = direct_extraction["tweet_thread"]
+            
             # Debug: Log extraction results
             logger.info(f"🔍 Extracted content_text: {final_content}")
             logger.info(f"🔍 Extracted tweet_thread: {tweet_thread}")
@@ -2243,315 +2252,65 @@ No image generated
             return False
 
     def _extract_twitter_content(self, raw_result: str) -> Dict[str, Any]:
-        """Extract and format final Twitter content and thread from orchestrator output"""
+        """Extract Twitter content directly from agent JSON - SIMPLE VERSION"""
+        import json
+        import re
+        
+        logger.info(f"🔍 Direct JSON extraction from agent outputs...")
+        
+        final_text = ""
+        tweet_thread = None
+        image_url = ""
+        
+        # STEP 1: Extract from Text Content Creator JSON
         try:
-            lines = raw_result.split('\n')
-            final_text = ""
-            tweet_thread = None
-            image_url = ""
+            # Look for main_tweet and thread_array in JSON
+            main_tweet_match = re.search(r'"main_tweet"\s*:\s*"([^"]*)"', raw_result)
+            if main_tweet_match:
+                final_text = main_tweet_match.group(1)
+                logger.info(f"✅ Found main_tweet: {final_text[:100]}...")
             
-            # Pattern 1: Handle LLM Content Extraction Tool format
-            for i, line in enumerate(lines):
-                line_clean = line.strip()
-                if line_clean.startswith("Tweet Text:"):
-                    # Extract text after "Tweet Text:" - handle multi-line content
-                    first_line_text = line_clean.replace("Tweet Text:", "").strip().strip('"')
-                    
-                    # Collect additional lines until we hit "Tweet Thread:", "Image URL:" or empty line
-                    text_lines = [first_line_text] if first_line_text else []
-                    
-                    for j in range(i + 1, len(lines)):
-                        next_line = lines[j].strip()
-                        if (next_line.startswith("Tweet Thread:") or 
-                            next_line.startswith("Image URL:") or 
-                            next_line.startswith("```") or 
-                            (not next_line and j > i + 1)):  # Empty line after content
-                            break
-                        if next_line:  # Non-empty line
-                            text_lines.append(next_line)
-                    
-                    final_text = '\n'.join(text_lines).strip()
-                    
-                elif line_clean.startswith("Tweet Thread:"):
-                    # Extract thread after "Tweet Thread:"
-                    thread_text = line_clean.replace("Tweet Thread:", "").strip().strip('"')
-                    logger.info(f"🔍 Found Tweet Thread line: {thread_text}")
-                    if thread_text and thread_text != "No thread generated":
-                        try:
-                            # Try to parse as JSON array
-                            import json
-                            if thread_text.startswith('[') and thread_text.endswith(']'):
-                                tweet_thread = json.loads(thread_text)
-                                logger.info(f"🔍 Parsed as JSON array: {tweet_thread}")
-                            else:
-                                # Split by common delimiters if not JSON
-                                tweet_thread = [t.strip().strip('"') for t in thread_text.split('", "') if t.strip()]
-                                logger.info(f"🔍 Parsed by delimiter split: {tweet_thread}")
-                        except Exception as e:
-                            logger.warning(f"🔍 JSON parsing failed: {e}")
-                            # Fallback: split by quotes or newlines
-                            tweet_thread = [t.strip().strip('"') for t in thread_text.split('", "') if t.strip()]
-                            logger.info(f"🔍 Fallback parsing: {tweet_thread}")
-                    
-                elif line_clean.startswith("Image URL:"):
-                    # Extract URL after "Image URL:"
-                    image_url = line_clean.replace("Image URL:", "").strip().strip('"')
-            
-            # Convert newlines to spaces for Twitter format (since Twitter treats newlines as spaces anyway)
-            if final_text:
-                final_text = ' '.join(final_text.split('\n')).strip()
-                
-            # CRITICAL: Ensure final_text doesn't contain the thread content
-            if final_text and tweet_thread:
-                # Remove any thread content that might have leaked into final_text
-                for thread_tweet in tweet_thread:
-                    if thread_tweet.strip() in final_text:
-                        final_text = final_text.replace(thread_tweet.strip(), '').strip()
-                
-                # Also check for common thread patterns and remove them
-                import re
-                # Remove numbered tweet patterns (1/, 2/, 3/) from main tweet
-                final_text = re.sub(r'\d+/\d+.*?(?=\d+/\d+|$)', '', final_text, flags=re.DOTALL).strip()
-                # Remove excessive content if it looks like it includes thread
-                if len(final_text) > 400:  # Likely includes thread content
-                    # Try to extract just the first sentence or up to first period/question mark
-                    sentences = re.split(r'[.!?]\s+', final_text)
-                    if sentences and len(sentences[0]) <= 280:
-                        final_text = sentences[0]
-                        if not final_text.endswith(('.', '!', '?')):
-                            final_text += '...'
-                    else:
-                        # Fallback: truncate to 280 chars
-                        final_text = final_text[:277] + '...'
-                
-            # Pattern 1.5: Handle Agent JSON Structure (main_tweet/thread_array)
-            if not final_text or not tweet_thread:
-                logger.info("🔍 Looking for agent JSON structure...")
+            # Look for thread_array
+            thread_match = re.search(r'"thread_array"\s*:\s*(\[[^\]]*\])', raw_result)
+            if thread_match:
                 try:
-                    import json
-                    import re
-                    
-                    # Look for JSON structure in the raw result
-                    json_pattern = r'\{[^{}]*"main_tweet"[^{}]*"thread_array"[^{}]*\}'
-                    json_matches = re.findall(json_pattern, raw_result, re.DOTALL)
-                    
-                    if json_matches:
-                        logger.info(f"🔍 Found JSON structure: {len(json_matches)} matches")
-                        for json_match in json_matches:
-                            try:
-                                # Try to parse the JSON
-                                parsed_json = json.loads(json_match)
-                                if 'main_tweet' in parsed_json and 'thread_array' in parsed_json:
-                                    if not final_text:
-                                        final_text = parsed_json['main_tweet']
-                                        logger.info(f"✅ Extracted main_tweet: {final_text[:100]}...")
-                                    if not tweet_thread and isinstance(parsed_json['thread_array'], list):
-                                        tweet_thread = parsed_json['thread_array']
-                                        logger.info(f"✅ Extracted thread_array: {len(tweet_thread)} tweets")
-                                    break
-                            except json.JSONDecodeError as e:
-                                logger.debug(f"🔍 JSON parsing failed for match: {e}")
-                                continue
-                    
-                    # Also look for nested approach structures (conservative_approach, etc.)
-                    if not final_text or not tweet_thread:
-                        approach_pattern = r'"(conservative_approach|engaging_approach|bold_approach)":\s*\{[^{}]*"main_tweet"[^{}]*"thread_array"[^{}]*\}'
-                        approach_matches = re.findall(approach_pattern, raw_result, re.DOTALL)
-                        
-                        if approach_matches:
-                            logger.info(f"🔍 Found approach structures: {len(approach_matches)} matches")
-                            # Try to extract the full JSON object containing approaches
-                            full_json_pattern = r'\{(?:[^{}]|\{[^{}]*\})*\}'
-                            full_json_matches = re.findall(full_json_pattern, raw_result, re.DOTALL)
-                            
-                            for full_json_match in full_json_matches:
-                                try:
-                                    parsed_full_json = json.loads(full_json_match)
-                                    # Try to find an approach with main_tweet and thread_array
-                                    for approach_name in ['engaging_approach', 'conservative_approach', 'bold_approach']:
-                                        if approach_name in parsed_full_json:
-                                            approach_data = parsed_full_json[approach_name]
-                                            if isinstance(approach_data, dict) and 'main_tweet' in approach_data and 'thread_array' in approach_data:
-                                                if not final_text:
-                                                    final_text = approach_data['main_tweet']
-                                                    logger.info(f"✅ Extracted main_tweet from {approach_name}: {final_text[:100]}...")
-                                                if not tweet_thread and isinstance(approach_data['thread_array'], list):
-                                                    tweet_thread = approach_data['thread_array']
-                                                    logger.info(f"✅ Extracted thread_array from {approach_name}: {len(tweet_thread)} tweets")
-                                                break
-                                    if final_text and tweet_thread:
-                                        break
-                                except json.JSONDecodeError as e:
-                                    logger.debug(f"🔍 Full JSON parsing failed: {e}")
-                                    continue
-                                    
-                except Exception as e:
-                    logger.warning(f"🔍 Agent JSON structure parsing failed: {e}")
-            
-            # Pattern 1.6: Look for thread patterns if not found yet
-            if not tweet_thread:
-                logger.info("🔍 Looking for thread patterns in full output...")
-                # Look for JSON arrays in the content - use the full raw input
-                import re
-                # Reconstruct the full text for pattern search
-                full_text = '\n'.join(lines)
-                
-                # Try multiple patterns
-                patterns_to_try = [
-                    # JSON object with thread_array field
-                    r'"thread_array":\s*(\[[^\]]+\])',
-                    # JSON array pattern
-                    r'\["[^"]+",?\s*(?:"[^"]+",?\s*)*\]',
-                    # Thread: followed by array
-                    r'Thread:\s*\[(.*?)\]',
-                    # Tweet Thread: followed by array
-                    r'Tweet Thread:\s*\[(.*?)\]',
-                    # main_tweet and thread_array structure
-                    r'"main_tweet".*?"thread_array":\s*(\[[^\]]+\])',
-                    # Numbered tweets pattern (1/, 2/, 3/)
-                    r'(?:1/.*?)(?:2/.*?)(?:3/.*?)',
-                ]
-                
-                for pattern in patterns_to_try:
-                    matches = re.findall(pattern, full_text, re.DOTALL)
-                    if matches:
-                        logger.info(f"🔍 Found matches with pattern: {pattern} -> {matches}")
-                        for match in matches:
-                            try:
-                                import json
-                                if pattern.startswith(r'\['):  # JSON array
-                                    potential_thread = json.loads(match)
-                                else:  # Other patterns
-                                    # Try to parse as JSON or split by commas
-                                    if match.startswith('[') and match.endswith(']'):
-                                        potential_thread = json.loads(match)
-                                    else:
-                                        # Split and clean
-                                        potential_thread = [t.strip().strip('"') for t in match.split(',') if t.strip()]
-                                
-                                if isinstance(potential_thread, list) and len(potential_thread) > 1:
-                                    tweet_thread = potential_thread
-                                    logger.info(f"🔍 Successfully extracted thread: {tweet_thread}")
-                                    break
-                            except Exception as e:
-                                logger.debug(f"🔍 Failed to parse match: {e}")
-                                continue
-                    if tweet_thread:
-                        break
-            
-            # Pattern 2: Look for structured format (🐦 FINAL TEXT:) - fallback
-            if not final_text:
-                for i, line in enumerate(lines):
-                    if "🐦 FINAL TEXT:" in line or "🐦 TEXT:" in line:
-                        text_lines = []
-                        for j in range(i + 1, min(i + 5, len(lines))):
-                            if lines[j].strip() and not lines[j].startswith('🎨') and not lines[j].startswith('🎯'):
-                                text_lines.append(lines[j].strip())
-                            else:
-                                break
-                        final_text = ' '.join(text_lines) if text_lines else ""
-                        break
-            
-            # Pattern 3: Handle JSON output from orchestrator (NEW - for structured output)
-            if not final_text:
-                # Try to parse JSON format: {"tweet_variation": "...", "image_url": "..."}
-                try:
-                    import json
-                    # Find lines that look like JSON
-                    for line in lines:
-                        line_clean = line.strip()
-                        if line_clean.startswith('{') and 'tweet_variation' in line_clean:
-                            # Try to parse as JSON
-                            json_data = json.loads(line_clean)
-                            if 'tweet_variation' in json_data:
-                                final_text = json_data['tweet_variation']
-                                if 'image_url' in json_data and json_data['image_url']:
-                                    image_url = json_data['image_url']
-                                logger.info(f"🔍 Pattern 3: Extracted from JSON: {final_text[:100]}...")
-                                break
-                except (json.JSONDecodeError, ValueError) as e:
-                    logger.debug(f"🔍 JSON parsing failed, trying other patterns: {e}")
-            
-            # Pattern 4: Handle orchestrator direct output (tweet-like content)
-            if not final_text:
-                # The orchestrator often outputs the tweet directly without labels
-                # Look for the main content that looks like a tweet
-                content_lines = []
-                skip_patterns = ["image concept description:", "concept description:", "description:", "visual concept:"]
-                
-                for line in lines:
-                    line_clean = line.strip()
-                    line_lower = line_clean.lower()
-                    
-                    # Skip empty lines and image description lines
-                    if not line_clean or any(skip in line_lower for skip in skip_patterns):
-                        continue
-                        
-                    # Look for tweet-like content (has emojis, hashtags, mentions, or substantial text)
-                    if (len(line_clean) > 30 and 
-                        (any(char in line_clean for char in ['🚀', '🌌', '🔥', '🌍', '✨', '👉', '🔗', '🎯', '💡', '⚡']) or
-                         '#' in line_clean or '@' in line_clean or 
-                         len(line_clean) > 100)):
-                        content_lines.append(line_clean)
-                
-                # Join the content lines (usually it's one long tweet)
-                if content_lines:
-                    final_text = ' '.join(content_lines)
-                    # Clean up any formatting issues
-                    final_text = ' '.join(final_text.split())  # Remove extra whitespace
-                    logger.info(f"🔍 Pattern 4: Found tweet-like content: {final_text[:100]}...")
-
-            # Pattern 5: Look for quoted text content - fallback
-            if not final_text:
-                for i, line in enumerate(lines):
-                    if "final text content from the Text Content Creator is:" in line.lower():
-                        # Look for the quoted content in the next few lines
-                        for j in range(i + 1, min(i + 10, len(lines))):
-                            if lines[j].strip().startswith('"') and lines[j].strip().endswith('"'):
-                                final_text = lines[j].strip().strip('"')
-                                break
-                            elif lines[j].strip().startswith('"'):
-                                # Multi-line quoted content
-                                quote_lines = [lines[j].strip().lstrip('"')]
-                                for k in range(j + 1, min(j + 10, len(lines))):
-                                    if lines[k].strip().endswith('"'):
-                                        quote_lines.append(lines[k].strip().rstrip('"'))
-                                        break
-                                    elif lines[k].strip():
-                                        quote_lines.append(lines[k].strip())
-                                final_text = ' '.join(quote_lines)
-                                break
-                        if final_text:
-                            break
-            
-            # Log what we extracted
-            if final_text:
-                logger.info(f"✅ Extracted tweet text: {final_text[:100]}...")
-            else:
-                logger.warning(f"⚠️ No tweet text extracted from orchestrator output")
-                
-            if image_url and image_url != "No image generated":
-                logger.info(f"✅ Extracted image URL: {image_url[:80]}...")
-            else:
-                logger.warning(f"⚠️ No image URL extracted from orchestrator output")
-            
-            # Return both text and thread
-            result = {
-                "content_text": final_text if final_text else "Generated content from AI agents",
-                "tweet_thread": tweet_thread if tweet_thread else None
-            }
-            
-            if tweet_thread:
-                logger.info(f"✅ Extracted tweet thread: {len(tweet_thread)} tweets")
-            
-            return result
-            
+                    tweet_thread = json.loads(thread_match.group(1))
+                    logger.info(f"✅ Found thread_array: {len(tweet_thread)} tweets")
+                except:
+                    pass
         except Exception as e:
-            logger.error(f"❌ Error extracting Twitter content: {e}")
-            return {
-                "content_text": "Generated content from AI agents",
-                "tweet_thread": None
-            }
+            logger.warning(f"❌ JSON extraction failed: {e}")
+        
+        # STEP 2: Fallback to extraction tool format
+        if not final_text:
+            tweet_match = re.search(r'Tweet Text:\s*(.+)', raw_result)
+            if tweet_match:
+                final_text = tweet_match.group(1).strip().strip('"')
+        
+        if not tweet_thread:
+            thread_match = re.search(r'Tweet Thread:\s*(\[.+?\])', raw_result, re.DOTALL)
+            if thread_match:
+                try:
+                    tweet_thread = json.loads(thread_match.group(1))
+                except:
+                    pass
+        
+        # STEP 3: Extract image URL
+        image_match = re.search(r'"image_url"\s*:\s*"([^"]*)"', raw_result)
+        if image_match:
+            image_url = image_match.group(1)
+        elif 'Image URL:' in raw_result:
+            url_match = re.search(r'Image URL:\s*([^\s]+)', raw_result)
+            if url_match:
+                image_url = url_match.group(1)
+        
+        logger.info(f"🎯 Extraction results: text={bool(final_text)}, thread={len(tweet_thread) if tweet_thread else 0}, image={bool(image_url)}")
+        
+        return {
+            "content_text": final_text,
+            "tweet_thread": tweet_thread,
+            "image_url": image_url
+        }
     
     def _format_for_twitter(self, text: str) -> str:
         """Clean and format text for Twitter posting"""
@@ -3101,7 +2860,7 @@ CRITICAL REQUIREMENTS:
                             image_url = match.group(1).strip().strip('[]")')
                         else:
                             image_url = match.group(0).strip().strip('[]")')
-                            logger.info(f"✅ Found image URL using regex pattern: {image_url[:50]}...")
+                        logger.info(f"✅ Found image URL using regex pattern: {image_url[:50]}...")
                         break
             
             # Format output

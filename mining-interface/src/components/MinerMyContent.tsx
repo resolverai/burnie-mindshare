@@ -329,11 +329,11 @@ export default function MinerMyContent() {
                       />
                       
                       {/* Image URL display for mining interface */}
-                      {imageUrl && (
+                        {imageUrl && (
                         <div className="mt-4 text-xs text-gray-400 bg-gray-800 p-2 rounded font-mono break-all">
-                          <strong>Image URL:</strong> {imageUrl}
-                        </div>
-                      )}
+                                  <strong>Image URL:</strong> {imageUrl}
+                          </div>
+                        )}
                     </div>
 
                     {/* Performance Metrics */}

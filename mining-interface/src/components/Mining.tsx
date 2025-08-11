@@ -872,30 +872,30 @@ export default function Mining() {
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center">
-                          <h3 className="text-lg font-semibold text-white">{campaign.title}</h3>
-                          <span className="ml-2 px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded-full">
-                            {campaign.category}
-                          </span>
-                          <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
-                            campaign.platform_source === 'cookie.fun' ? 'bg-cyan-500/20 text-cyan-400' :
-                            campaign.platform_source === 'yaps.kaito.ai' ? 'bg-purple-500/20 text-purple-400' :
-                            campaign.platform_source === 'yap.market' ? 'bg-pink-500/20 text-pink-400' :
-                            'bg-gray-500/20 text-gray-400'
-                          }`}>
-                            {campaign.platform_source}
-                          </span>
-                          <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
-                            campaign.campaign_type === 'social' ? 'bg-green-500/20 text-green-400' :
-                            campaign.campaign_type === 'meme' ? 'bg-purple-500/20 text-purple-400' :
-                            campaign.campaign_type === 'educational' ? 'bg-blue-500/20 text-blue-400' :
-                            campaign.campaign_type === 'roast' ? 'bg-red-500/20 text-red-400' :
-                            campaign.campaign_type === 'creative' ? 'bg-cyan-500/20 text-cyan-400' :
-                            campaign.campaign_type === 'viral' ? 'bg-pink-500/20 text-pink-400' :
-                            'bg-orange-500/20 text-orange-400'
-                          }`}>
-                            {campaign.campaign_type.charAt(0).toUpperCase() + campaign.campaign_type.slice(1)}
-                          </span>
-                        </div>
+                        <h3 className="text-lg font-semibold text-white">{campaign.title}</h3>
+                        <span className="ml-2 px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded-full">
+                          {campaign.category}
+                        </span>
+                        <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
+                          campaign.platform_source === 'cookie.fun' ? 'bg-cyan-500/20 text-cyan-400' :
+                          campaign.platform_source === 'yaps.kaito.ai' ? 'bg-purple-500/20 text-purple-400' :
+                          campaign.platform_source === 'yap.market' ? 'bg-pink-500/20 text-pink-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          {campaign.platform_source}
+                        </span>
+                        <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
+                          campaign.campaign_type === 'social' ? 'bg-green-500/20 text-green-400' :
+                          campaign.campaign_type === 'meme' ? 'bg-purple-500/20 text-purple-400' :
+                          campaign.campaign_type === 'educational' ? 'bg-blue-500/20 text-blue-400' :
+                          campaign.campaign_type === 'roast' ? 'bg-red-500/20 text-red-400' :
+                          campaign.campaign_type === 'creative' ? 'bg-cyan-500/20 text-cyan-400' :
+                          campaign.campaign_type === 'viral' ? 'bg-pink-500/20 text-pink-400' :
+                          'bg-orange-500/20 text-orange-400'
+                        }`}>
+                          {campaign.campaign_type.charAt(0).toUpperCase() + campaign.campaign_type.slice(1)}
+                        </span>
+              </div>
                         
                         {/* Expand/Collapse Button */}
                         <button
@@ -1156,41 +1156,41 @@ export default function Mining() {
                             
                             {/* Image URL Section - only if image exists */}
                             {imageUrl && (
-                              <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-600">
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="font-semibold text-purple-300 text-sm">
-                                    📎 Image URL ({imageUrl.length} characters)
-                                  </div>
-                                  <button
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(imageUrl)
-                                      alert('✅ Image URL copied to clipboard!')
-                                    }}
-                                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-                                  >
-                                    📋 Copy URL
-                                  </button>
-                                </div>
-                                <div className="bg-gray-900 p-3 rounded border font-mono text-xs text-gray-300 break-all max-h-24 overflow-y-auto">
-                                  {imageUrl}
-                                </div>
-                                <div className="flex gap-2 mt-3">
-                                  <button
-                                    onClick={() => window.open(imageUrl, '_blank')}
-                                    className="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
-                                  >
-                                    🔗 Open in New Tab
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const tweetText = `Check out this AI-generated image! ${imageUrl}`
-                                      const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`
-                                      window.open(twitterUrl, '_blank')
-                                    }}
-                                    className="flex-1 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
-                                  >
-                                    🐦 Share on Twitter
-                                  </button>
+                                  <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-600">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="font-semibold text-purple-300 text-sm">
+                                        📎 Image URL ({imageUrl.length} characters)
+                                      </div>
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(imageUrl)
+                                          alert('✅ Image URL copied to clipboard!')
+                                        }}
+                                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                                      >
+                                        📋 Copy URL
+                                      </button>
+                                    </div>
+                                    <div className="bg-gray-900 p-3 rounded border font-mono text-xs text-gray-300 break-all max-h-24 overflow-y-auto">
+                                      {imageUrl}
+                                    </div>
+                                    <div className="flex gap-2 mt-3">
+                                      <button
+                                        onClick={() => window.open(imageUrl, '_blank')}
+                                        className="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                                      >
+                                        🔗 Open in New Tab
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          const tweetText = `Check out this AI-generated image! ${imageUrl}`
+                                          const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(tweetText)}`
+                                          window.open(twitterUrl, '_blank')
+                                        }}
+                                        className="flex-1 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors flex items-center justify-center gap-2"
+                                      >
+                                        🐦 Share on Twitter
+                                      </button>
                                 </div>
                               </div>
                             )}

@@ -147,7 +147,7 @@ export default function PurchaseContentModal({
 
       if (selectedCurrency === 'ROAST') {
         console.log(`💰 You will transfer ${finalPrice} ROAST tokens to treasury wallet`);
-        console.log(`📍 ROAST Contract: ${process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN}`);
+      console.log(`📍 ROAST Contract: ${process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN}`);
       } else {
         console.log(`💰 You will transfer ${finalPrice} USDC (including 0.03 USDC fee) to treasury wallet`);
         console.log(`📍 USDC Contract: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`); // BASE USDC
@@ -388,7 +388,7 @@ export default function PurchaseContentModal({
                       : 'border-gray-200 bg-white hover:border-blue-300'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between">
                     <div className="text-left">
                       <div className="font-semibold text-blue-600">USDC</div>
                       <div className="text-2xl font-bold text-gray-900">
@@ -492,11 +492,11 @@ export default function PurchaseContentModal({
                   <div className="mt-1 text-xs text-blue-700 space-y-1">
                     {selectedCurrency === 'ROAST' ? (
                       <>
-                        <p>• Your wallet will open to confirm a ROAST token transfer</p>
+                    <p>• Your wallet will open to confirm a ROAST token transfer</p>
                         <p>• Amount: <strong>{roastPriceAmount} ROAST</strong></p>
-                        <p>• To: Treasury Wallet ({process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS?.slice(0,10)}...)</p>
-                        <p>• The wallet may not show the token amount if ROAST isn't recognized</p>
-                        <p>• This is normal - the transaction is correct!</p>
+                    <p>• To: Treasury Wallet ({process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS?.slice(0,10)}...)</p>
+                    <p>• The wallet may not show the token amount if ROAST isn't recognized</p>
+                    <p>• This is normal - the transaction is correct!</p>
                       </>
                     ) : (
                       <>
@@ -509,12 +509,12 @@ export default function PurchaseContentModal({
                     )}
                   </div>
                   {selectedCurrency === 'ROAST' && (
-                    <button
-                      onClick={handleAddROASTToken}
-                      className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors"
-                    >
-                      ➕ Add ROAST Token to Wallet
-                    </button>
+                  <button
+                    onClick={handleAddROASTToken}
+                    className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors"
+                  >
+                    ➕ Add ROAST Token to Wallet
+                  </button>
                   )}
                 </div>
               </div>

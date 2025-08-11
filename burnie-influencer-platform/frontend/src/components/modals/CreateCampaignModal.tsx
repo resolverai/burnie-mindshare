@@ -79,7 +79,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
         const logoFormData = new FormData()
         logoFormData.append('logo', formData.projectLogo)
         logoFormData.append('projectName', formData.projectName || 'untitled')
-        
+
         const logoResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/campaigns/upload-logo`, {
           method: 'POST',
           body: logoFormData,

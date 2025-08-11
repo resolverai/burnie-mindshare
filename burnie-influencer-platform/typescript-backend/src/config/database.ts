@@ -96,7 +96,7 @@ export const initializeDatabase = async (): Promise<void> => {
       try {
         await AppDataSource.query('SELECT 1');
         logger.info('✅ Database connection is healthy');
-        return;
+      return;
       } catch (testError) {
         logger.warn('⚠️ Database connection test failed, reinitializing...');
         await AppDataSource.destroy();
