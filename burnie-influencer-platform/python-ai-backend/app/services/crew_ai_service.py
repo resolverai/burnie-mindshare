@@ -665,48 +665,34 @@ class CrewAIService:
         )
 
     def _create_orchestrator_agent(self) -> Agent:
-        """Create Orchestrator Agent with LLM-based content extraction tool"""
-        # Get user's text generation configuration
-        text_provider = self.model_preferences.get('text', {}).get('provider', 'openai')
-        text_model = self.model_preferences.get('text', {}).get('model', 'gpt-4o')
-        text_api_key = self.user_api_keys.get(text_provider)
-        
-        # Create the LLM content extraction tool with user's configuration
-        content_extraction_tool = LLMContentExtractionTool(
-            user_text_provider=text_provider,
-            user_api_key=text_api_key,
-            user_text_model=text_model
-        )
-        
-        logger.info(f"🎭 Orchestrator: Using {text_provider} ({text_model}) for content extraction")
-        
+        """Create Orchestrator Agent that directly combines JSON outputs - NO TOOLS"""
         return Agent(
             role='Content Orchestrator',
-            goal=f'Extract and combine outputs from all previous agents into final Twitter-ready content for {self.campaign_data.get("title", "campaign") if self.campaign_data else "campaign"}',
-            backstory=f"""You are the Content Orchestrator, a specialized agent that combines outputs from multiple AI agents into final Twitter-ready content.
+            goal=f'Combine JSON outputs from Text Content Creator and Visual Content Creator into a single clean JSON response for {self.campaign_data.get("title", "campaign") if self.campaign_data else "campaign"}',
+            backstory=f"""You are the Content Orchestrator, a specialized agent that combines JSON outputs from previous agents into a single, clean JSON response.
 
-Your approach is methodical and tool-based:
-1. Use the content_extraction_tool to intelligently extract content from all previous agents
-2. Pass all agent outputs and campaign context to the tool
-3. Let the LLM-based tool handle the complex extraction and formatting
-4. Return the tool's output as your final answer
+Your task is simple and direct:
+1. Find the JSON output from Text Content Creator (contains main_tweet and thread_array)
+2. Find the image URL from Visual Content Creator 
+3. Combine them into a single clean JSON output
 
-You have access to a sophisticated content extraction tool that uses LLM reasoning to:
-- Parse complex agent outputs in any format
-- Extract tweet text from Text Content Creator (JSON, plain text, etc.)  
-- Extract image URLs from Visual Creator (S3, OpenAI, any format)
-- Combine them into perfect Twitter-ready format
+CRITICAL: You must output ONLY valid JSON in exactly this format:
+{{
+    "main_tweet": "the main tweet text here",
+    "thread_array": ["first thread tweet", "second thread tweet", "third thread tweet"],
+    "image_url": "the S3 or image URL here"
+}}
 
-NEVER try to manually parse or extract content - ALWAYS use your tool.
+Do NOT use any tools, do NOT add extra text or explanations. Just find the JSON from previous agents and combine them into the format above.
 
 Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign_data else "Twitter"}
 """,
             verbose=True,
             allow_delegation=False,
             llm=self._get_llm_instance(),
-            tools=[content_extraction_tool],  # Now has the LLM extraction tool
-            max_iter=3,  # Reduced since tool handles the complexity
-            max_execution_time=120  # 2 minutes should be enough with tool
+            tools=[],  # NO TOOLS - just direct LLM processing
+            max_iter=2,  # Simple task, should complete quickly
+            max_execution_time=60  # 1 minute should be enough
         )
 
     def _create_data_analysis_task(self) -> Task:
@@ -1341,38 +1327,33 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         """Create task for Orchestrator Agent"""
         return Task(
             description=f"""
-            EXTRACT AND COMBINE CONTENT FROM PREVIOUS AGENTS
+            COMBINE JSON OUTPUTS INTO SINGLE CLEAN JSON
             
-            You are the Content Orchestrator with access to a powerful content_extraction_tool. Your task is simple:
+            You must find and combine the outputs from the Text Content Creator and Visual Content Creator.
             
-            1. Access the outputs from ALL previous agents in your context
-            2. Use the content_extraction_tool to extract the best content
-            3. Return the tool's output as your final answer
+            INSTRUCTIONS:
+            1. Look for the JSON output from Text Content Creator (has "main_tweet" and "thread_array")
+            2. Look for the image URL from Visual Content Creator (S3 URL or other image URL)
+            3. Combine them into exactly this JSON format:
             
-            CRITICAL INSTRUCTIONS:
-            - Use the content_extraction_tool with the ACTUAL agent outputs from context
-            - The tool expects 2-3 parameters:
-              * agent_outputs: Pass the complete outputs from all previous tasks in context
-              * campaign_context: "{self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}"
-              * extraction_prompt: (optional) Leave empty to use default extraction logic
+            {{
+                "main_tweet": "copy the main tweet text here",
+                "thread_array": ["copy", "the", "thread", "array", "here"],
+                "image_url": "copy the image URL here"
+            }}
             
-            EXAMPLE TOOL USAGE:
-            Use content_extraction_tool with:
-            - agent_outputs: [PASTE ALL PREVIOUS AGENT OUTPUTS HERE - including the JSON from Text Creator and S3 URL from Visual Creator]
-            - campaign_context: "{self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}"
-            - extraction_prompt: "" (use default intelligent extraction)
-            
-            The content_extraction_tool will:
-            - Parse the Text Content Creator's JSON to select the best tweet variation
-            - Extract the real S3 image URL from Visual Content Creator
-            - Format everything for Twitter
-            
-            DO NOT SUMMARIZE OR DESCRIBE - PASS THE ACTUAL OUTPUTS!
+            CRITICAL REQUIREMENTS:
+            - Output ONLY valid JSON in the exact format above
+            - Do NOT add explanations, descriptions, or extra text
+            - Do NOT use tools
+            - Find the actual content from previous agents and combine it
+            - If no thread_array exists, use an empty array: []
+            - If no image URL exists, use empty string: ""
             
             Campaign: {self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}
             """,
             agent=self.agents[AgentType.ORCHESTRATOR],
-            expected_output="Final Twitter-ready content extracted using the content_extraction_tool",
+            expected_output="Valid JSON containing main_tweet, thread_array, and image_url from previous agents",
             context=[
                 self.tasks[AgentType.DATA_ANALYST],
                 self.tasks[AgentType.CONTENT_STRATEGIST], 
@@ -1532,29 +1513,36 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             logger.info(f"🔍 Raw result contains 'main_tweet': {'main_tweet' in raw_result}")
             logger.info(f"🔍 Raw result contains 'thread_array': {'thread_array' in raw_result}")
             
-            # The orchestrator now uses LLM-based content extraction tool, so trust its output
-            # Only apply minimal extraction if the output doesn't follow expected format
-            if ("Tweet Text:" in raw_result and "Image URL:" in raw_result):
-                # Orchestrator used LLM extraction tool successfully - use output directly
-                extraction_result = self._extract_twitter_content(raw_result)
-                logger.info(f"✅ Using LLM-extracted content from orchestrator")
-            else:
-                # Fallback: Try to extract content manually if orchestrator didn't use the tool
-                logger.warning(f"⚠️ Orchestrator output doesn't have expected format, applying extraction")
-                extraction_result = self._extract_twitter_content(raw_result)
+            # NEW APPROACH: Orchestrator now outputs clean JSON directly
+            # Try to parse the orchestrator output as JSON first
+            final_content = ""
+            tweet_thread = None
             
-            # Extract the content and thread
-            final_content = extraction_result["content_text"]
-            tweet_thread = extraction_result["tweet_thread"]
-            
-            # NEW: Simple direct JSON extraction approach
-            if not final_content or not tweet_thread:
-                logger.info("🔧 Trying direct JSON extraction from raw result...")
-                direct_extraction = self._extract_twitter_content(raw_result)
-                if direct_extraction["content_text"]:
-                    final_content = direct_extraction["content_text"]
-                if direct_extraction["tweet_thread"]:
-                    tweet_thread = direct_extraction["tweet_thread"]
+            try:
+                import json
+                # Look for JSON in the orchestrator output - handle nested objects and arrays
+                json_match = re.search(r'\{(?:[^{}]|{[^{}]*}|\[[^\]]*\])*"main_tweet"(?:[^{}]|{[^{}]*}|\[[^\]]*\])*\}', raw_result, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    parsed_json = json.loads(json_str)
+                    
+                    final_content = parsed_json.get("main_tweet", "")
+                    tweet_thread = parsed_json.get("thread_array", [])
+                    
+                    logger.info(f"✅ Successfully parsed orchestrator JSON output")
+                    logger.info(f"✅ Extracted main_tweet: {final_content[:100]}...")
+                    logger.info(f"✅ Extracted thread_array: {len(tweet_thread) if tweet_thread else 0} tweets")
+                else:
+                    logger.warning(f"⚠️ No JSON found in orchestrator output, falling back to extraction")
+                    extraction_result = self._extract_twitter_content(raw_result)
+                    final_content = extraction_result["content_text"]
+                    tweet_thread = extraction_result["tweet_thread"]
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ JSON parsing failed: {e}, falling back to extraction")
+                extraction_result = self._extract_twitter_content(raw_result)
+                final_content = extraction_result["content_text"]
+                tweet_thread = extraction_result["tweet_thread"]
             
             # Debug: Log extraction results
             logger.info(f"🔍 Extracted content_text: {final_content}")
@@ -2288,12 +2276,38 @@ No image generated
                 final_text = tweet_match.group(1).strip().strip('"')
         
         if not tweet_thread:
+            # First try to find JSON array format
             thread_match = re.search(r'Tweet Thread:\s*(\[.+?\])', raw_result, re.DOTALL)
             if thread_match:
                 try:
                     tweet_thread = json.loads(thread_match.group(1))
+                    logger.info(f"✅ Found thread_array in JSON format: {len(tweet_thread)} tweets")
                 except:
                     pass
+            
+            # If no JSON array found, look for multi-line format (1/6, 2/6, etc.)
+            if not tweet_thread:
+                thread_lines = []
+                lines = raw_result.split('\n')
+                in_thread_section = False
+                
+                for line in lines:
+                    line_stripped = line.strip()
+                    if line_stripped.startswith('Tweet Thread:'):
+                        in_thread_section = True
+                        continue
+                    elif in_thread_section:
+                        # Check if line looks like a thread item (starts with number/)
+                        if re.match(r'^\d+/\d+', line_stripped) or (line_stripped and not line_stripped.startswith('Image URL:')):
+                            if line_stripped:  # Don't add empty lines
+                                thread_lines.append(line_stripped)
+                        elif line_stripped.startswith('Image URL:') or not line_stripped:
+                            # End of thread section
+                            break
+                
+                if thread_lines:
+                    tweet_thread = thread_lines
+                    logger.info(f"✅ Found thread in multi-line format: {len(tweet_thread)} tweets")
         
         # STEP 3: Extract image URL
         image_match = re.search(r'"image_url"\s*:\s*"([^"]*)"', raw_result)
