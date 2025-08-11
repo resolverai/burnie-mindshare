@@ -1550,7 +1550,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # NEW: Simple direct JSON extraction approach
             if not final_content or not tweet_thread:
                 logger.info("🔧 Trying direct JSON extraction from raw result...")
-                direct_extraction = self._direct_json_extraction(raw_result)
+                direct_extraction = self._extract_twitter_content(raw_result)
                 if direct_extraction["content_text"]:
                     final_content = direct_extraction["content_text"]
                 if direct_extraction["tweet_thread"]:
