@@ -109,6 +109,7 @@ class CampaignAgentPair(BaseModel):
     campaign_id: int
     agent_id: int
     campaign_context: dict
+    post_type: Optional[str] = "thread"  # New field: "shitpost", "longpost", or "thread"
 
 class StartMiningRequest(BaseModel):
     """Request model for starting content generation"""
@@ -117,6 +118,7 @@ class StartMiningRequest(BaseModel):
     campaign_id: Optional[int] = None  # For backward compatibility
     agent_id: Optional[int] = None     # For backward compatibility
     campaign_context: Optional[dict] = None  # For backward compatibility
+    post_type: Optional[str] = "thread"  # For backward compatibility - default to thread
     
     # New multi-campaign support
     campaigns: Optional[List[CampaignAgentPair]] = None
@@ -232,7 +234,8 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
             campaigns_to_process = [CampaignAgentPair(
                 campaign_id=request.campaign_id,
                 agent_id=request.agent_id,
-                campaign_context=request.campaign_context or {}
+                campaign_context=request.campaign_context or {},
+                post_type=request.post_type
             )]
         else:
             raise HTTPException(status_code=400, detail="Either campaigns list or single campaign_id and agent_id are required")
@@ -443,7 +446,8 @@ async def run_multi_campaign_generation(
                     agent_id=campaign_pair.agent_id,
                     campaign_context=campaign_pair.campaign_context,
                     user_preferences=user_preferences,
-                    user_api_keys=user_api_keys
+                    user_api_keys=user_api_keys,
+                    post_type=campaign_pair.post_type  # Pass post_type to mining session
                 )
                 
                 # Add to progress tracker

@@ -61,6 +61,9 @@ export class ContentMarketplace {
   @Column({ type: 'varchar', length: 255, nullable: true })
   walletAddress?: string; // Wallet address of the miner who created this content
 
+  @Column({ type: 'varchar', length: 20, default: 'thread' })
+  postType!: string; // Type of post: 'shitpost', 'longpost', or 'thread'
+
   @Column({ type: 'timestamp', nullable: true })
   approvedAt?: Date; // When the content was approved
 

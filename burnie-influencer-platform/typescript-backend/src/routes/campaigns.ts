@@ -1042,7 +1042,8 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
       askingPrice: asking_price || env.platform.minimumBidAmount,
       isAvailable: false, // Not available until approved
       approvalStatus: 'pending', // Awaiting user approval in mining interface
-      generationMetadata: content_data.generation_metadata || {}
+      generationMetadata: content_data.generation_metadata || {},
+      postType: content_data.post_type || 'thread' // Store the post type (shitpost, longpost, or thread)
     });
 
     const savedContent = await contentRepository.save(marketplaceContent);

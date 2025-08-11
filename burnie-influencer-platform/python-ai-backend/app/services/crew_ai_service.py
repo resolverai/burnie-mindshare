@@ -95,6 +95,12 @@ class CrewAIService:
             # Debug: Log the received wallet_address
             logger.info(f"🔍 DEBUG: CrewAI.generate_content received wallet_address: {wallet_address}")
             
+            # Store mining session for access throughout the service
+            self.mining_session = mining_session
+            
+            # Store campaign context for access throughout the service
+            self.campaign_context = mining_session.campaign_context or {}
+            
             # Store user API keys, agent ID, and wallet address for S3 organization
             self.user_api_keys = user_api_keys or {}
             self.agent_id = str(agent_id) if agent_id else "default-agent"
@@ -668,7 +674,7 @@ class CrewAIService:
         """Create Orchestrator Agent that directly combines JSON outputs - NO TOOLS"""
         return Agent(
             role='Content Orchestrator',
-            goal=f'Combine JSON outputs from Text Content Creator and Visual Content Creator into a single clean JSON response for {self.campaign_data.get("title", "campaign") if self.campaign_data else "campaign"}',
+            goal=f'Combine JSON outputs from Text Content Creator and Visual Content Creator into a single clean JSON response for {(self.campaign_data.get("title") or "campaign") if self.campaign_data else "campaign"}',
             backstory=f"""You are the Content Orchestrator, a specialized agent that combines JSON outputs from previous agents into a single, clean JSON response.
 
 Your task is simple and direct:
@@ -776,112 +782,230 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         )
 
     def _create_strategy_task(self) -> Task:
-        """Create task for Content Strategist Agent"""
+        """Create task for Content Strategy Agent to analyze campaign and define content approach"""
+        
+        # Get post type from mining session
+        post_type = getattr(self.mining_session, 'post_type', 'thread')
+        
+        # Define approach based on post type
+        if post_type == "shitpost":
+            content_approach = """
+            🎭 SHITPOST APPROACH - Create humorous, low-effort, absurd content that builds community engagement:
+            
+            📚 **COMPREHENSIVE SHITPOST PROMPT LIBRARY** - Use these proven templates:
+            
+            **🍕 FOOD & DAILY LIFE → CRYPTO ECONOMICS (25 Templates)**:
+            Template 1: "[Food ordering] but treating [food items] as tokenomics"
+            • Example: "Just ordered pizza and I'm analyzing the pepperoni distribution like it's tokenomics. 65% cheese coverage, 20% pepperoni allocation, 15% crust reserves. Bullish on this delivery mechanism 📊 #PizzaNomics"
+            
+            Template 2: "[Morning routine] analyzed as technical analysis"
+            • Example: "My coffee brewing patterns indicate bullish momentum. Strong support at 2 cups, resistance at 4. If we break through the caffeine ceiling, moon mission confirmed ☕📈 Few understand this TA"
+            
+            Template 3: "[Household plant] giving crypto alpha"
+            • Example: "My snake plant just told me to DCA into SOL. Plants don't lie, they photosynthesize truth. When your houseplant starts dropping alpha, you listen 🌱 NFA but my succulent's track record is immaculate"
+            
+            Template 4: "[Grocery shopping] as market analysis"
+            • Example: "Grocery store checkout lines moving like L1 congestion. Self-checkout = DeFi (fast but risky), cashier = CEX (slow but reliable). Chose self-checkout, bullish on independence 🛒"
+            
+            Template 5: "[Traffic/commute] as blockchain congestion"
+            • Example: "Stuck in traffic thinking about gas fees. This red light lasting longer than my last trade confirmation. When IRL has worse TPS than Ethereum, you know it's bear market vibes 🚗⛽"
+            
+            **☕ MORNING ROUTINE → DCA STRATEGIES (15 Templates)**:
+            Template 6: "Morning [routine activity] = DCA strategy"
+            • Example: "Brushing teeth in small circles = DCA strategy. Consistent, methodical, compound results. Been DCAing my dental hygiene for 25 years, portfolio looking mint 🦷💎"
+            
+            Template 7: "[Alarm clock] as market timing"
+            • Example: "Hit snooze 3 times this morning. Clearly I'm not ready for market open either. Sometimes the best trade is staying in bed until noon 😴 Time in bed > timing the market"
+            
+            **🏠 HOUSEHOLD ACTIVITIES → MARKET ANALYSIS (20 Templates)**:
+            Template 8: "[Cleaning] as portfolio management"
+            • Example: "Doing laundry is basically rebalancing my wardrobe portfolio. Socks underperforming, t-shirts carrying the load. Time to diversify into hoodies for winter allocation 👕📊"
+            
+            Template 9: "[Pet behavior] predicting markets"
+            • Example: "My cat knocked over my water bottle. Either she's bearish on hydration or this is a sign to short everything. Cats have that ancient wisdom, probably knows something about the Fed 🐱📉"
+            
+            **🎯 RANDOM OBSERVATIONS → CRYPTO ALPHA (30 Templates)**:
+            Template 10: "[Weather] as market sentiment"
+            • Example: "It's raining but my neighbor's still watering their lawn. This is exactly the same energy as people selling crypto at the bottom. Nature provides liquidity, yet here we are 🌧️💧"
+            
+            Template 11: "[Technology frustration] = trading emotions"
+            • Example: "WiFi router decided to restart itself during my Zoom call. Same energy as the market dumping right after I buy. Technology and crypto both love perfect timing 📶📉"
+            
+            Template 12: "[Daily struggle] = portfolio performance"
+            • Example: "Can't find matching socks this morning. Portfolio performance has the same energy - everything's there but nothing works together. Diversification is a myth invented by Big Sock 🧦"
+            
+            **💡 ENGAGEMENT HOOKS & COMMUNITY BUILDERS**:
+            Template 13: "Thoughts?"
+            Template 14: "Am I wrong tho?"
+            Template 15: "Few understand this"
+            Template 16: "Tell me I'm not the only one..."
+            Template 17: "Change my mind 🤔"
+            Template 18: "This you?"
+            Template 19: "Say it louder for the people in the back"
+            Template 20: "Who else sees this pattern?"
+            
+            **🎪 PERFORMATIVE CASUALNESS PHRASES**:
+            • "Bullish on [random thing]"
+            • "Few understand"
+            • "NFA but..." / "NFA obvs"
+            • "This is probably nothing but..."
+            • "Don't fade this"
+            • "Still early"
+            • "You love to see it"
+            • "Different breed"
+            • "Built different"
+            • "This is the way"
+            • "IYKYK"
+            • "Main character energy"
+            • "That hits different"
+            • "Not me [doing relatable thing]"
+            
+            **🎯 SHITPOST CONSTRUCTION FORMULA**:
+            [Mundane Activity] + [Crypto Analysis Angle] + [Community Hook] + [Ironic Wisdom] = Perfect Shitpost
+            
+            **📖 ADVANCED SHITPOST PATTERNS**:
+            
+            **Pattern A: "Crypto Crossover Analysis"**
+            Structure: "[Daily situation] has the same energy as [crypto scenario]"
+            Example: "My microwave beeping at 3AM has the same energy as a flash loan liquidation. Loud, unexpected, and everyone in the house knows something went wrong 📱⚡"
+            
+            **Pattern B: "Household Oracle"**
+            Structure: "[Inanimate object/pet] predicted [market movement]"
+            Example: "My toaster burned my bread this morning. Either it's trying to tell me something about inflation or it's bearish on carbs. Kitchen appliances never lie 🍞📊"
+            
+            **Pattern C: "Daily Struggle = Trading Psychology"**
+            Structure: "[Personal struggle] is exactly like [trading emotion]"
+            Example: "Trying to untangle my headphones is exactly like trying to understand DeFi yield farming. The more you mess with it, the worse it gets 🎧🌾"
+            
+            **Pattern D: "Mundane Tokenomics"**
+            Structure: "Analyzing [everyday thing] like it's tokenomics"
+            Example: "The office coffee machine has terrible tokenomics. 100% tax on quality, infinite mint of disappointment. Time to fork to the café next door ☕💔"
+            
+            **Pattern E: "IRL Gas Fees"**
+            Structure: "[Real world inefficiency] has worse [metric] than [blockchain]"
+            Example: "DMV processing times make Ethereum look like Solana. Been waiting 2 hours to renew registration. This is why we need blockchain everything 🏛️⏰"
+            
+            **🎭 TONE GUIDELINES**:
+            - Self-aware but not trying too hard
+            - Ironically wise about meaningless things
+            - Relatable but absurd
+            - Community-building through shared experiences
+            - Never too serious about crypto advice
+            - Always end with engagement hook
+            
+            **⚡ EXECUTION STRATEGY**:
+            1. Pick ONE template that fits campaign context
+            2. Replace [placeholders] with specific, relatable details
+            3. Add 1-2 crypto jargon phrases naturally
+            4. Include project hashtag organically
+            5. End with engagement hook
+            6. Keep under 250 characters + 30 hashtag characters
+            
+            **🎯 CAMPAIGN INTEGRATION**:
+            - Weave project benefits into mundane observations
+            - Use project name/ticker in ironic comparisons
+            - Connect daily life to project's value proposition
+            - Make the project reference feel natural, not forced
+            
+            CRITICAL: Generate content that feels authentically casual while strategically building community around the project.
+            """
+        elif post_type == "longpost":
+            content_approach = """
+            LONGPOST APPROACH - Create comprehensive, detailed content:
+            - Develop in-depth analysis or educational content
+            - Provide detailed explanations, insights, or tutorials
+            - Use professional tone with thorough research
+            - Include data, statistics, or technical details when relevant
+            - Structure content logically with clear sections
+            - Maximum 25000 characters for main content (no thread needed)
+            - Focus on value-driven, informative content
+            - Include relevant hashtags and professional engagement hooks
+            """
+        else:  # thread (default)
+            content_approach = """
+            THREAD APPROACH - Create engaging Twitter thread content:
+            - Start with a compelling hook in the main tweet
+            - Develop the narrative across multiple connected tweets
+            - Each tweet should build upon the previous one
+            - Use storytelling techniques and progressive disclosure
+            - Main tweet maximum 250 characters + 30 hashtag characters
+            - Each thread tweet maximum 280 characters
+            - Ideally 200-240 characters per thread tweet for optimal engagement
+            - Include call-to-action or engagement hook at the end
+            """
+        
         return Task(
             description=f"""
-            Based on the data analyst's comprehensive insights, develop a strategic content plan:
+            Analyze the campaign requirements and develop a content strategy for {post_type.upper()} content.
             
-            CAMPAIGN CONTEXT:
-            - Campaign: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
-            - Description: {self.campaign_data.get('description', 'N/A') if self.campaign_data else 'N/A'}
-            - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
-            - Reward Token: {self.campaign_data.get('rewardToken', 'N/A') if self.campaign_data else 'N/A'}
+            Campaign: {self.campaign_context.get('title', 'Unknown Campaign')}
+            Platform: {self.campaign_context.get('platform_source', 'twitter')}
+            Token/Project: {self.campaign_context.get('project', {}).get('name', 'N/A')}
             
-            STRATEGIC REQUIREMENTS:
+            {content_approach}
             
-            📊 **ANALYZE DATA ANALYST OUTPUT**:
-            - Review Twitter learning insights and engagement patterns
-            - Understand mindshare predictions and viral potential
-            - Consider the data analyst's visual content recommendation (IMAGE or VIDEO)
-            - Factor in timing and audience preferences
+            Your task:
+            1. Analyze the campaign context and requirements
+            2. Define the content approach based on {post_type} type
+            3. Identify key messages and themes
+            4. Determine optimal engagement strategy
+            5. Specify content structure and character limits
             
-            🎯 **DEVELOP CONTENT STRATEGY**:
-            Your strategic plan must include:
+            Consider:
+            - Target audience and community preferences  
+            - Platform-specific best practices for {post_type}
+            - Brand voice and messaging guidelines
+            - Current trends and community interests
+            - Optimal posting strategy for maximum engagement
             
-            1. **Content Positioning Strategy**:
-               - Key messaging framework
-               - Brand voice alignment
-               - Competitive differentiation
-            
-            2. **Visual Content Decision**:
-               - CONFIRM the data analyst's recommendation (IMAGE or VIDEO)
-               - Provide strategic rationale for the visual content choice
-               - Specify visual style and characteristics
-               - NEVER recommend both image AND video
-            
-            3. **Engagement Optimization**:
-               - Optimal hashtag strategy (2-4 hashtags maximum)
-               - Strategic emoji placement and selection
-               - Call-to-action formulation
-               - Community engagement tactics
-            
-            4. **Content Structure**:
-               - Hook-based opening strategy
-               - Value proposition messaging
-               - Urgency and scarcity elements
-               - Brand consistency guidelines
-            
-            5. **Risk Management**:
-               - Content compliance considerations
-               - Brand safety guidelines
-               - Potential backlash mitigation
-            
-            CRITICAL DECISION: VISUAL CONTENT TYPE
-            Based on the data analyst's recommendation and campaign objectives:
-            - Confirm: IMAGE or VIDEO (select only one)
-            - Justify your decision with strategic reasoning
-            - Provide specific requirements for the chosen visual type
-            
-            OUTPUT FORMAT - STRATEGIC BLUEPRINT:
-            ```json
-            {{
-              "content_strategy": {{
-                "positioning": "...",
-                "messaging_framework": "...",
-                "brand_voice": "..."
-              }},
-              "visual_content_strategy": {{
-                "selected_type": "IMAGE or VIDEO",
-                "strategic_rationale": "...",
-                "style_requirements": "...",
-                "technical_specs": "..."
-              }},
-              "engagement_strategy": {{
-                "hashtag_strategy": ["#tag1", "#tag2"],
-                "emoji_strategy": "...",
-                "call_to_action": "...",
-                "community_engagement": "..."
-              }},
-              "content_structure": {{
-                "hook_strategy": "...",
-                "value_proposition": "...",
-                "urgency_elements": "..."
-              }},
-              "risk_management": {{
-                "compliance_notes": "...",
-                "brand_safety": "...",
-                "mitigation_strategies": "..."
-              }}
-            }}
-            ```
-            
-            This strategy will guide the text and visual content creation agents.
+            Output a strategic brief that the Text Content Agent can use to create effective {post_type} content.
             """,
             agent=self.agents[AgentType.CONTENT_STRATEGIST],
-            expected_output="Comprehensive content strategy with confirmed visual content type selection (IMAGE or VIDEO) and detailed tactical recommendations in JSON format"
+            expected_output=f"""
+            Strategic brief for {post_type.upper()} content including:
+            - Content approach and tone
+            - Key messaging themes
+            - Target audience insights
+            - Platform optimization strategy
+            - Engagement tactics
+            - Content structure guidelines
+            - Character limit specifications
+            - Hashtag strategy
+            """
         )
 
     def _create_content_creation_task(self) -> Task:
         """Create task for Text Content Agent to generate tweet threads"""
         
-        # Check if campaign has description for thread generation
+        # Get post type from mining session
+        post_type = getattr(self.mining_session, 'post_type', 'thread')
+        
+        # Check content generation requirements based on post type
         campaign_description = self.campaign_data.get('description', '') if self.campaign_data else ''
+        campaign_description = campaign_description or ''  # Ensure it's never None
         has_description = campaign_description and campaign_description.strip()
         
-        # Extract additional campaign details
+        # Determine content structure based on post type
+        if post_type == "longpost":
+            should_generate_thread = False
+            max_main_chars = 25000
+            content_type_desc = "LONGPOST GENERATION"
+        elif post_type == "shitpost":
+            should_generate_thread = False  # Shitposts are single tweets
+            max_main_chars = 250  # 250 chars + 30 hashtag chars = 280 total
+            content_type_desc = "SHITPOST GENERATION"
+        else:  # thread (default)
+            should_generate_thread = has_description
+            max_main_chars = 250  # 250 chars + 30 hashtag chars = 280 total
+            content_type_desc = "TWITTER THREAD GENERATION" if has_description else "SINGLE TWEET GENERATION"
+        
+        # Extract additional campaign details with proper null handling
         brand_guidelines = self.campaign_data.get('brandGuidelines', '') if self.campaign_data else ''
+        brand_guidelines = brand_guidelines or ''  # Ensure it's never None
         token_ticker = self.campaign_data.get('tokenTicker', 'TOKEN') if self.campaign_data else 'TOKEN'
+        token_ticker = token_ticker or 'TOKEN'  # Ensure it's never None
         project_name = self.campaign_data.get('projectName', 'Project') if self.campaign_data else 'Project'
+        project_name = project_name or 'Project'  # Ensure it's never None
         
         return Task(
             description=f"""
@@ -897,18 +1021,36 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - Target Audience: {self.campaign_data.get('targetAudience', 'crypto/Web3 enthusiasts') if self.campaign_data else 'crypto/Web3 enthusiasts'}
             
             CONTENT FORMAT:
-            {'TWITTER THREAD GENERATION:' if has_description else 'SINGLE TWEET GENERATION:'}
-            {'- Generate a compelling tweet thread (2-5 tweets) when campaign description is available' if has_description else '- Generate a single tweet when no campaign description is available'}
-            {'- First tweet (main tweet): Hook with image-worthy content' if has_description else '- Maximum 280 characters for Twitter'}
-            {'- Follow-up tweets: Expand on project details, use brand guidelines, create FOMO' if has_description else ''}
-            {'- Include project name, token ticker, and key benefits from description' if has_description else ''}
+            {content_type_desc}:
+            {f'- Generate a {post_type.upper()} with maximum {max_main_chars} characters for main content' if post_type == 'longpost' else 
+             f'- Generate a humorous, ironic {post_type.upper()} with 2-4 follow-up tweets (280 chars each)' if post_type == 'shitpost' else 
+             f'- Generate a compelling tweet thread (2-5 tweets) when campaign description is available' if should_generate_thread else 
+             '- Generate a single tweet when no campaign description is available'}
+            {f'- Use comprehensive, detailed content with thorough analysis' if post_type == 'longpost' else 
+             f'- Use deliberately casual, ironic humor connecting random activities to crypto' if post_type == 'shitpost' else 
+             f'- First tweet (main tweet): Hook with image-worthy content' if should_generate_thread else 
+             '- Maximum 280 characters for Twitter'}
+            {f'- Include data, statistics, and in-depth explanations' if post_type == 'longpost' else 
+             f'- Include crypto memes, "few understand", "NFA obvs", engagement hooks' if post_type == 'shitpost' else 
+             f'- Follow-up tweets: Expand on project details, use brand guidelines, create FOMO' if should_generate_thread else ''}
+            {f'- Structure content logically with clear sections and professional tone' if post_type == 'longpost' else 
+             f'- Reference diamond hands, moon, wen lambo, bullish on [random thing]' if post_type == 'shitpost' else 
+             f'- Include project name, token ticker, and key benefits from description' if should_generate_thread else ''}
             
             CRITICAL CHARACTER LIMITS (STRICTLY ENFORCE):
-            - Main tweet: Maximum 250 characters for text content
-            - Hashtags in main tweet: Maximum 30 characters total (including # symbols)
-            - Overall main tweet: Must fit within 280 characters (250 text + 30 hashtags = 280 max)
-            {'- Each thread tweet: Maximum 280 characters including hashtags' if has_description else ''}
-            {'- Thread tweets: Ideally 200-240 characters for optimal readability' if has_description else ''}
+            {f'- Main content: Maximum {max_main_chars} characters total (no thread needed)' if post_type == 'longpost' else 
+             f'- Main tweet: Maximum 250 characters + 30 hashtag characters for {post_type.upper()}' if post_type == 'shitpost' else 
+             '- Main tweet: Maximum 250 characters for text content + 30 hashtag characters'}
+            {f'- Include relevant hashtags within the character limit' if post_type == 'longpost' else 
+             f'- Each thread tweet: Maximum 280 characters including hashtags' if should_generate_thread else 
+             '- Hashtags in main tweet: Maximum 30 characters total (including # symbols)'}
+            {f'- Focus on comprehensive analysis over brevity' if post_type == 'longpost' else 
+             f'- Thread tweets: Build the joke progressively, keep each tweet punchy' if post_type == 'shitpost' else 
+             f'- Overall main tweet: Must fit within 280 characters (250 text + 30 hashtags = 280 max)' if not should_generate_thread else 
+             '- Each thread tweet: Maximum 280 characters including hashtags'}
+            {'' if post_type == 'longpost' else 
+             f'- Use ironic humor and crypto meme references in each tweet' if post_type == 'shitpost' else 
+             '- Thread tweets: Ideally 200-240 characters for optimal readability' if should_generate_thread else ''}
             
             Content Specifications:
             - ALWAYS include project token hashtag (#{token_ticker}) in main tweet
@@ -940,15 +1082,58 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
               * When referring to OTHER USERS/COMMUNITY: Use third-person pronouns (they/them/their)
             - Examples: "You can join the movement" (reader), "BOB revolutionizes DeFi" (project), "Users love its features" (project), "They are earning rewards" (other users)
             
+            {f'''
+            📚 **SHITPOST PROMPT LIBRARY** (Use for {post_type.upper()} content ONLY):
+            
+            **QUICK REFERENCE TEMPLATES**:
+            Template 1: "[Food ordering] treating [food items] as tokenomics" → "Just ordered pizza analyzing pepperoni distribution like tokenomics. 65% cheese coverage, 20% allocation. Bullish on delivery 📊 #TokenTicker"
+            Template 2: "[Morning routine] as technical analysis" → "Coffee brewing patterns indicate bullish momentum. Strong support at 2 cups. Breaking caffeine ceiling = moon mission ☕📈"
+            Template 3: "[Household item] giving crypto alpha" → "Snake plant told me to DCA. Plants photosynthesize truth. When houseplants drop alpha, you listen 🌱 NFA"
+            Template 4: "[Traffic/daily frustration] = crypto scenario" → "Stuck in traffic thinking about gas fees. Red light lasting longer than trade confirmation. When IRL has worse TPS than ETH 🚗⛽"
+            Template 5: "[Random observation] = market insight" → "WiFi router restarted during Zoom. Same energy as market dumping after I buy. Technology and crypto love perfect timing 📶📉"
+            
+            **ENGAGEMENT HOOKS**: "Thoughts?", "Am I wrong tho?", "Few understand this", "Change my mind 🤔", "This you?"
+            **CASUAL PHRASES**: "Bullish on [X]", "Few understand", "NFA but...", "Still early", "Different breed", "Built different"
+            
+            **CONSTRUCTION FORMULA**: [Mundane Activity] + [Crypto Analysis] + [Community Hook] + [Ironic Wisdom] = Perfect Shitpost
+            ''' if post_type == 'shitpost' else ''}
+            
             IMPORTANT: Use your content generation tool to create REAL content.
-            """ + ('Call the tool with: "Create Twitter thread about ' + project_name + ' (' + token_ticker + ') based on: ' + campaign_description[:100] + '... CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet and thread_array keys. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include #' + token_ticker + ' hashtag. 4) Main tweet max 250 chars + 30 hashtag chars. 5) NO explanations, just pure JSON."' if has_description else 'Call the tool with: "Create viral Twitter content about [campaign topic]. CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet key. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include relevant hashtags. 4) NO explanations, just pure JSON."') + """
+            """ + (
+                # Shitpost specific tool call
+                f'Call the tool with: "Generate shitpost content for {project_name} ({token_ticker}) using the SHITPOST PROMPT LIBRARY. CRITICAL REQUIREMENTS: 1) Use ONE template from Food/Daily Life, Morning Routine, Household Activities, or Random Observations categories. 2) Replace [placeholders] with specific relatable details about daily life. 3) Connect mundane activity to {project_name} benefits naturally. 4) Include #{token_ticker} hashtag organically. 5) Add engagement hook (Thoughts? Few understand this, etc.). 6) Return ONLY valid JSON with main_tweet key. 7) Max 250 chars + 30 hashtag chars. 8) NO explanations, just pure JSON. Example approach: Take Template 1 (pizza tokenomics) but adapt for your project benefits."' if post_type == 'shitpost' else
+                # Thread specific tool call  
+                f'Call the tool with: "Create Twitter thread about {project_name} ({token_ticker}) based on: {campaign_description[:100] if has_description else "campaign topic"}... CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet and thread_array keys. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include #{token_ticker} hashtag. 4) Main tweet max 250 chars + 30 hashtag chars. 5) NO explanations, just pure JSON."' if has_description else 
+                # Single tweet tool call
+                f'Call the tool with: "Create viral Twitter content about {project_name} ({token_ticker}). CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet key. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include relevant hashtags. 4) NO explanations, just pure JSON."'
+            ) + """
             
             CRITICAL OUTPUT FORMAT - MUST FOLLOW EXACTLY:
             You MUST return ONLY a valid JSON object with NO additional text, explanations, or formatting.
             
-            {'FOR THREAD CAMPAIGNS (when description available), use this EXACT JSON structure:' if has_description else 'FOR SINGLE TWEET CAMPAIGNS, use this EXACT JSON structure:'}
+            {f'FOR {post_type.upper()} CONTENT, use this EXACT JSON structure:' if post_type == 'longpost' else 
+             f'FOR {post_type.upper()} CAMPAIGNS, use this EXACT JSON structure:' if should_generate_thread else 
+             'FOR SINGLE TWEET CAMPAIGNS, use this EXACT JSON structure:'}
             
             """ + ('''{
+  "main_tweet": "Your comprehensive longpost content here (≤25000 chars including hashtags)",
+  "hashtags_used": ["''' + token_ticker + '''", "DeFi", "Crypto", "Analysis"],
+  "character_count": 5247,
+  "approach": "comprehensive"
+}''' if post_type == 'longpost' else '''{
+  "main_tweet": "Your humorous shitpost main tweet here (≤280 chars)",
+  "thread_array": [
+    "Second shitpost tweet building the joke (≤280 chars)",
+    "Third shitpost tweet continuing the absurdity (≤280 chars)"
+  ],
+  "hashtags_used": ["''' + token_ticker + '''", "shitpost", "crypto"],
+  "character_counts": {
+    "main_tweet": 278,
+    "thread_tweet_1": 275,
+    "thread_tweet_2": 280
+  },
+  "approach": "humorous"
+}''' if post_type == 'shitpost' else '''{
   "main_tweet": "Your main tweet text here (≤250 chars + ≤30 hashtag chars)",
   "thread_array": [
     "Second tweet text here (≤280 chars)",
@@ -964,7 +1149,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
     "thread_tweet_3": 265
   },
   "approach": "engaging"
-}''' if has_description else '''{
+}''' if should_generate_thread else '''{
   "main_tweet": "Your single tweet text here (≤280 chars total)",
   "hashtags_used": ["''' + (token_ticker if token_ticker else 'TOKEN') + '''", "DeFi", "Crypto"],
   "character_count": 275,
@@ -979,7 +1164,30 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - No comments or explanations outside the JSON
             - Test JSON validity before returning
             
-            """ + (f'EXAMPLE VALID JSON OUTPUT:\\n{{\\n  "main_tweet": "🚀 {project_name} is revolutionizing crypto gains! You can join the movement and start earning with its innovative DeFi solutions 💰🔥 #{token_ticker} #DeFi",\\n  "thread_array": [\\n    "With {project_name}, you get the best of both worlds - security and yield opportunities",\\n    "Thousands of users are already earning with its innovative platform",\\n    "You can maximize your potential - the opportunity is available now! 🚀"\\n  ],\\n  "hashtags_used": ["{token_ticker}", "DeFi"],\\n  "character_counts": {{\\n    "main_tweet_text": 245,\\n    "main_tweet_hashtags": 28,\\n    "thread_tweet_1": 275,\\n    "thread_tweet_2": 280,\\n    "thread_tweet_3": 265\\n  }},\\n  "approach": "engaging"\\n}}' if has_description else f'EXAMPLE VALID JSON OUTPUT:\\n{{\\n  "main_tweet": "🚀 {project_name} is revolutionizing crypto gains! You can join and start earning 💰🔥 #{token_ticker} #DeFi",\\n  "hashtags_used": ["{token_ticker}", "DeFi"],\\n  "character_count": 275,\\n  "approach": "engaging"\\n}}') + """
+            """ + ("""EXAMPLE VALID JSON OUTPUT:
+{
+  "main_tweet": "🚀 """ + project_name + """ is revolutionizing crypto gains! You can join the movement and start earning with its innovative DeFi solutions 💰🔥 #""" + token_ticker + """ #DeFi",
+  "thread_array": [
+    "With """ + project_name + """, you get the best of both worlds - security and yield opportunities",
+    "Thousands of users are already earning with its innovative platform",
+    "You can maximize your potential - the opportunity is available now! 🚀"
+  ],
+  "hashtags_used": ["``` + token_ticker + ```", "DeFi"],
+  "character_counts": {
+    "main_tweet_text": 245,
+    "main_tweet_hashtags": 28,
+    "thread_tweet_1": 275,
+    "thread_tweet_2": 280,
+    "thread_tweet_3": 265
+  },
+  "approach": "engaging"
+}""" if has_description else """EXAMPLE VALID JSON OUTPUT:
+{
+  "main_tweet": "🚀 """ + project_name + """ is revolutionizing crypto gains! You can join and start earning 💰🔥 #""" + token_ticker + """ #DeFi",
+  "hashtags_used": ["``` + token_ticker + ```", "DeFi"],
+  "character_count": 275,
+  "approach": "engaging"
+}""") + """
             
             STRICT VALIDATION REQUIREMENTS:
             ✓ Return ONLY valid JSON - no extra text, explanations, or formatting
@@ -1036,11 +1244,23 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - Title: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
             - Brand Guidelines: {self.campaign_data.get('brandGuidelines', 'Modern, professional, crypto-focused') if self.campaign_data else 'Modern, professional, crypto-focused'}
             - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
+            - Post Type: {getattr(self.mining_session, 'post_type', 'thread').upper()}
+            
+            📋 **POST TYPE VISUAL STRATEGY**:
+            {f'- LONGPOST: Generate ONE compelling image to accompany the comprehensive text content' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
+             f'- SHITPOST: Generate humorous, meme-style image for MAIN TWEET ONLY (no thread images)' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
+             '- THREAD: Generate engaging image/video for main tweet based on strategist recommendation'}
             
             📋 **STRATEGY-DRIVEN CONTENT TYPE**:
-            - Review the Content Strategist's recommendation (IMAGE or VIDEO)
-            - Follow the strategic decision as your PRIMARY goal
-            - Apply intelligent fallback hierarchy if needed
+            {f'- Generate ONE professional image that complements the longpost content theme' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
+             f'- Generate ONE meme-style image for shitpost main tweet only' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
+             '- Review the Content Strategist recommendation (IMAGE or VIDEO)'}
+            {'' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
+             f'- Use ironic, humorous, crypto meme aesthetic' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
+             '- Follow the strategic decision as your PRIMARY goal'}
+            {'' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
+             f'- Focus on absurd, relatable scenarios with crypto elements' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
+             '- Apply intelligent fallback hierarchy if needed'}
             
             🎯 **EXECUTION HIERARCHY**:
             
@@ -2201,7 +2421,8 @@ No image generated
                 "content_images": content.content_images,  # Include images in sync payload
                 "predicted_mindshare": content.predicted_mindshare,
                 "quality_score": content.quality_score,
-                "generation_metadata": content.generation_metadata
+                "generation_metadata": content.generation_metadata,
+                "post_type": getattr(mining_session, 'post_type', 'thread')  # Include post type from mining session
             }
             
             # Calculate asking price based on quality score

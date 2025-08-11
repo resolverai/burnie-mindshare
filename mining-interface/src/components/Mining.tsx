@@ -21,7 +21,9 @@ import {
   ChartBarIcon,
   ExclamationTriangleIcon,
   SparklesIcon,
-  CpuChipIcon
+  CpuChipIcon,
+  MagnifyingGlassIcon,
+  ChevronLeftIcon
 } from '@heroicons/react/24/outline'
 import { 
   CheckCircleIcon as CheckCircleIconSolid, 
@@ -76,6 +78,7 @@ interface PersonalizedAgent {
 interface CampaignSelection {
   campaign: Campaign;
   selectedAgent: PersonalizedAgent | null;
+  postType: 'shitpost' | 'longpost' | 'thread'; // New field for post type
 }
 
 interface GeneratedContent {
@@ -119,6 +122,13 @@ export default function Mining() {
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<number>>(new Set())
   const [miningStatus, setMiningStatus] = useState<MiningStatus>({ status: 'idle', progress: 0, currentStep: 'Ready to mine' })
   const [contentReviewItems, setContentReviewItems] = useState<ContentReviewItem[]>([])
+  
+  // Search, pagination and select all state
+  const [searchTerm, setSearchTerm] = useState<string>('')
+  const [currentPage, setCurrentPage] = useState<number>(1)
+  const [itemsPerPage] = useState<number>(10)
+  const [isSelectAllChecked, setIsSelectAllChecked] = useState<boolean>(false)
+  
   const { address } = useAccount()
 
   // Fetch available campaigns from centralized platform
@@ -127,7 +137,7 @@ export default function Mining() {
     queryFn: async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
-        const fullUrl = `${apiUrl}/campaigns/marketplace-ready?limit=20`
+        const fullUrl = `${apiUrl}/campaigns/marketplace-ready?limit=100`
         console.log('🔍 Mining: Fetching campaigns from:', fullUrl)
         
         // Try to fetch from TypeScript backend first
@@ -176,6 +186,25 @@ export default function Mining() {
     },
     enabled: !!address,
   })
+
+  // Filter campaigns based on search term
+  const filteredCampaigns = (campaignsData || []).filter(campaign => 
+    campaign.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    campaign.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    campaign.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    campaign.platform_source.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredCampaigns.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedCampaigns = filteredCampaigns.slice(startIndex, endIndex)
+
+  // Update current page when search changes
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm])
 
   const startMining = async () => {
     if (selectedCampaigns.length === 0) return
@@ -298,6 +327,7 @@ export default function Mining() {
       const campaignsData = selectedCampaigns.map(selection => ({
             campaign_id: selection.campaign.id,
             agent_id: selection.selectedAgent?.id,
+            post_type: selection.postType, // Include post type for each campaign
             campaign_context: {
               title: selection.campaign.title,
               description: selection.campaign.description,
@@ -552,8 +582,9 @@ export default function Mining() {
         // Remove campaign
         return prev.filter(selection => selection.campaign.id !== campaign.id)
       } else {
-        // Add campaign
-        return [...prev, { campaign, selectedAgent: null }]
+        // Add campaign with default agent (first available) and thread post type
+        const firstAgent = userAgents && userAgents.length > 0 ? userAgents[0] : null
+        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const }]
       }
     })
   }
@@ -568,6 +599,16 @@ export default function Mining() {
     )
   }
 
+  const updatePostType = (campaignId: number, postType: 'shitpost' | 'longpost' | 'thread') => {
+    setSelectedCampaigns(prev => 
+      prev.map(selection => 
+        selection.campaign.id === campaignId 
+          ? { ...selection, postType }
+          : selection
+      )
+    )
+  }
+
   const isCampaignSelected = (campaignId: number) => {
     return selectedCampaigns.some(selection => selection.campaign.id === campaignId)
   }
@@ -575,6 +616,36 @@ export default function Mining() {
   const getSelectedAgent = (campaignId: number) => {
     return selectedCampaigns.find(selection => selection.campaign.id === campaignId)?.selectedAgent || null
   }
+
+  const getSelectedCampaign = (campaignId: number) => {
+    return selectedCampaigns.find(selection => selection.campaign.id === campaignId)
+  }
+
+  // Select all functionality
+  const handleSelectAll = () => {
+    if (isSelectAllChecked) {
+      // Deselect all campaigns
+      setSelectedCampaigns([])
+      setIsSelectAllChecked(false)
+    } else {
+      // Select all filtered campaigns with default agent and thread post type
+      const firstAgent = userAgents && userAgents.length > 0 ? userAgents[0] : null
+      const newSelections: CampaignSelection[] = filteredCampaigns.map(campaign => ({
+        campaign,
+        selectedAgent: firstAgent,
+        postType: 'thread' as const
+      }))
+      setSelectedCampaigns(newSelections)
+      setIsSelectAllChecked(true)
+    }
+  }
+
+  // Update select all state when individual campaigns are selected/deselected
+  useEffect(() => {
+    const allFilteredSelected = filteredCampaigns.length > 0 && 
+      filteredCampaigns.every(campaign => isCampaignSelected(campaign.id))
+    setIsSelectAllChecked(allFilteredSelected)
+  }, [selectedCampaigns, filteredCampaigns])
 
   const toggleCampaignExpansion = (campaignId: number) => {
     setExpandedCampaigns(prev => {
@@ -840,6 +911,46 @@ export default function Mining() {
             <TrophyIcon className="h-6 w-6 text-orange-400 mr-2" />
             Select Campaign
           </h2>
+
+          {/* Search and Select All Controls */}
+          <div className="mb-6 space-y-4">
+            {/* Search Bar */}
+            <div className="relative">
+              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search campaigns by title, description, category, or platform..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-gray-700/50 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              />
+            </div>
+
+            {/* Select All and Campaign Count */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isSelectAllChecked}
+                    onChange={handleSelectAll}
+                    className="w-4 h-4 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
+                  />
+                  <span className="text-white font-medium">
+                    Select All {searchTerm && '(' + filteredCampaigns.length + ' filtered)'}
+                  </span>
+                </label>
+                {selectedCampaigns.length > 0 && (
+                  <span className="text-orange-400 text-sm">
+                    {selectedCampaigns.length} campaign{selectedCampaigns.length > 1 ? 's' : ''} selected
+                  </span>
+                )}
+              </div>
+              <div className="text-gray-400 text-sm">
+                Showing {paginatedCampaigns.length} of {filteredCampaigns.length} campaigns
+              </div>
+            </div>
+          </div>
           
           {campaignsLoading ? (
             <div className="text-center py-8">
@@ -847,8 +958,9 @@ export default function Mining() {
               <p className="text-gray-400 mt-2">Loading campaigns...</p>
             </div>
           ) : (
-            <div className="grid gap-4">
-              {campaignsData?.map((campaign) => (
+            <div>
+              <div className="grid gap-4">
+              {paginatedCampaigns.map((campaign) => (
                 <div
                   key={campaign.id}
                   className={`p-4 rounded-lg border-2 transition-all ${
@@ -963,6 +1075,29 @@ export default function Mining() {
                               Agent: {getSelectedAgent(campaign.id)?.name} | Level: {getSelectedAgent(campaign.id)?.level} | Learning: {getSelectedAgent(campaign.id)?.learning}%
                             </div>
                           )}
+                          
+                          {/* Post Type Selection */}
+                          <div className="mt-3">
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                              Select Post Type:
+                            </label>
+                            <select
+                              value={getSelectedCampaign(campaign.id)?.postType || 'thread'}
+                              onChange={(e) => {
+                                updatePostType(campaign.id, e.target.value as 'shitpost' | 'longpost' | 'thread')
+                              }}
+                              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            >
+                              <option value="thread">🧵 Thread - Multi-tweet storyline</option>
+                              <option value="shitpost">😂 Shitpost - Humorous meme content</option>
+                              <option value="longpost">📝 Longpost - Detailed analysis</option>
+                            </select>
+                            <div className="mt-1 text-xs text-gray-400">
+                              {getSelectedCampaign(campaign.id)?.postType === 'thread' && '2-5 connected tweets telling a story'}
+                              {getSelectedCampaign(campaign.id)?.postType === 'shitpost' && 'Ironic humor with crypto memes and casual tone'}
+                              {getSelectedCampaign(campaign.id)?.postType === 'longpost' && 'Comprehensive content up to 25,000 characters'}
+                            </div>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -970,8 +1105,65 @@ export default function Mining() {
                 </div>
               ))}
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-between">
+                <div className="text-gray-400 text-sm">
+                  Page {currentPage} of {totalPages}
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="p-2 rounded-lg bg-gray-700 border border-gray-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors"
+                  >
+                    <ChevronLeftIcon className="h-4 w-4" />
+                  </button>
+                  
+                  {/* Page Numbers */}
+                  <div className="flex items-center space-x-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum: number;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                            currentPage === pageNum
+                              ? 'bg-orange-500 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="p-2 rounded-lg bg-gray-700 border border-gray-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors"
+                  >
+                    <ChevronRightIcon className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+            </div>
           )}
-          </div>
+        </div>
 
         {/* Selected Campaigns Summary */}
         {selectedCampaigns.length > 0 && (
