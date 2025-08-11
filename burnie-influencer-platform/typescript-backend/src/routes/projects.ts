@@ -421,9 +421,8 @@ router.get('/:id/stats', async (req: Request, res: Response) => {
     const activeCampaigns = campaigns.filter(c => c.status === 'ACTIVE');
     const completedCampaigns = campaigns.filter(c => c.status === 'COMPLETED');
     
-    const totalRewards = campaigns.reduce((sum, campaign) => 
-      sum + (campaign.rewardPool || 0), 0
-    );
+    // Since rewardPool is now text, we'll track count instead of sum
+    const totalRewardPools = campaigns.filter(c => c.rewardPool && c.rewardPool.trim() !== '').length;
 
     const allSubmissions = campaigns.flatMap(c => c.submissions || []);
     const totalSubmissions = allSubmissions.length;
@@ -437,7 +436,7 @@ router.get('/:id/stats', async (req: Request, res: Response) => {
       approvedSubmissions,
       rejectedSubmissions: allSubmissions.filter(s => s.status === 'REJECTED').length,
       pendingSubmissions: allSubmissions.filter(s => s.status === 'PENDING').length,
-      totalRewardsAllocated: totalRewards,
+      totalRewardPoolsConfigured: totalRewardPools,
       averageScore: totalSubmissions > 0 ? 
         allSubmissions.reduce((sum, s) => sum + (s.totalScore || 0), 0) / totalSubmissions : 0,
       participationRate: campaigns.length > 0 ? 

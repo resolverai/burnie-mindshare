@@ -68,9 +68,16 @@ export const AppDataSource = new DataSource({
   },
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   extra: {
-    connectionLimit: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    connectionLimit: 20,
+    idleTimeoutMillis: 60000,
+    connectionTimeoutMillis: 5000,
+    max: 20,
+    min: 2,
+    acquireTimeoutMillis: 60000,
+    createTimeoutMillis: 30000,
+    destroyTimeoutMillis: 5000,
+    reapIntervalMillis: 1000,
+    createRetryIntervalMillis: 200,
   },
 });
 
@@ -83,12 +90,25 @@ export const initializeDatabase = async (): Promise<void> => {
     
     // Check if DataSource is already initialized
     if (AppDataSource.isInitialized) {
-      logger.info('📋 Database already initialized, skipping...');
-      return;
+      logger.info('📋 Database already initialized, checking connection...');
+      
+      // Test the connection
+      try {
+        await AppDataSource.query('SELECT 1');
+        logger.info('✅ Database connection is healthy');
+        return;
+      } catch (testError) {
+        logger.warn('⚠️ Database connection test failed, reinitializing...');
+        await AppDataSource.destroy();
+      }
     }
     
     await AppDataSource.initialize();
     logger.info('✅ Database connection established successfully');
+    
+    // Test the connection immediately after initialization
+    await AppDataSource.query('SELECT 1');
+    logger.info('🔍 Database connection test passed');
     
     // Log entities
     const entityCount = AppDataSource.entityMetadatas.length;
@@ -153,10 +173,37 @@ export const closeDatabase = async (): Promise<void> => {
 // Health check for database
 export const checkDatabaseHealth = async (): Promise<boolean> => {
   try {
+    if (!AppDataSource.isInitialized) {
+      logger.warn('Database not initialized for health check');
+      return false;
+    }
     await AppDataSource.query('SELECT 1');
     return true;
   } catch (error) {
     logger.error('Database health check failed:', error);
     return false;
   }
+};
+
+// Start database keepalive
+export const startDatabaseKeepalive = (): void => {
+  setInterval(async () => {
+    try {
+      if (AppDataSource.isInitialized) {
+        await AppDataSource.query('SELECT 1');
+        logger.debug('🔄 Database keepalive successful');
+      }
+    } catch (error) {
+      logger.error('❌ Database keepalive failed:', error);
+      // Attempt to reconnect
+      try {
+        logger.info('🔄 Attempting to reconnect to database...');
+        await AppDataSource.destroy();
+        await AppDataSource.initialize();
+        logger.info('✅ Database reconnected successfully');
+      } catch (reconnectError) {
+        logger.error('❌ Database reconnection failed:', reconnectError);
+      }
+    }
+  }, 30000); // Keep alive every 30 seconds
 }; 

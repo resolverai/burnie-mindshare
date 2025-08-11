@@ -183,17 +183,22 @@ export default function AdminDashboard() {
     refetchInterval: 30000,
   })
 
-  // Filter and paginate campaigns
-  const filteredCampaigns = campaigns?.items?.filter((campaign: Campaign) =>
+  // Filter and sort campaigns by end date (ascending order)
+  const filteredAndSortedCampaigns = campaigns?.items?.filter((campaign: Campaign) =>
     campaign.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     campaign.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
     campaign.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (campaign.platformSource || '').toLowerCase().includes(searchTerm.toLowerCase())
-  ) || []
+  ).sort((a: Campaign, b: Campaign) => {
+    // Sort by end date in ascending order (earliest end date first)
+    const dateA = new Date(a.endDate || '9999-12-31').getTime()
+    const dateB = new Date(b.endDate || '9999-12-31').getTime()
+    return dateA - dateB
+  }) || []
 
-  const totalPages = Math.ceil(filteredCampaigns.length / itemsPerPage)
+  const totalPages = Math.ceil(filteredAndSortedCampaigns.length / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
-  const paginatedCampaigns = filteredCampaigns.slice(startIndex, startIndex + itemsPerPage)
+  const paginatedCampaigns = filteredAndSortedCampaigns.slice(startIndex, startIndex + itemsPerPage)
 
   // Reset page when search changes
   useEffect(() => {
@@ -374,7 +379,7 @@ export default function AdminDashboard() {
         logoFormData.append('projectName', formData.projectName || 'untitled')
         
         const logoResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/campaigns/upload-logo`, {
-          method: 'POST',
+        method: 'POST',
           body: logoFormData,
         })
         
@@ -477,8 +482,8 @@ export default function AdminDashboard() {
 
       // Prepare campaign data
       const campaignData = {
-        title: formData.title,
-        description: formData.description,
+          title: formData.title,
+          description: formData.description,
         projectName: formData.projectName,
         projectLogo: logoUrl,
         tokenTicker: formData.tokenTicker,
@@ -908,7 +913,7 @@ export default function AdminDashboard() {
             </div>
             {searchTerm && (
               <p className="mt-2 text-sm text-gray-600">
-                Found {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''} matching "{searchTerm}"
+                Found {filteredAndSortedCampaigns.length} campaign{filteredAndSortedCampaigns.length !== 1 ? 's' : ''} matching "{searchTerm}"
               </p>
             )}
           </div>
@@ -918,49 +923,51 @@ export default function AdminDashboard() {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-4"></div>
               <p className="text-gray-600">Loading campaigns...</p>
             </div>
-          ) : filteredCampaigns.length > 0 ? (
+          ) : filteredAndSortedCampaigns.length > 0 ? (
             <>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Platform</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reward Pool</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reward Pool</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Max Yappers</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
                     {paginatedCampaigns.map((campaign: Campaign) => (
-                      <tr key={campaign.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
-                          <div>
-                            <div className="font-medium text-gray-900">{campaign.title}</div>
-                            <div className="text-sm text-gray-500 truncate max-w-xs">{campaign.description}</div>
-                          </div>
-                        </td>
+                    <tr key={campaign.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4">
+                        <div>
+                          <div className="font-medium text-gray-900">{campaign.title}</div>
+                          <div className="text-sm text-gray-500 truncate max-w-xs">{campaign.description}</div>
+                        </div>
+                      </td>
                         <td className="px-6 py-4 text-sm text-gray-900 capitalize">{campaign.category?.replace('_', ' ')}</td>
                         <td className="px-6 py-4 text-sm text-gray-900 capitalize">{campaign.platformSource || 'burnie'}</td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                          {Number(campaign.rewardPool || 0).toLocaleString()} {campaign.tokenTicker || campaign.rewardToken || 'ROAST'}
-                        </td>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                          <div className="max-w-xs truncate" title={campaign.rewardPool?.toString() || ''}>
+                            {campaign.rewardPool || 'Not specified'}
+                          </div>
+                      </td>
                         <td className="px-6 py-4 text-sm text-gray-900">{campaign.maxYappers || 100}</td>
-                        <td className="px-6 py-4">
-                          <span className={`status-indicator ${
-                            campaign.status === 'ACTIVE' ? 'status-active' :
-                            campaign.status === 'COMPLETED' ? 'status-completed' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {campaign.status.charAt(0).toUpperCase() + campaign.status.slice(1).toLowerCase()}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">
-                          {campaign.endDate ? formatDate(campaign.endDate) : 'No end date'}
-                        </td>
+                      <td className="px-6 py-4">
+                        <span className={`status-indicator ${
+                          campaign.status === 'ACTIVE' ? 'status-active' :
+                          campaign.status === 'COMPLETED' ? 'status-completed' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {campaign.status.charAt(0).toUpperCase() + campaign.status.slice(1).toLowerCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {campaign.endDate ? formatDate(campaign.endDate) : 'No end date'}
+                      </td>
                         <td className="px-6 py-4 text-sm text-gray-500">
                           <button
                             onClick={() => handleEditCampaign(campaign)}
@@ -968,12 +975,12 @@ export default function AdminDashboard() {
                           >
                             Edit
                           </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
               {/* Pagination */}
               {totalPages > 1 && (
@@ -998,7 +1005,7 @@ export default function AdminDashboard() {
                     </button>
                   </div>
                   <div className="text-sm text-gray-600">
-                    Showing {filteredCampaigns.length} campaigns
+                    Showing {filteredAndSortedCampaigns.length} campaigns
                   </div>
                 </div>
               )}
@@ -1223,15 +1230,14 @@ export default function AdminDashboard() {
                   <label htmlFor="rewardPool" className="block text-sm font-medium text-gray-700 mb-2">
                     Reward Pool ({formData.tokenTicker || 'TOKEN'}) *
                   </label>
-                  <input
-                    type="number"
+                  <textarea
                     id="rewardPool"
                     required
-                    min="1"
+                    rows={3}
                     value={formData.rewardPool}
                     onChange={(e) => setFormData({ ...formData, rewardPool: e.target.value })}
-                    className="input-field"
-                    placeholder="10000"
+                    className="input-field resize-vertical"
+                    placeholder="10000 tokens for top contributors, 5000 for community engagement, 2000 for best memes..."
                   />
                 </div>
               </div>
@@ -1255,7 +1261,7 @@ export default function AdminDashboard() {
                     Number of yappers to distribute the reward pool among
                   </p>
                 </div>
-              </div>
+                </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -1499,15 +1505,14 @@ export default function AdminDashboard() {
                   <label htmlFor="rewardPool" className="block text-sm font-medium text-gray-700 mb-2">
                     Reward Pool ({formData.tokenTicker || 'TOKEN'}) *
                   </label>
-                  <input
-                    type="number"
+                  <textarea
                     id="rewardPool"
                     required
-                    min="1"
+                    rows={3}
                     value={formData.rewardPool}
                     onChange={(e) => setFormData({ ...formData, rewardPool: e.target.value })}
-                    className="input-field"
-                    placeholder="10000"
+                    className="input-field resize-vertical"
+                    placeholder="10000 tokens for top contributors, 5000 for community engagement, 2000 for best memes..."
                   />
                 </div>
               </div>
@@ -1534,7 +1539,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
+              <div>
                   <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-2">
                     Start Date *
                   </label>
@@ -1551,17 +1556,17 @@ export default function AdminDashboard() {
 
                 <div>
                   <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-2">
-                    End Date *
-                  </label>
-                  <input
-                    type="date"
+                  End Date *
+                </label>
+                <input
+                  type="date"
                     id="endDate"
-                    required
+                  required
                     value={formData.endDate}
                     onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                    className="input-field"
-                    min={new Date().toISOString().split('T')[0]}
-                  />
+                  className="input-field"
+                  min={new Date().toISOString().split('T')[0]}
+                />
                 </div>
               </div>
 

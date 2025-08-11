@@ -7,7 +7,7 @@ import compression from 'compression';
 
 import { env } from './config/env';
 import { logger } from './config/logger';
-import { initializeDatabase, closeDatabase } from './config/database';
+import { initializeDatabase, closeDatabase, startDatabaseKeepalive } from './config/database';
 // import { initializeRedis, closeRedis } from './config/redis';
 import { healthRoutes } from './routes/health';
 import { minerRoutes } from './routes/miners';
@@ -95,6 +95,10 @@ const startServer = async () => {
   try {
     // Initialize database
     await initializeDatabase();
+    
+    // Start database keepalive
+    startDatabaseKeepalive();
+    
     // await initializeRedis();
     
     // Initialize and start mining service

@@ -731,6 +731,9 @@ export default function BiddingInterface() {
                         </div>
                       </div>
                       <div className="text-right">
+                        <div className="text-xs font-semibold text-gray-700 mb-1 max-w-32 truncate" title={item.campaign.title}>
+                          📢 {item.campaign.title}
+                        </div>
                         <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
                           {item.campaign.platform_source}
                         </span>

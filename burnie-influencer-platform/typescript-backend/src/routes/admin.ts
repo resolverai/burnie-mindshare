@@ -275,7 +275,7 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       category: category as CampaignCategory,
       campaignType: campaignType as CampaignType,
       brandGuidelines: guidelines || undefined,
-      rewardPool: parseInt(rewardPool),
+      rewardPool: rewardPool, // Now stored as text
       maxYappers: parseInt(maxYappers) || 100,
       entryFee: 0, // Default entry fee
       maxSubmissions: 1500, // Default max submissions
@@ -391,7 +391,7 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       category: category as CampaignCategory,
       campaignType: campaignType as CampaignType,
       brandGuidelines: guidelines || undefined,
-      rewardPool: parseInt(rewardPool),
+      rewardPool: rewardPool, // Now stored as text
       maxYappers: parseInt(maxYappers) || 100,
       startDate: new Date(startDate),
       endDate: new Date(endDate),

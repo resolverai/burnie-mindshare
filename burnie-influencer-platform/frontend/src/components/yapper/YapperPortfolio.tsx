@@ -132,7 +132,7 @@ export default function YapperPortfolio() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-gray-50">
+    <div className="bg-gray-50 h-screen overflow-y-auto">
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">

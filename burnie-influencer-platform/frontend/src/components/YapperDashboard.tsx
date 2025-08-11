@@ -338,7 +338,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
         </div>
 
         {/* Content */}
-        <div className={`flex-1 ${activeSection === 'dashboard' ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+        <div className="flex-1 overflow-hidden">
           {renderContent()}
         </div>
       </div>

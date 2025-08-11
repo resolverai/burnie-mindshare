@@ -155,8 +155,8 @@ export class Campaign {
   })
   status!: CampaignStatus
 
-  @Column({ type: 'bigint' })
-  rewardPool!: number
+  @Column({ type: 'text' })
+  rewardPool!: string
 
   @Column({ type: 'bigint', default: 0 })
   entryFee!: number

@@ -124,8 +124,8 @@ export const campaignsApi = {
         description: campaign.description,
         topic: campaign.category || 'General', // Map category to topic
         guidelines: campaign.requirements ? JSON.stringify(campaign.requirements) : '',
-        budget: parseInt(campaign.rewardPool) || 0,
-        reward_per_roast: Math.floor((parseInt(campaign.rewardPool) || 0) / (campaign.maxSubmissions || 1)),
+        budget: campaign.rewardPool || '0', // Keep as text since it's now a text field
+        reward_per_roast: 0, // Can't calculate this anymore since rewardPool is text
         max_submissions: campaign.maxSubmissions,
         status: campaign.status.toLowerCase(), // Convert ACTIVE to active
         start_date: campaign.startDate,

@@ -759,7 +759,7 @@ router.post('/aggregate', async (req: Request, res: Response) => {
             description: campaignData.description,
             category: campaignData.category || 'general',
             campaignType: campaignData.campaign_type as CampaignType || CampaignType.SOCIAL,
-            rewardPool: campaignData.reward_pool || 10000,
+            rewardPool: campaignData.reward_pool || '10000',
             maxSubmissions: campaignData.max_submissions || 1000,
             startDate: campaignData.start_date ? new Date(campaignData.start_date) : new Date(),
             endDate: campaignData.end_date ? new Date(campaignData.end_date) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
@@ -947,7 +947,7 @@ router.get('/marketplace-ready', async (req: Request, res: Response) => {
         title: campaign.title,
         description: campaign.description,
         platform_source: campaign.platformSource || 'burnie',
-        reward_pool: campaign.rewardPool || 0,
+        reward_pool: campaign.rewardPool || '0',
         reward_token: campaign.rewardToken || 'ROAST',
         target_audience: campaign.targetAudience || 'General',
         brand_guidelines: campaign.brandGuidelines || '',
@@ -965,7 +965,7 @@ router.get('/marketplace-ready', async (req: Request, res: Response) => {
         keywords: campaign.metadata?.tags || [],
         guidelines: campaign.brandGuidelines || '',
         min_token_spend: 10, // MVP minimum
-        winner_reward: campaign.rewardPool || 0,
+        winner_reward: campaign.rewardPool || '0',
         max_submissions: campaign.maxSubmissions || 1000,
         current_submissions: campaign.currentSubmissions || 0,
       };

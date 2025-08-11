@@ -623,45 +623,47 @@ export default function YapperAnalytics() {
   )
 
   return (
-    <div className="bg-gray-50 p-6 overflow-y-auto">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Yapper Analytics Dashboard</h1>
-            <p className="text-gray-600">Comprehensive insights into your content trading performance</p>
-          </div>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2 bg-white rounded-lg p-2 border border-gray-200 shadow-sm">
-              {['24h', '7d', '30d'].map((period) => (
-                <button
-                  key={period}
-                  onClick={() => setSelectedTimeframe(period as any)}
-                  className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                    selectedTimeframe === period
-                      ? 'bg-purple-600 text-white'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  {period}
-                </button>
-              ))}
+    <div className="bg-gray-50 h-screen overflow-y-auto">
+      <div className="p-6 space-y-6">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">Yapper Analytics Dashboard</h1>
+              <p className="text-gray-600">Comprehensive insights into your content trading performance</p>
+            </div>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2 bg-white rounded-lg p-2 border border-gray-200 shadow-sm">
+                {['24h', '7d', '30d'].map((period) => (
+                  <button
+                    key={period}
+                    onClick={() => setSelectedTimeframe(period as any)}
+                    className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                      selectedTimeframe === period
+                        ? 'bg-purple-600 text-white'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {period}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Financial Overview Cards */}
+        {renderFinancialOverview()}
+
+        {/* Mindshare Tracking */}
+        {renderMindshareTracking()}
+
+        {/* Bidding Performance */}
+        {renderBiddingPerformance()}
+
+        {/* Portfolio Analytics */}
+        {renderPortfolioAnalytics()}
       </div>
-
-      {/* Financial Overview Cards */}
-      {renderFinancialOverview()}
-
-      {/* Mindshare Tracking */}
-      {renderMindshareTracking()}
-
-      {/* Bidding Performance */}
-      {renderBiddingPerformance()}
-
-      {/* Portfolio Analytics */}
-      {renderPortfolioAnalytics()}
     </div>
   )
 } 

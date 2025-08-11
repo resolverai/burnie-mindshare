@@ -10,7 +10,8 @@ import {
   CurrencyDollarIcon,
   CalendarIcon,
   CheckCircleIcon,
-  ArrowDownTrayIcon
+  ArrowDownTrayIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 import TweetThreadDisplay from '../TweetThreadDisplay'
@@ -53,6 +54,12 @@ interface ContentItem {
 
 export default function YapperMyContent() {
   const { address } = useAccount()
+  
+  // Search and filter state
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedPlatform, setSelectedPlatform] = useState('all')
+  const [selectedQuality, setSelectedQuality] = useState('all')
+  const [sortBy, setSortBy] = useState('newest') // newest, oldest, price_high, price_low, quality
 
   // Content parsing functions
   const extractImageUrl = (contentText: string): string | null => {
@@ -303,13 +310,135 @@ export default function YapperMyContent() {
     enabled: !!address, // Only run query when address is available
   })
 
+  // Filter and sort content
+  const filteredAndSortedContent = content ? content
+    .filter((item: ContentItem) => {
+      // Search filter
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase()
+        const contentMatch = item.content_text.toLowerCase().includes(searchLower)
+        const campaignMatch = item.campaign.title.toLowerCase().includes(searchLower)
+        const creatorMatch = item.creator.username.toLowerCase().includes(searchLower)
+        if (!contentMatch && !campaignMatch && !creatorMatch) return false
+      }
+      
+      // Platform filter
+      if (selectedPlatform !== 'all' && item.campaign.platform_source !== selectedPlatform) {
+        return false
+      }
+      
+      // Quality filter
+      if (selectedQuality !== 'all') {
+        const minQuality = parseInt(selectedQuality)
+        if (item.quality_score < minQuality) return false
+      }
+      
+      return true
+    })
+    .sort((a: ContentItem, b: ContentItem) => {
+      switch (sortBy) {
+        case 'oldest':
+          return new Date(a.winning_bid.bid_date).getTime() - new Date(b.winning_bid.bid_date).getTime()
+        case 'price_high':
+          return b.winning_bid.amount - a.winning_bid.amount
+        case 'price_low':
+          return a.winning_bid.amount - b.winning_bid.amount
+        case 'quality':
+          return b.quality_score - a.quality_score
+        case 'newest':
+        default:
+          return new Date(b.winning_bid.bid_date).getTime() - new Date(a.winning_bid.bid_date).getTime()
+      }
+    }) : []
+
   return (
-    <div className="h-full overflow-y-auto bg-gray-50">
+    <div className="bg-gray-50 h-screen overflow-y-auto">
       <div className="p-6 space-y-6">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">My Content</h1>
-          <p className="text-gray-600">Content you've purchased - ready to use for your campaigns</p>
+        <div className="space-y-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">My Content</h1>
+            <p className="text-gray-600">Content you've purchased - ready to use for your campaigns</p>
+          </div>
+
+          {/* Search and Filters */}
+          <div className="flex flex-col lg:flex-row gap-4">
+            <div className="flex-1 relative">
+              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search content, campaigns, or creators..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              />
+            </div>
+            
+            <select
+              value={selectedPlatform}
+              onChange={(e) => setSelectedPlatform(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent lg:w-48"
+            >
+              <option value="all">All Platforms</option>
+              <option value="cookie.fun">Cookie.fun</option>
+              <option value="yaps.kaito.ai">Yaps.Kaito.AI</option>
+              <option value="yap.market">Yap.Market</option>
+              <option value="burnie">🔥 Burnie (Internal)</option>
+            </select>
+
+            <select
+              value={selectedQuality}
+              onChange={(e) => setSelectedQuality(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent lg:w-48"
+            >
+              <option value="all">All Quality Scores</option>
+              <option value="90">90+ (Excellent)</option>
+              <option value="80">80+ (Good)</option>
+              <option value="70">70+ (Fair)</option>
+              <option value="60">60+ (Basic)</option>
+            </select>
+
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent lg:w-48"
+            >
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="price_high">Price: High to Low</option>
+              <option value="price_low">Price: Low to High</option>
+              <option value="quality">Quality: High to Low</option>
+            </select>
+          </div>
+          
+          {/* Results Summary */}
+          {searchTerm && (
+            <p className="text-sm text-gray-600">
+              Found {filteredAndSortedContent.length} result{filteredAndSortedContent.length !== 1 ? 's' : ''} matching "{searchTerm}"
+            </p>
+          )}
+          
+          {/* Content Count */}
+          {content && content.length > 0 && (
+            <div className="flex justify-between items-center text-sm text-gray-600">
+              <span>
+                Showing {filteredAndSortedContent.length} of {content.length} items
+              </span>
+              {(selectedPlatform !== 'all' || selectedQuality !== 'all') && (
+                <button
+                  onClick={() => {
+                    setSearchTerm('')
+                    setSelectedPlatform('all')
+                    setSelectedQuality('all')
+                    setSortBy('newest')
+                  }}
+                  className="text-orange-600 hover:text-orange-700 font-medium"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Content Display - 2 Column Grid */}
@@ -325,9 +454,9 @@ export default function YapperMyContent() {
               </div>
             ))}
           </div>
-        ) : content && content.length > 0 ? (
+        ) : filteredAndSortedContent && filteredAndSortedContent.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {content.map((item: ContentItem) => {
+            {filteredAndSortedContent.map((item: ContentItem) => {
               const { text, hashtags, characterCount, imageUrl } = formatTwitterContent(item.content_text)
               const displayImage = item.content_images && item.content_images.length > 0 
                 ? item.content_images[0] 
@@ -360,6 +489,9 @@ export default function YapperMyContent() {
                         </div>
                       </div>
                       <div className="text-right">
+                        <div className="text-xs font-semibold text-gray-700 mb-1 max-w-32 truncate" title={item.campaign.title}>
+                          📢 {item.campaign.title}
+                        </div>
                         <span className={`text-xs px-2 py-1 rounded-full ${
                           item.acquisition_type === 'purchase' 
                             ? 'bg-green-100 text-green-700' 
@@ -552,7 +684,14 @@ export default function YapperMyContent() {
               )
             })}
           </div>
+        ) : content && content.length > 0 ? (
+          /* No results after filtering */
+          <div className="text-center py-12">
+            <div className="text-gray-400 text-lg mb-2">No content matches your filters</div>
+            <div className="text-gray-500">Try adjusting your search or filter criteria</div>
+          </div>
         ) : (
+          /* No content at all */
           <div className="text-center py-12">
             <div className="text-gray-400 text-lg mb-2">No content owned yet</div>
             <div className="text-gray-500">Purchase content from the marketplace to see it here</div>

@@ -162,7 +162,7 @@ export interface CreateCampaignRequest {
   description: string
   category: string
   campaignType: string
-  rewardPool: number
+  rewardPool: string
   entryFee?: number
   maxSubmissions: number
   startDate: string
