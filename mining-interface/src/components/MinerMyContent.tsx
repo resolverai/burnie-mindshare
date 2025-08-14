@@ -58,6 +58,7 @@ export default function MinerMyContent() {
   const [biddingAskPrice, setBiddingAskPrice] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
+  const [biddingFilter, setBiddingFilter] = useState<'all' | 'enabled' | 'disabled'>('all')
 
   // Content parsing functions (same as bidding interface)
   const extractImageUrl = (contentText: string): string | null => {
@@ -292,7 +293,7 @@ export default function MinerMyContent() {
     })
   }
 
-  // Filter content based on search term and status
+  // Filter content based on search term, status, and bidding
   const filteredContent = content?.filter((item: ContentItem) => {
     // Status filter
     const statusMatch = statusFilter === 'all' || 
@@ -301,6 +302,13 @@ export default function MinerMyContent() {
       (statusFilter === 'rejected' && item.status === 'rejected')
     
     if (!statusMatch) return false
+    
+    // Bidding filter
+    const biddingMatch = biddingFilter === 'all' ||
+      (biddingFilter === 'enabled' && item.is_biddable) ||
+      (biddingFilter === 'disabled' && !item.is_biddable)
+    
+    if (!biddingMatch) return false
     
     // Search filter
     if (!searchTerm) return true
@@ -325,7 +333,7 @@ export default function MinerMyContent() {
           </div>
           
           {/* Search and Filter Controls */}
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col lg:flex-row gap-4">
             {/* Search Bar */}
             <div className="relative flex-1">
               <input
@@ -342,22 +350,43 @@ export default function MinerMyContent() {
               </div>
             </div>
             
-            {/* Status Filter Dropdown */}
-            <div className="relative sm:w-48">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as 'all' | 'pending' | 'approved' | 'rejected')}
-                className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">🟡 Pending</option>
-                <option value="approved">🟢 Approved</option>
-                <option value="rejected">🔴 Rejected</option>
-              </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+            {/* Filter Dropdowns */}
+            <div className="flex flex-col sm:flex-row gap-4">
+              {/* Status Filter Dropdown */}
+              <div className="relative sm:w-48">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as 'all' | 'pending' | 'approved' | 'rejected')}
+                  className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
+                >
+                  <option value="all">All Status</option>
+                  <option value="pending">🟡 Pending</option>
+                  <option value="approved">🟢 Approved</option>
+                  <option value="rejected">🔴 Rejected</option>
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Bidding Filter Dropdown */}
+              <div className="relative sm:w-48">
+                <select
+                  value={biddingFilter}
+                  onChange={(e) => setBiddingFilter(e.target.value as 'all' | 'enabled' | 'disabled')}
+                  className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
+                >
+                  <option value="all">All Bidding</option>
+                  <option value="enabled">💰 Bidding Enabled</option>
+                  <option value="disabled">⏸️ Bidding Disabled</option>
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
@@ -365,7 +394,7 @@ export default function MinerMyContent() {
 
         {/* Content Stats */}
         {content && content.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             <div className="bg-gray-800/30 rounded-lg p-4 border border-gray-700">
               <div className="text-2xl font-bold text-white">
                 {content.length}
@@ -389,6 +418,18 @@ export default function MinerMyContent() {
                 {content.filter(item => item.status === 'rejected').length}
               </div>
               <div className="text-sm text-red-300">Rejected</div>
+            </div>
+            <div className="bg-blue-900/20 rounded-lg p-4 border border-blue-600/30">
+              <div className="text-2xl font-bold text-blue-400">
+                {content.filter(item => item.is_biddable).length}
+              </div>
+              <div className="text-sm text-blue-300">Bidding Enabled</div>
+            </div>
+            <div className="bg-purple-900/20 rounded-lg p-4 border border-purple-600/30">
+              <div className="text-2xl font-bold text-purple-400">
+                {content.filter(item => !item.is_biddable).length}
+              </div>
+              <div className="text-sm text-purple-300">Bidding Disabled</div>
             </div>
           </div>
         )}
@@ -657,16 +698,17 @@ export default function MinerMyContent() {
           <div className="text-center py-12">
             <div className="text-gray-400 text-lg mb-2">
               {searchTerm ? 'No content matches your search' : 
+               statusFilter !== 'all' && biddingFilter !== 'all' ? `No ${statusFilter} content with ${biddingFilter} bidding` :
                statusFilter === 'pending' ? 'No pending content' :
                statusFilter === 'approved' ? 'No approved content' :
                statusFilter === 'rejected' ? 'No rejected content' :
+               biddingFilter === 'enabled' ? 'No content with bidding enabled' :
+               biddingFilter === 'disabled' ? 'No content with bidding disabled' :
                'No content yet'}
             </div>
             <div className="text-gray-500">
-              {searchTerm ? 'Try adjusting your search terms or status filter' : 
-               statusFilter === 'pending' ? 'Content awaiting review will appear here' :
-               statusFilter === 'approved' ? 'Approved content will appear here' :
-               statusFilter === 'rejected' ? 'Rejected content will appear here' :
+              {searchTerm ? 'Try adjusting your search terms or filters' : 
+               statusFilter !== 'all' || biddingFilter !== 'all' ? 'Try changing your filter settings to see more content' :
                'Start mining to create content that can be reviewed and published'}
             </div>
           </div>
