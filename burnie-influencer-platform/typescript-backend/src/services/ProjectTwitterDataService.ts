@@ -161,20 +161,25 @@ export class ProjectTwitterDataService {
 
   /**
    * Get latest Twitter posts for a project (for AI context)
+   * Gets the most recent posts ordered by posted_at DESC, not relying on LatestBatch flag
    */
   async getLatestPostsForAI(projectId: number, limit: number = 20): Promise<ProjectTwitterData[]> {
     try {
+      // Get the latest posts ordered by when they were posted on Twitter (most recent first)
+      // This ensures we get the actual latest content regardless of LatestBatch flag reliability
       const posts = await this.repository.find({
         where: {
-          projectId,
-          isLatestBatch: true
+          projectId
         },
         order: {
-          postedAt: 'DESC'
+          postedAt: 'DESC',
+          createdAt: 'DESC'  // Fallback to when we fetched it if posted_at is same
         },
         take: limit
       });
 
+      logger.info(`📊 Fetched ${posts.length} latest posts for project ${projectId} AI context (ordered by posted_at DESC, ignoring LatestBatch flag)`);
+      
       return posts;
     } catch (error) {
       logger.error(`❌ Error fetching latest posts for project ${projectId}:`, error);
