@@ -1196,11 +1196,13 @@ router.post('/reject', async (req, res) => {
 
 /**
  * @route GET /api/marketplace/my-content/miner/wallet/:walletAddress
- * @desc Get miner's approved content for My Content section by wallet address
+ * @desc Get miner's content for My Content section by wallet address
+ * @query include_pending - if 'true', includes all content statuses, otherwise only approved
  */
 router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: Response) => {
   try {
     const { walletAddress } = req.params;
+    const { include_pending } = req.query;
     
     if (!walletAddress) {
       return res.status(400).json({
@@ -1209,14 +1211,34 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       });
     }
 
+    // First, find the user by wallet address to get the creatorId
+    const userRepository = AppDataSource.getRepository(User);
+    const user = await userRepository.findOne({
+      where: { walletAddress: walletAddress }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);
     
-    const contents = await contentRepository
+    let queryBuilder = contentRepository
       .createQueryBuilder('content')
       .leftJoinAndSelect('content.creator', 'creator')
       .leftJoinAndSelect('content.campaign', 'campaign')
-      .where('LOWER(content.walletAddress) = LOWER(:walletAddress)', { walletAddress })
-      .andWhere('content.approvalStatus = :status', { status: 'approved' })
+      .where('(LOWER(content.walletAddress) = LOWER(:walletAddress) OR (content.walletAddress IS NULL AND content.creatorId = :creatorId))', 
+        { walletAddress, creatorId: user.id });
+    
+    // Only filter by approval status if include_pending is not true
+    if (include_pending !== 'true') {
+      queryBuilder = queryBuilder.andWhere('content.approvalStatus = :status', { status: 'approved' });
+    }
+    
+    const contents = await queryBuilder
       .orderBy('content.createdAt', 'DESC')
       .getMany();
 
@@ -1234,6 +1256,7 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       quality_score: Number(content.qualityScore),
       asking_price: Number(content.askingPrice),
       post_type: content.postType || 'thread', // Include post type
+      status: content.approvalStatus, // Add approval status
       creator: {
         username: content.creator?.username || 'Anonymous',
         reputation_score: content.creator?.reputationScore || 0
@@ -3826,5 +3849,161 @@ router.get('/analytics/purchase/miner/portfolio/:walletAddress', async (req: Req
   } catch (error) {
     console.error('Error fetching miner purchase portfolio analytics:', error);
     return res.status(500).json({ error: 'Failed to fetch portfolio analytics' });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/approve-content
+ * @desc Approve existing pending content by ID
+ */
+router.post('/approve-content', async (req: Request, res: Response) => {
+  try {
+    const { contentId, walletAddress } = req.body;
+
+    if (!contentId || !walletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: contentId, walletAddress'
+      });
+    }
+
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const userRepository = AppDataSource.getRepository(User);
+
+    // Find user by wallet address to verify ownership
+    const user = await userRepository.findOne({
+      where: { walletAddress: walletAddress }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Find the content and verify ownership
+    const content = await contentRepository.findOne({
+      where: { 
+        id: contentId,
+        creatorId: user.id,
+        approvalStatus: 'pending'
+      }
+    });
+
+    if (!content) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pending content not found or not owned by user'
+      });
+    }
+
+    // Update content to approved
+    content.approvalStatus = 'approved';
+    content.isAvailable = true;
+    content.approvedAt = new Date();
+
+    const updatedContent = await contentRepository.save(content);
+
+    console.log('✅ Content approved:', {
+      id: updatedContent.id,
+      creatorId: updatedContent.creatorId,
+      approvedAt: updatedContent.approvedAt
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        id: updatedContent.id,
+        message: 'Content approved successfully',
+        approvedAt: updatedContent.approvedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error approving content:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to approve content'
+    });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/reject-content
+ * @desc Reject existing pending content by ID
+ */
+router.post('/reject-content', async (req: Request, res: Response) => {
+  try {
+    const { contentId, walletAddress, reason = 'Content does not meet quality standards' } = req.body;
+
+    if (!contentId || !walletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: contentId, walletAddress'
+      });
+    }
+
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const userRepository = AppDataSource.getRepository(User);
+
+    // Find user by wallet address to verify ownership
+    const user = await userRepository.findOne({
+      where: { walletAddress: walletAddress }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Find the content and verify ownership
+    const content = await contentRepository.findOne({
+      where: { 
+        id: contentId,
+        creatorId: user.id,
+        approvalStatus: 'pending'
+      }
+    });
+
+    if (!content) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pending content not found or not owned by user'
+      });
+    }
+
+    // Update content to rejected
+    content.approvalStatus = 'rejected';
+    content.isAvailable = false;
+    content.rejectedAt = new Date();
+
+    const updatedContent = await contentRepository.save(content);
+
+    console.log('✅ Content rejected:', {
+      id: updatedContent.id,
+      creatorId: updatedContent.creatorId,
+      rejectedAt: updatedContent.rejectedAt,
+      reason
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        id: updatedContent.id,
+        message: 'Content rejected successfully',
+        reason,
+        rejectedAt: updatedContent.rejectedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error rejecting content:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to reject content'
+    });
   }
 }); 

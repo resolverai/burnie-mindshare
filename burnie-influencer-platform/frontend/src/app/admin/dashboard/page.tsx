@@ -1402,7 +1402,7 @@ export default function AdminDashboard() {
                     value={formData.startDate}
                     onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
                     className="input-field"
-                    min={new Date().toISOString().split('T')[0]}
+
                   />
                 </div>
 
@@ -1417,7 +1417,7 @@ export default function AdminDashboard() {
                     value={formData.endDate}
                     onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
                     className="input-field"
-                    min={new Date().toISOString().split('T')[0]}
+
                   />
                 </div>
               </div>
@@ -1732,7 +1732,7 @@ export default function AdminDashboard() {
                     value={formData.startDate}
                     onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
                     className="input-field"
-                    min={new Date().toISOString().split('T')[0]}
+
                   />
                 </div>
 

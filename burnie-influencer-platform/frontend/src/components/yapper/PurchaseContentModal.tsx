@@ -353,7 +353,7 @@ export default function PurchaseContentModal({
                       <div className="absolute inset-0 pointer-events-none">
                         {/* Primary Call-to-Action - Overlay Blend */}
                         <div 
-                          className="absolute text-white opacity-35 text-lg font-semibold transform rotate-0"
+                          className="absolute text-white opacity-35 text-2xl font-semibold transform rotate-0"
                           style={{
                             left: '50%',
                             top: '50%',
@@ -367,11 +367,11 @@ export default function PurchaseContentModal({
                         
                         {/* Central Brand Watermark - Below CTA */}
                         <div 
-                          className="absolute text-white opacity-30 text-sm font-medium"
+                          className="absolute text-white opacity-30 text-lg font-medium"
                           style={{
                             left: '50%',
                             top: '50%',
-                            transform: 'translate(-50%, -50%) translateY(24px)',
+                            transform: 'translate(-50%, -50%) translateY(28px)',
                             textShadow: '1px 1px 3px rgba(0,0,0,0.6)',
                             mixBlendMode: 'screen'
                           }}

@@ -41,6 +41,7 @@ interface ContentItem {
   bidding_ask_price?: number
   bidding_enabled_at?: string
   post_type?: string // Type of post: 'shitpost', 'longpost', or 'thread'
+  status?: 'pending' | 'approved' | 'rejected' // Add status field
 }
 
 interface BiddingModalData {
@@ -55,6 +56,8 @@ export default function MinerMyContent() {
   const [showBiddingModal, setShowBiddingModal] = useState<BiddingModalData | null>(null)
   const [biddingEndDate, setBiddingEndDate] = useState('')
   const [biddingAskPrice, setBiddingAskPrice] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
 
   // Content parsing functions (same as bidding interface)
   const extractImageUrl = (contentText: string): string | null => {
@@ -147,14 +150,14 @@ export default function MinerMyContent() {
     return `${Math.floor(diffInHours / 24)}d ago`
   }
 
-  // Fetch miner's content
+  // Fetch miner's content (including pending content)
   const { data: content, isLoading } = useQuery({
     queryKey: ['miner-content', address],
     queryFn: async () => {
       if (!address) return []
       
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/my-content/miner/wallet/${address}`)
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/my-content/miner/wallet/${address}?include_pending=true`)
         const result = await response.json()
         return result.data || []
       } catch (error) {
@@ -216,6 +219,68 @@ export default function MinerMyContent() {
     }
   }
 
+  // Approve content mutation
+  const approveMutation = useMutation({
+    mutationFn: async (contentId: number) => {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/approve-content`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contentId,
+          walletAddress: address
+        }),
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to approve content')
+      }
+      
+      return response.json()
+    },
+    onSuccess: (data) => {
+      console.log('✅ Content approved successfully:', data)
+      queryClient.invalidateQueries({ queryKey: ['miner-content'] })
+    },
+    onError: (error) => {
+      console.error('❌ Failed to approve content:', error)
+      alert(`Failed to approve content: ${error.message}`)
+    }
+  })
+
+  // Reject content mutation
+  const rejectMutation = useMutation({
+    mutationFn: async (contentId: number) => {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/reject-content`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contentId,
+          walletAddress: address
+        }),
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || 'Failed to reject content')
+      }
+      
+      return response.json()
+    },
+    onSuccess: (data) => {
+      console.log('✅ Content rejected successfully:', data)
+      queryClient.invalidateQueries({ queryKey: ['miner-content'] })
+    },
+    onError: (error) => {
+      console.error('❌ Failed to reject content:', error)
+      alert(`Failed to reject content: ${error.message}`)
+    }
+  })
+
   const handleEnableBidding = () => {
     if (!showBiddingModal) return
 
@@ -227,6 +292,28 @@ export default function MinerMyContent() {
     })
   }
 
+  // Filter content based on search term and status
+  const filteredContent = content?.filter((item: ContentItem) => {
+    // Status filter
+    const statusMatch = statusFilter === 'all' || 
+      (statusFilter === 'pending' && item.status === 'pending') ||
+      (statusFilter === 'approved' && (item.status === 'approved' || !item.status)) || // Backward compatibility
+      (statusFilter === 'rejected' && item.status === 'rejected')
+    
+    if (!statusMatch) return false
+    
+    // Search filter
+    if (!searchTerm) return true
+    
+    const searchLower = searchTerm.toLowerCase()
+    const textMatch = item.content_text?.toLowerCase().includes(searchLower)
+    const campaignMatch = item.campaign?.title?.toLowerCase().includes(searchLower)
+    const agentMatch = item.agent_name?.toLowerCase().includes(searchLower)
+    const threadMatch = item.tweet_thread?.some(tweet => tweet.toLowerCase().includes(searchLower))
+    
+    return textMatch || campaignMatch || agentMatch || threadMatch
+  }) || []
+
   return (
     <div className="h-full overflow-y-auto bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
       <div className="p-6 space-y-6">
@@ -234,9 +321,77 @@ export default function MinerMyContent() {
         <div className="space-y-4">
           <div>
             <h1 className="text-3xl font-bold text-white">My Content</h1>
-            <p className="text-gray-400">Manage your approved content and bidding settings</p>
+            <p className="text-gray-400">Manage your content, approve pending items, and configure bidding settings</p>
+          </div>
+          
+          {/* Search and Filter Controls */}
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* Search Bar */}
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Search your content..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            </div>
+            
+            {/* Status Filter Dropdown */}
+            <div className="relative sm:w-48">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as 'all' | 'pending' | 'approved' | 'rejected')}
+                className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
+              >
+                <option value="all">All Status</option>
+                <option value="pending">🟡 Pending</option>
+                <option value="approved">🟢 Approved</option>
+                <option value="rejected">🔴 Rejected</option>
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Content Stats */}
+        {content && content.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-gray-800/30 rounded-lg p-4 border border-gray-700">
+              <div className="text-2xl font-bold text-white">
+                {content.length}
+              </div>
+              <div className="text-sm text-gray-400">Total Content</div>
+            </div>
+            <div className="bg-yellow-900/20 rounded-lg p-4 border border-yellow-600/30">
+              <div className="text-2xl font-bold text-yellow-400">
+                {content.filter(item => item.status === 'pending').length}
+              </div>
+              <div className="text-sm text-yellow-300">Pending Review</div>
+            </div>
+            <div className="bg-green-900/20 rounded-lg p-4 border border-green-600/30">
+              <div className="text-2xl font-bold text-green-400">
+                {content.filter(item => item.status === 'approved' || !item.status).length}
+              </div>
+              <div className="text-sm text-green-300">Approved</div>
+            </div>
+            <div className="bg-red-900/20 rounded-lg p-4 border border-red-600/30">
+              <div className="text-2xl font-bold text-red-400">
+                {content.filter(item => item.status === 'rejected').length}
+              </div>
+              <div className="text-sm text-red-300">Rejected</div>
+            </div>
+          </div>
+        )}
 
         {/* Content Display */}
         {isLoading ? (
@@ -251,9 +406,9 @@ export default function MinerMyContent() {
               </div>
             ))}
           </div>
-        ) : content && content.length > 0 ? (
+        ) : filteredContent && filteredContent.length > 0 ? (
           <div className="space-y-8">
-            {content.map((item: ContentItem) => {
+            {filteredContent.map((item: ContentItem) => {
               // Check if this is a longpost that should be rendered as markdown
               const shouldUseMarkdown = isMarkdownContent(item.post_type)
               
@@ -318,6 +473,18 @@ export default function MinerMyContent() {
                         <div className="flex items-center space-x-2">
                           <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
                             {item.campaign.platform_source}
+                          </span>
+                          {/* Status Badge */}
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            item.status === 'approved' ? 'bg-green-100 text-green-700' :
+                            item.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                            item.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                            'bg-green-100 text-green-700' // Default to approved for backward compatibility
+                          }`}>
+                            {item.status === 'approved' ? 'Approved' :
+                             item.status === 'pending' ? 'Pending' :
+                             item.status === 'rejected' ? 'Rejected' :
+                             'Approved'}
                           </span>
                         </div>
                         <p className="text-xs text-gray-400 mt-1">{item.campaign.title}</p>
@@ -409,20 +576,52 @@ export default function MinerMyContent() {
                       </div>
                     </div>
 
-                    {/* Bidding Management Section */}
-                    <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-600">
-                      <div className="flex items-center justify-between mb-4">
-                        <h4 className="text-sm font-semibold text-orange-400">Bidding Management</h4>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm text-gray-300">Enable Bidding</span>
-                          <input
-                            type="checkbox"
-                            checked={item.is_biddable}
-                            onChange={(e) => handleBiddingToggle(item.id, e.target.checked)}
-                            className="w-4 h-4 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500"
-                          />
+                    {/* Approve/Reject Section for Pending Content */}
+                    {item.status === 'pending' && (
+                      <div className="bg-yellow-900/20 rounded-lg p-4 border border-yellow-600/50">
+                        <h4 className="text-sm font-semibold text-yellow-400 mb-4">Content Review Required</h4>
+                        <div className="flex space-x-4">
+                          <button
+                            onClick={() => {
+                              console.log('🔍 Approve button clicked for content ID:', item.id, 'with wallet:', address)
+                              approveMutation.mutate(item.id)
+                            }}
+                            disabled={approveMutation.isPending}
+                            className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50"
+                          >
+                            <CheckIcon className="h-5 w-5 mr-2" />
+                            {approveMutation.isPending ? 'Approving...' : 'Approve & Publish'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              console.log('🔍 Reject button clicked for content ID:', item.id, 'with wallet:', address)
+                              rejectMutation.mutate(item.id)
+                            }}
+                            disabled={rejectMutation.isPending}
+                            className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50"
+                          >
+                            <XMarkIcon className="h-5 w-5 mr-2" />
+                            {rejectMutation.isPending ? 'Rejecting...' : 'Reject'}
+                          </button>
                         </div>
                       </div>
+                    )}
+
+                    {/* Bidding Management Section - Only show for approved content */}
+                    {(item.status === 'approved' || !item.status) && (
+                      <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-600">
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="text-sm font-semibold text-orange-400">Bidding Management</h4>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm text-gray-300">Enable Bidding</span>
+                            <input
+                              type="checkbox"
+                              checked={item.is_biddable}
+                              onChange={(e) => handleBiddingToggle(item.id, e.target.checked)}
+                              className="w-4 h-4 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500"
+                            />
+                          </div>
+                        </div>
 
                       {item.is_biddable && (
                         <div className="space-y-3 pt-3 border-t border-gray-700">
@@ -448,6 +647,7 @@ export default function MinerMyContent() {
                         </div>
                       )}
                     </div>
+                    )}
                   </div>
                 </div>
               )
@@ -455,8 +655,20 @@ export default function MinerMyContent() {
           </div>
         ) : (
           <div className="text-center py-12">
-            <div className="text-gray-400 text-lg mb-2">No approved content yet</div>
-            <div className="text-gray-500">Start mining to create content that can be made available for bidding</div>
+            <div className="text-gray-400 text-lg mb-2">
+              {searchTerm ? 'No content matches your search' : 
+               statusFilter === 'pending' ? 'No pending content' :
+               statusFilter === 'approved' ? 'No approved content' :
+               statusFilter === 'rejected' ? 'No rejected content' :
+               'No content yet'}
+            </div>
+            <div className="text-gray-500">
+              {searchTerm ? 'Try adjusting your search terms or status filter' : 
+               statusFilter === 'pending' ? 'Content awaiting review will appear here' :
+               statusFilter === 'approved' ? 'Approved content will appear here' :
+               statusFilter === 'rejected' ? 'Rejected content will appear here' :
+               'Start mining to create content that can be reviewed and published'}
+            </div>
           </div>
         )}
 
