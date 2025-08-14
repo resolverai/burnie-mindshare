@@ -135,6 +135,10 @@ export default function Mining() {
   const [itemsPerPage] = useState<number>(10)
   const [isSelectAllChecked, setIsSelectAllChecked] = useState<boolean>(false)
   
+  // Bulk action states
+  const [bulkBrandToggle, setBulkBrandToggle] = useState<boolean>(false)
+  const [bulkPostType, setBulkPostType] = useState<'shitpost' | 'longpost' | 'thread'>('thread')
+  
   const { address } = useAccount()
 
   // Fetch available campaigns from centralized platform
@@ -645,9 +649,11 @@ export default function Mining() {
   // Select all functionality
   const handleSelectAll = () => {
     if (isSelectAllChecked) {
-      // Deselect all campaigns
+      // Deselect all campaigns and reset bulk controls
       setSelectedCampaigns([])
       setIsSelectAllChecked(false)
+      setBulkBrandToggle(false)
+      setBulkPostType('thread')
     } else {
       // Select all filtered campaigns with default agent and thread post type
       const firstAgent = userAgents && userAgents.length > 0 ? userAgents[0] : null
@@ -659,6 +665,9 @@ export default function Mining() {
       }))
       setSelectedCampaigns(newSelections)
       setIsSelectAllChecked(true)
+      // Reset bulk controls to defaults when selecting all
+      setBulkBrandToggle(false)
+      setBulkPostType('thread')
     }
   }
 
@@ -667,7 +676,54 @@ export default function Mining() {
     const allFilteredSelected = filteredCampaigns.length > 0 && 
       filteredCampaigns.every(campaign => isCampaignSelected(campaign.id))
     setIsSelectAllChecked(allFilteredSelected)
+    
+    // Update bulk control states based on current selection
+    if (selectedCampaigns.length === 0) {
+      setBulkBrandToggle(false)
+      setBulkPostType('thread')
+    } else {
+      // Update bulk states to reflect current selection state
+      const allHaveBrandLogo = selectedCampaigns.every(selection => selection.includeBrandLogo)
+      const firstPostType = selectedCampaigns[0]?.postType || 'thread'
+      const allSamePostType = selectedCampaigns.every(selection => selection.postType === firstPostType)
+      
+      setBulkBrandToggle(allHaveBrandLogo)
+      if (allSamePostType) {
+        setBulkPostType(firstPostType)
+      }
+    }
   }, [selectedCampaigns, filteredCampaigns])
+
+  // Bulk brand logo toggle functionality
+  const handleBulkBrandToggle = () => {
+    if (selectedCampaigns.length === 0) return; // No effect if no campaigns selected
+    
+    const newToggleState = !bulkBrandToggle;
+    setBulkBrandToggle(newToggleState);
+    
+    console.log(`🔄 Bulk brand logo toggle: ${newToggleState} for ${selectedCampaigns.length} campaigns`);
+    
+    // Update all selected campaigns with the new brand logo setting
+    setSelectedCampaigns(prev => prev.map(selection => ({
+      ...selection,
+      includeBrandLogo: newToggleState
+    })));
+  };
+
+  // Bulk post type change functionality
+  const handleBulkPostTypeChange = (newPostType: 'shitpost' | 'longpost' | 'thread') => {
+    if (selectedCampaigns.length === 0) return; // No effect if no campaigns selected
+    
+    setBulkPostType(newPostType);
+    
+    console.log(`🔄 Bulk post type change: ${newPostType} for ${selectedCampaigns.length} campaigns`);
+    
+    // Update all selected campaigns with the new post type
+    setSelectedCampaigns(prev => prev.map(selection => ({
+      ...selection,
+      postType: newPostType
+    })));
+  };
 
   const toggleCampaignExpansion = (campaignId: number) => {
     setExpandedCampaigns(prev => {
@@ -972,6 +1028,57 @@ export default function Mining() {
                 Showing {paginatedCampaigns.length} of {filteredCampaigns.length} campaigns
               </div>
             </div>
+
+            {/* Bulk Action Controls */}
+            {selectedCampaigns.length > 0 && (
+              <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600/50">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-orange-400 flex items-center">
+                    <BoltIcon className="h-4 w-4 mr-2" />
+                    Bulk Actions for {selectedCampaigns.length} Selected Campaign{selectedCampaigns.length > 1 ? 's' : ''}
+                  </h3>
+                </div>
+                
+                <div className="flex flex-wrap items-center gap-4">
+                  {/* Bulk Brand Logo Toggle */}
+                  <div className="flex items-center space-x-3">
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={bulkBrandToggle}
+                        onChange={handleBulkBrandToggle}
+                        className="w-4 h-4 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
+                      />
+                      <span className="text-white text-sm font-medium">
+                        Add Brand Logo
+                      </span>
+                    </label>
+                    <span className="text-gray-400 text-xs">
+                      Apply to all selected campaigns
+                    </span>
+                  </div>
+
+                  {/* Bulk Post Type Dropdown */}
+                  <div className="flex items-center space-x-3">
+                    <label className="text-white text-sm font-medium">
+                      Post Type:
+                    </label>
+                    <select
+                      value={bulkPostType}
+                      onChange={(e) => handleBulkPostTypeChange(e.target.value as 'shitpost' | 'longpost' | 'thread')}
+                      className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg px-3 py-1.5 focus:ring-orange-500 focus:border-orange-500"
+                    >
+                      <option value="thread">🧵 Thread</option>
+                      <option value="longpost">📄 Long Post</option>
+                      <option value="shitpost">💩 Shitpost</option>
+                    </select>
+                    <span className="text-gray-400 text-xs">
+                      Apply to all selected campaigns
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           
           {campaignsLoading ? (
