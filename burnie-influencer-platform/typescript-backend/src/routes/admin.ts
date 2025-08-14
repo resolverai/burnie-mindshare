@@ -5,6 +5,7 @@ import { AppDataSource } from '../config/database';
 import { Admin } from '../models/Admin';
 import { Campaign, CampaignStatus, CampaignType, CampaignCategory, PlatformSource } from '../models/Campaign';
 import { User, UserRoleType } from '../models/User';
+import { Project } from '../models/Project';
 import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
 import { convertROASTToUSD } from '../services/priceService';
@@ -192,6 +193,60 @@ router.get('/profile', verifyAdminToken, async (req: Request, res: Response) => 
 });
 
 /**
+ * @route GET /api/admin/projects/search
+ * @desc Search projects by name for dropdown (admin only)
+ */
+router.get('/projects/search', verifyAdminToken, async (req: Request, res: Response) => {
+  try {
+    const { q } = req.query;
+    
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const projectRepository: Repository<Project> = AppDataSource.getRepository(Project);
+    
+    let projects;
+    if (q && typeof q === 'string' && q.trim()) {
+      // Search for projects matching the query
+      projects = await projectRepository
+        .createQueryBuilder('project')
+        .where('LOWER(project.name) LIKE LOWER(:query)', { query: `%${q.trim()}%` })
+        .select(['project.id', 'project.name', 'project.logo'])
+        .orderBy('project.name', 'ASC')
+        .limit(20)
+        .getMany();
+    } else {
+      // Return all projects if no query
+      projects = await projectRepository
+        .createQueryBuilder('project')
+        .select(['project.id', 'project.name', 'project.logo'])
+        .orderBy('project.name', 'ASC')
+        .limit(50)
+        .getMany();
+    }
+
+    return res.json({
+      success: true,
+      data: projects,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to search projects:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to search projects',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
  * @route POST /api/admin/campaigns
  * @desc Create a new campaign (admin only)
  */
@@ -243,6 +298,7 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
     }
 
     const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
+    const projectRepository: Repository<Project> = AppDataSource.getRepository(Project);
 
     // Ensure default user exists for foreign key constraint
     const userRepository = AppDataSource.getRepository(User);
@@ -265,6 +321,42 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       logger.info('✅ Created default admin user for campaign creation');
     }
 
+    // Ensure project exists in projects table
+    let finalProjectId = projectId;
+    if (projectName && projectName.trim()) {
+      // Check if project already exists by name
+      let existingProject = await projectRepository.findOne({
+        where: { name: projectName.trim() }
+      });
+
+      if (!existingProject) {
+        // Create new project
+        logger.info(`🏗️ Creating new project: ${projectName}`);
+        const projectData: any = {
+          name: projectName.trim(),
+          description: description || `Campaign: ${title}`,
+          isActive: true,
+          ownerId: defaultUser.id,
+        };
+
+        if (projectLogo) {
+          projectData.logo = projectLogo;
+        }
+
+        if (guidelines) {
+          projectData.socialLinks = { twitter: guidelines };
+        }
+
+        const newProject = projectRepository.create(projectData);
+        const savedProject = await projectRepository.save(newProject) as any;
+        logger.info(`✅ Project created: ${savedProject.id} - ${savedProject.name}`);
+        finalProjectId = savedProject.id;
+      } else {
+        logger.info(`✅ Using existing project: ${existingProject.id} - ${existingProject.name}`);
+        finalProjectId = existingProject.id;
+      }
+    }
+
     // Create new campaign
     const campaignData = {
       title,
@@ -282,7 +374,7 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       startDate: new Date(startDate),
       endDate: new Date(endDate),
       status: CampaignStatus.ACTIVE, // Use proper enum value
-      projectId: projectId || undefined,
+      projectId: finalProjectId || undefined, // Use the ensured project ID
       creatorId: defaultUser.id, // Use the default user ID
       isActive: true,
       platformSource: (platformSource as PlatformSource) || PlatformSource.BURNIE,
@@ -333,6 +425,7 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       projectId,
       projectName,
       projectLogo,
+      projectTwitterHandle,
       title,
       description,
       tokenTicker,
@@ -387,6 +480,7 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       description,
       projectName: projectName || undefined,
       projectLogo: projectLogo || undefined,
+      projectTwitterHandle: projectTwitterHandle || undefined,
       tokenTicker: tokenTicker || 'ROAST',
       category: category as CampaignCategory,
       campaignType: campaignType as CampaignType,
@@ -410,12 +504,48 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
 
     logger.info(`✅ Campaign updated by admin: ${campaignId} - ${title}`);
 
-    return res.status(200).json({
+    // Return success response immediately (non-blocking)
+    const response = res.status(200).json({
       success: true,
       data: updatedCampaign,
       message: 'Campaign updated successfully',
       timestamp: new Date().toISOString(),
     });
+
+    // Trigger Twitter data fetching in background (fire-and-forget)
+    if (projectTwitterHandle && projectTwitterHandle.trim()) {
+      // Use setImmediate to ensure this runs after the response is sent
+      setImmediate(async () => {
+        try {
+          logger.info('🐦 Triggering background Twitter data fetch for edited campaign...');
+          const pythonBackendUrl = process.env.PYTHON_BACKEND_URL || 'http://localhost:8000';
+          
+          const twitterResponse = await fetch(`${pythonBackendUrl}/api/ai/fetch-project-twitter`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              project_id: updatedCampaign?.projectId || campaignId,
+              project_name: projectName,
+              twitter_handle: projectTwitterHandle,
+              source: 'campaign_edit_admin'
+            }),
+          });
+
+          if (twitterResponse.ok) {
+            const data = await twitterResponse.json();
+            logger.info('✅ Background Twitter data fetch completed for edited campaign:', data);
+          } else {
+            logger.warn('⚠️ Background Twitter data fetch failed for edited campaign:', await twitterResponse.text());
+          }
+        } catch (error) {
+          logger.error('❌ Error in background Twitter fetch for edited campaign:', error);
+        }
+      });
+    }
+
+    return response;
 
   } catch (error) {
     logger.error('❌ Failed to update campaign:', error);

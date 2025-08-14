@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { 
@@ -69,6 +69,7 @@ export default function AdminDashboard() {
     description: '',
     projectName: '',
     projectLogo: null as File | null,
+    projectTwitterHandle: '', // For fetching latest tweets
     tokenTicker: 'ROAST',
     category: '',
     campaignType: '',
@@ -80,6 +81,12 @@ export default function AdminDashboard() {
     guidelines: ''
   })
   const [logoPreview, setLogoPreview] = useState<string>('')
+  
+  // Project search states
+  const [projectSearchResults, setProjectSearchResults] = useState<Array<{id: number, name: string, logo?: string}>>([])
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false)
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
+  const projectSearchRef = useRef<HTMLDivElement>(null)
 
   // Web3 Campaign Types
   const CAMPAIGN_TYPES = [
@@ -153,6 +160,60 @@ export default function AdminDashboard() {
       router.push('/admin')
     }
   }, [router])
+
+  // Close project dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (projectSearchRef.current && !projectSearchRef.current.contains(event.target as Node)) {
+        setShowProjectDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Search projects function
+  const searchProjects = async (query: string) => {
+    if (!query.trim()) {
+      setProjectSearchResults([])
+      setShowProjectDropdown(false)
+      return
+    }
+
+    setIsLoadingProjects(true)
+    try {
+      const token = getAdminToken()
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/projects/search?q=${encodeURIComponent(query)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setProjectSearchResults(data.data || [])
+        setShowProjectDropdown(true)
+      }
+    } catch (error) {
+      console.error('Error searching projects:', error)
+    } finally {
+      setIsLoadingProjects(false)
+    }
+  }
+
+  // Handle project name input change
+  const handleProjectNameChange = (value: string) => {
+    setFormData({ ...formData, projectName: value })
+    searchProjects(value)
+  }
+
+  // Handle project selection from dropdown
+  const selectProject = (project: {id: number, name: string, logo?: string}) => {
+    setFormData({ ...formData, projectName: project.name })
+    setShowProjectDropdown(false)
+    setProjectSearchResults([])
+  }
 
   // Get admin token for API calls
   const getAdminToken = () => {
@@ -333,6 +394,7 @@ export default function AdminDashboard() {
       description: campaign.description,
       projectName: campaign.projectName || '',
       projectLogo: null,
+      projectTwitterHandle: (campaign as any).projectTwitterHandle || '', // Add Twitter handle support
       tokenTicker: campaign.tokenTicker || 'ROAST',
       category: campaign.category,
       campaignType: campaign.campaignType,
@@ -395,6 +457,7 @@ export default function AdminDashboard() {
         description: formData.description,
         projectName: formData.projectName,
         projectLogo: logoUrl,
+        projectTwitterHandle: formData.projectTwitterHandle,
         tokenTicker: formData.tokenTicker,
         category: formData.category,
         campaignType: formData.campaignType,
@@ -422,12 +485,18 @@ export default function AdminDashboard() {
       const data = await response.json()
 
       if (response.ok && data.success) {
+        // Twitter data fetching now happens automatically in backend (background)
+        if (formData.projectTwitterHandle && formData.projectTwitterHandle.trim()) {
+          console.log('🐦 Twitter data fetch will be triggered in background by backend')
+        }
+
         // Reset form and close modal
         setFormData({
           title: '',
           description: '',
           projectName: '',
           projectLogo: null,
+          projectTwitterHandle: '',
           tokenTicker: 'ROAST',
           category: '',
           campaignType: '',
@@ -518,6 +587,7 @@ export default function AdminDashboard() {
           description: '',
           projectName: '',
           projectLogo: null,
+          projectTwitterHandle: '',
           tokenTicker: 'ROAST',
           category: '',
           campaignType: '',
@@ -868,6 +938,7 @@ export default function AdminDashboard() {
                 description: '',
                 projectName: '',
                 projectLogo: null,
+                projectTwitterHandle: '',
                 tokenTicker: 'ROAST',
                 category: '',
                 campaignType: '',
@@ -1036,6 +1107,7 @@ export default function AdminDashboard() {
                       description: '',
                       projectName: '',
                       projectLogo: null,
+                      projectTwitterHandle: '',
                       tokenTicker: 'ROAST',
                       category: '',
                       campaignType: '',
@@ -1073,7 +1145,7 @@ export default function AdminDashboard() {
                   />
                 </div>
 
-                <div>
+                <div ref={projectSearchRef} className="relative">
                   <label htmlFor="projectName" className="block text-sm font-medium text-gray-700 mb-2">
                     Project Name *
                   </label>
@@ -1082,10 +1154,50 @@ export default function AdminDashboard() {
                     id="projectName"
                     required
                     value={formData.projectName}
-                    onChange={(e) => setFormData({ ...formData, projectName: e.target.value })}
+                    onChange={(e) => handleProjectNameChange(e.target.value)}
+                    onFocus={() => {
+                      if (formData.projectName.trim()) {
+                        searchProjects(formData.projectName)
+                      }
+                    }}
                     className="input-field"
-                    placeholder="Enter project name"
+                    placeholder="Search existing projects or enter new project name"
+                    autoComplete="off"
                   />
+                  
+                  {/* Loading indicator */}
+                  {isLoadingProjects && (
+                    <div className="absolute right-3 top-9 text-gray-400">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                    </div>
+                  )}
+                  
+                  {/* Search results dropdown */}
+                  {showProjectDropdown && projectSearchResults.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                      {projectSearchResults.map((project) => (
+                        <div
+                          key={project.id}
+                          onClick={() => selectProject(project)}
+                          className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center space-x-2"
+                        >
+                          {project.logo && (
+                            <img src={project.logo} alt="" className="w-6 h-6 rounded-full object-cover" />
+                          )}
+                          <span className="text-sm">{project.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* No results message */}
+                  {showProjectDropdown && projectSearchResults.length === 0 && formData.projectName.trim() && !isLoadingProjects && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg">
+                      <div className="px-4 py-2 text-sm text-gray-500">
+                        No existing projects found. A new project will be created.
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1117,6 +1229,21 @@ export default function AdminDashboard() {
                     />
                   </div>
                 )}
+              </div>
+
+              <div>
+                <label htmlFor="projectTwitterHandle" className="block text-sm font-medium text-gray-700 mb-2">
+                  Project Twitter Handle <span className="text-gray-500">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  id="projectTwitterHandle"
+                  value={formData.projectTwitterHandle}
+                  onChange={(e) => setFormData({ ...formData, projectTwitterHandle: e.target.value })}
+                  className="input-field"
+                  placeholder="@projectname"
+                />
+                <p className="text-xs text-gray-500 mt-1">We'll fetch latest tweets for content context</p>
               </div>
 
               <div>
@@ -1352,7 +1479,7 @@ export default function AdminDashboard() {
                   />
                 </div>
 
-                <div>
+                <div ref={projectSearchRef} className="relative">
                   <label htmlFor="projectName" className="block text-sm font-medium text-gray-700 mb-2">
                     Project Name *
                   </label>
@@ -1361,10 +1488,50 @@ export default function AdminDashboard() {
                     id="projectName"
                     required
                     value={formData.projectName}
-                    onChange={(e) => setFormData({ ...formData, projectName: e.target.value })}
+                    onChange={(e) => handleProjectNameChange(e.target.value)}
+                    onFocus={() => {
+                      if (formData.projectName.trim()) {
+                        searchProjects(formData.projectName)
+                      }
+                    }}
                     className="input-field"
-                    placeholder="Enter project name"
+                    placeholder="Search existing projects or enter new project name"
+                    autoComplete="off"
                   />
+                  
+                  {/* Loading indicator */}
+                  {isLoadingProjects && (
+                    <div className="absolute right-3 top-9 text-gray-400">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                    </div>
+                  )}
+                  
+                  {/* Search results dropdown */}
+                  {showProjectDropdown && projectSearchResults.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                      {projectSearchResults.map((project) => (
+                        <div
+                          key={project.id}
+                          onClick={() => selectProject(project)}
+                          className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center space-x-2"
+                        >
+                          {project.logo && (
+                            <img src={project.logo} alt="" className="w-6 h-6 rounded-full object-cover" />
+                          )}
+                          <span className="text-sm">{project.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {/* No results message */}
+                  {showProjectDropdown && projectSearchResults.length === 0 && formData.projectName.trim() && !isLoadingProjects && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg">
+                      <div className="px-4 py-2 text-sm text-gray-500">
+                        No existing projects found. A new project will be created.
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1392,6 +1559,21 @@ export default function AdminDashboard() {
                     <img src={logoPreview} alt="Project Logo Preview" className="max-w-sm h-auto rounded-md" />
                   </div>
                 )}
+              </div>
+
+              <div>
+                <label htmlFor="projectTwitterHandle" className="block text-sm font-medium text-gray-700 mb-2">
+                  Project Twitter Handle <span className="text-gray-500">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  id="projectTwitterHandle"
+                  value={formData.projectTwitterHandle}
+                  onChange={(e) => setFormData({ ...formData, projectTwitterHandle: e.target.value })}
+                  className="input-field"
+                  placeholder="@projectname"
+                />
+                <p className="text-xs text-gray-500 mt-1">We'll fetch latest tweets for content context</p>
               </div>
 
               <div>

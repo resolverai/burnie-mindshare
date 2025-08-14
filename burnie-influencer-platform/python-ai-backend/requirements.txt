@@ -16,6 +16,7 @@ requests
 python-dotenv
 pydantic
 sqlalchemy
+tweepy
 psycopg2-binary
 asyncpg
 redis

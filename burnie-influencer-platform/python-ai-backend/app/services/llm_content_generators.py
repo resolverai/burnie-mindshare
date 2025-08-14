@@ -859,7 +859,8 @@ class FalAIGenerator:
                 'flux-pro-v1.1-ultra': 'fal-ai/flux-pro/v1.1-ultra',
                 'flux-pro-v1.1-ultra-finetuned': 'fal-ai/flux-pro/v1.1-ultra-finetuned',
                 'flux-pro-new': 'fal-ai/flux-pro/new',
-                'flux-pro-kontext': 'fal-ai/flux-pro/kontext/text-to-image',
+                'flux-pro/kontext': 'fal-ai/flux-pro/kontext',
+                'flux-pro-kontext': 'fal-ai/flux-pro/kontext',  # Legacy support
                 'flux-pro-kontext-max': 'fal-ai/flux-pro/kontext/max/text-to-image',
                 'flux-general': 'fal-ai/flux-general',
                 'flux-dev': 'fal-ai/flux/dev',
@@ -1092,35 +1093,137 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
     async def generate_image(self, prompt: str, model: str = 'flux-pro-v1.1', 
                            size: str = '1792x1024', quality: str = 'standard', 
                            style: str = 'natural', wallet_address: str = None, 
-                           agent_id: str = None, use_s3_storage: bool = True) -> ContentGenerationResult:
+                           agent_id: str = None, use_s3_storage: bool = True,
+                           logo_integration: dict = None) -> ContentGenerationResult:
         """Generate images using Fal.ai models with enhanced prompt for text visibility"""
         try:
             logger.info(f"🎨 Generating image with Fal.ai {model}: {prompt[:100]}...")
             
             # Get the actual fal.ai model ID
             model_id = self.model_mapping.get(model, 'fal-ai/flux-pro/v1.1')
+            
+            # 🔍 ENHANCED MODEL MAPPING DEBUG
+            print(f"🔍 === MODEL MAPPING DEBUG ===")
+            print(f"🔍 Requested model: '{model}'")
+            print(f"🔍 Model found in mapping: {'YES' if model in self.model_mapping else 'NO'}")
+            print(f"🔍 Final model_id: {model_id}")
+            print(f"🔍 Is kontext model: {'YES' if 'kontext' in model_id else 'NO'}")
+            print(f"🔍 Logo integration enabled: {'YES' if logo_integration and logo_integration.get('enabled') else 'NO'}")
+            
             logger.info(f"🔍 Using fal.ai model_id: {model_id} (requested: {model})")
             
 
             
-            # Enhance the prompt for Web3 GenZ meme culture and FOMO
-            enhanced_prompt = self._enhance_fal_prompt_for_web3_memes(prompt)
-
-            # Convert size to fal.ai format
-            fal_image_size = "landscape_16_9" if "1792x1024" in size else "square_hd"
+            # Use the original prompt as-is (Visual Content Creator already handles all requirements)
+            logger.info(f"🎨 Using original prompt without enhancement: {prompt[:100]}...")
             
-            # Prepare arguments for fal.ai
+            # Prepare arguments for fal.ai (simplified)
             arguments = {
-                "prompt": enhanced_prompt,
-                "image_size": fal_image_size,
+                "prompt": prompt,
                 "num_images": 1,
                 "enable_safety_checker": True
             }
             
+            # Add logo integration for flux-pro/kontext if provided
+            if logo_integration and logo_integration.get('enabled') and 'kontext' in model.lower():
+                logo_url = logo_integration.get('logo_url')
+                if logo_url:
+                    logger.info(f"🏷️ Adding logo integration for flux-pro/kontext: {logo_url}")
+                    
+                    # 🔑 Generate presigned URL for fal.ai to access the logo
+                    accessible_logo_url = logo_url
+                    try:
+                        # Check if this is an S3 URL that needs presigning
+                        if 's3.amazonaws.com' in logo_url or 'amazonaws.com' in logo_url:
+                            logger.info(f"🔑 Detected S3 URL, generating presigned URL for fal.ai access")
+                            print(f"🔑 Original logo URL: {logo_url}")
+                            
+                            from app.services.s3_storage_service import get_s3_storage
+                            s3_service = get_s3_storage()
+                            
+                            # Extract S3 key from URL - handle different URL formats
+                            s3_key = None
+                            
+                            # Parse the URL to extract the S3 key properly
+                            from urllib.parse import urlparse, parse_qs
+                            parsed_url = urlparse(logo_url)
+                            
+                            print(f"🔑 Parsed URL - netloc: {parsed_url.netloc}")
+                            print(f"🔑 Parsed URL - path: {parsed_url.path}")
+                            
+                            # Extract bucket name and key
+                            if 'burnie-mindshare-content-staging.s3.amazonaws.com' in parsed_url.netloc:
+                                # Format: https://burnie-mindshare-content-staging.s3.amazonaws.com/brand_logos/BOB-1754823915028.jpg
+                                # The URL already contains the full S3 key path
+                                s3_key = parsed_url.path.lstrip('/')  # Remove leading slash to get the full key
+                                print(f"🔑 Extracted S3 key (already contains brand_logos): {s3_key}")
+                                
+                            elif 's3.amazonaws.com' in parsed_url.netloc and parsed_url.path.startswith('/'):
+                                # Format: https://s3.amazonaws.com/bucket/key
+                                path_parts = parsed_url.path.lstrip('/').split('/', 1)
+                                if len(path_parts) > 1:
+                                    # This might already include the brand_logos folder
+                                    s3_key = path_parts[1]
+                                    if not s3_key.startswith('brand_logos/'):
+                                        s3_key = f"brand_logos/{s3_key}"
+                                    print(f"🔑 Extracted S3 key from s3.amazonaws.com format: {s3_key}")
+                            else:
+                                # Fallback: try to extract key from URL path
+                                s3_key = parsed_url.path.lstrip('/')
+                                # Only add brand_logos prefix if it's not already there
+                                if not s3_key.startswith('brand_logos/'):
+                                    s3_key = f"brand_logos/{s3_key}"
+                                print(f"🔑 Fallback S3 key extraction: {s3_key}")
+                            
+                            if not s3_key:
+                                raise ValueError("Could not extract S3 key from URL")
+                            
+                            logger.info(f"🔑 Final S3 key: {s3_key}")
+                            print(f"🔑 About to generate presigned URL for key: {s3_key}")
+                            
+                            # Generate presigned URL (valid for 1 hour)
+                            presigned_result = s3_service.generate_presigned_url(s3_key, expiration=3600)
+                            
+                            print(f"🔑 Presigned result: {presigned_result}")
+                            
+                            if presigned_result.get('success'):
+                                accessible_logo_url = presigned_result['presigned_url']
+                                logger.info(f"🔑 ✅ Generated presigned URL for fal.ai: {accessible_logo_url[:100]}...")
+                                print(f"🔑 ✅ SUCCESS: Generated presigned URL")
+                            else:
+                                logger.warning(f"🔑 ⚠️ Failed to generate presigned URL: {presigned_result.get('error')}")
+                                print(f"🔑 ❌ FAILED: {presigned_result.get('error')}")
+                                logger.warning(f"🔑 Using original URL (may not be accessible to fal.ai)")
+                        else:
+                            logger.info(f"🔑 Non-S3 URL detected, using as-is: {logo_url}")
+                            print(f"🔑 Non-S3 URL, using directly: {logo_url}")
+                            
+                    except Exception as e:
+                        logger.error(f"🔑 ❌ Error generating presigned URL: {e}")
+                        print(f"🔑 ❌ Exception: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        logger.warning(f"🔑 Falling back to original URL: {logo_url}")
+                    
+                    # Add the accessible image_url parameter for flux-pro/kontext
+                    arguments["image_url"] = accessible_logo_url
+                    
+                    # Add kontext-specific parameters
+                    model_params = logo_integration.get('model_specific_params', {})
+                    arguments.update({
+                        "guidance_scale": model_params.get("guidance_scale", 3.5),
+                        "output_format": model_params.get("output_format", "jpeg"),
+                        "safety_tolerance": model_params.get("safety_tolerance", "2")
+                    })
+                    
+                    logger.info(f"🏷️ Using accessible logo URL: {accessible_logo_url[:100]}...")
+                    logger.info(f"🏷️ Original prompt (no enhancement): {prompt[:150]}...")
+            
             # Add model-specific parameters
             if 'flux' in model.lower():
-                # No specific parameters needed for FLUX models
-                pass
+                # Flux models may have additional parameters
+                if 'kontext' not in model.lower():  # Standard flux models
+                    pass
             elif 'stable-diffusion' in model.lower():
                 arguments.update({
                     "num_inference_steps": 28,
@@ -1132,12 +1235,48 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                 
             logger.info(f"🚀 Calling fal.ai with arguments: {arguments}")
             
+            # 🔍 COMPREHENSIVE FAL.AI SUBSCRIBE LOGGING
+            logger.info(f"🎯 === FAL.AI SUBSCRIBE METHOD DEBUG ===")
+            logger.info(f"🎯 Model ID: {model_id}")
+            logger.info(f"🎯 Original Model: {model}")
+            logger.info(f"🎯 Original Prompt: {prompt}")
+            logger.info(f"🎯 Image Size: Not specified (using model defaults)")
+            logger.info(f"🎯 Logo Integration Enabled: {logo_integration is not None and logo_integration.get('enabled', False)}")
+            
+            if logo_integration and logo_integration.get('enabled'):
+                logger.info(f"🏷️ Logo URL: {logo_integration.get('logo_url')}")
+                logger.info(f"🏷️ Model Specific Params: {logo_integration.get('model_specific_params', {})}")
+            
+            logger.info(f"🎯 ALL ARGUMENTS TO FAL.SUBSCRIBE:")
+            for key, value in arguments.items():
+                logger.info(f"🎯   {key}: {value}")
+            
+            logger.info(f"🎯 with_logs: True")
+            logger.info(f"🎯 === END FAL.AI SUBSCRIBE DEBUG ===")
+            
+            # 🔥 FINAL ARGUMENTS LOGGING BEFORE FAL CALL
+            print(f"\n🔥🔥🔥 ABOUT TO CALL FAL.AI! 🔥🔥🔥")
+            print(f"🔥 Model ID: {model_id}")
+            print(f"🔥 Arguments that will be sent to fal.subscribe:")
+            for key, value in arguments.items():
+                if key == "image_url":
+                    print(f"🔥   {key}: {value}")
+                    print(f"🔑     ↳ Logo URL is {'PRESIGNED' if '&X-Amz-' in str(value) else 'DIRECT'}")
+                else:
+                    print(f"🔥   {key}: {value}")
+            print(f"🔥 with_logs: True")
+            print(f"🔥🔥🔥 CALLING fal_client.subscribe() NOW! 🔥🔥🔥\n")
+            
             # Generate image using fal.ai
             result = self.fal_client.subscribe(
                 model_id,
                 arguments=arguments,
                 with_logs=True
             )
+            
+            print(f"🔥 FAL.AI CALL COMPLETED!")
+            print(f"🔥 Result type: {type(result)}")
+            print(f"🔥 Result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
             
             if result and result.get('images') and len(result['images']) > 0:
                 image_url = result['images'][0]['url']
@@ -1195,9 +1334,14 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                         'original_url': image_url,
                         's3_url': final_url if use_s3_storage else None,
                         's3_storage': s3_storage_info if use_s3_storage else None,
-                        'enhanced_prompt': enhanced_prompt,
+                        'original_prompt': prompt,
                         'wallet_address': wallet_address,
-                        'agent_id': agent_id
+                        'agent_id': agent_id,
+                        'logo_integration': {
+                            'enabled': bool(logo_integration and logo_integration.get('enabled')),
+                            'logo_url': logo_integration.get('logo_url') if logo_integration else None,
+                            'model_supports_logo': 'kontext' in model.lower()
+                        } if logo_integration else None
                     }
                 )
             else:
@@ -1234,6 +1378,15 @@ class UnifiedContentGenerator:
                               model: str = "", user_api_key: str = None, **kwargs) -> ContentGenerationResult:
         """Generate content using specified provider and content type with user API key"""
         
+        # 🔍 DEBUG: Log unified generator entry point
+        logger.info(f"🌐 === UNIFIED GENERATOR CALLED ===")
+        logger.info(f"🌐 Provider: {provider}")
+        logger.info(f"🌐 Content Type: {content_type}")
+        logger.info(f"🌐 Model: {model}")
+        logger.info(f"🌐 All kwargs keys: {list(kwargs.keys())}")
+        if 'logo_integration' in kwargs:
+            logger.info(f"🏷️ Logo integration detected in unified generator: {kwargs['logo_integration']}")
+        
         # Require user API key for all generations
         if not user_api_key:
             return ContentGenerationResult(False, error=f"API key required for {provider} provider")
@@ -1247,6 +1400,10 @@ class UnifiedContentGenerator:
             if content_type == 'text':
                 return await generator.generate_text(prompt, model=model, **kwargs)
             elif content_type == 'image':
+                # Handle logo integration parameters for image generation
+                logo_integration = kwargs.pop('logo_integration', None)
+                if logo_integration:
+                    kwargs['logo_integration'] = logo_integration
                 return await generator.generate_image(prompt, model=model, **kwargs)
             elif content_type == 'audio' and hasattr(generator, 'generate_audio'):
                 return await generator.generate_audio(prompt, model=model, **kwargs)

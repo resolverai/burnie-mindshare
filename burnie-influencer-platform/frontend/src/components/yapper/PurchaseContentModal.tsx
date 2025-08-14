@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
 import { XMarkIcon, ShoppingCartIcon, CurrencyDollarIcon, EyeIcon, StarIcon } from '@heroicons/react/24/outline'
-import { addROASTTokenToWallet } from '../../utils/walletUtils'
+
 import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
@@ -152,6 +152,23 @@ export default function PurchaseContentModal({
     }
   }, [isOpen])
 
+  // ESC key to close modal
+  useEffect(() => {
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isOpen) {
+        onClose()
+      }
+    }
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscapeKey)
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscapeKey)
+    }
+  }, [isOpen, onClose])
+
   // Calculate prices for both currencies
   const roastPriceAmount = content?.asking_price || 0
   const usdcPriceWithoutFee = roastPriceAmount * roastPrice
@@ -193,19 +210,7 @@ export default function PurchaseContentModal({
     }
   }
 
-  const handleAddROASTToken = async () => {
-    try {
-      const success = await addROASTTokenToWallet();
-      if (success) {
-        alert('✅ ROAST token added to your wallet! You should now see your ROAST balance and the token amount in transactions.');
-      } else {
-        alert('❌ Failed to add ROAST token. Your wallet may not support this feature.');
-      }
-    } catch (error) {
-      console.error('Failed to add ROAST token:', error);
-      alert('❌ Failed to add ROAST token to wallet.');
-    }
-  }
+
 
   if (!isOpen || !content) return null
 
@@ -231,26 +236,26 @@ export default function PurchaseContentModal({
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto relative">
-        {/* Modal Watermarks */}
+        {/* Subtle Modal Watermarks */}
         <div 
-          className="absolute pointer-events-none z-10 text-red-600 opacity-25 text-3xl font-black transform -rotate-45"
+          className="absolute pointer-events-none z-10 text-gray-500 opacity-15 text-lg font-medium transform -rotate-45"
           style={{
             left: `${watermarkPosition.x}%`,
             top: `${watermarkPosition.y}%`,
             transition: 'all 4s ease-in-out',
-            textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
+            textShadow: '1px 1px 1px rgba(0,0,0,0.2)'
           }}
         >
           PROTECTED
         </div>
         
         <div 
-          className="absolute pointer-events-none z-10 text-red-600 opacity-20 text-2xl font-black transform rotate-12"
+          className="absolute pointer-events-none z-10 text-gray-500 opacity-12 text-sm font-medium transform rotate-12"
           style={{
             right: `${watermarkPosition.x}%`,
             bottom: `${watermarkPosition.y}%`,
             transition: 'all 4s ease-in-out',
-            textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
+            textShadow: '1px 1px 1px rgba(0,0,0,0.2)'
           }}
         >
           PREVIEW ONLY
@@ -344,39 +349,111 @@ export default function PurchaseContentModal({
                         }}
                       />
                       
-                      {/* Image Watermarks */}
+                      {/* AI-Resistant Blended Watermarks */}
                       <div className="absolute inset-0 pointer-events-none">
+                        {/* Primary Call-to-Action - Overlay Blend */}
                         <div 
-                          className="absolute text-white opacity-70 text-3xl font-black transform -rotate-45"
+                          className="absolute text-white opacity-35 text-lg font-semibold transform rotate-0"
                           style={{
-                            left: '25%',
-                            top: '35%',
-                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
-                          }}
-                        >
-                          PROTECTED
-                        </div>
-                        <div 
-                          className="absolute text-white opacity-60 text-2xl font-black transform rotate-12"
-                          style={{
-                            right: '20%',
-                            bottom: '25%',
-                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
+                            left: '50%',
+                            top: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            textShadow: '2px 2px 4px rgba(0,0,0,0.7)',
+                            mixBlendMode: 'overlay'
                           }}
                         >
                           BUY TO ACCESS
                         </div>
+                        
+                        {/* Central Brand Watermark - Below CTA */}
                         <div 
-                          className="absolute text-white opacity-50 text-lg font-black transform -rotate-12"
+                          className="absolute text-white opacity-30 text-sm font-medium"
                           style={{
-                            left: '15%',
-                            bottom: '15%',
-                            textShadow: '1px 1px 2px rgba(0,0,0,0.8)'
+                            left: '50%',
+                            top: '50%',
+                            transform: 'translate(-50%, -50%) translateY(24px)',
+                            textShadow: '1px 1px 3px rgba(0,0,0,0.6)',
+                            mixBlendMode: 'screen'
                           }}
                         >
-                          PREVIEW ONLY
+                          @burnieio
+                        </div>
+                        
+                        {/* Corner Watermarks - Multiple Blend Modes for AI Resistance */}
+                        <div 
+                          className="absolute text-white opacity-40 text-sm font-medium"
+                          style={{
+                            left: '8px',
+                            top: '8px',
+                            textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
+                            mixBlendMode: 'multiply'
+                          }}
+                        >
+                          @burnieio
+                        </div>
+                        <div 
+                          className="absolute text-white opacity-40 text-sm font-medium"
+                          style={{
+                            right: '8px',
+                            top: '8px',
+                            textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
+                            mixBlendMode: 'difference'
+                          }}
+                        >
+                          @burnieio
+                        </div>
+                        <div 
+                          className="absolute text-white opacity-40 text-sm font-medium"
+                          style={{
+                            left: '8px',
+                            bottom: '8px',
+                            textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
+                            mixBlendMode: 'soft-light'
+                          }}
+                        >
+                          @burnieio
+                        </div>
+                        <div 
+                          className="absolute text-white opacity-40 text-sm font-medium"
+                          style={{
+                            right: '8px',
+                            bottom: '8px',
+                            textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
+                            mixBlendMode: 'hard-light'
+                          }}
+                        >
+                          @burnieio
                         </div>
                       </div>
+                      
+                      {/* Additional Blend Layer - Micro Pattern Protection */}
+                      <div 
+                        className="absolute inset-0 pointer-events-none opacity-10"
+                        style={{
+                          mixBlendMode: 'multiply',
+                          background: `repeating-linear-gradient(
+                            45deg,
+                            transparent,
+                            transparent 20px,
+                            rgba(255,255,255,0.1) 20px,
+                            rgba(255,255,255,0.1) 22px
+                          )`
+                        }}
+                      />
+                      
+                      {/* Subtle Brand Pattern Overlay */}
+                      <div 
+                        className="absolute inset-0 pointer-events-none text-white opacity-5 text-xs font-light"
+                        style={{
+                          mixBlendMode: 'overlay',
+                          background: `repeating-conic-gradient(
+                            from 0deg at 50% 50%,
+                            transparent 0deg,
+                            rgba(255,255,255,0.03) 72deg,
+                            transparent 144deg
+                          )`
+                        }}
+                      />
                     </div>
                     
                     <div 
@@ -580,46 +657,7 @@ export default function PurchaseContentModal({
               </button>
             </div>
 
-            {/* Wallet Transaction Info */}
-            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-start space-x-2">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-sm font-medium text-blue-800">Wallet Transaction Info</h4>
-                  <div className="mt-1 text-xs text-blue-700 space-y-1">
-                    {selectedCurrency === 'ROAST' ? (
-                      <>
-                    <p>• Your wallet will open to confirm a ROAST token transfer</p>
-                        <p>• Amount: <strong>{roastPriceAmount} ROAST</strong></p>
-                    <p>• To: Treasury Wallet ({process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS?.slice(0,10)}...)</p>
-                    <p>• The wallet may not show the token amount if ROAST isn't recognized</p>
-                    <p>• This is normal - the transaction is correct!</p>
-                      </>
-                    ) : (
-                      <>
-                        <p>• Your wallet will open to confirm a USDC token transfer</p>
-                        <p>• Amount: <strong>{formatUSDCPrice(usdcPriceWithFee)} USDC</strong> (includes 0.03 USDC fee)</p>
-                        <p>• To: Treasury Wallet ({process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS?.slice(0,10)}...)</p>
-                        <p>• Network: BASE blockchain</p>
-                        <p>• USDC is a widely recognized stablecoin</p>
-                      </>
-                    )}
-                  </div>
-                  {selectedCurrency === 'ROAST' && (
-                  <button
-                    onClick={handleAddROASTToken}
-                    className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded transition-colors"
-                  >
-                    ➕ Add ROAST Token to Wallet
-                  </button>
-                  )}
-                </div>
-              </div>
-            </div>
+
 
             {!isConnected && (
               <p className="text-sm text-red-600 text-center mt-3">

@@ -147,6 +147,10 @@ router.get('/marketplace-ready', async (req: Request, res: Response) => {
       submission_rate: campaign.submissions?.length ? 
         campaign.submissions.length / campaign.maxSubmissions : 0,
       is_full: (campaign.submissions?.length || 0) >= campaign.maxSubmissions,
+      // Include project logo, name, and token ticker directly from campaign table
+      projectName: campaign.projectName,
+      projectLogo: campaign.projectLogo,
+      tokenTicker: campaign.tokenTicker,
       project: campaign.project ? {
         id: campaign.project.id,
         name: campaign.project.name,
@@ -267,6 +271,7 @@ router.post('/', async (req: Request, res: Response) => {
       brandGuidelines,
       requirements,
       metadata,
+      projectTwitterHandle, // New field for Twitter integration
       isActive = true
     } = req.body;
 
@@ -347,6 +352,7 @@ router.post('/', async (req: Request, res: Response) => {
       metadata: metadata || {},
       status: isActive ? CampaignStatus.ACTIVE : CampaignStatus.DRAFT,
       projectId: projectId || undefined,
+      projectTwitterHandle: projectTwitterHandle || undefined, // Add Twitter handle
       creatorId: 1, // TODO: Get from authentication
     };
 
@@ -361,12 +367,48 @@ router.post('/', async (req: Request, res: Response) => {
 
     logger.info(`✅ Campaign created successfully: ${savedCampaign.id} - ${savedCampaign.title || 'Unknown'}`);
 
-    return res.status(201).json({
+    // Return success response immediately (non-blocking)
+    const response = res.status(201).json({
       success: true,
       data: campaignWithProject,
       message: 'Campaign created successfully',
       timestamp: new Date().toISOString(),
     });
+
+    // Trigger Twitter data fetching in background (fire-and-forget)
+    if (projectTwitterHandle && projectTwitterHandle.trim()) {
+      // Use setImmediate to ensure this runs after the response is sent
+      setImmediate(async () => {
+        try {
+          logger.info('🐦 Triggering background Twitter data fetch for new campaign...');
+          // Make request to Python AI backend to fetch Twitter data
+          const twitterFetchResponse = await fetch(`${process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000'}/api/ai/fetch-project-twitter`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              project_id: projectId || savedCampaign.id,
+              project_name: projectName || savedCampaign.title,
+              twitter_handle: projectTwitterHandle,
+              fetch_type: 'campaign_creation'
+            }),
+          });
+
+          if (twitterFetchResponse.ok) {
+            const twitterResult = await twitterFetchResponse.json() as any;
+            logger.info(`🐦 Background Twitter data fetch completed for campaign ${savedCampaign.id}: ${twitterResult.posts_fetched || 0} posts`);
+          } else {
+            logger.warn(`⚠️ Background Twitter data fetch failed for campaign ${savedCampaign.id}: ${twitterFetchResponse.status}`);
+          }
+        } catch (error) {
+          logger.warn(`⚠️ Background Twitter data fetch error for campaign ${savedCampaign.id}:`, error);
+          // Don't fail campaign creation if Twitter fetch fails
+        }
+      });
+    }
+
+    return response;
 
   } catch (error) {
     logger.error('❌ Failed to create campaign:', error);

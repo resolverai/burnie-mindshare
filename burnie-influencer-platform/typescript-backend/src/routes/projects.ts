@@ -4,6 +4,8 @@ import { AppDataSource } from '../config/database';
 import { Project } from '../models/Project';
 import { Repository } from 'typeorm';
 import { User } from '../models/User';
+import { ProjectTwitterData } from '../models/ProjectTwitterData';
+import { projectTwitterDataService } from '../services/ProjectTwitterDataService';
 
 const router = Router();
 
@@ -455,6 +457,241 @@ router.get('/:id/stats', async (req: Request, res: Response) => {
       success: false,
       error: 'Failed to fetch project stats',
       timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route POST /api/projects/twitter-data
+ * @desc Store Twitter data for a project
+ */
+router.post('/twitter-data', async (req: Request, res: Response) => {
+  try {
+    const { projectId, twitterHandle, posts, fetchSessionId } = req.body;
+
+    if (!projectId || !twitterHandle || !posts || !Array.isArray(posts)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: projectId, twitterHandle, posts'
+      });
+    }
+
+    // Convert posts to the expected format
+    const formattedPosts = posts.map((post: any) => ({
+      tweetId: post.tweetId,
+      conversationId: post.conversationId,
+      contentType: post.contentType,
+      tweetText: post.tweetText,
+      threadPosition: post.threadPosition,
+      isThreadStart: post.isThreadStart,
+      threadTweets: post.threadTweets,
+      hashtagsUsed: post.hashtagsUsed,
+      engagementMetrics: post.engagementMetrics,
+      postedAt: new Date(post.postedAt)
+    }));
+
+    await projectTwitterDataService.saveTwitterPosts(
+      projectId,
+      twitterHandle,
+      formattedPosts,
+      fetchSessionId || 'unknown'
+    );
+
+    // Cleanup old data to keep storage manageable
+    await projectTwitterDataService.cleanupOldData(projectId);
+
+    logger.info(`✅ Stored ${posts.length} Twitter posts for project ${projectId}`);
+
+    return res.json({
+      success: true,
+      message: `Stored ${posts.length} Twitter posts`,
+      projectId,
+      postsStored: posts.length
+    });
+
+  } catch (error) {
+    logger.error('❌ Error storing Twitter data:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to store Twitter data'
+    });
+  }
+});
+
+/**
+ * @route GET /api/projects/:projectId/twitter-status
+ * @desc Check if Twitter data was fetched today for a project
+ */
+router.get('/:projectId/twitter-status', async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const { twitterHandle } = req.query;
+
+    if (!projectId || !twitterHandle || typeof twitterHandle !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing projectId or twitterHandle parameter'
+      });
+    }
+
+    const projectIdNum = parseInt(projectId);
+    if (isNaN(projectIdNum)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid project ID'
+      });
+    }
+
+    const wasDataFetchedToday = await projectTwitterDataService.wasDataFetchedToday(
+      projectIdNum,
+      twitterHandle
+    );
+
+    return res.json({
+      success: true,
+      fetched_today: wasDataFetchedToday,
+      projectId: projectIdNum,
+      twitterHandle
+    });
+
+  } catch (error) {
+    logger.error('❌ Error checking Twitter fetch status:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to check Twitter fetch status'
+    });
+  }
+});
+
+/**
+ * @route GET /api/projects/:projectId/latest-tweet-id
+ * @desc Get the latest tweet ID for a project (for incremental fetching)
+ */
+router.get('/:projectId/latest-tweet-id', async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const { twitterHandle } = req.query;
+
+    if (!projectId || !twitterHandle || typeof twitterHandle !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing projectId or twitterHandle parameter'
+      });
+    }
+
+    const projectIdNum = parseInt(projectId);
+    if (isNaN(projectIdNum)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid project ID'
+      });
+    }
+
+    const latestTweetId = await projectTwitterDataService.getLatestTweetId(
+      projectIdNum,
+      twitterHandle
+    );
+
+    return res.json({
+      success: true,
+      latestTweetId,
+      projectId: projectIdNum,
+      twitterHandle
+    });
+
+  } catch (error) {
+    logger.error('❌ Error getting latest tweet ID:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get latest tweet ID'
+    });
+  }
+});
+
+/**
+ * @route GET /api/projects/:projectId/twitter-context
+ * @desc Get formatted Twitter context for AI content generation
+ */
+router.get('/:projectId/twitter-context', async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+
+    if (!projectId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing projectId parameter'
+      });
+    }
+
+    const projectIdNum = parseInt(projectId);
+    if (isNaN(projectIdNum)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid project ID'
+      });
+    }
+
+    const posts = await projectTwitterDataService.getLatestPostsForAI(
+      projectIdNum,
+      20 // Get latest 20 posts for AI context
+    );
+
+    const context = projectTwitterDataService.formatPostsForAI(posts);
+
+    return res.json({
+      success: true,
+      context,
+      projectId: projectIdNum,
+      postsCount: posts.length
+    });
+
+  } catch (error) {
+    logger.error('❌ Error getting Twitter context:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get Twitter context'
+    });
+  }
+});
+
+/**
+ * @route GET /api/projects/:projectId/twitter-summary
+ * @desc Get Twitter data summary for a project
+ */
+router.get('/:projectId/twitter-summary', async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+
+    if (!projectId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing projectId parameter'
+      });
+    }
+
+    const projectIdNum = parseInt(projectId);
+    if (isNaN(projectIdNum)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid project ID'
+      });
+    }
+
+    const summary = await projectTwitterDataService.getProjectTwitterSummary(
+      projectIdNum
+    );
+
+    return res.json({
+      success: true,
+      ...summary,
+      projectId: projectIdNum
+    });
+
+  } catch (error) {
+    logger.error('❌ Error getting Twitter summary:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get Twitter summary'
     });
   }
 });

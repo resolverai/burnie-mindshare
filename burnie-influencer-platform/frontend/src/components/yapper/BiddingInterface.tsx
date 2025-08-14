@@ -80,7 +80,7 @@ export default function BiddingInterface() {
   const [isPlacingBid, setIsPlacingBid] = useState(false)
   const [showCopyProtection, setShowCopyProtection] = useState(false)
   const [isScreenshotDetected, setIsScreenshotDetected] = useState(false)
-  const [watermarkPosition, setWatermarkPosition] = useState({ x: 0, y: 0 })
+  // Watermark position state removed (floating watermarks disabled)
   const [expandedLongposts, setExpandedLongposts] = useState<Set<number>>(new Set())
   
   // Price display component
@@ -284,19 +284,7 @@ export default function BiddingInterface() {
     }
   }
 
-  // Dynamic watermark positioning
-  useEffect(() => {
-    const moveWatermark = () => {
-      setWatermarkPosition({
-        x: Math.random() * 70,
-        y: Math.random() * 70
-      })
-    }
-    
-    moveWatermark()
-    const interval = setInterval(moveWatermark, 3000)
-    return () => clearInterval(interval)
-  }, [])
+  // Dynamic watermark positioning removed (floating watermarks disabled)
 
   // Copy protection functions
   const preventCopy = (e: Event) => {
@@ -614,54 +602,7 @@ export default function BiddingInterface() {
         WebkitTapHighlightColor: 'transparent'
       }}
     >
-      {/* Dynamic Watermarks */}
-      <div 
-        className="fixed pointer-events-none z-30 text-red-600 opacity-25 text-5xl font-black transform -rotate-45"
-        style={{
-          left: `${watermarkPosition.x}%`,
-          top: `${watermarkPosition.y}%`,
-          transition: 'all 3s ease-in-out',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
-        }}
-      >
-        PROTECTED CONTENT
-      </div>
-      
-      <div 
-        className="fixed pointer-events-none z-30 text-red-600 opacity-20 text-3xl font-black transform rotate-12"
-        style={{
-          left: `${(watermarkPosition.x + 30) % 100}%`,
-          top: `${(watermarkPosition.y + 20) % 100}%`,
-          transition: 'all 3s ease-in-out',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
-        }}
-      >
-        NO SCREENSHOTS
-      </div>
-
-      <div 
-        className="fixed pointer-events-none z-30 text-red-600 opacity-22 text-4xl font-black transform -rotate-12"
-        style={{
-          left: `${(watermarkPosition.x + 55) % 100}%`,
-          top: `${(watermarkPosition.y + 40) % 100}%`,
-          transition: 'all 3s ease-in-out',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
-        }}
-      >
-        BUY TO ACCESS
-      </div>
-
-      <div 
-        className="fixed pointer-events-none z-30 text-red-600 opacity-18 text-2xl font-black transform rotate-30"
-        style={{
-          left: `${(watermarkPosition.x + 15) % 100}%`,
-          top: `${(watermarkPosition.y + 65) % 100}%`,
-          transition: 'all 3s ease-in-out',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
-        }}
-      >
-        PREVIEW ONLY
-      </div>
+      {/* Floating watermarks removed for cleaner UI */}
 
       {/* Screenshot Detection Overlay */}
       {isScreenshotDetected && (
@@ -949,39 +890,111 @@ export default function BiddingInterface() {
                             style={{ userSelect: 'none' }}
                           />
                           
-                          {/* Enhanced Image Watermarks */}
+                          {/* AI-Resistant Blended Watermarks */}
                           <div className="absolute inset-0 pointer-events-none">
+                            {/* Primary Call-to-Action - Overlay Blend */}
                             <div 
-                              className="absolute text-white opacity-70 text-3xl font-black transform -rotate-45"
+                              className="absolute text-white opacity-35 text-lg font-semibold transform rotate-0"
                               style={{
-                                left: '20%',
-                                top: '30%',
-                                textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
-                              }}
-                            >
-                              PROTECTED
-                            </div>
-                            <div 
-                              className="absolute text-white opacity-60 text-xl font-black transform rotate-12"
-                              style={{
-                                right: '15%',
-                                bottom: '20%',
-                                textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
+                                left: '50%',
+                                top: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                textShadow: '2px 2px 4px rgba(0,0,0,0.7)',
+                                mixBlendMode: 'overlay'
                               }}
                             >
                               BUY TO ACCESS
                             </div>
+                            
+                            {/* Central Brand Watermark - Below CTA */}
                             <div 
-                              className="absolute text-white opacity-50 text-lg font-black transform -rotate-12"
+                              className="absolute text-white opacity-30 text-sm font-medium"
                               style={{
-                                left: '10%',
-                                bottom: '10%',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.8)'
+                                left: '50%',
+                                top: '50%',
+                                transform: 'translate(-50%, -50%) translateY(24px)',
+                                textShadow: '1px 1px 3px rgba(0,0,0,0.6)',
+                                mixBlendMode: 'screen'
                               }}
                             >
-                              PREVIEW ONLY
+                              @burnieio
+                            </div>
+                            
+                            {/* Corner Watermarks - Multiple Blend Modes for AI Resistance */}
+                            <div 
+                              className="absolute text-white opacity-40 text-sm font-medium"
+                              style={{
+                                left: '8px',
+                                top: '8px',
+                                textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
+                                mixBlendMode: 'multiply'
+                              }}
+                            >
+                              @burnieio
+                            </div>
+                            <div 
+                              className="absolute text-white opacity-40 text-sm font-medium"
+                              style={{
+                                right: '8px',
+                                top: '8px',
+                                textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
+                                mixBlendMode: 'difference'
+                              }}
+                            >
+                              @burnieio
+                            </div>
+                            <div 
+                              className="absolute text-white opacity-40 text-sm font-medium"
+                              style={{
+                                left: '8px',
+                                bottom: '8px',
+                                textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
+                                mixBlendMode: 'soft-light'
+                              }}
+                            >
+                              @burnieio
+                            </div>
+                            <div 
+                              className="absolute text-white opacity-40 text-sm font-medium"
+                              style={{
+                                right: '8px',
+                                bottom: '8px',
+                                textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
+                                mixBlendMode: 'hard-light'
+                              }}
+                            >
+                              @burnieio
                             </div>
                           </div>
+                          
+                          {/* Additional Blend Layer - Micro Pattern Protection */}
+                          <div 
+                            className="absolute inset-0 pointer-events-none opacity-10"
+                            style={{
+                              mixBlendMode: 'multiply',
+                              background: `repeating-linear-gradient(
+                                45deg,
+                                transparent,
+                                transparent 20px,
+                                rgba(255,255,255,0.1) 20px,
+                                rgba(255,255,255,0.1) 22px
+                              )`
+                            }}
+                          />
+                          
+                          {/* Subtle Brand Pattern Overlay */}
+                          <div 
+                            className="absolute inset-0 pointer-events-none text-white opacity-5 text-xs font-light"
+                            style={{
+                              mixBlendMode: 'overlay',
+                              background: `repeating-conic-gradient(
+                                from 0deg at 50% 50%,
+                                transparent 0deg,
+                                rgba(255,255,255,0.03) 72deg,
+                                transparent 144deg
+                              )`
+                            }}
+                          />
                           
                           <div 
                             className="hidden bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-8 text-center h-40 flex items-center justify-center"

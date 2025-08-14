@@ -778,21 +778,12 @@ class CrewAIService:
             max_execution_time=180  # 3 minutes max
         )
 
-    def _format_twitter_handle(self, handle: str) -> str:
-        """Format Twitter handle to ensure it has exactly one '@' prefix"""
-        if not handle:
-            return ''
-        # Remove any existing '@' and add one back
-        clean_handle = handle.lstrip('@')
-        return f'@{clean_handle}' if clean_handle else ''
-
     def _get_posttype_specific_backstory(self, post_type: str, text_provider: str, text_model: str, user_style: str, agent_config: dict, twitter_context: str) -> str:
         """Generate post-type specific backstory for Text Content Agent"""
         
         # Get project Twitter handle for tagging instructions
-        project_twitter_handle_raw = self.campaign_data.get('projectTwitterHandle', '') if self.campaign_data else ''
-        project_twitter_handle_raw = project_twitter_handle_raw or ''
-        project_twitter_handle = self._format_twitter_handle(project_twitter_handle_raw)
+        project_twitter_handle = self.campaign_data.get('projectTwitterHandle', '') if self.campaign_data else ''
+        project_twitter_handle = project_twitter_handle or ''
         
         # Common base backstory
         base_backstory = f"""You are an expert {post_type.upper()} content creator specializing in:
@@ -820,9 +811,9 @@ class CrewAIService:
             - **FALLBACK**: If insufficient tweet context, use project description/brand guidelines for thread content
             
             🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
-            {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
+            {f'- **MUST tag @{project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
             - Extract handles mentioned in latest tweets and tag them contextually in thread_array
-            - Example: "Join {project_twitter_handle}'s ecosystem..." or "Thanks to {project_twitter_handle} for..."
+            - Example: "Join @{project_twitter_handle}'s ecosystem..." or "Thanks to @{project_twitter_handle} for..."
             
             🔥 **THREAD REQUIREMENTS**:
             - Generate 2-5 tweets in thread format
@@ -835,23 +826,20 @@ class CrewAIService:
         elif post_type == 'shitpost':
             return base_backstory + f"""
             
-            💩 **AUTONOMOUS SHITPOST STRATEGY**:
-            - **main_tweet**: Create original, engaging shitpost using autonomous psychology engine
-            - **follow-up tweets**: Generate 2-4 follow-ups that amplify the main joke/concept naturally
-            - **TWEET CONTEXT INTEGRATION**: Use latest 20 tweets for cultural references and community callbacks
-            - **FALLBACK**: Use project description/brand guidelines when tweet context insufficient
+            💩 **SHITPOST-SPECIFIC STRATEGY**:
+            - **main_tweet**: Focus on PROJECT DESCRIPTION with humorous angle
+            - **follow-up tweets**: PRIORITIZE LATEST 20 TWEETS CONTEXT for meme content (signup instructions, airdrops, rewards)
+            - **FALLBACK**: If insufficient tweet context, use project description/brand guidelines for follow-ups
             
             🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
-            {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
+            {f'- **MUST tag @{project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
             - Extract handles mentioned in latest tweets and tag them in follow-up tweets
-            - Example: "Even {project_twitter_handle} knows..." or "{project_twitter_handle} be like..."
+            - Example: "Even @{project_twitter_handle} knows..." or "@{project_twitter_handle} be like..."
             
-            🚀 **AUTONOMOUS SHITPOST REQUIREMENTS**:
-            - Generate completely original content using the Autonomous Shitpost Psychology Engine
-            - Optimize for maximum viral potential and engagement rate
-            - Create unique Web3 humor that builds community and drives FOMO
-            - Use intelligent cultural bridge-building between mainstream and crypto
-            - End with natural engagement hooks that invite community participation
+            😂 **SHITPOST REQUIREMENTS**:
+            - Generate humorous, ironic content with 2-4 follow-up tweets
+            - Use deliberately casual, ironic humor connecting random activities to crypto
+            - Include crypto memes: "few understand", "NFA obvs", "diamond hands", "wen lambo"
             - Reference bullish on [random thing], moon, HODL culture
             - Build jokes progressively, keep each tweet punchy
             - Always include project token hashtag in main tweet
@@ -865,9 +853,9 @@ class CrewAIService:
             - **FALLBACK**: If no tweet data available, use project description/brand guidelines only
             
             🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
-            {f'- **MUST tag {project_twitter_handle}** intelligently throughout the content' if project_twitter_handle else '- No project Twitter handle available'}
+            {f'- **MUST tag @{project_twitter_handle}** intelligently throughout the content' if project_twitter_handle else '- No project Twitter handle available'}
             - Tag additional handles from referenced tweet data when contextually relevant
-            - Example: "As {project_twitter_handle} announced..." or "Building on {project_twitter_handle}'s vision..."
+            - Example: "As @{project_twitter_handle} announced..." or "Building on @{project_twitter_handle}'s vision..."
             
             📚 **LONGPOST REQUIREMENTS**:
             - Generate comprehensive content (2000-25000 characters) in MARKDOWN format
@@ -902,7 +890,7 @@ class CrewAIService:
         - Title: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
         - Project Name: {project_name}
         - Token Ticker: {token_ticker}
-        - Project Twitter Handle: {project_twitter_handle} {f'(Tag this in content!)' if project_twitter_handle else '(No handle available)'}
+        - Project Twitter Handle: @{project_twitter_handle} {f'(Tag this in content!)' if project_twitter_handle else '(No handle available)'}
         - Description: {campaign_description if has_description else 'N/A'}
         - Brand Guidelines: {brand_guidelines if brand_guidelines else 'N/A'}
         - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
@@ -926,7 +914,7 @@ class CrewAIService:
         - **FALLBACK**: If insufficient tweet context, use project description/brand guidelines for thread content
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
-        {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
+        {f'- **MUST tag @{project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
         - Extract handles mentioned in latest tweets and tag them contextually in thread_array
         
         🔥 **THREAD REQUIREMENTS**:
@@ -938,22 +926,19 @@ class CrewAIService:
         """
         elif post_type == 'shitpost':
             specific_instructions = f"""
-        🚀 **AUTONOMOUS SHITPOST CONTENT STRATEGY**:
-        - **main_tweet**: Apply the Autonomous Shitpost Psychology Engine to create original viral content
-        - **follow-up tweets**: Generate 2-4 natural amplifications using intelligent engagement optimization
-        - **TWEET CONTEXT INTEGRATION**: Leverage latest 20 tweets for community callbacks and cultural references
-        - **FALLBACK**: Use project description/brand guidelines when tweet context insufficient
+        💩 **SHITPOST CONTENT STRATEGY**:
+        - **main_tweet**: Focus on PROJECT DESCRIPTION with humorous angle
+        - **follow-up tweets**: PRIORITIZE LATEST 20 TWEETS CONTEXT for meme content (signup instructions, airdrops, rewards)
+        - **FALLBACK**: If insufficient tweet context, use project description/brand guidelines for follow-ups
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
-        {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
+        {f'- **MUST tag @{project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
         - Extract handles mentioned in latest tweets and tag them in follow-up tweets
         
-        🎯 **AUTONOMOUS SHITPOST EXECUTION**:
-        - Follow the 4-Step Content Generation Process (Context Analysis → Angle Selection → Engagement Architecture → Language Optimization)
-        - Choose from 10+ High-Engagement Formats based on content fit
-        - Exploit Viral Mechanics and Psychological Triggers for maximum reach
-        - Use Web3 Cultural Elements intelligently (crypto behaviors + mainstream bridges)
-        - Optimize for scroll-stopping power and community engagement
+        😂 **SHITPOST REQUIREMENTS**:
+        - Generate humorous, ironic content with 2-4 follow-up tweets
+        - Use deliberately casual, ironic humor connecting random activities to crypto
+        - Include crypto memes: "few understand", "NFA obvs", "diamond hands", "wen lambo"
         - Main tweet: ≤280 chars including hashtags
         - Follow-up tweets: ≤280 chars each (no hashtags in thread array)
         - ALWAYS include project token hashtag (#{token_ticker}) in main tweet
@@ -965,7 +950,7 @@ class CrewAIService:
         - **FALLBACK**: If no tweet data available, use project description/brand guidelines only
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
-        {f'- **MUST tag {project_twitter_handle}** intelligently throughout the content' if project_twitter_handle else '- No project Twitter handle available'}
+        {f'- **MUST tag @{project_twitter_handle}** intelligently throughout the content' if project_twitter_handle else '- No project Twitter handle available'}
         - Tag additional handles from referenced tweet data when contextually relevant
         
         📚 **LONGPOST REQUIREMENTS**:
@@ -1239,14 +1224,14 @@ class CrewAIService:
             🏷️ **REFERENCE LOGO INTEGRATION REQUIRED**:
             - Project logo URL available: {project_logo_url}
             - You MUST create dynamic prompts that naturally incorporate reference logo placement
-            - When generating image prompts, include specific instructions for logo integration:
+            - When generating image prompts, include specific instructions for logo integration
+            - Examples of natural logo integration in prompts:
               * "...with the reference logo elegantly displayed on the [object/surface]..."
               * "...featuring the reference logo prominently on the [structure/device]..."
               * "...showing the reference logo integrated into the [scene/composition]..."
             - Make logo placement feel natural and contextual to the image content
             - ALWAYS mention "reference logo" in your generated prompts when this flag is enabled
             - The reference logo will be provided as an image_url parameter to the AI model
-            - **IMPORTANT**: Generate natural prompts first, then the system will automatically append logo color preservation instructions
             """
         
         return Agent(
@@ -1428,129 +1413,124 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         # Define approach based on post type
         if post_type == "shitpost":
             content_approach = """
-            🚀 **AUTONOMOUS SHITPOST GENERATION** - Create unlimited variety of viral Web3 content:
+            🎭 SHITPOST APPROACH - Create humorous, low-effort, absurd content that builds community engagement:
             
-            You are an autonomous shitpost AI who understands the psychology of Web3 Twitter engagement. Your mission is to create original, unpredictable content that maximizes:
-            • **Engagement Rate** (likes, retweets, replies)
-            • **FOMO Generation** (urgency, exclusivity, community)
-            • **Viral Potential** (shareability, relatability, humor)
-            • **Community Building** (insider jokes, shared experiences)
-            • **Attention Capture** (scroll-stopping power, curiosity gaps)
-            • **Meme Velocity** (how fast it spreads across crypto Twitter)
+            📚 **COMPREHENSIVE SHITPOST PROMPT LIBRARY** - Use these proven templates:
             
-            **🧠 AUTONOMOUS SHITPOST PSYCHOLOGY ENGINE**:
+            **🍕 FOOD & DAILY LIFE → CRYPTO ECONOMICS (25 Templates)**:
+            Template 1: "[Food ordering] but treating [food items] as tokenomics"
+            • Example: "Just ordered pizza and I'm analyzing the pepperoni distribution like it's tokenomics. 65% cheese coverage, 20% pepperoni allocation, 15% crust reserves. Bullish on this delivery mechanism 📊 #PizzaNomics"
             
-            **Core Principles** (NO TEMPLATES - Pure Intelligence):
-            1. **Cognitive Dissonance Humor**: Connect unrelated concepts for surprise
-            2. **Relatable Absurdity**: Take normal situations to crypto extremes  
-            3. **Insider Language Mastery**: Use Web3 jargon with perfect timing
-            4. **Pattern Breaking**: Subvert expectations constantly
-            5. **Community Psychology**: Tap into shared crypto experiences
-            6. **FOMO Architecture**: Create artificial scarcity and urgency
-            7. **Ironic Wisdom**: Profound insights disguised as nonsense
+            Template 2: "[Morning routine] analyzed as technical analysis"
+            • Example: "My coffee brewing patterns indicate bullish momentum. Strong support at 2 cups, resistance at 4. If we break through the caffeine ceiling, moon mission confirmed ☕📈 Few understand this TA"
             
-            **🎯 ENGAGEMENT OPTIMIZATION STRATEGIES**:
+            Template 3: "[Household plant] giving crypto alpha"
+            • Example: "My snake plant just told me to DCA into SOL. Plants don't lie, they photosynthesize truth. When your houseplant starts dropping alpha, you listen 🌱 NFA but my succulent's track record is immaculate"
             
-            **High-Engagement Formats** (Choose intelligently):
-            • **Observation Dumps**: "Anyone else notice that..."
-            • **Confession Posts**: "Not me admitting..."
-            • **Conspiracy Theories**: "Hear me out..."
-            • **Life Comparisons**: "X has the same energy as Y"
-            • **Prophecy Posts**: "Calling it now..."
-            • **Meta Commentary**: "The fact that..."
-            • **Polls/Questions**: "Which type of person are you?"
-            • **Hot Takes**: "Unpopular opinion but..."
-            • **Story Time**: "So I was doing X and realized..."
-            • **Future Predictions**: "In 5 years we'll..."
+            Template 4: "[Grocery shopping] as market analysis"
+            • Example: "Grocery store checkout lines moving like L1 congestion. Self-checkout = DeFi (fast but risky), cashier = CEX (slow but reliable). Chose self-checkout, bullish on independence 🛒"
             
-            **🔥 VIRAL MECHANICS TO EXPLOIT**:
+            Template 5: "[Traffic/commute] as blockchain congestion"
+            • Example: "Stuck in traffic thinking about gas fees. This red light lasting longer than my last trade confirmation. When IRL has worse TPS than Ethereum, you know it's bear market vibes 🚗⛽"
             
-            **Psychological Triggers**:
-            • **Recognition**: "I've experienced this exact thing"
-            • **Superiority**: "I'm smarter than people who don't get this"
-            • **Belonging**: "This is my tribe/community"
-            • **Curiosity**: "I need to know more about this"
-            • **Validation**: "Finally someone said it"
-            • **Fear**: "What if I'm missing out?"
-            • **Pride**: "I discovered this first"
+            **☕ MORNING ROUTINE → DCA STRATEGIES (15 Templates)**:
+            Template 6: "Morning [routine activity] = DCA strategy"
+            • Example: "Brushing teeth in small circles = DCA strategy. Consistent, methodical, compound results. Been DCAing my dental hygiene for 25 years, portfolio looking mint 🦷💎"
             
-            **Content Amplifiers**:
-            • **Timing Relevance**: Reference current events/trends
-            • **Cross-Cultural Bridges**: Connect mainstream to crypto
-            • **Generational Humor**: GenZ/Millennial shared experiences
-            • **Platform Meta**: Comment on Twitter/social media itself
-            • **Economic Anxiety**: Tap into financial stress/hope
-            • **Technology Frustration**: IRL vs Web3 comparisons
-            • **Social Dynamics**: Dating, friendship, family through crypto lens
+            Template 7: "[Alarm clock] as market timing"
+            • Example: "Hit snooze 3 times this morning. Clearly I'm not ready for market open either. Sometimes the best trade is staying in bed until noon 😴 Time in bed > timing the market"
             
-            **🎭 AUTONOMOUS CONTENT GENERATION PROCESS**:
+            **🏠 HOUSEHOLD ACTIVITIES → MARKET ANALYSIS (20 Templates)**:
+            Template 8: "[Cleaning] as portfolio management"
+            • Example: "Doing laundry is basically rebalancing my wardrobe portfolio. Socks underperforming, t-shirts carrying the load. Time to diversify into hoodies for winter allocation 👕📊"
             
-            **Step 1: Context Analysis**
-            - Analyze project features, benefits, and community
-            - Identify current crypto market sentiment
-            - Understand target audience psychology
-            - Find connection points to mainstream culture
+            Template 9: "[Pet behavior] predicting markets"
+            • Example: "My cat knocked over my water bottle. Either she's bearish on hydration or this is a sign to short everything. Cats have that ancient wisdom, probably knows something about the Fed 🐱📉"
             
-            **Step 2: Angle Selection** (Choose 1 intelligently):
-            - **Daily Life Crypto-fication**: Normal activities → Web3 lens
-            - **Technology Anthropomorphism**: Give crypto tech human traits
-            - **Economic Satire**: Exaggerate financial behaviors
-            - **Social Commentary**: Crypto culture observations
-            - **Future Shock**: Extreme predictions disguised as jokes
-            - **Nostalgia Crypto**: "Remember when..." format
-            - **Identity Crisis**: "Am I the only one who..."
-            - **Conspiracy Light**: Semi-serious theory crafting
+            **🎯 RANDOM OBSERVATIONS → CRYPTO ALPHA (30 Templates)**:
+            Template 10: "[Weather] as market sentiment"
+            • Example: "It's raining but my neighbor's still watering their lawn. This is exactly the same energy as people selling crypto at the bottom. Nature provides liquidity, yet here we are 🌧️💧"
             
-            **Step 3: Engagement Architecture**
-            - Create curiosity gap that demands resolution
-            - Include specific detail that feels authentic
-            - Add relatable frustration or joy
-            - End with engagement hook that invites response
-            - Weave project naturally into the narrative
+            Template 11: "[Technology frustration] = trading emotions"
+            • Example: "WiFi router decided to restart itself during my Zoom call. Same energy as the market dumping right after I buy. Technology and crypto both love perfect timing 📶📉"
             
-            **Step 4: Language Optimization**
-            - Use perfect balance of insider/outsider language
-            - Include 1-2 crypto buzzwords naturally
-            - Add emojis that enhance rather than clutter
-            - Create rhythm that flows when read aloud
-            - End with call-to-action disguised as casual observation
+            Template 12: "[Daily struggle] = portfolio performance"
+            • Example: "Can't find matching socks this morning. Portfolio performance has the same energy - everything's there but nothing works together. Diversification is a myth invented by Big Sock 🧦"
             
-            **🎪 WEB3 CULTURAL ELEMENTS** (Use intelligently):
+            **💡 ENGAGEMENT HOOKS & COMMUNITY BUILDERS**:
+            Template 13: "Thoughts?"
+            Template 14: "Am I wrong tho?"
+            Template 15: "Few understand this"
+            Template 16: "Tell me I'm not the only one..."
+            Template 17: "Change my mind 🤔"
+            Template 18: "This you?"
+            Template 19: "Say it louder for the people in the back"
+            Template 20: "Who else sees this pattern?"
             
-            **Crypto Behaviors to Reference**:
-            • Chart watching obsession • Gas fee trauma • FOMO decision making
-            • Diamond hands mythology • Ape behavior • Moon mission dreams
-            • Bear market depression • Bull market euphoria • Staking rewards excitement
-            • DeFi complexity confusion • NFT profile pic psychology • Discord community dynamics
-            • Telegram alpha hunting • Twitter space FOMO
+            **🎪 PERFORMATIVE CASUALNESS PHRASES**:
+            • "Bullish on [random thing]"
+            • "Few understand"
+            • "NFA but..." / "NFA obvs"
+            • "This is probably nothing but..."
+            • "Don't fade this"
+            • "Still early"
+            • "You love to see it"
+            • "Different breed"
+            • "Built different"
+            • "This is the way"
+            • "IYKYK"
+            • "Main character energy"
+            • "That hits different"
+            • "Not me [doing relatable thing]"
             
-            **Mainstream → Crypto Bridges**:
-            • Dating apps → DeFi protocols • Food delivery → Token distribution
-            • Weather → Market conditions • Traffic → Network congestion  
-            • Relationships → Tokenomics • Shopping → Portfolio management
-            • Exercise → DCA strategies • Sleep → Market timing
-            • Pets → Prediction oracles • Plants → Growth investing
+            **🎯 SHITPOST CONSTRUCTION FORMULA**:
+            [Mundane Activity] + [Crypto Analysis Angle] + [Community Hook] + [Ironic Wisdom] = Perfect Shitpost
             
-            **🚀 CAMPAIGN INTEGRATION MASTERY**:
+            **📖 ADVANCED SHITPOST PATTERNS**:
             
-            **Natural Integration Methods**:
-            - Use project name in ironic comparison
-            - Reference project features as life solutions
-            - Compare project benefits to daily frustrations
-            - Position project as cultural shift enabler
-            - Make project hashtag feel earned, not forced
-            - Create inside jokes around project community
-            - Reference project milestones as personal victories
+            **Pattern A: "Crypto Crossover Analysis"**
+            Structure: "[Daily situation] has the same energy as [crypto scenario]"
+            Example: "My microwave beeping at 3AM has the same energy as a flash loan liquidation. Loud, unexpected, and everyone in the house knows something went wrong 📱⚡"
             
-            **CRITICAL AUTONOMOUS EXECUTION**:
-            - Generate completely original content (NO TEMPLATES)
-            - Ensure every shitpost feels spontaneous and authentic
-            - Optimize for maximum engagement and viral potential
-            - Build project community through shared humor and culture
-            - Create content that people WANT to share and discuss
-            - Design posts that stop scrolling and demand interaction
+            **Pattern B: "Household Oracle"**
+            Structure: "[Inanimate object/pet] predicted [market movement]"
+            Example: "My toaster burned my bread this morning. Either it's trying to tell me something about inflation or it's bearish on carbs. Kitchen appliances never lie 🍞📊"
             
-            Remember: The best shitposts feel like natural thoughts that accidentally became profound. Create content that makes people think "This person gets it" while subtly building project awareness and community.
+            **Pattern C: "Daily Struggle = Trading Psychology"**
+            Structure: "[Personal struggle] is exactly like [trading emotion]"
+            Example: "Trying to untangle my headphones is exactly like trying to understand DeFi yield farming. The more you mess with it, the worse it gets 🎧🌾"
+            
+            **Pattern D: "Mundane Tokenomics"**
+            Structure: "Analyzing [everyday thing] like it's tokenomics"
+            Example: "The office coffee machine has terrible tokenomics. 100% tax on quality, infinite mint of disappointment. Time to fork to the café next door ☕💔"
+            
+            **Pattern E: "IRL Gas Fees"**
+            Structure: "[Real world inefficiency] has worse [metric] than [blockchain]"
+            Example: "DMV processing times make Ethereum look like Solana. Been waiting 2 hours to renew registration. This is why we need blockchain everything 🏛️⏰"
+            
+            **🎭 TONE GUIDELINES**:
+            - Self-aware but not trying too hard
+            - Ironically wise about meaningless things
+            - Relatable but absurd
+            - Community-building through shared experiences
+            - Never too serious about crypto advice
+            - Always end with engagement hook
+            
+            **⚡ EXECUTION STRATEGY**:
+            1. Pick ONE template that fits campaign context
+            2. Replace [placeholders] with specific, relatable details
+            3. Add 1-2 crypto jargon phrases naturally
+            4. Include project hashtag organically
+            5. End with engagement hook
+            6. Keep under 250 characters + 30 hashtag characters
+            
+            **🎯 CAMPAIGN INTEGRATION**:
+            - Weave project benefits into mundane observations
+            - Use project name/ticker in ironic comparisons
+            - Connect daily life to project's value proposition
+            - Make the project reference feel natural, not forced
+            
+            CRITICAL: Generate content that feels authentically casual while strategically building community around the project.
             """
         elif post_type == "longpost":
             content_approach = """
@@ -1649,13 +1629,12 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         token_ticker = token_ticker or 'TOKEN'  # Ensure it's never None
         project_name = self.campaign_data.get('projectName', 'Project') if self.campaign_data else 'Project'
         project_name = project_name or 'Project'  # Ensure it's never None
-        project_twitter_handle_raw = self.campaign_data.get('projectTwitterHandle', '') if self.campaign_data else ''
-        project_twitter_handle_raw = project_twitter_handle_raw or ''  # Ensure it's never None
-        project_twitter_handle = self._format_twitter_handle(project_twitter_handle_raw)
+        project_twitter_handle = self.campaign_data.get('projectTwitterHandle', '') if self.campaign_data else ''
+        project_twitter_handle = project_twitter_handle or ''  # Ensure it's never None
         
         # Debug logging for token ticker
         logger.info(f"📊 Campaign token ticker: {token_ticker} (from campaign data: {self.campaign_data.get('tokenTicker') if self.campaign_data else 'None'})")
-        logger.info(f"🐦 Project Twitter handle: {project_twitter_handle} (from campaign data: {self.campaign_data.get('projectTwitterHandle') if self.campaign_data else 'None'})")
+        logger.info(f"🐦 Project Twitter handle: @{project_twitter_handle} (from campaign data: {self.campaign_data.get('projectTwitterHandle') if self.campaign_data else 'None'})")
         
         # Generate post-type specific task description
         task_description = self._get_posttype_specific_task_description(
@@ -1666,6 +1645,256 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         
         return Task(
             description=task_description,
+            - Title: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
+            - Project Name: {project_name}
+            - Token Ticker: {token_ticker}
+            - Project Twitter Handle: @{project_twitter_handle} {f'(Tag this in content!)' if project_twitter_handle else '(No handle available)'}
+            - Description: {campaign_description if has_description else 'N/A'}
+            - Brand Guidelines: {brand_guidelines if brand_guidelines else 'N/A'}
+            - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
+            - Target Audience: {self.campaign_data.get('targetAudience', 'crypto/Web3 enthusiasts') if self.campaign_data else 'crypto/Web3 enthusiasts'}
+            
+            {f'''
+            📱 **PROJECT TWITTER CONTEXT** (Use for fresh, current content inspiration):
+            {getattr(self, 'project_twitter_context', '') or 'No recent Twitter data available for this project'}
+            
+            TWITTER CONTEXT USAGE INSTRUCTIONS:
+            
+            **POST-TYPE SPECIFIC TWITTER USAGE**:
+            
+            **THREAD & SHITPOST**:
+            - **main_tweet**: Emphasize PROJECT DESCRIPTION with key recent development highlight
+            - **tweet_thread**: PRIORITIZE latest 20 tweets context for FOMO creation
+            - **FALLBACK for tweet_thread**: If insufficient tweet context, use project description/brand guidelines
+            - **Critical Focus**: Extract signup instructions, airdrops, rewards, launches from tweets
+            - **Handle Tagging**: Tag project handle in main_tweet, extract/tag mentioned handles in thread
+            
+            **LONGPOST**:
+            - **Equal Balance (50-50)**: Latest 20 tweets + project description/brand guidelines
+            - **If no tweet data**: Use project description/brand guidelines only
+            - **Handle Tagging**: Tag project handle + additional handles from referenced tweets
+            
+            **UNIVERSAL FALLBACK RULES**:
+            - **ALWAYS GENERATE REQUESTED CONTENT**: Never skip thread/content due to insufficient tweet data
+            - **Tweet Context Priority**: Use latest tweets when available (signup instructions, airdrops, rewards, launches)
+            - **Fallback Strategy**: When tweet context is limited, fall back to project description/brand guidelines
+            - **Hybrid Approach**: Blend available tweet insights with project description for richer content
+            - **Maintain Quality**: Ensure content quality regardless of data source availability
+            ''' if getattr(self, 'project_twitter_context', '') and getattr(self, 'project_twitter_context', '').strip() else ''}
+            
+            CONTENT FORMAT:
+            {content_type_desc}:
+            {f'- Generate a comprehensive {post_type.upper()} with minimum 2000 and maximum {max_main_chars} characters formatted in MARKDOWN' if post_type == 'longpost' else 
+             f'- Generate a humorous, ironic {post_type.upper()} with 2-4 follow-up tweets (280 chars each)' if post_type == 'shitpost' else 
+             f'- Generate a compelling tweet thread (2-5 tweets) when campaign description is available' if should_generate_thread else 
+             '- Generate a single tweet when no campaign description is available'}
+            {f'- Use comprehensive, detailed content with thorough analysis, structured with markdown headers, paragraphs, and formatting' if post_type == 'longpost' else 
+             f'- Use deliberately casual, ironic humor connecting random activities to crypto' if post_type == 'shitpost' else 
+             f'- First tweet (main tweet): Hook with image-worthy content' if should_generate_thread else 
+             '- Maximum 280 characters for Twitter'}
+            {f'- Include data, statistics, and in-depth explanations' if post_type == 'longpost' else 
+             f'- Include crypto memes, "few understand", "NFA obvs", engagement hooks' if post_type == 'shitpost' else 
+             f'- Follow-up tweets: Prioritize latest tweet insights, fallback to project details/brand guidelines for content' if should_generate_thread else ''}
+            {f'- Structure content logically with clear markdown sections (## headers), **bold** emphasis, and professional tone' if post_type == 'longpost' else 
+             f'- Reference diamond hands, moon, wen lambo, bullish on [random thing]' if post_type == 'shitpost' else 
+             f'- Include project name, token ticker, and key benefits from description' if should_generate_thread else ''}
+            
+            CRITICAL CHARACTER LIMITS (STRICTLY ENFORCE):
+            {f'- Main content: Minimum 2000, maximum {max_main_chars} characters total in MARKDOWN format (no thread needed)' if post_type == 'longpost' else 
+             f'- Main tweet: Maximum 250 characters + 30 hashtag characters for {post_type.upper()}' if post_type == 'shitpost' else 
+             '- Main tweet: Maximum 250 characters for text content + 30 hashtag characters'}
+            {f'- Include relevant hashtags within the character limit' if post_type == 'longpost' else 
+             f'- Each thread tweet: Maximum 280 characters including hashtags' if should_generate_thread else 
+             '- Hashtags in main tweet: Maximum 30 characters total (including # symbols)'}
+            {f'- Focus on comprehensive analysis over brevity' if post_type == 'longpost' else 
+             f'- Thread tweets: Build the joke progressively, keep each tweet punchy' if post_type == 'shitpost' else 
+             f'- Overall main tweet: Must fit within 280 characters (250 text + 30 hashtags = 280 max)' if not should_generate_thread else 
+             '- Each thread tweet: Maximum 280 characters including hashtags'}
+            {'' if post_type == 'longpost' else 
+             f'- Use ironic humor and crypto meme references in each tweet' if post_type == 'shitpost' else 
+             '- Thread tweets: Ideally 200-240 characters for optimal readability' if should_generate_thread else ''}
+            
+            Content Specifications:
+            - ALWAYS include project token hashtag (#{token_ticker}) in main tweet
+            - Include project name hashtag (#ProjectName format) in main tweet when possible
+            - Use 2-3 additional relevant, trending hashtags maximum
+            - Use strategic emojis for engagement (3-5 maximum)
+            - Create hook-heavy opening line
+            {f'- Focus on informative, analytical content without explicit calls-to-action' if post_type == 'longpost' else '- Include clear call-to-action'}
+            - Optimize for crypto/Web3 audience
+            {'- Incorporate project-specific details from description and guidelines' if has_description else ''}
+            {'- Thread tweets may optionally include project token hashtag' if has_description else ''}
+            
+            🐦 **TWITTER HANDLE TAGGING REQUIREMENTS**:
+            {f'''
+            **FOR THREAD & SHITPOST**:
+            - **main_tweet**: MUST tag @{project_twitter_handle} intelligently in context
+            - **tweet_thread**: Extract handles mentioned in latest tweets and tag them contextually
+            - **Example**: "Join @{project_twitter_handle}'s ecosystem..." or "Thanks to @{project_twitter_handle} for the update..."
+            
+            **FOR LONGPOST**:
+            - **MUST tag @{project_twitter_handle}** intelligently throughout the content
+            - **Tag additional handles** from referenced tweet data when contextually relevant
+            - **Example**: "As @{project_twitter_handle} announced..." or "Building on @{project_twitter_handle}'s vision..."
+            
+            **HANDLE EXTRACTION RULES**:
+            - If latest tweets mention other projects/handles (e.g., @coinbase, @ethereum), include them
+            - Only tag handles that are contextually relevant to the content
+            - Ensure tagging feels natural, not forced
+            ''' if project_twitter_handle else '- No project Twitter handle available for tagging'}
+            
+            WEB3 GENZ MEME CULTURE REQUIREMENTS:
+            - Include subtle sarcasm and wit that resonates with Web3 GenZ audience
+            - Reference popular crypto memes and culture (diamond hands, HODL, "this is the way", etc.)
+            - Create FOMO (Fear of Missing Out) through scarcity and exclusivity language
+            - Use ironic humor and self-aware commentary about crypto culture
+            - Include references to being "early" or having "insider knowledge"
+            - Apply meme-inspired language patterns and cultural references
+            - Create urgency and social proof to drive engagement
+            - Use Web3 slang and community inside jokes appropriately
+            {'- Weave project-specific benefits and features into meme culture references' if has_description else ''}
+            
+            CRITICAL RESTRICTIONS (NEVER VIOLATE):
+            - NEVER use "WAGMI" hashtag or reference in any tweet (main tweet or thread items)
+            - PRONOUN USAGE RULES:
+              * When referring to THE READER: Use second-person pronouns (you/your/yours) - "You can explore", "Your portfolio"
+              * When referring to THE PROJECT/PROTOCOL: Use third-person singular gender-neutral pronouns (it/its) - "BOB revolutionizes", "It offers", "Its features"
+              * When referring to THE TEAM/DEVELOPERS: Use third-person pronouns (they/them/their) - "They built", "Their vision"
+              * When referring to OTHER USERS/COMMUNITY: Use third-person pronouns (they/them/their) - "Users love", "They are earning"
+              * LONGPOST SPECIFIC: Use professional third-person analysis while addressing readers with "you" when relevant
+            - Examples: "You can join the movement" (reader), "BOB revolutionizes DeFi" (project), "It provides seamless integration" (project), "They are earning rewards" (other users)
+            
+            {f'''
+            📚 **SHITPOST PROMPT LIBRARY** (Use for {post_type.upper()} content ONLY):
+            
+            **QUICK REFERENCE TEMPLATES**:
+            Template 1: "[Food ordering] treating [food items] as tokenomics" → "Just ordered pizza analyzing pepperoni distribution like tokenomics. 65% cheese coverage, 20% allocation. Bullish on delivery 📊 #TokenTicker"
+            Template 2: "[Morning routine] as technical analysis" → "Coffee brewing patterns indicate bullish momentum. Strong support at 2 cups. Breaking caffeine ceiling = moon mission ☕📈"
+            Template 3: "[Household item] giving crypto alpha" → "Snake plant told me to DCA. Plants photosynthesize truth. When houseplants drop alpha, you listen 🌱 NFA"
+            Template 4: "[Traffic/daily frustration] = crypto scenario" → "Stuck in traffic thinking about gas fees. Red light lasting longer than trade confirmation. When IRL has worse TPS than ETH 🚗⛽"
+            Template 5: "[Random observation] = market insight" → "WiFi router restarted during Zoom. Same energy as market dumping after I buy. Technology and crypto love perfect timing 📶📉"
+            
+            **ENGAGEMENT HOOKS**: "Thoughts?", "Am I wrong tho?", "Few understand this", "Change my mind 🤔", "This you?"
+            **CASUAL PHRASES**: "Bullish on [X]", "Few understand", "NFA but...", "Still early", "Different breed", "Built different"
+            
+            **CONSTRUCTION FORMULA**: [Mundane Activity] + [Crypto Analysis] + [Community Hook] + [Ironic Wisdom] = Perfect Shitpost
+            ''' if post_type == 'shitpost' else ''}
+            
+            IMPORTANT: Use your content generation tool to create REAL content.
+            """ + (
+                # Longpost specific tool call
+                f'Call the tool with: "Create comprehensive longpost content for {project_name} ({token_ticker}) based on: {campaign_description[:200] if has_description else "campaign topic"}... CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet, hashtags_used, character_count, and approach keys (NO thread_array). 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include #{token_ticker} hashtag. 4) Main tweet: 2000-25000 characters total formatted in MARKDOWN with proper paragraphs, headers, and structure. 5) Use markdown formatting like **bold**, *italic*, ## headers, and line breaks for readability. 6) NO explanations, just pure JSON."' if post_type == 'longpost' else
+                # Shitpost specific tool call
+                f'Call the tool with: "Generate shitpost content for {project_name} ({token_ticker}) using the SHITPOST PROMPT LIBRARY. CRITICAL REQUIREMENTS: 1) Use ONE template from Food/Daily Life, Morning Routine, Household Activities, or Random Observations categories. 2) Replace [placeholders] with specific relatable details about daily life. 3) Connect mundane activity to {project_name} benefits naturally. 4) Include #{token_ticker} hashtag organically ONLY in main_tweet. 5) HASHTAG RULE: All hashtags (especially #{token_ticker}) must appear ONLY in main_tweet, NEVER in thread_array items. 6) Add engagement hook (Thoughts? Few understand this, etc.). 7) Return ONLY valid JSON with main_tweet key. 8) Max 250 chars + 30 hashtag chars. 9) NO explanations, just pure JSON. Example approach: Take Template 1 (pizza tokenomics) but adapt for your project benefits."' if post_type == 'shitpost' else
+                # Thread specific tool call  
+                f'Call the tool with: "Create Twitter thread about {project_name} ({token_ticker}) based on: {campaign_description[:100] if has_description else "campaign topic"}... CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet and thread_array keys. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include #{token_ticker} hashtag ONLY in main_tweet. 4) HASHTAG RULE: All hashtags (especially #{token_ticker}) must appear ONLY in main_tweet, NEVER in thread_array items. 5) Thread array items should be plain text without hashtags. 6) Main tweet max 250 chars + 30 hashtag chars. 7) NO explanations, just pure JSON."' if has_description else 
+                # Single tweet tool call
+                f'Call the tool with: "Create viral Twitter content about {project_name} ({token_ticker}). CRITICAL REQUIREMENTS: 1) Return ONLY valid JSON object with main_tweet key. 2) PRONOUN RULES: Use YOU/YOUR for reader, THEY/THEM for other users, IT/ITS for project. 3) Include relevant hashtags. 4) NO explanations, just pure JSON."'
+            ) + """
+            
+            CRITICAL OUTPUT FORMAT - MUST FOLLOW EXACTLY:
+            You MUST return ONLY a valid JSON object with NO additional text, explanations, or formatting.
+            
+            {f'FOR {post_type.upper()} CONTENT, use this EXACT JSON structure:' if post_type == 'longpost' else 
+             f'FOR {post_type.upper()} CAMPAIGNS, use this EXACT JSON structure:' if should_generate_thread else 
+             'FOR SINGLE TWEET CAMPAIGNS, use this EXACT JSON structure:'}
+            
+            """ + ('''{
+  "main_tweet": "## Your Comprehensive Longpost Title\n\nYour comprehensive longpost content here with **bold emphasis**, *italic text*, and proper markdown formatting (2000-25000 chars including hashtags)",
+  "hashtags_used": ["''' + token_ticker + '''", "DeFi", "Crypto", "Analysis"],
+  "character_count": 5247,
+  "approach": "comprehensive"
+}''' if post_type == 'longpost' else '''{
+  "main_tweet": "Your humorous shitpost main tweet here with hashtags #''' + token_ticker + ''' #shitpost #crypto (≤280 chars)",
+  "thread_array": [
+    "Second shitpost tweet building the joke - plain text, no hashtags (≤280 chars)",
+    "Third shitpost tweet continuing the absurdity - plain text, no hashtags (≤280 chars)"
+  ],
+  "hashtags_used": ["''' + token_ticker + '''", "shitpost", "crypto"],
+  "character_counts": {
+    "main_tweet": 278,
+    "thread_tweet_1": 275,
+    "thread_tweet_2": 280
+  },
+  "approach": "humorous"
+}''' if post_type == 'shitpost' else '''{
+  "main_tweet": "Your main tweet text here with hashtags (≤250 chars + ≤30 hashtag chars) #''' + token_ticker + ''' #DeFi #Crypto",
+  "thread_array": [
+    "Second tweet text here - plain text, no hashtags (≤280 chars)",
+    "Third tweet text here - plain text, no hashtags (≤280 chars)", 
+    "Fourth tweet text here - plain text, no hashtags (≤280 chars)"
+  ],
+  "hashtags_used": ["''' + token_ticker + '''", "DeFi", "Crypto"],
+  "character_counts": {
+    "main_tweet_text": 245,
+    "main_tweet_hashtags": 28,
+    "thread_tweet_1": 275,
+    "thread_tweet_2": 280,
+    "thread_tweet_3": 265
+  },
+  "approach": "engaging"
+}''' if should_generate_thread else '''{
+  "main_tweet": "Your single tweet text here (≤280 chars total)",
+  "hashtags_used": ["''' + (token_ticker if token_ticker else 'TOKEN') + '''", "DeFi", "Crypto"],
+  "character_count": 275,
+  "approach": "engaging"
+}''') + """
+
+            CRITICAL JSON RULES:
+            - Return ONLY the JSON object, no other text
+            - Use double quotes for all strings
+            - Ensure all JSON syntax is valid
+            - No trailing commas
+            - No comments or explanations outside the JSON
+            - Test JSON validity before returning
+            - HASHTAG PLACEMENT: All hashtags (especially token hashtag) MUST appear ONLY in main_tweet, NEVER in thread_array items
+            - Thread array items should be plain text without any hashtags
+            
+            """ + ("""EXAMPLE VALID JSON OUTPUT:
+{
+  "main_tweet": "🚀 """ + project_name + """ is revolutionizing crypto gains! You can join the movement and start earning with its innovative DeFi solutions 💰🔥 #""" + token_ticker + """ #DeFi",
+  "thread_array": [
+    "With """ + project_name + """, you get the best of both worlds - security and yield opportunities",
+    "Thousands of users are already earning with its innovative platform",
+    "You can maximize your potential - the opportunity is available now! 🚀"
+  ],
+  "hashtags_used": ["``` + token_ticker + ```", "DeFi"],
+  "character_counts": {
+    "main_tweet_text": 245,
+    "main_tweet_hashtags": 28,
+    "thread_tweet_1": 275,
+    "thread_tweet_2": 280,
+    "thread_tweet_3": 265
+  },
+  "approach": "engaging"
+}""" if has_description else """EXAMPLE VALID JSON OUTPUT:
+{
+  "main_tweet": "🚀 """ + project_name + """ is revolutionizing crypto gains! You can join and start earning 💰🔥 #""" + token_ticker + """ #DeFi",
+  "hashtags_used": ["``` + token_ticker + ```", "DeFi"],
+  "character_count": 275,
+  "approach": "engaging"
+}""") + """
+            
+            STRICT VALIDATION REQUIREMENTS:
+            ✓ Return ONLY valid JSON - no extra text, explanations, or formatting
+            {f'✓ Use exact key names: "main_tweet", "hashtags_used", "character_counts", "approach" (NO thread_array for longpost)' if post_type == 'longpost' else 
+             '✓ Use exact key names: "main_tweet", "thread_array", "hashtags_used", "character_counts"'}
+            {f'✓ Main tweet content: 2000-25000 characters total (comprehensive longpost)' if post_type == 'longpost' else 
+             '✓ Main tweet text content ≤ 250 characters'}
+            {f'✓ Include relevant hashtags within the character limit' if post_type == 'longpost' else 
+             '✓ Main tweet hashtags ≤ 30 characters total'}
+            ✓ Main tweet includes #{token_ticker} hashtag
+            {'' if post_type == 'longpost' else 
+             f'{"✓ Each thread tweet ≤ 280 characters total" if has_description else ""}'}
+            {'' if post_type == 'longpost' else 
+             f'{"✓ Thread tweets ideally 200-240 characters" if has_description else ""}'}
+            ✓ No "WAGMI" references anywhere
+            ✓ Correct pronoun usage: YOU/YOUR (reader), THEY/THEM (other users), IT/ITS (project)
+            ✓ Direct engagement with reader using second-person pronouns
+            ✓ JSON syntax must be perfect (no trailing commas, proper quotes)
+            
+            REMEMBER: Generate engaging approach content ONLY. Return pure JSON with no additional commentary.
+            """,
             agent=self.agents[AgentType.TEXT_CONTENT],
             expected_output=f"Single JSON object with main_tweet, {'hashtags_used, character_counts, and approach fields' if post_type == 'longpost' else 'thread_array, hashtags_used, and character_counts fields'} - no additional text or explanations"
         )
@@ -1701,26 +1930,6 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             You have access ONLY to tools for their chosen providers.
             
             Generate REAL visual content using your available tools:
-            
-            📝 **TEXT CONTENT ANALYSIS INSTRUCTIONS**:
-            You will receive the Text Content Creator's JSON output as input. Parse and analyze it based on post type:
-            
-            **FOR THREAD/SHITPOST** - Analyze the complete JSON structure:
-            {{
-                "main_tweet": "the main tweet text here",
-                "thread_array": ["first thread tweet", "second thread tweet", "third thread tweet"],
-                "hashtags_used": [...],
-                "character_counts": {{...}}
-            }}
-            → Use BOTH main_tweet AND all thread_array content to understand the full narrative and emotional journey
-            
-            **FOR LONGPOST** - Analyze the main_tweet field containing the full content:
-            {{
-                "main_tweet": "the comprehensive longpost content here (2000-25000 characters)",
-                "hashtags_used": [...],
-                "character_counts": {{...}}
-            }}
-            → Use the complete longpost content to extract themes, emotions, and key concepts
             
             Campaign Context:
             - Title: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
@@ -1807,108 +2016,92 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             🎯 **CONTENT GENERATION SPECIFICATIONS**:
             
-            🎨 **AUTONOMOUS ARTISTIC STYLE SELECTION** (CRITICAL):
-            You are an intelligent visual creator who independently chooses the best artistic style based on the tweet content and emotional tone. Do NOT rely on templates - create original, dynamic prompts that match the content perfectly.
+            📚 **WORLD-CLASS PROMPT EXAMPLES** (CRITICAL REFERENCE):
+            Use these professional prompt patterns as inspiration to create similar quality prompts relevant to your campaign:
             
-            **ARTISTIC STYLE CATEGORIES** (Choose autonomously based on content):
+            **MEME CULTURE & FOMO PATTERN EXAMPLES**:
+            - "A cartoon Shiba Inu wearing diamond grillz and a 'HODL' chain necklace, sitting on a pile of golden coins with laser eyes, surrounded by rocket emojis, hyperdetailed, 8K resolution, masterpiece quality, vibrant colors, studio lighting"
+            - "Pepe the frog dressed as a crypto trader with multiple monitors showing green candles, wearing sunglasses with dollar signs reflected in them, photorealistic rendering, 8K ultra-detailed, award-winning digital art, cinematic lighting"
+            - "Chad wojak character with glowing blue eyes pointing directly at viewer, wearing a hoodie with 'You're Still Early' text, background filled with ascending price charts and diamond hands emojis, hyperrealistic digital art, 8K resolution, dramatic lighting"
+            - "A minimalist countdown timer with 'Last Call for Alpha' text, numbers glowing in urgent red with sweat drops around it, clean digital display art, 8K sharp resolution, urgent lighting effects"
             
-            **STYLE OPTIONS** (Select what fits the tweet emotion):
-            • Comic/Cartoon - for humorous, relatable content
-            • Meme/Internet Culture - for FOMO, viral content  
-            • Techno/Cyberpunk - for futuristic, innovation themes
-            • FOMO/Urgency - for time-sensitive opportunities
-            • Animated/Dynamic - for action-oriented content
-            • Community/Social - for inclusive, gathering themes
-            • Urgency/Pressure - for "last chance" messaging
-            • Vector Art/Clean - for professional, minimalist content
-            • Hyper Realistic - for serious, credible messaging
-            • Photo Realistic - for authentic, trustworthy content
-            • Pixel Art/Retro - for nostalgic, gaming references
-            • Studio Lightning - for polished, professional look
-            • Cinematic - for dramatic, epic storytelling
-            • Abstract/Conceptual - for complex ideas visualization
+            **ANIMATED VISUAL & TECH AESTHETIC PATTERNS**:
+            - "A holographic trading interface floating in mid-air with a silhouetted figure manipulating glowing charts, cyberpunk aesthetic with purple and teal neon, photorealistic CGI, 8K resolution, volumetric lighting"
+            - "A digital avatar with glowing circuit pattern skin, wearing AR glasses reflecting trading charts, set against a matrix-style falling code background, photorealistic 3D render, 8K resolution, cyberpunk lighting"
+            - "A sleek robot hand holding a glowing orb containing swirling galaxy of cryptocurrency logos, with 'The Future is Now' in holographic text, hyperrealistic mechanical design, 8K ultra-detailed, dramatic studio lighting"
             
-            **ESSENTIAL QUALITY KEYWORDS** (ALWAYS include these for professional output):
+            **COMMUNITY & SOCIAL ENGAGEMENT PATTERNS**:
+            - "A cozy campfire scene with diverse cartoon characters sharing stories, but the fire is made of glowing cryptocurrency symbols, 3D cartoon render, 8K resolution, warm campfire lighting"
+            - "A minimalist illustration of puzzle pieces coming together to form a larger picture, each piece representing different community members, clean vector art, 8K sharp resolution, perfect geometric precision"
+            - "A vibrant festival scene with different booths for various crypto projects, characters enjoying rides and games, carnival photography style, 8K ultra-detailed, festive lighting"
             
-            **Resolution & Detail**:
-            "8K resolution", "4K resolution", "ultra-detailed", "hyperdetailed", "sharp focus", "crisp lines", "pixel-perfect"
+            **ESSENTIAL QUALITY KEYWORDS TO ALWAYS INCLUDE**:
+            - Resolution: "8K resolution", "4K resolution", "ultra-detailed", "hyperdetailed", "sharp focus", "pixel-perfect"
+            - Photography: "photorealistic", "award-winning photography", "studio lighting", "cinematic lighting", "dramatic lighting"
+            - Art Quality: "masterpiece", "masterful composition", "award-winning digital art", "ultra-high quality", "premium quality"
+            - Rendering: "hyperrealistic CGI", "3D render", "volumetric lighting", "perfect reflections", "dynamic lighting effects"
+            - Style: "clean vector art", "geometric precision", "vibrant color palette", "rich color depth", "atmospheric lighting"
             
-            **Photography Terms**:  
-            "Photorealistic", "award-winning photography", "studio lighting", "cinematic lighting", "dramatic lighting", "professional photography"
+            📖 **INTELLIGENT PROMPT GENERATION PROCESS** (CRITICAL):
+            1. **Analyze Tweet Content**: Extract key themes, emotions, and concepts from the Text Content Creator's output
+            2. **Match Pattern Category**: Determine if content fits Meme/FOMO, Tech/Aesthetic, Community, or FOMO/Urgency themes
+            3. **Adapt Example Structure**: Use the pattern structure from examples but customize content to match tweet themes
+            4. **Include Quality Keywords**: Always incorporate professional quality descriptors for world-class output
+            5. **Maintain Relevance**: Ensure the visual prompt directly relates to and enhances the tweet message
             
-            **Art Quality**:
-            "Masterpiece", "masterful composition", "award-winning digital art", "ultra-high quality", "best quality", "premium quality"
+            **PROMPT PATTERN LIBRARY** (USE AS TEMPLATES):
             
-            **Rendering & Effects**:
-            "Hyperrealistic CGI", "3D render", "volumetric lighting", "perfect reflections", "dynamic lighting effects"
+            **Category 1: MEME CULTURE & FOMO (25 patterns)**
+            Examples for urgent, FOMO-driven content:
+            - "A [character] wearing [crypto accessory] with [urgency text], surrounded by [success symbols], [art style], 8K resolution, [lighting type]"
+            - "A minimalist [time element] with '[urgent message]' text, [visual urgency cues], clean digital art, 8K sharp resolution, urgent lighting effects"
+            - "A pixel art [opportunity metaphor] with '[FOMO message]' flashing, retro aesthetic, 4K pixel-perfect, [emotional lighting]"
             
-            **Style Descriptors**:
-            "Clean vector art", "geometric precision", "vibrant color palette", "rich color depth", "atmospheric lighting"
+            **Category 2: ANIMATED VISUAL & TECH (25 patterns)**
+            Examples for futuristic, tech-focused content:
+            - "A holographic [tech interface] floating in mid-air with [character] manipulating [data visualization], cyberpunk aesthetic, photorealistic CGI, 8K resolution, volumetric lighting"
+            - "A digital [character] with [tech features], set against [futuristic background], photorealistic 3D render, 8K resolution, cyberpunk lighting"
+            - "A sleek [tech object] containing [crypto elements], hyperrealistic mechanical design, 8K ultra-detailed, dramatic studio lighting"
             
-            📖 **AUTONOMOUS PROMPT GENERATION PROCESS** (CRITICAL):
-            You are an AI visual expert who creates original, compelling prompts without relying on templates. Your mission is to analyze tweet content and craft unique, high-impact visual prompts that perfectly complement the message.
+            **Category 3: COMMUNITY & SOCIAL (25 patterns)**
+            Examples for community-building content:
+            - "A cozy [social setting] with [diverse characters] [community activity], but [crypto twist], 3D cartoon render, 8K resolution, warm [ambient] lighting"
+            - "A minimalist illustration of [connection metaphor] representing [community concept], clean vector art, 8K sharp resolution, perfect geometric precision"
+            - "A vibrant [gathering scene] with [community elements], [photography style], 8K ultra-detailed, [social lighting]"
             
-            **STEP-BY-STEP AUTONOMOUS PROCESS**:
+            **Category 4: FOMO & URGENCY (25 patterns)**
+            Examples for time-sensitive content:
+            - "A [time/speed metaphor] with '[urgent action]' and [character] [urgent action], [style], 8K ultra-detailed, [urgency lighting], [pressure visualization]"
+            - "A sleek [vehicle/transport] showing '[progress metric]' with [action element], [photography type], 8K resolution, [speed lighting]"
+            - "A minimalist [opportunity symbol] with '[scarcity message]' and [visual urgency], [vector style], 8K sharp resolution, [time pressure lighting]"
             
-            1. **Deep Content Analysis** (Post-Type Specific): 
-               - **FOR THREAD/SHITPOST**: Analyze BOTH main_tweet AND complete thread_array from Text Content Creator's JSON output
-               - **FOR LONGPOST**: Analyze the comprehensive main_tweet (longpost content) from Text Content Creator's JSON output
-               - Read ALL the generated text content thoroughly to understand the complete narrative
-               - Identify core emotions: excitement, urgency, community, innovation, FOMO, humor, etc.
-               - Extract key concepts: project features, benefits, community aspects, timing, opportunities
-               - Determine the primary message goal: inform, excite, create urgency, build community, etc.
-               - Consider the full content scope when designing visual concepts
+            **INTELLIGENT PROMPT ADAPTATION RULES**:
+            1. **Text Analysis**: Extract emotional tone (FOMO, excitement, community, tech)
+            2. **Category Selection**: Match tweet sentiment to appropriate pattern category
+            3. **Template Customization**: Replace bracketed elements with campaign-specific content
+            4. **Quality Enhancement**: Always append professional quality keywords
+            5. **Relevance Check**: Ensure visual directly supports and amplifies tweet message
             
-            2. **Intelligent Style Selection**:
-               - Choose the most appropriate artistic style from the options above
-               - Consider your target audience (Web3 GenZ, crypto enthusiasts, tech-savvy users)
-               - Match visual complexity to message complexity
-               - Decide on realism level: cartoon → stylized → photorealistic
+            **PROFESSIONAL QUALITY FORMULA**:
+            [Core Visual Concept] + [Specific Details] + [Art Style] + [Quality Keywords] + [Lighting] + [Resolution]
             
-            3. **Original Concept Creation**:
-               - Generate a unique visual concept that amplifies the tweet's message
-               - Create original scenes, characters, or compositions (do NOT copy templates)
-               - Incorporate crypto/Web3 cultural elements naturally when relevant
-               - Design for maximum viral potential and engagement
-            
-            4. **Professional Enhancement**:
-               - Always include Essential Quality Keywords for professional output
-               - Specify appropriate lighting that enhances the mood
-               - Add technical specifications (resolution, rendering quality)
-               - Ensure Twitter-optimized dimensions and mobile readability
-            
-            5. **Prompt Optimization**:
-               - Structure: [Main Visual Concept] + [Specific Details] + [Style] + [Quality Keywords] + [Technical Specs]
-               - Keep prompts clear, specific, and actionable for AI models
-               - Include emotional descriptors that match the tweet's tone
-               - Ensure visual directly supports and amplifies the tweet message
-            
-            **AUTONOMOUS CREATIVE EXAMPLES** (Your style of thinking):
-            
-            Example Analysis Process:
-            Tweet: "BOB's hybrid model is revolutionizing Bitcoin DeFi"
-            → Emotion: Innovation, confidence, breakthrough
-            → Style: Techno/cyberpunk with professional credibility  
-            → Original Concept: Bitcoin and Ethereum symbols merging into a new hybrid form with energy flowing between them
-            → Generated Prompt: "Two golden orbs representing Bitcoin and Ethereum slowly merging into a brilliant hybrid symbol, with energy streams flowing between them in a high-tech laboratory setting, surrounding holographic charts showing upward growth, cyberpunk aesthetic with blue and gold neon lighting, photorealistic CGI, 8K ultra-detailed, dramatic technological lighting, masterpiece quality, award-winning digital art"
-            
-            This approach ensures variety, creativity, and perfect message-visual alignment for every unique tweet!
+            Example Transformation:
+            Tweet: "Still early to Web3 - don't fade this opportunity"
+            Generated Prompt: "A sleek rocket ship labeled 'Web3 Express' already lifting off from launching pad with boarding ladder still dangling down, text 'Still Early - Last Call for Boarding' in neon letters, photorealistic space photography, 8K ultra-detailed, dramatic launch lighting, cinematic composition, masterpiece quality"
             
             **WORLD-CLASS IMAGE GENERATION REQUIREMENTS**:
             - Use your configured image tool ({f"{image_provider}_image_generation" if has_image_tool else "none available"})
-            - **MANDATORY**: Follow the Autonomous Prompt Generation Process above - NO TEMPLATES
-            - **STEP 1**: Deep analysis of ALL Text Content Creator's output (main_tweet + thread_array for threads/shitposts, or full longpost content) for emotional tone and core concepts
-            - **STEP 2**: Intelligent selection of artistic style that best fits the content
-            - **STEP 3**: Original concept creation that amplifies the tweet's message uniquely
-            - **STEP 4**: Professional enhancement with Essential Quality Keywords
-            - **STEP 5**: Prompt optimization for maximum AI model effectiveness
-            - **CRITICAL**: Create original, dynamic prompts that ensure variety and prevent repetitive imagery
-            - Campaign context: "{self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
+            - **MANDATORY**: Use the prompt pattern library above to generate professional-quality prompts
+            - **STEP 1**: Analyze the Text Content Creator's tweet for emotional tone and themes
+            - **STEP 2**: Select appropriate pattern category (Meme/FOMO, Tech/Aesthetic, Community, Urgency)
+            - **STEP 3**: Customize template with campaign-specific elements: "{self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
+            - **STEP 4**: Apply professional quality keywords (8K resolution, masterpiece, cinematic lighting, etc.)
+            - **CRITICAL**: Generate prompts similar in structure and quality to the examples provided
             - Twitter-optimized dimensions with maximum visual impact
-            - Include compelling visual elements that enhance engagement and message clarity
-            - High viral potential with Web3 culture and emotional resonance
-            - Professional finish suitable for crypto/Web3 audience
-            - Ensure visual diversity across different content generations
+            - Include compelling text elements only when appropriate to enhance engagement and message clarity
+            - High viral potential with meme culture and FOMO elements
+            - Professional finish suitable for Web3 GenZ audience
+            - Test that entire text content fits within the canvas dimensions
             
             **VIDEO GENERATION REQUIREMENTS**:
             - Use your configured video tool ({f"{video_provider}_video_generation" if has_video_tool else "none available"})
@@ -1935,36 +2128,48 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             6. Explain why fallbacks were necessary (API unavailable, model failed, etc.)
             7. Maintain campaign quality regardless of which tools are used
             
-            📝 **AUTONOMOUS CREATIVE WORKFLOW**:
+            📝 **WORLD-CLASS PROMPT GENERATION WORKFLOW**:
             
-            **YOUR INTELLIGENT PROCESS** (No templates - pure creativity):
-            1. **Deep Tweet Analysis**: Extract the emotional core and key message concepts from Text Content Creator's output
-            2. **Autonomous Style Decision**: Choose the perfect artistic style based on content emotion and target impact
-            3. **Original Concept Generation**: Create a unique, never-before-seen visual concept that amplifies the message
-            4. **Professional Enhancement**: Add Essential Quality Keywords for maximum AI model performance
-            5. **Prompt Optimization**: Structure for clarity, impact, and technical excellence
+            **STEP-BY-STEP PROCESS**:
+            1. **Tweet Analysis**: Read the Text Content Creator's output and extract:
+               - Key emotions (excitement, urgency, community, tech-focus)
+               - Main message theme (FOMO, opportunity, innovation, exclusivity)
+               - Target sentiment (bullish, sarcastic, urgent, inclusive)
             
-            **CREATIVE THINKING EXAMPLES** (Your autonomous approach):
+            2. **Pattern Category Selection**:
+               - FOMO/Urgent content → Use Category 1 (Meme Culture & FOMO) or Category 4 (FOMO & Urgency)
+               - Tech/Innovation content → Use Category 2 (Animated Visual & Tech)
+               - Community/Social content → Use Category 3 (Community & Social)
+            
+            3. **Template Customization**:
+               - Replace [character] with relevant crypto mascots (Shiba Inu, Pepe, Chad, etc.)
+               - Replace [crypto accessory] with diamond grillz, HODL chains, laser eyes, etc.
+               - Replace [urgency text] with content matching tweet message
+               - Replace [success symbols] with rockets, moons, diamonds, green candles
+               - Replace [lighting type] with dramatic, cinematic, neon, holographic
+            
+            4. **Quality Enhancement**:
+               - ALWAYS include resolution: "8K resolution" or "4K resolution"
+               - ALWAYS include quality: "masterpiece", "award-winning", "ultra-detailed"
+               - ALWAYS include lighting: "cinematic lighting", "dramatic lighting", "studio lighting"
+               - ALWAYS include style: "photorealistic", "hyperrealistic CGI", "clean vector art"
+            
+            5. **Final Prompt Construction**:
+               Format: [Visual Scene] + [Specific Details] + [Quality Keywords] + [Technical Specs]
+            
+            **EXAMPLE ADAPTATIONS**:
             
             Tweet: "gm Web3 fam 🌅 Ready to build the future?"
-            → Analysis: Warm, community-focused, forward-looking, inclusive
-            → Style Choice: Community/Social with optimistic lighting
-            → Original Concept: A diverse group of people silhouetted against a rising digital sun, with their devices casting holographic blueprints of tomorrow's tech
-            → Autonomous Prompt: "Silhouettes of diverse people standing on a hill watching a digital sunrise with holographic blueprints of futuristic technology floating between them, warm golden and blue lighting creating hope and community feeling, photorealistic digital art, 8K ultra-detailed, cinematic composition, masterpiece quality"
+            → Category: Community & Social
+            → Generated Prompt: "A cozy sunrise campfire scene with diverse animated crypto characters (Pepe, Shiba, Chad) sharing morning coffee and laptops showing DeFi protocols, warm golden sunrise lighting through forest trees, 3D cartoon render, 8K resolution, masterpiece quality, warm campfire lighting, hyperdetailed character expressions"
             
-            Tweet: "Time's running out - don't miss the opportunity 🚨"
-            → Analysis: Urgent, pressure, FOMO, time-sensitive action needed
-            → Style Choice: FOMO/Urgency with dramatic tension
-            → Original Concept: An hourglass with opportunities literally falling through while hands reach desperately upward
-            → Autonomous Prompt: "A giant crystal hourglass with golden opportunity symbols (keys, coins, doors) falling through the narrow center while multiple hands reach upward from below trying to catch them, dramatic red and gold lighting with urgency effects, hyperrealistic 3D render, 8K resolution, dynamic motion capture, award-winning digital art"
+            Tweet: "Last chance to get in before 100x 🚀"
+            → Category: FOMO & Urgency  
+            → Generated Prompt: "A sleek golden rocket ship already 50% launched from Earth with boarding ladder dangling down, desperate stick figures running toward it with crypto wallets in hand, photorealistic space photography, 8K ultra-detailed, dramatic launch lighting, cinematic composition, masterpiece quality, dynamic motion blur"
             
-            Tweet: "Building the next generation of decentralized finance"
-            → Analysis: Innovation, construction, future-focused, technical advancement
-            → Style Choice: Techno/Cyberpunk with architectural elements
-            → Original Concept: Architects of light constructing transparent financial structures in digital space
-            → Autonomous Prompt: "Ethereal figures made of light constructing complex geometric financial structures floating in digital space, with data streams flowing through transparent architecture, cyberpunk aesthetic with purple and teal energy flows, photorealistic CGI, 8K ultra-detailed, volumetric lighting, masterpiece architectural visualization"
-            
-            This autonomous approach ensures every image is unique, contextually perfect, and professionally crafted!
+            Tweet: "The future of finance is being built right now 🏗️"
+            → Category: Animated Visual & Tech
+            → Generated Prompt: "A holographic construction site floating in space with digital workers building transparent blockchain towers using light beams, futuristic hard hats with crypto logos, construction crane made of interconnected nodes, cyberpunk aesthetic with purple and teal neon, photorealistic CGI, 8K resolution, volumetric lighting, hyperrealistic mechanical details"
             
             CRITICAL OUTPUT FORMAT - MUST FOLLOW EXACTLY:
             You MUST return ONLY a valid JSON object with NO additional text, explanations, or formatting.
@@ -3518,13 +3723,13 @@ CRITICAL REQUIREMENTS:
                 approach_patterns = ['engaging_approach', 'bold_approach', 'conservative_approach']
                 for approach in approach_patterns:
                     # Look for main_tweet in this approach
-                    main_tweet_match = re.search(rf'"{approach}":\s*{{[^}}]*"main_tweet":\s*"([^"]+)"', agent_outputs, re.DOTALL)
+                    main_tweet_match = re.search(f'"{approach}":\s*{{[^}}]*"main_tweet":\s*"([^"]+)"', agent_outputs, re.DOTALL)
                     if main_tweet_match:
                         tweet_text = main_tweet_match.group(1)
                         logger.info(f"✅ Found main_tweet in {approach}: {tweet_text[:50]}...")
                         
                         # Look for thread_array in the same approach
-                        thread_match = re.search(rf'"{approach}":\s*{{[^}}]*"thread_array":\s*\[([^\]]+)\]', agent_outputs, re.DOTALL)
+                        thread_match = re.search(f'"{approach}":\s*{{[^}}]*"thread_array":\s*\[([^\]]+)\]', agent_outputs, re.DOTALL)
                         if thread_match:
                             thread_content = thread_match.group(1)
                             # Parse the array elements
@@ -5121,18 +5326,11 @@ class FalAIImageTool(BaseTool):
             if user_provider != 'fal':
                 return f"❌ User selected '{user_provider}' as provider. Use {user_provider}_image_generation tool instead."
             
-            # Enhance prompt with logo color preservation if needed
-            final_prompt = prompt
-            if self.include_brand_logo and self.project_logo_url and preferred_model == 'flux-pro/kontext':
-                # Append logo color preservation instruction naturally
-                final_prompt = f"{prompt}. Keep reference logo colors intact and original."
-                logger.info(f"🏷️ Enhanced prompt with logo color preservation instruction")
-            
             # Prepare generation parameters
             generation_params = {
                 "provider": "fal",
                 "content_type": "image",
-                "prompt": final_prompt,
+                "prompt": prompt,
                 "model": preferred_model,
                 "user_api_key": self.api_key,
                 "wallet_address": self.wallet_address,

@@ -65,6 +65,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
     startDate: '',
     endDate: '',
     guidelines: '',
+    projectTwitterHandle: '', // For fetching latest tweets
   })
   const [showSuccess, setShowSuccess] = useState(false)
   const [logoPreview, setLogoPreview] = useState<string>('')
@@ -122,6 +123,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
           startDate: '',
           endDate: '',
           guidelines: '',
+          projectTwitterHandle: '',
         })
         setLogoPreview('')
       }, 1500)
@@ -152,6 +154,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
       brandGuidelines: formData.guidelines || undefined,
+      projectTwitterHandle: formData.projectTwitterHandle || undefined,
     }
 
     console.log('🚀 Submitting campaign data:', campaignData)
@@ -253,6 +256,24 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
                 />
               </div>
 
+              <div>
+                <label htmlFor="projectTwitterHandle" className="block text-sm font-medium text-gray-700 mb-1">
+                  Project Twitter Handle <span className="text-gray-500">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  id="projectTwitterHandle"
+                  name="projectTwitterHandle"
+                  value={formData.projectTwitterHandle}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="@projectname"
+                />
+                <p className="text-xs text-gray-500 mt-1">We'll fetch latest tweets for content context</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="projectLogo" className="block text-sm font-medium text-gray-700 mb-1">
                   Project Logo

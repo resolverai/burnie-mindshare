@@ -2,6 +2,10 @@ import os
 from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
+
+# Explicitly load .env file
+load_dotenv()
 
 class Settings(BaseSettings):
     """Application settings"""

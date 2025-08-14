@@ -1,15 +1,29 @@
+import os
+# 🔇 Disable CrewAI telemetry to prevent connection timeout errors to telemetry.crewai.com
+os.environ['OTEL_SDK_DISABLED'] = 'true'
+os.environ['OTEL_TRACES_EXPORTER'] = 'none'
+os.environ['OTEL_METRICS_EXPORTER'] = 'none'
+os.environ['OTEL_LOGS_EXPORTER'] = 'none'
+
 import asyncio
 import json
 import logging
+import warnings
+
+# Suppress telemetry-related warnings
+warnings.filterwarnings("ignore", message=".*telemetry.*")
+warnings.filterwarnings("ignore", message=".*opentelemetry.*")
+warnings.filterwarnings("ignore", message=".*crewai.*telemetry.*")
 from datetime import datetime
 from typing import Dict, List, Optional
 import uuid
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import text
 import uvicorn
+from fastapi.responses import JSONResponse
 
 from app.config.settings import settings
 from app.database.connection import init_db, close_db
@@ -110,6 +124,7 @@ class CampaignAgentPair(BaseModel):
     agent_id: int
     campaign_context: dict
     post_type: Optional[str] = "thread"  # New field: "shitpost", "longpost", or "thread"
+    include_brand_logo: Optional[bool] = False  # New field: whether to include brand logo in generated images
 
 class StartMiningRequest(BaseModel):
     """Request model for starting content generation"""
@@ -447,7 +462,8 @@ async def run_multi_campaign_generation(
                     campaign_context=campaign_pair.campaign_context,
                     user_preferences=user_preferences,
                     user_api_keys=user_api_keys,
-                    post_type=campaign_pair.post_type  # Pass post_type to mining session
+                    post_type=campaign_pair.post_type,  # Pass post_type to mining session
+                    include_brand_logo=campaign_pair.include_brand_logo  # Pass brand logo preference
                 )
                 
                 # Add to progress tracker
@@ -461,6 +477,11 @@ async def run_multi_campaign_generation(
                     websocket_manager=manager,
                     websocket_session_id=session_id  # Use main session ID for WebSocket communication to frontend
                 )
+                
+                # Set the mining session so it can access campaign context
+                crew_service.mining_session = mining_session
+                
+                # Twitter context will be fetched automatically during generate_content()
                 
                 # Run content generation for this specific campaign
                 result = await crew_service.generate_content(
@@ -501,7 +522,11 @@ async def run_multi_campaign_generation(
                 return campaign_content
                 
             except Exception as e:
+                import traceback
                 logger.error(f"❌ Error generating content for campaign {campaign_pair.campaign_id}: {e}")
+                logger.error(f"❌ Full traceback for campaign {campaign_pair.campaign_id}:")
+                logger.error(traceback.format_exc())
+                traceback.print_exc()  # Print to console as well
                 return {
                     "campaign_id": campaign_pair.campaign_id,
                     "agent_id": campaign_pair.agent_id,
@@ -645,6 +670,108 @@ async def test_websocket(session_id: str):
         "timestamp": datetime.utcnow().isoformat()
     })
     return {"message": "Test message sent to WebSocket"}
+
+@app.post("/api/ai/fetch-project-twitter")
+async def fetch_project_twitter(request: Request):
+    """
+    Fetch Twitter data for a project
+    """
+    try:
+        data = await request.json()
+        project_id = data.get('project_id')
+        project_name = data.get('project_name', 'Unknown Project')
+        twitter_handle = data.get('twitter_handle')
+        # Handle both 'fetch_type' and 'source' field names for backward compatibility
+        fetch_type = data.get('fetch_type') or data.get('source', 'manual')
+        
+        if not project_id or not twitter_handle:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Missing required fields: project_id, twitter_handle"
+                }
+            )
+        
+        logger.info(f"🐦 Twitter fetch requested for project {project_id} (@{twitter_handle})")
+        logger.info(f"🔍 Request parameters: project_id={project_id}, project_name='{project_name}', twitter_handle='{twitter_handle}', fetch_type='{fetch_type}'")
+        
+        # Import here to avoid circular imports
+        logger.info("🔧 Attempting to import project_twitter_integration...")
+        from app.services.project_twitter_integration import project_twitter_integration
+        logger.info("✅ Successfully imported project_twitter_integration")
+        
+        if fetch_type == 'campaign_creation':
+            # Initial fetch when campaign is created
+            logger.info(f"📋 Routing to campaign_creation_fetch")
+            result = await project_twitter_integration.handle_campaign_creation_fetch(
+                project_id=int(project_id),
+                project_name=str(project_name),
+                twitter_handle=str(twitter_handle)
+            )
+        elif fetch_type in ['campaign_edit_admin', 'campaign_edit', 'manual']:
+            # Fetch when campaign is updated/edited or manual trigger
+            logger.info(f"📋 Routing to campaign_edit_fetch (treating as campaign operation)")
+            result = await project_twitter_integration.handle_campaign_creation_fetch(
+                project_id=int(project_id),
+                project_name=str(project_name),
+                twitter_handle=str(twitter_handle)
+            )
+        else:
+            # Daily refresh during content generation
+            logger.info(f"📋 Routing to content_generation_fetch for fetch_type: {fetch_type}")
+            result = await project_twitter_integration.handle_content_generation_fetch(
+                project_id=int(project_id),
+                project_name=str(project_name),
+                twitter_handle=str(twitter_handle)
+            )
+        
+        logger.info(f"📊 Fetch result: {result}")
+        
+        return JSONResponse(content=result)
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"❌ Error fetching project Twitter data: {e}")
+        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+        traceback.print_exc()  # Print to console as well
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "posts_fetched": 0
+            }
+        )
+
+@app.get("/api/ai/project-twitter-context/{project_id}")
+async def get_project_twitter_context(project_id: int):
+    """
+    Get Twitter context for AI content generation
+    """
+    try:
+        logger.info(f"📝 Getting Twitter context for project {project_id}")
+        
+        from app.services.project_twitter_integration import project_twitter_integration
+        
+        context = await project_twitter_integration.get_project_twitter_context(project_id)
+        
+        return JSONResponse(content={
+            "success": True,
+            "context": context,
+            "project_id": project_id
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting Twitter context for project {project_id}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "context": ""
+            }
+        )
 
 if __name__ == "__main__":
     uvicorn.run(

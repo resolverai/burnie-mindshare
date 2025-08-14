@@ -56,6 +56,9 @@ interface Campaign {
   submission_rate: number;
   is_full: boolean;
   project: any;
+  projectName?: string; // Project name from campaigns table
+  projectLogo?: string; // Project logo URL from campaigns table
+  tokenTicker?: string; // Token ticker from campaigns table
 }
 
 interface PersonalizedAgent {
@@ -80,6 +83,7 @@ interface CampaignSelection {
   campaign: Campaign;
   selectedAgent: PersonalizedAgent | null;
   postType: 'shitpost' | 'longpost' | 'thread'; // New field for post type
+  includeBrandLogo: boolean; // New field for brand logo inclusion
 }
 
 interface GeneratedContent {
@@ -330,6 +334,7 @@ export default function Mining() {
             campaign_id: selection.campaign.id,
             agent_id: selection.selectedAgent?.id,
             post_type: selection.postType, // Include post type for each campaign
+            include_brand_logo: selection.includeBrandLogo, // Include brand logo preference
             campaign_context: {
               title: selection.campaign.title,
               description: selection.campaign.description,
@@ -338,7 +343,11 @@ export default function Mining() {
               topic: selection.campaign.topic,
               guidelines: selection.campaign.guidelines,
               winner_reward: selection.campaign.winner_reward,
-              platform_source: selection.campaign.platform_source
+              platform_source: selection.campaign.platform_source,
+              projectId: selection.campaign.project?.id, // Include project ID for logo access
+              projectName: selection.campaign.projectName || selection.campaign.title,
+              projectLogoUrl: selection.campaign.projectLogo, // Include project logo URL
+              tokenTicker: selection.campaign.tokenTicker // Include token ticker
             }
       }))
       
@@ -586,7 +595,7 @@ export default function Mining() {
       } else {
         // Add campaign with default agent (first available) and thread post type
         const firstAgent = userAgents && userAgents.length > 0 ? userAgents[0] : null
-        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const }]
+        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const, includeBrandLogo: false }]
       }
     })
   }
@@ -606,6 +615,16 @@ export default function Mining() {
       prev.map(selection => 
         selection.campaign.id === campaignId 
           ? { ...selection, postType }
+          : selection
+      )
+    )
+  }
+
+  const updateBrandLogo = (campaignId: number, includeBrandLogo: boolean) => {
+    setSelectedCampaigns(prev => 
+      prev.map(selection => 
+        selection.campaign.id === campaignId 
+          ? { ...selection, includeBrandLogo }
           : selection
       )
     )
@@ -635,7 +654,8 @@ export default function Mining() {
       const newSelections: CampaignSelection[] = filteredCampaigns.map(campaign => ({
         campaign,
         selectedAgent: firstAgent,
-        postType: 'thread' as const
+        postType: 'thread' as const,
+        includeBrandLogo: false // Default to false
       }))
       setSelectedCampaigns(newSelections)
       setIsSelectAllChecked(true)
@@ -1095,6 +1115,31 @@ export default function Mining() {
                               {getSelectedCampaign(campaign.id)?.postType === 'shitpost' && 'Ironic humor with crypto memes and casual tone'}
                               {getSelectedCampaign(campaign.id)?.postType === 'longpost' && 'Comprehensive content up to 25,000 characters'}
                             </div>
+                          </div>
+
+                          {/* Brand Logo Option */}
+                          <div className="mt-3">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={getSelectedCampaign(campaign.id)?.includeBrandLogo || false}
+                                onChange={(e) => {
+                                  updateBrandLogo(campaign.id, e.target.checked)
+                                }}
+                                className="w-4 h-4 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
+                              />
+                              <span className="text-sm font-medium text-gray-300">
+                                🏷️ Include Brand Logo in Generated Image
+                              </span>
+                            </label>
+                            {getSelectedCampaign(campaign.id)?.includeBrandLogo && (
+                              <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                                <p className="text-xs text-blue-400">
+                                  ℹ️ Brand logos are currently supported with fal-pro/kontext model only. 
+                                  Visual generation will automatically use this model when logo is enabled.
+                                </p>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}

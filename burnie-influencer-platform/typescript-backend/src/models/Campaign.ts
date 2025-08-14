@@ -108,6 +108,10 @@ export class Campaign {
   @Column({ type: 'varchar', length: 20, nullable: true })
   tokenTicker?: string // e.g., 'ROAST', 'USDC', 'ETH'
 
+  // Project Twitter handle for fetching latest tweets
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  projectTwitterHandle?: string // e.g., '@vitalik_eth', '@elonmusk'
+
   // Max yappers for reward distribution
   @Column({ type: 'integer', default: 100 })
   maxYappers!: number
