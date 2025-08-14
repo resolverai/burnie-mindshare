@@ -518,7 +518,7 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       setImmediate(async () => {
         try {
           logger.info('🐦 Triggering background Twitter data fetch for edited campaign...');
-          const pythonBackendUrl = process.env.PYTHON_BACKEND_URL || 'http://localhost:8000';
+          const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
           
           const twitterResponse = await fetch(`${pythonBackendUrl}/api/ai/fetch-project-twitter`, {
             method: 'POST',
