@@ -382,7 +382,13 @@ router.post('/', async (req: Request, res: Response) => {
         try {
           logger.info('🐦 Triggering background Twitter data fetch for new campaign...');
           // Make request to Python AI backend to fetch Twitter data
-          const twitterFetchResponse = await fetch(`${process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000'}/api/ai/fetch-project-twitter`, {
+          const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
+          if (!pythonBackendUrl) {
+            logger.error('PYTHON_AI_BACKEND_URL environment variable is not set');
+            throw new Error('Python AI backend URL not configured');
+          }
+          
+          const twitterFetchResponse = await fetch(`${pythonBackendUrl}/api/ai/fetch-project-twitter`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

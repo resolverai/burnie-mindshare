@@ -4,8 +4,11 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
-# Explicitly load .env file
-load_dotenv()
+# Explicitly load .env file ONLY (not .env.production)
+import logging
+env_loaded = load_dotenv(".env", override=False)
+print(f"🔧 Environment file loaded: {env_loaded} from .env")
+logging.info(f"🔧 Environment file loaded: {env_loaded} from .env")
 
 class Settings(BaseSettings):
     """Application settings"""
@@ -18,8 +21,8 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, env="DEBUG")
     app_debug: bool = Field(default=False, env="APP_DEBUG")
     
-    # Integration
-    typescript_backend_url: str = Field(default="http://localhost:3001", env="TYPESCRIPT_BACKEND_URL")
+    # Integration (requires environment variable)
+    typescript_backend_url: str = Field(env="TYPESCRIPT_BACKEND_URL")
     
     # Database configuration (same as TypeScript backend)
     database_host: str = Field(default="localhost", env="DATABASE_HOST")
@@ -38,6 +41,10 @@ class Settings(BaseSettings):
     # AI Provider API Keys
     openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
     anthropic_api_key: Optional[str] = Field(default=None, env="ANTHROPIC_API_KEY")
+    
+    # Default LLM Provider Configuration (pluggable)
+    default_llm_provider: str = Field(default="openai", env="DEFAULT_LLM_PROVIDER")
+    fallback_llm_provider: str = Field(default="anthropic", env="FALLBACK_LLM_PROVIDER")
     google_api_key: Optional[str] = Field(default=None, env="GOOGLE_API_KEY")
     google_gemini_api_key: Optional[str] = Field(default=None, env="GOOGLE_GEMINI_API_KEY")
     
@@ -61,6 +68,8 @@ class Settings(BaseSettings):
     twitter_bearer_token: Optional[str] = Field(default=None, env="TWITTER_BEARER_TOKEN")
     twitter_api_key: Optional[str] = Field(default=None, env="TWITTER_API_KEY")
     twitter_api_secret: Optional[str] = Field(default=None, env="TWITTER_API_SECRET")
+    twitter_access_token: Optional[str] = Field(default=None, env="TWITTER_ACCESS_TOKEN")
+    twitter_access_token_secret: Optional[str] = Field(default=None, env="TWITTER_ACCESS_TOKEN_SECRET")
     
     # Platform API endpoints (for campaign data)
     cookie_fun_api_url: str = Field(default="https://api.cookie.fun", env="COOKIE_FUN_API_URL")
@@ -117,7 +126,7 @@ class Settings(BaseSettings):
             },
             "anthropic": {
                 "api_key": self.anthropic_api_key,
-                "model": "claude-3-sonnet-20240229",
+                "model": "claude-3-5-sonnet-20241022",
                 "temperature": self.crewai_temperature,
                 "max_tokens": self.crewai_max_tokens,
             },
@@ -130,7 +139,11 @@ class Settings(BaseSettings):
         }
         return configs.get(provider, {})
     
-    model_config = {"env_file": ".env", "case_sensitive": False, "extra": "allow"}
+    model_config = {"env_file": ".env", "case_sensitive": False, "extra": "allow", "env_file_encoding": "utf-8"}
 
 # Global settings instance
-settings = Settings() 
+settings = Settings()
+
+def get_settings() -> Settings:
+    """Get settings instance (for dependency injection)"""
+    return settings

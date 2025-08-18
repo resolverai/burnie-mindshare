@@ -5,6 +5,7 @@ import { YapperTwitterConnection } from '../models/YapperTwitterConnection';
 import { logger } from '../config/logger';
 import { Repository } from 'typeorm';
 import crypto from 'crypto';
+import { platformYapperTwitterService } from '../services/PlatformYapperTwitterService';
 
 const router = Router();
 
@@ -280,7 +281,19 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       existingConnection.isConnected = true;
       existingConnection.profileImageUrl = twitterUser.profile_image_url || null;
       
-      await yapperTwitterRepository.save(existingConnection);
+      const savedConnection = await yapperTwitterRepository.save(existingConnection);
+
+      // Fetch Twitter data immediately after token refresh
+      logger.info(`🔄 Fetching Twitter data for reconnected yapper @${twitterUser.username}`);
+      platformYapperTwitterService.fetchYapperTwitterData(savedConnection).then(result => {
+        if (result.success) {
+          logger.info(`✅ Twitter data fetched for @${twitterUser.username}: ${result.tweets_collected} tweets`);
+        } else {
+          logger.warn(`⚠️ Twitter data fetch failed for @${twitterUser.username}: ${result.error}`);
+        }
+      }).catch(error => {
+        logger.error(`❌ Twitter data fetch error for @${twitterUser.username}:`, error);
+      });
       
     } else {
       // New Twitter connection for this Yapper
@@ -296,7 +309,19 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       newConnection.isConnected = true;
       newConnection.profileImageUrl = twitterUser.profile_image_url || null;
       
-      await yapperTwitterRepository.save(newConnection);
+      const savedNewConnection = await yapperTwitterRepository.save(newConnection);
+
+      // Fetch Twitter data immediately after new connection
+      logger.info(`🔄 Fetching Twitter data for new yapper connection @${twitterUser.username}`);
+      platformYapperTwitterService.fetchYapperTwitterData(savedNewConnection).then(result => {
+        if (result.success) {
+          logger.info(`✅ Twitter data fetched for new yapper @${twitterUser.username}: ${result.tweets_collected} tweets`);
+        } else {
+          logger.warn(`⚠️ Twitter data fetch failed for new yapper @${twitterUser.username}: ${result.error}`);
+        }
+      }).catch(error => {
+        logger.error(`❌ Twitter data fetch error for new yapper @${twitterUser.username}:`, error);
+      });
     }
 
     logger.info(`✅ Yapper Twitter connection successful for wallet ${walletAddress} -> @${twitterUser.username}`);

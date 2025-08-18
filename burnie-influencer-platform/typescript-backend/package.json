@@ -37,6 +37,7 @@
   "dependencies": {
     "@types/aws-sdk": "^2.7.4",
     "@types/bcrypt": "^6.0.0",
+    "@types/node-cron": "^3.0.11",
     "aws-sdk": "^2.1692.0",
     "axios": "^1.6.2",
     "bcrypt": "^6.0.0",
@@ -56,6 +57,7 @@
     "lodash": "^4.17.21",
     "moment": "^2.29.4",
     "multer": "^1.4.5-lts.1",
+    "node-cron": "^4.2.1",
     "node-fetch": "^2.7.0",
     "node-schedule": "^2.1.1",
     "pg": "^8.11.3",

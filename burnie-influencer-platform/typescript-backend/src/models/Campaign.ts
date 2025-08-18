@@ -71,7 +71,8 @@ export enum PlatformSource {
   YAP_MARKET = 'yap.market',
   AMPLIFI_NOW = 'amplifi.now',
   ARBUS = 'arbus',
-  TRENDSAGE = 'trendsage.xyz'
+  TRENDSAGE = 'trendsage.xyz',
+  BANTR = 'bantr'
 }
 
 @Entity('campaigns')

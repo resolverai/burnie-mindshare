@@ -53,11 +53,17 @@ const envSchema = Joi.object({
   // AI
   OPENAI_API_KEY: Joi.string().allow('').default(''),
   ANTHROPIC_API_KEY: Joi.string().allow('').default(''),
-  PYTHON_AI_BACKEND_URL: Joi.string().uri().default('http://localhost:8000'),
+  PYTHON_AI_BACKEND_URL: Joi.string().uri().required(),
 
   // File Storage
   UPLOAD_PATH: Joi.string().default('./uploads'),
   MAX_FILE_SIZE: Joi.number().default(10485760),
+  
+  // AWS S3 Configuration
+  AWS_ACCESS_KEY_ID: Joi.string().allow('').default(''),
+  AWS_SECRET_ACCESS_KEY: Joi.string().allow('').default(''),
+  AWS_REGION: Joi.string().default('us-east-1'),
+  S3_BUCKET_NAME: Joi.string().default('burnie-mindshare-content-staging'),
 
   // Logging
   LOG_LEVEL: Joi.string().valid('error', 'warn', 'info', 'debug').default('info'),
@@ -190,6 +196,14 @@ export const env = {
   storage: {
     uploadPath: envVars.UPLOAD_PATH,
     maxFileSize: envVars.MAX_FILE_SIZE,
+  },
+  
+  // AWS S3
+  aws: {
+    accessKeyId: envVars.AWS_ACCESS_KEY_ID,
+    secretAccessKey: envVars.AWS_SECRET_ACCESS_KEY,
+    region: envVars.AWS_REGION,
+    s3BucketName: envVars.S3_BUCKET_NAME,
   },
 
   // Logging

@@ -12,9 +12,6 @@ const nextConfig = {
     esmExternals: 'loose'
   },
   
-  // Force dynamic rendering for all pages
-  generateStaticParams: false,
-  
   webpack: (config, { isServer, dev }) => {
     // Ignore optional dependencies in production builds
     if (!dev && !isServer) {
@@ -54,11 +51,6 @@ const nextConfig = {
   // Disable image optimization for simpler builds
   images: {
     unoptimized: true
-  },
-  
-  // Disable telemetry
-  telemetry: {
-    disabled: true
   }
 }
 

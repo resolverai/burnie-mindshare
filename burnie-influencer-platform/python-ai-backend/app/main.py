@@ -32,9 +32,20 @@ from app.models.content_generation import ContentGenerationRequest, ContentGener
 from app.utils.progress_tracker import ProgressTracker
 from app.utils.logger import setup_logger
 from app.routes.admin_ml import router as admin_ml_router
+from app.routes.admin_snapshots import router as admin_snapshots_router
+from app.routes.twitter_api import router as twitter_api_router
 from app.routes.mindshare_prediction import router as mindshare_router
 from app.routes.llm_providers import router as llm_router
 from app.routes.s3_health import router as s3_health_router
+from app.routes.ml_models import router as ml_models_router
+from app.routes.creator_image_analysis import router as creator_analysis_router
+from app.routes.platform_yapper_oauth import router as platform_yapper_oauth_router
+from app.routes.comprehensive_creator_analysis import router as comprehensive_creator_router
+from app.routes.ml_testing import router as ml_testing_router
+from app.routes.enhanced_model_training import router as enhanced_training_router
+from app.routes.delta_model_training import router as delta_training_router
+from app.routes.realtime_predictions import router as realtime_predictions_router
+from app.routes.training_data_population import router as training_data_router
 
 # Setup logging
 logger = setup_logger(__name__)
@@ -46,34 +57,38 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# CORS middleware - get allowed origins from environment
+allowed_origins = os.getenv('ALLOWED_ORIGINS', 
+    'http://localhost:3000,http://localhost:3001,http://localhost:3004,'
+    'https://mining.burnie.io,https://influencer.burnie.io,'
+    'https://mindshareapi.burnie.io,https://attentionai.burnie.io,'
+    'https://attention.burnie.io'
+).split(',')
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # Mining interface (local)
-        "http://localhost:3001",  # TypeScript backend (local)
-        "http://localhost:3004",  # Burnie Influencer Platform frontend (local)
-        "https://mining.burnie.io",  # Mining interface (production)
-        "https://influencer.burnie.io",  # Burnie Influencer Platform frontend (production)
-        "https://mindshareapi.burnie.io",  # TypeScript backend (production)
-        "https://attentionai.burnie.io",  # Python AI backend (production - main)
-        "https://attention.burnie.io",  # Python AI backend (production - fallback)
-    ],
+    allow_origins=[origin.strip() for origin in allowed_origins],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Include routers
-app.include_router(admin_ml_router)
+app.include_router(admin_ml_router, prefix="/api")
+app.include_router(admin_snapshots_router, prefix="/api")
+app.include_router(twitter_api_router, prefix="/api")
 app.include_router(mindshare_router)
-app.include_router(llm_router)
+app.include_router(llm_router, prefix="/api")
 app.include_router(s3_health_router)
-
-# Include routers
-app.include_router(admin_ml_router)
-app.include_router(mindshare_router)
-app.include_router(llm_router)
+app.include_router(ml_models_router)
+app.include_router(creator_analysis_router, prefix="/api", tags=["creator-analysis"])
+app.include_router(platform_yapper_oauth_router, prefix="/api", tags=["platform-yapper-oauth"])
+app.include_router(comprehensive_creator_router, prefix="/api", tags=["comprehensive-creator-analysis"])
+app.include_router(ml_testing_router, prefix="/api", tags=["ml-testing"])
+app.include_router(enhanced_training_router, prefix="/api", tags=["enhanced-training"])
+app.include_router(delta_training_router)
+app.include_router(realtime_predictions_router)
+app.include_router(training_data_router)
 
 # Global progress tracker
 progress_tracker = ProgressTracker()

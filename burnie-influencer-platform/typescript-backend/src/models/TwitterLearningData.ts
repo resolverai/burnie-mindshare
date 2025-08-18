@@ -50,6 +50,28 @@ export class TwitterLearningData {
   @Column({ type: 'jsonb', nullable: true })
   insights?: any;
 
+  // New columns for enhanced ML intelligence
+  @Column({ type: 'jsonb', nullable: true })
+  tweet_images?: any; // array of image URLs and metadata
+
+  @Column({ type: 'boolean', default: false })
+  is_thread?: boolean; // whether this tweet is part of a thread
+
+  @Column({ type: 'integer', nullable: true })
+  thread_position?: number; // position within thread if applicable
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  parent_tweet_id?: string; // parent tweet ID if part of thread
+
+  @Column({ type: 'jsonb', nullable: true })
+  raw_tweet_data?: any; // complete raw tweet data from Twitter API
+
+  @Column({ type: 'jsonb', nullable: true })
+  anthropic_analysis?: any; // Comprehensive Anthropic analysis (images + text)
+
+  @Column({ type: 'jsonb', nullable: true })
+  openai_analysis?: any; // Comprehensive OpenAI analysis (images + text) - fallback
+
   // Relations
   @ManyToOne(() => User, user => user.id)
   @JoinColumn({ name: 'userId' })

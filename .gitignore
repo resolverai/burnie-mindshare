@@ -268,3 +268,10 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# Yapper UI folder - New frontend interface for Burnie Platform
+yapper/
+
+# ML Models folder - Trained machine learning models
+models/
+

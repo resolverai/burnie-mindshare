@@ -15,7 +15,9 @@ class ProjectTwitterIntegration:
     """Service to integrate Twitter data fetching with project management"""
     
     def __init__(self):
-        self.typescript_backend_url = os.getenv('TYPESCRIPT_BACKEND_URL', 'http://localhost:3001')
+        self.typescript_backend_url = os.getenv('TYPESCRIPT_BACKEND_URL')
+        if not self.typescript_backend_url:
+            raise ValueError("TYPESCRIPT_BACKEND_URL environment variable is required")
         
     def format_twitter_handle(self, handle: str) -> str:
         """Format Twitter handle for consistency"""

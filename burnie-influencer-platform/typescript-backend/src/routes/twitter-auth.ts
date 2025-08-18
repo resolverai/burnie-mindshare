@@ -269,6 +269,26 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       existingConnection.isConnected = true;
       
       await twitterConnectionRepository.save(existingConnection);
+
+      // Trigger Twitter data processing for reconnected creators/miners
+      logger.info(`🔄 Triggering Twitter data processing for reconnected creator/miner @${twitterUser.username}`);
+      try {
+        const { TwitterLearningService } = await import('../services/TwitterLearningService');
+        const twitterLearningService = new TwitterLearningService();
+        
+        // Process Twitter data in background
+        twitterLearningService.processUserTwitterData(user).then(result => {
+          if (result.success) {
+            logger.info(`✅ Twitter data processed for reconnected creator @${twitterUser.username}: ${result.tweetsProcessed} tweets`);
+          } else {
+            logger.warn(`⚠️ Twitter data processing failed for reconnected creator @${twitterUser.username}: ${result.error}`);
+          }
+        }).catch(error => {
+          logger.error(`❌ Twitter data processing error for reconnected creator @${twitterUser.username}:`, error);
+        });
+      } catch (error) {
+        logger.error(`❌ Error triggering Twitter data processing for @${twitterUser.username}:`, error);
+      }
       
     } else {
       // New Twitter connection for this user
@@ -284,6 +304,26 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       newConnection.isConnected = true;
       
       await twitterConnectionRepository.save(newConnection);
+
+      // Trigger Twitter data processing for new creators/miners
+      logger.info(`🔄 Triggering Twitter data processing for new creator/miner @${twitterUser.username}`);
+      try {
+        const { TwitterLearningService } = await import('../services/TwitterLearningService');
+        const twitterLearningService = new TwitterLearningService();
+        
+        // Process Twitter data in background
+        twitterLearningService.processUserTwitterData(user).then(result => {
+          if (result.success) {
+            logger.info(`✅ Twitter data processed for new creator @${twitterUser.username}: ${result.tweetsProcessed} tweets`);
+          } else {
+            logger.warn(`⚠️ Twitter data processing failed for new creator @${twitterUser.username}: ${result.error}`);
+          }
+        }).catch(error => {
+          logger.error(`❌ Twitter data processing error for new creator @${twitterUser.username}:`, error);
+        });
+      } catch (error) {
+        logger.error(`❌ Error triggering Twitter data processing for @${twitterUser.username}:`, error);
+      }
     }
 
     // Update user's Twitter info

@@ -112,7 +112,10 @@ class PresignedUrlManager {
    */
   private async fetchPresignedUrlDirect(s3Key: string): Promise<PresignedUrlResponse> {
     try {
-      const pythonBackendUrl = process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+      const pythonBackendUrl = process.env.NEXT_PUBLIC_AI_BACKEND_URL;
+      if (!pythonBackendUrl) {
+        throw new Error('NEXT_PUBLIC_AI_BACKEND_URL environment variable is not set');
+      }
       
       const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url`, {
         method: 'POST',

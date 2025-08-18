@@ -141,6 +141,7 @@ export default function AdminDashboard() {
     { value: 'amplifi.now', label: '📢 Amplifi.now' },
     { value: 'arbus', label: '🚌 Arbus' },
     { value: 'trendsage.xyz', label: '📈 Trendsage.xyz' },
+    { value: 'bantr', label: '💬 Bantr' },
   ]
   const router = useRouter()
 
@@ -956,6 +957,16 @@ export default function AdminDashboard() {
           >
             <PlusIcon className="h-5 w-5" />
             <span>Create Campaign</span>
+          </button>
+          
+          <button
+            onClick={() => router.push('/admin/snapshots')}
+            className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors flex items-center space-x-2"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <span>Snapshot Management</span>
           </button>
         </div>
 

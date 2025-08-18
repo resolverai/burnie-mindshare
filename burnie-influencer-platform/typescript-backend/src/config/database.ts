@@ -25,6 +25,21 @@ import { TwitterUserConnection } from '../models/TwitterUserConnection';
 import { YapperTwitterConnection } from '../models/YapperTwitterConnection';
 import { ContentPurchase } from '../models/ContentPurchase';
 import { ProjectTwitterData } from '../models/ProjectTwitterData';
+import { PlatformSnapshot } from '../models/PlatformSnapshot';
+import { DailyIntelligence } from '../models/DailyIntelligence';
+import { SNAPPrediction } from '../models/SNAPPrediction';
+import { LeaderboardYapperData } from '../models/LeaderboardYapperData';
+import { YapperCookieProfile } from '../models/YapperCookieProfile';
+import { CampaignMindshareData } from '../models/CampaignMindshareData';
+
+// Import new ML intelligence entities
+import { PlatformYapperTwitterData } from '../models/PlatformYapperTwitterData';
+import { PlatformYapperTwitterProfile } from '../models/PlatformYapperTwitterProfile';
+import { ContentPerformanceTracking } from '../models/ContentPerformanceTracking';
+
+// Import new ML training data entities
+import { PrimaryPredictorTrainingData } from '../models/PrimaryPredictorTrainingData';
+import { TwitterEngagementTrainingData } from '../models/TwitterEngagementTrainingData';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -62,6 +77,19 @@ export const AppDataSource = new DataSource({
     YapperTwitterConnection,
     ContentPurchase,
     ProjectTwitterData,
+    PlatformSnapshot,
+    DailyIntelligence,
+    SNAPPrediction,
+    LeaderboardYapperData,
+    YapperCookieProfile,
+    CampaignMindshareData,
+    // New ML intelligence entities
+    PlatformYapperTwitterData,
+    PlatformYapperTwitterProfile,
+    ContentPerformanceTracking,
+    // New ML training data entities
+    PrimaryPredictorTrainingData,
+    TwitterEngagementTrainingData,
   ],
   migrations: [],
   subscribers: [],

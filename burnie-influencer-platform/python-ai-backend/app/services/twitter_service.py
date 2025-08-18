@@ -53,7 +53,7 @@ class TwitterService:
                 bearer_token=self.bearer_token,
                 consumer_key=self.api_key,
                 consumer_secret=self.api_secret,
-                wait_on_rate_limit=True  # Auto-handle rate limits
+                wait_on_rate_limit=False  # Don't block entire backend on rate limits
             )
             logger.info("✅ Twitter API client initialized successfully")
         except Exception as e:

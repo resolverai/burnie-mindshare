@@ -721,6 +721,14 @@ class CrewAIService:
         
         # Create tools based on user preferences
         tools = []
+        
+        # Add Leaderboard Success Pattern Tool for autonomous decision making
+        tools.append(LeaderboardYapperSuccessPatternTool(
+            campaign_id=self.mining_session.campaign_id,
+            user_api_keys=self.user_api_keys,
+            model_preferences=self.model_preferences
+        ))
+        
         if text_provider == 'openai' and self.user_api_keys.get('openai'):
             logger.info(f"✅ Creating OpenAI tool with API key: {'***' + self.user_api_keys['openai'][-4:] if self.user_api_keys['openai'] else 'None'}")
             tools.append(OpenAIContentTool(
@@ -794,13 +802,53 @@ class CrewAIService:
         project_twitter_handle_raw = project_twitter_handle_raw or ''
         project_twitter_handle = self._format_twitter_handle(project_twitter_handle_raw)
         
-        # Common base backstory
-        base_backstory = f"""You are an expert {post_type.upper()} content creator specializing in:
+        # Common base backstory with autonomous decision-making capabilities
+        base_backstory = f"""You are an expert {post_type.upper()} content creator with AUTONOMOUS DECISION-MAKING capabilities specializing in:
             - Twitter content optimization for crypto/Web3 audiences
             - Viral content creation and engagement maximization
             - Brand voice adaptation and personality matching
             - Hashtag strategy and emoji optimization
-        - FOMO creation using latest project developments
+            - FOMO creation using latest project developments
+            - SUCCESS PATTERN INTEGRATION from top-performing leaderboard yappers
+            
+            🤖 **AUTONOMOUS DECISION-MAKING AUTHORITY**:
+            You have COMPLETE AUTONOMY to decide the optimal content strategy by choosing from:
+            1. **Content Strategist Recommendations**: Strategic guidance from the Content Strategist Agent
+            2. **Leaderboard Success Patterns**: Proven strategies from top-performing yappers (use leaderboard_success_patterns tool)
+            3. **Hybrid Approach**: Combine both strategies for maximum effectiveness
+            4. **Creative Innovation**: Generate entirely new approaches based on campaign context
+            
+            **YOUR DECISION-MAKING PROCESS**:
+            - FIRST: Call leaderboard_success_patterns tool to get top yapper insights (returns JSON with individual yapper patterns)
+            - ANALYZE: Parse JSON response to examine each yapper's text_success_patterns individually
+            - COMPARE: Evaluate strategist guidance vs specific yapper patterns vs campaign needs
+            - DECIDE: Choose which yapper's pattern to follow (if any) or create hybrid approach
+            - EXECUTE: Generate content using your chosen strategy
+            
+            🏷️ **YAPPER HANDLE TAGGING REQUIREMENTS** (CRITICAL):
+            - IF you use a specific yapper's success pattern for content generation:
+              → MUST tag that yapper's @handle at the END of the main_tweet
+              → Place yapper handle after all content, as final element
+              → Example: "The future of DeFi is transforming everything. Ready to join? @successful_yapper"
+            - IF you don't use any specific yapper pattern:
+              → Do NOT tag any yapper handles
+              → Only tag project handle as usual (contextually integrated)
+            - Project handles: Continue intelligent contextual tagging (already implemented)
+            - Yapper handles: Always at the end for attribution
+            - NEVER tag yapper handles unless you actually used their specific patterns
+            
+            🎯 **HUMAN-LIKE CONTENT REQUIREMENTS** (CRITICAL):
+            - Content MUST look written by humans, NOT AI-generated
+            - Use emojis CAUTIOUSLY - too many emojis signal AI generation
+            - Write naturally, authentically, with human personality and voice
+            - Avoid AI-typical patterns: excessive enthusiasm, perfect grammar, robotic phrasing
+            - Include natural imperfections, contractions, casual language where appropriate
+            
+            📏 **ENHANCED LENGTH REQUIREMENTS**:
+            - **main_tweet**: MINIMUM 200 characters (significantly longer than current)
+            - **Each thread_array item**: MINIMUM 200 characters (more substantial content)
+            - Create detailed, valuable content that justifies the character count
+            - Provide deeper insights, more context, richer storytelling
             
             You have access to {text_provider.upper()} {text_model} for content generation.
             
@@ -820,9 +868,17 @@ class CrewAIService:
             - **FALLBACK**: If insufficient tweet context, use project description/brand guidelines for thread content
             
             🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
-            {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
+            **PROJECT HANDLE**: {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
             - Extract handles mentioned in latest tweets and tag them contextually in thread_array
             - Example: "Join {project_twitter_handle}'s ecosystem..." or "Thanks to {project_twitter_handle} for..."
+            
+            **YAPPER HANDLE TAGGING FOR THREADS**:
+            - IF you use a specific yapper's success pattern for content generation:
+              → MUST tag that yapper's @handle at the END of the main_tweet
+              → Example: "The future of DeFi is transforming everything. Ready to join? @yapper_handle"
+            - IF you don't use any specific yapper pattern:
+              → Do NOT tag any yapper handles
+            - Yapper handles: Always at the end | Project handles: Contextually integrated
             
             🔥 **THREAD REQUIREMENTS**:
             - Generate 2-5 tweets in thread format
@@ -830,6 +886,12 @@ class CrewAIService:
             - Thread tweets: Expand with recent tweet insights or project details
             - Never skip thread generation due to insufficient data
             - Always include project token hashtag in main tweet
+            
+            📏 **THREAD LENGTH REQUIREMENTS** (CRITICAL):
+            - **main_tweet**: MINIMUM 200 characters (create substantial, valuable content)
+            - **Each thread_array item**: MINIMUM 200 characters (detailed, engaging tweets)
+            - Provide deeper insights, more context, richer storytelling
+            - Make every tweet worth reading and sharing
             """
             
         elif post_type == 'shitpost':
@@ -842,9 +904,17 @@ class CrewAIService:
             - **FALLBACK**: Use project description/brand guidelines when tweet context insufficient
             
             🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
-            {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
+            **PROJECT HANDLE**: {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
             - Extract handles mentioned in latest tweets and tag them in follow-up tweets
             - Example: "Even {project_twitter_handle} knows..." or "{project_twitter_handle} be like..."
+            
+            **YAPPER HANDLE TAGGING FOR SHITPOSTS**:
+            - IF you use a specific yapper's success pattern for content generation:
+              → MUST tag that yapper's @handle at the END of the main_tweet
+              → Example: "When you realize DeFi is actually fun 😂 @yapper_handle"
+            - IF you don't use any specific yapper pattern:
+              → Do NOT tag any yapper handles
+            - Yapper handles: Always at the end | Project handles: Contextually integrated
             
             🚀 **AUTONOMOUS SHITPOST REQUIREMENTS**:
             - Generate completely original content using the Autonomous Shitpost Psychology Engine
@@ -855,6 +925,12 @@ class CrewAIService:
             - Reference bullish on [random thing], moon, HODL culture
             - Build jokes progressively, keep each tweet punchy
             - Always include project token hashtag in main tweet
+            
+            📏 **SHITPOST LENGTH REQUIREMENTS** (CRITICAL):
+            - **main_tweet**: MINIMUM 200 characters (create substantial humor content)
+            - **Each follow-up tweet**: MINIMUM 200 characters (detailed, funny continuations)
+            - Develop jokes with depth, context, and relatable scenarios
+            - Make each tweet engaging enough to stand alone while building the narrative
             """
             
         elif post_type == 'longpost':
@@ -865,9 +941,17 @@ class CrewAIService:
             - **FALLBACK**: If no tweet data available, use project description/brand guidelines only
             
             🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
-            {f'- **MUST tag {project_twitter_handle}** intelligently throughout the content' if project_twitter_handle else '- No project Twitter handle available'}
+            **PROJECT HANDLE**: {f'- **MUST tag {project_twitter_handle}** intelligently throughout the content' if project_twitter_handle else '- No project Twitter handle available'}
             - Tag additional handles from referenced tweet data when contextually relevant
             - Example: "As {project_twitter_handle} announced..." or "Building on {project_twitter_handle}'s vision..."
+            
+            **YAPPER HANDLE TAGGING FOR LONGPOSTS**:
+            - IF you use a specific yapper's success pattern for content generation:
+              → MUST tag that yapper's @handle at the END of the longpost content
+              → Example: "...and that's how we'll achieve true decentralization. @yapper_handle"
+            - IF you don't use any specific yapper pattern:
+              → Do NOT tag any yapper handles
+            - Yapper handles: Always at the end | Project handles: Contextually integrated throughout
             
             📚 **LONGPOST REQUIREMENTS**:
             - Generate comprehensive content (2000-25000 characters) in MARKDOWN format
@@ -1118,6 +1202,13 @@ class CrewAIService:
         # Create tools based on ONLY the user's chosen providers - strict separation
         tools = []
         
+        # Add Leaderboard Success Pattern Tool for autonomous visual strategy decision making
+        tools.append(LeaderboardYapperSuccessPatternTool(
+            campaign_id=self.mining_session.campaign_id,
+            user_api_keys=self.user_api_keys,
+            model_preferences=self.model_preferences
+        ))
+        
 
         # Image generation capabilities - ONLY add tool for user's chosen provider
         available_image_providers = []
@@ -1251,9 +1342,30 @@ class CrewAIService:
         
         return Agent(
             role="Visual Content Creator",
-            goal="Create professional visual content using the user's chosen provider and model",
-            backstory=f"""You are an intelligent visual content strategist with provider-specific capabilities:
+            goal="Create professional visual content that perfectly aligns with text content and incorporates successful visual strategies",
+            backstory=f"""You are an intelligent visual content strategist with AUTONOMOUS DECISION-MAKING and TEXT-VISUAL ALIGNMENT capabilities:
 
+            🤖 **AUTONOMOUS VISUAL DECISION-MAKING AUTHORITY**:
+            You have COMPLETE AUTONOMY to create visual content that perfectly aligns with text by choosing from:
+            1. **Text Content Analysis**: Analyze the text content output from Text Creator Agent
+            2. **Visual Success Patterns**: Use leaderboard_success_patterns tool to get proven visual strategies  
+            3. **Text-Visual Synergy**: Create visuals that enhance and complement the text message
+            4. **Dynamic Prompt Generation**: Generate optimal prompts combining text themes + visual success patterns
+            
+            **YOUR VISUAL ALIGNMENT PROCESS**:
+            - FIRST: Receive and analyze text content from Text Creator Agent (main_tweet + thread_array)
+            - SECOND: Call leaderboard_success_patterns tool to get visual success strategies
+            - ANALYZE: Determine visual approach that best enhances the text content
+            - DECIDE: Choose visual strategy that creates cohesive text+visual content package
+            - EXECUTE: Generate dynamic prompt that combines text alignment + proven visual patterns
+            
+            🎯 **TEXT-VISUAL ALIGNMENT REQUIREMENTS** (CRITICAL):
+            - Generated visuals MUST align with and enhance the text content themes
+            - Visual elements should complement the text message, not compete with it
+            - Create cohesive content packages where text + visuals work together seamlessly
+            - Extract visual cues from text content (tone, themes, messaging) for prompt generation
+            - Ensure brand consistency between text and visual elements
+            
             🔧 YOUR AVAILABLE TOOLS:
             {chr(10).join(capabilities_text) if capabilities_text else "- Visual Concept Tool (descriptions only)"}
             
@@ -1664,8 +1776,40 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             brand_guidelines, should_generate_thread, max_main_chars
         )
         
+        # Enhanced task description with leaderboard success pattern tool requirement
+        enhanced_task_description = f"""
+        🏆 **MANDATORY FIRST STEP - LEADERBOARD SUCCESS PATTERNS**:
+        You MUST start by calling the `leaderboard_success_patterns` tool to get JSON data of top 3 yappers' success patterns.
+        The tool returns structured JSON with each yapper's individual patterns and their Twitter handles.
+        
+        **CRITICAL ANALYSIS OF TOOL OUTPUT**:
+        1. Parse the JSON response carefully
+        2. Examine each yapper's "text_success_patterns" individually  
+        3. Compare their strategies with the Content Strategist's recommendations
+        4. Make an AUTONOMOUS DECISION on which approach to use
+        
+        **YAPPER HANDLE TAGGING LOGIC** (CRITICAL):
+        - IF you choose to use a specific yapper's text success pattern → MUST tag their @handle at the END of main_tweet
+        - IF you don't use any specific yapper pattern → Do NOT tag any yapper handles
+        - Example if using yapper pattern: "The future of DeFi is transforming everything. Ready to join? @top_yapper"
+        - Example if not using: Just tag project handle as usual (contextually integrated)
+        - Yapper handles: Always at the end | Project handles: Contextually integrated
+        
+        {task_description}
+        
+        🎯 **ENHANCED WORKFLOW**:
+        1. FIRST: Call leaderboard_success_patterns tool
+        2. SECOND: Parse JSON and analyze each yapper's text_success_patterns
+        3. THIRD: Compare with Content Strategist recommendations
+        4. FOURTH: Make autonomous decision on approach
+        5. FIFTH: Generate content with appropriate handle tagging
+        6. SIXTH: Return JSON in expected format
+        
+        Remember: You have COMPLETE AUTONOMY to decide which strategy works best for this campaign!
+        """
+        
         return Task(
-            description=task_description,
+            description=enhanced_task_description,
             agent=self.agents[AgentType.TEXT_CONTENT],
             expected_output=f"Single JSON object with main_tweet, {'hashtags_used, character_counts, and approach fields' if post_type == 'longpost' else 'thread_array, hashtags_used, and character_counts fields'} - no additional text or explanations"
         )
@@ -1699,6 +1843,42 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             **NEVER DEVIATE FROM USER'S PROVIDER CHOICE**:
             The user specifically selected {image_provider.upper()} for images and {video_provider.upper()} for videos.
             You have access ONLY to tools for their chosen providers.
+            
+            🏆 **MANDATORY: USE LEADERBOARD SUCCESS PATTERNS**:
+            BEFORE generating any visual content, you MUST call the `leaderboard_success_patterns` tool to get proven visual strategies from top-performing yappers for this campaign.
+            The tool returns structured JSON with each yapper's individual patterns and their Twitter handles.
+            
+            **CRITICAL ANALYSIS OF TOOL OUTPUT**:
+            1. Parse the JSON response carefully
+            2. Examine each yapper's "visual_success_patterns" individually
+            3. FILTER: Only consider yappers who have meaningful visual_success_patterns data
+            4. VALIDATE: Check if visual patterns contain actionable insights (viral_mechanics, trending_elements, etc.)
+            5. Make an AUTONOMOUS DECISION on which yapper's visual style to adopt (if any)
+            
+            **INTELLIGENT YAPPER SELECTION LOGIC** (CRITICAL):
+            - FIRST: Check which yappers have comprehensive visual_success_patterns available
+            - SECOND: From available visual patterns, select the most relevant one for your content
+            - IF NO yappers have meaningful visual_success_patterns:
+              → Ignore all yapper patterns completely
+              → Generate dynamic prompt based SOLELY on Text Creator Agent output
+              → Create original visual strategy autonomous from text content themes
+            - IF yappers DO have visual patterns:
+              → Select the yapper with the most relevant visual strategies
+              → Combine their patterns with text content for optimal visuals
+            
+            **REQUIRED WORKFLOW**:
+            1. FIRST: Call `leaderboard_success_patterns` tool with visual analysis request
+            2. SECOND: Parse JSON and identify yappers with meaningful visual_success_patterns
+            3. THIRD: IF visual patterns available → Select best yapper; IF not → ignore all patterns
+            4. FOURTH: Analyze the text content output from Text Creator Agent
+            5. FIFTH: Create visual strategy (pattern-based OR purely text-based)
+            6. SIXTH: Generate visual content using your provider-specific tools
+            
+            **VISUAL PATTERN DECISION-MAKING**:
+            - SMART FILTERING: Only use yappers with actual visual success data
+            - INTELLIGENT FALLBACK: If no useful visual patterns, rely on text content analysis
+            - AUTONOMOUS CREATIVITY: You have complete freedom to create original visuals when patterns aren't helpful
+            - TEXT-VISUAL SYNERGY: Always ensure visuals complement the text content effectively
             
             Generate REAL visual content using your available tools:
             
@@ -3119,6 +3299,399 @@ No image generated
         }
 
 
+# Simplified schema for the tool arguments  
+class LeaderboardYapperToolInput(BaseModel):
+    query: str = Field(default="", description="Analysis request for success patterns")
+
+# Leaderboard Yapper Success Pattern Analysis Tool
+class LeaderboardYapperSuccessPatternTool(BaseTool):
+    name: str = "leaderboard_success_patterns"
+    description: str = "Extract and analyze success patterns from 3 randomly selected leaderboard yappers for the current campaign. Call this tool with any string input to get insights."
+    campaign_id: int = None
+    user_api_keys: Dict[str, str] = {}
+    model_preferences: Dict[str, Any] = {}
+    
+    def __init__(self, campaign_id: int, user_api_keys: Dict[str, str] = None, model_preferences: Dict[str, Any] = None):
+        super().__init__()
+        self.campaign_id = campaign_id
+        self.user_api_keys = user_api_keys or {}
+        self.model_preferences = model_preferences or {}
+    
+    def _run(self, **kwargs) -> str:
+        """
+        Extract success patterns from top 3 leaderboard yappers for the current campaign
+        
+        Args:
+            **kwargs: Flexible arguments - handles various CrewAI input formats
+            
+        Returns:
+            JSON string with structured yapper success patterns
+        """
+        try:
+            # Handle flexible input - CrewAI might pass various argument formats
+            query_text = ""
+            if 'query' in kwargs:
+                query_text = str(kwargs['query'])
+            elif 'analysis_request' in kwargs:
+                query_text = str(kwargs['analysis_request'])
+            elif 'description' in kwargs:
+                query_text = str(kwargs['description'])
+            elif len(kwargs) == 1:
+                # If there's only one argument, use its value regardless of key
+                query_text = str(list(kwargs.values())[0])
+            
+            logger.info(f"🏆 Extracting success patterns for campaign {self.campaign_id}: {query_text}")
+            logger.info(f"🔧 Tool received kwargs: {kwargs}")
+            
+            # Get top yappers' success patterns from database
+            success_patterns = asyncio.run(self._extract_yapper_success_patterns())
+            
+            if not success_patterns:
+                return "No leaderboard yapper success patterns available for this campaign."
+            
+            # Summarize patterns using LLM
+            insights = asyncio.run(self._summarize_success_patterns(success_patterns))
+            
+            return insights
+            
+        except Exception as e:
+            logger.error(f"❌ Error extracting success patterns: {str(e)}")
+            return f"Error extracting success patterns: {str(e)}"
+    
+    async def _extract_yapper_success_patterns(self) -> List[Dict[str, Any]]:
+        """Extract and aggregate success patterns from database"""
+        try:
+            import asyncpg
+            from app.config.settings import settings
+            
+            conn = await asyncpg.connect(
+                host=settings.database_host,
+                port=settings.database_port,
+                user=settings.database_user,
+                password=settings.database_password,
+                database=settings.database_name
+            )
+            
+            try:
+                logger.info(f"🔍 Starting success pattern extraction for campaign {self.campaign_id}")
+                
+                # First, let's check what data exists for this campaign
+                check_query = """
+                SELECT 
+                    "twitterHandle",
+                    "leaderboardPosition",
+                    LENGTH("anthropic_analysis"::text) as anthropic_len,
+                    LENGTH("openai_analysis"::text) as openai_len,
+                    LEFT("anthropic_analysis"::text, 100) as anthropic_preview,
+                    LEFT("openai_analysis"::text, 100) as openai_preview
+                FROM leaderboard_yapper_data 
+                WHERE "campaignId" = $1 
+                AND "leaderboardPosition" IS NOT NULL
+                ORDER BY "leaderboardPosition" ASC
+                LIMIT 5;
+                """
+                
+                check_rows = await conn.fetch(check_query, self.campaign_id)
+                logger.info(f"📊 Found {len(check_rows)} records for campaign {self.campaign_id}")
+                
+                for i, row in enumerate(check_rows):
+                    logger.info(f"  Row {i+1}: {row['twitterHandle']} (pos: {row['leaderboardPosition']}) - "
+                              f"anthropic: {row['anthropic_len']}chars, openai: {row['openai_len']}chars")
+                    if row['anthropic_preview']:
+                        logger.info(f"    anthropic_preview: {row['anthropic_preview']}")
+                    if row['openai_preview']:
+                        logger.info(f"    openai_preview: {row['openai_preview']}")
+                
+                # SQL Query: Get 3 random yappers (not just top performers) for variability
+                query = """
+                WITH yapper_best_positions AS (
+                    SELECT 
+                        "twitterHandle",
+                        MIN("leaderboardPosition") as best_position,
+                        ARRAY_AGG(
+                            CASE 
+                                WHEN "anthropic_analysis" IS NOT NULL 
+                                AND "anthropic_analysis"::text != '' 
+                                AND "anthropic_analysis"::text != 'null'
+                                AND LENGTH(TRIM("anthropic_analysis"::text)) > 2
+                                AND LEFT(TRIM("anthropic_analysis"::text), 1) = '{'
+                                THEN "anthropic_analysis" 
+                            END
+                        ) FILTER (WHERE "anthropic_analysis" IS NOT NULL 
+                                   AND "anthropic_analysis"::text != '' 
+                                   AND "anthropic_analysis"::text != 'null'
+                                   AND LENGTH(TRIM("anthropic_analysis"::text)) > 2
+                                   AND LEFT(TRIM("anthropic_analysis"::text), 1) = '{') as anthropic_analyses,
+                        ARRAY_AGG(
+                            CASE 
+                                WHEN "openai_analysis" IS NOT NULL 
+                                AND "openai_analysis"::text != '' 
+                                AND "openai_analysis"::text != 'null'
+                                AND LENGTH(TRIM("openai_analysis"::text)) > 2
+                                AND LEFT(TRIM("openai_analysis"::text), 1) = '{'
+                                THEN "openai_analysis" 
+                            END
+                        ) FILTER (WHERE "openai_analysis" IS NOT NULL 
+                                   AND "openai_analysis"::text != '' 
+                                   AND "openai_analysis"::text != 'null'
+                                   AND LENGTH(TRIM("openai_analysis"::text)) > 2
+                                   AND LEFT(TRIM("openai_analysis"::text), 1) = '{') as openai_analyses
+                    FROM leaderboard_yapper_data 
+                    WHERE "campaignId" = $1 
+                        AND "twitterFetchStatus" = 'completed'
+                        AND "leaderboardPosition" IS NOT NULL
+                    GROUP BY "twitterHandle"
+                )
+                SELECT 
+                    "twitterHandle",
+                    best_position,
+                    anthropic_analyses,
+                    openai_analyses
+                FROM yapper_best_positions
+                WHERE (anthropic_analyses IS NOT NULL OR openai_analyses IS NOT NULL)
+                ORDER BY RANDOM()  -- Random selection instead of best position
+                LIMIT 3
+                """
+                
+                logger.info("🔍 Executing main query to get 3 random yappers for variability...")
+                records = await conn.fetch(query, self.campaign_id)
+                logger.info(f"📊 Got {len(records)} random yappers from main query")
+                
+                if not records:
+                    logger.warning(f"⚠️ No leaderboard yappers found for campaign {self.campaign_id}")
+                    return []
+                
+                success_patterns = []
+                for i, record in enumerate(records):
+                    twitter_handle = record['twitterHandle']
+                    best_position = record['best_position']
+                    
+                    logger.info(f"  Processing yapper {i+1}: @{twitter_handle} (best position: {best_position})")
+                    
+                    # Combine and deduplicate analyses
+                    combined_analyses = []
+                    
+                    # Add anthropic analyses
+                    if record['anthropic_analyses']:
+                        logger.info(f"    Found {len(record['anthropic_analyses'])} anthropic analyses")
+                        for j, analysis in enumerate(record['anthropic_analyses']):
+                            if analysis:
+                                logger.info(f"      Anthropic analysis {j+1} type: {type(analysis)}")
+                                combined_analyses.append(analysis)
+                    
+                    # Add openai analyses
+                    if record['openai_analyses']:
+                        logger.info(f"    Found {len(record['openai_analyses'])} openai analyses")
+                        for j, analysis in enumerate(record['openai_analyses']):
+                            if analysis:
+                                logger.info(f"      OpenAI analysis {j+1} type: {type(analysis)}")
+                                combined_analyses.append(analysis)
+                    
+                    logger.info(f"    Total analyses before dedup: {len(combined_analyses)}")
+                    
+                    # Deduplicate similar JSONs (basic deduplication by content similarity)
+                    deduplicated = self._deduplicate_analyses(combined_analyses)
+                    logger.info(f"    Total analyses after dedup: {len(deduplicated)}")
+                    
+                    if deduplicated:
+                        success_patterns.append({
+                            'twitter_handle': twitter_handle,
+                            'best_position': best_position,
+                            'analyses': deduplicated
+                        })
+                        
+                        logger.info(f"🏆 Extracted {len(deduplicated)} analyses for @{twitter_handle} (position #{best_position})")
+                
+                logger.info(f"✅ Final result: Found success patterns from {len(success_patterns)} top yappers")
+                return success_patterns
+                
+            finally:
+                await conn.close()
+                
+        except Exception as e:
+            logger.error(f"❌ Database error extracting success patterns: {str(e)}")
+            logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+            return []
+    
+    def _deduplicate_analyses(self, analyses: List[Dict]) -> List[Dict]:
+        """Remove duplicate analyses based on content similarity"""
+        if not analyses:
+            return []
+        
+        deduplicated = []
+        seen_signatures = set()
+        
+        for analysis in analyses:
+            if not analysis:
+                continue
+                
+            try:
+                # Handle both dict and string (JSON) inputs
+                if isinstance(analysis, str):
+                    analysis_dict = json.loads(analysis)
+                elif isinstance(analysis, dict):
+                    analysis_dict = analysis
+                else:
+                    logger.warning(f"⚠️ Unexpected analysis type: {type(analysis)}")
+                    continue
+                    
+                # Remove ml_features as requested
+                filtered_analysis = {k: v for k, v in analysis_dict.items() if k != 'ml_features'}
+                
+                # Create a simple signature for deduplication
+                signature = str(sorted(filtered_analysis.items()))
+                
+                if signature not in seen_signatures:
+                    seen_signatures.add(signature)
+                    deduplicated.append(filtered_analysis)
+                    
+            except json.JSONDecodeError as e:
+                logger.warning(f"⚠️ Failed to parse analysis JSON: {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"⚠️ Error processing analysis: {e}")
+                continue
+        
+        return deduplicated
+    
+    async def _summarize_success_patterns(self, success_patterns: List[Dict[str, Any]]) -> str:
+        """Summarize success patterns using LLM"""
+        try:
+            # Determine which LLM to use based on user preferences
+            text_provider = self.model_preferences.get('text', {}).get('provider', 'openai')
+            text_model = self.model_preferences.get('text', {}).get('model', 'gpt-4o')
+            
+            # Create comprehensive prompt for LLM analysis
+            prompt = self._create_summarization_prompt(success_patterns)
+            
+            # Get LLM response
+            if text_provider == 'openai' and self.user_api_keys.get('openai'):
+                response = await self._call_openai_for_summary(prompt, text_model)
+            elif text_provider == 'anthropic' and self.user_api_keys.get('anthropic'):
+                response = await self._call_anthropic_for_summary(prompt, text_model)
+            else:
+                # Fallback to any available provider
+                if self.user_api_keys.get('openai'):
+                    response = await self._call_openai_for_summary(prompt, 'gpt-4o')
+                elif self.user_api_keys.get('anthropic'):
+                    response = await self._call_anthropic_for_summary(prompt, 'claude-3-5-sonnet-20241022')
+                else:
+                    return "No LLM provider available for success pattern analysis."
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"❌ Error summarizing success patterns: {str(e)}")
+            return f"Error summarizing success patterns: {str(e)}"
+    
+    def _create_summarization_prompt(self, success_patterns: List[Dict[str, Any]]) -> str:
+        """Create comprehensive prompt for LLM analysis"""
+        patterns_text = ""
+        
+        for i, pattern in enumerate(success_patterns, 1):
+            patterns_text += f"\n--- YAPPER #{i}: @{pattern['twitter_handle']} (Rank #{pattern['best_position']}) ---\n"
+            patterns_text += f"Number of analyses: {len(pattern['analyses'])}\n"
+            
+            for j, analysis in enumerate(pattern['analyses'], 1):
+                patterns_text += f"\nAnalysis {j}:\n{json.dumps(analysis, indent=2)}\n"
+        
+        prompt = f"""
+You are analyzing success patterns from 3 randomly selected leaderboard yappers for this campaign. This diverse sampling provides varied strategies and prevents "rich-get-richer" bias, giving exposure to different approaches on the leaderboard.
+
+LEADERBOARD YAPPER SUCCESS PATTERNS:
+{patterns_text}
+
+Your task is to extract actionable insights for each yapper individually, preserving their Twitter handle identity for potential tagging in generated content.
+
+CRITICAL: You MUST respond with VALID JSON in the following exact format:
+
+{{
+  "yappers": [
+    {{
+      "twitter_handle": "@exact_handle_from_data",
+      "leaderboard_position": rank_number,
+      "text_success_patterns": {{
+        "topic_strategy": "specific topic approach that works",
+        "winning_formulas": "proven content formats and structures",
+        "communication_style": "voice and tone that resonates",
+        "platform_optimization": "hashtag/timing/engagement techniques",
+        "key_insights": ["insight1", "insight2", "insight3"]
+      }},
+      "visual_success_patterns": {{
+        "viral_mechanics": "what makes visuals engaging",
+        "trending_elements": ["element1", "element2", "element3"],
+        "production_quality": "quality standards and aesthetic",
+        "audience_resonance": "what visual themes work",
+        "key_insights": ["insight1", "insight2", "insight3"]
+      }},
+      "competitive_intelligence": {{
+        "differentiation_factors": "what makes them unique",
+        "replicable_strategies": "tactics others can copy",
+        "engagement_drivers": "what boosts their performance",
+        "content_calendar_insights": "timing and frequency patterns"
+      }}
+    }}
+  ],
+  "overall_insights": {{
+    "common_success_patterns": "patterns across all top yappers",
+    "platform_optimization_tips": "universal strategies that work",
+    "content_generation_recommendations": "how to apply these patterns"
+  }}
+}}
+
+REQUIREMENTS:
+- Each yapper must be listed individually with their exact @handle
+- Provide concrete, actionable insights for each yapper
+- Focus on patterns that can be replicated
+- Extract both text and visual success strategies
+- Make insights directly usable for content generation
+- Preserve yapper identity for potential Twitter handle tagging
+
+RESPOND ONLY WITH VALID JSON - NO OTHER TEXT OR FORMATTING.
+"""
+        
+        return prompt
+    
+    async def _call_openai_for_summary(self, prompt: str, model: str) -> str:
+        """Call OpenAI for success pattern summary"""
+        try:
+            from app.ai.openai_content_generation import OpenAIContentGenerator
+            generator = OpenAIContentGenerator(api_key=self.user_api_keys['openai'])
+            
+            response = generator.generate_text(
+                prompt=prompt,
+                model=model,
+                max_tokens=2000,
+                temperature=0.7
+            )
+            
+            # OpenAIContentGenerator.generate_text returns text directly
+            return response if isinstance(response, str) else str(response)
+            
+        except Exception as e:
+            logger.error(f"❌ OpenAI summary error: {str(e)}")
+            return f"OpenAI summary error: {str(e)}"
+    
+    async def _call_anthropic_for_summary(self, prompt: str, model: str) -> str:
+        """Call Anthropic for success pattern summary"""
+        try:
+            from app.ai.claude_content_generation import ClaudeContentGenerator
+            generator = ClaudeContentGenerator(api_key=self.user_api_keys['anthropic'])
+            
+            response = generator.generate_text(
+                prompt=prompt,
+                model=model,
+                max_tokens=2000,
+                temperature=0.7
+            )
+            
+            # ClaudeContentGenerator.generate_text returns text directly
+            return response if isinstance(response, str) else str(response)
+            
+        except Exception as e:
+            logger.error(f"❌ Anthropic summary error: {str(e)}")
+            return f"Anthropic summary error: {str(e)}"
+
 # CrewAI Tools with real mindshare prediction capabilities
 class MindshareAnalysisTool(BaseTool):
     name: str = "mindshare_analysis"
@@ -3137,9 +3710,32 @@ class MindshareAnalysisTool(BaseTool):
         self.user_id = user_id
         self.agent_id = agent_id
     
-    def _run(self, query: str) -> str:
-        """Provide comprehensive analysis using Twitter learning data and mindshare models"""
+    def _run(self, **kwargs) -> str:
+        """
+        Provide comprehensive analysis using Twitter learning data and mindshare models
+        
+        Args:
+            **kwargs: Flexible arguments - handles various CrewAI input formats
+            
+        Returns:
+            Comprehensive analysis of Twitter learning data and mindshare patterns
+        """
         try:
+            # Handle flexible input - CrewAI might pass various argument formats
+            query_text = ""
+            if 'query' in kwargs:
+                query_text = str(kwargs['query'])
+            elif 'analysis_request' in kwargs:
+                query_text = str(kwargs['analysis_request'])
+            elif 'description' in kwargs:
+                query_text = str(kwargs['description'])
+            elif len(kwargs) == 1:
+                # If there's only one argument, use its value regardless of key
+                query_text = str(list(kwargs.values())[0])
+            
+            logger.info(f"🧠 Mindshare analysis query: {query_text}")
+            logger.info(f"🔧 Mindshare tool received kwargs: {kwargs}")
+            
             platform = self.campaign_context.get('platform_source', 'Twitter')
             campaign_type = self.campaign_context.get('campaign_type', 'meme')
             

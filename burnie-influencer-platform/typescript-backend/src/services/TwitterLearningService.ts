@@ -32,6 +32,8 @@ interface TwitterTweet {
   id: string;
   text: string;
   created_at: string;
+  conversation_id?: string;
+  author_id?: string;
   public_metrics?: {
     retweet_count: number;
     like_count: number;
@@ -45,6 +47,7 @@ interface TwitterTweet {
     mentions?: { username: string }[];
     urls?: { expanded_url: string }[];
     media?: { media_key: string; type: string }[];
+    cashtags?: { tag: string }[];
   };
   attachments?: {
     media_keys?: string[];
@@ -136,11 +139,46 @@ export class TwitterLearningService {
   }
 
   /**
+   * Check if Twitter data was already processed today for a creator/miner
+   */
+  private async wasDataProcessedToday(userId: number): Promise<boolean> {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const count = await this.twitterLearningRepository
+        .createQueryBuilder("learning")
+        .where("learning.userId = :userId", { userId })
+        .andWhere("learning.processedAt >= :today", { today })
+        .andWhere("learning.processedAt < :tomorrow", { tomorrow })
+        .getCount();
+
+      return count > 0;
+    } catch (error) {
+      logger.error(`❌ Error checking daily processing status for user ${userId}:`, error);
+      return true; // Return true to prevent duplicate attempts on error
+    }
+  }
+
+  /**
    * Process individual user's Twitter data
    */
   public async processUserTwitterData(user: User): Promise<{success: boolean, tweetsProcessed: number, error?: string}> {
     try {
       logger.info(`🧠 Starting comprehensive Twitter learning for user ${user.id}...`);
+
+      // Check if data was already processed today
+      const alreadyProcessedToday = await this.wasDataProcessedToday(user.id);
+      if (alreadyProcessedToday) {
+        logger.info(`⏭️ Skipping Twitter data processing for user ${user.id} (@${user.twitterHandle}) - already processed today`);
+        return {
+          success: true,
+          tweetsProcessed: 0
+        };
+      }
 
       // Fetch user tweets
       const tweets = await this.fetchUserTweets(user);
@@ -173,6 +211,9 @@ export class TwitterLearningService {
 
       // Save detailed learning data for each agent type
       const learningDataRepository = AppDataSource.getRepository(TwitterLearningData);
+      
+      // Store individual tweet data first with enhanced fields
+      await this.storeIndividualTweetData(tweets, user, overallMetrics);
       
       // Create comprehensive learning records for each agent type
       for (const [agentType, insights] of Object.entries(agentInsights)) {
@@ -1006,6 +1047,520 @@ export class TwitterLearningService {
     } catch (error) {
       logger.error(`❌ Error updating agent learning progress for user ${userId}:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Store individual tweet data with enhanced raw data fields
+   */
+  private async storeIndividualTweetData(tweets: TwitterTweet[], user: User, overallMetrics: any): Promise<void> {
+    try {
+      logger.info(`💾 Storing individual tweet data for ${tweets.length} tweets with enhanced fields...`);
+
+      const learningDataRepository = AppDataSource.getRepository(TwitterLearningData);
+      
+      // Array to collect tweets for batch LLM analysis
+      const tweetsForBatchAnalysis: {
+        learningDataId: number;
+        tweetId: string;
+        tweetText: string;
+        imageUrls: string[];
+      }[] = [];
+
+      for (const tweet of tweets) {
+        // Extract image URLs from tweet attachments
+        const tweetImages: any[] = [];
+        let conversationData = null;
+
+        // Check if tweet is part of a thread
+        const isThread = tweet.conversation_id !== tweet.id;
+        let threadPosition = null;
+        let parentTweetId = null;
+
+        if (isThread) {
+          parentTweetId = tweet.conversation_id;
+          // For now, we can't determine exact thread position without additional API calls
+          // We'll set it as null and can enhance this later
+          threadPosition = null;
+        }
+
+        // Extract actual image URLs and perform AI analysis
+        const imageUrls = this.extractImageUrlsFromTweet(tweet);
+        let anthropicAnalysis = null;
+
+        if (imageUrls.length > 0) {
+          // Store image URLs
+          tweetImages.push(...imageUrls.map(url => ({ url, type: 'image' })));
+          
+          // Perform comprehensive LLM analysis (images + text)
+          try {
+            logger.info(`🔍 Performing comprehensive LLM analysis for tweet ${tweet.id}`);
+            // This will be handled by the Python backend via API call
+            // The comprehensive analysis will be stored in anthropic_analysis or openai_analysis columns
+          } catch (error) {
+            logger.error(`❌ Comprehensive analysis setup failed for tweet ${tweet.id}:`, error);
+          }
+        } else if (tweet.attachments?.media_keys) {
+          // Fallback: Store media keys if no direct URLs found
+          tweetImages.push({
+            media_keys: tweet.attachments.media_keys,
+            note: 'Media keys available but URLs not expanded'
+          });
+        }
+
+        // Create individual tweet learning record
+        const learningData = new TwitterLearningData();
+        learningData.userId = user.id;
+        learningData.tweetId = tweet.id;
+        learningData.tweetText = tweet.text;
+        learningData.analysisType = 'individual_tweet';
+
+        // Populate engagement metrics
+        learningData.engagementMetrics = {
+          likes: tweet.public_metrics?.like_count || 0,
+          retweets: tweet.public_metrics?.retweet_count || 0,
+          replies: tweet.public_metrics?.reply_count || 0,
+          quotes: tweet.public_metrics?.quote_count || 0,
+          impressions: tweet.public_metrics?.impression_count || null
+        };
+
+        if (tweet.created_at) {
+          learningData.postingTime = new Date(tweet.created_at);
+        }
+
+        // Populate the new enhanced fields
+        learningData.tweet_images = tweetImages.length > 0 ? tweetImages : null;
+        learningData.is_thread = isThread;
+        if (threadPosition !== null) {
+          learningData.thread_position = threadPosition;
+        }
+        if (parentTweetId) {
+          learningData.parent_tweet_id = parentTweetId;
+        }
+        // Store comprehensive LLM analysis (will be set by Python backend)
+        learningData.raw_tweet_data = {
+          original_tweet: tweet,
+          context_annotations: tweet.context_annotations,
+          entities: tweet.entities,
+          conversation_id: tweet.conversation_id,
+          author_id: tweet.author_id
+        };
+
+        // Calculate features for this specific tweet
+        const tweetFeatures = this.extractTweetSpecificFeatures(tweet);
+        learningData.analyzedFeatures = {
+          ...tweetFeatures,
+          overall_user_metrics: {
+            avg_engagement: overallMetrics.avgEngagement,
+            avg_likes: overallMetrics.avgLikes,
+            avg_retweets: overallMetrics.avgRetweets
+          }
+        };
+
+        // Generate insights for this specific tweet
+        learningData.learningInsights = {
+          tweet_performance: this.analyzeTweetPerformance(tweet, overallMetrics),
+          content_analysis: this.analyzeTweetContent(tweet),
+          engagement_factors: this.identifyEngagementFactors(tweet, tweetFeatures)
+        };
+
+        // Calculate confidence based on engagement
+        const tweetEngagement = (tweet.public_metrics?.like_count || 0) + 
+                               (tweet.public_metrics?.retweet_count || 0) + 
+                               (tweet.public_metrics?.reply_count || 0);
+        learningData.confidence = Math.min(Math.max(tweetEngagement * 10, 20), 100);
+
+        // Save the learning data first to get the ID
+        const savedLearningData = await learningDataRepository.save(learningData);
+
+        // Collect tweet data for batch processing
+        tweetsForBatchAnalysis.push({
+          learningDataId: savedLearningData.id,
+          tweetId: tweet.id,
+          tweetText: tweet.text,
+          imageUrls: imageUrls
+        });
+      }
+
+      logger.info(`✅ Stored ${tweets.length} individual tweet records with enhanced raw data`);
+      
+      // Trigger batch LLM analysis for all tweets
+      if (tweetsForBatchAnalysis.length > 0) {
+        logger.info(`🧠 Triggering batch LLM analysis for ${tweetsForBatchAnalysis.length} tweets`);
+        this.triggerBatchComprehensiveLLMAnalysis(user.id, tweetsForBatchAnalysis).catch(error => {
+          logger.error(`❌ Error triggering batch LLM analysis:`, error);
+        });
+      }
+
+    } catch (error) {
+      logger.error(`❌ Error storing individual tweet data:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Extract tweet-specific features for analysis
+   */
+  private extractTweetSpecificFeatures(tweet: TwitterTweet): any {
+    const text = tweet.text || '';
+    
+    return {
+      text_length: text.length,
+      word_count: text.split(/\s+/).length,
+      hashtag_count: (text.match(/#\w+/g) || []).length,
+      mention_count: (text.match(/@\w+/g) || []).length,
+      url_count: (text.match(/https?:\/\/\S+/g) || []).length,
+      has_emojis: /[\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}]/u.test(text),
+      has_media: !!(tweet.attachments?.media_keys?.length),
+      is_conversation_starter: tweet.conversation_id === tweet.id || !tweet.conversation_id,
+      posting_hour: tweet.created_at ? new Date(tweet.created_at).getHours() : null,
+      posting_day_of_week: tweet.created_at ? new Date(tweet.created_at).getDay() : null,
+      entities_present: {
+        hashtags: tweet.entities?.hashtags?.length || 0,
+        mentions: tweet.entities?.mentions?.length || 0,
+        urls: tweet.entities?.urls?.length || 0,
+        cashtags: tweet.entities?.cashtags?.length || 0
+      }
+    };
+  }
+
+  /**
+   * Analyze individual tweet performance
+   */
+  private analyzeTweetPerformance(tweet: TwitterTweet, overallMetrics: any): any {
+    const tweetLikes = tweet.public_metrics?.like_count || 0;
+    const tweetRetweets = tweet.public_metrics?.retweet_count || 0;
+    const tweetReplies = tweet.public_metrics?.reply_count || 0;
+    const tweetEngagement = tweetLikes + tweetRetweets + tweetReplies;
+
+    const avgEngagement = overallMetrics.avgEngagement || 1;
+    const performanceRatio = tweetEngagement / avgEngagement;
+
+    return {
+      total_engagement: tweetEngagement,
+      performance_vs_average: performanceRatio,
+      performance_category: performanceRatio > 1.5 ? 'high' : performanceRatio > 0.8 ? 'average' : 'low',
+      like_to_retweet_ratio: tweetRetweets > 0 ? tweetLikes / tweetRetweets : tweetLikes,
+      engagement_type: tweetLikes > tweetRetweets ? 'like_focused' : 'share_focused',
+      conversation_starter: tweetReplies > (tweetLikes + tweetRetweets) * 0.1
+    };
+  }
+
+  /**
+   * Analyze tweet content characteristics
+   */
+  private analyzeTweetContent(tweet: TwitterTweet): any {
+    const text = tweet.text || '';
+    
+    // Identify content themes
+    const cryptoKeywords = ['crypto', 'bitcoin', 'eth', 'defi', 'nft', 'blockchain', 'web3'];
+    const techKeywords = ['ai', 'ml', 'python', 'javascript', 'react', 'api'];
+    const emotionalWords = ['excited', 'amazing', 'love', 'hate', 'frustrated', 'happy'];
+
+    const foundCrypto = cryptoKeywords.filter(kw => text.toLowerCase().includes(kw));
+    const foundTech = techKeywords.filter(kw => text.toLowerCase().includes(kw));
+    const foundEmotional = emotionalWords.filter(kw => text.toLowerCase().includes(kw));
+
+    return {
+      content_themes: {
+        crypto_related: foundCrypto.length > 0,
+        tech_related: foundTech.length > 0,
+        emotional_tone: foundEmotional.length > 0
+      },
+      content_structure: {
+        has_question: text.includes('?'),
+        has_exclamation: text.includes('!'),
+        is_statement: !text.includes('?') && !text.includes('!'),
+        sentence_count: text.split(/[.!?]+/).filter(s => s.trim().length > 0).length
+      },
+      writing_style: {
+        formal_tone: /\b(however|therefore|furthermore|nevertheless)\b/i.test(text),
+        casual_tone: /\b(lol|haha|tbh|imo|btw)\b/i.test(text),
+        professional_language: foundTech.length > foundEmotional.length
+      }
+    };
+  }
+
+  /**
+   * Identify factors that contributed to engagement
+   */
+  private identifyEngagementFactors(tweet: TwitterTweet, features: any): any {
+    const engagement = (tweet.public_metrics?.like_count || 0) + 
+                     (tweet.public_metrics?.retweet_count || 0) + 
+                     (tweet.public_metrics?.reply_count || 0);
+
+    const factors = [];
+
+    // Analyze what might have driven engagement
+    if (features.hashtag_count > 0 && engagement > 5) {
+      factors.push('hashtags_effective');
+    }
+    
+    if (features.has_media && engagement > 3) {
+      factors.push('media_boost');
+    }
+    
+    if (features.text_length > 100 && features.text_length < 200 && engagement > 5) {
+      factors.push('optimal_length');
+    }
+    
+    if (tweet.text.includes('?') && (tweet.public_metrics?.reply_count || 0) > 2) {
+      factors.push('question_engagement');
+    }
+
+    if (features.mention_count > 0 && engagement > 2) {
+      factors.push('mention_network_effect');
+    }
+
+    return {
+      identified_factors: factors,
+      engagement_score: engagement,
+      likely_drivers: factors.length > 0 ? factors : ['organic_content_quality'],
+      optimization_suggestions: this.generateOptimizationSuggestions(features, engagement)
+    };
+  }
+
+  /**
+   * Generate optimization suggestions based on tweet analysis
+   */
+  private generateOptimizationSuggestions(features: any, engagement: number): string[] {
+    const suggestions = [];
+
+    if (features.hashtag_count === 0 && engagement < 3) {
+      suggestions.push('Consider adding relevant hashtags for visibility');
+    }
+
+    if (features.text_length < 50) {
+      suggestions.push('Try longer, more detailed content');
+    }
+
+    if (features.text_length > 250) {
+      suggestions.push('Consider breaking long content into threads');
+    }
+
+    if (!features.has_media && engagement < 5) {
+      suggestions.push('Adding images or media could boost engagement');
+    }
+
+    if (features.mention_count === 0) {
+      suggestions.push('Engaging with other users through mentions could increase reach');
+    }
+
+    return suggestions.length > 0 ? suggestions : ['Content performed well - maintain this style'];
+  }
+
+  /**
+   * Analyze tweet images using Anthropic with OpenAI fallback
+   */
+  private async analyzeCreatorTweetImages(imageUrls: string[], tweetText: string, userId: number): Promise<string | null> {
+    try {
+      if (!imageUrls || imageUrls.length === 0) {
+        return null;
+      }
+
+      logger.info(`🎯 Analyzing ${imageUrls.length} images for creator/miner ${userId} with Anthropic/OpenAI`);
+
+      // Call Python backend for image analysis
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+
+      try {
+        const response = await fetch(`${process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'}/api/analyze-creator-images`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            image_urls: imageUrls,
+            tweet_text: tweetText,
+            user_id: userId,
+            analysis_type: 'creator_content_analysis'
+          }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          logger.error(`❌ Python backend image analysis failed: ${response.status} - ${errorText}`);
+          return `Analysis failed: ${response.status} - ${errorText}`;
+        }
+
+        const result = await response.json() as any;
+
+        if (result.success && result.analysis) {
+          logger.info(`✅ Successfully analyzed images for creator ${userId}`);
+          return result.analysis;
+        } else {
+          logger.warn(`⚠️ Image analysis returned without success for creator ${userId}: ${result.error || 'Unknown error'}`);
+          return `Analysis incomplete: ${result.error || 'Unknown error'}`;
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+
+    } catch (error) {
+      logger.error(`❌ Error analyzing creator images for user ${userId}:`, error);
+      return `Analysis error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    }
+  }
+
+  /**
+   * Extract actual image URLs from Twitter API response data
+   */
+  private extractImageUrlsFromTweet(tweet: TwitterTweet, mediaData?: any[]): string[] {
+    const imageUrls: string[] = [];
+
+    try {
+      // If we have media expansion data, use it
+      if (mediaData && tweet.attachments?.media_keys) {
+        for (const mediaKey of tweet.attachments.media_keys) {
+          const media = mediaData.find((m: any) => m.media_key === mediaKey);
+          if (media && (media.type === 'photo' || media.type === 'video')) {
+            if (media.url) {
+              imageUrls.push(media.url);
+            } else if (media.preview_image_url) {
+              imageUrls.push(media.preview_image_url);
+            }
+          }
+        }
+      }
+
+      // Fallback: Extract URLs from entities if available
+      if (imageUrls.length === 0 && tweet.entities?.urls) {
+        for (const urlEntity of tweet.entities.urls) {
+          if (urlEntity.expanded_url && (
+            urlEntity.expanded_url.includes('pic.twitter.com') ||
+            urlEntity.expanded_url.includes('pbs.twimg.com') ||
+            urlEntity.expanded_url.match(/\.(jpg|jpeg|png|gif|webp)$/i)
+          )) {
+            imageUrls.push(urlEntity.expanded_url);
+          }
+        }
+      }
+
+    } catch (error) {
+      logger.error(`❌ Error extracting image URLs from tweet ${tweet.id}:`, error);
+    }
+
+    return imageUrls;
+  }
+
+  /**
+   * Trigger batch comprehensive LLM analysis for multiple tweets (async background process)
+   */
+  private async triggerBatchComprehensiveLLMAnalysis(
+    userId: number,
+    tweetsData: {
+      learningDataId: number;
+      tweetId: string;
+      tweetText: string;
+      imageUrls: string[];
+    }[]
+  ): Promise<void> {
+    try {
+      logger.info(`🧠 Triggering batch comprehensive LLM analysis for ${tweetsData.length} tweets`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout for batch
+
+      try {
+        const response = await fetch(`${process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'}/api/comprehensive-creator-batch-analysis`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            tweets_data: tweetsData.map(tweet => ({
+              tweet_id: tweet.tweetId,
+              tweet_text: tweet.tweetText,
+              image_urls: tweet.imageUrls,
+              learning_data_id: tweet.learningDataId
+            })),
+            analysis_type: 'creator'
+          }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const result = await response.json() as any;
+          if (result.success) {
+            logger.info(`✅ Batch comprehensive LLM analysis triggered for ${tweetsData.length} tweets`);
+          } else {
+            logger.warn(`⚠️ Batch LLM analysis trigger failed: ${result.error}`);
+          }
+        } else {
+          logger.error(`❌ Batch LLM analysis endpoint failed: ${response.status} - ${response.statusText}`);
+        }
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        throw fetchError;
+      }
+
+    } catch (error) {
+      logger.error(`❌ Error triggering batch LLM analysis:`, error);
+      // Don't re-throw - this is a background process
+    }
+  }
+
+  /**
+   * Trigger comprehensive LLM analysis for a tweet (async background process)
+   */
+  private async triggerComprehensiveLLMAnalysis(
+    userId: number, 
+    tweetId: string, 
+    tweetText: string, 
+    imageUrls: string[], 
+    learningDataId: number
+  ): Promise<void> {
+    try {
+      logger.info(`🧠 Triggering comprehensive LLM analysis for tweet ${tweetId}`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+
+      try {
+        const response = await fetch(`${process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'}/api/comprehensive-creator-analysis`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            tweet_id: tweetId,
+            tweet_text: tweetText,
+            image_urls: imageUrls,
+            learning_data_id: learningDataId,
+            analysis_type: 'creator'
+          }),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const result = await response.json() as any;
+          if (result.success) {
+            logger.info(`✅ Comprehensive LLM analysis triggered for tweet ${tweetId}`);
+          } else {
+            logger.warn(`⚠️ LLM analysis trigger failed for tweet ${tweetId}: ${result.error}`);
+          }
+        } else {
+          logger.error(`❌ LLM analysis endpoint failed: ${response.status} - ${response.statusText}`);
+        }
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        throw fetchError;
+      }
+
+    } catch (error) {
+      logger.error(`❌ Error triggering LLM analysis for tweet ${tweetId}:`, error);
+      // Don't re-throw - this is a background process
     }
   }
 } 

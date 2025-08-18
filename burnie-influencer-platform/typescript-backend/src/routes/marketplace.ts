@@ -2849,7 +2849,14 @@ router.post('/content/:id/presigned-url', async (req: Request, res: Response) =>
     }
     
     // Call Python AI backend to generate pre-signed URL
-    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
+    if (!pythonBackendUrl) {
+      logger.error('PYTHON_AI_BACKEND_URL environment variable is not set');
+      return res.status(500).json({
+        success: false,
+        message: 'Python AI backend URL not configured'
+      });
+    }
     
     try {
       const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url`, {
@@ -3674,7 +3681,7 @@ router.get('/analytics/purchase/content-categories/:walletAddress', async (req: 
     // Analyze content categories based on campaign platform
     const categoryPerformanceRaw = await AppDataSource.query(`
       SELECT 
-        COALESCE(camp."platformSource", 'General') as category,
+        COALESCE(camp."platformSource", 'burnie') as category,
         COUNT(c.id) as count,
         COUNT(p.id) as "purchaseCount",
         SUM(CAST(p."purchase_price" AS DECIMAL)) as revenue
@@ -3683,12 +3690,12 @@ router.get('/analytics/purchase/content-categories/:walletAddress', async (req: 
       LEFT JOIN content_purchases p ON c.id = p."content_id" 
         AND p."payment_status" = 'completed'
       WHERE c.id = ANY($1)
-      GROUP BY COALESCE(camp."platformSource", 'General')
+      GROUP BY COALESCE(camp."platformSource", 'burnie')
       ORDER BY revenue DESC NULLS LAST
     `, [contentIds]);
 
     const categoryPerformance = categoryPerformanceRaw.map((category: any) => ({
-      category: category.category || 'General',
+      category: category.category || 'burnie',
       count: parseInt(category.count) || 0,
       avgBids: parseFloat(category.purchaseCount) || 0, // Keep same property for frontend compatibility  
       revenue: parseFloat(category.revenue) || 0
