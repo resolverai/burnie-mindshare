@@ -38,13 +38,13 @@ RUN npm install
 COPY .env* ./
 
 # Copy source code (only invalidates cache when source changes)
-COPY src/ ./src/
-COPY public/ ./public/
-COPY next.config.js ./
-COPY tailwind.config.js ./
-COPY tsconfig.json ./
-COPY next-env.d.ts ./
-COPY postcss.config.js ./
+COPY . .
+
+# Remove node_modules if accidentally copied
+RUN rm -rf node_modules
+
+# Reinstall to ensure clean state
+RUN npm ci
 
 # Build the application (NEXT_PUBLIC_ vars will be embedded)
 RUN npm run build

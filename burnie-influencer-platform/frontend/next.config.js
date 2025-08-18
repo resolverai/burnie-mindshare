@@ -45,6 +45,12 @@ const nextConfig = {
       }
     }
     
+    // Add explicit alias for @ symbol to ensure Docker builds work
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': require('path').join(__dirname, 'src'),
+    }
+    
     // Ignore warnings for wallet-related modules during build
     config.ignoreWarnings = [
       { module: /node_modules\/@walletconnect/ },
