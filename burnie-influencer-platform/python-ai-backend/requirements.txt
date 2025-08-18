@@ -1,14 +1,14 @@
 fastapi
 uvicorn
 websockets
-crewai
+crewai==0.118.0
 crewai-tools
-crewai[tools]
+crewai[tools]==0.118.0
 langchain
 langchain-openai
 langchain-anthropic
 langchain-google-genai
-openai
+openai==1.77.0
 anthropic
 google-generativeai
 replicate
