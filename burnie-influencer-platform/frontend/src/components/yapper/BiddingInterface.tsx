@@ -3,27 +3,19 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAccount } from 'wagmi'
+import Image from 'next/image'
 import { 
   MagnifyingGlassIcon,
-  FunnelIcon,
-  ClockIcon,
-  StarIcon,
-  CurrencyDollarIcon,
   EyeIcon,
-  HeartIcon,
-  ChatBubbleLeftIcon,
-  ArrowUpIcon,
-  ExclamationTriangleIcon,
+  StarIcon,
   ShoppingCartIcon,
-  ChevronDownIcon,
-  ChevronUpIcon
+  ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline'
 import { 
-  HeartIcon as HeartIconSolid,
   StarIcon as StarIconSolid 
 } from '@heroicons/react/24/solid'
 
-// Import the new Purchase Content Modal
+// Import the Purchase Content Modal
 import PurchaseContentModal from './PurchaseContentModal'
 import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance } from '../../utils/walletUtils'
 import { useROASTPrice, convertROASTToUSDC, formatUSDCPrice } from '../../utils/priceUtils'
@@ -33,12 +25,12 @@ import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } f
 interface ContentItem {
   id: number
   content_text: string
-  tweet_thread?: string[] // Array of tweet thread messages
-  content_images?: string[] // Array of image URLs
+  tweet_thread?: string[]
+  content_images?: string[]
   predicted_mindshare: number
   quality_score: number
   asking_price: number
-  post_type?: string // Type of post: 'shitpost', 'longpost', or 'thread'
+  post_type?: string
   creator: {
     username: string
     reputation_score: number
@@ -65,6 +57,16 @@ interface ContentItem {
   agent_name?: string
 }
 
+interface HeroSlide {
+  backgroundUrl: string
+  title: string
+  amount: string
+  amountLabel: string
+  endText: string
+  tag?: string
+  gallery?: string[]
+}
+
 export default function BiddingInterface() {
   const [searchTerm, setSearchTerm] = useState('')
   const { price: roastPrice } = useROASTPrice()
@@ -72,16 +74,11 @@ export default function BiddingInterface() {
   const [selectedPostType, setSelectedPostType] = useState('all')
   const [sortBy, setSortBy] = useState<'mindshare' | 'quality'>('mindshare')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
-  // Keep bidding state for future use but don't expose UI for now
-  const [showBidModal, setShowBidModal] = useState<ContentItem | null>(null)
   const [showPurchaseModal, setShowPurchaseModal] = useState<ContentItem | null>(null)
-  const [bidAmount, setBidAmount] = useState('')
-  const [bidCurrency, setBidCurrency] = useState<'ROAST' | 'USDC' | 'KAITO' | 'COOKIE' | 'AXR' | 'NYKO'>('ROAST')
-  const [isPlacingBid, setIsPlacingBid] = useState(false)
   const [showCopyProtection, setShowCopyProtection] = useState(false)
   const [isScreenshotDetected, setIsScreenshotDetected] = useState(false)
-  // Watermark position state removed (floating watermarks disabled)
   const [expandedLongposts, setExpandedLongposts] = useState<Set<number>>(new Set())
+  const [heroPosition, setHeroPosition] = useState(0)
   
   // Price display component
   const PriceDisplay = ({ roastAmount }: { roastAmount: number }) => {
@@ -94,12 +91,10 @@ export default function BiddingInterface() {
     }, [roastAmount, roastPrice])
 
     return (
-      <div className="flex flex-col">
-        <div className="text-lg font-bold text-orange-600">
-          {roastAmount} <span className="text-sm text-gray-500">ROAST</span>
-        </div>
+      <div className="text-white text-lg md:text-2xl font-semibold">
+        {roastAmount} <span className="text-sm md:text-base align-middle font-semibold">$ROAST</span>
         {roastPrice > 0 && (
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-white/80">
             ({formatUSDCPrice(usdcAmount)} USDC)
           </div>
         )}
@@ -109,19 +104,16 @@ export default function BiddingInterface() {
   
   // Content parsing functions
   const extractImageUrl = (contentText: string): string | null => {
-    // Pattern 1: Look for Image URL: prefix (backend format)
     const prefixMatch = contentText.match(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i)
     if (prefixMatch) {
       return prefixMatch[1].replace(/[.,;'"]+$/, '')
     }
     
-    // Pattern 2: Look for OpenAI DALL-E URLs specifically
     const dalleMatch = contentText.match(/(https?:\/\/oaidalleapiprodscus\.blob\.core\.windows\.net\/[^\s\n<>"'`]+)/i)
     if (dalleMatch) {
       return dalleMatch[1].replace(/[.,;'"]+$/, '')
     }
     
-    // Pattern 3: General blob URL detection
     const blobMatch = contentText.match(/(https?:\/\/[^\s\n<>"'`]*blob\.core\.windows\.net[^\s\n<>"'`]+)/i)
     if (blobMatch) {
       return blobMatch[1].replace(/[.,;'"]+$/, '')
@@ -133,17 +125,14 @@ export default function BiddingInterface() {
   const formatTwitterContent = (contentText: string): { text: string; hashtags: string[]; characterCount: number; imageUrl: string | null } => {
     const imageUrl = extractImageUrl(contentText)
     
-    // Start with the full content
     let cleanText = contentText
     
-    // Remove image URL patterns from the text
     cleanText = cleanText.replace(/📸 Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '')
     cleanText = cleanText.replace(/Image URL:\s*https?:\/\/[^\s\n<>"'`]+/gi, '')
     cleanText = cleanText.replace(/https?:\/\/burnie-mindshare-content[^\s\n<>"'`]+/gi, '')
     cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*amazonaws[^\s\n<>"'`]+/gi, '')
     cleanText = cleanText.replace(/https?:\/\/[^\s\n<>"'`]*s3[^\s\n<>"'`]+/gi, '')
     
-    // Extract just the Twitter text (before the stats and metadata)
     const lines = cleanText.split('\n')
     let twitterText = ""
     
@@ -158,7 +147,6 @@ export default function BiddingInterface() {
       }
       
       const trimmedLine = line.trim()
-      // Skip lines that are just URLs or AWS parameters
       if (trimmedLine && 
           !trimmedLine.startsWith('http') && 
           !trimmedLine.includes('AWSAccessKeyId') &&
@@ -179,7 +167,6 @@ export default function BiddingInterface() {
     }
   }
 
-  // Generate a consistent miner ID from username
   const generateMinerId = (username: string): string => {
     const hash = username.split('').reduce((a, b) => {
       a = ((a << 5) - a) + b.charCodeAt(0)
@@ -188,103 +175,6 @@ export default function BiddingInterface() {
     const minerId = Math.abs(hash).toString().slice(0, 6).padStart(6, '0')
     return `MINER-${minerId}`
   }
-
-  // Toggle longpost expansion
-  const toggleLongpostExpansion = (contentId: number) => {
-    setExpandedLongposts(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(contentId)) {
-        newSet.delete(contentId)
-      } else {
-        newSet.add(contentId)
-      }
-      return newSet
-    })
-  }
-
-  // Truncate longpost content for preview
-  const truncateLongpost = (content: string, maxLength: number = 300): string => {
-    if (content.length <= maxLength) return content
-    
-    // Find a good breaking point (end of sentence or paragraph)
-    let truncatedContent = content.substring(0, maxLength)
-    const lastSentence = truncatedContent.lastIndexOf('.')
-    const lastParagraph = truncatedContent.lastIndexOf('\n\n')
-    
-    if (lastSentence > maxLength * 0.7) {
-      truncatedContent = content.substring(0, lastSentence + 1)
-    } else if (lastParagraph > maxLength * 0.5) {
-      truncatedContent = content.substring(0, lastParagraph)
-    }
-    
-    return truncatedContent + '...'
-  }
-
-  // Copy protection modal component
-  const CopyProtectionModal = () => (
-    showCopyProtection && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
-        <div className="bg-white rounded-lg p-8 max-w-md mx-4 text-center">
-          <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mx-auto mb-4" />
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Content Protected</h3>
-          <p className="text-gray-600 mb-6">
-            This content is proprietary and protected. Copying, screenshots, and screen recording are prohibited. 
-            You can only access this content after purchasing it.
-          </p>
-          <button
-            onClick={() => setShowCopyProtection(false)}
-            className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-          >
-            I Understand
-          </button>
-        </div>
-      </div>
-    )
-  )
-
-  // Get wallet address and connection status
-  const { address, isConnected } = useAccount()
-
-  // Screenshot protection functions
-  const handleVisibilityChange = () => {
-    if (document.hidden) {
-      setIsScreenshotDetected(true)
-      setTimeout(() => setIsScreenshotDetected(false), 3000)
-    }
-  }
-
-  const handleBlur = () => {
-    setIsScreenshotDetected(true)
-    setTimeout(() => setIsScreenshotDetected(false), 2000)
-  }
-
-  const preventScreenshot = () => {
-    setShowCopyProtection(true)
-  }
-
-  // Block screen capture APIs
-  const blockScreenCapture = () => {
-    if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-      const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia
-      navigator.mediaDevices.getDisplayMedia = () => {
-        preventScreenshot()
-        return Promise.reject(new Error('Screen capture blocked'))
-      }
-    }
-
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      const originalGetUserMedia = navigator.mediaDevices.getUserMedia
-      navigator.mediaDevices.getUserMedia = (constraints: any) => {
-        if (constraints?.video?.mediaSource === 'screen') {
-          preventScreenshot()
-          return Promise.reject(new Error('Screen capture blocked'))
-        }
-        return originalGetUserMedia.call(navigator.mediaDevices, constraints)
-      }
-    }
-  }
-
-  // Dynamic watermark positioning removed (floating watermarks disabled)
 
   // Copy protection functions
   const preventCopy = (e: Event) => {
@@ -321,54 +211,47 @@ export default function BiddingInterface() {
     }
   }
 
-  // Add copy protection and screenshot detection on component mount
+  // Copy protection modal component
+  const CopyProtectionModal = () => (
+    showCopyProtection && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
+        <div className="bg-white rounded-lg p-8 max-w-md mx-4 text-center">
+          <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <h3 className="text-xl font-bold text-gray-900 mb-4">Content Protected</h3>
+          <p className="text-gray-600 mb-6">
+            This content is proprietary and protected. Copying, screenshots, and screen recording are prohibited. 
+            You can only access this content after purchasing it.
+          </p>
+          <button
+            onClick={() => setShowCopyProtection(false)}
+            className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+          >
+            I Understand
+          </button>
+        </div>
+      </div>
+    )
+  )
+
+  // Get wallet address and connection status
+  const { address, isConnected } = useAccount()
+
+  // Add copy protection on component mount
   useEffect(() => {
     const handleCopy = (e: ClipboardEvent) => preventCopy(e)
     const handleCut = (e: ClipboardEvent) => preventCopy(e)
-    const handlePrint = (e: Event) => preventCopy(e)
     const handleSelectStart = (e: Event) => preventCopy(e)
     
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    window.addEventListener('blur', handleBlur)
     document.addEventListener('copy', handleCopy)
     document.addEventListener('cut', handleCut)
     document.addEventListener('selectstart', handleSelectStart)
     document.addEventListener('dragstart', preventCopy)
-    window.addEventListener('beforeprint', handlePrint)
-    
-    blockScreenCapture()
-    
-    const handleMobileScreenshot = () => {
-      setIsScreenshotDetected(true)
-      preventScreenshot()
-      setTimeout(() => setIsScreenshotDetected(false), 5000)
-    }
-    
-    document.addEventListener('deviceorientation', handleMobileScreenshot)
-    
-    const handleKeyboardScreenshot = (e: KeyboardEvent) => {
-      if (e.key === 'PrintScreen') {
-        e.preventDefault()
-        preventScreenshot()
-      }
-      if (e.metaKey && e.shiftKey && ['3', '4', '5'].includes(e.key)) {
-        e.preventDefault()
-        preventScreenshot()
-      }
-    }
-    
-    document.addEventListener('keydown', handleKeyboardScreenshot)
     
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('blur', handleBlur)
       document.removeEventListener('copy', handleCopy)
       document.removeEventListener('cut', handleCut)
       document.removeEventListener('selectstart', handleSelectStart)
       document.removeEventListener('dragstart', preventCopy)
-      window.removeEventListener('beforeprint', handlePrint)
-      document.removeEventListener('deviceorientation', handleMobileScreenshot)
-      document.removeEventListener('keydown', handleKeyboardScreenshot)
     }
   }, [])
 
@@ -379,7 +262,7 @@ export default function BiddingInterface() {
       const params = new URLSearchParams()
       if (searchTerm) params.append('search', searchTerm)
       if (selectedPlatform !== 'all') params.append('platform_source', selectedPlatform)
-              if (selectedPostType !== 'all') params.append('post_type', selectedPostType)
+      if (selectedPostType !== 'all') params.append('post_type', selectedPostType)
       
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content?${params}`)
@@ -407,8 +290,6 @@ export default function BiddingInterface() {
     try {
       console.log('🛒 Starting purchase process for content:', contentId, 'Price:', price, currency);
       
-      // Step 1: Check balance for selected currency
-      console.log(`🔍 Checking ${currency} balance...`);
       let hasBalance = false;
       
       if (currency === 'ROAST') {
@@ -425,8 +306,6 @@ export default function BiddingInterface() {
         }
       }
 
-      // Step 2: Create purchase record
-      console.log('📝 Creating purchase record...');
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/purchase`, {
         method: 'POST',
         headers: {
@@ -446,19 +325,11 @@ export default function BiddingInterface() {
         throw new Error(result.message || 'Failed to initiate purchase');
       }
 
-      console.log('✅ Purchase record created:', result);
-
-      // Step 3: Execute token transfer to treasury
       const treasuryAddress = result.data.treasuryAddress || process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS;
       
       if (!treasuryAddress) {
         throw new Error('Treasury wallet address not configured');
       }
-
-      console.log(`💰 Executing ${currency} token transfer...`);
-      console.log(`📤 From: ${address}`);
-      console.log(`📥 To: ${treasuryAddress}`);
-      console.log(`💎 Amount: ${price} ${currency}`);
 
       let transferResult;
       if (currency === 'ROAST') {
@@ -470,17 +341,9 @@ export default function BiddingInterface() {
       if (!transferResult.success) {
         console.error('❌ Wallet transaction failed or cancelled:', transferResult.error);
         alert(`Payment failed or cancelled: ${transferResult.error}. The content remains available for purchase.`);
-        // DO NOT refresh content list here - user cancelled or failed transaction
         return;
       }
 
-      console.log('🎉 Wallet transaction successful:', transferResult.transactionHash);
-
-      // Step 4: Transaction is verified by the wallet - proceed with confirmation
-      console.log('✅ Transaction confirmed by wallet');
-
-      // Step 5: Confirm purchase with backend
-      console.log('📋 Confirming purchase with backend...');
       const confirmResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/purchase/${result.data.purchaseId}/confirm`, {
         method: 'POST',
         headers: {
@@ -499,10 +362,6 @@ export default function BiddingInterface() {
         return;
       }
 
-      console.log('🎊 Purchase confirmed:', confirmResult);
-
-      // Step 6: Trigger treasury-to-miner distribution
-      console.log('💸 Triggering treasury-to-miner distribution...');
       try {
         const distributionResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/purchase/${result.data.purchaseId}/distribute`, {
           method: 'POST',
@@ -522,59 +381,12 @@ export default function BiddingInterface() {
         console.warn('⚠️ Treasury distribution will be processed automatically:', error);
       }
 
-      // ONLY refresh content list after successful purchase confirmation
       alert('🎉 Purchase successful! Content has been added to your library.');
-      refetch(); // Refresh the content list only on successful purchase
+      refetch();
       
     } catch (error) {
       console.error('❌ Purchase error:', error);
       alert(`Purchase failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      // DO NOT refresh content list on error - content should remain available
-    }
-  }
-
-  // Keep bidding function for future use (but don't expose in UI for now)
-  const handleBid = async (contentId: number) => {
-    if (!bidAmount || !showBidModal) {
-      alert('Please enter a bid amount');
-      return;
-    }
-
-    if (!isConnected || !address) {
-      alert('Please connect your wallet first');
-      return;
-    }
-
-    try {
-      console.log('Placing bid with wallet address:', address);
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/bid`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          content_id: contentId,
-          bid_amount: parseFloat(bidAmount),
-          bid_currency: bidCurrency,
-          wallet_address: address
-        }),
-      })
-
-      const result = await response.json();
-      console.log('Bid response:', result);
-
-      if (response.ok) {
-        alert(`Bid placed successfully! ${result.message}`);
-        setShowBidModal(null)
-        setBidAmount('')
-        refetch();
-      } else {
-        console.error('Bid failed:', result);
-        alert(`Failed to place bid: ${result.message || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Error placing bid:', error)
-      alert('Network error occurred while placing bid');
     }
   }
 
@@ -588,9 +400,171 @@ export default function BiddingInterface() {
     return `${Math.floor(diffInHours / 24)}d ago`
   }
 
+  // Hero slides data
+  const slides: HeroSlide[] = [
+    {
+      backgroundUrl: "/hero.svg",
+      title: "Cookie.fun Campaign",
+      amount: "5,000,000",
+      amountLabel: "ARBUS",
+      endText: "End date 30-Aug-2025",
+      tag: "Cookie.fun",
+      gallery: ["/card02.svg", "/card03.svg", "/card04.svg"],
+    },
+    {
+      backgroundUrl: "/hero.svg",
+      title: "Kaito Morning Drop",
+      amount: "1,200,000",
+      amountLabel: "BEAN",
+      tag: "Kaito.ai",
+      endText: "End date 14-Sep-2025",
+      gallery: ["/card05.svg", "/card06.svg"],
+    },
+  ]
+
+  const active = slides[Math.floor(heroPosition)] || slides[0]
+
+  // Hero Component
+  const Hero = () => (
+    <section className="relative bg-yapper-surface">
+      <div className="relative w-full aspect-[8/5] md:aspect-[10/2] rounded-[24px] overflow-hidden shadow-[0_10px_40px_rgba(0,0,0,0.35)]">
+        <div className="absolute inset-0 rounded-[24px] overflow-hidden">
+          <Image src={active.backgroundUrl} alt="Campaign background" fill priority sizes="100vw" className="object-cover" />
+        </div>
+
+        <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/5 to-black/30" aria-hidden />
+
+        <div className="relative h-full px-4 py-4 md:px-6 md:py-6 flex flex-col md:flex-row items-center md:items-end">
+          <div className="inline-block rounded-[var(--radius)] bg-gradient-to-b from-[#FFFFFF]/20 via-[#FFFFFF]/20 to-[#FFFFFF]/20 p-4 md:p-5">
+            {active.tag ? (
+              <span className="badge-yapper-highlight mb-2">
+                {active.tag}
+              </span>
+            ) : null}
+            <h2 className="text-lg md:text-xl font-semibold tracking-tight text-white">{active.title}</h2>
+            <div className="mt-1 md:mt-2 flex items-baseline gap-3">
+              <span className="text-4xl md:text-5xl font-extrabold tracking-tight text-white">{active.amount}</span>
+              <span className="text-xs md:text-sm font-semibold opacity-90 text-white">{active.amountLabel}</span>
+            </div>
+            <p className="mt-2 text-xs md:text-sm font-semibold text-white/80">{active.endText}</p>
+          </div>
+
+          {active.gallery && active.gallery.length ? (
+            <div className="ml-auto hidden md:flex items-end gap-6">
+              {active.gallery.slice(0, 2).map((g, idx) => (
+                <div key={g + idx} className="relative w-[180px] h-[120px] rounded-[16px] overflow-hidden shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+                  <Image src={g} alt="gallery" fill className="object-cover" />
+                </div>
+              ))}
+              <div className="relative w-[180px] h-[120px] rounded-[16px] overflow-hidden bg-white/30 backdrop-blur-sm flex items-center justify-center text-white/90 text-lg font-semibold">
+                +2,324 more
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  )
+
+  // Progress Slider Component
+  const ProgressSlider = () => (
+    <div className="w-32 md:w-44 mx-auto">
+      <div className="flex gap-2">
+        {slides.map((_, idx) => (
+          <div 
+            key={idx} 
+            className={`h-1 rounded-full transition-all duration-300 ${
+              Math.floor(heroPosition) === idx ? 'bg-white flex-1' : 'bg-white/30 w-2'
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  )
+
+  // Filters Bar Component
+  const FiltersBar = () => (
+    <div className="grid grid-cols-1 md:grid-cols-[auto_auto_auto] items-start md:items-end gap-6">
+      <div className="flex flex-col items-start gap-3">
+        <div className="flex">
+          <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Platforms</span>
+        </div>
+        <div className="flex flex-wrap gap-4 items-center">
+          <button 
+            onClick={() => setSelectedPlatform('all')}
+            className={`badge-yapper ${selectedPlatform === 'all' ? 'bg-white/20' : ''}`}
+          >
+            All
+          </button>
+          <button 
+            onClick={() => setSelectedPlatform('cookie.fun')}
+            className={`badge-yapper flex items-center gap-2 ${selectedPlatform === 'cookie.fun' ? 'bg-white/20' : ''}`}
+          >
+            <Image src="/openledger.svg" alt="Cookie" width={16} height={16} />
+            Cookie.fun
+          </button>
+          <button 
+            onClick={() => setSelectedPlatform('yaps.kaito.ai')}
+            className={`badge-yapper flex items-center gap-2 ${selectedPlatform === 'yaps.kaito.ai' ? 'bg-white/20' : ''}`}
+          >
+            <Image src="/sapien.svg" alt="Kaito" width={16} height={16} />
+            Kaito.ai
+          </button>
+          <button className="badge-yapper flex items-center gap-2">
+            2 more
+            <Image src="/arrowdown.svg" alt="Arrow down" width={12} height={12} />
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-col items-start gap-3 mr-0 md:mr-60">
+        <div className="flex">
+          <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Sectors</span>
+        </div>
+        <div className="flex flex-wrap gap-4 items-center">
+          <button 
+            onClick={() => setSelectedPostType('all')}
+            className={`badge-yapper ${selectedPostType === 'all' ? 'bg-white/20' : ''}`}
+          >
+            All
+          </button>
+          <button 
+            onClick={() => setSelectedPostType('longpost')}
+            className={`badge-yapper ${selectedPostType === 'longpost' ? 'bg-white/20' : ''}`}
+          >
+            DeFi
+          </button>
+          <button 
+            onClick={() => setSelectedPostType('shitpost')}
+            className={`badge-yapper ${selectedPostType === 'shitpost' ? 'bg-white/20' : ''}`}
+          >
+            Meme
+          </button>
+          <button 
+            onClick={() => setSelectedPostType('thread')}
+            className={`badge-yapper ${selectedPostType === 'thread' ? 'bg-white/20' : ''}`}
+          >
+            InfoFi
+          </button>
+        </div>
+      </div>
+      <div className="max-w-full flex justify-end items-end">
+        <div className="relative">
+          <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-white/70" />
+          <input
+            type="text"
+            placeholder="Search by campaign, platform sector"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="rounded-[8px] h-8 bg-white/10 placeholder:text-white/30 text-white pl-10 pr-4 border border-white/20 focus:border-white/40 focus:outline-none"
+          />
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <div 
-      className={`bg-gray-50 h-screen select-none overflow-y-auto relative ${isScreenshotDetected ? 'blur-lg' : ''}`}
+      className="select-none relative"
       onContextMenu={preventRightClick}
       onKeyDown={preventKeyboardCopy}
       style={{
@@ -602,89 +576,28 @@ export default function BiddingInterface() {
         WebkitTapHighlightColor: 'transparent'
       }}
     >
-      {/* Floating watermarks removed for cleaner UI */}
-
-      {/* Screenshot Detection Overlay */}
-      {isScreenshotDetected && (
-        <div className="fixed inset-0 z-40 bg-red-500 bg-opacity-80 flex items-center justify-center">
-          <div className="text-white text-center">
-            <ExclamationTriangleIcon className="h-24 w-24 mx-auto mb-4" />
-            <h2 className="text-4xl font-bold mb-4">SCREENSHOT DETECTED</h2>
-            <p className="text-xl">This action has been logged</p>
-          </div>
+      <div className="px-4 py-6 space-y-6">
+        {/* Hero Section */}
+        <Hero />
+        
+        {/* Progress Slider */}
+        <ProgressSlider />
+        
+        {/* Content Repository Header */}
+        <div className="flex flex-col items-start justify-center gap-1">
+          <span className="text-white/85 text-xl uppercase font-semibold">Content repository</span>
+          <span className="text-white/85 text-sm">for Active campaigns on Cookie , Kaito etc</span>
         </div>
-      )}
+        
+        {/* Filters */}
+        <FiltersBar />
 
-      <div className="p-6 space-y-6">
-        {/* Header and Filters */}
-        <div className="space-y-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Content Marketplace</h1>
-            <p className="text-gray-600">Browse and purchase AI-generated content</p>
-          </div>
-
-          {/* Search and Filters */}
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
-              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search content..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="input-field pl-10"
-              />
-            </div>
-            
-            <select
-              value={selectedPlatform}
-              onChange={(e) => setSelectedPlatform(e.target.value)}
-              className="input-field md:w-48"
-            >
-              <option value="all">All Platforms</option>
-              <option value="cookie.fun">Cookie.fun</option>
-              <option value="yaps.kaito.ai">Yaps.Kaito.AI</option>
-              <option value="yap.market">Yap.Market</option>
-            </select>
-
-            <select
-              value={selectedPostType}
-              onChange={(e) => setSelectedPostType(e.target.value)}
-              className="input-field md:w-48"
-            >
-              <option value="all">All Post Types</option>
-              <option value="thread">Thread</option>
-              <option value="longpost">Long Post</option>
-                              <option value="shitpost">Meme Post</option>
-            </select>
-
-            <select
-              value={`${sortBy}-${sortOrder}`}
-              onChange={(e) => {
-                const [newSortBy, newSortOrder] = e.target.value.split('-') as ['mindshare' | 'quality', 'asc' | 'desc']
-                setSortBy(newSortBy)
-                setSortOrder(newSortOrder)
-              }}
-              className="input-field md:w-48"
-            >
-              <option value="mindshare-desc">Mindshare: High to Low</option>
-              <option value="mindshare-asc">Mindshare: Low to High</option>
-              <option value="quality-desc">Quality: High to Low</option>
-              <option value="quality-asc">Quality: Low to High</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Content Display - 2 Column Grid */}
+        {/* Content Grid */}
         {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="bg-white rounded-lg shadow-md animate-pulse">
-                <div className="p-4 space-y-4">
-                  <div className="h-6 bg-gray-200 rounded w-3/4"></div>
-                  <div className="h-32 bg-gray-200 rounded"></div>
-                  <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                </div>
+          <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="yapper-card animate-pulse">
+                <div className="aspect-[16/10] bg-gray-300"></div>
               </div>
             ))}
           </div>
@@ -692,24 +605,20 @@ export default function BiddingInterface() {
           (() => {
             // Filter and sort content
             let filteredContent = content.filter((item: ContentItem) => {
-              // Search filter
               const matchesSearch = !searchTerm || 
                 item.content_text?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 item.campaign.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 item.creator.username?.toLowerCase().includes(searchTerm.toLowerCase())
               
-              // Platform filter
               const matchesPlatform = selectedPlatform === 'all' || 
                 item.campaign.platform_source === selectedPlatform
               
-              // Post type filter
               const matchesPostType = selectedPostType === 'all' || 
                 (item.post_type || 'thread') === selectedPostType
               
               return matchesSearch && matchesPlatform && matchesPostType
             })
             
-            // Sort content
             filteredContent.sort((a: ContentItem, b: ContentItem) => {
               let aValue: number, bValue: number
               
@@ -725,343 +634,105 @@ export default function BiddingInterface() {
             })
             
             return (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
                 {filteredContent.map((item: ContentItem) => {
-              // Check if this is a longpost that should be rendered as markdown
-              const shouldUseMarkdown = isMarkdownContent(item.post_type)
-              
-              // FORCE TEST: Check if content has markdown syntax
-              const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
-              
-              // FORCE TEST: Override markdown detection for testing
-              const forceMarkdown = hasMarkdownSyntax // Force markdown if we detect markdown syntax
-              
-              // For longposts, use raw content; for others, use parsed content
-              const { text, hashtags, characterCount, imageUrl } = (shouldUseMarkdown || forceMarkdown)
-                ? { text: item.content_text, hashtags: [], characterCount: item.content_text?.length || 0, imageUrl: null }
-                : formatTwitterContent(item.content_text)
-              
-              const displayImage = item.content_images && item.content_images.length > 0 
-                ? item.content_images[0] 
-                : imageUrl
-              
-              // Debug logging for tweet thread
-              console.log('🔍 BiddingInterface item:', {
-                id: item.id,
-                tweet_thread: item.tweet_thread,
-                type: typeof item.tweet_thread,
-                length: item.tweet_thread?.length,
-                isArray: Array.isArray(item.tweet_thread),
-                post_type: item.post_type,
-                shouldUseMarkdown,
-                hasMarkdownSyntax,
-                forceMarkdown,
-                content_length: item.content_text?.length
-              })
-              
-              return (
-                <div key={item.id} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-300 border border-gray-200">
-                  <div className="p-4 space-y-4">
-                    {/* Header with Creator Info */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
-                          <span className="text-white font-bold text-sm">
-                            {generateMinerId(item.creator.username).charAt(6).toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900 text-sm">{generateMinerId(item.creator.username)}</p>
-                          <div className="flex items-center space-x-1">
-                            <StarIconSolid className="h-3 w-3 text-yellow-400" />
-                            <span className="text-xs text-gray-500">{item.creator.reputation_score}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-semibold text-gray-700 mb-1 max-w-32 truncate" title={item.campaign.title}>
-                          📢 {item.campaign.title}
-                        </div>
-                        <div className="flex flex-wrap gap-1 justify-end">
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                            {item.campaign.platform_source}
-                          </span>
-                          <span className={`text-xs px-2 py-1 rounded-full ${getPostTypeInfo(item.post_type).className}`}>
-                            {getPostTypeInfo(item.post_type).text}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">{formatTimeAgo(item.created_at)}</p>
-                      </div>
-                    </div>
-
-                    {/* Tweet Thread Display */}
-                    {forceMarkdown ? (
-                      // Render longpost with markdown formatting and show/hide details
-                      <div className="relative">
-                        <div className="absolute top-2 right-2 z-10">
-                          <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(item.post_type).className}`}>
-                            {getPostTypeInfo(item.post_type).text}
-                          </span>
-                        </div>
-                        
-                        {/* Longpost content - truncated or full */}
-                        {expandedLongposts.has(item.id) ? (
-                          <div>
-                            {renderMarkdown(text, { className: 'longpost-content' })}
-                            
-                            {/* Show/Hide details button - above image when expanded */}
-                            {text.length > 300 && (
-                              <button
-                                onClick={() => toggleLongpostExpansion(item.id)}
-                                className="mt-3 flex items-center space-x-2 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                              >
-                                <ChevronUpIcon className="h-4 w-4" />
-                                <span>Hide details</span>
-                              </button>
-                            )}
-                            
-                            {displayImage && (
-                              <div className="mt-4">
-                                <img 
-                                  src={displayImage} 
-                                  alt="Content image" 
-                                  className="w-full h-auto object-contain rounded-lg"
-                                />
-                              </div>
-                            )}
-                          </div>
+                  const shouldUseMarkdown = isMarkdownContent(item.post_type)
+                  const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
+                  const forceMarkdown = hasMarkdownSyntax
+                  
+                  const { text, hashtags, characterCount, imageUrl } = (shouldUseMarkdown || forceMarkdown)
+                    ? { text: item.content_text, hashtags: [], characterCount: item.content_text?.length || 0, imageUrl: null }
+                    : formatTwitterContent(item.content_text)
+                  
+                  const displayImage = item.content_images && item.content_images.length > 0 
+                    ? item.content_images[0] 
+                    : imageUrl
+                  
+                  return (
+                    <article key={item.id} className="group relative yapper-card-interactive">
+                      <div className="relative aspect-[16/10]">
+                        {/* Background layer */}
+                        {displayImage ? (
+                          <Image src={displayImage} alt="Project" fill sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
                         ) : (
-                          <div>
-                            {renderMarkdown(truncateLongpost(text), { className: 'longpost-content' })}
-                            
-                            {/* Show/Hide details button - above image when collapsed */}
-                            {text.length > 300 && (
-                              <button
-                                onClick={() => toggleLongpostExpansion(item.id)}
-                                className="mt-3 flex items-center space-x-2 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                              >
-                                <ChevronDownIcon className="h-4 w-4" />
-                                <span>Show details</span>
-                              </button>
-                            )}
-                            
-                            {displayImage && (
-                              <div className="mt-4">
-                                <img 
-                                  src={displayImage} 
-                                  alt="Content image" 
-                                  className="w-full h-auto object-contain rounded-lg"
-                                />
-                              </div>
-                            )}
+                          <div className="absolute inset-0 flex items-center justify-center bg-yapper-muted">
+                            <div className="text-white/50 text-center">
+                              <div className="text-4xl mb-2">📝</div>
+                              <div className="text-sm">AI Generated Content</div>
+                            </div>
                           </div>
                         )}
-                      </div>
-                    ) : (
-                      <TweetThreadDisplay 
-                        mainTweet={text}
-                        tweetThread={item.tweet_thread}
-                        imageUrl={displayImage}
-                        characterCount={characterCount}
-                        hashtags={hashtags}
-                        className="relative"
-                        showImage={false} // We'll add watermark separately if needed
-                        isProtected={true} // Enable protected watermarks
-                      />
-                    )}
 
-                    {/* Image with Watermark - Only for non-longpost content */}
-                    {displayImage && !forceMarkdown && (
-                      <div className="relative">
-                        <div className="relative overflow-hidden rounded-lg border border-gray-300">
-                          <img 
-                            src={displayImage} 
-                            alt="AI Generated content"
-                            className="w-full h-auto object-cover rounded-lg"
-                            onLoad={() => console.log('✅ Card image loaded:', displayImage)}
-                            onError={(e) => {
-                              console.error('❌ Card image failed to load:', displayImage)
-                              e.currentTarget.style.display = 'none'
-                              const fallback = e.currentTarget.nextElementSibling as HTMLElement
-                              if (fallback) fallback.style.display = 'block'
-                            }}
-                            onDragStart={preventDrag}
-                            onContextMenu={preventImageRightClick}
-                            style={{ userSelect: 'none' }}
-                          />
-                          
-                          {/* AI-Resistant Blended Watermarks */}
-                          <div className="absolute inset-0 pointer-events-none">
-                            {/* Primary Call-to-Action - Overlay Blend */}
-                            <div 
-                              className="absolute text-white opacity-35 text-2xl font-semibold transform rotate-0"
-                              style={{
-                                left: '50%',
-                                top: '50%',
-                                transform: 'translate(-50%, -50%)',
-                                textShadow: '2px 2px 4px rgba(0,0,0,0.7)',
-                                mixBlendMode: 'overlay'
-                              }}
-                            >
-                              BUY TO ACCESS
-                            </div>
-                            
-                            {/* Central Brand Watermark - Below CTA */}
-                            <div 
-                              className="absolute text-white opacity-30 text-lg font-medium"
-                              style={{
-                                left: '50%',
-                                top: '50%',
-                                transform: 'translate(-50%, -50%) translateY(28px)',
-                                textShadow: '1px 1px 3px rgba(0,0,0,0.6)',
-                                mixBlendMode: 'screen'
-                              }}
-                            >
-                              @burnieio
-                            </div>
-                            
-                            {/* Corner Watermarks - Multiple Blend Modes for AI Resistance */}
-                            <div 
-                              className="absolute text-white opacity-40 text-sm font-medium"
-                              style={{
-                                left: '8px',
-                                top: '8px',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
-                                mixBlendMode: 'multiply'
-                              }}
-                            >
-                              @burnieio
-                            </div>
-                            <div 
-                              className="absolute text-white opacity-40 text-sm font-medium"
-                              style={{
-                                right: '8px',
-                                top: '8px',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
-                                mixBlendMode: 'difference'
-                              }}
-                            >
-                              @burnieio
-                            </div>
-                            <div 
-                              className="absolute text-white opacity-40 text-sm font-medium"
-                              style={{
-                                left: '8px',
-                                bottom: '8px',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
-                                mixBlendMode: 'soft-light'
-                              }}
-                            >
-                              @burnieio
-                            </div>
-                            <div 
-                              className="absolute text-white opacity-40 text-sm font-medium"
-                              style={{
-                                right: '8px',
-                                bottom: '8px',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
-                                mixBlendMode: 'hard-light'
-                              }}
-                            >
-                              @burnieio
-                            </div>
+                        {/* Base overlay when not hovered */}
+                        <div className="absolute inset-0 hidden md:flex flex-col justify-end p-4 md:p-5 transition-opacity duration-300 opacity-100 group-hover:opacity-0 gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-white text-md md:text-xl font-medium">{item.campaign.title}</span>
                           </div>
-                          
-                          {/* Additional Blend Layer - Micro Pattern Protection */}
-                          <div 
-                            className="absolute inset-0 pointer-events-none opacity-10"
-                            style={{
-                              mixBlendMode: 'multiply',
-                              background: `repeating-linear-gradient(
-                                45deg,
-                                transparent,
-                                transparent 20px,
-                                rgba(255,255,255,0.1) 20px,
-                                rgba(255,255,255,0.1) 22px
-                              )`
-                            }}
-                          />
-                          
-                          {/* Subtle Brand Pattern Overlay */}
-                          <div 
-                            className="absolute inset-0 pointer-events-none text-white opacity-5 text-xs font-light"
-                            style={{
-                              mixBlendMode: 'overlay',
-                              background: `repeating-conic-gradient(
-                                from 0deg at 50% 50%,
-                                transparent 0deg,
-                                rgba(255,255,255,0.03) 72deg,
-                                transparent 144deg
-                              )`
-                            }}
-                          />
-                          
-                          <div 
-                            className="hidden bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg p-8 text-center h-40 flex items-center justify-center"
-                          >
-                            <span className="text-gray-500 text-sm">
-                              🖼️ AI Generated Image
-                              <br />
-                              <span className="text-xs text-gray-400">Preview not available</span>
-                            </span>
+                          <div className="text-white text-xs md:text-sm font-medium">
+                            Predicted Mindshare: <span className="font-semibold">{item.predicted_mindshare.toFixed(1)}%</span>
+                          </div>
+                        </div>
+
+                        {/* Overlay content (hover-reveal on md+) */}
+                        <div className="absolute inset-0 transition-opacity duration-300 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 bg-white/10 backdrop-blur-xs">
+                          <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/25 to-black/40" aria-hidden />
+
+                          <div className="relative z-10 h-full w-full flex flex-col">
+                            {/* Top badges */}
+                            <div className="px-4 md:px-5 pt-4 md:pt-5 flex items-center justify-between">
+                              <div className="badge-yapper flex items-center gap-2">
+                                <Image src="/openledger.svg" alt="Platform" width={16} height={16} />
+                                {item.campaign.platform_source}
+                              </div>
+                              {item.campaign.platform_source && (
+                                <span className="badge-yapper-highlight">
+                                  {item.campaign.platform_source}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Title and stats */}
+                            <div className="px-4 md:px-5 mt-6 md:mt-12">
+                              <h3 className="text-white text-base md:text-[16px] font-semibold drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)] truncate">
+                                {text.length > 60 ? text.substring(0, 60) + '...' : text}
+                              </h3>
+                              <div className="grid grid-cols-2 gap-4 md:gap-8 text-white/85 mt-4">
+                                <div>
+                                  <div className="text-xs md:text-sm font-semibold">Predicted Mindshare</div>
+                                  <div className="text-lg md:text-xl font-semibold">{item.predicted_mindshare.toFixed(1)}%</div>
+                                </div>
+                                <div>
+                                  <div className="text-xs md:text-sm font-semibold">Quality Score</div>
+                                  <div className="text-lg md:text-xl font-semibold">{item.quality_score.toFixed(1)}/100</div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Bottom bar */}
+                            <div className="mt-auto px-4 md:px-5 pb-4 md:pb-5">
+                              <div className="flex items-center justify-between rounded-[12px] bg-white/10 backdrop-blur-md px-4 md:px-5 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
+                                <PriceDisplay roastAmount={item.asking_price} />
+                                <button
+                                  onClick={() => setShowPurchaseModal(item)}
+                                  className="btn-yapper-primary h-9 md:h-10 px-4 md:px-5 glow-button-orange"
+                                >
+                                  Preview
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    )}
-
-                    {/* Performance Metrics */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-blue-50 rounded-lg p-2 border border-blue-200">
-                        <div className="flex items-center space-x-1">
-                          <EyeIcon className="h-3 w-3 text-blue-500" />
-                          <span className="text-xs text-gray-600">Mindshare</span>
-                        </div>
-                        <p className="text-sm font-bold text-blue-600">{item.predicted_mindshare.toFixed(1)}%</p>
-                      </div>
-                      <div className="bg-yellow-50 rounded-lg p-2 border border-yellow-200">
-                        <div className="flex items-center space-x-1">
-                          <StarIcon className="h-3 w-3 text-yellow-500" />
-                          <span className="text-xs text-gray-600">Quality</span>
-                        </div>
-                        <p className="text-sm font-bold text-yellow-600">{item.quality_score.toFixed(1)}/100</p>
-                      </div>
-                    </div>
-
-                    {/* Purchase Section */}
-                    <div className="bg-orange-50 rounded-lg p-3 border border-orange-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <p className="text-xs text-gray-600">Price</p>
-                          <PriceDisplay roastAmount={item.asking_price} />
-                        </div>
-                        <button
-                          onClick={() => setShowPurchaseModal(item)}
-                          className="bg-orange-600 hover:bg-orange-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center space-x-2 text-sm"
-                        >
-                          <ShoppingCartIcon className="h-4 w-4" />
-                          <span>Buy Now</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
+                    </article>
+                  )
                 })}
               </div>
             )
           })()
         ) : (
           <div className="text-center py-12">
-            <MagnifyingGlassIcon className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-            <p className="text-gray-500 text-lg">No content found</p>
-            <p className="text-gray-400 text-sm">Try adjusting your search or filters, or check back later for new AI-generated content</p>
-          </div>
-        )}
-
-        {/* Hidden Bidding Modal (keep for future use) */}
-        {false && showBidModal && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-            {/* Bidding modal content - hidden for now */}
+            <div className="text-white/70 text-lg mb-2">No content found</div>
+            <div className="text-white/50 text-sm">Try adjusting your search or filters, or check back later for new AI-generated content</div>
           </div>
         )}
       </div>
@@ -1077,4 +748,4 @@ export default function BiddingInterface() {
       />
     </div>
   )
-} 
+}

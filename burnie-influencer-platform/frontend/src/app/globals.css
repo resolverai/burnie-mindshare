@@ -1,9 +1,21 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100;200;300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Local fonts from yapper design */
+@font-face {
+  font-family: "NT Brick Sans";
+  src:
+    url("/fonts/NTBrickSans.otf") format("opentype"),
+    url("/fonts/NTBrickSans.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 /* Light Theme Variables */
 :root {
@@ -24,6 +36,47 @@
   --error: #ef4444;
   --card-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --card-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* Yapper Design System Variables */
+  --surface: #220808;
+  --surface-2: #2a0f0f;
+  --muted: #3a1a1a;
+  --muted-2: #4a2323;
+  --border: #3a1a1a;
+  --brand: #ffffff;
+  --accent: #ffffff;
+  --success: #23c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --radius: 0.625rem;
+  --background: #220808;
+  --foreground: #ffffff;
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #220808;
+  --primary-foreground: #ffffff;
+  --secondary: #2a0f0f;
+  --secondary-foreground: #ffffff;
+  --muted-foreground: #919191;
+  --accent-foreground: #000000;
+  --destructive: oklch(0.577 0.245 27.325);
+  --input: #3a1a1a;
+  --ring: #ffffff;
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: #220808;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #220808;
+  --sidebar-accent: #2a0f0f;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #3a1a1a;
+  --sidebar-ring: #ffffff;
 }
 
 /* Modern CSS Reset and Base Styles */
@@ -329,4 +382,80 @@ body {
 /* Gradient Text */
 .gradient-text {
   @apply bg-gradient-to-r from-orange-500 to-red-500 bg-clip-text text-transparent;
+}
+
+/* Yapper Design System Utilities */
+.font-nt-brick {
+  font-family: "NT Brick Sans", sans-serif;
+}
+
+.font-silkscreen {
+  font-family: "Silkscreen", monospace;
+}
+
+/* Yapper Color Utilities */
+.bg-yapper-surface {
+  background-color: var(--surface);
+}
+
+.bg-yapper-surface-2 {
+  background-color: var(--surface-2);
+}
+
+.bg-yapper-muted {
+  background-color: var(--muted);
+}
+
+.text-yapper-foreground {
+  color: var(--foreground);
+}
+
+.text-yapper-muted {
+  color: var(--muted-foreground);
+}
+
+.border-yapper {
+  border-color: var(--border);
+}
+
+/* Yapper Card Styles */
+.yapper-card {
+  @apply rounded-[28px] overflow-hidden bg-yapper-surface;
+}
+
+.yapper-card-interactive {
+  @apply yapper-card hover:shadow-lg transition-all duration-300;
+}
+
+/* Yapper Button Styles */
+.btn-yapper-primary {
+  @apply rounded-[12px] text-white font-semibold bg-[#FD7A10] hover:bg-[#e6690e] transition-colors shadow-[0_10px_30px_rgba(0,0,0,0.25)];
+}
+
+.btn-yapper-secondary {
+  @apply rounded-[12px] bg-white/10 backdrop-blur-md text-white hover:bg-white/20 transition-colors border border-white/20;
+}
+
+/* Yapper Badge Styles */
+.badge-yapper {
+  @apply rounded-[12px] h-9 px-3 bg-[#451616] hover:bg-[#743636] transition-colors;
+}
+
+.badge-yapper-highlight {
+  @apply inline-flex h-9 items-center rounded-full bg-[#FFEB68] px-4 text-[#3b2a00] text-sm font-semibold shadow-[0_6px_20px_rgba(0,0,0,0.25)];
+}
+
+/* Yapper Layout */
+.yapper-background {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Glow Effects */
+.glow-button-orange {
+  @apply shadow-[0_0_20px_rgba(253,122,16,0.3)] hover:shadow-[0_0_30px_rgba(253,122,16,0.5)];
+}
+
+.glow-orange-button {
+  @apply shadow-[0_0_20px_rgba(253,122,16,0.4)] hover:shadow-[0_0_30px_rgba(253,122,16,0.6)];
 } 

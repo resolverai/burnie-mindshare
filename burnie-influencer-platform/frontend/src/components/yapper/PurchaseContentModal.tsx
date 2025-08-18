@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
-import { XMarkIcon, ShoppingCartIcon, CurrencyDollarIcon, EyeIcon, StarIcon } from '@heroicons/react/24/outline'
+import Image from 'next/image'
 
 import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
 import TweetThreadDisplay from '../TweetThreadDisplay'
@@ -134,8 +134,6 @@ export default function PurchaseContentModal({
     return `MINER-${minerId}`
   }
 
-
-
   // Dynamic watermark positioning for modal
   useEffect(() => {
     if (isOpen) {
@@ -210,8 +208,6 @@ export default function PurchaseContentModal({
     }
   }
 
-
-
   if (!isOpen || !content) return null
 
   // Check if this is a longpost that should be rendered as markdown
@@ -233,440 +229,300 @@ export default function PurchaseContentModal({
     ? content.content_images[0] 
     : imageUrl
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto relative">
-        {/* Subtle Modal Watermarks */}
-        <div 
-          className="absolute pointer-events-none z-10 text-gray-500 opacity-15 text-lg font-medium transform -rotate-45"
-          style={{
-            left: `${watermarkPosition.x}%`,
-            top: `${watermarkPosition.y}%`,
-            transition: 'all 4s ease-in-out',
-            textShadow: '1px 1px 1px rgba(0,0,0,0.2)'
-          }}
-        >
-          PROTECTED
-        </div>
-        
-        <div 
-          className="absolute pointer-events-none z-10 text-gray-500 opacity-12 text-sm font-medium transform rotate-12"
-          style={{
-            right: `${watermarkPosition.x}%`,
-            bottom: `${watermarkPosition.y}%`,
-            transition: 'all 4s ease-in-out',
-            textShadow: '1px 1px 1px rgba(0,0,0,0.2)'
-          }}
-        >
-          PREVIEW ONLY
-        </div>
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) {
+      onClose()
+    }
+  }
 
-        <div className="p-6 relative z-20">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl">
-                <ShoppingCartIcon className="h-6 w-6 text-white" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900">Purchase Content</h3>
+  return (
+    <div
+      className="fixed top-0 left-0 w-full h-full bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto touch-pan-y"
+      onClick={handleBackdropClick}
+      style={{ height: '100vh', minHeight: '100vh' }}
+    >
+      <div className="relative w-full max-w-[95vw] lg:max-w-6xl rounded-2xl bg-[#492222] max-h-[92vh] overflow-y-auto shadow-2xl p-4 lg:p-6 overscroll-contain">
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute right-4 top-4 z-50 hover:opacity-80 transition-opacity text-white/60 hover:text-white"
+          type="button"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M6 6L18 18M18 6L6 18" stroke="currentColor" strokeWidth="2" />
+          </svg>
+        </button>
+
+        <div className="flex flex-col lg:flex-row max-h-[90vh] gap-4 overflow-y-auto lg:overflow-hidden">
+          {/* Left Panel - Content Preview */}
+          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-2xl min-h-0">
+            <h2 className="text-white/80 text-base lg:text-lg font-medium mb-4 lg:mb-6">Content preview</h2>
+
+            {/* Content Container */}
+            <div className="w-full flex-1 overflow-y-auto pr-1 lg:pr-2 rounded-2xl">
+              <style jsx>{`
+                div::-webkit-scrollbar {
+                  width: 6px;
+                }
+                div::-webkit-scrollbar-track {
+                  background: transparent;
+                }
+                div::-webkit-scrollbar-thumb {
+                  background-color: #374151;
+                  border-radius: 3px;
+                }
+                div::-webkit-scrollbar-thumb:hover {
+                  background-color: #4B5563;
+                }
+              `}</style>
+
+              {/* Content Display */}
+              {forceMarkdown ? (
+                // Longpost content
+                <div className="relative p-4 bg-[#1a1d23] rounded-lg">
+                  <div className="absolute top-2 right-2 z-10">
+                    <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(content.post_type).className}`}>
+                      {getPostTypeInfo(content.post_type).text}
+                    </span>
+                  </div>
+                  <div className="text-white text-sm leading-relaxed">
+                    {renderMarkdown(text, { className: 'text-white' })}
+                  </div>
+                </div>
+              ) : (
+                // Twitter thread structure
+                <div className="relative">
+                  {/* Continuous Thread Line */}
+                  <div className="absolute left-5 top-10 bottom-0 w-0.5 bg-gray-600 z-0"></div>
+
+                  {/* Main Tweet */}
+                  <div className="relative pb-3">
+                    <div className="flex gap-3 pr-2">
+                      <div className="relative flex-shrink-0">
+                        <div className="w-9 h-9 lg:w-10 lg:h-10 bg-[#FFCC00] rounded-full flex items-center justify-center relative z-10">
+                          <span className="text-black font-bold text-lg">
+                            {generateMinerId(content.creator.username).charAt(6).toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-white font-bold text-xs lg:text-sm">{generateMinerId(content.creator.username)}</span>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="#1DA1F2">
+                            <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.72 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
+                          </svg>
+                          <span className="text-gray-500 text-xs lg:text-sm">@{content.creator.username}</span>
+                        </div>
+
+                        <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
+                          {text}
+                        </div>
+
+                        {/* Tweet Image */}
+                        {displayImage && (
+                          <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
+                            <Image
+                              src={displayImage}
+                              alt="Tweet content"
+                              width={500}
+                              height={300}
+                              className="w-full h-auto object-cover"
+                            />
+                            {/* Watermarks */}
+                            <div className="absolute inset-0 pointer-events-none">
+                              <div 
+                                className="absolute text-white opacity-50 text-xl font-semibold"
+                                style={{
+                                  left: '50%',
+                                  top: '50%',
+                                  transform: 'translate(-50%, -50%)',
+                                  textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+                                  mixBlendMode: 'overlay'
+                                }}
+                              >
+                                BUY TO ACCESS
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Tweet Actions */}
+                        <div className="flex items-center justify-between text-gray-500 text-sm py-2 border-b border-gray-800">
+                          <div className="flex items-center gap-6">
+                            <button className="flex items-center gap-1 hover:text-white text-xs">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                              </svg>
+                              Tag people
+                            </button>
+                            <button className="flex items-center gap-1 hover:text-white text-xs">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                <circle cx="12" cy="12" r="3" />
+                                <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1" />
+                              </svg>
+                              Descriptions
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="flex items-center gap-1 text-xs">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="#F59E0B">
+                                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                              </svg>
+                              Quality
+                            </span>
+                            <button className="hover:text-white">⋯</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Thread Replies (if tweet_thread exists) */}
+                  {content.tweet_thread && content.tweet_thread.map((tweet, idx) => (
+                    <div key={idx} className="relative pt-3">
+                      <div className="flex gap-3 pr-2">
+                        <div className="relative flex-shrink-0">
+                          <div className="w-7 h-7 lg:w-8 lg:h-8 bg-[#FFCC00] rounded-full flex items-center justify-center relative z-10 mr-2">
+                            <span className="text-black font-bold text-sm">
+                              {generateMinerId(content.creator.username).charAt(6).toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0 pb-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-white font-bold text-xs lg:text-sm">{generateMinerId(content.creator.username)}</span>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="#1DA1F2">
+                              <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.72 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
+                            </svg>
+                            <span className="text-gray-500 text-xs lg:text-sm">@{content.creator.username}</span>
+                          </div>
+                          <div className="text-white text-xs lg:text-sm leading-relaxed pr-2">
+                            {tweet}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <XMarkIcon className="h-6 w-6" />
-            </button>
           </div>
 
-          {/* Content Preview */}
-          <div className="bg-gray-50 rounded-lg p-4 mb-6">
-            <div className="mb-4">
-              <h4 className="text-sm font-semibold text-blue-600 mb-3">🐦 Content Preview</h4>
-              
+          {/* Right Panel - Purchase Options */}
+          <div className="w-full lg:w-1/2 px-4 pt-4 lg:px-8 lg:pt-8 flex flex-col gap-4 min-h-0 overflow-y-auto">
+            <div className="flex flex-col gap-4">
               {/* Miner Info */}
-              <div className="flex items-center space-x-3 mb-4 p-3 bg-white rounded-lg border border-gray-200">
-                <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
-                  <span className="text-white font-bold">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-[#FFCC00] rounded-full flex items-center justify-center">
+                  <span className="text-black font-bold text-lg">
                     {generateMinerId(content.creator.username).charAt(6).toUpperCase()}
                   </span>
                 </div>
                 <div>
-                  <div className="flex items-center space-x-2">
-                    <p className="font-medium text-gray-900">{generateMinerId(content.creator.username)}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white font-bold">{generateMinerId(content.creator.username)}</span>
                     {content.agent_name && (
-                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-400 text-xs rounded-2xl font-semibold">
                         🤖 {content.agent_name}
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center space-x-1 text-xs text-gray-500">
-                    <span>{content.creator.reputation_score} reputation</span>
-                    <span>•</span>
-                    <span>{content.campaign.platform_source}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Content Display - Markdown for longposts, TweetThread for others */}
-              <div className="mb-4">
-                {forceMarkdown ? (
-                  // Render longpost with markdown formatting
-                  <div className="relative">
-                    <div className="absolute top-2 right-2 z-10">
-                      <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getPostTypeInfo(content.post_type).className}`}>
-                        {getPostTypeInfo(content.post_type).text}
-                      </span>
-                    </div>
-                    {renderMarkdown(text, { className: 'longpost-content' })}
-                  </div>
-                ) : (
-                  <TweetThreadDisplay 
-                    mainTweet={text}
-                    tweetThread={content.tweet_thread}
-                    imageUrl={displayImage}
-                    characterCount={characterCount}
-                    hashtags={hashtags}
-                    showImage={false} // We'll display image separately with watermarks
-                    isProtected={true} // Enable protected watermarks
-                  />
-                )}
-              </div>
-              
-              {/* Content Image with Watermark - Only for non-longpost content */}
-              {content.content_images && content.content_images.length > 0 && !forceMarkdown && (
-                <div className="bg-white rounded-lg p-4 border border-gray-200">
-                  <div className="relative w-full">
-                    <div className="relative overflow-hidden rounded-lg border border-gray-300">
-                      <img 
-                        src={content.content_images[0]} 
-                        alt="AI Generated content image"
-                        className="w-full h-auto object-cover rounded-lg shadow-sm"
-                        onError={(e) => {
-                          console.error('❌ Purchase modal image failed to load:', content.content_images?.[0])
-                          e.currentTarget.style.display = 'none'
-                          const fallback = e.currentTarget.nextElementSibling as HTMLElement
-                          if (fallback) fallback.style.display = 'block'
-                        }}
-                      />
-                      
-                      {/* AI-Resistant Blended Watermarks */}
-                      <div className="absolute inset-0 pointer-events-none">
-                        {/* Primary Call-to-Action - Overlay Blend */}
-                        <div 
-                          className="absolute text-white opacity-35 text-2xl font-semibold transform rotate-0"
-                          style={{
-                            left: '50%',
-                            top: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            textShadow: '2px 2px 4px rgba(0,0,0,0.7)',
-                            mixBlendMode: 'overlay'
-                          }}
-                        >
-                          BUY TO ACCESS
-                        </div>
-                        
-                        {/* Central Brand Watermark - Below CTA */}
-                        <div 
-                          className="absolute text-white opacity-30 text-lg font-medium"
-                          style={{
-                            left: '50%',
-                            top: '50%',
-                            transform: 'translate(-50%, -50%) translateY(28px)',
-                            textShadow: '1px 1px 3px rgba(0,0,0,0.6)',
-                            mixBlendMode: 'screen'
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                        
-                        {/* Corner Watermarks - Multiple Blend Modes for AI Resistance */}
-                        <div 
-                          className="absolute text-white opacity-40 text-sm font-medium"
-                          style={{
-                            left: '8px',
-                            top: '8px',
-                            textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
-                            mixBlendMode: 'multiply'
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                        <div 
-                          className="absolute text-white opacity-40 text-sm font-medium"
-                          style={{
-                            right: '8px',
-                            top: '8px',
-                            textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
-                            mixBlendMode: 'difference'
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                        <div 
-                          className="absolute text-white opacity-40 text-sm font-medium"
-                          style={{
-                            left: '8px',
-                            bottom: '8px',
-                            textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
-                            mixBlendMode: 'soft-light'
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                        <div 
-                          className="absolute text-white opacity-40 text-sm font-medium"
-                          style={{
-                            right: '8px',
-                            bottom: '8px',
-                            textShadow: '1px 1px 2px rgba(0,0,0,0.6)',
-                            mixBlendMode: 'hard-light'
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                      </div>
-                      
-                      {/* Additional Blend Layer - Micro Pattern Protection */}
-                      <div 
-                        className="absolute inset-0 pointer-events-none opacity-10"
-                        style={{
-                          mixBlendMode: 'multiply',
-                          background: `repeating-linear-gradient(
-                            45deg,
-                            transparent,
-                            transparent 20px,
-                            rgba(255,255,255,0.1) 20px,
-                            rgba(255,255,255,0.1) 22px
-                          )`
-                        }}
-                      />
-                      
-                      {/* Subtle Brand Pattern Overlay */}
-                      <div 
-                        className="absolute inset-0 pointer-events-none text-white opacity-5 text-xs font-light"
-                        style={{
-                          mixBlendMode: 'overlay',
-                          background: `repeating-conic-gradient(
-                            from 0deg at 50% 50%,
-                            transparent 0deg,
-                            rgba(255,255,255,0.03) 72deg,
-                            transparent 144deg
-                          )`
-                        }}
-                      />
-                    </div>
-                    
-                    <div 
-                      className="hidden bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg border border-gray-300 p-8 text-center"
-                    >
-                      <span className="text-gray-500 text-sm">
-                        🖼️ AI Generated Image
-                        <br />
-                        <span className="text-xs text-gray-400">Preview not available</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Longpost Image with Watermark - Only for longpost content */}
-              {content.content_images && content.content_images.length > 0 && forceMarkdown && (
-                <div className="bg-white rounded-lg p-4 border border-gray-200">
-                  <div className="relative w-full">
-                    <div className="relative overflow-hidden rounded-lg border border-gray-300">
-                      <img 
-                        src={content.content_images[0]} 
-                        alt="AI Generated longpost image"
-                        className="w-full h-auto object-contain rounded-lg shadow-sm"
-                        onError={(e) => {
-                          console.error('❌ Purchase modal longpost image failed to load:', content.content_images?.[0])
-                          e.currentTarget.style.display = 'none'
-                        }}
-                      />
-                      
-                      {/* Image Watermarks */}
-                      <div className="absolute inset-0 pointer-events-none">
-                        <div 
-                          className="absolute text-white opacity-70 text-3xl font-black transform -rotate-45"
-                          style={{
-                            left: '25%',
-                            top: '35%',
-                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
-                          }}
-                        >
-                          PROTECTED
-                        </div>
-                        <div 
-                          className="absolute text-white opacity-60 text-2xl font-black transform rotate-12"
-                          style={{
-                            right: '20%',
-                            bottom: '25%',
-                            textShadow: '2px 2px 4px rgba(0,0,0,0.8)'
-                          }}
-                        >
-                          BUY TO ACCESS
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Content Metrics */}
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-              <div className="flex items-center space-x-2">
-                <EyeIcon className="h-4 w-4 text-blue-500" />
-                <span className="text-sm text-gray-600">Predicted Mindshare</span>
-              </div>
-              <p className="text-lg font-bold text-blue-600">{content.predicted_mindshare.toFixed(1)}%</p>
-            </div>
-            <div className="bg-yellow-50 rounded-lg p-3 border border-yellow-200">
-              <div className="flex items-center space-x-2">
-                <StarIcon className="h-4 w-4 text-yellow-500" />
-                <span className="text-sm text-gray-600">Quality Score</span>
-              </div>
-              <p className="text-lg font-bold text-yellow-600">{content.quality_score.toFixed(1)}/100</p>
-            </div>
-          </div>
-
-          {/* Currency Selection & Price */}
-          <div className="border-t border-gray-200 pt-6">
-            {/* Currency Selection */}
-            <div className="mb-6">
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">Choose Payment Currency</h4>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setSelectedCurrency('ROAST')}
-                  className={`p-4 rounded-lg border-2 transition-all ${
-                    selectedCurrency === 'ROAST'
-                      ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-200'
-                      : 'border-gray-200 bg-white hover:border-orange-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="text-left">
-                      <div className="font-semibold text-orange-600">ROAST</div>
-                      <div className="text-2xl font-bold text-gray-900">{roastPriceAmount}</div>
-                      <div className="text-xs text-gray-500">Platform Token</div>
-                    </div>
-                    <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">R</span>
-                    </div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setSelectedCurrency('USDC')}
-                  className={`p-4 rounded-lg border-2 transition-all ${
-                    selectedCurrency === 'USDC'
-                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                      : 'border-gray-200 bg-white hover:border-blue-300'
-                  }`}
-                >
-              <div className="flex items-center justify-between">
-                    <div className="text-left">
-                      <div className="font-semibold text-blue-600">USDC</div>
-                      <div className="text-2xl font-bold text-gray-900">
-                        {formatUSDCPrice(usdcPriceWithFee)}
-                      </div>
-                      <div className="text-xs text-red-500">+0.03 USDC fee</div>
-                    </div>
-                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">$</span>
-                    </div>
-                  </div>
-                </button>
-              </div>
-
-              {/* Fee Information */}
-              {selectedCurrency === 'USDC' && (
-                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-start space-x-2">
-                    <div className="flex-shrink-0">
-                      <svg className="h-4 w-4 text-yellow-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  <div className="flex items-center gap-2 text-sm text-white/60">
+                    <div className="flex items-center gap-2">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="#FFCC00">
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                       </svg>
                     </div>
-                    <div className="flex-1 text-xs text-yellow-800">
-                      <div className="font-medium">USDC Payment Notice</div>
-                      <div className="mt-1">
-                        • Base content price: {formatUSDCPrice(usdcPriceWithoutFee)} USDC<br/>
-                        • Platform fee: +0.03 USDC<br/>
-                        • <strong>Total: {formatUSDCPrice(usdcPriceWithFee)} USDC</strong><br/>
-                        • 💡 Save money by using ROAST tokens (no extra fees!)
-                      </div>
+                    <div className="flex items-center gap-1 text-xs">
+                      <span className="text-white">{content.creator.reputation_score} reputation</span>
+                      <span className="text-white">•</span>
+                      <span className="text-white">{new Date(content.created_at).toLocaleDateString()}</span>
                     </div>
                   </div>
                 </div>
-              )}
+              </div>
 
-              {selectedCurrency === 'ROAST' && (
-                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-start space-x-2">
-                    <div className="flex-shrink-0">
-                      <svg className="h-4 w-4 text-green-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="flex-1 text-xs text-green-800">
-                      <div className="font-medium">ROAST Payment - No Extra Fees! 🎉</div>
-                      <div className="mt-1">
-                        • No platform fees when using ROAST<br/>
-                        • Equivalent value: ~{formatUSDCPrice(usdcPriceWithoutFee)} USDC<br/>
-                        • Support the platform ecosystem with native tokens
+              {/* Stats */}
+              <div className="flex flex-row items-center justify-start px-4">
+                <div className="flex flex-col w-[40%]">
+                  <div className="text-white/80 text-xs">Predicted Mindshare</div>
+                  <div className="text-white text-md font-semibold">{content.predicted_mindshare.toFixed(1)}%</div>
+                </div>
+                <div className="flex flex-col w-[60%]">
+                  <div className="text-white/80 text-xs">Quality Score</div>
+                  <div className="text-white text-md font-semibold">{content.quality_score.toFixed(1)}/100</div>
+                </div>
+              </div>
+
+              {/* Purchase Options */}
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div
+                    onClick={() => setSelectedCurrency('ROAST')}
+                    className={`p-4 rounded-md cursor-pointer transition-colors bg-[#12141866] ${
+                      selectedCurrency === 'ROAST' ? 'ring-2 ring-orange-500' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-white font-semibold">$ROAST</span>
+                      <div className={`w-5 h-5 rounded-full border-[1px] flex items-center justify-center ${
+                        selectedCurrency === 'ROAST' ? "border-orange-500" : "border-orange-500"
+                      }`}>
+                        {selectedCurrency === 'ROAST' && (
+                          <div className="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
+                        )}
                       </div>
                     </div>
+                    <div className="text-white text-xl font-bold">{roastPriceAmount}</div>
+                    <div className="text-white/60 text-xs">Platform Token</div>
+                  </div>
+
+                  <div
+                    onClick={() => setSelectedCurrency('USDC')}
+                    className={`p-4 rounded-md cursor-pointer transition-colors bg-[#12141866] ${
+                      selectedCurrency === 'USDC' ? 'ring-2 ring-orange-500' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-white font-semibold">USDC</span>
+                      <div className={`w-5 h-5 rounded-full border-[1px] flex items-center justify-center ${
+                        selectedCurrency === 'USDC' ? "border-orange-500" : "border-orange-500"
+                      }`}>
+                        {selectedCurrency === 'USDC' && (
+                          <div className="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-white text-xl font-bold">{formatUSDCPrice(usdcPriceWithFee)}</div>
+                    <div className="text-white/60 text-xs">Including 0.03 USDC fee</div>
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* Purchase Button */}
-            <div className="flex space-x-3">
-              <button
-                onClick={onClose}
-                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-3 px-6 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePurchase}
-                disabled={!isConnected || isPurchasing}
-                className={`flex-1 font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 ${
-                  selectedCurrency === 'ROAST'
-                    ? 'bg-orange-600 hover:bg-orange-700 text-white disabled:hover:bg-orange-600'
-                    : 'bg-blue-600 hover:bg-blue-700 text-white disabled:hover:bg-blue-600'
-                }`}
-              >
-                {isPurchasing ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span>Processing...</span>
-                  </>
-                ) : (
-                  <>
-                    <ShoppingCartIcon className="h-4 w-4" />
-                    <span>
-                      Buy with {selectedCurrency === 'ROAST' ? `${roastPriceAmount} ROAST` : `${formatUSDCPrice(usdcPriceWithFee)} USDC`}
-                    </span>
-                  </>
+                <button 
+                  onClick={handlePurchase}
+                  disabled={!isConnected || isPurchasing}
+                  className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  {isPurchasing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    <span>Buy content</span>
+                  )}
+                </button>
+
+                {!isConnected && (
+                  <p className="text-sm text-red-400 text-center mt-3">
+                    Please connect your wallet to purchase content
+                  </p>
                 )}
-              </button>
+              </div>
             </div>
-
-
-
-            {!isConnected && (
-              <p className="text-sm text-red-600 text-center mt-3">
-                Please connect your wallet to purchase content
-              </p>
-            )}
           </div>
         </div>
       </div>
     </div>
   )
-} 
+}

@@ -155,9 +155,10 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: HomeIcon, iconSolid: HomeIconSolid, route: '/dashboard' },
     { id: 'bidding', label: 'Content Marketplace', icon: MegaphoneIcon, iconSolid: MegaphoneIconSolid, route: '/bidding' },
-    { id: 'mycontent', label: 'My Content', icon: DocumentTextIcon, iconSolid: DocumentTextIconSolid, route: '/my-content' },
-    { id: 'history', label: 'History', icon: ClockIcon, iconSolid: ClockIconSolid, route: '/history' },
-    { id: 'portfolio', label: 'Portfolio', icon: CurrencyDollarIcon, iconSolid: CurrencyDollarIconSolid, route: '/portfolio' }
+    { id: 'mycontent', label: 'My Content', icon: DocumentTextIcon, iconSolid: DocumentTextIconSolid, route: '/my-content' }
+    // Temporarily hiding: history and portfolio sections
+    // { id: 'history', label: 'History', icon: ClockIcon, iconSolid: ClockIconSolid, route: '/history' },
+    // { id: 'portfolio', label: 'Portfolio', icon: CurrencyDollarIcon, iconSolid: CurrencyDollarIconSolid, route: '/portfolio' }
   ]
 
   const renderContent = () => {
@@ -205,11 +206,11 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex">
-      {/* Left Sidebar Navigation */}
-      <div className={`${isSidebarExpanded ? 'w-72' : 'w-20'} bg-white border-r border-gray-200 transition-all duration-300 flex flex-col h-screen shadow-sm`}>
+    <div className="h-screen yapper-background flex overflow-hidden">
+      {/* Left Sidebar Navigation - Fixed */}
+      <div className={`${isSidebarExpanded ? 'w-72' : 'w-20'} bg-yapper-surface-2 border-r border-yapper transition-all duration-300 flex flex-col h-full shadow-sm flex-shrink-0`}>
         {/* Header */}
-        <div className="p-6 border-b border-gray-200 flex-shrink-0">
+        <div className="p-6 border-b border-yapper flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <div className="p-2 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl">
@@ -217,8 +218,8 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
               </div>
               {isSidebarExpanded && (
                 <div>
-                  <h1 className="text-xl font-bold gradient-text">BURNIE</h1>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">
+                  <h1 className="text-xl font-bold text-white font-nt-brick">BURNIE</h1>
+                  <p className="text-xs text-yapper-muted uppercase tracking-wide font-silkscreen">
                     Yapper Platform
                   </p>
                 </div>
@@ -226,9 +227,9 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
             </div>
             <button
               onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-white/10 rounded-lg transition-colors"
             >
-              <Bars3Icon className="h-5 w-5 text-gray-400" />
+              <Bars3Icon className="h-5 w-5 text-yapper-muted" />
             </button>
           </div>
         </div>
@@ -246,7 +247,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
                 className={`w-full flex items-center ${isSidebarExpanded ? 'justify-start px-4' : 'justify-center px-2'} py-3 rounded-lg transition-all duration-200 ${
                   isActive 
                     ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg' 
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    : 'text-yapper-muted hover:bg-white/10 hover:text-white'
                 }`}
               >
                 <IconComponent className="h-5 w-5" />
@@ -260,15 +261,15 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
 
         {/* Bottom Section - Wallet Info */}
         {isSidebarExpanded && (
-          <div className="p-4 border-t border-gray-200 bg-gray-50 flex-shrink-0">
-            <div className="text-sm font-medium text-gray-900">Base Mainnet</div>
-            <div className="text-xs text-gray-500 font-mono">
+          <div className="p-4 border-t border-yapper bg-yapper-surface flex-shrink-0">
+            <div className="text-sm font-medium text-white font-silkscreen">Base Mainnet</div>
+            <div className="text-xs text-yapper-muted font-mono">
               {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not connected'}
             </div>
             
             {/* Twitter Connection Status */}
             {isTwitterConnected && twitterUsername && (
-              <div className="mt-2 text-xs text-green-600">
+              <div className="mt-2 text-xs text-green-400">
                 Connected: @{twitterUsername}
               </div>
             )}
@@ -277,14 +278,14 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
             <button
               onClick={handleTwitterReconnect}
               disabled={isReconnectingTwitter}
-              className="mt-2 text-xs text-blue-600 hover:text-blue-700 transition-colors block disabled:opacity-50"
+              className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors block disabled:opacity-50"
             >
               {isReconnectingTwitter ? 'Reconnecting...' : 'Reconnect Twitter'}
             </button>
             
             <button
               onClick={handleLogout}
-              className="mt-2 text-xs text-orange-600 hover:text-orange-700 transition-colors block"
+              className="mt-2 text-xs text-orange-400 hover:text-orange-300 transition-colors block"
             >
               Disconnect
             </button>
@@ -292,40 +293,39 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
         )}
       </div>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-h-screen">
-        {/* Top Header */}
-        <div className="bg-white border-b border-gray-200 flex-shrink-0 shadow-sm">
+      {/* Main Content Area - Scrollable */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Top Header - Fixed */}
+        <div className="bg-yapper-surface-2 border-b border-yapper flex-shrink-0 shadow-sm">
           <div className="px-8 py-4">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900 capitalize">
+                <h2 className="text-2xl font-bold text-white capitalize font-nt-brick">
                   {activeSection === 'bidding' ? 'Content Marketplace' : activeSection.replace('-', ' ')}
                 </h2>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-yapper-muted">
                   {activeSection === 'dashboard' && 'Analytics and performance overview'}
-                  {activeSection === 'bidding' && 'Browse and bid on AI-generated content'}
-                  {activeSection === 'history' && 'View your bidding and transaction history'}
-                  {activeSection === 'portfolio' && 'Track your ROAST and USDC holdings'}
+                  {activeSection === 'bidding' && 'Browse and purchase AI-generated content'}
+                  {activeSection === 'mycontent' && 'Your purchased content ready to use'}
                 </p>
               </div>
               <div className="flex items-center space-x-4">
                 {/* Status Indicators */}
-                <div className="status-indicator status-active">
+                <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100/10 text-green-400">
                   <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
                   <span>BASE NETWORK</span>
                 </div>
-                <div className="status-indicator status-pending">
+                <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100/10 text-yellow-400">
                   <div className="w-2 h-2 bg-yellow-500 rounded-full mr-2"></div>
                   <span>MARKETPLACE</span>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-medium text-gray-900">0.00 ROAST</div>
-                  <div className="text-xs text-gray-500">Available</div>
+                  <div className="text-sm font-medium text-white font-silkscreen">0.00 ROAST</div>
+                  <div className="text-xs text-yapper-muted">Available</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-medium text-gray-900">0.00 USDC</div>
-                  <div className="text-xs text-gray-500">Balance</div>
+                  <div className="text-sm font-medium text-white font-silkscreen">0.00 USDC</div>
+                  <div className="text-xs text-yapper-muted">Balance</div>
                 </div>
                 <ConnectButton 
                   showBalance={false}
@@ -337,8 +337,8 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
           </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-hidden">
+        {/* Scrollable Content Area */}
+        <div className="flex-1 overflow-y-auto">
           {renderContent()}
         </div>
       </div>
