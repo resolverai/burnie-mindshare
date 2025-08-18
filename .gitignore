@@ -273,5 +273,5 @@ cython_debug/
 yapper/
 
 # ML Models folder - Trained machine learning models
-models/
+*.pkl
 

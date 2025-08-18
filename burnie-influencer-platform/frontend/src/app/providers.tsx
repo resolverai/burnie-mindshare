@@ -25,8 +25,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {isClient && !isAdminPage ? (
-        <WagmiProvider config={config}>
+      <WagmiProvider config={config}>
+        {isClient && !isAdminPage ? (
           <RainbowKitProvider 
             theme={lightTheme({
               accentColor: '#f97316', // Orange accent for light theme
@@ -42,10 +42,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
           >
             {children}
           </RainbowKitProvider>
-        </WagmiProvider>
-      ) : (
-        children
-      )}
+        ) : (
+          children
+        )}
+      </WagmiProvider>
     </QueryClientProvider>
   )
 } 

@@ -35,6 +35,19 @@ export function useAuth() {
   useEffect(() => {
     const initializeAuth = () => {
       try {
+        // Only access localStorage on client side
+        if (typeof window === 'undefined') {
+          setAuthState({
+            isAuthenticated: false,
+            isLoading: false,
+            user: null,
+            needsSignature: false,
+            error: null
+          })
+          setMounted(true)
+          return
+        }
+
         // Check localStorage for existing authentication
         const storedAuth = localStorage.getItem('burnie_yapper_auth_user')
         const storedToken = localStorage.getItem('burnie_yapper_auth_token')
@@ -67,10 +80,12 @@ export function useAuth() {
         
       } catch (error) {
         console.error('❌ Error initializing auth:', error)
-        // Clear corrupted data
-        localStorage.removeItem('burnie_yapper_auth_user')
-        localStorage.removeItem('burnie_yapper_auth_token')
-        localStorage.removeItem('burnie_yapper_auth_signature')
+        // Clear corrupted data (only on client side)
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('burnie_yapper_auth_user')
+          localStorage.removeItem('burnie_yapper_auth_token')
+          localStorage.removeItem('burnie_yapper_auth_signature')
+        }
         
         setAuthState({
           isAuthenticated: false,
@@ -114,10 +129,12 @@ This signature proves you own this wallet.`
         chainId
       }
 
-      // Store authentication
-      localStorage.setItem('burnie_yapper_auth_user', JSON.stringify(user))
-      localStorage.setItem('burnie_yapper_auth_token', signature)
-      localStorage.setItem('burnie_yapper_auth_signature', signature)
+      // Store authentication (only on client side)
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('burnie_yapper_auth_user', JSON.stringify(user))
+        localStorage.setItem('burnie_yapper_auth_token', signature)
+        localStorage.setItem('burnie_yapper_auth_signature', signature)
+      }
 
       setAuthState({
         isAuthenticated: true,
@@ -160,10 +177,12 @@ This signature proves you own this wallet.`
       // Wallet disconnected - clear authentication completely
       console.log('🔄 Wallet disconnected, clearing authentication')
       
-      // Clear localStorage
-      localStorage.removeItem('burnie_yapper_auth_user')
-      localStorage.removeItem('burnie_yapper_auth_token')
-      localStorage.removeItem('burnie_yapper_auth_signature')
+      // Clear localStorage (only on client side)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('burnie_yapper_auth_user')
+        localStorage.removeItem('burnie_yapper_auth_token')
+        localStorage.removeItem('burnie_yapper_auth_signature')
+      }
       
       // Clear auth state
       setAuthState({
@@ -176,26 +195,28 @@ This signature proves you own this wallet.`
       return
     }
 
-    // Wallet connected - check if we need to authenticate this specific wallet
-    const storedAuth = localStorage.getItem('burnie_yapper_auth_user')
-    if (storedAuth) {
-      try {
-        const user = JSON.parse(storedAuth)
-        if (user.address === address.toLowerCase()) {
-          // Same wallet as stored auth - restore authentication immediately
-          console.log('✅ Wallet reconnected with stored auth, restoring session')
-          setAuthState(prev => ({
-            ...prev,
-            isAuthenticated: true,
-            user,
-            needsSignature: false,
-            error: null,
-            isLoading: false
-          }))
-          return
+    // Wallet connected - check if we need to authenticate this specific wallet (only on client side)
+    if (typeof window !== 'undefined') {
+      const storedAuth = localStorage.getItem('burnie_yapper_auth_user')
+      if (storedAuth) {
+        try {
+          const user = JSON.parse(storedAuth)
+          if (user.address === address.toLowerCase()) {
+            // Same wallet as stored auth - restore authentication immediately
+            console.log('✅ Wallet reconnected with stored auth, restoring session')
+            setAuthState(prev => ({
+              ...prev,
+              isAuthenticated: true,
+              user,
+              needsSignature: false,
+              error: null,
+              isLoading: false
+            }))
+            return
+          }
+        } catch (error) {
+          console.error('Error parsing stored auth:', error)
         }
-      } catch (error) {
-        console.error('Error parsing stored auth:', error)
       }
     }
 
@@ -214,10 +235,12 @@ This signature proves you own this wallet.`
   const logout = useCallback(() => {
     console.log('🚪 Logging out user')
     
-    // Clear localStorage
-    localStorage.removeItem('burnie_yapper_auth_user')
-    localStorage.removeItem('burnie_yapper_auth_token')
-    localStorage.removeItem('burnie_yapper_auth_signature')
+    // Clear localStorage (only on client side)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('burnie_yapper_auth_user')
+      localStorage.removeItem('burnie_yapper_auth_token')
+      localStorage.removeItem('burnie_yapper_auth_signature')
+    }
     
     // Clear auth state
     setAuthState({
