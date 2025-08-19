@@ -63,6 +63,10 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
+# Create cache directory with proper permissions
+RUN mkdir -p .next/cache && chown -R nextjs:nodejs .next/cache
+RUN mkdir -p /tmp/next-cache && chown -R nextjs:nodejs /tmp/next-cache
+
 # Set correct permissions
 USER nextjs
 
@@ -70,5 +74,7 @@ EXPOSE 3004
 
 ENV NODE_ENV=production
 ENV PORT=3004
+# Set cache directory to writable location
+ENV NEXT_CACHE_DIR=/tmp/next-cache
 
 CMD ["node", "server.js"]

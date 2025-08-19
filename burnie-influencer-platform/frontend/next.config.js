@@ -34,6 +34,8 @@ const nextConfig = {
         pathname: '/**',
       }
     ],
+    // Configure caching for production
+    minimumCacheTTL: 60,
   },
   webpack: (config, { isServer }) => {
     if (!isServer) {
