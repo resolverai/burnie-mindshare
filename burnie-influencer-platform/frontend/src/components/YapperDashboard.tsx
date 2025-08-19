@@ -4,31 +4,15 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAccount, useDisconnect } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { useROASTBalance } from '../hooks/useROASTBalance'
+import { useTokenRegistration } from '../hooks/useTokenRegistration'
 import { useAuth } from '../hooks/useAuth'
 import { useRouter } from 'next/navigation'
 import { useYapperTwitterConnection } from '../hooks/useYapperTwitterConnection'
 import { 
-  Bars3Icon, 
-  HomeIcon, 
-  CurrencyDollarIcon, 
-  ClockIcon,
-  WalletIcon,
-  BellIcon,
-  ChartBarIcon,
-  MegaphoneIcon,
-  EyeIcon,
-  TrophyIcon,
-  ArrowTrendingUpIcon,
-  ArrowRightOnRectangleIcon,
-  DocumentTextIcon
+  WalletIcon
 } from '@heroicons/react/24/outline'
-import { 
-  HomeIcon as HomeIconSolid,
-  CurrencyDollarIcon as CurrencyDollarIconSolid,
-  ClockIcon as ClockIconSolid,
-  MegaphoneIcon as MegaphoneIconSolid,
-  DocumentTextIcon as DocumentTextIconSolid
-} from '@heroicons/react/24/solid'
+import Image from 'next/image'
 
 // Import dashboard components
 import YapperAnalytics from './yapper/YapperAnalytics'
@@ -43,7 +27,12 @@ interface YapperDashboardProps {
 }
 
 export default function YapperDashboard({ activeSection = 'dashboard' }: YapperDashboardProps) {
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true)
+  const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
+  
+  // Automatically register ROAST token when wallet connects
+  useTokenRegistration()
+  
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false) // Default to closed
   const [isReconnectingTwitter, setIsReconnectingTwitter] = useState(false)
   const { address, isConnected } = useAccount()
   const { disconnect } = useDisconnect()
@@ -153,18 +142,19 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
   }
 
   const navigationItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: HomeIcon, iconSolid: HomeIconSolid, route: '/dashboard' },
-    { id: 'bidding', label: 'Content Marketplace', icon: MegaphoneIcon, iconSolid: MegaphoneIconSolid, route: '/bidding' },
-    { id: 'mycontent', label: 'My Content', icon: DocumentTextIcon, iconSolid: DocumentTextIconSolid, route: '/my-content' }
+    { id: 'marketplace', label: 'Marketplace', icon: '/home.svg', route: '/marketplace' },
+    { id: 'dashboard', label: 'Dashboard', icon: '/dashboard.svg', route: '/dashboard' },
+    { id: 'mycontent', label: 'My content', icon: '/content.svg', route: '/my-content' }
     // Temporarily hiding: history and portfolio sections
-    // { id: 'history', label: 'History', icon: ClockIcon, iconSolid: ClockIconSolid, route: '/history' },
-    // { id: 'portfolio', label: 'Portfolio', icon: CurrencyDollarIcon, iconSolid: CurrencyDollarIconSolid, route: '/portfolio' }
+    // { id: 'history', label: 'History', icon: '/history.svg', route: '/history' },
+    // { id: 'portfolio', label: 'Portfolio', icon: '/portfolio.svg', route: '/portfolio' }
   ]
 
   const renderContent = () => {
     switch (activeSection) {
       case 'dashboard': return <YapperAnalytics />
-      case 'bidding': return <BiddingInterface />
+      case 'marketplace': 
+      case 'bidding': return <BiddingInterface /> // Support both for backward compatibility
       case 'mycontent': return <YapperMyContent />
       case 'history': return <YapperHistory />
       case 'portfolio': return <YapperPortfolio />
@@ -206,142 +196,173 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
   }
 
   return (
-    <div className="h-screen yapper-background flex overflow-hidden">
-      {/* Left Sidebar Navigation - Fixed */}
-      <div className={`${isSidebarExpanded ? 'w-72' : 'w-20'} bg-yapper-surface-2 border-r border-yapper transition-all duration-300 flex flex-col h-full shadow-sm flex-shrink-0`}>
-        {/* Header */}
-        <div className="p-6 border-b border-yapper flex-shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl">
-                <MegaphoneIcon className="h-6 w-6 text-white" />
-              </div>
-              {isSidebarExpanded && (
-                <div>
-                  <h1 className="text-xl font-bold text-white font-nt-brick">BURNIE</h1>
-                  <p className="text-xs text-yapper-muted uppercase tracking-wide font-silkscreen">
-                    Yapper Platform
-                  </p>
-                </div>
-              )}
+    <div className="min-h-screen yapper-background">
+      {/* Single Combined Header - Matching New UI */}
+      <header className="z-20 w-full sticky top-0 bg-yapper-surface/95 backdrop-blur border-b border-yapper">
+        <div className="relative flex items-center justify-between px-6 h-16 max-w-none mx-auto">
+          {/* Left Navigation Links */}
+          <div className="hidden lg:flex items-center space-x-6 xl:space-x-8">
+            <a href="#" className="text-white/90 hover:text-white transition-all duration-300 relative group no-underline hover:no-underline font-medium text-sm">
+              ABOUT
+              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-white transition-all duration-300 group-hover:w-full"></span>
+            </a>
+            <a href="#" className="text-white/90 hover:text-white transition-all duration-300 relative group no-underline hover:no-underline font-medium text-sm">
+              TOKENOMICS
+              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-white transition-all duration-300 group-hover:w-full"></span>
+            </a>
+          </div>
+
+          {/* Center Logo */}
+          <div className="absolute left-1/2 -translate-x-1/2 z-20">
+            <div className="text-white text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-bold relative group cursor-pointer">
+              <span className="relative z-10 no-underline hover:no-underline transition-colors text-white font-nt-brick">
+                YAP.BURNIE
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-orange-400 to-orange-600 opacity-0 group-hover:opacity-20 transition-opacity duration-300 rounded-lg blur-sm"></div>
             </div>
-            <button
-              onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
-              className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-            >
-              <Bars3Icon className="h-5 w-5 text-yapper-muted" />
-            </button>
+          </div>
+
+          {/* Right Side - Social Icons + Points + Status + Wallet */}
+          <div className="flex items-center flex-row justify-end gap-2">
+            {/* Social Icons */}
+            <div className="items-center md:flex hidden gap-2">
+              <a href="https://x.com/burnieio" target="_blank" rel="noopener noreferrer" className="flex items-center p-1">
+                <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+              </a>
+              <a href="https://t.me/burnieai" target="_blank" rel="noopener noreferrer" className="flex items-center p-1">
+                <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14.171.142.27.293.27.293-.271 1.469-1.428 6.943-2.008 9.218-.245 1.164-.726 1.555-1.192 1.597-.964.089-1.7-.636-2.637-1.247-1.466-.957-2.297-1.552-3.716-2.48-1.64-1.073-.578-1.668.36-2.633.246-.252 4.486-4.107 4.576-4.456.014-.041.015-.192-.077-.272-.092-.08-.226-.053-.323-.03-.137.032-2.294 1.451-6.476 4.257-.612.424-.966.632-1.064.633-.352.003-.987-.198-1.47-.36-1.174-.404-2.107-.616-2.027-.982.042-.19.283-.385.725-.583 2.855-1.259 4.758-2.08 5.71-2.463 2.713-1.145 3.278-1.344 3.648-1.351z"/>
+                </svg>
+              </a>
+            </div>
+
+            {/* ROAST Balance Badge */}
+            <div className="px-3 py-1 bg-white text-black rounded-full text-lg font-bold md:flex hidden font-silkscreen">
+              🔥 {balanceLoading ? '...' : roastBalance}
+            </div>
+
+            {/* Wallet Connection */}
+            <ConnectButton 
+              showBalance={false}
+              chainStatus="none"
+              accountStatus="avatar"
+            />
           </div>
         </div>
+      </header>
+
+      {/* Main Layout with Sidebar */}
+      <div className="flex">
+        {/* Left Sidebar Navigation - Fixed, starts after header */}
+                  <aside
+            className={`${isSidebarExpanded ? 'w-52' : 'w-16'} bg-yapper-surface border-r border-yapper transition-[width] duration-300 ease-in-out flex flex-col h-[calc(100vh-64px)] shadow-sm flex-shrink-0 sticky top-16`}
+          style={{ willChange: "width" }}
+        >
+          {/* Collapse/Expand Button */}
+          <div className="flex items-center justify-start px-2 py-4">
+            <button
+            className="w-8 h-8 rounded-md hover:bg-yapper-muted transition-colors ml-2"
+            aria-label={isSidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+            onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
+          >
+            {isSidebarExpanded ? (
+              <Image src="/sidebarclose.svg" alt="Collapse sidebar" width={20} height={20} className="w-5 h-5 text-white" />
+            ) : (
+              <Image src="/sidebaropen.svg" alt="Expand sidebar" width={20} height={20} className="w-5 h-5 text-white" />
+            )}
+          </button>
+        </div>
+
+        {/* Separator */}
+        <div className="h-px bg-yapper-border mx-2"></div>
 
         {/* Navigation Items */}
-        <div className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+        <nav className="flex flex-col gap-1 p-2 flex-1">
           {navigationItems.map((item) => {
-            const IconComponent = activeSection === item.id ? item.iconSolid : item.icon
             const isActive = activeSection === item.id
             
             return (
               <button
                 key={item.id}
                 onClick={() => router.push(item.route)}
-                className={`w-full flex items-center ${isSidebarExpanded ? 'justify-start px-4' : 'justify-center px-2'} py-3 rounded-lg transition-all duration-200 ${
+                className={`group flex items-center rounded-md px-2 py-2 text-sm transition-colors overflow-hidden justify-start ${
                   isActive 
-                    ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg' 
-                    : 'text-yapper-muted hover:bg-white/10 hover:text-white'
+                    ? 'bg-yapper-muted text-white' 
+                    : 'text-white/90 hover:bg-yapper-muted hover:text-white'
                 }`}
               >
-                <IconComponent className="h-5 w-5" />
-                {isSidebarExpanded && (
-                  <span className="ml-3 font-medium">{item.label}</span>
-                )}
+                <span className="w-5 h-5 inline-flex items-center justify-center text-white/90 mr-3 shrink-0">
+                  <Image src={item.icon} alt={item.label} width={20} height={20} className="w-5 h-5" />
+                </span>
+                <span className="relative overflow-hidden shrink-0 w-[160px]">
+                  <span
+                    className={`block ${isActive ? 'text-white' : 'text-white/90'}`}
+                    style={{
+                      clipPath: isSidebarExpanded ? "inset(0 0 0 0)" : "inset(0 100% 0 0)",
+                      transition: "clip-path 300ms ease-in-out",
+                      willChange: "clip-path",
+                    }}
+                    aria-hidden={!isSidebarExpanded}
+                  >
+                    {item.label}
+                  </span>
+                </span>
               </button>
             )
           })}
-        </div>
+        </nav>
 
         {/* Bottom Section - Wallet Info */}
-        {isSidebarExpanded && (
-          <div className="p-4 border-t border-yapper bg-yapper-surface flex-shrink-0">
-            <div className="text-sm font-medium text-white font-silkscreen">Base Mainnet</div>
-            <div className="text-xs text-yapper-muted font-mono">
-              {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not connected'}
-            </div>
-            
-            {/* Twitter Connection Status */}
-            {isTwitterConnected && twitterUsername && (
-              <div className="mt-2 text-xs text-green-400">
-                Connected: @{twitterUsername}
-              </div>
-            )}
-            
-            {/* Twitter Reconnect Button */}
-            <button
-              onClick={handleTwitterReconnect}
-              disabled={isReconnectingTwitter}
-              className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors block disabled:opacity-50"
-            >
-              {isReconnectingTwitter ? 'Reconnecting...' : 'Reconnect Twitter'}
-            </button>
-            
-            <button
-              onClick={handleLogout}
-              className="mt-2 text-xs text-orange-400 hover:text-orange-300 transition-colors block"
-            >
-              Disconnect
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Main Content Area - Scrollable */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top Header - Fixed */}
-        <div className="bg-yapper-surface-2 border-b border-yapper flex-shrink-0 shadow-sm">
-          <div className="px-8 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-white capitalize font-nt-brick">
-                  {activeSection === 'bidding' ? 'Content Marketplace' : activeSection.replace('-', ' ')}
-                </h2>
-                <p className="text-sm text-yapper-muted">
-                  {activeSection === 'dashboard' && 'Analytics and performance overview'}
-                  {activeSection === 'bidding' && 'Browse and purchase AI-generated content'}
-                  {activeSection === 'mycontent' && 'Your purchased content ready to use'}
-                </p>
-              </div>
-              <div className="flex items-center space-x-4">
-                {/* Status Indicators */}
-                <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100/10 text-green-400">
-                  <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
-                  <span>BASE NETWORK</span>
+        <div className={`mt-auto p-4 ${isSidebarExpanded ? "" : "flex items-center justify-center"}`}>
+          <div className={`flex items-start gap-2 w-full ${isSidebarExpanded ? "justify-start" : "justify-start"}`}>
+            <WalletIcon className={`w-6 h-6 opacity-80 shrink-0 text-white ${isSidebarExpanded ? "hidden" : "flex"}`} />
+            <div className={`relative overflow-hidden w-[140px] text-xs ${isSidebarExpanded ? "flex" : "hidden"}`}>
+              <div
+                className="text-white/60 space-y-0.5"
+                style={{
+                  clipPath: isSidebarExpanded ? "inset(0 0 0 0)" : "inset(0 100% 0 0)",
+                  transition: "clip-path 300ms ease-in-out",
+                  willChange: "clip-path",
+                }}
+                aria-hidden={!isSidebarExpanded}
+              >
+                <div>Base Mainnet</div>
+                <div className="mt-1">
+                  {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Not connected'}
                 </div>
-                <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100/10 text-yellow-400">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full mr-2"></div>
-                  <span>MARKETPLACE</span>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-medium text-white font-silkscreen">0.00 ROAST</div>
-                  <div className="text-xs text-yapper-muted">Available</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-medium text-white font-silkscreen">0.00 USDC</div>
-                  <div className="text-xs text-yapper-muted">Balance</div>
-                </div>
-                <ConnectButton 
-                  showBalance={false}
-                  chainStatus="icon"
-                  accountStatus="avatar"
-                />
+                {isTwitterConnected && twitterUsername && (
+                  <div className="text-xs text-green-400 mt-1">
+                    @{twitterUsername}
+                  </div>
+                )}
+                <button
+                  onClick={handleTwitterReconnect}
+                  disabled={isReconnectingTwitter}
+                  className="mt-2 text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
+                >
+                  {isReconnectingTwitter ? 'Reconnecting...' : 'Reconnect Twitter'}
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="mt-2 text-orange-400 hover:text-orange-300 transition-colors block"
+                >
+                  Disconnect
+                </button>
               </div>
             </div>
           </div>
         </div>
+      </aside>
 
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto">
+              {/* Main Content Area - Direct content */}
+        <div className="flex-1 min-h-[calc(100vh-64px)]">
+        <main className="h-full overflow-y-auto">
           {renderContent()}
-        </div>
+        </main>
       </div>
+    </div>
     </div>
   )
 } 

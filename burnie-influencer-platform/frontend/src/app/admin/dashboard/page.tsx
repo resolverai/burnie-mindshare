@@ -69,6 +69,7 @@ export default function AdminDashboard() {
     description: '',
     projectName: '',
     projectLogo: null as File | null,
+    campaignBanner: null as File | null,
     projectTwitterHandle: '', // For fetching latest tweets
     tokenTicker: 'ROAST',
     category: '',
@@ -81,6 +82,7 @@ export default function AdminDashboard() {
     guidelines: ''
   })
   const [logoPreview, setLogoPreview] = useState<string>('')
+  const [bannerPreview, setBannerPreview] = useState<string>('')
   
   // Project search states
   const [projectSearchResults, setProjectSearchResults] = useState<Array<{id: number, name: string, logo?: string}>>([])
@@ -395,6 +397,7 @@ export default function AdminDashboard() {
       description: campaign.description,
       projectName: campaign.projectName || '',
       projectLogo: null,
+      campaignBanner: null,
       projectTwitterHandle: (campaign as any).projectTwitterHandle || '', // Add Twitter handle support
       tokenTicker: campaign.tokenTicker || 'ROAST',
       category: campaign.category,
@@ -421,6 +424,22 @@ export default function AdminDashboard() {
       }
     } else {
       setLogoPreview('')
+    }
+
+    // Set banner preview if campaign has a banner
+    if ((campaign as any).campaignBanner) {
+      try {
+        const { getDisplayableLogoUrl } = await import('../../../utils/s3Utils')
+        const displayUrl = await getDisplayableLogoUrl((campaign as any).campaignBanner)
+        if (displayUrl) {
+          setBannerPreview(displayUrl)
+        }
+      } catch (error) {
+        console.error('Error loading campaign banner for editing:', error)
+        setBannerPreview('')
+      }
+    } else {
+      setBannerPreview('')
     }
     
     setShowEditForm(true)
@@ -452,12 +471,31 @@ export default function AdminDashboard() {
         }
       }
 
+      // Handle banner upload if present
+      let bannerUrl = (editingCampaign as any)?.campaignBanner || ''
+      if (formData.campaignBanner) {
+        const bannerFormData = new FormData()
+        bannerFormData.append('banner', formData.campaignBanner)
+        bannerFormData.append('campaignName', formData.title || 'untitled')
+        
+        const bannerResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/campaigns/upload-banner`, {
+          method: 'POST',
+          body: bannerFormData,
+        })
+        
+        if (bannerResponse.ok) {
+          const bannerResult = await bannerResponse.json()
+          bannerUrl = bannerResult.data.bannerUrl
+        }
+      }
+
       // Prepare campaign data
       const campaignData = {
         title: formData.title,
         description: formData.description,
         projectName: formData.projectName,
         projectLogo: logoUrl,
+        campaignBanner: bannerUrl,
         projectTwitterHandle: formData.projectTwitterHandle,
         tokenTicker: formData.tokenTicker,
         category: formData.category,
@@ -497,6 +535,7 @@ export default function AdminDashboard() {
           description: '',
           projectName: '',
           projectLogo: null,
+          campaignBanner: null,
           projectTwitterHandle: '',
           tokenTicker: 'ROAST',
           category: '',
@@ -509,6 +548,7 @@ export default function AdminDashboard() {
           guidelines: ''
         })
         setLogoPreview('')
+        setBannerPreview('')
         setShowEditForm(false)
         setEditingCampaign(null)
         
@@ -550,12 +590,31 @@ export default function AdminDashboard() {
         }
       }
 
+      // Handle banner upload if present
+      let bannerUrl = ''
+      if (formData.campaignBanner) {
+        const bannerFormData = new FormData()
+        bannerFormData.append('banner', formData.campaignBanner)
+        bannerFormData.append('campaignName', formData.title || 'untitled')
+        
+        const bannerResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/campaigns/upload-banner`, {
+          method: 'POST',
+          body: bannerFormData,
+        })
+        
+        if (bannerResponse.ok) {
+          const bannerResult = await bannerResponse.json()
+          bannerUrl = bannerResult.data.bannerUrl
+        }
+      }
+
       // Prepare campaign data
       const campaignData = {
           title: formData.title,
           description: formData.description,
         projectName: formData.projectName,
         projectLogo: logoUrl,
+        campaignBanner: bannerUrl,
         tokenTicker: formData.tokenTicker,
         category: formData.category,
         campaignType: formData.campaignType,
@@ -588,6 +647,7 @@ export default function AdminDashboard() {
           description: '',
           projectName: '',
           projectLogo: null,
+          campaignBanner: null,
           projectTwitterHandle: '',
           tokenTicker: 'ROAST',
           category: '',
@@ -600,6 +660,7 @@ export default function AdminDashboard() {
           guidelines: ''
         })
         setLogoPreview('')
+        setBannerPreview('')
         setShowCreateForm(false)
         
         // Refresh campaigns list
@@ -939,6 +1000,7 @@ export default function AdminDashboard() {
                 description: '',
                 projectName: '',
                 projectLogo: null,
+                campaignBanner: null,
                 projectTwitterHandle: '',
                 tokenTicker: 'ROAST',
                 category: '',
@@ -951,6 +1013,7 @@ export default function AdminDashboard() {
                 guidelines: ''
               })
               setLogoPreview('')
+              setBannerPreview('')
               setShowCreateForm(true)
             }}
             className="btn-primary flex items-center space-x-2"
@@ -1118,6 +1181,7 @@ export default function AdminDashboard() {
                       description: '',
                       projectName: '',
                       projectLogo: null,
+                      campaignBanner: null,
                       projectTwitterHandle: '',
                       tokenTicker: 'ROAST',
                       category: '',
@@ -1130,6 +1194,7 @@ export default function AdminDashboard() {
                       guidelines: ''
                     })
                     setLogoPreview('')
+                    setBannerPreview('')
                   }}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
                 >
@@ -1236,6 +1301,36 @@ export default function AdminDashboard() {
                     <img 
                       src={logoPreview} 
                       alt="Project Logo Preview" 
+                      className="max-w-sm h-auto rounded-md" 
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="campaignBanner" className="block text-sm font-medium text-gray-700 mb-2">
+                  Campaign Banner (Optional)
+                </label>
+                <input
+                  type="file"
+                  id="campaignBanner"
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      setFormData({ ...formData, campaignBanner: e.target.files[0] });
+                      setBannerPreview(URL.createObjectURL(e.target.files[0]));
+                    } else {
+                      setFormData({ ...formData, campaignBanner: null });
+                      setBannerPreview('');
+                    }
+                  }}
+                  className="input-field"
+                />
+                {bannerPreview && (
+                  <div className="mt-2">
+                    <img 
+                      src={bannerPreview} 
+                      alt="Campaign Banner Preview" 
                       className="max-w-sm h-auto rounded-md" 
                     />
                   </div>
@@ -1568,6 +1663,36 @@ export default function AdminDashboard() {
                 {logoPreview && (
                   <div className="mt-2">
                     <img src={logoPreview} alt="Project Logo Preview" className="max-w-sm h-auto rounded-md" />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="campaignBannerEdit" className="block text-sm font-medium text-gray-700 mb-2">
+                  Campaign Banner (Optional)
+                </label>
+                <input
+                  type="file"
+                  id="campaignBannerEdit"
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      setFormData({ ...formData, campaignBanner: e.target.files[0] });
+                      setBannerPreview(URL.createObjectURL(e.target.files[0]));
+                    } else {
+                      setFormData({ ...formData, campaignBanner: null });
+                      setBannerPreview('');
+                    }
+                  }}
+                  className="input-field"
+                />
+                {bannerPreview && (
+                  <div className="mt-2">
+                    <img 
+                      src={bannerPreview} 
+                      alt="Campaign Banner Preview" 
+                      className="max-w-sm h-auto rounded-md" 
+                    />
                   </div>
                 )}
               </div>

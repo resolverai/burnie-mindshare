@@ -11,6 +11,8 @@ import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
 import { TreasuryService } from '../services/TreasuryService';
 import { fetchROASTPrice } from '../services/priceService';
+import { createPublicClient, http, parseUnits, formatUnits } from 'viem';
+import { base } from 'viem/chains';
 const AWS = require('aws-sdk');
 
 const router = Router();
@@ -219,6 +221,7 @@ router.get('/content', async (req, res) => {
     const { 
       search,
       platform_source,
+      project_name,
       post_type,
       sort_by = 'quality',
       page = 1,
@@ -244,6 +247,10 @@ router.get('/content', async (req, res) => {
 
     if (platform_source) {
       query = query.andWhere('campaign.platformSource = :platform', { platform: platform_source });
+    }
+
+    if (project_name) {
+      query = query.andWhere('campaign.projectName = :projectName', { projectName: project_name });
     }
 
     if (post_type) {
@@ -305,6 +312,7 @@ router.get('/content', async (req, res) => {
       campaign: {
         id: content.campaign?.id,
         title: content.campaign?.title || 'Unknown Campaign',
+        project_name: content.campaign?.projectName || content.campaign?.title || 'Unknown Project',
         platform_source: content.campaign?.platformSource || 'unknown',
         reward_token: content.campaign?.rewardToken || 'ROAST'
       },
@@ -2921,7 +2929,7 @@ router.post('/content/:id/presigned-url', async (req: Request, res: Response) =>
  */
 router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { contentId, buyerWalletAddress, purchasePrice, currency = 'ROAST' } = req.body;
+    const { contentId, buyerWalletAddress, purchasePrice, currency = 'ROAST', transactionHash } = req.body;
 
     // Validate required fields
     if (!contentId || !buyerWalletAddress || !purchasePrice) {
@@ -3039,15 +3047,22 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       platformFee, // In payment currency
       minerPayout: minerPayoutRoast, // ALWAYS in ROAST (80% of original)
       minerPayoutRoast, // Explicit ROAST amount for clarity
-      paymentStatus: 'pending',
-      payoutStatus: 'pending'
+      paymentStatus: transactionHash ? 'completed' : 'pending', // If transaction hash provided, mark as completed
+      payoutStatus: 'pending',
+      transactionHash: transactionHash || null // Store transaction hash if provided
     });
 
     await purchaseRepository.save(purchase);
 
-    // Mark content as no longer available (since it's a direct purchase)
-    content.isAvailable = false;
-    await contentRepository.save(content);
+    // Only mark content as unavailable if we have a confirmed transaction hash
+    // Otherwise, keep it available until payment is confirmed
+    if (transactionHash) {
+      logger.info(`Transaction hash provided: ${transactionHash}, marking content as unavailable`);
+      content.isAvailable = false;
+      await contentRepository.save(content);
+    } else {
+      logger.info(`No transaction hash provided, keeping content available until payment confirmation`);
+    }
 
     logger.info(`Purchase record created: Content ${contentId} by ${buyerWalletAddress} - Paid: ${purchasePrice} ${currency}, Normalized: ${normalizedPurchasePriceROAST} ROAST`);
 
@@ -3267,9 +3282,6 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
     });
   }
 });
-
-// Export router
-export default router;
 
 // ==========================================
 // NEW CONTENT PURCHASE ANALYTICS ENDPOINTS
@@ -4013,4 +4025,124 @@ router.post('/reject-content', async (req: Request, res: Response) => {
       error: 'Failed to reject content'
     });
   }
-}); 
+});
+
+// ROAST Token ABI for balance checking
+const ROAST_TOKEN_ABI = [
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'decimals',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint8' }],
+  },
+] as const;
+
+// USDC Token ABI (same structure)
+const USDC_TOKEN_ABI = ROAST_TOKEN_ABI;
+
+// Token contract addresses (using correct env variable names)
+const ROAST_TOKEN_ADDRESS = process.env.CONTRACT_ROAST_TOKEN || '0x06fe6D0EC562e19cFC491C187F0A02cE8D5083E4';
+const USDC_TOKEN_ADDRESS = process.env.USDC_BASE_ADDRESS || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+
+// Debug log to confirm addresses
+console.log('🔧 Token Addresses Configuration:');
+console.log('  ROAST:', ROAST_TOKEN_ADDRESS);
+console.log('  USDC:', USDC_TOKEN_ADDRESS);
+
+// Create viem client for Base network
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(process.env.BASE_RPC_URL || 'https://mainnet.base.org')
+});
+
+/**
+ * Check user's token balance (ROAST or USDC) - Backend endpoint to avoid wallet confirmations
+ * POST /api/marketplace/check-balance
+ */
+router.post('/check-balance', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress, tokenType, requiredAmount } = req.body;
+
+    if (!walletAddress || !tokenType || requiredAmount === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: walletAddress, tokenType, requiredAmount'
+      });
+    }
+
+    logger.info(`🔍 Checking ${tokenType} balance for wallet: ${walletAddress}, required: ${requiredAmount}`);
+
+    let tokenAddress: string;
+    let tokenName: string;
+
+    if (tokenType.toLowerCase() === 'roast') {
+      tokenAddress = ROAST_TOKEN_ADDRESS;
+      tokenName = 'ROAST';
+    } else if (tokenType.toLowerCase() === 'usdc') {
+      tokenAddress = USDC_TOKEN_ADDRESS;
+      tokenName = 'USDC';
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid tokenType. Must be "roast" or "usdc"'
+      });
+    }
+
+    // Get token decimals
+    const decimals = await publicClient.readContract({
+      address: tokenAddress as `0x${string}`,
+      abi: tokenType.toLowerCase() === 'roast' ? ROAST_TOKEN_ABI : USDC_TOKEN_ABI,
+      functionName: 'decimals',
+    });
+
+    // Get user's token balance
+    const balanceWei = await publicClient.readContract({
+      address: tokenAddress as `0x${string}`,
+      abi: tokenType.toLowerCase() === 'roast' ? ROAST_TOKEN_ABI : USDC_TOKEN_ABI,
+      functionName: 'balanceOf',
+      args: [walletAddress as `0x${string}`],
+    });
+
+    // Convert balance from wei to human readable
+    const balance = parseFloat(formatUnits(balanceWei as bigint, decimals as number));
+    const required = parseFloat(requiredAmount.toString());
+
+    const hasBalance = balance >= required;
+
+    logger.info(`💰 Balance check result:`, {
+      wallet: walletAddress,
+      token: tokenName,
+      balance: balance,
+      required: required,
+      hasBalance: hasBalance
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        tokenType: tokenName,
+        balance: balance,
+        requiredAmount: required,
+        hasBalance: hasBalance,
+        shortfall: hasBalance ? 0 : (required - balance)
+      }
+    });
+
+  } catch (error) {
+    logger.error('❌ Error checking token balance:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to check token balance'
+    });
+  }
+});
+
+export default router; 

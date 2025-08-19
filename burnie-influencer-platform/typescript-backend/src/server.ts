@@ -30,6 +30,8 @@ import intelligenceRoutes from './routes/intelligence';
 import platformYapperCronRoutes from './routes/platformYapperCron';
 import platformYapperDataRoutes from './routes/platformYapperData';
 import twitterLearningAnalysisRoutes from './routes/twitterLearningAnalysis';
+import carouselRoutes from './routes/carousel';
+import filterOptionsRoutes from './routes/filterOptions';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -110,6 +112,8 @@ app.use('/api', twitterLearningAnalysisRoutes); // Twitter learning LLM analysis
 app.use('/api/agents', agentRoutes); // Agent routes
 app.use('/api/twitter-auth', twitterAuthRoutes); // Twitter auth routes for miners
 app.use('/api/yapper-twitter-auth', yapperTwitterAuthRoutes); // Twitter auth routes for yappers
+app.use('/api/carousel', carouselRoutes); // Carousel data for hero banner
+app.use('/api/filter-options', filterOptionsRoutes); // Filter options for platforms and projects
 
 // Start server
 const startServer = async () => {
@@ -122,10 +126,10 @@ const startServer = async () => {
     
     // await initializeRedis();
     
-    // Initialize and start mining service
+    // Initialize mining service (but don't start it automatically to prevent high CPU usage)
     const { MiningService } = await import('./services/MiningService');
     const miningService = MiningService.getInstance();
-    miningService.startMining();
+    // miningService.startMining(); // DISABLED: Can cause high CPU and memory usage
     
     // Start scheduled file cleanup service
     scheduledCleanupService.start();
@@ -171,6 +175,7 @@ startServer();
 // Graceful shutdown
 const gracefulShutdown = async (signal: string) => {
   logger.info(`🔄 Received ${signal}. Starting graceful shutdown...`);
+  logger.info(`📊 Process stats at shutdown - PID: ${process.pid}, Uptime: ${Math.floor(process.uptime())}s`);
   
   try {
     // Stop cron services
@@ -194,6 +199,26 @@ const gracefulShutdown = async (signal: string) => {
     process.exit(1);
   }
 };
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit the process for unhandled rejections in development
+  if (env.api.nodeEnv === 'production') {
+    gracefulShutdown('UNHANDLED_REJECTION');
+  }
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.error('❌ Uncaught Exception:', error);
+  gracefulShutdown('UNCAUGHT_EXCEPTION');
+});
+
+// Handle memory warnings
+process.on('warning', (warning) => {
+  logger.warn('⚠️ Process Warning:', warning.name, warning.message);
+});
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT')); 

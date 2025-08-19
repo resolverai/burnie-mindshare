@@ -2,6 +2,16 @@
 
 import React, { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
+import clsx from 'clsx'
+
+// Component interfaces and types
+type StatCardProps = {
+  title: string
+  subtitle?: string
+  value: string
+  chip?: string
+  gradient: string // radial gradient css
+}
 
 interface AnalyticsData {
   totalEarnings: number
@@ -21,6 +31,72 @@ interface AnalyticsData {
     timestamp: string
   }>
 }
+
+// UI Components matching the new design
+const SectionHeader: React.FC<{ title: string; subtitle?: string }> = ({ title, subtitle }) => (
+  <div className="mb-2">
+    <h2 className="text-white text-sm font-semibold">{title}</h2>
+    {subtitle ? <p className="text-[11px] text-white/60 mt-1">{subtitle}</p> : null}
+  </div>
+)
+
+const Card: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ className, children }) => (
+  <div className={clsx("rounded-xl bg-[#2b1a1a] p-4 shadow-[0_8px_24px_rgba(0,0,0,0.35)]", className)}>{children}</div>
+)
+
+const StatSlab: React.FC<StatCardProps> = ({ title, subtitle, value, chip, gradient }) => (
+  <div
+    className="rounded-[16px] p-4 h-[139px] text-white flex flex-col items-start justify-between w-full"
+    style={{ background: gradient }}
+  >
+    <div className="flex flex-col items-start justify-start">
+      <div className="text-sm font-medium">{title}</div>
+      {subtitle ? <div className="text-sm text-[#FEBC2F] mt-1">{subtitle}</div> : null}
+    </div>
+    <div className="flex flex-row items-center justify-between w-full">
+      <div className="text-3xl font-extrabold mt-2">{value}</div>
+      {chip ? <div className="mt-2 inline-flex items-center rounded-full bg-black/20 px-2 py-1 text-[10px]">{chip}</div> : null}
+    </div>
+  </div>
+)
+
+const InsightItem: React.FC<{ 
+  label: string; 
+  value: string; 
+  time?: string; 
+  sublabel?: string; 
+  right?: string; 
+  info?: string; 
+  className?: string 
+}> = ({ label, value, time, sublabel, right, info, className }) => (
+  <div className={clsx("flex flex-col items-start justify-between gap-3 py-3 border-t border-white/10 first:border-t-0", className)}>
+    <div className="flex flex-col items-start justify-start gap-1 w-full">
+      <div className="flex flex-row items-center justify-between w-full">
+        <div className="flex flex-row items-center justify-start gap-2">
+          {info ? <img src={info} alt="info" width={16} height={16} className="w-4 h-4" /> : null}
+          <div className="text-xs font-medium">{label}</div>
+        </div>
+        <div className="text-white/60 text-xs">{sublabel}</div>
+      </div>
+      <div className="text-white/90 text-xs flex flex-row items-center justify-between w-full">
+        <div className="text-white text-sm">{value}</div>
+        <div className="text-white/90 text-xs">{time}</div>
+      </div>
+    </div>
+    <div className="text-white/90 text-xs">{right}</div>
+  </div>
+)
+
+const PerfBar: React.FC<{ label: string; you: number; community: number }> = ({ label, you, community }) => (
+  <div className="mb-4 space-y-2">
+    <div className="flex items-center justify-between text-sm text-white/80"><span>{label}</span><span>You: {you}, Community: {community}</span></div>
+    <div className="text-xs text-white/60">You outperformed 78% of similar yappers</div>
+    <div className="mt-2 h-2 rounded bg-white/10 overflow-hidden relative">
+      <div className="absolute inset-y-0 left-0 bg-[#FEBC2F] rounded-full" style={{ width: `${community}%` }} />
+      <div className="relative h-full bg-[#FD7A10] rounded-full" style={{ width: `${you}%` }} />
+    </div>
+  </div>
+)
 
 export default function YapperAnalytics() {
   const { address, isConnected } = useAccount()
@@ -89,7 +165,7 @@ export default function YapperAnalytics() {
             <div className="w-96">
               <div className="h-48 bg-white/10 rounded-xl mb-6"></div>
               <div className="h-96 bg-white/10 rounded-xl"></div>
-            </div>
+          </div>
           </div>
         </div>
       </div>
@@ -108,320 +184,286 @@ export default function YapperAnalytics() {
   }
 
   return (
-    <div className="p-6">
-      <div className="flex gap-6">
-        {/* Left Main Content Area - ~828px equivalent */}
-        <div className="flex-1 space-y-6">
+    <section className="space-y-5">
+      <SectionHeader
+        title="PERSONALISED GROWTH ANALYTICS"
+        subtitle="AI powered insights to maximise your platform rewards and leaderboard climbing"
+      />
+
+      {/* Top area: slabs + prediction tiles */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:col-span-2">
+          <StatSlab 
+            title="Platform earning potential" 
+            subtitle="No data available" 
+            value="No Data" 
+            gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(120, 199, 255, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
+          />
+          {/* TODO: Restore when data is available
+          <StatSlab 
+            title="Platform earning potential" 
+            subtitle="24 smart content investments available" 
+            value="$3,450" 
+            chip="+12% next week" 
+            gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(120, 199, 255, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
+          />
+          */}
           
-          {/* Header Section - Hug content */}
-          <div className="space-y-4">
-            <h1 className="text-white text-2xl font-bold uppercase font-nt-brick">PERSONALISED GROWTH ANALYTICS</h1>
-            <p className="text-yapper-muted text-sm">AI powered insights to maximise your platform rewards and leaderboard climbing</p>
+          <StatSlab 
+            title="Leaderboard power" 
+            subtitle="No data available" 
+            value="No Data" 
+            gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(255, 235, 104, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
+          />
+          {/* TODO: Restore when data is available
+          <StatSlab 
+            title="Leaderboard power" 
+            subtitle="+12 position, next milestone" 
+            value="N/A" 
+            chip="+12% next week" 
+            gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(255, 235, 104, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
+          />
+          */}
+          
+          <StatSlab 
+            title="AI success rate" 
+            subtitle="No data available" 
+            value="No Data" 
+            gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(148, 251, 72, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
+          />
+          {/* TODO: Restore when data is available
+          <StatSlab 
+            title="AI success rate" 
+            subtitle="18/24 content outperformed" 
+            value="73.2%" 
+            chip="87% confident" 
+            gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(148, 251, 72, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
+          />
+          */}
+          
+          <StatSlab 
+            title="Content ROI" 
+            subtitle="No data available" 
+            value="No Data" 
+            gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(245, 116, 116, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
+          />
+          {/* TODO: Restore when data is available
+          <StatSlab 
+            title="Content ROI" 
+            subtitle="$22 avg investment per content" 
+            value="155.7%" 
+            chip="+23% this month" 
+            gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(245, 116, 116, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
+          />
+          */}
+      </div>
+
+        {/* Prediction slab on right */}
+        <Card>
+          <div className="text-white font-medium text-sm mb-3">AI CONTENT PREDICTION (NEXT 7 DAYS)</div>
+          <div className="grid grid-cols-2 gap-4 place-items-center">
+            <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(159, 123, 239, 0.25) 0%, rgba(91, 70, 137, 0.25) 100%)', width: 180, height: 120 }}>
+              <div className="text-sm font-medium mb-1">No Data</div>
+              <div className="text-[11px] text-center leading-tight">Predicted SNAP</div>
+            </div>
+            <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(123, 215, 239, 0.25) 0%, rgba(70, 123, 137, 0.25) 100%)', width: 180, height: 120 }}>
+              <div className="text-sm font-medium mb-1">No Data</div>
+              <div className="text-[11px] text-center leading-tight">AI Confidence</div>
+            </div>
+            <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(123, 239, 152, 0.25) 0%, rgba(70, 137, 87, 0.25) 100%)', width: 180, height: 120 }}>
+              <div className="text-sm font-medium mb-1">No Data</div>
+              <div className="text-[11px] text-center leading-tight">Position jump</div>
+            </div>
+            <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(239, 123, 150, 0.25) 0%, rgba(137, 70, 86, 0.25) 100%)', width: 180, height: 120 }}>
+              <div className="text-sm font-medium mb-1">No Data</div>
+              <div className="text-[11px] text-center leading-tight">Hot picks</div>
+            </div>
           </div>
-
-          {/* Top Metrics - Horizontal Layout (828px x 139px equivalent) */}
-          <div className="flex gap-4">
-            {/* Platform earning potential */}
-            <div className="flex-1 bg-yapper-surface-2 rounded-xl p-4 border border-yapper">
-              <h3 className="text-white text-sm font-medium mb-2">Platform earning potential</h3>
-              <p className="text-orange-400 text-xs mb-3">24 smart content investments available</p>
-              <p className="text-white text-2xl font-bold mb-1">$3,450</p>
-              <p className="text-green-400 text-xs">+12% next week</p>
+          {/* TODO: Restore when data is available
+          <div className="grid grid-cols-2 gap-4 place-items-center">
+            <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(159, 123, 239, 0.25) 0%, rgba(91, 70, 137, 0.25) 100%)', width: 180, height: 120 }}>
+              <div className="text-2xl font-extrabold mb-1">+340</div>
+              <div className="text-[11px] text-center leading-tight">Predicted SNAP</div>
             </div>
-
-            {/* Leaderboard power */}
-            <div className="flex-1 bg-yapper-surface-2 rounded-xl p-4 border border-yapper">
-              <h3 className="text-white text-sm font-medium mb-2">Leaderboard power</h3>
-              <p className="text-orange-400 text-xs mb-3">+12 position, next milestone</p>
-              <p className="text-white text-2xl font-bold mb-1">N/A</p>
-              <p className="text-green-400 text-xs">+12% next week</p>
+            <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(123, 215, 239, 0.25) 0%, rgba(70, 123, 137, 0.25) 100%)', width: 180, height: 120 }}>
+              <div className="text-2xl font-extrabold mb-1">87%</div>
+              <div className="text-[11px] text-center leading-tight">AI Confidence</div>
             </div>
-          </div>
-
-          {/* Second Row Metrics - Horizontal Layout */}
-          <div className="flex gap-4">
-            {/* AI success rate */}
-            <div className="flex-1 bg-yapper-surface-2 rounded-xl p-4 border border-yapper">
-              <h3 className="text-white text-sm font-medium mb-2">AI success rate</h3>
-              <p className="text-orange-400 text-xs mb-3">18/24 content outperformed</p>
-              <p className="text-white text-2xl font-bold mb-1">73.2%</p>
-              <p className="text-orange-400 text-xs">87% confident</p>
+            <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(123, 239, 152, 0.25) 0%, rgba(70, 137, 87, 0.25) 100%)', width: 180, height: 120 }}>
+              <div className="text-2xl font-extrabold mb-1">+8</div>
+              <div className="text-[11px] text-center leading-tight">Position jump</div>
             </div>
-
-            {/* Content ROI */}
-            <div className="flex-1 bg-yapper-surface-2 rounded-xl p-4 border border-yapper">
-              <h3 className="text-white text-sm font-medium mb-2">Content ROI</h3>
-              <p className="text-orange-400 text-xs mb-3">$22 avg investment per content</p>
-              <p className="text-white text-2xl font-bold mb-1">155.7%</p>
-              <p className="text-green-400 text-xs">+23% this month</p>
+            <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(239, 123, 150, 0.25) 0%, rgba(137, 70, 86, 0.25) 100%)', width: 180, height: 120 }}>
+              <div className="text-2xl font-extrabold mb-1">3</div>
+              <div className="text-[11px] text-center leading-tight">Hot picks</div>
             </div>
           </div>
-
-          {/* Live Opportunity Scanner - Larger section (~828px x 302px equivalent) */}
-          <div className="bg-yapper-surface-2 rounded-xl p-6 border border-yapper">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
-                  <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <h3 className="text-white text-lg font-semibold">LIVE OPPORTUNITY SCANNER - COOKIE.FUN ALGORITHM INTELLIGENCE</h3>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button className="p-2 bg-yapper-muted rounded-lg text-white hover:bg-yapper-muted-2 transition-colors">
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-                  </svg>
+          */}
+        </Card>
+      </div>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Left: Opportunity scanner + Performance + What works + AI recommendations */}
+        <div className="space-y-4 lg:col-span-2">
+          {/* Opportunity scanner */}
+          <Card className="rounded-[20px]">
+            <div className="flex items-center justify-between">
+              <h3 className="text-white text-sm space-y-2">LIVE OPPORTUNITY SCANNER - COOKIE.FUN ALGORITHM INTELLIGENCE</h3>
+              <div className="flex items-center gap-3">
+                <button aria-label="previous" className="p-1 rounded-full hover:bg-white/10">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-white/70"><path d="M15 18l-6-6 6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </button>
-                <button className="p-2 bg-yapper-muted rounded-lg text-white hover:bg-yapper-muted-2 transition-colors">
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                  </svg>
+                <button aria-label="next" className="p-1 rounded-full hover:bg-white/10">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-white/70"><path d="M9 18l6-6-6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </button>
+                <span className="text-white/40 text-xs">⋮</span>
               </div>
             </div>
-
-            {/* Opportunity Cards in Grid */}
-            <div className="grid grid-cols-3 gap-4">
-              {[1, 2, 3].map((index) => (
-                <div key={index} className="bg-yapper-muted rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-white font-semibold">Gaming DeFi</h4>
-                    <span className="text-orange-400 text-sm font-semibold">+245</span>
+            <div className="mt-3 flex gap-3 overflow-hidden scroll-smooth">
+              <div className="rounded-[12px] bg-[#3c2c2cba] p-4 h-[214px] space-y-4 flex flex-col items-center justify-center min-w-[340px]">
+                <div className="text-white/60 text-sm text-center">No opportunity data available</div>
+              </div>
+            </div>
+            {/* TODO: Restore when data is available
+            <div className="mt-3 flex gap-3 overflow-hidden scroll-smooth">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="rounded-[12px] bg-[#3c2c2cba] p-4 h-[214px] space-y-4 flex flex-col items-start justify-between min-w-[340px]">
+                  <div className="text-white text-sm font-semibold">Gaming DeFi</div>
+                  <div className="mt-2 grid grid-cols-2 gap-y-1 text-[11px] text-white/80">
+                    <span className="text-white/60 text-xs">Predicted SNAP</span><span className="text-right text-white">+245</span>
+                    <span className="text-white/60 text-xs">Price Range</span><span className="text-right text-white">$15-25</span>
+                    <span className="text-white/60 text-xs">Leaderboard Jump</span><span className="text-right text-white">+12 positions</span>
                   </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-yapper-muted">Predicted SNAP:</span>
-                      <span className="text-white">+245</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-yapper-muted">Price Range:</span>
-                      <span className="text-white">$15-25</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-yapper-muted">Leaderboard Jump:</span>
-                      <span className="text-green-400">+12 positions</span>
-                    </div>
-                  </div>
-                  <button className="w-full mt-3 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-3 rounded-lg transition-colors text-sm">
-                    3 Available content
-                  </button>
+                  <button className="mt-4 w-full rounded-sm border border-[#FD7A10] text-[#FD7A10] text-xs py-2">3 Available Content</button>
                 </div>
               ))}
             </div>
-          </div>
+            */}
+          </Card>
 
-          {/* Your vs Community Performance - (~828px x 310px equivalent) */}
-          <div className="bg-yapper-surface-2 rounded-xl p-6 border border-yapper">
-            <div className="flex items-center space-x-3 mb-6">
-              <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
-                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
+          {/* Your vs community performance */}
+          <Card>
+            <div className="flex items-center justify-between space-y-4">
+              <div className="text-white text-sm font-medium ">YOUR VS COMMUNITY PERFORMANCE</div>
+              <div className="flex items-center gap-3 text-[11px] text-white/70">
+                <span className="inline-block w-2 h-2 rounded-full bg-[#FD7A10]" />
+                <span className="text-xs text-[#FD7A10]"> You</span>
+                <span className="inline-block w-2 h-2 rounded-full bg-[#FEBC2F]" />
+                <span className="text-xs text-[#FEBC2F]"> Community</span>
               </div>
-              <h3 className="text-white text-lg font-semibold">YOUR VS COMMUNITY PERFORMANCE</h3>
             </div>
-
-            <div className="space-y-4">
-              {[1, 2, 3].map((index) => (
-                <div key={index}>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-white">Gaming content</span>
-                    <span className="text-orange-400">You: 156, Community: 98</span>
-                  </div>
-                  <div className="w-full bg-yapper-muted rounded-full h-3">
-                    <div className="bg-orange-500 h-3 rounded-full" style={{ width: '78%' }}></div>
-                  </div>
-                  <p className="text-yapper-muted text-sm mt-1">You outperformed 78% of similar yappers</p>
-                </div>
-              ))}
+            <div className="flex items-center justify-center py-8">
+              <div className="text-white/60 text-sm text-center">No performance data available</div>
             </div>
-          </div>
+            {/* TODO: Restore when data is available
+            <PerfBar label="Gaming content" you={52} community={65} />
+            <PerfBar label="DeFi content" you={42} community={68} />
+            <PerfBar label="Meme content" you={36} community={88} />
+            */}
+          </Card>
 
-          {/* What's Working for Top Yappers - (~828px x 343px equivalent) */}
-          <div className="bg-yapper-surface-2 rounded-xl p-6 border border-yapper">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-white text-lg font-semibold">WHAT'S WORKING FOR TOP YAPPERS</h3>
-              <button className="text-orange-400 text-sm hover:text-orange-300">View all</button>
+          {/* What's working for top yappers */}
+          <Card>
+            <div className="flex items-center justify-between space-y-4"><div className="text-white text-sm font-medium">WHAT'S WORKING FOR TOP YAPPERS</div><button className="text-white text-xs">View all</button></div>
+            <div className="flex items-center justify-center py-8">
+              <div className="text-white/60 text-sm text-center">No top yapper data available</div>
             </div>
-
-            <div className="space-y-4">
-              {[1, 2, 3].map((index) => (
-                <div key={index} className="flex items-center justify-between p-4 bg-yapper-muted rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">G</span>
+            {/* TODO: Restore when data is available
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center justify-between rounded-md bg-white/5 px-3 py-2">
+                  <div className="flex items-center gap-2 text-white/90 text-sm">
+                    <div className="w-8 h-8 flex items-center justify-center">
+                      <img src="/trophy.svg" alt="trophy" width={24} height={24} className="w-6 h-6" />
                     </div>
-                    <div>
-                      <p className="text-white font-semibold">Gaming DeFi</p>
-                      <p className="text-yapper-muted text-sm">47 yappers bought this week</p>
+                    <div className="flex flex-col items-start justify-start gap-1">
+                      <div className="text-white text-sm font-medium">Gaming DeFi</div>
+                      <div className="text-white/80 text-xs">47 yappers bought this week</div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-orange-400 font-semibold">+254 SNAP</p>
-                    <p className="text-yapper-muted text-sm">avg earned</p>
+                    <div className="text-white text-xs">+254 SNAP</div>
+                    <div className="text-white/80 text-[10px]">avg earned</div>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+            */}
+          </Card>
 
-          {/* AI-Recommendation Content */}
-          <div className="bg-yapper-surface-2 rounded-xl p-6 border border-yapper">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-white text-lg font-semibold">AI-RECOMMENDATION CONTENT (HIGH PREDICTION)</h3>
-              <button className="text-orange-400 text-sm hover:text-orange-300">View all</button>
+          {/* AI-Recommended content */}
+          <Card>
+            <div className="flex items-center justify-between space-y-4"><div className="text-white text-sm font-medium">AI-RECOMMENDATION CONTENT (HIGH PREDICTION)</div><button className="text-white text-xs">View all</button></div>
+            <div className="flex items-center justify-center py-8">
+              <div className="text-white/60 text-sm text-center">No AI recommendation data available</div>
             </div>
-
-            <div className="space-y-4">
-              {[1, 2, 3].map((index) => (
-                <div key={index} className="flex items-center justify-between p-4 bg-yapper-muted rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">G</span>
+            {/* TODO: Restore when data is available
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center justify-between rounded-md bg-white/5 px-3 py-2">
+                  <div className="flex items-center gap-2 text-white/90 text-sm">
+                    <div className="w-8 h-8 flex items-center justify-center">
+                      <img src="/bulb.svg" alt="AI recommendation" width={24} height={24} className="w-6 h-6" />
                     </div>
-                    <div>
-                      <p className="text-white font-semibold">Gaming DeFi</p>
-                      <p className="text-yapper-muted text-sm">47 yappers bought this week</p>
+                    <div className="flex flex-col items-start justify-start gap-1">
+                      <div className="text-white text-sm font-medium">Gaming DeFi</div>
+                      <div className="text-white/80 text-xs">47 yappers bought this week</div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-orange-400 font-semibold">+254 SNAP</p>
-                    <p className="text-yapper-muted text-sm">avg earned</p>
+                    <div className="text-white text-xs">+254 SNAP</div>
+                    <div className="text-white/80 text-[10px]">avg earned</div>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
-
+            */}
+          </Card>
         </div>
 
-        {/* Right Sidebar - Fixed 480px width (~480px x 1530px equivalent) */}
-        <div className="w-[480px] flex-shrink-0 space-y-6 border-l border-yapper pl-6">
-          
-          {/* AI Content Prediction - (~480px x 203px equivalent) */}
-          <div className="bg-yapper-surface-2 rounded-xl p-4 border border-yapper">
-            <h3 className="text-white text-lg font-semibold mb-4">AI CONTENT PREDICTION (NEXT 7 DAYS)</h3>
-            
-            <div className="grid grid-cols-3 gap-2 mb-6">
-              <div className="text-center">
-                <p className="text-white text-2xl font-bold">+340</p>
-                <p className="text-yapper-muted text-xs">Predicted SNAP</p>
-              </div>
-              <div className="text-center">
-                <p className="text-white text-2xl font-bold">87%</p>
-                <p className="text-yapper-muted text-xs">AI Confidence</p>
-              </div>
-              <div className="text-center">
-                <p className="text-white text-2xl font-bold">87%</p>
-                <p className="text-yapper-muted text-xs">AI Confidence</p>
+        {/* Right: AI insights + algorithm intelligence */}
+        <div className="space-y-4">
+          <div className="flex flex-col">
+            <div className="flex items-center justify-between border-b border-white/10 bg-[#2b1a1a] px-6 py-4 rounded-t-xl">
+              <h3 className="text-white text-sm font-medium">AI INSIGHTS & FOMO ALERTS</h3>
+              <span className="text-white/40 text-xs">Updated 5 min ago</span>
+            </div>
+            <div className="flex flex-col gap-2 rounded-b-xl bg-[#2b1a1a] px-4 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+              <div className="flex items-center justify-center py-8">
+                <div className="text-white/60 text-sm text-center">No AI insights data available</div>
               </div>
             </div>
+            {/* TODO: Restore when data is available
+            <div className="flex flex-col gap-2 rounded-b-xl bg-[#2b1a1a] px-4 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+              <InsightItem label="Hot Opportunity Alert" value="Gaming DeFi content showing 340% ROI spike - Window closes in 4 hours" right="Only 3 high-prediction pieces available at optimal price" className="text-[#FEBC2F]" />
+              <InsightItem label="Your Best Category" value="Gaming content: 156% ROI" right="You outperform 78% of similar yappers in this category" className="text-[#FEBC2F]" />
+              <InsightItem label="Competitive Intel" value="Top 10% yappers buy 3.2x more gaming content" right="Your competitors spending average $87/week " className="text-[#FEBC2F]" />
+              <InsightItem label="AI Confidence Level" value="Our AI is 87% confident in gaming content predictions" right="Historical accuracy: 87% for your profile type" className="text-[#FEBC2F]" />
+            </div>
+            */}
           </div>
 
-          {/* AI Insights & FOMO Alerts - (~480px x 578px equivalent) */}
-          <div className="bg-yapper-surface-2 rounded-xl p-4 border border-yapper">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white text-lg font-semibold">AI INSIGHTS & FOMO ALERTS</h3>
-              <span className="text-yapper-muted text-xs">Updated 5 min ago</span>
+          <div className="flex flex-col">
+            <div className="flex items-center justify-between border-b border-white/10 bg-[#2b1a1a] px-6 py-4 rounded-t-xl">
+              <h3 className="text-white text-sm font-medium">TODAY'S ALGORITHM INTELLIGENCE</h3>
+              <span className="text-white/40 text-xs">Updated 5 min ago</span>
             </div>
-
-            <div className="space-y-4">
-              {/* Hot Opportunity Alert */}
-              <div className="p-3 bg-red-500/10 rounded-lg border border-red-500/20">
-                <div className="flex items-center space-x-2 mb-2">
-                  <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                  <span className="text-red-400 text-sm font-semibold">Hot Opportunity Alert</span>
-                </div>
-                <p className="text-white text-sm mb-2">Gaming DeFi content showing 340% ROI spike - Window closes in 4 hours</p>
-                <p className="text-yapper-muted text-xs">Only 3 high-prediction pieces available at optimal price</p>
-              </div>
-
-              {/* Your Best Category */}
-              <div className="p-3 bg-green-500/10 rounded-lg border border-green-500/20">
-                <div className="flex items-center space-x-2 mb-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span className="text-green-400 text-sm font-semibold">Your Best Category</span>
-                </div>
-                <p className="text-white text-sm mb-2">Gaming content: 156% ROI</p>
-                <p className="text-yapper-muted text-xs">You outperform 78% of similar yappers in this category</p>
-              </div>
-
-              {/* Competitive Intel */}
-              <div className="p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
-                <div className="flex items-center space-x-2 mb-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <span className="text-blue-400 text-sm font-semibold">Competitive Intel</span>
-                </div>
-                <p className="text-white text-sm mb-2">Top 10% yappers buy 3.2x more gaming content</p>
-                <p className="text-yapper-muted text-xs">Your competitors spending average $97/week</p>
-              </div>
-
-              {/* AI Confidence Level */}
-              <div className="p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/20">
-                <div className="flex items-center space-x-2 mb-2">
-                  <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                  <span className="text-yellow-400 text-sm font-semibold">AI Confidence Level</span>
-                </div>
-                <p className="text-white text-sm mb-2">Our AI is 87% confident in gaming content predictions</p>
-                <p className="text-yapper-muted text-xs">Historical accuracy: 87% for your profile type</p>
-              </div>
-
-              {/* Today's Algorithm Intelligence */}
-              <div className="p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-purple-400 text-sm font-semibold">TODAY'S ALGORITHM INTELLIGENCE</span>
-                  <span className="text-yapper-muted text-xs">Updated 5 min ago</span>
-                </div>
-                
-                <div className="space-y-3 text-xs">
-                  <div>
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
-                      <span className="text-blue-400 font-semibold">Algorithm Update Detected</span>
-                      <span className="text-yapper-muted">Peak performance 2-4 PM EST</span>
-                    </div>
-                    <p className="text-white">Gaming content getting 2.3x boost</p>
-                    <p className="text-yapper-muted">Recommendation: Gaming memes showing 340% ROI</p>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
-                      <span className="text-green-400 font-semibold">Trending Pattern</span>
-                      <span className="text-yapper-muted">Pattern expires in 4 hours</span>
-                    </div>
-                    <p className="text-white">Achievement-framed content trending</p>
-                    <p className="text-yapper-muted">Window: Next 2 hours for max impact 10</p>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="w-1.5 h-1.5 bg-orange-400 rounded-full"></div>
-                      <span className="text-orange-400 font-semibold">Community Intel</span>
-                      <span className="text-yapper-muted">Avg earnings +156 SNAP</span>
-                    </div>
-                    <p className="text-white">47 yappers bought gaming content today</p>
-                    <p className="text-yapper-muted">Success rate: 73% for users like you</p>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center space-x-2 mb-1">
-                      <div className="w-1.5 h-1.5 bg-red-400 rounded-full"></div>
-                      <span className="text-red-400 font-semibold">Time-Sensitive</span>
-                      <span className="text-yapper-muted">Price locked until 11:59 PM</span>
-                    </div>
-                    <p className="text-white">Only 3 high-prediction pieces left</p>
-                    <p className="text-yapper-muted">Expected: +400 SNAP, climb 20 positions</p>
-                  </div>
-                </div>
+            <div className="flex flex-col gap-2 rounded-b-xl bg-[#2b1a1a] px-4 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+              <div className="flex items-center justify-center py-8">
+                <div className="text-white/60 text-sm text-center">No algorithm intelligence data available</div>
               </div>
             </div>
+            {/* TODO: Restore when data is available
+            <div className="flex flex-col gap-2 rounded-b-xl bg-[#2b1a1a] px-4 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
+              <InsightItem label="Algorithm Update Detected" value="Gaming content getting 2.3x boost" right="Recommendation: Gaming memes showing 340% ROI " className="text-[#CAB6FF]" sublabel="Peak performance" time="2-4 PM EST" info="/star.svg" />
+              <InsightItem label="Trending Pattern" value="Achievement-framed content trending" right="Window: Next 2 hours for max impact 10" className="text-[#A1E8FF]" sublabel="Pattern expires in" time="4 hours" info="/thunder.svg" />
+              <InsightItem label="Community Intel" value="47 yappers bought gaming content today" right="Success rate: 73% for users like you" className="text-[#FD7A10]" sublabel="Avg earnings" time="+156 SNAP" info="/profile.svg" />
+              <InsightItem label="Time-Sensitive" value="Only 3 high-prediction pieces left" right="Expected: +400 SNAP, climb 20 positionsM" sublabel="Price locked until" time="11:59 PM" info="/time.svg" />
+            </div>
+            */}
           </div>
-
         </div>
       </div>
-    </div>
+    </section>
   )
-}
+} 

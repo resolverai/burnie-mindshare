@@ -28,17 +28,18 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <WagmiProvider config={config}>
         {isClient && !isAdminPage ? (
           <RainbowKitProvider 
-            theme={lightTheme({
-              accentColor: '#f97316', // Orange accent for light theme
-              accentColorForeground: 'white',
+            theme={darkTheme({
+              accentColor: '#FD7A10',
+              accentColorForeground: '#FFFFFF',
               borderRadius: 'medium',
               fontStack: 'system',
               overlayBlur: 'small',
             })}
             appInfo={{
-              appName: 'Burnie - Attention Economy Infrastructure',
+              appName: 'Burnie - Yapper Platform',
               learnMoreUrl: 'https://burnie.co',
             }}
+            modalSize="compact"
           >
             {children}
           </RainbowKitProvider>

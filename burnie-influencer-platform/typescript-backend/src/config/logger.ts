@@ -45,4 +45,7 @@ if (env.api.nodeEnv !== 'production') {
       winston.format.simple()
     )
   }));
-} 
+}
+
+// Default export for backwards compatibility
+export default logger; 

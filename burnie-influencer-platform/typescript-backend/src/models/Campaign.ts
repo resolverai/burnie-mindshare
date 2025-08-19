@@ -98,6 +98,10 @@ export class Campaign {
   @Column({ type: 'text', nullable: true })
   projectLogo?: string
 
+  // Campaign Banner S3 URL
+  @Column({ type: 'text', nullable: true })
+  campaignBanner?: string
+
   @Column({
     type: 'enum',
     enum: CampaignCategory,

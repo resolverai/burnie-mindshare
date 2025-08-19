@@ -115,6 +115,7 @@ export class TwitterQueueCronService {
   stop(): void {
     if (this.cronTask) {
       this.cronTask.stop();
+      this.cronTask.destroy(); // Properly destroy the cron task
       this.cronTask = null;
     }
 

@@ -1,8 +1,9 @@
 import { parseEther, parseUnits } from 'viem'
 import { writeContract, waitForTransactionReceipt, readContract } from 'wagmi/actions'
-import { config } from '../app/wagmi'
+import { config, ROAST_TOKEN_FALLBACK } from '../app/wagmi'
+import { tokenMetadataService } from '../services/tokenMetadataService'
 
-// ROAST Token ABI (ERC-20 interface)
+// ROAST Token ABI (ERC-20 interface with metadata)
 const ROAST_TOKEN_ABI = [
   {
     name: 'transfer',
@@ -48,6 +49,20 @@ const ROAST_TOKEN_ABI = [
     inputs: [],
     outputs: [{ name: '', type: 'uint8' }],
   },
+  {
+    name: 'name',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'string' }],
+  },
+  {
+    name: 'symbol',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'string' }],
+  },
 ] as const
 
 // USDC Token ABI (ERC-20 interface) - same as ROAST
@@ -87,15 +102,35 @@ export async function transferROAST(
 
     console.log(`🔄 Transferring ${amount} ROAST to ${recipientAddress}`)
 
-    // Get ROAST token decimals (usually 18 for ERC-20)
-    console.log('📏 Getting token decimals...');
-    const decimals = await readContract(config, {
-      address: contractAddress as `0x${string}`,
-      abi: ROAST_TOKEN_ABI,
-      functionName: 'decimals',
-    })
+    // Ensure token is properly registered in wallet for better display
+    console.log('🏷️ Optimizing ROAST token display in wallet...');
+    try {
+      await ensureROASTTokenDisplay();
+    } catch (error) {
+      console.log('ℹ️ Token display optimization not needed or user declined');
+    }
 
-    console.log(`📏 ROAST token decimals: ${decimals}`)
+    // Get token metadata for wallet display
+    console.log('📋 Getting token metadata...');
+    const [decimals, name, symbol] = await Promise.all([
+      readContract(config, {
+        address: contractAddress as `0x${string}`,
+        abi: ROAST_TOKEN_ABI,
+        functionName: 'decimals',
+      }),
+      readContract(config, {
+        address: contractAddress as `0x${string}`,
+        abi: ROAST_TOKEN_ABI,
+        functionName: 'name',
+      }),
+      readContract(config, {
+        address: contractAddress as `0x${string}`,
+        abi: ROAST_TOKEN_ABI,
+        functionName: 'symbol',
+      })
+    ]);
+
+    console.log(`📋 Token metadata:`, { name, symbol, decimals });
 
     // Convert amount to proper units based on token decimals
     const amountInWei = parseUnits(amount.toString(), decimals)
@@ -103,12 +138,83 @@ export async function transferROAST(
     console.log(`💰 Amount in wei: ${amountInWei}`)
     console.log('🔧 Transaction details:');
     console.log('  - Contract:', contractAddress);
+    console.log('  - Token:', `${name} (${symbol})`);
     console.log('  - Function: transfer');
     console.log('  - To:', recipientAddress);
+    console.log('  - Amount:', `${amount} ${symbol}`);
     console.log('  - Amount (wei):', amountInWei.toString());
 
-    // Execute the transfer
-    console.log('🚀 Executing writeContract...');
+    // Execute the transfer with enhanced metadata for better wallet display
+    console.log('🚀 Executing ROAST token transfer...');
+    console.log('📋 Transfer parameters:', {
+      contractAddress,
+      tokenName: name,
+      tokenSymbol: symbol,
+      fromUser: 'Connected Wallet',
+      toAddress: recipientAddress,
+      amount: `${amount} ${symbol}`,
+      amountWei: amountInWei.toString(),
+      decimals: decimals
+    });
+    
+    // CRITICAL: Force token registration before transaction for proper display
+    console.log('🏷️ FORCING token registration for transaction display...');
+    let tokenRegistered = false;
+    
+    try {
+      // Try multiple registration attempts with different strategies
+      console.log('📋 Attempt 1: Standard wallet_watchAsset...');
+      tokenRegistered = await ensureROASTTokenDisplay();
+      
+      if (!tokenRegistered) {
+        console.log('📋 Attempt 2: Direct wallet registration...');
+        tokenRegistered = await forceTokenRegistration(contractAddress, name, symbol, decimals);
+      }
+      
+      if (!tokenRegistered) {
+        console.log('📋 Attempt 3: Alternative registration method...');
+        tokenRegistered = await alternativeTokenRegistration(contractAddress, name, symbol, decimals);
+      }
+      
+      if (tokenRegistered) {
+        console.log('✅ Token successfully registered - wallet should display transaction details');
+        // Wait a bit longer for wallet to process
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } else {
+        console.log('⚠️ WARNING: Token registration failed - wallet may show "No balance changes found"');
+        console.log('💡 User may need to manually add token to wallet for proper display');
+      }
+    } catch (error) {
+      console.log('⚠️ Token registration failed, proceeding with transaction:', error);
+    }
+    
+    // Enhanced writeContract call with real-time token metadata
+    console.log('🚀 Initiating writeContract with the following details:');
+    
+    // Try to get real-time metadata for logging
+    const realtimeMetadata = await tokenMetadataService.getROASTTokenMetadata();
+    const displayData = realtimeMetadata || ROAST_TOKEN_FALLBACK;
+    
+    console.log('  📋 Token Name:', displayData.name);
+    console.log('  🎯 Token Symbol:', displayData.symbol);
+    console.log('  🖼️ Token Image:', displayData.image);
+    console.log('  💰 Transaction Amount:', `${amount} ${displayData.symbol}`);
+    console.log('  🧮 Amount in Wei:', amountInWei.toString());
+    console.log('  🎯 Decimals:', decimals);
+    console.log('  📍 Contract:', contractAddress);
+    console.log('  🎯 Recipient:', recipientAddress);
+    console.log('  ');
+    console.log('  📱 WALLET SHOULD DISPLAY:');
+    console.log(`     → Sending: ${amount} ${displayData.symbol}`);
+    console.log(`     → Token: ${displayData.name}`);
+    console.log(`     → To: ${recipientAddress}`);
+    console.log('  ');
+    console.log('  💡 Market Info (for reference only):');
+    console.log('     → Current Price:', realtimeMetadata?.price ? `$${realtimeMetadata.price.toFixed(6)}` : 'N/A');
+    console.log('     → 24h Change:', realtimeMetadata?.priceChange24h ? `${realtimeMetadata.priceChange24h.toFixed(2)}%` : 'N/A');
+    console.log('     → Market Cap:', realtimeMetadata?.marketCap ? `$${(realtimeMetadata.marketCap / 1000000).toFixed(2)}M` : 'N/A');
+    console.log('  🔗 Data Source:', realtimeMetadata ? 'DEX API' : 'Static Fallback');
+    
     const hash = await writeContract(config, {
       address: contractAddress as `0x${string}`,
       abi: ROAST_TOKEN_ABI,
@@ -117,6 +223,10 @@ export async function transferROAST(
     })
 
     console.log(`✅ ROAST transfer transaction submitted: ${hash}`)
+    
+    // Show post-transaction guidance
+    const { showPostTransactionGuidance } = await import('../utils/walletDisplayHelper');
+    showPostTransactionGuidance();
 
     // Wait for transaction confirmation
     console.log('⏳ Waiting for transaction confirmation...');
@@ -341,7 +451,7 @@ export async function addROASTTokenToWallet(): Promise<boolean> {
             address: contractAddress,
             symbol: 'ROAST',
             decimals: 18,
-            image: '', // You can add a token logo URL here
+            image: `${window.location.origin}/roastusdc.svg`, // Add the correct token logo URL
           },
         },
       })
@@ -353,6 +463,164 @@ export async function addROASTTokenToWallet(): Promise<boolean> {
   } catch (error) {
     console.error('Failed to add ROAST token to wallet:', error)
     return false
+  }
+}
+
+/**
+ * Ensure ROAST token is properly configured for optimal wallet display
+ * Fetches real-time metadata from DEX APIs for accurate display
+ */
+export async function ensureROASTTokenDisplay(): Promise<boolean> {
+  try {
+    const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN;
+    
+    if (!contractAddress) {
+      console.error('ROAST token contract address not configured');
+      return false;
+    }
+
+    if (typeof window !== 'undefined' && window.ethereum) {
+      console.log('🏷️ Fetching real-time ROAST token metadata...');
+      
+      // Fetch real-time token metadata from DEX APIs
+      const tokenMetadata = await tokenMetadataService.getROASTTokenMetadata();
+      
+      // Use fetched metadata or fallback to static data
+      const metadata = tokenMetadata || ROAST_TOKEN_FALLBACK;
+      
+      console.log('📋 Using token metadata:', {
+        name: metadata.name,
+        symbol: metadata.symbol,
+        image: metadata.image,
+        decimals: metadata.decimals,
+        source: tokenMetadata ? 'DEX API' : 'Fallback'
+      });
+
+      // Enhanced token registration with real-time metadata
+      const tokenData = {
+        type: 'ERC20',
+        options: {
+          address: contractAddress,
+          symbol: metadata.symbol,
+          decimals: metadata.decimals,
+          name: metadata.name,
+          // Use DEX image if available, otherwise fallback to local
+          image: metadata.image && !metadata.image.startsWith('/') 
+            ? metadata.image 
+            : `${window.location.origin}${metadata.image || ROAST_TOKEN_FALLBACK.image}`,
+        },
+      };
+
+      console.log('📋 Registering token with wallet for proper amount display:');
+      console.log(`     Token: ${tokenData.options.name} (${tokenData.options.symbol})`);
+      console.log(`     Decimals: ${tokenData.options.decimals}`);
+      console.log(`     Contract: ${tokenData.options.address}`);
+      console.log(`     Image: ${tokenData.options.image}`);
+
+      await window.ethereum.request({
+        method: 'wallet_watchAsset',
+        params: tokenData,
+      });
+      
+      console.log('✅ ROAST token registered - wallet should now display amounts correctly');
+      
+      // Small delay to let wallet process the registration
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.log('ℹ️ Token display optimization not needed or user declined');
+    return false;
+  }
+}
+
+/**
+ * Force token registration with basic parameters
+ */
+async function forceTokenRegistration(address: string, name: string, symbol: string, decimals: number): Promise<boolean> {
+  try {
+    if (!window.ethereum) return false;
+    
+    const basicTokenData = {
+      type: 'ERC20',
+      options: {
+        address: address,
+        symbol: symbol,
+        decimals: decimals,
+        name: name,
+        image: `${window.location.origin}/roastusdc.svg`, // Use local image as fallback
+      },
+    };
+    
+    console.log('🔄 Forcing token registration with basic data:', basicTokenData);
+    
+    await window.ethereum.request({
+      method: 'wallet_watchAsset',
+      params: basicTokenData,
+    });
+    
+    return true;
+  } catch (error) {
+    console.log('❌ Force registration failed:', error);
+    return false;
+  }
+}
+
+/**
+ * Alternative token registration method - try with minimal data
+ */
+async function alternativeTokenRegistration(address: string, name: string, symbol: string, decimals: number): Promise<boolean> {
+  try {
+    if (!window.ethereum) return false;
+    
+    // Try with absolutely minimal data
+    const minimalTokenData = {
+      type: 'ERC20',
+      options: {
+        address: address,
+        symbol: symbol,
+        decimals: decimals,
+      },
+    };
+    
+    console.log('🔄 Alternative registration with minimal data:', minimalTokenData);
+    
+    await window.ethereum.request({
+      method: 'wallet_watchAsset',
+      params: minimalTokenData,
+    });
+    
+    return true;
+  } catch (error) {
+    console.log('❌ Alternative registration failed:', error);
+    return false;
+  }
+}
+
+/**
+ * Check if token is already in wallet's token list
+ */
+async function checkTokenInWallet(address: string): Promise<boolean> {
+  try {
+    if (!window.ethereum) return false;
+    
+    // Try to get token balance - if wallet recognizes it, this should work
+    const balance = await window.ethereum.request({
+      method: 'eth_call',
+      params: [{
+        to: address,
+        data: '0x70a08231' + '000000000000000000000000' + (await window.ethereum.request({method: 'eth_accounts'}))[0].slice(2)
+      }, 'latest']
+    });
+    
+    console.log('🔍 Token balance check result:', balance);
+    return balance !== null;
+  } catch (error) {
+    console.log('❌ Token check failed:', error);
+    return false;
   }
 }
 

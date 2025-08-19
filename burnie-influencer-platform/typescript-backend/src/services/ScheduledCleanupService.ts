@@ -58,11 +58,13 @@ export class ScheduledCleanupService {
   stop(): void {
     if (this.cleanupTask) {
       this.cleanupTask.stop();
+      this.cleanupTask.destroy(); // Properly destroy the cron task
       this.cleanupTask = null;
     }
     
     if (this.dailyCleanupTask) {
       this.dailyCleanupTask.stop();
+      this.dailyCleanupTask.destroy(); // Properly destroy the cron task
       this.dailyCleanupTask = null;
     }
     

@@ -17,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="light">
-      <body className={`${inter.className} bg-white text-gray-900`}>
+      <body className={`${inter.className} yapper-background`}>
         <Providers>
           {children}
         </Providers>

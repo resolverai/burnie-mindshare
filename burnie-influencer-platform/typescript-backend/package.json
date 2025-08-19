@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "ts-node-dev --respawn --transpile-only --ignore-watch node_modules --ignore-watch logs --ignore-watch uploads --no-notify --max-old-space-size=1024 src/server.ts",
     "dev:watch": "nodemon --exec ts-node src/server.ts",
     "setup-db": "node setup-database.js",
     "setup": "npm run setup-db && npm run dev",
@@ -68,6 +68,7 @@
     "typeorm": "^0.3.17",
     "uuid": "^9.0.1",
     "validator": "^13.11.0",
+    "viem": "^2.34.0",
     "winston": "^3.11.0"
   },
   "devDependencies": {

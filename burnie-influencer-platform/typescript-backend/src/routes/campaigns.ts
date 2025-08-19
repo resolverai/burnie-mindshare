@@ -89,6 +89,59 @@ router.post('/upload-logo', upload.single('logo'), async (req: Request, res: Res
   }
 });
 
+// POST /api/campaigns/upload-banner - Upload campaign banner to S3
+router.post('/upload-banner', upload.single('banner'), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      });
+    }
+
+    const { campaignName } = req.body;
+    const file = req.file;
+    
+    // Generate unique filename
+    const timestamp = Date.now();
+    const fileExtension = path.extname(file.originalname);
+    const fileName = `${campaignName || 'campaign'}-banner-${timestamp}${fileExtension}`;
+    const s3Key = `campaign_banners/${fileName}`;
+
+    // Upload to S3
+    const uploadParams = {
+      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Key: s3Key,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+      ContentDisposition: `attachment; filename="${fileName}"`, // Force download
+      CacheControl: 'max-age=31536000', // 1 year cache
+      ServerSideEncryption: 'AES256'
+    };
+
+    const uploadResult = await s3.upload(uploadParams).promise();
+    
+    logger.info(`✅ Campaign banner uploaded successfully: ${uploadResult.Location}`);
+
+    return res.json({
+      success: true,
+      data: {
+        bannerUrl: uploadResult.Location,
+        fileName: fileName,
+        s3Key: s3Key
+      },
+      message: 'Campaign banner uploaded successfully'
+    });
+
+  } catch (error) {
+    logger.error('❌ Campaign banner upload failed:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to upload campaign banner'
+    });
+  }
+});
+
 // GET /api/campaigns/marketplace-ready - Get marketplace-ready campaigns for mining interface
 router.get('/marketplace-ready', async (req: Request, res: Response) => {
   try {

@@ -59,6 +59,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
     description: '',
     projectName: '',
     projectLogo: null as File | null,
+    campaignBanner: null as File | null,
     category: '',
     campaignType: '',
     rewardPool: '',
@@ -69,6 +70,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
   })
   const [showSuccess, setShowSuccess] = useState(false)
   const [logoPreview, setLogoPreview] = useState<string>('')
+  const [bannerPreview, setBannerPreview] = useState<string>('')
 
   const queryClient = useQueryClient()
 
@@ -91,11 +93,30 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
           logoUrl = logoResult.data.logoUrl
         }
       }
+
+      // If there's a banner, upload it
+      let bannerUrl = ''
+      if (formData.campaignBanner) {
+        const bannerFormData = new FormData()
+        bannerFormData.append('banner', formData.campaignBanner)
+        bannerFormData.append('campaignName', formData.title || 'untitled')
+
+        const bannerResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/campaigns/upload-banner`, {
+          method: 'POST',
+          body: bannerFormData,
+        })
+        
+        if (bannerResponse.ok) {
+          const bannerResult = await bannerResponse.json()
+          bannerUrl = bannerResult.data.bannerUrl
+        }
+      }
       
-      // Create campaign with logo URL
+      // Create campaign with logo and banner URLs
       return campaignsApi.create({
         ...data,
-        projectLogo: logoUrl
+        projectLogo: logoUrl,
+        campaignBanner: bannerUrl
       })
     },
     onSuccess: (data) => {
@@ -117,6 +138,7 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
           description: '',
           projectName: '',
           projectLogo: null,
+          campaignBanner: null,
           category: '',
           campaignType: '',
           rewardPool: '',
@@ -177,6 +199,20 @@ export default function CreateCampaignModal({ isOpen, onClose, onSuccess }: Crea
       const reader = new FileReader()
       reader.onload = (e) => {
         setLogoPreview(e.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleBannerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setFormData(prev => ({ ...prev, campaignBanner: file }))
+      
+      // Create preview
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setBannerPreview(e.target?.result as string)
       }
       reader.readAsDataURL(file)
     }

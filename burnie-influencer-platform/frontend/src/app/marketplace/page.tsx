@@ -24,7 +24,7 @@ export default function BiddingPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <ArrowPathIcon className="w-16 h-16 animate-spin text-orange-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Loading Bidding</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Loading Marketplace</h2>
           <p className="text-gray-600">Checking authentication...</p>
         </div>
       </div>
@@ -37,5 +37,5 @@ export default function BiddingPage() {
   }
 
   // Render bidding if authenticated
-  return <YapperDashboard activeSection="bidding" />
+  return <YapperDashboard activeSection="marketplace" />
 } 
