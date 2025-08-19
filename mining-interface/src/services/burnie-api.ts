@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
+import { getApiUrl } from '../utils/api-config';
 
 // Type definitions
 export interface Campaign {
@@ -54,7 +55,7 @@ export class BurnieAPIClient {
   private baseURL: string;
 
   constructor() {
-    this.baseURL = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api';
+    this.baseURL = getApiUrl();
     
     this.api = axios.create({
       baseURL: this.baseURL,

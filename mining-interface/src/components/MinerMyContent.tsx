@@ -15,6 +15,7 @@ import {
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 import TweetThreadDisplay from './TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../utils/markdownParser'
+import { buildApiUrl } from '../utils/api-config'
 
 interface ContentItem {
   id: number
@@ -158,7 +159,7 @@ export default function MinerMyContent() {
       if (!address) return []
       
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/my-content/miner/wallet/${address}?include_pending=true`)
+        const response = await fetch(buildApiUrl(`marketplace/my-content/miner/wallet/${address}?include_pending=true`))
         const result = await response.json()
         return result.data || []
       } catch (error) {
@@ -176,7 +177,7 @@ export default function MinerMyContent() {
       biddingEndDate?: string
       biddingAskPrice?: number
     }) => {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/content/${contentId}/bidding`, {
+      const response = await fetch(buildApiUrl(`marketplace/content/${contentId}/bidding`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -223,7 +224,7 @@ export default function MinerMyContent() {
   // Approve content mutation
   const approveMutation = useMutation({
     mutationFn: async (contentId: number) => {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/approve-content`, {
+      const response = await fetch(buildApiUrl('marketplace/approve-content'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -254,7 +255,7 @@ export default function MinerMyContent() {
   // Reject content mutation
   const rejectMutation = useMutation({
     mutationFn: async (contentId: number) => {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/reject-content`, {
+      const response = await fetch(buildApiUrl('marketplace/reject-content'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

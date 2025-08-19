@@ -26,7 +26,12 @@ class PresignedUrlManager {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001';
+    // Import here to avoid circular dependency
+    const getBaseApiUrl = () => {
+      const envUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api';
+      return envUrl.endsWith('/api') ? envUrl.slice(0, -4) : envUrl;
+    };
+    this.baseUrl = getBaseApiUrl();
   }
 
   /**
