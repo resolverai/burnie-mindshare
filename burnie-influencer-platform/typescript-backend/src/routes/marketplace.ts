@@ -1219,27 +1219,28 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       });
     }
 
-    // First, find the user by wallet address to get the creatorId
+    // First, try to find the user by wallet address to get the creatorId
     const userRepository = AppDataSource.getRepository(User);
     const user = await userRepository.findOne({
       where: { walletAddress: walletAddress }
     });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
 
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);
     
     let queryBuilder = contentRepository
       .createQueryBuilder('content')
       .leftJoinAndSelect('content.creator', 'creator')
-      .leftJoinAndSelect('content.campaign', 'campaign')
-      .where('(LOWER(content.walletAddress) = LOWER(:walletAddress) OR (content.walletAddress IS NULL AND content.creatorId = :creatorId))', 
+      .leftJoinAndSelect('content.campaign', 'campaign');
+
+    if (user) {
+      // If user exists, use the original logic (walletAddress OR creatorId)
+      queryBuilder = queryBuilder.where('(LOWER(content.walletAddress) = LOWER(:walletAddress) OR (content.walletAddress IS NULL AND content.creatorId = :creatorId))', 
         { walletAddress, creatorId: user.id });
+    } else {
+      // If user doesn't exist (pure mining interface user), only look by walletAddress
+      queryBuilder = queryBuilder.where('LOWER(content.walletAddress) = LOWER(:walletAddress)', 
+        { walletAddress });
+    }
     
     // Only filter by approval status if include_pending is not true
     if (include_pending !== 'true') {

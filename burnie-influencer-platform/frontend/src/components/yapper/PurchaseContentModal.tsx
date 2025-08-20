@@ -11,6 +11,7 @@ import { executeROASTPayment, prepareROASTDisplay } from '../../services/roastPa
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
 import WalletConnectionModal from '../WalletConnectionModal'
+import { useTwitter } from '../../contexts/TwitterContext'
 
 interface ContentItem {
   id: number
@@ -50,15 +51,12 @@ export default function PurchaseContentModal({
   
   const { address } = useAccount()
   const { price: roastPrice } = useROASTPrice()
+  const { twitter, connect, disconnect, refreshToken, isTwitterReady } = useTwitter()
   
   const [selectedVoiceTone, setSelectedVoiceTone] = useState("auto")
   const [selectedTone, setSelectedTone] = useState("Select tone")
   const [selectedPayment, setSelectedPayment] = useState("roast")
   const [toneOpen, setToneOpen] = useState<boolean>(false)
-  const [myStyleConnected, setMyStyleConnected] = useState<boolean>(false)
-  const [myStyleHandle, setMyStyleHandle] = useState<string>("@profile")
-  const [twitterTokenStatus, setTwitterTokenStatus] = useState<'valid' | 'expired' | 'missing'>('missing')
-  const [hasPreviousConnection, setHasPreviousConnection] = useState<boolean>(false)
   const [isPurchased, setIsPurchased] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showCopyProtection, setShowCopyProtection] = useState(false)
@@ -71,139 +69,13 @@ export default function PurchaseContentModal({
     }
   }, [address, showWalletModal])
 
-  // Check existing Twitter connection when wallet address changes
-  useEffect(() => {
-    if (address) {
-      checkTwitterConnection()
-    } else {
-      // Reset Twitter state when wallet disconnects
-      setMyStyleConnected(false)
-      setMyStyleHandle('@profile')
-      setTwitterTokenStatus('missing')
-      setHasPreviousConnection(false)
-    }
-  }, [address])
+  // Twitter connection is now handled by global context - no local effects needed
 
-  // Check Twitter connection when modal opens
-  useEffect(() => {
-    if (isOpen && address) {
-      checkTwitterConnection()
-    }
-  }, [isOpen, address])
+  // Twitter connection checking now handled by global context
 
-  // Check existing Twitter connection status
-  const checkTwitterConnection = async () => {
-    if (!address) {
-      // Reset state when no address
-      setMyStyleConnected(false)
-      setMyStyleHandle('@profile')
-      setTwitterTokenStatus('missing')
-      setHasPreviousConnection(false)
-      return
-    }
+  // Twitter token refresh now handled by global context
 
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/status/${address}`)
-      
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          const { connected, has_previous_connection, token_status, twitter_username, needs_reconnection } = data.data
-          
-          setHasPreviousConnection(has_previous_connection)
-          setTwitterTokenStatus(token_status)
-          
-          if (connected && token_status === 'valid') {
-            setMyStyleConnected(true)
-            setMyStyleHandle(`@${twitter_username}`)
-            console.log('✅ Valid Twitter connection found:', twitter_username)
-          } else if (has_previous_connection) {
-            setMyStyleConnected(false)
-            setMyStyleHandle(`@${twitter_username}`)
-            console.log(`⚠️ Twitter connection needs attention - Status: ${token_status}`)
-          } else {
-            setMyStyleConnected(false)
-            setMyStyleHandle('@profile')
-            console.log('ℹ️ No Twitter connection found')
-          }
-        }
-      }
-    } catch (error) {
-      console.log('ℹ️ Error checking Twitter connection:', error)
-      setMyStyleConnected(false)
-      setMyStyleHandle('@profile')
-      setTwitterTokenStatus('missing')
-      setHasPreviousConnection(false)
-    }
-  }
-
-  // Twitter token refresh function
-  const handleTokenRefresh = async () => {
-    if (!address) return false
-
-    try {
-      console.log('🔄 Attempting to refresh Twitter token...')
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/refresh-token/${address}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          setMyStyleConnected(true)
-          setMyStyleHandle(`@${data.data.twitter_username}`)
-          setTwitterTokenStatus('valid')
-          console.log('✅ Twitter token refreshed successfully')
-          return true
-        }
-      } else {
-        const errorData = await response.json()
-        if (errorData.requires_reconnection) {
-          setTwitterTokenStatus('expired')
-          console.log('⚠️ Refresh token expired, reconnection required')
-        }
-        return false
-      }
-    } catch (error) {
-      console.error('❌ Twitter token refresh failed:', error)
-      return false
-    }
-    return false
-  }
-
-  // Twitter disconnect function
-  const handleTwitterDisconnect = async () => {
-    if (!address) return
-
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/disconnect/${address}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          // After disconnect, show reconnect state (keep handle but show as disconnected)
-          setMyStyleConnected(false)
-          // Keep the handle but mark as needing reconnection
-          setTwitterTokenStatus('missing') 
-          setHasPreviousConnection(true) // User had a connection, now needs to reconnect
-          console.log('✅ Twitter disconnected successfully')
-        }
-      } else {
-        throw new Error('Failed to disconnect Twitter')
-      }
-    } catch (error) {
-      console.error('❌ Twitter disconnect failed:', error)
-      alert('Failed to disconnect Twitter. Please try again.')
-    }
-  }
+  // Twitter disconnect now handled by global context
 
   // Twitter authentication for My Voice tab
   const handleTwitterAuth = async () => {
@@ -265,34 +137,22 @@ export default function PurchaseContentModal({
             if (statusResponse.ok) {
               const statusData = await statusResponse.json()
               if (statusData.success && statusData.data.connected) {
-                setMyStyleConnected(true)
-                setMyStyleHandle(`@${statusData.data.twitter_username}`)
-                setTwitterTokenStatus('valid')
-                setHasPreviousConnection(true)
+                // Twitter state now managed by global context
                 console.log('✅ Twitter authentication successful:', statusData.data.twitter_username)
               } else {
                 // Fallback to event data
-                setMyStyleConnected(true)
-                setMyStyleHandle(event.data.username ? `@${event.data.username}` : '@profile')
-                setTwitterTokenStatus('valid')
-                setHasPreviousConnection(true)
+                // Twitter state now managed by global context
                 console.log('✅ Twitter authentication successful (fallback)')
               }
             } else {
               // Fallback to event data
-              setMyStyleConnected(true)
-              setMyStyleHandle(event.data.username ? `@${event.data.username}` : '@profile')
-              setTwitterTokenStatus('valid')
-              setHasPreviousConnection(true)
+              // Twitter state now managed by global context
               console.log('✅ Twitter authentication successful (fallback)')
             }
           } catch (error) {
             console.error('❌ Failed to fetch Twitter status after auth:', error)
             // Still mark as connected with fallback handle
-            setMyStyleConnected(true)
-            setMyStyleHandle(event.data.username ? `@${event.data.username}` : '@profile')
-            setTwitterTokenStatus('valid')
-            setHasPreviousConnection(true)
+            // Twitter state now managed by global context
           }
         } else if (event.data.type === 'YAPPER_TWITTER_AUTH_ERROR') {
           authWindow.close()
@@ -325,7 +185,7 @@ export default function PurchaseContentModal({
     }
 
     // Only proceed if user has connected Twitter (My Voice tab)
-    if (!myStyleConnected) {
+    if (!twitter.isConnected) {
       console.log('⚠️ Cannot generate - Twitter not connected')
       alert('Please connect your Twitter account first.')
       return
@@ -343,7 +203,7 @@ export default function PurchaseContentModal({
         
         if (statusData.success && statusData.data.token_status === 'expired') {
           console.log('🔄 Token expired based on tokenExpiresAt, attempting refresh...')
-          const refreshSuccess = await handleTokenRefresh()
+          const refreshSuccess = await refreshToken()
           
           if (!refreshSuccess) {
             console.log('❌ Token refresh failed, user needs to reconnect')
@@ -539,7 +399,7 @@ export default function PurchaseContentModal({
       setIsLoading(false)
       setSelectedVoiceTone("auto")
       setSelectedPayment("roast")
-      setMyStyleConnected(false)
+      // Twitter state reset handled by global context
     }
   }, [isOpen])
 
@@ -1069,25 +929,28 @@ export default function PurchaseContentModal({
                         <>
                           {/* Removed duplicate fee message - now only shows after Twitter connection */}
 
-                          {!myStyleConnected ? (
+                          {!twitter.isConnected ? (
                             <div className="flex flex-col items-center justify-center text-center">
                               <h3 className="text-white text-lg font-semibold mb-3">
-                                {hasPreviousConnection && (twitterTokenStatus === 'expired' || twitterTokenStatus === 'missing')
+                                {twitter.hasPreviousConnection && (twitter.tokenStatus === 'expired' || twitter.tokenStatus === 'missing')
                                   ? 'Twitter reconnection required' 
                                   : 'Twitter access required'}
                               </h3>
                               <p className="text-white/60 text-sm mb-6 px-4">
-                                {hasPreviousConnection && (twitterTokenStatus === 'expired' || twitterTokenStatus === 'missing')
+                                {twitter.hasPreviousConnection && (twitter.tokenStatus === 'expired' || twitter.tokenStatus === 'missing')
                                   ? 'Your Twitter access has been disconnected. Please reconnect to continue using your voice tone.'
                                   : 'By getting access to your previous tweets, our AI model can generate content in your voice of tone'}
                               </p>
                               <button
                                 onClick={handleTwitterAuth}
                                 className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-sm py-3 cursor-pointer hover:bg-[#FD7A10]/10 transition-colors"
+                                disabled={twitter.isLoading}
                               >
-                                {hasPreviousConnection && (twitterTokenStatus === 'expired' || twitterTokenStatus === 'missing')
-                                  ? 'Reconnect Twitter' 
-                                  : 'Grant twitter access'}
+                                {twitter.isLoading ? 'Connecting...' : (
+                                  twitter.hasPreviousConnection && (twitter.tokenStatus === 'expired' || twitter.tokenStatus === 'missing')
+                                    ? 'Reconnect Twitter' 
+                                    : 'Grant twitter access'
+                                )}
                               </button>
                             </div>
                           ) : (
@@ -1096,16 +959,17 @@ export default function PurchaseContentModal({
                               <div className="flex items-center justify-between bg-[#220808] rounded-sm px-4 py-2">
                                 <div className="text-white/80 text-sm">Twitter profile</div>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-white/80 text-sm">{myStyleHandle}</span>
-                                                                    <button
+                                  <span className="text-white/80 text-sm">@{twitter.profile?.username || 'profile'}</span>
+                                  <button
                                     type="button"
-                                    onClick={handleTwitterDisconnect}
+                                    onClick={() => disconnect()}
                                     className="text-white/60 hover:text-white/90 text-xs underline"
+                                    disabled={twitter.isLoading}
                                   >
-                                    Disconnect
+                                    {twitter.isLoading ? 'Disconnecting...' : 'Disconnect'}
                                   </button>
                                 </div>
-              </div>
+                              </div>
 
                               {/* Fee row + Generate button */}
                               <div className="flex flex-row items-center justify-between gap-1">

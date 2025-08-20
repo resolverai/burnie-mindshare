@@ -101,6 +101,25 @@ export class MinerService {
         logger.info('✅ Default user already exists');
       }
 
+      // Also ensure a User record exists for this miner's wallet address
+      logger.info('👤 Ensuring User record exists for miner wallet...');
+      let minerUser = await userRepository.findOne({ 
+        where: { walletAddress: data.walletAddress.toLowerCase() }
+      });
+      
+      if (!minerUser) {
+        logger.info(`🔧 Creating User record for miner wallet: ${data.walletAddress}`);
+        minerUser = userRepository.create({
+          walletAddress: data.walletAddress.toLowerCase(),
+          username: data.username || `Miner_${data.walletAddress.slice(-6)}`,
+          roleType: 'miner' as any, // Set role as miner
+        });
+        await userRepository.save(minerUser);
+        logger.info('✅ Created User record for miner');
+      } else {
+        logger.info('✅ User record already exists for miner');
+      }
+
       logger.info('🆕 Creating new miner...');
       // Create new miner
       const minerData = {

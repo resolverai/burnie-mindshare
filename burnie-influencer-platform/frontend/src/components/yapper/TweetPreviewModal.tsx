@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import { useAccount } from 'wagmi';
+import { useTwitter } from '../../contexts/TwitterContext';
 
 interface TweetPreviewModalProps {
     isOpen: boolean;
@@ -48,11 +49,11 @@ interface TweetPreviewModalProps {
 
 const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true }: TweetPreviewModalProps) => {
     const { address } = useAccount();
+    const { twitter, isTwitterReady } = useTwitter();
     const [selectedVoiceTone, setSelectedVoiceTone] = useState("auto");
     const [selectedTone, setSelectedTone] = useState("Select tone");
     const [toneOpen, setToneOpen] = useState<boolean>(false);
-    const [myStyleConnected, setMyStyleConnected] = useState<boolean>(false);
-    const [myStyleHandle, setMyStyleHandle] = useState<string>("@profile");
+    // Twitter state now managed by global context
     const [isPurchased, setIsPurchased] = useState<boolean>(startPurchased ?? true);
 
     // Content parsing functions (extracted from YapperMyContent)
@@ -376,6 +377,8 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                 </div>
                             </div>
 
+
+
                             {/* How to thread */}
                             <div className="bg-[#331C1E] rounded-md px-4 py-2 flex items-start gap-3">
                                 <div className="flex items-center justify-center">
@@ -430,6 +433,37 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                     )}
                                 </div>
                             ))}
+
+                            {/* Blockchain Transaction */}
+                            {contentData?.transaction_hash && (
+                                <div className="bg-[#331C1E] rounded-md px-4 py-3 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+                                            <svg className="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <path d="M3 3h18v18H3zM9 9h6v6H9z" strokeLinecap="round" strokeLinejoin="round"/>
+                                            </svg>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <div className="text-white font-medium text-sm">Base Transaction</div>
+                                            <div className="text-white/60 text-xs font-mono">
+                                                {contentData.transaction_hash.slice(0, 10)}...{contentData.transaction_hash.slice(-8)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            window.open(`https://basescan.org/tx/${contentData.transaction_hash}`, '_blank', 'noopener,noreferrer');
+                                        }}
+                                        className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/20 hover:bg-blue-500/30 transition-colors"
+                                        title="View on BaseScan"
+                                    >
+                                        <svg className="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <circle cx="11" cy="11" r="8"/>
+                                            <path d="m21 21-4.35-4.35"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
