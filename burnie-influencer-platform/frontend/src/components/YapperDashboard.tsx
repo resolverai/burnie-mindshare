@@ -178,38 +178,31 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
     )
   }
 
-  // Show Twitter connection if wallet is connected but Twitter is not
-  if (isConnected && !isTwitterLoading && !isTwitterConnected) {
-    return <YapperTwitterConnection onConnected={() => refetchTwitterStatus()} />
-  }
+  // Twitter connection check disabled per user request
+  // if (isConnected && !isTwitterLoading && !isTwitterConnected) {
+  //   return <YapperTwitterConnection onConnected={() => refetchTwitterStatus()} />
+  // }
 
-  // Show loading while checking Twitter connection
-  if (isConnected && isTwitterLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Checking Twitter connection...</p>
-        </div>
-      </div>
-    )
-  }
+  // Twitter connection loading check disabled per user request
+  // if (isConnected && isTwitterLoading) {
+  //   return (
+  //     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+  //       <div className="text-center">
+  //         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto mb-4"></div>
+  //         <p className="text-gray-600">Checking Twitter connection...</p>
+  //       </div>
+  //     </div>
+  //   )
+  // }
 
   return (
     <div className="min-h-screen yapper-background">
       {/* Single Combined Header - Matching New UI */}
       <header className="z-20 w-full sticky top-0 bg-yapper-surface/95 backdrop-blur border-b border-yapper">
         <div className="relative flex items-center justify-between px-6 h-16 max-w-none mx-auto">
-          {/* Left Navigation Links */}
+          {/* Left Navigation Links - Hidden per user request */}
           <div className="hidden lg:flex items-center space-x-6 xl:space-x-8">
-            <a href="#" className="text-white/90 hover:text-white transition-all duration-300 relative group no-underline hover:no-underline font-medium text-sm">
-              ABOUT
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-white transition-all duration-300 group-hover:w-full"></span>
-            </a>
-            <a href="#" className="text-white/90 hover:text-white transition-all duration-300 relative group no-underline hover:no-underline font-medium text-sm">
-              TOKENOMICS
-              <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-white transition-all duration-300 group-hover:w-full"></span>
-            </a>
+            {/* About and Tokenomics links hidden */}
           </div>
 
           {/* Center Logo */}
@@ -226,13 +219,13 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
           <div className="flex items-center flex-row justify-end gap-2">
             {/* Social Icons */}
             <div className="items-center md:flex hidden gap-2">
-              <a href="https://x.com/burnieio" target="_blank" rel="noopener noreferrer" className="flex items-center p-1">
+              <a href="https://x.com/burnieio" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center p-1">
                 <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                 </svg>
               </a>
-              <a href="https://t.me/burnieai" target="_blank" rel="noopener noreferrer" className="flex items-center p-1">
-                <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <a href="https://t.me/burnieai" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center p-1">
+                <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14.171.142.27.293.27.293-.271 1.469-1.428 6.943-2.008 9.218-.245 1.164-.726 1.555-1.192 1.597-.964.089-1.7-.636-2.637-1.247-1.466-.957-2.297-1.552-3.716-2.48-1.64-1.073-.578-1.668.36-2.633.246-.252 4.486-4.107 4.576-4.456.014-.041.015-.192-.077-.272-.092-.08-.226-.053-.323-.03-.137.032-2.294 1.451-6.476 4.257-.612.424-.966.632-1.064.633-.352.003-.987-.198-1.47-.36-1.174-.404-2.107-.616-2.027-.982.042-.19.283-.385.725-.583 2.855-1.259 4.758-2.08 5.71-2.463 2.713-1.145 3.278-1.344 3.648-1.351z"/>
                 </svg>
               </a>
@@ -357,10 +350,19 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
       </aside>
 
               {/* Main Content Area - Direct content */}
-        <div className="flex-1 min-h-[calc(100vh-64px)]">
-        <main className="h-full overflow-y-auto">
+        <div className="flex-1 min-h-[calc(100vh-64px)] flex flex-col">
+        <main className="flex-1 overflow-y-auto">
           {renderContent()}
         </main>
+        
+        {/* Copyright Footer */}
+        <footer className="border-t border-yapper bg-yapper-surface/50 backdrop-blur">
+          <div className="px-6 py-4 text-center">
+            <div className="text-white/70 text-sm font-nt-brick">
+              ©@burnieio 2025 | <a href="https://burnie.io" target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors underline">burnie.io</a>
+            </div>
+          </div>
+        </footer>
       </div>
     </div>
     </div>

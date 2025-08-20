@@ -812,3 +812,44 @@ body {
       rotateZ(1.5deg);
   }
 } 
+
+/* Longpost Markdown Content Styling */
+.longpost-markdown-content h1,
+.longpost-markdown-content h2,
+.longpost-markdown-content h3,
+.longpost-markdown-content h4,
+.longpost-markdown-content h5,
+.longpost-markdown-content h6 {
+  color: white !important;
+}
+
+.longpost-markdown-content p,
+.longpost-markdown-content li,
+.longpost-markdown-content span,
+.longpost-markdown-content div {
+  color: white !important;
+}
+
+.longpost-markdown-content strong {
+  color: white !important;
+  font-weight: bold;
+}
+
+.longpost-markdown-content em {
+  color: white !important;
+}
+
+.longpost-markdown-content blockquote {
+  border-left-color: #9CA3AF;
+  color: white !important;
+}
+
+.longpost-markdown-content code {
+  background-color: rgba(55, 65, 81, 0.5);
+  color: white !important;
+}
+
+.longpost-markdown-content pre {
+  background-color: rgba(55, 65, 81, 0.5);
+  color: white !important;
+}

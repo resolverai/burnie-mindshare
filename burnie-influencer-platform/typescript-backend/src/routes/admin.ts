@@ -264,6 +264,7 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       projectId,
       projectName,
       projectLogo,
+      campaignBanner,
       title,
       description,
       tokenTicker,
@@ -277,8 +278,9 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       guidelines
     } = req.body;
 
-    logger.info('📝 Admin creating new campaign:', { title, rewardPool, category, projectLogo, admin: req.admin.username });
+    logger.info('📝 Admin creating new campaign:', { title, rewardPool, category, projectLogo, campaignBanner, admin: req.admin.username });
     logger.info('🖼️ Project logo URL received:', projectLogo);
+    logger.info('🎨 Campaign banner URL received:', campaignBanner);
 
     // Validate required fields
     if (!title || !description || !category || !campaignType || !rewardPool || !startDate || !endDate) {
@@ -363,6 +365,7 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       description,
       projectName: projectName || undefined,
       projectLogo: projectLogo || undefined,
+      campaignBanner: campaignBanner || undefined,
       tokenTicker: tokenTicker || 'ROAST',
       category: category as CampaignCategory,
       campaignType: campaignType as CampaignType,
@@ -425,6 +428,7 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       projectId,
       projectName,
       projectLogo,
+      campaignBanner,
       projectTwitterHandle,
       title,
       description,
@@ -439,8 +443,9 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       guidelines
     } = req.body;
 
-    logger.info('📝 Admin updating campaign:', { campaignId, title, projectLogo, admin: req.admin.username });
+    logger.info('📝 Admin updating campaign:', { campaignId, title, projectLogo, campaignBanner, admin: req.admin.username });
     logger.info('🖼️ Project logo URL received for update:', projectLogo);
+    logger.info('🎨 Campaign banner URL received for update:', campaignBanner);
 
     // Validate required fields
     if (!title || !description || !category || !campaignType || !rewardPool || !startDate || !endDate) {
@@ -480,6 +485,7 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       description,
       projectName: projectName || undefined,
       projectLogo: projectLogo || undefined,
+      campaignBanner: campaignBanner || undefined,
       projectTwitterHandle: projectTwitterHandle || undefined,
       tokenTicker: tokenTicker || 'ROAST',
       category: category as CampaignCategory,

@@ -4,8 +4,16 @@ import { Campaign } from '../models/Campaign';
 import { ContentMarketplace } from '../models/ContentMarketplace';
 import { AppDataSource } from '../config/database';
 import { logger } from '../config/logger';
+import AWS from 'aws-sdk';
 
 const router = express.Router();
+
+// Configure AWS S3 (same as campaigns route)
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+  region: process.env.AWS_REGION || 'us-east-1'
+});
 
 interface CarouselSlide {
   id: string;
@@ -16,12 +24,41 @@ interface CarouselSlide {
   gallery: string[];
 }
 
-// Helper function to generate presigned URL
+// Helper function to generate presigned URL using the TypeScript backend (same as admin dashboard)
+async function generatePresignedUrlLocal(s3Key: string): Promise<string | null> {
+  try {
+    logger.info(`🔗 Requesting presigned URL for S3 key using local backend: ${s3Key}`);
+    logger.info(`🔗 Using bucket: ${process.env.S3_BUCKET_NAME || 'burnie-storage'}`);
+    logger.info(`🔗 AWS Region: ${process.env.AWS_REGION || 'us-east-1'}`);
+    
+    // Generate presigned URL directly (same as campaigns route)
+    const presignedUrl = s3.getSignedUrl('getObject', {
+      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Key: s3Key,
+      Expires: 3600 // URL expires in 1 hour
+    });
+
+    logger.info(`✅ Generated presigned URL locally for S3 key: ${s3Key}`);
+    logger.info(`✅ Presigned URL: ${presignedUrl.substring(0, 150)}...`);
+    return presignedUrl;
+  } catch (error) {
+    logger.error(`❌ Error generating presigned URL locally for S3 key: ${s3Key}`, error);
+    return null;
+  }
+}
+
+// Helper function to generate presigned URL (fallback to Python backend for content images)
 async function generatePresignedUrl(s3Key: string): Promise<string | null> {
+  // For campaign banners, use local generation (same as admin dashboard)
+  if (s3Key.startsWith('campaign_banners/') || s3Key.startsWith('brand_logos/')) {
+    return generatePresignedUrlLocal(s3Key);
+  }
+  
+  // For AI-generated content images, use Python backend
   const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
   if (!pythonBackendUrl) {
-    logger.error('PYTHON_AI_BACKEND_URL environment variable is not set');
-    return null;
+    logger.error('PYTHON_AI_BACKEND_URL environment variable is not set, falling back to local generation');
+    return generatePresignedUrlLocal(s3Key);
   }
 
   try {
@@ -53,7 +90,8 @@ async function generatePresignedUrl(s3Key: string): Promise<string | null> {
     }
   } catch (error) {
     logger.error(`Error generating presigned URL for S3 key: ${s3Key}`, error);
-    return null;
+    // Fallback to local generation
+    return generatePresignedUrlLocal(s3Key);
   }
 }
 
@@ -78,6 +116,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     logger.info(`🎠 Found ${campaigns.length} active campaigns for carousel`);
     campaigns.forEach(campaign => {
       logger.info(`📅 Campaign: ${campaign.title} (ID: ${campaign.id}) - Active: ${campaign.isActive}, End: ${campaign.endDate}, RewardPool: ${campaign.rewardPool}`);
+      logger.info(`🎨 Campaign banner: ${campaign.campaignBanner || 'No banner set'}`);
     });
 
     if (!campaigns || campaigns.length === 0) {
@@ -144,22 +183,52 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
             // Use campaign banner as background, fallback to first content image or default
             let backgroundUrl = '/hero.svg';
+            logger.info(`🎨 Processing background for campaign ${campaign.id}: ${campaign.title}`);
+            logger.info(`🎨 Campaign banner URL: ${campaign.campaignBanner || 'None'}`);
+            
             if (campaign.campaignBanner) {
               try {
-                const bannerPresignedUrl = await generatePresignedUrl(campaign.campaignBanner);
+                // Extract S3 key from banner URL if it's a full S3 URL
+                let s3Key = campaign.campaignBanner;
+                logger.info(`🎨 Original banner URL: ${campaign.campaignBanner}`);
+                
+                if (campaign.campaignBanner.includes('amazonaws.com')) {
+                  const url = new URL(campaign.campaignBanner);
+                  s3Key = decodeURIComponent(url.pathname.substring(1)); // Remove leading slash and decode
+                  logger.info(`🎨 Extracted and decoded S3 key from campaign banner URL: ${s3Key}`);
+                } else {
+                  // Decode the S3 key if it's already encoded
+                  s3Key = decodeURIComponent(s3Key);
+                  logger.info(`🎨 Banner URL is not amazonaws.com format, decoded key: ${s3Key}`);
+                }
+                
+                logger.info(`🎨 Attempting to generate presigned URL for S3 key: ${s3Key}`);
+                const bannerPresignedUrl = await generatePresignedUrl(s3Key);
+                
                 if (bannerPresignedUrl) {
                   backgroundUrl = bannerPresignedUrl;
+                  logger.info(`🎨 ✅ Successfully generated presigned URL for campaign banner ${campaign.id}`);
+                  logger.info(`🎨 Final background URL: ${backgroundUrl.substring(0, 100)}...`);
+                } else {
+                  logger.warn(`🎨 ❌ Failed to generate presigned URL for campaign banner ${campaign.id}`);
                 }
               } catch (error) {
-                logger.warn(`Failed to generate presigned URL for campaign banner ${campaign.id}:`, error);
+                logger.error(`🎨 ❌ Error processing campaign banner ${campaign.id}:`, error);
                 // Fallback to first content image if banner fails
                 if (gallery.length > 0 && gallery[0] && !gallery[0].match(/^\d+$/)) {
                   backgroundUrl = gallery[0];
+                  logger.info(`🎨 Using content image as fallback: ${backgroundUrl.substring(0, 50)}...`);
                 }
               }
-            } else if (gallery.length > 0 && gallery[0] && !gallery[0].match(/^\d+$/)) {
-              // Use first content image if no banner
-              backgroundUrl = gallery[0];
+            } else {
+              logger.info(`🎨 No campaign banner set, checking for content image fallback`);
+              if (gallery.length > 0 && gallery[0] && !gallery[0].match(/^\d+$/)) {
+                // Use first content image if no banner
+                backgroundUrl = gallery[0];
+                logger.info(`🎨 Using first content image: ${backgroundUrl.substring(0, 50)}...`);
+              } else {
+                logger.info(`🎨 No content images available, using default hero.svg`);
+              }
             }
 
             // Format end date
@@ -170,13 +239,22 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
               year: 'numeric' 
             })}`;
 
-            slides.push({
+            const slideData = {
               id: campaign.id.toString(),
               backgroundUrl: backgroundUrl,
               title: campaign.title || 'Campaign',
               endText,
               tag: campaign.platformSource || 'Cookie.fun',
               gallery: gallery.slice(0, 3) // Ensure max 3 items (2 images + 1 count)
+            };
+            
+            slides.push(slideData);
+            logger.info(`🎠 ✅ Created slide for campaign ${campaign.id}:`, {
+              id: slideData.id,
+              title: slideData.title,
+              backgroundUrl: slideData.backgroundUrl.substring(0, 100) + (slideData.backgroundUrl.length > 100 ? '...' : ''),
+              tag: slideData.tag,
+              galleryCount: slideData.gallery.length
             });
 
           } catch (error) {

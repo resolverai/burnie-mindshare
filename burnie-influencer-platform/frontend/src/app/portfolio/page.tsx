@@ -13,8 +13,8 @@ export default function PortfolioPage() {
   // Simple redirect logic - only redirect when we're certain user is not authenticated
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      console.log('🔄 Not authenticated, redirecting to landing page')
-      router.push('/')
+      console.log('🔄 Not authenticated, redirecting to marketplace')
+      router.push('/marketplace')
     }
   }, [isLoading, isAuthenticated, router])
 

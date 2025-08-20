@@ -9,10 +9,25 @@ export const carouselService = {
    */
   async getCarouselSlides(): Promise<HeroSlide[]> {
     try {
+      console.log('🎠 Fetching carousel slides from:', `${API_BASE_URL}/api/carousel`);
       const response = await axios.get(`${API_BASE_URL}/api/carousel`);
+      console.log('🎠 Carousel API response:', response.data);
+      
+      if (response.data && response.data.length > 0) {
+        response.data.forEach((slide: HeroSlide, index: number) => {
+          console.log(`🎠 Slide ${index + 1}:`, {
+            id: slide.id,
+            title: slide.title,
+            backgroundUrl: slide.backgroundUrl,
+            tag: slide.tag,
+            galleryCount: slide.gallery?.length || 0
+          });
+        });
+      }
+      
       return response.data || [];
     } catch (error) {
-      console.error('Error fetching carousel slides:', error);
+      console.error('🎠 Error fetching carousel slides:', error);
       
       // Return fallback slides based on actual database campaigns  
       return [

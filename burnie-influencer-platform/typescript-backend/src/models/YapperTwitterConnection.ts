@@ -33,11 +33,14 @@ export class YapperTwitterConnection {
   @Column({ type: 'text', nullable: true })
   profileImageUrl?: string | null;
 
-  @Column({ type: 'text' })
-  accessToken!: string;
+  @Column({ type: 'text', nullable: true })
+  accessToken?: string | null;
 
   @Column({ type: 'text', nullable: true })
   refreshToken?: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  tokenExpiresAt?: Date | null;
 
   @Column({ type: 'boolean', default: true })
   isConnected!: boolean;
@@ -68,5 +71,20 @@ export class YapperTwitterConnection {
     if (!this.lastSyncAt) return true;
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     return this.lastSyncAt < oneHourAgo;
+  }
+
+  public isTokenExpired(): boolean {
+    if (!this.tokenExpiresAt || !this.accessToken) return true;
+    return new Date() >= this.tokenExpiresAt;
+  }
+
+  public hasValidToken(): boolean {
+    return this.isConnected && !!this.accessToken && !this.isTokenExpired();
+  }
+
+  public getTokenStatus(): 'valid' | 'expired' | 'missing' {
+    if (!this.accessToken || this.accessToken === null) return 'missing';
+    if (this.isTokenExpired()) return 'expired';
+    return 'valid';
   }
 } 

@@ -10,6 +10,7 @@ import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance, ensur
 import { executeROASTPayment, prepareROASTDisplay } from '../../services/roastPaymentService'
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
+import WalletConnectionModal from '../WalletConnectionModal'
 
 interface ContentItem {
   id: number
@@ -56,9 +57,319 @@ export default function PurchaseContentModal({
   const [toneOpen, setToneOpen] = useState<boolean>(false)
   const [myStyleConnected, setMyStyleConnected] = useState<boolean>(false)
   const [myStyleHandle, setMyStyleHandle] = useState<string>("@profile")
+  const [twitterTokenStatus, setTwitterTokenStatus] = useState<'valid' | 'expired' | 'missing'>('missing')
+  const [hasPreviousConnection, setHasPreviousConnection] = useState<boolean>(false)
   const [isPurchased, setIsPurchased] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showCopyProtection, setShowCopyProtection] = useState(false)
+  const [showWalletModal, setShowWalletModal] = useState(false)
+
+  // Auto-close wallet modal when wallet connects
+  useEffect(() => {
+    if (address && showWalletModal) {
+      setShowWalletModal(false)
+    }
+  }, [address, showWalletModal])
+
+  // Check existing Twitter connection when wallet address changes
+  useEffect(() => {
+    if (address) {
+      checkTwitterConnection()
+    } else {
+      // Reset Twitter state when wallet disconnects
+      setMyStyleConnected(false)
+      setMyStyleHandle('@profile')
+      setTwitterTokenStatus('missing')
+      setHasPreviousConnection(false)
+    }
+  }, [address])
+
+  // Check Twitter connection when modal opens
+  useEffect(() => {
+    if (isOpen && address) {
+      checkTwitterConnection()
+    }
+  }, [isOpen, address])
+
+  // Check existing Twitter connection status
+  const checkTwitterConnection = async () => {
+    if (!address) {
+      // Reset state when no address
+      setMyStyleConnected(false)
+      setMyStyleHandle('@profile')
+      setTwitterTokenStatus('missing')
+      setHasPreviousConnection(false)
+      return
+    }
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/status/${address}`)
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          const { connected, has_previous_connection, token_status, twitter_username, needs_reconnection } = data.data
+          
+          setHasPreviousConnection(has_previous_connection)
+          setTwitterTokenStatus(token_status)
+          
+          if (connected && token_status === 'valid') {
+            setMyStyleConnected(true)
+            setMyStyleHandle(`@${twitter_username}`)
+            console.log('✅ Valid Twitter connection found:', twitter_username)
+          } else if (has_previous_connection) {
+            setMyStyleConnected(false)
+            setMyStyleHandle(`@${twitter_username}`)
+            console.log(`⚠️ Twitter connection needs attention - Status: ${token_status}`)
+          } else {
+            setMyStyleConnected(false)
+            setMyStyleHandle('@profile')
+            console.log('ℹ️ No Twitter connection found')
+          }
+        }
+      }
+    } catch (error) {
+      console.log('ℹ️ Error checking Twitter connection:', error)
+      setMyStyleConnected(false)
+      setMyStyleHandle('@profile')
+      setTwitterTokenStatus('missing')
+      setHasPreviousConnection(false)
+    }
+  }
+
+  // Twitter token refresh function
+  const handleTokenRefresh = async () => {
+    if (!address) return false
+
+    try {
+      console.log('🔄 Attempting to refresh Twitter token...')
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/refresh-token/${address}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          setMyStyleConnected(true)
+          setMyStyleHandle(`@${data.data.twitter_username}`)
+          setTwitterTokenStatus('valid')
+          console.log('✅ Twitter token refreshed successfully')
+          return true
+        }
+      } else {
+        const errorData = await response.json()
+        if (errorData.requires_reconnection) {
+          setTwitterTokenStatus('expired')
+          console.log('⚠️ Refresh token expired, reconnection required')
+        }
+        return false
+      }
+    } catch (error) {
+      console.error('❌ Twitter token refresh failed:', error)
+      return false
+    }
+    return false
+  }
+
+  // Twitter disconnect function
+  const handleTwitterDisconnect = async () => {
+    if (!address) return
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/disconnect/${address}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success) {
+          // After disconnect, show reconnect state (keep handle but show as disconnected)
+          setMyStyleConnected(false)
+          // Keep the handle but mark as needing reconnection
+          setTwitterTokenStatus('missing') 
+          setHasPreviousConnection(true) // User had a connection, now needs to reconnect
+          console.log('✅ Twitter disconnected successfully')
+        }
+      } else {
+        throw new Error('Failed to disconnect Twitter')
+      }
+    } catch (error) {
+      console.error('❌ Twitter disconnect failed:', error)
+      alert('Failed to disconnect Twitter. Please try again.')
+    }
+  }
+
+  // Twitter authentication for My Voice tab
+  const handleTwitterAuth = async () => {
+    if (!address) {
+      setShowWalletModal(true)
+      return
+    }
+
+    try {
+      // Step 1: Get Twitter OAuth URL
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/url`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          wallet_address: address,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to get Twitter OAuth URL')
+      }
+
+      const data = await response.json()
+      
+      if (!data.success || !data.data.oauth_url) {
+        throw new Error('Invalid OAuth URL response')
+      }
+
+      // Store state, code verifier, and wallet address for later use
+      localStorage.setItem('yapper_twitter_oauth_state', data.data.state)
+      localStorage.setItem('yapper_twitter_code_verifier', data.data.code_verifier)
+      localStorage.setItem('yapper_twitter_wallet_address', address || '')
+
+      // Step 2: Open Twitter OAuth in a new window
+      const authWindow = window.open(
+        data.data.oauth_url,
+        'yapper-twitter-auth',
+        'width=500,height=600,scrollbars=yes,resizable=yes'
+      )
+
+      if (!authWindow) {
+        alert('Failed to open authentication window. Please disable popup blocker.')
+        return
+      }
+
+      // Step 3: Listen for messages from callback window
+      const messageHandler = async (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return
+
+        if (event.data.type === 'YAPPER_TWITTER_AUTH_SUCCESS') {
+          authWindow.close()
+          window.removeEventListener('message', messageHandler)
+          
+          // Fetch the actual Twitter profile info from backend
+          try {
+            const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/status/${address}`)
+            if (statusResponse.ok) {
+              const statusData = await statusResponse.json()
+              if (statusData.success && statusData.data.connected) {
+                setMyStyleConnected(true)
+                setMyStyleHandle(`@${statusData.data.twitter_username}`)
+                setTwitterTokenStatus('valid')
+                setHasPreviousConnection(true)
+                console.log('✅ Twitter authentication successful:', statusData.data.twitter_username)
+              } else {
+                // Fallback to event data
+                setMyStyleConnected(true)
+                setMyStyleHandle(event.data.username ? `@${event.data.username}` : '@profile')
+                setTwitterTokenStatus('valid')
+                setHasPreviousConnection(true)
+                console.log('✅ Twitter authentication successful (fallback)')
+              }
+            } else {
+              // Fallback to event data
+              setMyStyleConnected(true)
+              setMyStyleHandle(event.data.username ? `@${event.data.username}` : '@profile')
+              setTwitterTokenStatus('valid')
+              setHasPreviousConnection(true)
+              console.log('✅ Twitter authentication successful (fallback)')
+            }
+          } catch (error) {
+            console.error('❌ Failed to fetch Twitter status after auth:', error)
+            // Still mark as connected with fallback handle
+            setMyStyleConnected(true)
+            setMyStyleHandle(event.data.username ? `@${event.data.username}` : '@profile')
+            setTwitterTokenStatus('valid')
+            setHasPreviousConnection(true)
+          }
+        } else if (event.data.type === 'YAPPER_TWITTER_AUTH_ERROR') {
+          authWindow.close()
+          window.removeEventListener('message', messageHandler)
+          console.error('❌ Twitter authentication failed:', event.data.error)
+        }
+      }
+
+      window.addEventListener('message', messageHandler)
+
+      // Handle window closed manually
+      const checkClosed = setInterval(() => {
+        if (authWindow.closed) {
+          clearInterval(checkClosed)
+          window.removeEventListener('message', messageHandler)
+        }
+      }, 1000)
+
+    } catch (error) {
+      console.error('❌ Twitter authentication failed:', error)
+      alert('Twitter authentication failed. Please try again.')
+    }
+  }
+
+  // Generate button handler with trigger-based token refresh
+  const handleGenerate = async () => {
+    if (!address) {
+      setShowWalletModal(true)
+      return
+    }
+
+    // Only proceed if user has connected Twitter (My Voice tab)
+    if (!myStyleConnected) {
+      console.log('⚠️ Cannot generate - Twitter not connected')
+      alert('Please connect your Twitter account first.')
+      return
+    }
+
+    console.log('🎯 Generate button clicked - checking if token needs refresh...')
+
+    // Check if token is expired based on tokenExpiresAt timestamp
+    // This is the ONLY place where we check and refresh tokens
+    try {
+      const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/yapper-twitter-auth/twitter/status/${address}`)
+      
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json()
+        
+        if (statusData.success && statusData.data.token_status === 'expired') {
+          console.log('🔄 Token expired based on tokenExpiresAt, attempting refresh...')
+          const refreshSuccess = await handleTokenRefresh()
+          
+          if (!refreshSuccess) {
+            console.log('❌ Token refresh failed, user needs to reconnect')
+            alert('Your Twitter access has expired and could not be refreshed. Please reconnect your Twitter account.')
+            return
+          }
+          console.log('✅ Token refreshed successfully, proceeding with generation...')
+        } else if (statusData.data.token_status === 'valid') {
+          console.log('✅ Token is valid, proceeding with generation...')
+        } else {
+          console.log('⚠️ Token is missing, user needs to connect Twitter')
+          alert('Please connect your Twitter account first.')
+          return
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error checking token status:', error)
+      alert('Failed to verify Twitter connection. Please try again.')
+      return
+    }
+
+    // If we reach here, token is valid and we can proceed with generation
+    console.log('🚀 Proceeding with content generation...')
+    // TODO: Add actual generation logic here
+    alert('Generation would start here! (Token is valid and ready)')
+  }
 
   // Generate consistent random mindshare for this content item
   const getRandomMindshare = (itemId: string) => {
@@ -91,8 +402,13 @@ export default function PurchaseContentModal({
 
   // Purchase functionality
   const handlePurchase = async () => {
-    if (!content || !address) {
-      alert('Please connect your wallet first')
+    if (!content) {
+      return
+    }
+
+    // Show wallet connection modal if not connected
+    if (!address) {
+      setShowWalletModal(true)
       return
     }
 
@@ -245,13 +561,109 @@ export default function PurchaseContentModal({
     }
   }
 
+  // Content parsing functions (same as BiddingInterface and mining interface)
+  const extractImageUrl = (contentText: string): string | null => {
+    const prefixMatch = contentText.match(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i)
+    if (prefixMatch) {
+      return prefixMatch[1].replace(/[.,;'"]+$/, '')
+    }
+    
+    const dalleMatch = contentText.match(/(https?:\/\/oaidalleapiprodscus\.blob\.core\.windows\.net\/[^\s\n<>"'`]+)/i)
+    if (dalleMatch) {
+      return dalleMatch[1].replace(/[.,;'"]+$/, '')
+    }
+    
+    const blobMatch = contentText.match(/(https?:\/\/[^\s\n<>"'`]*blob\.core\.windows\.net[^\s\n<>"'`]+)/i)
+    if (blobMatch) {
+      return blobMatch[1].replace(/[.,;'"]+$/, '')
+    }
+    
+    return null
+  }
+
+  const formatTwitterContent = (contentText: string) => {
+    if (!contentText) return { text: '', hashtags: [], characterCount: 0, imageUrl: null }
+    
+    // Extract image URL and remove it from text
+    const imageUrl = extractImageUrl(contentText)
+    let cleanedText = contentText
+    
+    if (imageUrl) {
+      cleanedText = cleanedText
+        .replace(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i, '')
+        .replace(/(https?:\/\/oaidalleapiprodscus\.blob\.core\.windows\.net\/[^\s\n<>"'`]+)/i, '')
+        .replace(/(https?:\/\/[^\s\n<>"'`]*blob\.core\.windows\.net[^\s\n<>"'`]+)/i, '')
+        .trim()
+    }
+    
+    const hashtagRegex = /#[\w]+/g
+    const hashtags = cleanedText.match(hashtagRegex) || []
+    
+    return {
+      text: cleanedText,
+      hashtags,
+      characterCount: cleanedText.length,
+      imageUrl
+    }
+  }
+
+  const extractHashtags = (text: string): string[] => {
+    const hashtagRegex = /#[\w]+/g
+    return text.match(hashtagRegex) || []
+  }
+
+  // Comprehensive content parsing logic (same as BiddingInterface and mining interface)
+  const getContentData = () => {
+    if (!content) return { text: '', hashtags: [], characterCount: 0, imageUrl: null, shouldUseMarkdown: false }
+
+    // Check if this is a longpost that should be rendered as markdown
+    const shouldUseMarkdown = isMarkdownContent(content.post_type)
+    
+    // Check if content has markdown syntax
+    const hasMarkdownSyntax = content.content_text?.includes('##') || content.content_text?.includes('**')
+    
+    // Force markdown if we detect markdown syntax
+    const forceMarkdown = hasMarkdownSyntax
+    
+    // For longposts, use raw content; for others, use parsed content
+    const { text, imageUrl: extractedImageUrl } = (shouldUseMarkdown || forceMarkdown)
+      ? { text: content.content_text, imageUrl: null }
+      : formatTwitterContent(content.content_text)
+    
+    // Use content_images array if available, otherwise fall back to extracted URL
+    const imageUrl = content.content_images && content.content_images.length > 0 
+      ? content.content_images[0] 
+      : extractedImageUrl
+    
+    const hashtags = extractHashtags(text)
+    
+    return {
+      text: text || '',
+      hashtags,
+      characterCount: text?.length || 0,
+      imageUrl,
+      shouldUseMarkdown: Boolean(shouldUseMarkdown || forceMarkdown)
+    }
+  }
+
   // Format content text for display
-  const formatContentText = (text: string) => {
-    if (isMarkdownContent(text)) {
+  const formatContentText = (text: string, shouldUseMarkdown: boolean) => {
+    if (shouldUseMarkdown) {
       return renderMarkdown(text)
     }
     return formatPlainText(text)
   }
+
+  // Get parsed content data
+  const contentData = getContentData()
+
+  // Debug logging for content parsing (similar to mining interface)
+  console.log('🔍 PurchaseModal: Post type:', content?.post_type)
+  console.log('🔍 PurchaseModal: Should use markdown:', contentData.shouldUseMarkdown)
+  console.log('🔍 PurchaseModal: Has markdown syntax:', content?.content_text?.includes('##') || content?.content_text?.includes('**'))
+  console.log('🔍 PurchaseModal: Raw content length:', content?.content_text?.length)
+  console.log('🔍 PurchaseModal: Parsed text length:', contentData.text?.length)
+  console.log('🖼️ PurchaseModal: Image URL:', contentData.imageUrl)
 
   // Calculate USDC price
   const usdcPrice = roastPrice ? (content.asking_price * roastPrice).toFixed(2) : '0.00'
@@ -304,8 +716,8 @@ export default function PurchaseContentModal({
 
               {/* Single Tweet Container with Thread Structure */}
               <div className="relative">
-                {/* Continuous Thread Line */}
-                {content.tweet_thread && content.tweet_thread.length > 1 && (
+                {/* Continuous Thread Line - Only show for threads, not longposts */}
+                {content.tweet_thread && content.tweet_thread.length > 1 && !contentData.shouldUseMarkdown && (
                   <div className="absolute left-5 top-10 bottom-0 w-0.5 bg-gray-600 z-0"></div>
                 )}
 
@@ -326,110 +738,130 @@ export default function PurchaseContentModal({
                         <span className="text-gray-500 text-xs lg:text-sm">@{content.creator.username.toLowerCase()}</span>
                   </div>
 
-                      <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
-                        {formatContentText(content.content_text)}
-              </div>
-              
-                      {/* Tweet Images */}
-                      {content.content_images && content.content_images.length > 0 && (
-                        <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
-                          <Image
-                        src={content.content_images[0]} 
-                            alt="Tweet content"
-                            width={500}
-                            height={300}
-                            className="w-full h-auto object-cover"
-                          />
-                          {/* CSS Blended Watermarks */}
-                      <div className="absolute inset-0 pointer-events-none">
-                            {/* Center - Buy to Access */}
-                        <div 
-                              className="absolute text-white text-xl font-bold"
-                          style={{
-                            left: '50%',
-                            top: '50%',
-                            transform: 'translate(-50%, -50%)',
-                                textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-                                mixBlendMode: 'overlay',
-                                opacity: 0.7
-                          }}
-                        >
-                          BUY TO ACCESS
-                        </div>
-                        
-                            {/* Center Bottom - @burnieio */}
-                        <div 
-                              className="absolute text-white text-sm font-semibold"
-                          style={{
-                            left: '50%',
-                                top: '60%',
-                                transform: 'translate(-50%, -50%)',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
-                                mixBlendMode: 'overlay',
-                                opacity: 0.6
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                        
-                            {/* Four Corners - @burnieio */}
-                            {/* Top Left */}
-                        <div 
-                              className="absolute text-white text-xs font-medium"
-                          style={{
-                                left: '10px',
-                                top: '10px',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
-                                mixBlendMode: 'overlay',
-                                opacity: 0.5
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                            
-                            {/* Top Right */}
-                        <div 
-                              className="absolute text-white text-xs font-medium"
-                          style={{
-                                right: '10px',
-                                top: '10px',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
-                                mixBlendMode: 'overlay',
-                                opacity: 0.5
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                            
-                            {/* Bottom Left */}
-                        <div 
-                              className="absolute text-white text-xs font-medium"
-                          style={{
-                                left: '10px',
-                                bottom: '10px',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
-                                mixBlendMode: 'overlay',
-                                opacity: 0.5
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                            
-                            {/* Bottom Right */}
-                        <div 
-                              className="absolute text-white text-xs font-medium"
-                          style={{
-                                right: '10px',
-                                bottom: '10px',
-                                textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
-                                mixBlendMode: 'overlay',
-                                opacity: 0.5
-                          }}
-                        >
-                          @burnieio
-                        </div>
-                      </div>
-                        </div>
+                      {/* For longposts: Image first, then content */}
+                      {contentData.shouldUseMarkdown ? (
+                        <>
+                          {/* Longpost Image at top */}
+                          {contentData.imageUrl && (
+                            <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
+                              <Image
+                                src={contentData.imageUrl} 
+                                alt="Tweet content"
+                                width={500}
+                                height={300}
+                                className="w-full h-auto object-cover"
+                              />
+                              {/* CSS Blended Watermarks */}
+                              <div className="absolute inset-0 pointer-events-none">
+                                {/* Center - Buy to Access */}
+                                <div 
+                                  className="absolute text-white text-xl font-bold"
+                                  style={{
+                                    left: '50%',
+                                    top: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+                                    mixBlendMode: 'overlay',
+                                    opacity: 0.7
+                                  }}
+                                >
+                                  BUY TO ACCESS
+                                </div>
+                                
+                                {/* Center Bottom - @burnieio */}
+                                <div 
+                                  className="absolute text-white text-sm font-semibold"
+                                  style={{
+                                    left: '50%',
+                                    top: '60%',
+                                    transform: 'translate(-50%, -50%)',
+                                    textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
+                                    mixBlendMode: 'overlay',
+                                    opacity: 0.6
+                                  }}
+                                >
+                                  @burnieio
+                                </div>
+                                
+                                {/* Four Corners - @burnieio */}
+                                <div className="absolute text-white text-xs font-medium" style={{ left: '10px', top: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
+                                <div className="absolute text-white text-xs font-medium" style={{ right: '10px', top: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
+                                <div className="absolute text-white text-xs font-medium" style={{ left: '10px', bottom: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
+                                <div className="absolute text-white text-xs font-medium" style={{ right: '10px', bottom: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Longpost Content with white text styling */}
+                          <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
+                            <div 
+                              className="longpost-markdown-content"
+                              style={{
+                                color: 'white'
+                              }}
+                            >
+                              {formatContentText(contentData.text, contentData.shouldUseMarkdown)}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          {/* Regular content (shitpost/thread): Content first, then image */}
+                          <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
+                            {formatContentText(contentData.text, contentData.shouldUseMarkdown)}
+                          </div>
+                          
+                          {/* Tweet Images for regular content */}
+                          {contentData.imageUrl && (
+                            <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
+                              <Image
+                                src={contentData.imageUrl} 
+                                alt="Tweet content"
+                                width={500}
+                                height={300}
+                                className="w-full h-auto object-cover"
+                              />
+                              {/* CSS Blended Watermarks */}
+                              <div className="absolute inset-0 pointer-events-none">
+                                {/* Center - Buy to Access */}
+                                <div 
+                                  className="absolute text-white text-xl font-bold"
+                                  style={{
+                                    left: '50%',
+                                    top: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
+                                    mixBlendMode: 'overlay',
+                                    opacity: 0.7
+                                  }}
+                                >
+                                  BUY TO ACCESS
+                                </div>
+                                
+                                {/* Center Bottom - @burnieio */}
+                                <div 
+                                  className="absolute text-white text-sm font-semibold"
+                                  style={{
+                                    left: '50%',
+                                    top: '60%',
+                                    transform: 'translate(-50%, -50%)',
+                                    textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
+                                    mixBlendMode: 'overlay',
+                                    opacity: 0.6
+                                  }}
+                                >
+                                  @burnieio
+                                </div>
+                                
+                                {/* Four Corners - @burnieio */}
+                                <div className="absolute text-white text-xs font-medium" style={{ left: '10px', top: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
+                                <div className="absolute text-white text-xs font-medium" style={{ right: '10px', top: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
+                                <div className="absolute text-white text-xs font-medium" style={{ left: '10px', bottom: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
+                                <div className="absolute text-white text-xs font-medium" style={{ right: '10px', bottom: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
 
                       {/* Tweet Actions */}
@@ -462,8 +894,8 @@ export default function PurchaseContentModal({
                   </div>
                 </div>
 
-                {/* Thread Replies */}
-                {content.tweet_thread && content.tweet_thread.length > 1 && content.tweet_thread.slice(1).map((tweet, index) => (
+                {/* Thread Replies - Only show for threads, not longposts */}
+                {content.tweet_thread && content.tweet_thread.length > 1 && !contentData.shouldUseMarkdown && content.tweet_thread.slice(1).map((tweet, index) => (
                   <div key={index} className="relative pb-3">
                     <div className="flex gap-3 pr-2">
                       <div className="relative flex-shrink-0">
@@ -635,26 +1067,27 @@ export default function PurchaseContentModal({
 
                       {selectedVoiceTone === "mystyle" && (
                         <>
-                          {/* Fee per tweet message for My Style */}
-                          <div className="flex flex-row items-center justify-between gap-1 mt-3">
-                            <div className="text-white/60 text-sm">Extra fee per tweet</div>
-                            <div className="text-right text-white/60 text-xs">
-                              <span className="line-through">25.00 Roasts/0.002 USDC</span>
-                              <span className="text-green-400 ml-2 font-semibold">FREE</span>
-                    </div>
-                  </div>
+                          {/* Removed duplicate fee message - now only shows after Twitter connection */}
 
                           {!myStyleConnected ? (
                             <div className="flex flex-col items-center justify-center text-center">
-                              <h3 className="text-white text-lg font-semibold mb-3">Twitter access required</h3>
+                              <h3 className="text-white text-lg font-semibold mb-3">
+                                {hasPreviousConnection && (twitterTokenStatus === 'expired' || twitterTokenStatus === 'missing')
+                                  ? 'Twitter reconnection required' 
+                                  : 'Twitter access required'}
+                              </h3>
                               <p className="text-white/60 text-sm mb-6 px-4">
-                                By getting access to your previous tweets, our AI model can generate content in your voice of tone
+                                {hasPreviousConnection && (twitterTokenStatus === 'expired' || twitterTokenStatus === 'missing')
+                                  ? 'Your Twitter access has been disconnected. Please reconnect to continue using your voice tone.'
+                                  : 'By getting access to your previous tweets, our AI model can generate content in your voice of tone'}
                               </p>
                               <button
-                                onClick={() => setMyStyleConnected(true)}
-                                className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-sm py-3 cursor-pointer"
+                                onClick={handleTwitterAuth}
+                                className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-sm py-3 cursor-pointer hover:bg-[#FD7A10]/10 transition-colors"
                               >
-                                Grant twitter access
+                                {hasPreviousConnection && (twitterTokenStatus === 'expired' || twitterTokenStatus === 'missing')
+                                  ? 'Reconnect Twitter' 
+                                  : 'Grant twitter access'}
                               </button>
                             </div>
                           ) : (
@@ -664,13 +1097,13 @@ export default function PurchaseContentModal({
                                 <div className="text-white/80 text-sm">Twitter profile</div>
                                 <div className="flex items-center gap-2">
                                   <span className="text-white/80 text-sm">{myStyleHandle}</span>
-                                  <button
+                                                                    <button
                                     type="button"
-                                    onClick={() => setMyStyleConnected(false)}
+                                    onClick={handleTwitterDisconnect}
                                     className="text-white/60 hover:text-white/90 text-xs underline"
                                   >
                                     Disconnect
-                </button>
+                                  </button>
                                 </div>
               </div>
 
@@ -683,13 +1116,16 @@ export default function PurchaseContentModal({
                                 </div>
                               </div>
                               <div className="">
-                                <button className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-sm py-3 cursor-pointer">
+                                <button 
+                                  onClick={handleGenerate}
+                                  className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-sm py-3 cursor-pointer hover:bg-[#FD7A10]/10 transition-colors"
+                                >
                                   <svg className="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
+                                  </svg>
                                   Generate
                                 </button>
-                    </div>
+                              </div>
                       </div>
                           )}
                         </>
@@ -823,6 +1259,14 @@ export default function PurchaseContentModal({
           </div>
         </div>
       )}
+
+      {/* Wallet Connection Modal */}
+      <WalletConnectionModal
+        isOpen={showWalletModal}
+        onClose={() => setShowWalletModal(false)}
+        title="Connect Your Wallet"
+        message="Please connect your wallet to purchase content from the marketplace"
+      />
     </div>
   )
 } 

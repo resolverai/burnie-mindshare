@@ -261,7 +261,7 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       await userRepository.save(user);
     }
 
-    // Check for existing Twitter connection for this Yapper
+    // Check for existing Twitter connection for this specific Twitter account
     const existingConnection = await yapperTwitterRepository.findOne({
       where: { twitterUserId: twitterUser.id }
     });
@@ -280,6 +280,10 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       existingConnection.refreshToken = tokenResult.refresh_token || null;
       existingConnection.isConnected = true;
       existingConnection.profileImageUrl = twitterUser.profile_image_url || null;
+      
+      // Set token expiration (Twitter tokens typically expire in 2 hours)
+      const expiresIn = tokenResult.expires_in || 7200; // Default to 2 hours if not provided
+      existingConnection.tokenExpiresAt = new Date(Date.now() + (expiresIn * 1000));
       
       const savedConnection = await yapperTwitterRepository.save(existingConnection);
 
@@ -308,6 +312,10 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       newConnection.refreshToken = tokenResult.refresh_token || null;
       newConnection.isConnected = true;
       newConnection.profileImageUrl = twitterUser.profile_image_url || null;
+      
+      // Set token expiration (Twitter tokens typically expire in 2 hours)
+      const expiresIn = tokenResult.expires_in || 7200; // Default to 2 hours if not provided
+      newConnection.tokenExpiresAt = new Date(Date.now() + (expiresIn * 1000));
       
       const savedNewConnection = await yapperTwitterRepository.save(newConnection);
 
@@ -392,26 +400,64 @@ router.get('/twitter/status/:walletAddress', async (req: Request, res: Response)
       });
     }
 
-    const twitterData = await yapperTwitterRepository.findOne({
-      where: { userId: user.id, isConnected: true }
+    // Find all Twitter connections for this user
+    const allConnections = await yapperTwitterRepository.find({
+      where: { userId: user.id },
+      order: { updatedAt: 'DESC' }
     });
 
-    if (!twitterData) {
+    if (allConnections.length === 0) {
       return res.json({
         success: true,
-        data: { connected: false },
+        data: { 
+          connected: false,
+          has_previous_connection: false
+        },
         timestamp: new Date().toISOString(),
       });
     }
 
+    // Prioritize active connections (with valid, non-null tokens) over disconnected ones
+    const activeConnection = allConnections.find(conn => 
+      conn.accessToken && 
+      conn.accessToken !== null && 
+      conn.refreshToken && 
+      conn.refreshToken !== null &&
+      conn.isConnected
+    );
+
+    // Use active connection if available, otherwise fall back to most recent
+    const twitterData = activeConnection || allConnections[0];
+    const hasPreviousConnection = allConnections.length > 0;
+
+    // Handle case where no connection exists (shouldn't happen due to check above, but TypeScript safety)
+    if (!twitterData) {
+      return res.json({
+        success: true,
+        data: { 
+          connected: false,
+          has_previous_connection: false
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Determine connection and token status
+    const tokenStatus = twitterData.getTokenStatus();
+    const isConnected = twitterData.isConnected && tokenStatus === 'valid';
+
     return res.json({
       success: true,
       data: {
-        connected: true,
+        connected: isConnected,
+        has_previous_connection: hasPreviousConnection,
+        token_status: tokenStatus, // 'valid', 'expired', 'missing'
         twitter_username: twitterData.twitterUsername,
         twitter_display_name: twitterData.twitterDisplayName,
         profile_image_url: twitterData.profileImageUrl,
-        last_sync: twitterData.lastSyncAt
+        last_sync: twitterData.lastSyncAt,
+        token_expires_at: twitterData.tokenExpiresAt,
+        needs_reconnection: tokenStatus !== 'valid'
       },
       timestamp: new Date().toISOString(),
     });
@@ -455,12 +501,27 @@ router.post('/disconnect/:walletAddress', async (req: Request, res: Response) =>
       });
     }
 
-    const twitterConnection = await yapperTwitterRepository.findOne({
-      where: { userId: user.id }
+    // Find active connection with valid tokens to disconnect
+    const allConnections = await yapperTwitterRepository.find({
+      where: { userId: user.id },
+      order: { updatedAt: 'DESC' }
     });
+
+    const activeConnection = allConnections.find(conn => 
+      conn.accessToken && 
+      conn.accessToken !== null && 
+      conn.refreshToken && 
+      conn.refreshToken !== null &&
+      conn.isConnected
+    );
+
+    const twitterConnection = activeConnection || allConnections[0];
 
     if (twitterConnection) {
       twitterConnection.isConnected = false;
+      twitterConnection.accessToken = null;
+      twitterConnection.refreshToken = null;
+      twitterConnection.tokenExpiresAt = null;
       await yapperTwitterRepository.save(twitterConnection);
     }
 
@@ -476,6 +537,170 @@ router.post('/disconnect/:walletAddress', async (req: Request, res: Response) =>
     return res.status(500).json({
       success: false,
       error: 'Failed to disconnect Twitter account',
+    });
+  }
+});
+
+/**
+ * @route POST /api/yapper-twitter-auth/refresh-token/:walletAddress
+ * @desc Refresh Twitter access token for a Yapper using refresh token
+ */
+router.post('/refresh-token/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+
+    if (!walletAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet address is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const userRepository: Repository<User> = AppDataSource.getRepository(User);
+    const yapperTwitterRepository: Repository<YapperTwitterConnection> = AppDataSource.getRepository(YapperTwitterConnection);
+
+    const user = await userRepository.findOne({
+      where: { walletAddress: walletAddress.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Find active connection with valid tokens, prioritize over disconnected ones
+    const allConnections = await yapperTwitterRepository.find({
+      where: { userId: user.id },
+      order: { updatedAt: 'DESC' }
+    });
+
+    const activeConnection = allConnections.find(conn => 
+      conn.accessToken && 
+      conn.accessToken !== null && 
+      conn.refreshToken && 
+      conn.refreshToken !== null
+    );
+
+    const twitterConnection = activeConnection || allConnections[0];
+
+    if (!twitterConnection) {
+      return res.status(404).json({
+        success: false,
+        error: 'No Twitter connection found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!twitterConnection.refreshToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'No refresh token available. Please reconnect your Twitter account.',
+        requires_reconnection: true,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Prepare token refresh request
+    const TWITTER_CLIENT_ID = process.env.TWITTER_CLIENT_ID;
+    const TWITTER_CLIENT_SECRET = process.env.TWITTER_CLIENT_SECRET;
+
+    if (!TWITTER_CLIENT_ID || !TWITTER_CLIENT_SECRET) {
+      logger.error('❌ Twitter credentials not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'Twitter authentication not configured',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const tokenUrl = 'https://api.twitter.com/2/oauth2/token';
+    const tokenData = {
+      grant_type: 'refresh_token',
+      refresh_token: twitterConnection.refreshToken,
+      client_id: TWITTER_CLIENT_ID
+    };
+
+    const authHeader = Buffer.from(`${TWITTER_CLIENT_ID}:${TWITTER_CLIENT_SECRET}`).toString('base64');
+
+    logger.info(`🔄 Refreshing Twitter token for Yapper: ${walletAddress}`);
+
+    const tokenResponse = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${authHeader}`,
+        'User-Agent': 'BurnieAI/1.0'
+      },
+      body: new URLSearchParams(tokenData)
+    });
+
+    if (!tokenResponse.ok) {
+      const errorData = await tokenResponse.text();
+      logger.error(`❌ Token refresh failed: ${tokenResponse.status}`, errorData);
+      
+      // If refresh token is invalid, mark connection as needs reconnection
+      if (tokenResponse.status === 400 || tokenResponse.status === 401) {
+        logger.error(`🔑 Refresh token invalid for Yapper ${user.id} - marking as needs reconnection`);
+        twitterConnection.accessToken = '';
+        twitterConnection.tokenExpiresAt = null;
+        await yapperTwitterRepository.save(twitterConnection);
+        
+        return res.status(401).json({
+          success: false,
+          error: 'Refresh token expired. Please reconnect your Twitter account.',
+          requires_reconnection: true,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to refresh token',
+        details: errorData,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const tokenResult = await tokenResponse.json() as TwitterTokenResponse;
+    logger.info(`✅ Successfully refreshed access token for Yapper ${user.id}`);
+
+    // Update the connection with new tokens and expiration
+    const expiresIn = tokenResult.expires_in || 7200; // Default to 2 hours if not provided
+    const expirationDate = new Date(Date.now() + (expiresIn * 1000));
+
+    twitterConnection.accessToken = tokenResult.access_token;
+    if (tokenResult.refresh_token) {
+      twitterConnection.refreshToken = tokenResult.refresh_token;
+    }
+    twitterConnection.tokenExpiresAt = expirationDate;
+    twitterConnection.isConnected = true;
+    twitterConnection.lastSyncAt = new Date();
+
+    await yapperTwitterRepository.save(twitterConnection);
+
+    return res.json({
+      success: true,
+      message: 'Token refreshed successfully',
+      data: {
+        connected: true,
+        twitter_username: twitterConnection.twitterUsername,
+        twitter_display_name: twitterConnection.twitterDisplayName,
+        token_expires_at: twitterConnection.tokenExpiresAt,
+        token_status: 'valid'
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to refresh Yapper Twitter token:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to refresh Twitter token',
+      timestamp: new Date().toISOString(),
     });
   }
 });

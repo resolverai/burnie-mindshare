@@ -1171,23 +1171,33 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
 // GET /api/campaigns/logo-presigned-url/:s3Key - Get pre-signed URL for logo display
 router.get('/logo-presigned-url/:s3Key(*)', async (req: Request, res: Response) => {
   try {
-    const s3Key = req.params.s3Key;
+    const rawS3Key = req.params.s3Key;
     
-    if (!s3Key) {
+    if (!rawS3Key) {
+      logger.error('🔗 No S3 key provided in request');
       return res.status(400).json({
         success: false,
         error: 'S3 key is required'
       });
     }
+    
+    const s3Key = decodeURIComponent(rawS3Key);
+    
+    logger.info(`🔗 Presigned URL request received for S3 key: ${s3Key}`);
+    logger.info(`🔗 Raw S3 key from params: ${rawS3Key}`);
+
+    const bucketName = process.env.S3_BUCKET_NAME || 'burnie-storage';
+    logger.info(`🔗 Using bucket: ${bucketName}, key: ${s3Key}`);
 
     // Generate pre-signed URL for GET operation (viewing the image)
     const presignedUrl = s3.getSignedUrl('getObject', {
-      Bucket: process.env.S3_BUCKET_NAME || 'burnie-storage',
+      Bucket: bucketName,
       Key: s3Key,
       Expires: 3600 // URL expires in 1 hour
     });
 
-    logger.info(`✅ Pre-signed URL generated for: ${s3Key}`);
+    logger.info(`✅ Pre-signed URL generated successfully for: ${s3Key}`);
+    logger.info(`🔗 Generated URL: ${presignedUrl.substring(0, 100)}...`);
 
     return res.json({
       success: true,

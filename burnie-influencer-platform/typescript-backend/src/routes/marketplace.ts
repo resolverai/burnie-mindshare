@@ -1562,8 +1562,31 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
       });
     }
 
-    // Verify ownership by wallet address
-    if (!content.walletAddress || content.walletAddress.toLowerCase() !== wallet_address.toLowerCase()) {
+    // Verify ownership by wallet address or creatorId (for backward compatibility)
+    let isOwner = false;
+    
+    if (content.walletAddress) {
+      // Modern ownership check: compare wallet addresses
+      isOwner = content.walletAddress.toLowerCase() === wallet_address.toLowerCase();
+    } else {
+      // Legacy ownership check: find user by wallet address and compare creatorId
+      const userRepository = AppDataSource.getRepository(User);
+      const user = await userRepository.findOne({
+        where: { walletAddress: wallet_address.toLowerCase() }
+      });
+      
+      if (user && content.creatorId === user.id) {
+        isOwner = true;
+        // Update content with wallet address for future requests
+        content.walletAddress = wallet_address;
+        console.log('📝 Updated legacy content with wallet address:', {
+          contentId: content.id,
+          walletAddress: wallet_address
+        });
+      }
+    }
+    
+    if (!isOwner) {
       return res.status(403).json({
         success: false,
         message: 'Unauthorized: You can only modify your own content'
@@ -3917,10 +3940,11 @@ router.post('/approve-content', async (req: Request, res: Response) => {
       });
     }
 
-    // Update content to approved
+    // Update content to approved and set wallet address for ownership verification
     content.approvalStatus = 'approved';
     content.isAvailable = true;
     content.approvedAt = new Date();
+    content.walletAddress = walletAddress; // Set wallet address for bidding authorization
 
     const updatedContent = await contentRepository.save(content);
 

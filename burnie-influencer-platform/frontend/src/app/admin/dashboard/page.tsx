@@ -29,6 +29,7 @@ interface Campaign {
   description: string
   projectName?: string
   projectLogo?: string
+  campaignBanner?: string
   tokenTicker?: string
   category: string
   rewardPool: string | number // bigint from database comes as string
@@ -427,18 +428,25 @@ export default function AdminDashboard() {
     }
 
     // Set banner preview if campaign has a banner
-    if ((campaign as any).campaignBanner) {
+    if (campaign.campaignBanner) {
+      console.log('🎨 Campaign has banner, attempting to load preview:', campaign.campaignBanner)
       try {
-        const { getDisplayableLogoUrl } = await import('../../../utils/s3Utils')
-        const displayUrl = await getDisplayableLogoUrl((campaign as any).campaignBanner)
+        const { getDisplayableBannerUrl } = await import('../../../utils/s3Utils')
+        const displayUrl = await getDisplayableBannerUrl(campaign.campaignBanner)
+        console.log('🎨 Banner display URL result:', displayUrl)
         if (displayUrl) {
           setBannerPreview(displayUrl)
+          console.log('🎨 Banner preview set successfully')
+        } else {
+          console.warn('🎨 No display URL returned for banner')
+          setBannerPreview('')
         }
       } catch (error) {
-        console.error('Error loading campaign banner for editing:', error)
+        console.error('🎨 Error loading campaign banner for editing:', error)
         setBannerPreview('')
       }
     } else {
+      console.log('🎨 Campaign has no banner, clearing preview')
       setBannerPreview('')
     }
     
@@ -472,7 +480,7 @@ export default function AdminDashboard() {
       }
 
       // Handle banner upload if present
-      let bannerUrl = (editingCampaign as any)?.campaignBanner || ''
+      let bannerUrl = editingCampaign?.campaignBanner || ''
       if (formData.campaignBanner) {
         const bannerFormData = new FormData()
         bannerFormData.append('banner', formData.campaignBanner)

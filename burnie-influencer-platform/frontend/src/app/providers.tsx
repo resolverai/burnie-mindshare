@@ -39,7 +39,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
               appName: 'Burnie - Yapper Platform',
               learnMoreUrl: 'https://burnie.co',
             }}
-            modalSize="compact"
+            modalSize="wide"
           >
             {children}
           </RainbowKitProvider>

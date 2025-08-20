@@ -72,7 +72,7 @@ export default function DynamicFilters({
   const hiddenProjects = projectsWithoutAll.slice(2)
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[auto_auto_1fr] items-start md:items-end gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-end gap-6">
       {/* Platforms Filter */}
       <div className="flex flex-col items-start gap-3">
         <div className="flex">
@@ -152,68 +152,70 @@ export default function DynamicFilters({
         </div>
       </div>
 
-      {/* Projects Filter */}
-      <div className="flex flex-col items-start gap-3">
-        <div className="flex">
-          <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Projects</span>
-        </div>
-        <div className="flex flex-wrap gap-4 items-center">
-          {/* All Button */}
-          <button 
-            onClick={() => onProjectChange('all')}
-            className={`badge-yapper ${selectedProject === 'all' ? '!bg-[#743636] !text-white font-semibold' : ''}`}
-          >
-            All
-          </button>
-
-          {/* Visible Project Buttons */}
-          {visibleProjects.map((project) => (
+      {/* Projects Filter - Temporarily Hidden */}
+      {false && (
+        <div className="flex flex-col items-start gap-3">
+          <div className="flex">
+            <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Projects</span>
+          </div>
+          <div className="flex flex-wrap gap-4 items-center">
+            {/* All Button */}
             <button 
-              key={project}
-              onClick={() => onProjectChange(project)}
-              className={`badge-yapper ${selectedProject === project ? '!bg-[#743636] !text-white font-semibold' : ''}`}
+              onClick={() => onProjectChange('all')}
+              className={`badge-yapper ${selectedProject === 'all' ? '!bg-[#743636] !text-white font-semibold' : ''}`}
             >
-              {project}
+              All
             </button>
-          ))}
 
-          {/* More Projects Dropdown */}
-          {hiddenProjects.length > 0 && (
-            <div className="relative" ref={projectDropdownRef}>
+            {/* Visible Project Buttons */}
+            {visibleProjects.map((project) => (
               <button 
-                onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
-                className="badge-yapper flex items-center gap-2"
+                key={project}
+                onClick={() => onProjectChange(project)}
+                className={`badge-yapper ${selectedProject === project ? '!bg-[#743636] !text-white font-semibold' : ''}`}
               >
-                {hiddenProjects.length} more
-                <Image 
-                  src="/arrowdown.svg" 
-                  alt="Arrow down" 
-                  width={12} 
-                  height={12}
-                  className={`transition-transform duration-200 ${isProjectDropdownOpen ? 'rotate-180' : ''}`}
-                />
+                {project}
               </button>
+            ))}
 
-              {isProjectDropdownOpen && (
-                <div className="absolute top-full left-0 mt-2 min-w-[200px] bg-[#492222] border border-white/20 rounded-lg shadow-lg z-50">
-                  {hiddenProjects.map((project) => (
-                    <button
-                      key={project}
-                      onClick={() => {
-                        onProjectChange(project)
-                        setIsProjectDropdownOpen(false)
-                      }}
-                      className={`w-full px-4 py-3 text-left transition-colors first:rounded-t-lg last:rounded-b-lg ${selectedProject === project ? 'bg-[#743636] text-white font-semibold' : 'text-white hover:bg-white/10'}`}
-                    >
-                      {project}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            {/* More Projects Dropdown */}
+            {hiddenProjects.length > 0 && (
+              <div className="relative" ref={projectDropdownRef}>
+                <button 
+                  onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
+                  className="badge-yapper flex items-center gap-2"
+                >
+                  {hiddenProjects.length} more
+                  <Image 
+                    src="/arrowdown.svg" 
+                    alt="Arrow down" 
+                    width={12} 
+                    height={12}
+                    className={`transition-transform duration-200 ${isProjectDropdownOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                {isProjectDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-2 min-w-[200px] bg-[#492222] border border-white/20 rounded-lg shadow-lg z-50">
+                    {hiddenProjects.map((project) => (
+                      <button
+                        key={project}
+                        onClick={() => {
+                          onProjectChange(project)
+                          setIsProjectDropdownOpen(false)
+                        }}
+                        className={`w-full px-4 py-3 text-left transition-colors first:rounded-t-lg last:rounded-b-lg ${selectedProject === project ? 'bg-[#743636] text-white font-semibold' : 'text-white hover:bg-white/10'}`}
+                      >
+                        {project}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Search Bar */}
       {onSearchChange && (

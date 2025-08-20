@@ -176,7 +176,7 @@ export default function YapperAnalytics() {
     return (
       <div className="h-full p-6 flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-white mb-4">No Data Available</h2>
+          <h2 className="text-2xl font-bold text-white mb-4">Coming Soon</h2>
           <p className="text-yapper-muted">Start purchasing content to see your performance analytics and AI insights</p>
         </div>
       </div>
@@ -193,12 +193,12 @@ export default function YapperAnalytics() {
       {/* Top area: slabs + prediction tiles */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:col-span-2">
-          <StatSlab 
-            title="Platform earning potential" 
-            subtitle="No data available" 
-            value="No Data" 
-            gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(120, 199, 255, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
-          />
+                      <StatSlab
+              title="Platform earning potential"
+              subtitle="Analysis coming soon"
+              value="Coming Soon"
+              gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(120, 199, 255, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)"
+            />
           {/* TODO: Restore when data is available
           <StatSlab 
             title="Platform earning potential" 
@@ -212,7 +212,7 @@ export default function YapperAnalytics() {
           <StatSlab 
             title="Leaderboard power" 
             subtitle="No data available" 
-            value="No Data" 
+            value="Coming Soon" 
             gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(255, 235, 104, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
           />
           {/* TODO: Restore when data is available
@@ -228,7 +228,7 @@ export default function YapperAnalytics() {
           <StatSlab 
             title="AI success rate" 
             subtitle="No data available" 
-            value="No Data" 
+            value="Coming Soon" 
             gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(148, 251, 72, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
           />
           {/* TODO: Restore when data is available
@@ -244,7 +244,7 @@ export default function YapperAnalytics() {
           <StatSlab 
             title="Content ROI" 
             subtitle="No data available" 
-            value="No Data" 
+            value="Coming Soon" 
             gradient="radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(245, 116, 116, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)" 
           />
           {/* TODO: Restore when data is available
@@ -263,19 +263,19 @@ export default function YapperAnalytics() {
           <div className="text-white font-medium text-sm mb-3">AI CONTENT PREDICTION (NEXT 7 DAYS)</div>
           <div className="grid grid-cols-2 gap-4 place-items-center">
             <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(159, 123, 239, 0.25) 0%, rgba(91, 70, 137, 0.25) 100%)', width: 180, height: 120 }}>
-              <div className="text-sm font-medium mb-1">No Data</div>
+              <div className="text-sm font-medium mb-1">Coming Soon</div>
               <div className="text-[11px] text-center leading-tight">Predicted SNAP</div>
             </div>
             <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(123, 215, 239, 0.25) 0%, rgba(70, 123, 137, 0.25) 100%)', width: 180, height: 120 }}>
-              <div className="text-sm font-medium mb-1">No Data</div>
+              <div className="text-sm font-medium mb-1">Coming Soon</div>
               <div className="text-[11px] text-center leading-tight">AI Confidence</div>
             </div>
             <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(123, 239, 152, 0.25) 0%, rgba(70, 137, 87, 0.25) 100%)', width: 180, height: 120 }}>
-              <div className="text-sm font-medium mb-1">No Data</div>
+              <div className="text-sm font-medium mb-1">Coming Soon</div>
               <div className="text-[11px] text-center leading-tight">Position jump</div>
             </div>
             <div className="rounded-[12px] p-4 text-white flex flex-col items-center justify-center" style={{ background: 'linear-gradient(90deg, rgba(239, 123, 150, 0.25) 0%, rgba(137, 70, 86, 0.25) 100%)', width: 180, height: 120 }}>
-              <div className="text-sm font-medium mb-1">No Data</div>
+              <div className="text-sm font-medium mb-1">Coming Soon</div>
               <div className="text-[11px] text-center leading-tight">Hot picks</div>
             </div>
           </div>

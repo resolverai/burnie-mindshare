@@ -92,19 +92,47 @@ export default function HeroCarousel({ slides, onProgressChange }: HeroCarouselP
               <div key={slide.id + i} className="relative h-full min-w-full pr-6 md:pr-8">
                 {/* Background */}
                 <div className="absolute inset-0 rounded-[24px] overflow-hidden">
-                  <Image 
-                    src={slide.backgroundUrl} 
-                    alt="Campaign background" 
-                    fill 
-                    priority={i === 0} 
-                    sizes="100vw" 
-                    className="object-cover"
-                    onError={(e) => {
-                      // Fallback to default hero image if S3 image fails
-                      const target = e.target as HTMLImageElement;
-                      target.src = '/hero.svg';
-                    }}
-                  />
+                  {(() => {
+                    const isS3Url = slide.backgroundUrl.includes('amazonaws.com') || slide.backgroundUrl.includes('.s3.');
+                    console.log(`🎨 Carousel slide ${i + 1}:`, {
+                      url: slide.backgroundUrl.substring(0, 100) + '...',
+                      isS3: isS3Url,
+                      method: isS3Url ? 'Direct img tag' : 'Next.js Image'
+                    });
+                    
+                    return isS3Url ? (
+                      // Use regular img tag for S3 URLs to avoid Next.js proxy
+                      <img 
+                        src={slide.backgroundUrl} 
+                        alt="Campaign background"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          console.log('🎨 S3 image failed to load:', slide.backgroundUrl);
+                          // Fallback to default hero image if S3 image fails
+                          const target = e.target as HTMLImageElement;
+                          target.src = '/hero.svg';
+                        }}
+                        onLoad={() => {
+                          console.log('🎨 ✅ S3 image loaded successfully');
+                        }}
+                      />
+                    ) : (
+                      // Use Next.js Image for local/static images
+                      <Image 
+                        src={slide.backgroundUrl} 
+                        alt="Campaign background" 
+                        fill 
+                        priority={i === 0} 
+                        sizes="100vw" 
+                        className="object-cover"
+                        onError={(e) => {
+                          // Fallback to default hero image if image fails
+                          const target = e.target as HTMLImageElement;
+                          target.src = '/hero.svg';
+                        }}
+                      />
+                    );
+                  })()}
                 </div>
 
                 {/* Subtle dark gradient to improve text contrast */}

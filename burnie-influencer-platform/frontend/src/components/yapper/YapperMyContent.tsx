@@ -16,6 +16,8 @@ import {
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 import TweetThreadDisplay from '../TweetThreadDisplay'
+import TweetPreviewModal from './TweetPreviewModal'
+import DynamicFilters from './DynamicFilters'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
 
 interface ContentItem {
@@ -61,9 +63,14 @@ export default function YapperMyContent() {
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedPlatform, setSelectedPlatform] = useState('all')
+  const [selectedProject, setSelectedProject] = useState('all')
   const [selectedPostType, setSelectedPostType] = useState('all')
   const [sortBy, setSortBy] = useState<'mindshare' | 'quality'>('mindshare')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  
+  // Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null)
 
   // Content parsing functions
   const extractImageUrl = (contentText: string): string | null => {
@@ -345,93 +352,16 @@ export default function YapperMyContent() {
       }, 0).toFixed(0) : "0",
       icon: "/roastusdc.svg",
     },
-    {
-      key: "msgenerated",
-      label: "Mindshare generated",
-      value: content ? (content.reduce((sum: number, item: ContentItem) => sum + item.predicted_mindshare, 0) / content.length).toFixed(1) + '%' : "0%",
-      icon: "/msgenerated.svg",
-    },
+    // Mindshare metric hidden per user request
+    // {
+    //   key: "msgenerated",
+    //   label: "Mindshare generated",
+    //   value: content ? (content.reduce((sum: number, item: ContentItem) => sum + item.predicted_mindshare, 0) / content.length).toFixed(1) + '%' : "0%",
+    //   icon: "/msgenerated.svg",
+    // },
   ]
 
-  // Filters Bar Component
-  const FiltersBar = () => (
-    <div className="grid grid-cols-1 md:grid-cols-[auto_auto_auto] items-start md:items-end gap-6">
-      <div className="flex flex-col items-start gap-3">
-        <div className="flex">
-          <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Platforms</span>
-        </div>
-        <div className="flex flex-wrap gap-4 items-center">
-          <button 
-            onClick={() => setSelectedPlatform('all')}
-            className={`badge-yapper ${selectedPlatform === 'all' ? 'bg-white/20' : ''}`}
-          >
-            All
-          </button>
-          <button 
-            onClick={() => setSelectedPlatform('cookie.fun')}
-            className={`badge-yapper flex items-center gap-2 ${selectedPlatform === 'cookie.fun' ? 'bg-white/20' : ''}`}
-          >
-            <Image src="/openledger.svg" alt="Cookie" width={16} height={16} />
-            Cookie.fun
-          </button>
-          <button 
-            onClick={() => setSelectedPlatform('yaps.kaito.ai')}
-            className={`badge-yapper flex items-center gap-2 ${selectedPlatform === 'yaps.kaito.ai' ? 'bg-white/20' : ''}`}
-          >
-            <Image src="/sapien.svg" alt="Kaito" width={16} height={16} />
-            Kaito.ai
-          </button>
-          <button className="badge-yapper flex items-center gap-2">
-            2 more
-            <Image src="/arrowdown.svg" alt="Arrow down" width={12} height={12} />
-          </button>
-        </div>
-      </div>
-      <div className="flex flex-col items-start gap-3 mr-0 md:mr-60">
-        <div className="flex">
-          <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Sectors</span>
-        </div>
-        <div className="flex flex-wrap gap-4 items-center">
-          <button 
-            onClick={() => setSelectedPostType('all')}
-            className={`badge-yapper ${selectedPostType === 'all' ? 'bg-white/20' : ''}`}
-          >
-            All
-          </button>
-          <button 
-            onClick={() => setSelectedPostType('longpost')}
-            className={`badge-yapper ${selectedPostType === 'longpost' ? 'bg-white/20' : ''}`}
-          >
-            DeFi
-          </button>
-          <button 
-            onClick={() => setSelectedPostType('shitpost')}
-            className={`badge-yapper ${selectedPostType === 'shitpost' ? 'bg-white/20' : ''}`}
-          >
-            Meme
-          </button>
-          <button 
-            onClick={() => setSelectedPostType('thread')}
-            className={`badge-yapper ${selectedPostType === 'thread' ? 'bg-white/20' : ''}`}
-          >
-            InfoFi
-          </button>
-        </div>
-      </div>
-      <div className="max-w-full flex justify-end items-end">
-        <div className="relative">
-          <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-white/70" />
-          <input
-            type="text"
-            placeholder="Search by campaign, platform sector"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="rounded-[8px] h-8 bg-white/10 placeholder:text-white/30 text-white pl-10 pr-4 border border-white/20 focus:border-white/40 focus:outline-none"
-          />
-        </div>
-      </div>
-    </div>
-  )
+
 
   return (
     <div className="px-4 py-6 space-y-6">
@@ -440,7 +370,7 @@ export default function YapperMyContent() {
           <h1 className="text-white text-2xl font-bold uppercase">MY CONTENT</h1>
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {stats.map((stat, idx) => ( 
               <div key={stat.key} className="relative rounded-[16px] bg-white/10 p-4">
                 <div className="flex items-center justify-between">
@@ -457,7 +387,14 @@ export default function YapperMyContent() {
           </div>
         </div>
 
-        <FiltersBar />
+        <DynamicFilters
+          selectedPlatform={selectedPlatform}
+          selectedProject={selectedProject}
+          onPlatformChange={setSelectedPlatform}
+          onProjectChange={setSelectedProject}
+          searchTerm={searchTerm}
+          onSearchChange={(e) => setSearchTerm(e.target.value)}
+        />
 
         {/* Content Grid */}
         {isLoading ? (
@@ -483,14 +420,14 @@ export default function YapperMyContent() {
                 ? item.content_images[0] 
                 : imageUrl
               
-              return (
-                <article key={item.id} className="group relative yapper-card">
+                          return (
+              <article key={item.id} className="group relative rounded-[28px] overflow-hidden bg-[--color-surface] cursor-pointer">
                   <div className="relative aspect-[16/10]">
                     {/* Background layer */}
                     {displayImage ? (
                       <Image src={displayImage} alt="Project" fill sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
                     ) : (
-                      <div className="absolute inset-0 flex items-center justify-center bg-yapper-muted">
+                      <div className="absolute inset-0 flex items-center justify-center bg-[--color-muted]">
                         <div className="text-white/50 text-center">
                           <div className="text-4xl mb-2">📝</div>
                           <div className="text-sm">AI Generated Content</div>
@@ -498,47 +435,40 @@ export default function YapperMyContent() {
                       </div>
                     )}
 
-                    {/* Overlay content (always visible on My Content) */}
-                    <div className="absolute inset-0 bg-white/10 backdrop-blur-xs">
+                    {/* Overlay content - blur effect on hover for My Content */}
+                    <div className="absolute inset-0 opacity-0 bg-white/10 backdrop-blur-sm transition-opacity duration-300 group-hover:opacity-100">
+                      {/* Gradient scrim for readability */}
                       <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/25 to-black/40" aria-hidden />
 
+                      {/* Responsive stacked content */}
                       <div className="relative z-10 h-full w-full flex flex-col">
                         {/* Top badges */}
                         <div className="px-4 md:px-5 pt-4 md:pt-5 flex items-center justify-between">
-                          <div className="badge-yapper flex items-center gap-2">
+                          <div className="inline-flex h-9 items-center rounded-[12px] bg-[#451616] hover:bg-[#743636] transition-colors px-3 gap-2">
                             <Image src="/openledger.svg" alt="Platform" width={16} height={16} />
+                            <span className="text-white text-sm font-medium">{item.campaign.platform_source}</span>
+                          </div>
+                          <span className="inline-flex h-9 items-center rounded-full bg-[#FFEB68] px-4 text-[#3b2a00] text-sm font-semibold shadow-[0_6px_20px_rgba(0,0,0,0.25)]">
                             {item.campaign.platform_source}
-                          </div>
-                          {item.campaign.platform_source && (
-                            <span className="badge-yapper-highlight">
-                              {item.campaign.platform_source}
-                            </span>
-                          )}
+                          </span>
                         </div>
 
-                        {/* Title and stats */}
-                        <div className="px-4 md:px-5 mt-6 md:mt-12">
-                          <h3 className="text-white text-base md:text-[16px] font-semibold drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)] truncate">
-                            {text.length > 60 ? text.substring(0, 60) + '...' : text}
-                          </h3>
-                          <div className="grid grid-cols-2 gap-4 md:gap-8 text-white/85 mt-4">
-                            <div>
-                              <div className="text-xs md:text-sm font-semibold">Predicted Mindshare</div>
-                              <div className="text-lg md:text-xl font-semibold">{item.predicted_mindshare.toFixed(1)}%</div>
-                            </div>
-                            <div>
-                              <div className="text-xs md:text-sm font-semibold">Quality Score</div>
-                              <div className="text-lg md:text-xl font-semibold">{item.quality_score.toFixed(1)}/100</div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Bottom bar - Tweet button for My Content */}
+                        {/* Bottom bar - Tweet text and button for My Content */}
                         <div className="mt-auto px-4 md:px-5 pb-4 md:pb-5">
+                          {/* Tweet preview text */}
+                          <div className="mb-3">
+                            <p className="text-white/90 text-xs md:text-sm leading-relaxed drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)] font-nt-brick">
+                              {text.length > 90 ? text.substring(0, 90) + '...' : text}
+                            </p>
+                          </div>
+                          
                           <div className="flex items-center justify-center">
                             <button
-                              onClick={() => postToTwitter(text, item.tweet_thread)}
-                              className="btn-yapper-primary h-9 md:h-10 px-4 md:px-5 glow-button-orange w-full"
+                              onClick={() => {
+                                setSelectedContent(item)
+                                setIsModalOpen(true)
+                              }}
+                              className="h-9 md:h-10 px-4 md:px-5 rounded-[12px] text-[#ffffff] font-semibold bg-[#FD7A10] glow-button-orange shadow-[0_10px_30px_rgba(0,0,0,0.25)] w-full hover:bg-[#E5690F] transition-colors"
                             >
                               Tweet
                             </button>
@@ -546,13 +476,7 @@ export default function YapperMyContent() {
                         </div>
                       </div>
 
-                      {/* "OWNED" Badge */}
-                      <div className="absolute top-2 right-2">
-                        <div className="bg-green-600 text-white px-2 py-1 rounded-full text-xs font-bold flex items-center space-x-1">
-                          <CheckCircleIcon className="h-3 w-3" />
-                          <span>OWNED</span>
-                        </div>
-                      </div>
+                      {/* "OWNED" Badge removed per user request */}
                     </div>
                   </div>
                 </article>
@@ -570,6 +494,17 @@ export default function YapperMyContent() {
             <div className="text-white/50">Purchase content from the marketplace to see it here</div>
           </div>
         )}
+
+        {/* Tweet Preview Modal */}
+        <TweetPreviewModal 
+          isOpen={isModalOpen} 
+          onClose={() => { 
+            setIsModalOpen(false)
+            setSelectedContent(null)
+          }} 
+          contentData={selectedContent}
+          startPurchased={true}
+        />
     </div>
   )
 }

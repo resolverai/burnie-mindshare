@@ -74,7 +74,7 @@ export default function BiddingInterface() {
   const [sortBy, setSortBy] = useState<'mindshare' | 'quality'>('mindshare')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [showPurchaseModal, setShowPurchaseModal] = useState<ContentItem | null>(null)
-  const [showCopyProtection, setShowCopyProtection] = useState(false)
+  // Copy protection state removed - no longer needed in public marketplace
   const [isScreenshotDetected, setIsScreenshotDetected] = useState(false)
   const [expandedLongposts, setExpandedLongposts] = useState<Set<number>>(new Set())
   const [heroPosition, setHeroPosition] = useState(0)
@@ -242,83 +242,12 @@ export default function BiddingInterface() {
     return `MINER-${minerId}`
   }
 
-  // Copy protection functions
-  const preventCopy = (e: Event) => {
-    e.preventDefault()
-    setShowCopyProtection(true)
-    return false
-  }
-
-  const preventRightClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    setShowCopyProtection(true)
-  }
-
-  const preventDrag = (e: React.DragEvent) => {
-    e.preventDefault()
-    setShowCopyProtection(true)
-  }
-
-  const preventImageRightClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    setShowCopyProtection(true)
-  }
-
-  const preventKeyboardCopy = (e: React.KeyboardEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      if (['c', 'a', 's', 'p', 'v', 'x'].includes(e.key.toLowerCase())) {
-        e.preventDefault()
-        setShowCopyProtection(true)
-      }
-    }
-    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
-      e.preventDefault()
-      setShowCopyProtection(true)
-    }
-  }
-
-  // Copy protection modal component
-  const CopyProtectionModal = () => (
-    showCopyProtection && (
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-75">
-        <div className="bg-white rounded-lg p-8 max-w-md mx-4 text-center">
-          <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mx-auto mb-4" />
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Content Protected</h3>
-          <p className="text-gray-600 mb-6">
-            This content is proprietary and protected. Copying, screenshots, and screen recording are prohibited. 
-            You can only access this content after purchasing it.
-          </p>
-          <button
-            onClick={() => setShowCopyProtection(false)}
-            className="px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-          >
-            I Understand
-          </button>
-        </div>
-      </div>
-    )
-  )
+  // Copy protection removed from BiddingInterface - marketplace is now public
+  // Copy protection is only active within PurchaseContentModal
 
 
 
-  // Add copy protection on component mount
-  useEffect(() => {
-    const handleCopy = (e: ClipboardEvent) => preventCopy(e)
-    const handleCut = (e: ClipboardEvent) => preventCopy(e)
-    const handleSelectStart = (e: Event) => preventCopy(e)
-    
-    document.addEventListener('copy', handleCopy)
-    document.addEventListener('cut', handleCut)
-    document.addEventListener('selectstart', handleSelectStart)
-    document.addEventListener('dragstart', preventCopy)
-    
-    return () => {
-      document.removeEventListener('copy', handleCopy)
-      document.removeEventListener('cut', handleCut)
-      document.removeEventListener('selectstart', handleSelectStart)
-      document.removeEventListener('dragstart', preventCopy)
-    }
-  }, [])
+  // Copy protection event listeners removed - marketplace is now public
 
   // Handle purchase function (updated to use marketplace service)
   const handlePurchaseCallback = async (contentId: number, price: number, currency: 'ROAST' | 'USDC' = 'ROAST', transactionHash?: string) => {
@@ -445,19 +374,8 @@ export default function BiddingInterface() {
   ), [searchTerm, selectedPlatform, selectedProject, handleSearchChange, handlePlatformChange, handleProjectChange])
 
   return (
-    <div 
-      className="select-none relative"
-      onContextMenu={preventRightClick}
-      onKeyDown={preventKeyboardCopy}
-      style={{
-        userSelect: 'none',
-        WebkitUserSelect: 'none',
-        MozUserSelect: 'none',
-        msUserSelect: 'none',
-        WebkitTouchCallout: 'none',
-        WebkitTapHighlightColor: 'transparent'
-      }}
-    >
+    <div className="relative">
+      {/* Marketplace is now public - no copy protection on main interface */}
       <div className="px-4 py-6 space-y-6">
         {/* Hero Carousel Section */}
         {!isCarouselLoading && carouselSlides.length > 0 && (
@@ -641,8 +559,7 @@ export default function BiddingInterface() {
         onPurchase={handlePurchaseCallback}
       />
 
-      {/* Copy Protection Modal */}
-      <CopyProtectionModal />
+      {/* Copy protection removed from marketplace - now public */}
     </div>
   )
 }
