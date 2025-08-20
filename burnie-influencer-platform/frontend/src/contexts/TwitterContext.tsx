@@ -87,7 +87,7 @@ export function TwitterProvider({ children }: TwitterProviderProps) {
             token_status, 
             twitter_username, 
             twitter_display_name,
-            twitter_profile_image,
+            profile_image_url,
             twitter_followers,
             twitter_following,
             token_expires_at 
@@ -102,7 +102,7 @@ export function TwitterProvider({ children }: TwitterProviderProps) {
             profile: connected ? {
               username: twitter_username,
               displayName: twitter_display_name,
-              profileImage: twitter_profile_image,
+              profileImage: profile_image_url,
               followers: twitter_followers,
               following: twitter_following,
             } : null,

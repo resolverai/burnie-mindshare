@@ -11,6 +11,7 @@ import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
 import { TreasuryService } from '../services/TreasuryService';
 import { fetchROASTPrice } from '../services/priceService';
+import ReferralPayoutService from '../services/ReferralPayoutService';
 import { createPublicClient, http, parseUnits, formatUnits } from 'viem';
 import { base } from 'viem/chains';
 const AWS = require('aws-sdk');
@@ -3285,6 +3286,16 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
 
     logger.info(`✅ Treasury distribution completed: ${distributionResult.transactionHash}`);
 
+    // Process referral payouts after miner payout is completed
+    logger.info(`🎯 Processing referral payouts for purchase ${purchase.id}...`);
+    const referralResult = await ReferralPayoutService.processReferralPayouts(purchase.id);
+    
+    if (referralResult.success) {
+      logger.info(`✅ Referral payouts processed: Direct: ${referralResult.directReferrerPayout || 0} ROAST, Grand: ${referralResult.grandReferrerPayout || 0} ROAST`);
+    } else {
+      logger.warn(`⚠️ Referral payout processing failed: ${referralResult.message}`);
+    }
+
     res.json({
       success: true,
       message: 'Treasury distribution completed',
@@ -3293,7 +3304,12 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
         minerAddress,
         minerPayoutRoast,
         treasuryTransactionHash: distributionResult.transactionHash,
-        payoutStatus: purchase.payoutStatus
+        payoutStatus: purchase.payoutStatus,
+        referralPayouts: {
+          directReferrerPayout: referralResult.directReferrerPayout || 0,
+          grandReferrerPayout: referralResult.grandReferrerPayout || 0,
+          referralPayoutStatus: referralResult.success ? 'completed' : 'failed'
+        }
       }
     });
 
@@ -4166,6 +4182,54 @@ router.post('/check-balance', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to check token balance'
+    });
+  }
+});
+
+// GET /api/marketplace/user/:userId/profile - Get user profile with Twitter data
+router.get('/user/:userId/profile', async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    // Get user data
+    const userRepository = AppDataSource.getRepository(User);
+        const user = await userRepository.findOne({ 
+      where: { id: parseInt(userId as string) } 
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Get Twitter connection data
+    const { TwitterUserConnection } = await import('../models/TwitterUserConnection');
+    const twitterRepository = AppDataSource.getRepository(TwitterUserConnection);
+    const twitterConnection = await twitterRepository.findOne({
+      where: { userId: parseInt(userId as string), isConnected: true }
+    });
+
+    return res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        walletAddress: user.walletAddress
+      },
+      twitterConnection: twitterConnection ? {
+        twitterUsername: twitterConnection.twitterUsername,
+        twitterDisplayName: twitterConnection.twitterDisplayName,
+        profileImageUrl: twitterConnection.profileImageUrl
+      } : null
+    });
+
+  } catch (error) {
+    logger.error('❌ Error fetching user profile:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user profile'
     });
   }
 });

@@ -308,7 +308,7 @@ export default function YapperAnalytics() {
           {/* Opportunity scanner */}
           <Card className="rounded-[20px]">
             <div className="flex items-center justify-between">
-              <h3 className="text-white text-sm space-y-2">LIVE OPPORTUNITY SCANNER - COOKIE.FUN ALGORITHM INTELLIGENCE</h3>
+              <h3 className="text-white text-sm space-y-2">LIVE OPPORTUNITY SCANNER - CONTENT TRENDS</h3>
               <div className="flex items-center gap-3">
                 <button aria-label="previous" className="p-1 rounded-full hover:bg-white/10">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-white/70"><path d="M15 18l-6-6 6-6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -425,12 +425,12 @@ export default function YapperAnalytics() {
         <div className="space-y-4">
           <div className="flex flex-col">
             <div className="flex items-center justify-between border-b border-white/10 bg-[#2b1a1a] px-6 py-4 rounded-t-xl">
-              <h3 className="text-white text-sm font-medium">AI INSIGHTS & FOMO ALERTS</h3>
+              <h3 className="text-white text-sm font-medium">PERFORMANCE INSIGHTS</h3>
               <span className="text-white/40 text-xs">Updated 5 min ago</span>
             </div>
             <div className="flex flex-col gap-2 rounded-b-xl bg-[#2b1a1a] px-4 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
               <div className="flex items-center justify-center py-8">
-                <div className="text-white/60 text-sm text-center">No AI insights data available</div>
+                <div className="text-white/60 text-sm text-center">No performance insights data available</div>
               </div>
             </div>
             {/* TODO: Restore when data is available
@@ -445,12 +445,12 @@ export default function YapperAnalytics() {
 
           <div className="flex flex-col">
             <div className="flex items-center justify-between border-b border-white/10 bg-[#2b1a1a] px-6 py-4 rounded-t-xl">
-              <h3 className="text-white text-sm font-medium">TODAY'S ALGORITHM INTELLIGENCE</h3>
+              <h3 className="text-white text-sm font-medium">MARKET INSIGHTS</h3>
               <span className="text-white/40 text-xs">Updated 5 min ago</span>
             </div>
             <div className="flex flex-col gap-2 rounded-b-xl bg-[#2b1a1a] px-4 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
               <div className="flex items-center justify-center py-8">
-                <div className="text-white/60 text-sm text-center">No algorithm intelligence data available</div>
+                <div className="text-white/60 text-sm text-center">No market insights data available</div>
               </div>
             </div>
             {/* TODO: Restore when data is available

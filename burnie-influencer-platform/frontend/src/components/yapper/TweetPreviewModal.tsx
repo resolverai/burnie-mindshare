@@ -56,6 +56,20 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
     // Twitter state now managed by global context
     const [isPurchased, setIsPurchased] = useState<boolean>(startPurchased ?? true);
 
+    // Helper functions to get display data based on Twitter connection (for yapper/logged-in user)
+    const getDisplayName = () => {
+        return twitter.profile?.displayName || twitter.profile?.username || contentData?.creator?.username || 'Yapper'
+    }
+
+    const getTwitterHandle = () => {
+        return twitter.profile?.username || contentData?.creator?.username?.toLowerCase() || 'yapper'
+    }
+
+    const getInitialLetter = () => {
+        const name = getDisplayName()
+        return name.charAt(0).toUpperCase()
+    }
+
     // Content parsing functions (extracted from YapperMyContent)
     const extractImageUrl = (contentText: string): string | null => {
         const prefixMatch = contentText.match(/📸 Image URL:\s*(https?:\/\/[^\s\n<>"'`]+)/i)
@@ -258,23 +272,33 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                 <div className="relative pb-3">
                                     <div className="flex gap-3 pr-2">
                                         <div className="relative flex-shrink-0">
-                                            <Image
-                                                src="/username.svg"
-                                                alt="User"
-                                                width={36}
-                                                height={36}
-                                                className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-white relative z-10"
-                                            />
+                                            <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-orange-500 flex items-center justify-center relative z-10 overflow-hidden">
+                                                {twitter.profile?.profileImage ? (
+                                                    <img 
+                                                        src={twitter.profile.profileImage} 
+                                                        alt={`${getDisplayName()} profile`}
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            const target = e.target as HTMLImageElement;
+                                                            target.style.display = 'none';
+                                                            target.nextElementSibling?.classList.remove('hidden');
+                                                        }}
+                                                    />
+                                                ) : null}
+                                                <span className={`text-white font-bold text-sm ${twitter.profile?.profileImage ? 'hidden' : ''}`}>
+                                                    {getInitialLetter()}
+                                                </span>
+                                            </div>
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <span className="text-white font-bold text-xs lg:text-sm">
-                                                    {contentData?.creator?.username || 'Yapper'}
+                                                    {getDisplayName()}
                                                 </span>
                                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="#1DA1F2">
                                                     <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.72 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
                                                 </svg>
-                                                <span className="text-gray-500 text-xs lg:text-sm">@{contentData?.creator?.username?.toLowerCase() || 'yapper'}</span>
+                                                <span className="text-gray-500 text-xs lg:text-sm">@{getTwitterHandle()}</span>
                                             </div>
 
                                             <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
@@ -330,23 +354,33 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                     <div key={idx} className="relative pt-3">
                                         <div className="flex gap-3 pr-2">
                                             <div className="relative flex-shrink-0">
-                                                <Image
-                                                    src="/username.svg"
-                                                    alt="User"
-                                                    width={28}
-                                                    height={28}
-                                                    className="w-7 h-7 lg:w-8 lg:h-8 rounded-full bg-white relative z-10 mr-2"
-                                                />
+                                                <div className="w-7 h-7 lg:w-8 lg:h-8 rounded-full bg-orange-500 flex items-center justify-center relative z-10 mr-2 overflow-hidden">
+                                                    {twitter.profile?.profileImage ? (
+                                                        <img 
+                                                            src={twitter.profile.profileImage} 
+                                                            alt={`${getDisplayName()} profile`}
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => {
+                                                                const target = e.target as HTMLImageElement;
+                                                                target.style.display = 'none';
+                                                                target.nextElementSibling?.classList.remove('hidden');
+                                                            }}
+                                                        />
+                                                    ) : null}
+                                                    <span className={`text-white font-bold text-xs ${twitter.profile?.profileImage ? 'hidden' : ''}`}>
+                                                        {getInitialLetter()}
+                                                    </span>
+                                                </div>
                                             </div>
                                             <div className="flex-1 min-w-0 pb-3">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <span className="text-white font-bold text-xs lg:text-sm">
-                                                        {contentData.creator?.username || 'Yapper'}
+                                                        {getDisplayName()}
                                                     </span>
                                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="#1DA1F2">
                                                         <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.72 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
                                                     </svg>
-                                                    <span className="text-gray-500 text-xs lg:text-sm">@{contentData.creator?.username?.toLowerCase() || 'yapper'}</span>
+                                                    <span className="text-gray-500 text-xs lg:text-sm">@{getTwitterHandle()}</span>
                                                 </div>
                                                 <div className="text-white text-xs lg:text-sm leading-relaxed pr-2">
                                                     {tweet}

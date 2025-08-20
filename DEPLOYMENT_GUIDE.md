@@ -8,7 +8,7 @@ This guide provides step-by-step instructions for deploying the Burnie Platform 
 - Docker and Docker Compose installed (see installation guide below)
 - Domain names configured in Route 53:
   - `mining.burnie.io` → Mining Interface
-  - `influencer.burnie.io` → Frontend
+  - `yap.burnie.io` → Frontend
   - `mindshareapi.burnie.io` → TypeScript Backend
   - `attentionai.burnie.io` → Python AI Backend
 
@@ -190,7 +190,7 @@ Create: `burnie-influencer-platform/frontend/.env`
 
 **For Production:**
 ```bash
-# Production Configuration for influencer.burnie.io
+# Production Configuration for yap.burnie.io
 NODE_ENV=production
 PORT=3004
 
@@ -247,7 +247,7 @@ DB_SYNCHRONIZE=false
 DB_LOGGING=false
 
 # CORS Configuration (Production URLs)
-ALLOWED_ORIGINS=https://mining.burnie.io,https://influencer.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io
+ALLOWED_ORIGINS=https://mining.burnie.io,https://yap.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io
 
 # JWT Configuration (Use strong secrets)
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production-32-chars-min
@@ -571,7 +571,7 @@ curl https://mindshareapi.burnie.io/health
 curl https://attentionai.burnie.io/docs
 
 # Test frontend access
-curl -I https://influencer.burnie.io
+curl -I https://yap.burnie.io
 curl -I https://mining.burnie.io
 ```
 
@@ -714,7 +714,7 @@ docker system prune -f
 
 After successful deployment:
 
-- 🌐 **Frontend**: https://influencer.burnie.io
+- 🌐 **Frontend**: https://yap.burnie.io
 - ⛏️ **Mining Interface**: https://mining.burnie.io  
 - 🔗 **API Backend**: https://mindshareapi.burnie.io
 - 🤖 **AI Backend**: https://attentionai.burnie.io

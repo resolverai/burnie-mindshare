@@ -8,6 +8,7 @@ import BiddingInterface from '@/components/yapper/BiddingInterface'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
 import { useTokenRegistration } from '@/hooks/useTokenRegistration'
 import { useAuth } from '@/hooks/useAuth'
+import { useMarketplaceAccess } from '@/hooks/useMarketplaceAccess'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -18,6 +19,7 @@ export default function HomePage() {
   const { address, isConnected } = useAccount()
   const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
   const { needsSignature, signIn, isLoading: authLoading, isAuthenticated } = useAuth()
+  const { hasAccess, redirectToAccess } = useMarketplaceAccess()
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
   const [mounted, setMounted] = useState(false)
   
@@ -25,6 +27,20 @@ export default function HomePage() {
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Redirect authenticated users without access to the access page
+  useEffect(() => {
+    // Only redirect if we're certain about the authentication state and access status
+    if (!authLoading && isAuthenticated && !hasAccess) {
+      // Add a small delay to avoid redirect loops and ensure state is stable
+      const timer = setTimeout(() => {
+        console.log('🔒 Authenticated user without access, redirecting to access page')
+        redirectToAccess()
+      }, 500)
+      
+      return () => clearTimeout(timer)
+    }
+  }, [authLoading, isAuthenticated, hasAccess, redirectToAccess])
   
   // Auto-trigger signature confirmation when wallet connects and signature is needed
   useEffect(() => {

@@ -33,6 +33,7 @@ interface TwitterTokenResponse {
   refresh_token?: string;
   expires_in?: number;
   scope?: string;
+  token_type?: string;
 }
 
 interface TwitterUserData {
@@ -78,7 +79,7 @@ router.post('/twitter/url', async (req: Request, res: Response) => {
       response_type: 'code',
       client_id: TWITTER_CLIENT_ID,
       redirect_uri: TWITTER_REDIRECT_URI,
-      scope: 'tweet.read users.read follows.read offline.access',
+      scope: 'tweet.read tweet.write media.write users.read follows.read offline.access',
       state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
@@ -113,7 +114,24 @@ router.post('/twitter/url', async (req: Request, res: Response) => {
  */
 router.post('/exchange-code', async (req: Request, res: Response) => {
   try {
-    const { code, walletAddress, codeVerifier, state } = req.body;
+    let { code, walletAddress, codeVerifier, state } = req.body;
+
+    // If codeVerifier is missing, try to get it from global session storage
+    if (!codeVerifier && state) {
+      const sessionKey = `oauth_${state}`;
+      const globalSessions = (global as any).oauthSessions || {};
+      const sessionData = globalSessions[sessionKey];
+      
+      if (sessionData) {
+        codeVerifier = sessionData.codeVerifier;
+        walletAddress = walletAddress || sessionData.walletAddress;
+        
+        // Clean up the session data
+        delete globalSessions[sessionKey];
+        
+        logger.info(`🔍 Retrieved OAuth session data for state: ${state}`);
+      }
+    }
 
     if (!code || !walletAddress || !codeVerifier) {
       return res.status(400).json({
@@ -281,6 +299,13 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       existingConnection.isConnected = true;
       existingConnection.profileImageUrl = twitterUser.profile_image_url || null;
       
+      // Store OAuth scope information in yapperData
+      existingConnection.yapperData = {
+        scope: tokenResult.scope || 'tweet.read tweet.write media.write users.read follows.read offline.access',
+        token_type: tokenResult.token_type || 'bearer',
+        granted_at: new Date().toISOString()
+      };
+      
       // Set token expiration (Twitter tokens typically expire in 2 hours)
       const expiresIn = tokenResult.expires_in || 7200; // Default to 2 hours if not provided
       existingConnection.tokenExpiresAt = new Date(Date.now() + (expiresIn * 1000));
@@ -312,6 +337,13 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       newConnection.refreshToken = tokenResult.refresh_token || null;
       newConnection.isConnected = true;
       newConnection.profileImageUrl = twitterUser.profile_image_url || null;
+      
+      // Store OAuth scope information in yapperData
+      newConnection.yapperData = {
+        scope: tokenResult.scope || 'tweet.read tweet.write media.write users.read follows.read offline.access',
+        token_type: tokenResult.token_type || 'bearer',
+        granted_at: new Date().toISOString()
+      };
       
       // Set token expiration (Twitter tokens typically expire in 2 hours)
       const expiresIn = tokenResult.expires_in || 7200; // Default to 2 hours if not provided
@@ -702,6 +734,63 @@ router.post('/refresh-token/:walletAddress', async (req: Request, res: Response)
       error: 'Failed to refresh Twitter token',
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+/**
+ * GET /api/yapper-twitter-auth/auth
+ * Direct OAuth redirect route (used by PurchaseContentModal)
+ */
+router.get('/auth', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.query;
+
+    if (!walletAddress) {
+      return res.status(400).send('Wallet address is required');
+    }
+
+    if (!TWITTER_CLIENT_ID || !TWITTER_CLIENT_SECRET) {
+      return res.status(500).send('Twitter OAuth credentials not configured');
+    }
+
+    logger.info(`🔗 Direct OAuth redirect for Yapper wallet: ${walletAddress}`);
+
+    // Generate state parameter for security
+    const state = crypto.randomBytes(32).toString('hex');
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+
+    // Store state and code verifier in memory for this session
+    // In production, you might want to use a more persistent storage
+    const sessionKey = `oauth_${state}`;
+    (global as any).oauthSessions = (global as any).oauthSessions || {};
+    (global as any).oauthSessions[sessionKey] = {
+      codeVerifier,
+      walletAddress: walletAddress as string,
+      timestamp: Date.now()
+    };
+
+    // Build OAuth URL
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: TWITTER_CLIENT_ID,
+      redirect_uri: TWITTER_REDIRECT_URI,
+      scope: 'tweet.read tweet.write media.write users.read follows.read offline.access',
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+    });
+
+    const authUrl = `https://twitter.com/i/oauth2/authorize?${params.toString()}`;
+
+    logger.info(`✅ Redirecting to Twitter OAuth for Yapper: ${walletAddress}`);
+
+    // Redirect to Twitter OAuth
+    return res.redirect(authUrl);
+
+  } catch (error) {
+    logger.error('❌ Failed to initiate direct OAuth redirect for Yapper:', error);
+    return res.status(500).send('Failed to initiate OAuth');
   }
 });
 

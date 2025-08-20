@@ -104,14 +104,32 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
     const contentRepository: Repository<ContentMarketplace> = AppDataSource.getRepository(ContentMarketplace);
 
-    // Get active campaigns sorted by end date ascending (urgency) - limited to 3
-    // Let's be less restrictive to debug the issue
-    const campaigns = await campaignRepository
+    // Step 1: Get all active campaigns sorted in ascending order by ID
+    const allActiveCampaigns = await campaignRepository
       .createQueryBuilder('campaign')
       .where('campaign.isActive = :isActive', { isActive: true })
-      .orderBy('campaign.endDate', 'ASC') // Ascending for urgency (ending soonest first)
-      .limit(3) // Limit to max 3 campaigns for carousel
+      .orderBy('campaign.id', 'ASC') // Ascending order by ID
       .getMany();
+
+    // Step 2: Filter campaigns that have at least one content which is approved, biddable and available
+    const campaignsWithValidContent: Campaign[] = [];
+    
+    for (const campaign of allActiveCampaigns) {
+      const validContentCount = await contentRepository
+        .createQueryBuilder('content')
+        .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+        .andWhere('content.approvalStatus = :approvalStatus', { approvalStatus: 'approved' })
+        .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
+        .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
+        .getCount();
+      
+      if (validContentCount > 0) {
+        campaignsWithValidContent.push(campaign);
+      }
+    }
+
+    // Step 3: Take first 3 campaigns for carousel
+    const campaigns = campaignsWithValidContent.slice(0, 3);
 
     logger.info(`🎠 Found ${campaigns.length} active campaigns for carousel`);
     campaigns.forEach(campaign => {
@@ -128,21 +146,26 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
             for (const campaign of campaigns) {
           try {
-            // Get top 2 quality content pieces for this campaign  
+            // Get top 2 quality content pieces for this campaign (approved, biddable, available)
             const topQualityContent = await contentRepository
               .createQueryBuilder('content')
               .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+              .andWhere('content.approvalStatus = :approvalStatus', { approvalStatus: 'approved' })
+              .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
+              .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
               .andWhere('content.contentImages IS NOT NULL')
               .andWhere('content.qualityScore IS NOT NULL')
               .orderBy('content.qualityScore', 'DESC')
               .limit(2)
               .getMany();
 
-            // Get total content count (approved and biddable) for this campaign
+            // Get total content count (approved, biddable and available) for this campaign
             const totalContentCount = await contentRepository
               .createQueryBuilder('content')
               .where('content.campaignId = :campaignId', { campaignId: campaign.id })
               .andWhere('content.approvalStatus = :approvalStatus', { approvalStatus: 'approved' })
+              .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
+              .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
               .getCount();
 
             const gallery: string[] = [];

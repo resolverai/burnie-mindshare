@@ -41,6 +41,12 @@ import { ContentPerformanceTracking } from '../models/ContentPerformanceTracking
 import { PrimaryPredictorTrainingData } from '../models/PrimaryPredictorTrainingData';
 import { TwitterEngagementTrainingData } from '../models/TwitterEngagementTrainingData';
 
+// Import referral and waitlist entities
+import { ReferralCode } from '../models/ReferralCode';
+import { UserReferral } from '../models/UserReferral';
+import { ReferralPayout } from '../models/ReferralPayout';
+import { Waitlist } from '../models/Waitlist';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -90,6 +96,11 @@ export const AppDataSource = new DataSource({
     // New ML training data entities
     PrimaryPredictorTrainingData,
     TwitterEngagementTrainingData,
+    // Referral and waitlist entities
+    ReferralCode,
+    UserReferral,
+    ReferralPayout,
+    Waitlist,
   ],
   migrations: [],
   subscribers: [],

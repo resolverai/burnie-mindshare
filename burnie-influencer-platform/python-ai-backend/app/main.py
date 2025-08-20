@@ -60,7 +60,7 @@ app = FastAPI(
 # CORS middleware - get allowed origins from environment
 allowed_origins = os.getenv('ALLOWED_ORIGINS', 
     'http://localhost:3000,http://localhost:3001,http://localhost:3004,'
-    'https://mining.burnie.io,https://influencer.burnie.io,'
+    'https://mining.burnie.io,https://yap.burnie.io,'
     'https://mindshareapi.burnie.io,https://attentionai.burnie.io,'
     'https://attention.burnie.io'
 ).split(',')

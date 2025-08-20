@@ -52,6 +52,22 @@ export class ContentPurchase {
   @Column({ type: 'varchar', length: 50, default: 'pending', name: 'payout_status' })
   payoutStatus!: 'pending' | 'completed' | 'failed'
 
+  // Referral Payout Fields
+  @Column({ type: 'decimal', precision: 20, scale: 8, name: 'direct_referrer_payout', default: 0 })
+  directReferrerPayout!: number // ROAST amount paid to direct referrer
+
+  @Column({ type: 'decimal', precision: 20, scale: 8, name: 'grand_referrer_payout', default: 0 })
+  grandReferrerPayout!: number // ROAST amount paid to grand referrer
+
+  @Column({ name: 'direct_referrer_tx_hash', length: 255, nullable: true })
+  directReferrerTxHash?: string
+
+  @Column({ name: 'grand_referrer_tx_hash', length: 255, nullable: true })
+  grandReferrerTxHash?: string
+
+  @Column({ type: 'varchar', length: 50, default: 'pending', name: 'referral_payout_status' })
+  referralPayoutStatus!: 'pending' | 'completed' | 'failed' | 'not_applicable'
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date
 

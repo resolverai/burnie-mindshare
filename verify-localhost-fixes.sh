@@ -65,7 +65,7 @@ else
     echo -e "${RED}❌ TWITTER_CLIENT_SECRET override missing${NC}"
 fi
 
-if grep -q "ALLOWED_ORIGINS=https://mining.burnie.io,https://influencer.burnie.io" docker-compose.yml; then
+if grep -q "ALLOWED_ORIGINS=https://mining.burnie.io,https://yap.burnie.io" docker-compose.yml; then
     echo -e "${GREEN}✅ ALLOWED_ORIGINS override found${NC}"
 else
     echo -e "${RED}❌ ALLOWED_ORIGINS override missing${NC}"

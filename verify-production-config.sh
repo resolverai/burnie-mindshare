@@ -69,7 +69,7 @@ echo "  - NEXT_PUBLIC_AI_BACKEND_URL=https://attentionai.burnie.io"
 
 echo -e "${YELLOW}TypeScript Backend:${NC}"
 echo "  - NODE_ENV=production"
-echo "  - ALLOWED_ORIGINS=https://mining.burnie.io,https://influencer.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io"
+echo "  - ALLOWED_ORIGINS=https://mining.burnie.io,https://yap.burnie.io,https://mindshareapi.burnie.io,https://attentionai.burnie.io"
 echo "  - PYTHON_AI_BACKEND_URL=https://attentionai.burnie.io"
 echo "  - TWITTER_REDIRECT_URI=https://mining.burnie.io/twitter-callback"
 
@@ -86,7 +86,7 @@ echo "  - NEXT_PUBLIC_BURNIE_WS_URL=wss://mindshareapi.burnie.io/ws"
 
 echo ""
 echo -e "${GREEN}🎯 Production URLs Summary:${NC}"
-echo "  Frontend: https://influencer.burnie.io"
+echo "  Frontend: https://yap.burnie.io"
 echo "  Mining Interface: https://mining.burnie.io"
 echo "  TypeScript Backend: https://mindshareapi.burnie.io"
 echo "  Python AI Backend: https://attentionai.burnie.io"

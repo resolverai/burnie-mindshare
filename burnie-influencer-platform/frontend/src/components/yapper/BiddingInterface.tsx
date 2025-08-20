@@ -29,6 +29,7 @@ import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } f
 
 interface ContentItem {
   id: number
+  creatorId: number
   content_text: string
   tweet_thread?: string[]
   content_images?: string[]
@@ -438,7 +439,7 @@ export default function BiddingInterface() {
             })
             
             return (
-              <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 px-4 py-8" style={{ perspective: '1500px', transformStyle: 'preserve-3d' }}>
+              <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 px-4 py-8">
                 {filteredContent.map((item: ContentItem) => {
                   const shouldUseMarkdown = isMarkdownContent(item.post_type)
                   const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
@@ -476,9 +477,9 @@ export default function BiddingInterface() {
                         {/* Base overlay when not hovered */}
                         <div className="absolute inset-0 hidden md:flex flex-col justify-end p-4 md:p-5 transition-opacity duration-300 opacity-100 group-hover:opacity-0 gap-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-white text-md md:text-xl font-medium">{item.campaign.title}</span>
+                            <span className="text-white text-md md:text-xl font-medium font-nt-brick">{item.campaign.title}</span>
                           </div>
-                          <div className="text-white text-xs md:text-sm font-medium">
+                          <div className="text-white text-xs md:text-sm font-medium font-nt-brick">
                             Predicted Mindshare: <span className="font-semibold">{getRandomMindshare(item.id.toString()).toFixed(1)}%</span>
                           </div>
                         </div>
@@ -505,19 +506,19 @@ export default function BiddingInterface() {
 
                             {/* Title and stats */}
                             <div className="px-4 md:px-5 mt-6 md:mt-12">
-                              <h3 className="text-white text-base md:text-[16px] font-semibold drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)] truncate whitespace-nowrap overflow-hidden">
-                                {item.campaign.title && item.campaign.title.length > 40 
-                                  ? item.campaign.title.substring(0, 40) + '...' 
+                              <h3 className="text-white text-base md:text-[16px] font-semibold drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)] truncate whitespace-nowrap overflow-hidden font-nt-brick">
+                                {item.campaign.title && item.campaign.title.length > 45 
+                                  ? item.campaign.title.substring(0, 45) + '...' 
                                   : (item.campaign.title || 'Campaign Title')}
                               </h3>
                               <div className="grid grid-cols-2 gap-4 md:gap-8 text-white/85 mt-4">
                                 <div>
-                                  <div className="text-xs md:text-sm font-semibold">Predicted Mindshare</div>
-                                  <div className="text-lg md:text-xl font-semibold">{getRandomMindshare(item.id.toString()).toFixed(1)}%</div>
+                                  <div className="text-xs md:text-sm font-semibold font-nt-brick">Predicted Mindshare</div>
+                                  <div className="text-lg md:text-xl font-semibold font-nt-brick">{getRandomMindshare(item.id.toString()).toFixed(1)}%</div>
                                 </div>
                                 <div>
-                                  <div className="text-xs md:text-sm font-semibold">Quality Score</div>
-                                  <div className="text-lg md:text-xl font-semibold">{item.quality_score.toFixed(1)}/100</div>
+                                  <div className="text-xs md:text-sm font-semibold font-nt-brick">Quality Score</div>
+                                  <div className="text-lg md:text-xl font-semibold font-nt-brick">{item.quality_score.toFixed(1)}/100</div>
                                 </div>
                               </div>
                             </div>

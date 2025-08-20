@@ -9,7 +9,7 @@ This guide will help you set up nginx virtual hosts and SSL certificates for all
 - All 4 applications running via Docker (ports 3000, 3001, 3004, 8000)
 - Domain names pointed to your EC2 instance via Route 53:
   - `mining.burnie.io` → Mining Interface
-  - `influencer.burnie.io` → Frontend  
+  - `yap.burnie.io` → Frontend  
   - `mindshareapi.burnie.io` → TypeScript Backend
   - `attentionai.burnie.io` → Python AI Backend
 
@@ -87,10 +87,10 @@ server {
 }
 ```
 
-### 4.2 Frontend (influencer.burnie.io)
+### 4.2 Frontend (yap.burnie.io)
 
 ```bash
-sudo nano /etc/nginx/sites-available/influencer.burnie.io
+sudo nano /etc/nginx/sites-available/yap.burnie.io
 ```
 
 Add the following configuration:
@@ -98,7 +98,7 @@ Add the following configuration:
 ```nginx
 server {
     listen 80;
-    server_name influencer.burnie.io;
+    server_name yap.burnie.io;
 
     location / {
         proxy_pass http://localhost:3004;
@@ -182,7 +182,7 @@ server {
 ```bash
 # Enable all virtual hosts
 sudo ln -s /etc/nginx/sites-available/mining.burnie.io /etc/nginx/sites-enabled/
-sudo ln -s /etc/nginx/sites-available/influencer.burnie.io /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/yap.burnie.io /etc/nginx/sites-enabled/
 sudo ln -s /etc/nginx/sites-available/mindshareapi.burnie.io /etc/nginx/sites-enabled/
 sudo ln -s /etc/nginx/sites-available/attentionai.burnie.io /etc/nginx/sites-enabled/
 
@@ -198,12 +198,12 @@ sudo systemctl reload nginx
 ```bash
 # Get SSL certificates for all domains (run one by one)
 sudo certbot --nginx -d mining.burnie.io
-sudo certbot --nginx -d influencer.burnie.io  
+sudo certbot --nginx -d yap.burnie.io  
 sudo certbot --nginx -d mindshareapi.burnie.io
 sudo certbot --nginx -d attentionai.burnie.io
 
 # Or get all certificates at once
-sudo certbot --nginx -d mining.burnie.io -d influencer.burnie.io -d mindshareapi.burnie.io -d attentionai.burnie.io
+sudo certbot --nginx -d mining.burnie.io -d yap.burnie.io -d mindshareapi.burnie.io -d attentionai.burnie.io
 ```
 
 ## Step 7: Verify SSL Auto-Renewal
@@ -236,7 +236,7 @@ sudo systemctl status nginx
 Visit each domain to verify everything is working:
 
 - 🌐 https://mining.burnie.io (Mining Interface)
-- 🌐 https://influencer.burnie.io (Frontend)
+- 🌐 https://yap.burnie.io (Frontend)
 - 🌐 https://mindshareapi.burnie.io (API Documentation)
 - 🌐 https://attentionai.burnie.io (AI API Documentation)
 
@@ -329,7 +329,7 @@ sudo certbot certificates
 
 **Service Ports:**
 - Mining Interface: 3000 → mining.burnie.io
-- Frontend: 3004 → influencer.burnie.io  
+- Frontend: 3004 → yap.burnie.io  
 - TypeScript Backend: 3001 → mindshareapi.burnie.io
 - Python AI Backend: 8000 → attentionai.burnie.io
 

@@ -32,6 +32,9 @@ import platformYapperDataRoutes from './routes/platformYapperData';
 import twitterLearningAnalysisRoutes from './routes/twitterLearningAnalysis';
 import carouselRoutes from './routes/carousel';
 import filterOptionsRoutes from './routes/filterOptions';
+import referralRoutes from './routes/referrals';
+import waitlistRoutes from './routes/waitlist';
+import twitterPostingRoutes from './routes/twitterPosting';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -114,6 +117,9 @@ app.use('/api/twitter-auth', twitterAuthRoutes); // Twitter auth routes for mine
 app.use('/api/yapper-twitter-auth', yapperTwitterAuthRoutes); // Twitter auth routes for yappers
 app.use('/api/carousel', carouselRoutes); // Carousel data for hero banner
 app.use('/api/filter-options', filterOptionsRoutes); // Filter options for platforms and projects
+app.use('/api/referrals', referralRoutes); // Referral system routes
+app.use('/api/waitlist', waitlistRoutes); // Waitlist management routes
+app.use('/api/twitter', twitterPostingRoutes); // Twitter posting and management routes
 
 // Start server
 const startServer = async () => {

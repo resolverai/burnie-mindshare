@@ -8,6 +8,8 @@ import BiddingInterface from '@/components/yapper/BiddingInterface'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
 import { useTokenRegistration } from '@/hooks/useTokenRegistration'
 import { useAuth } from '@/hooks/useAuth'
+import { useMarketplaceAccess } from '@/hooks/useMarketplaceAccess'
+import { useUserReferralCode } from '@/hooks/useUserReferralCode'
 
 export default function MarketplacePage() {
   console.log('🏪 Marketplace page loaded - no authentication required')
@@ -15,24 +17,46 @@ export default function MarketplacePage() {
   const { address, isConnected } = useAccount()
   const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
   const { needsSignature, signIn, isLoading: authLoading, isAuthenticated } = useAuth()
+  const { hasAccess, redirectToAccess } = useMarketplaceAccess()
+  const { referralCode, copyToClipboard } = useUserReferralCode()
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [showCopySuccess, setShowCopySuccess] = useState(false)
   
   // Handle SSR hydration
   useEffect(() => {
     setMounted(true)
   }, [])
-  
-  // Auto-trigger signature confirmation when wallet connects and signature is needed
+
+  // Redirect users who need authentication/access to the access page
   useEffect(() => {
-    if (mounted && needsSignature && address && !authLoading) {
-      console.log('🔐 Auto-triggering wallet signature confirmation for marketplace')
-      signIn()
+    // Only redirect if we're certain about the authentication state and access status
+    if (!authLoading && isConnected && !hasAccess) {
+      // Add a small delay to avoid redirect loops and ensure state is stable
+      const timer = setTimeout(() => {
+        console.log('🔒 Connected user without access, redirecting to access page')
+        redirectToAccess()
+      }, 500)
+      
+      return () => clearTimeout(timer)
     }
-  }, [needsSignature, address, authLoading, signIn, mounted])
+  }, [authLoading, isConnected, hasAccess, redirectToAccess])
+  
+  // Note: Removed auto-signature trigger for marketplace to allow access page redirection
+  // Users should be redirected to access page first for authentication
   
   // Auto-register ROAST token if wallet is connected (only on client)
   useTokenRegistration()
+
+  const handleReferralCodeClick = async () => {
+    if (referralCode?.code) {
+      const success = await copyToClipboard(referralCode.code)
+      if (success) {
+        setShowCopySuccess(true)
+        setTimeout(() => setShowCopySuccess(false), 2000)
+      }
+    }
+  }
 
   const navigationItems = [
     { id: 'marketplace', label: 'Marketplace', icon: '/home.svg', route: '/marketplace', active: true },
@@ -75,6 +99,27 @@ export default function MarketplacePage() {
                 </svg>
               </a>
             </div>
+
+            {/* User Referral Code - only show if authenticated */}
+            {mounted && isAuthenticated && referralCode && (
+              <div className="relative">
+                <button
+                  onClick={handleReferralCodeClick}
+                  className="px-3 py-1 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-full text-sm font-bold font-nt-brick transition-all duration-200 transform hover:scale-105 md:flex hidden items-center gap-1"
+                  title="Click to copy your referral code"
+                >
+                  <span>🔗</span>
+                  <span>{referralCode.code}</span>
+                </button>
+                
+                {/* Copy success tooltip */}
+                {showCopySuccess && (
+                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                    Copied!
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ROAST Balance Badge - only show if fully authenticated */}
             {mounted && isAuthenticated && (

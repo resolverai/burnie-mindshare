@@ -178,7 +178,7 @@ show_quick_logs() {
 show_status() {
     print_status "Deployment Status:"
     echo ""
-    echo "🌐 Frontend (Influencer Platform): https://influencer.burnie.io (port 3004)"
+    echo "🌐 Frontend (Influencer Platform): https://yap.burnie.io (port 3004)"
     echo "🔗 TypeScript Backend (API): https://mindshareapi.burnie.io (port 3001)"  
     echo "🤖 Python AI Backend: https://attentionai.burnie.io (port 8000)"
     echo "⛏️  Mining Interface: https://mining.burnie.io (port 3000)"

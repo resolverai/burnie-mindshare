@@ -168,6 +168,55 @@ router.post('/store', async (req: Request, res: Response): Promise<Response> => 
   }
 });
 
+// Get all yappers from leaderboard data (latest snapshot per yapper)
+router.get('/all', async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { limit = 100 } = req.query;
+
+    const repository: Repository<LeaderboardYapperData> = AppDataSource.getRepository(LeaderboardYapperData);
+
+    // Get latest snapshot for each unique yapper (by twitter handle)
+    const queryBuilder = repository.createQueryBuilder('leaderboard')
+      .leftJoinAndSelect('leaderboard.campaign', 'campaign')
+      .distinctOn(['leaderboard.twitterHandle'])
+      .orderBy('leaderboard.twitterHandle', 'ASC')
+      .addOrderBy('leaderboard.snapshotDate', 'DESC')
+      .take(parseInt(limit as string));
+
+    const leaderboardData = await queryBuilder.getMany();
+
+    const formattedData = leaderboardData.map(entry => ({
+      id: entry.id,
+      twitter_handle: entry.twitterHandle,
+      display_name: entry.displayName,
+      campaign_id: entry.campaignId,
+      campaign_title: entry.campaign?.title,
+      platform_source: entry.platformSource,
+      snapshot_date: entry.snapshotDate instanceof Date ? entry.snapshotDate.toISOString().split('T')[0] : entry.snapshotDate,
+      leaderboard_position: entry.leaderboardPosition,
+      total_snaps: entry.totalSnaps,
+      snaps_24h: entry.snaps24h,
+      smart_followers: entry.smartFollowers,
+      twitter_fetch_status: entry.twitterFetchStatus,
+      additional_data: entry.leaderboardData
+    }));
+
+    return res.json({
+      success: true,
+      total_yappers: formattedData.length,
+      yappers: formattedData
+    });
+
+  } catch (error) {
+    logger.error('❌ Error fetching all yappers data:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch yappers data',
+      error: process.env.NODE_ENV === 'development' ? (error as Error).message : 'Internal server error'
+    });
+  }
+});
+
 // Get leaderboard data for a campaign
 router.get('/campaign/:campaignId', async (req: Request, res: Response): Promise<Response> => {
   try {
@@ -186,7 +235,7 @@ router.get('/campaign/:campaignId', async (req: Request, res: Response): Promise
       queryBuilder.andWhere('leaderboard.snapshotDate = :date', { date });
     } else {
       // Get latest snapshot for each yapper
-      queryBuilder.andWhere('leaderboard.snapshotDate = (SELECT MAX(l2.snapshotDate) FROM leaderboard_yapper_data l2 WHERE l2.campaignId = :campaignId)', { campaignId });
+      queryBuilder.andWhere('leaderboard."snapshotDate" = (SELECT MAX(l2."snapshotDate") FROM leaderboard_yapper_data l2 WHERE l2."campaignId" = :campaignId)', { campaignId });
     }
 
     const leaderboardData = await queryBuilder.getMany();
@@ -198,7 +247,7 @@ router.get('/campaign/:campaignId', async (req: Request, res: Response): Promise
       campaign_id: entry.campaignId,
       campaign_title: entry.campaign?.title,
       platform_source: entry.platformSource,
-      snapshot_date: entry.snapshotDate.toISOString().split('T')[0],
+      snapshot_date: entry.snapshotDate instanceof Date ? entry.snapshotDate.toISOString().split('T')[0] : entry.snapshotDate,
       leaderboard_position: entry.leaderboardPosition,
       total_snaps: entry.totalSnaps,
       snaps_24h: entry.snaps24h,
