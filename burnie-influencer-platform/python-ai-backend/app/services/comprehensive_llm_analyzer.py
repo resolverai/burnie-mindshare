@@ -203,7 +203,7 @@ class ComprehensiveLLMAnalyzer:
         - Analysis context: {context.get('platform_source', 'general')}
         
         Tweet Texts:
-        {chr(10).join([f"- {text[:200]}..." if len(text) > 200 else f"- {text}" for text in tweet_texts[:10]])}
+        {chr(10).join([f"- {text}" for text in tweet_texts[:50]])}
         """
         
         has_images = len(image_urls) > 0

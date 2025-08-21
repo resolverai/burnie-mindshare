@@ -396,27 +396,25 @@ class TwitterService:
         """
         context_parts = []
         
-        # Add individual posts
+        # Add individual posts - include up to 50 complete tweets
         if posts:
             context_parts.append("=== RECENT INDIVIDUAL TWEETS ===")
-            for post in posts[:10]:  # Limit to 10 most recent
+            for post in posts[:50]:  # Include up to 50 most recent complete tweets
                 created = post.created_at.strftime("%Y-%m-%d")
-                context_parts.append(f"[{created}] {post.text}")
+                context_parts.append(f"[{created}] {post.text}")  # Full tweet text, no truncation
             context_parts.append("")
         
-        # Add threads
+        # Add threads - include more complete threads
         if threads:
             context_parts.append("=== RECENT TWEET THREADS ===")
-            for thread in threads[:5]:  # Limit to 5 most recent threads
+            for thread in threads[:10]:  # Include up to 10 most recent threads
                 created = thread.main_tweet.created_at.strftime("%Y-%m-%d")
                 context_parts.append(f"[{created}] THREAD:")
-                context_parts.append(f"Main Tweet: {thread.main_tweet.text}")
+                context_parts.append(f"Main Tweet: {thread.main_tweet.text}")  # Full main tweet text
                 
-                for i, tweet in enumerate(thread.thread_tweets[:5], 2):  # Max 5 follow-up tweets
-                    context_parts.append(f"Tweet {i}: {tweet.text}")
-                
-                if len(thread.thread_tweets) > 5:
-                    context_parts.append(f"... (thread continues with {len(thread.thread_tweets) - 5} more tweets)")
+                # Include ALL thread tweets, not just first 5
+                for i, tweet in enumerate(thread.thread_tweets, 2):
+                    context_parts.append(f"Tweet {i}: {tweet.text}")  # Full tweet text, no truncation
                 
                 context_parts.append("")
         

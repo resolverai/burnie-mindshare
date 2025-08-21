@@ -792,20 +792,22 @@ class CrewAIService:
         # Get Twitter context for content creation
         twitter_context = ""
         if hasattr(self, 'project_twitter_context') and self.project_twitter_context and self.project_twitter_context.strip():
-            # Parse tweets from the formatted string context - prioritize recent 50 tweets
+            # Parse tweets from the formatted string context - get FULL 50 tweets without truncation
             lines = self.project_twitter_context.split('\n')
             recent_tweets = []
-            for line in lines[:100]:  # Take first 100 lines to capture more tweets
+            
+            # Extract all tweet lines without any limits to get complete tweets
+            for line in lines:
                 if line.startswith('[202') and '] ' in line:  # Lines with dates
                     tweet_text = line.split('] ', 1)[1] if '] ' in line else line
-                    # Keep full tweet text for better context, truncate only for logging
-                    recent_tweets.append(tweet_text)
+                    # Keep COMPLETE tweet text - no truncation
+                    recent_tweets.append(tweet_text.strip())
             
             if recent_tweets:
-                # Take the most recent 50 tweets for comprehensive context
+                # Take the most recent 50 COMPLETE tweets for comprehensive context
                 top_recent_tweets = recent_tweets[:50]
-                twitter_context = f"\n\n🔥 **PRIORITY TWITTER CONTEXT** (Latest {len(top_recent_tweets)} Tweets):\n" + "\n".join([f"- {tweet}" for tweet in top_recent_tweets])
-                logger.info(f"✅ Added {len(top_recent_tweets)} recent tweets to Text Content Creator context")
+                twitter_context = f"\n\n🔥 **PRIORITY TWITTER CONTEXT** (Latest {len(top_recent_tweets)} Complete Tweets):\n" + "\n".join([f"- {tweet}" for tweet in top_recent_tweets])
+                logger.info(f"✅ Added {len(top_recent_tweets)} COMPLETE recent tweets to Text Content Creator context")
 
         # Get post type from mining session
         post_type = getattr(self.mining_session, 'post_type', 'thread')
@@ -1045,26 +1047,29 @@ class CrewAIService:
         # Twitter context (if available) - PRIORITIZED FIRST
         twitter_context = ""
         if hasattr(self, 'project_twitter_context') and self.project_twitter_context and self.project_twitter_context.strip():
-            # Parse and prioritize recent 50 tweets
+            # Parse and get COMPLETE recent 50 tweets without any truncation
             lines = self.project_twitter_context.split('\n')
             recent_tweets = []
-            for line in lines[:100]:  # Take first 100 lines to capture more tweets
+            
+            # Extract ALL tweet lines to get complete tweets (no line limits)
+            for line in lines:
                 if line.startswith('[202') and '] ' in line:  # Lines with dates
                     tweet_text = line.split('] ', 1)[1] if '] ' in line else line
-                    recent_tweets.append(tweet_text)
+                    # Keep COMPLETE tweet text - no truncation whatsoever
+                    recent_tweets.append(tweet_text.strip())
             
             if recent_tweets:
-                # Take the most recent 50 tweets for comprehensive context
+                # Take the most recent 50 COMPLETE tweets for comprehensive context
                 top_recent_tweets = recent_tweets[:50]
                 twitter_context = f"""
-        🔥 **PRIORITY TWITTER CONTEXT** (Latest {len(top_recent_tweets)} Tweets - USE FIRST):
+        🔥 **PRIORITY TWITTER CONTEXT** (Latest {len(top_recent_tweets)} COMPLETE Tweets - USE FIRST):
         {chr(10).join([f"- {tweet}" for tweet in top_recent_tweets])}
         
         📈 **TWITTER CONTEXT USAGE PRIORITY**:
-        - **PRIMARY SOURCE**: Use recent tweets for cultural references, community callbacks, project updates
-        - **CONTENT INSPIRATION**: Extract signup instructions, airdrops, rewards, launches from tweets
-        - **ENGAGEMENT PATTERNS**: Mirror successful engagement styles from recent tweets
-        - **CURRENT NARRATIVES**: Identify trending topics and project developments
+        - **PRIMARY SOURCE**: Use complete tweets for cultural references, community callbacks, project updates
+        - **CONTENT INSPIRATION**: Extract signup instructions, airdrops, rewards, launches from full tweet content
+        - **ENGAGEMENT PATTERNS**: Mirror successful engagement styles from complete recent tweets
+        - **CURRENT NARRATIVES**: Identify trending topics and project developments from full context
         """
         
         # Campaign requirements (SECONDARY)
@@ -1084,8 +1089,9 @@ class CrewAIService:
             specific_instructions = f"""
         🧵 **THREAD CONTENT STRATEGY**:
         - **main_tweet**: FUSE recent tweet highlights + project essence for attention-grabbing hook
-        - **tweet_thread**: PRIORITIZE LATEST 50 TWEETS CONTEXT - extract actionable insights, community buzz, project momentum
-        - **NATURAL INTEGRATION**: Weave Twitter data seamlessly into storytelling (don't just quote tweets)
+        - **tweet_thread**: PRIORITIZE LATEST 50 COMPLETE TWEETS CONTEXT - extract actionable insights, community buzz, project momentum from FULL tweet content
+        - **NATURAL INTEGRATION**: Weave complete Twitter data seamlessly into storytelling (don't just quote tweets)
+        - **FULL CONTEXT USAGE**: Use complete tweet content, not summaries or truncated versions
         - **FALLBACK**: Only if no tweet context available, use project description/brand guidelines
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
@@ -1108,7 +1114,8 @@ class CrewAIService:
         - **NO follow-up tweets**: Shitposts should be standalone content (empty thread_array)
         - **Third person only**: Use "They/Their" for project, never "Our/We"
         - **Reader engagement**: Write like sharing exciting alpha with crypto friends
-        - **TWEET CONTEXT INTEGRATION**: NATURALLY FUSE latest 50 tweets - extract community energy, trending narratives, project momentum
+        - **TWEET CONTEXT INTEGRATION**: NATURALLY FUSE latest 50 COMPLETE tweets - extract community energy, trending narratives, project momentum from FULL tweet content
+        - **COMPLETE CONTEXT**: Use full tweet text without any truncation or summarization
         - **FALLBACK**: Only if no tweet context available, use project description/brand guidelines
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
@@ -1128,9 +1135,10 @@ class CrewAIService:
         elif post_type == 'longpost':
             specific_instructions = f"""
         📝 **LONGPOST CONTENT STRATEGY**:
-        - **PRIMARY FOCUS (70%)**: FUSE latest 50 tweets data - extract trends, community insights, project developments
+        - **PRIMARY FOCUS (70%)**: FUSE latest 50 COMPLETE tweets data - extract trends, community insights, project developments from FULL tweet content
         - **SECONDARY (30%)**: Project description/brand guidelines for foundational context
-        - **NATURAL INTEGRATION**: Weave Twitter insights into comprehensive narrative
+        - **NATURAL INTEGRATION**: Weave complete Twitter insights into comprehensive narrative
+        - **COMPLETE CONTENT**: Use full tweet text without any truncation, summaries, or abbreviations
         - **FALLBACK**: Only if no tweet data available, use project description/brand guidelines exclusively
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
