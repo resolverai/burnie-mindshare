@@ -21,6 +21,13 @@ COPY .env* ./
 # Copy application code (only invalidates cache when source changes)
 COPY app ./app
 
+# Copy assets folder for fonts (needed for watermarking)
+COPY assets ./assets
+
+# Copy migration scripts
+COPY migrate_watermarks.py ./
+COPY README_migration.md ./
+
 # Create non-root user
 RUN groupadd --gid 1001 python && \
     useradd --uid 1001 --gid python --shell /bin/bash --home-dir /app python

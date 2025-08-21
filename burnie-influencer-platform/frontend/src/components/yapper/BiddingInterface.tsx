@@ -33,6 +33,7 @@ interface ContentItem {
   content_text: string
   tweet_thread?: string[]
   content_images?: string[]
+  watermark_image?: string
   predicted_mindshare: number
   quality_score: number
   asking_price: number
@@ -449,9 +450,9 @@ export default function BiddingInterface() {
                     ? { text: item.content_text, hashtags: [], characterCount: item.content_text?.length || 0, imageUrl: null }
                     : formatTwitterContent(item.content_text)
                   
-                  const displayImage = item.content_images && item.content_images.length > 0 
-                    ? item.content_images[0] 
-                    : imageUrl
+                  // Use watermarked image for marketplace display, fallback to original for purchased content
+                  const displayImage = item.watermark_image || 
+                    (item.content_images && item.content_images.length > 0 ? item.content_images[0] : imageUrl)
                   
                   return (
                     <article key={item.id} className="group relative rounded-[28px] overflow-hidden bg-yapper-surface content-card-3d hover:z-50 cursor-pointer">
@@ -479,9 +480,9 @@ export default function BiddingInterface() {
                           <div className="flex items-center gap-2">
                             <span className="text-white text-md md:text-xl font-medium font-nt-brick">{item.campaign.title}</span>
                           </div>
-                          <div className="text-white text-xs md:text-sm font-medium font-nt-brick">
-                            Predicted Mindshare: <span className="font-semibold">{getRandomMindshare(item.id.toString()).toFixed(1)}%</span>
-                          </div>
+                                        <div className="text-white text-xs md:text-sm font-medium">
+                Predicted Mindshare: <span className="font-semibold">{getRandomMindshare(item.id.toString()).toFixed(1)}%</span>
+              </div>
                         </div>
 
                         {/* Overlay content (hover-reveal on md+) */}
@@ -513,12 +514,12 @@ export default function BiddingInterface() {
                               </h3>
                               <div className="grid grid-cols-2 gap-4 md:gap-8 text-white/85 mt-4">
                                 <div>
-                                  <div className="text-xs md:text-sm font-semibold font-nt-brick">Predicted Mindshare</div>
-                                  <div className="text-lg md:text-xl font-semibold font-nt-brick">{getRandomMindshare(item.id.toString()).toFixed(1)}%</div>
+                                  <div className="text-xs md:text-sm font-semibold">Predicted Mindshare</div>
+                                  <div className="text-lg md:text-xl font-semibold">{getRandomMindshare(item.id.toString()).toFixed(1)}%</div>
                                 </div>
                                 <div>
-                                  <div className="text-xs md:text-sm font-semibold font-nt-brick">Quality Score</div>
-                                  <div className="text-lg md:text-xl font-semibold font-nt-brick">{item.quality_score.toFixed(1)}/100</div>
+                                  <div className="text-xs md:text-sm font-semibold">Quality Score</div>
+                                  <div className="text-lg md:text-xl font-semibold">{item.quality_score.toFixed(1)}/100</div>
                                 </div>
                               </div>
                             </div>

@@ -34,6 +34,9 @@ export class ContentMarketplace {
   @Column({ type: 'jsonb', nullable: true })
   contentImages?: any;
 
+  @Column({ type: 'text', nullable: true })
+  watermarkImage?: string;
+
   @Column({ type: 'decimal', precision: 10, scale: 4 })
   predictedMindshare!: number;
 

@@ -105,11 +105,12 @@ export default function MarketplacePage() {
               <div className="relative">
                 <button
                   onClick={handleReferralCodeClick}
-                  className="px-3 py-1 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-full text-sm font-bold font-nt-brick transition-all duration-200 transform hover:scale-105 md:flex hidden items-center gap-1"
+                  className="px-3 py-1 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-full text-sm font-bold transition-all duration-200 transform hover:scale-105 md:flex hidden items-center gap-2"
                   title="Click to copy your referral code"
                 >
                   <span>🔗</span>
-                  <span>{referralCode.code}</span>
+                  <span>My Referral:</span>
+                  <span className="font-mono">{referralCode.code}</span>
                 </button>
                 
                 {/* Copy success tooltip */}

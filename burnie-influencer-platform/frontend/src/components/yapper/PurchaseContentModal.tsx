@@ -22,6 +22,7 @@ interface ContentItem {
   content_text: string
   tweet_thread?: string[]
   content_images?: string[]
+  watermark_image?: string
   predicted_mindshare: number
   quality_score: number
   asking_price: number
@@ -314,6 +315,7 @@ export default function PurchaseContentModal({
     setIsPostingToTwitter(true)
     try {
       const { text: tweetText, imageUrl: extractedImageUrl } = formatTwitterContentForManagement(content.content_text)
+      // Use original image for posting (after purchase), not watermarked
       const displayImage = content.content_images && content.content_images.length > 0 
           ? content.content_images[0] 
           : extractedImageUrl
@@ -716,10 +718,10 @@ export default function PurchaseContentModal({
       ? { text: content.content_text, imageUrl: null }
       : formatTwitterContent(content.content_text)
     
-    // Use content_images array if available, otherwise fall back to extracted URL
-    const imageUrl = content.content_images && content.content_images.length > 0 
-      ? content.content_images[0] 
-      : extractedImageUrl
+    // Use watermarked image for preview, original for purchased content
+    const imageUrl = isPurchased 
+      ? (content.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl)
+      : (content.watermark_image || (content.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl))
     
     const hashtags = extractHashtags(text)
     
@@ -849,44 +851,7 @@ export default function PurchaseContentModal({
                                 height={300}
                                 className="w-full h-auto object-cover"
                               />
-                              {/* CSS Blended Watermarks */}
-                              <div className="absolute inset-0 pointer-events-none">
-                                {/* Center - Buy to Access */}
-                                <div 
-                                  className="absolute text-white text-xl font-bold"
-                                  style={{
-                                    left: '50%',
-                                    top: '50%',
-                                    transform: 'translate(-50%, -50%)',
-                                    textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-                                    mixBlendMode: 'overlay',
-                                    opacity: 0.7
-                                  }}
-                                >
-                                  BUY TO ACCESS
-                                </div>
-                                
-                                {/* Center Bottom - @burnieio */}
-                                <div 
-                                  className="absolute text-white text-sm font-semibold"
-                                  style={{
-                                    left: '50%',
-                                    top: '60%',
-                                    transform: 'translate(-50%, -50%)',
-                                    textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
-                                    mixBlendMode: 'overlay',
-                                    opacity: 0.6
-                                  }}
-                                >
-                                  @burnieio
-                                </div>
-                                
-                                {/* Four Corners - @burnieio */}
-                                <div className="absolute text-white text-xs font-medium" style={{ left: '10px', top: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
-                                <div className="absolute text-white text-xs font-medium" style={{ right: '10px', top: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
-                                <div className="absolute text-white text-xs font-medium" style={{ left: '10px', bottom: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
-                                <div className="absolute text-white text-xs font-medium" style={{ right: '10px', bottom: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
-                              </div>
+
                             </div>
                           )}
                           
@@ -919,44 +884,7 @@ export default function PurchaseContentModal({
                                 height={300}
                                 className="w-full h-auto object-cover"
                               />
-                              {/* CSS Blended Watermarks */}
-                              <div className="absolute inset-0 pointer-events-none">
-                                {/* Center - Buy to Access */}
-                                <div 
-                                  className="absolute text-white text-xl font-bold"
-                                  style={{
-                                    left: '50%',
-                                    top: '50%',
-                                    transform: 'translate(-50%, -50%)',
-                                    textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-                                    mixBlendMode: 'overlay',
-                                    opacity: 0.7
-                                  }}
-                                >
-                                  BUY TO ACCESS
-                                </div>
-                                
-                                {/* Center Bottom - @burnieio */}
-                                <div 
-                                  className="absolute text-white text-sm font-semibold"
-                                  style={{
-                                    left: '50%',
-                                    top: '60%',
-                                    transform: 'translate(-50%, -50%)',
-                                    textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
-                                    mixBlendMode: 'overlay',
-                                    opacity: 0.6
-                                  }}
-                                >
-                                  @burnieio
-                                </div>
-                                
-                                {/* Four Corners - @burnieio */}
-                                <div className="absolute text-white text-xs font-medium" style={{ left: '10px', top: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
-                                <div className="absolute text-white text-xs font-medium" style={{ right: '10px', top: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
-                                <div className="absolute text-white text-xs font-medium" style={{ left: '10px', bottom: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
-                                <div className="absolute text-white text-xs font-medium" style={{ right: '10px', bottom: '10px', textShadow: '1px 1px 2px rgba(0,0,0,0.8)', mixBlendMode: 'overlay', opacity: 0.5 }}>@burnieio</div>
-                              </div>
+
                             </div>
                           )}
                         </>
@@ -1555,9 +1483,10 @@ export default function PurchaseContentModal({
                     (() => {
                       // Parse content for display
                       const { text: tweetText, imageUrl: extractedImageUrl } = content ? formatTwitterContentForManagement(content.content_text) : { text: '', imageUrl: null };
-                      const displayImage = content?.content_images && content.content_images.length > 0 
-                          ? content.content_images[0] 
-                          : extractedImageUrl;
+                      // Use original image for purchased content (post-purchase), watermarked for preview
+                      const displayImage = isPurchased 
+                        ? (content?.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl)
+                        : (content?.watermark_image || (content?.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl));
 
                       // Prepare tweets for copy
                       const tweetsData = [

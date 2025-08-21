@@ -25,6 +25,7 @@ interface ContentItem {
   content_text: string
   tweet_thread?: string[]
   content_images: string[]
+  watermark_image?: string
   predicted_mindshare: number
   quality_score: number
   asking_price: number
@@ -416,6 +417,7 @@ export default function YapperMyContent() {
                 ? { text: item.content_text, hashtags: [], characterCount: item.content_text?.length || 0, imageUrl: null }
                 : formatTwitterContent(item.content_text)
               
+              // For My Content, show original images since user owns the content
               const displayImage = item.content_images && item.content_images.length > 0 
                 ? item.content_images[0] 
                 : imageUrl

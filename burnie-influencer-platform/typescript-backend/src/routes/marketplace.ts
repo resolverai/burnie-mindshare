@@ -12,6 +12,7 @@ import { logger } from '../config/logger';
 import { TreasuryService } from '../services/TreasuryService';
 import { fetchROASTPrice } from '../services/priceService';
 import ReferralPayoutService from '../services/ReferralPayoutService';
+import { WatermarkService } from '../services/WatermarkService';
 import { createPublicClient, http, parseUnits, formatUnits } from 'viem';
 import { base } from 'viem/chains';
 const AWS = require('aws-sdk');
@@ -130,6 +131,19 @@ async function refreshExpiredUrls(content: any): Promise<any> {
         }
         return imageUrl;
       });
+    }
+  }
+
+  // Process watermark image (always generate presigned URL since watermarked images need authentication)
+  if (content.watermarkImage && typeof content.watermarkImage === 'string') {
+    // Always refresh watermark URLs as they're stored as direct S3 URLs without presigned signatures
+    const s3Key = extractS3KeyFromUrl(content.watermarkImage);
+    if (s3Key) {
+      const freshUrl = generateFreshPreSignedUrl(s3Key);
+      if (freshUrl) {
+        content.watermarkImage = freshUrl;
+        logger.info(`🔄 Generated presigned URL for watermark in content ${content.id}`);
+      }
     }
   }
 
@@ -300,6 +314,7 @@ router.get('/content', async (req, res) => {
       content_text: content.contentText,
       tweet_thread: content.tweetThread || null, // Include tweet thread data
       content_images: content.contentImages || [],
+      watermark_image: content.watermarkImage || null,
       predicted_mindshare: Number(content.predictedMindshare || 0),
       quality_score: Number(content.qualityScore || 0),
       asking_price: Number(content.biddingAskPrice || content.askingPrice || 0),
@@ -866,10 +881,25 @@ router.post('/approve', async (req, res) => {
       
       // Create new content entry
       const newContent = new ContentMarketplace();
+      // Generate watermarked image if content has images
+      let watermarkImageUrl: string | null = null;
+      if (contentImages) {
+        try {
+          const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
+          watermarkImageUrl = await WatermarkService.createWatermarkForContent(contentImages, s3Bucket);
+          console.log('✅ Watermarked image created:', watermarkImageUrl);
+        } catch (error) {
+          console.error('⚠️ Failed to create watermark, proceeding without:', error);
+        }
+      }
+
       newContent.creatorId = creatorId;
       newContent.campaignId = Number(campaignId);
       newContent.contentText = contentText;
       newContent.contentImages = contentImages || null;
+      if (watermarkImageUrl) {
+        newContent.watermarkImage = watermarkImageUrl;
+      }
       newContent.predictedMindshare = Number(predictedMindshare) || 75;
       newContent.qualityScore = Number(qualityScore) || 80;
       newContent.askingPrice = Number(askingPrice);
@@ -946,9 +976,24 @@ router.post('/approve', async (req, res) => {
       if (walletAddress) {
         existingContent.walletAddress = walletAddress;
       }
+      // Generate watermarked image if content has images
+      let watermarkImageUrl: string | null = null;
+      if (contentImages) {
+        try {
+          const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
+          watermarkImageUrl = await WatermarkService.createWatermarkForContent(contentImages, s3Bucket);
+          console.log('✅ Watermarked image created:', watermarkImageUrl);
+        } catch (error) {
+          console.error('⚠️ Failed to create watermark, proceeding without:', error);
+        }
+      }
+
       // Always update contentImages and tweetThread regardless of value (null, array, etc.)
       existingContent.contentImages = contentImages;
       existingContent.tweetThread = tweetThread;
+      if (watermarkImageUrl) {
+        existingContent.watermarkImage = watermarkImageUrl;
+      }
       if (generationMetadata) {
         existingContent.generationMetadata = generationMetadata;
       }
@@ -989,12 +1034,27 @@ router.post('/approve', async (req, res) => {
       // CREATE new record (fallback for cases where initial record wasn't created)
       console.log('🆕 Creating new content record (no pending record found)');
       
+      // Generate watermarked image if content has images
+      let watermarkImageUrl: string | null = null;
+      if (contentImages) {
+        try {
+          const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
+          watermarkImageUrl = await WatermarkService.createWatermarkForContent(contentImages, s3Bucket);
+          console.log('✅ Watermarked image created:', watermarkImageUrl);
+        } catch (error) {
+          console.error('⚠️ Failed to create watermark, proceeding without:', error);
+        }
+      }
+
       const newContent = new ContentMarketplace();
       newContent.creatorId = creator.id;
       newContent.campaignId = Number(campaignId);
       newContent.contentText = contentText;
       newContent.tweetThread = tweetThread || null;
       newContent.contentImages = contentImages || null;
+      if (watermarkImageUrl) {
+        newContent.watermarkImage = watermarkImageUrl;
+      }
       newContent.predictedMindshare = Number(predictedMindshare) || 75;
       newContent.qualityScore = Number(qualityScore) || 80;
       newContent.askingPrice = Number(askingPrice);
@@ -1262,6 +1322,7 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       content_text: content.contentText,
       tweet_thread: content.tweetThread || null, // Include tweet thread data
       content_images: content.contentImages,
+      watermark_image: content.watermarkImage || null,
       predicted_mindshare: Number(content.predictedMindshare),
       quality_score: Number(content.qualityScore),
       asking_price: Number(content.askingPrice),
@@ -1330,6 +1391,7 @@ router.get('/my-content/miner/:userId', async (req: Request, res: Response) => {
       content_text: content.contentText,
       tweet_thread: content.tweetThread || null, // Include tweet thread data
       content_images: content.contentImages,
+      watermark_image: content.watermarkImage || null,
       predicted_mindshare: Number(content.predictedMindshare),
       quality_score: Number(content.qualityScore),
       asking_price: Number(content.askingPrice),
@@ -3957,11 +4019,26 @@ router.post('/approve-content', async (req: Request, res: Response) => {
       });
     }
 
+    // Generate watermarked image if content has images
+    let watermarkImageUrl: string | null = null;
+    if (content.contentImages) {
+      try {
+        const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
+        watermarkImageUrl = await WatermarkService.createWatermarkForContent(content.contentImages, s3Bucket);
+        console.log('✅ Watermarked image created:', watermarkImageUrl);
+      } catch (error) {
+        console.error('⚠️ Failed to create watermark, proceeding without:', error);
+      }
+    }
+
     // Update content to approved and set wallet address for ownership verification
     content.approvalStatus = 'approved';
     content.isAvailable = true;
     content.approvedAt = new Date();
     content.walletAddress = walletAddress; // Set wallet address for bidding authorization
+    if (watermarkImageUrl) {
+      content.watermarkImage = watermarkImageUrl;
+    }
 
     const updatedContent = await contentRepository.save(content);
 
