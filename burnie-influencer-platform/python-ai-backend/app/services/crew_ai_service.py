@@ -803,12 +803,12 @@ class CrewAIService:
         project_twitter_handle = self._format_twitter_handle(project_twitter_handle_raw)
         
         # Common base backstory with autonomous decision-making capabilities
-        base_backstory = f"""You are an expert {post_type.upper()} content creator with AUTONOMOUS DECISION-MAKING capabilities specializing in:
-            - Twitter content optimization for crypto/Web3 audiences
-            - Viral content creation and engagement maximization
-            - Brand voice adaptation and personality matching
-            - Hashtag strategy and emoji optimization
-            - FOMO creation using latest project developments
+        base_backstory = f"""You are a human {post_type.upper()} content creator with AUTONOMOUS DECISION-MAKING capabilities who writes naturally engaging content:
+            - Natural, authentic Twitter content for crypto/Web3 audiences
+            - Conversational content that sounds genuinely human-written
+            - Community-focused voice that resonates with real people
+            - Strategic but natural hashtag usage (minimal emoji use)
+            - Building genuine interest using latest project developments
             - SUCCESS PATTERN INTEGRATION from top-performing leaderboard yappers
             
             🤖 **AUTONOMOUS DECISION-MAKING AUTHORITY**:
@@ -856,6 +856,30 @@ class CrewAIService:
             Content Preferences: {json.dumps(agent_config, indent=2)}
             Model Configuration: {text_provider.upper()} {text_model}
         {twitter_context}
+        
+        🎭 **ENGAGING CONTENT CREATION REQUIREMENTS**:
+        - Write highly engaging, story-driven content that drives website visits
+        - Create content as if sharing exciting alpha with crypto friends
+        - Use storytelling techniques: hooks, curiosity gaps, emotional connection
+        - Make readers genuinely excited to learn more about the project
+        
+        📏 **STRICT CHARACTER LIMITS**:
+        - Main tweet: Maximum 240 characters (strictly enforced)
+        - Each thread tweet: Maximum 240 characters (strictly enforced)
+        - Leave room for natural hashtags and handles
+        
+        👥 **CRITICAL PRONOUN RULES**:
+        - NEVER use "our", "we", "us" when referring to projects
+        - Always use third person: "they", "them", "their", "[project name]"
+        - You are NOT part of the project team - you're an informed observer
+        - Address readers directly as "you" to create connection
+        - Example: "They just launched..." not "We just launched..."
+        
+        🎯 **READER ENGAGEMENT FOCUS**:
+        - Start with attention-grabbing hooks that stop scrolling
+        - Create genuine excitement about project developments
+        - End with clear value that makes readers want to visit the website
+        - Use conversational tone like talking to a crypto-savvy friend
         """
         
         # Post-type specific instructions
@@ -897,9 +921,9 @@ class CrewAIService:
         elif post_type == 'shitpost':
             return base_backstory + f"""
             
-            💩 **AUTONOMOUS SHITPOST STRATEGY**:
-            - **main_tweet**: Create original, engaging shitpost using autonomous psychology engine
-            - **follow-up tweets**: Generate 2-4 follow-ups that amplify the main joke/concept naturally
+            💩 **SHITPOST STRATEGY** (MAIN TWEET ONLY):
+            - **main_tweet ONLY**: Create a single, engaging shitpost tweet (NO thread_array needed)
+            - **Format**: Generate ONLY main_tweet content - do NOT create follow-up tweets
             - **TWEET CONTEXT INTEGRATION**: Use latest 20 tweets for cultural references and community callbacks
             - **FALLBACK**: Use project description/brand guidelines when tweet context insufficient
             
@@ -983,7 +1007,6 @@ class CrewAIService:
         campaign_info = f"""Create engaging {post_type.upper()} content using real AI models and tools:
         
         Campaign Requirements:
-        - Title: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
         - Project Name: {project_name}
         - Token Ticker: {token_ticker}
         - Project Twitter Handle: {project_twitter_handle} {f'(Tag this in content!)' if project_twitter_handle else '(No handle available)'}
@@ -1015,17 +1038,21 @@ class CrewAIService:
         
         🔥 **THREAD REQUIREMENTS**:
         - Generate 2-5 tweets in thread format
-        - Main tweet: Hook with image-worthy content (≤280 chars including hashtags)
-        - Thread tweets: Expand with recent tweet insights or project details (≤280 chars each)
+        - Main tweet: Attention-grabbing hook that makes readers want to learn more (≤240 chars including hashtags)
+        - Thread tweets: Story-driven content that builds excitement about the project (≤240 chars each)
+        - Use third person pronouns: "They launched...", "Their new feature...", never "Our/We"
         - ALWAYS include project token hashtag (#{token_ticker}) in main tweet
         - Thread array items should NOT contain hashtags
+        - End with clear value that drives website visits
         """
         elif post_type == 'shitpost':
             specific_instructions = f"""
-        🚀 **AUTONOMOUS SHITPOST CONTENT STRATEGY**:
-        - **main_tweet**: Apply the Autonomous Shitpost Psychology Engine to create original viral content
-        - **follow-up tweets**: Generate 2-4 natural amplifications using intelligent engagement optimization
-        - **TWEET CONTEXT INTEGRATION**: Leverage latest 20 tweets for community callbacks and cultural references
+        🚀 **ENGAGING SHITPOST STRATEGY** (MAIN TWEET ONLY):
+        - **main_tweet ONLY**: Create a single, highly engaging shitpost tweet (≤240 chars)
+        - **NO follow-up tweets**: Shitposts should be standalone content (empty thread_array)
+        - **Third person only**: Use "They/Their" for project, never "Our/We"
+        - **Reader engagement**: Write like sharing exciting alpha with crypto friends
+        - **TWEET CONTEXT INTEGRATION**: Leverage latest 20 tweets for community callbacks
         - **FALLBACK**: Use project description/brand guidelines when tweet context insufficient
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
@@ -1096,14 +1123,10 @@ class CrewAIService:
         elif post_type == 'shitpost':
             return f"""
         
-        MANDATORY JSON OUTPUT FORMAT:
+        MANDATORY JSON OUTPUT FORMAT (SHITPOST - MAIN TWEET ONLY):
         {{
-          "main_tweet": "Your shitpost main tweet here (≤280 chars total including hashtags)",
-          "thread_array": [
-            "Follow-up tweet 1 (≤280 chars, no hashtags)",
-            "Follow-up tweet 2 (≤280 chars, no hashtags)", 
-            "Follow-up tweet 3 (≤280 chars, no hashtags, optional)"
-          ],
+          "main_tweet": "Your engaging shitpost main tweet here (≤240 chars total including hashtags)",
+          "thread_array": [],
           "hashtags_used": ["{token_ticker}", "DeFi"],
           "character_counts": {{
             "main_tweet_text": 245,
@@ -1125,11 +1148,11 @@ class CrewAIService:
         
         MANDATORY JSON OUTPUT FORMAT:
         {{
-          "main_tweet": "Your thread main tweet here (≤280 chars total including hashtags)",
+          "main_tweet": "Your engaging thread main tweet here (≤240 chars total including hashtags)",
           "thread_array": [
-            "Thread tweet 1 (≤280 chars, no hashtags)",
-            "Thread tweet 2 (≤280 chars, no hashtags)", 
-            "Thread tweet 3 (≤280 chars, no hashtags, optional)"
+            "Engaging thread tweet 1 (≤240 chars, no hashtags)",
+            "Engaging thread tweet 2 (≤240 chars, no hashtags)", 
+            "Engaging thread tweet 3 (≤240 chars, no hashtags, optional)"
           ],
           "hashtags_used": ["{token_ticker}", "DeFi"],
           "character_counts": {{
@@ -1152,7 +1175,7 @@ class CrewAIService:
         
         MANDATORY JSON OUTPUT FORMAT:
         {{
-          "main_tweet": "Your single tweet text here (≤280 chars total)",
+          "main_tweet": "Your engaging single tweet text here (≤240 chars total)",
           "hashtags_used": ["{token_ticker}", "DeFi", "Crypto"],
           "character_count": 275,
           "approach": "engaging"
@@ -1746,12 +1769,12 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             max_main_chars = 25000
             content_type_desc = "LONGPOST GENERATION"
         elif post_type == "shitpost":
-            should_generate_thread = True  # Shitposts can have follow-up tweets
-            max_main_chars = 250  # 250 chars + 30 hashtag chars = 280 total
-            content_type_desc = "SHITPOST GENERATION"
+            should_generate_thread = False  # Shitposts only need main_tweet
+            max_main_chars = 240  # 240 chars max for main tweet
+            content_type_desc = "SHITPOST GENERATION (MAIN TWEET ONLY)"
         else:  # thread (default)
             should_generate_thread = has_description
-            max_main_chars = 250  # 250 chars + 30 hashtag chars = 280 total
+            max_main_chars = 240  # 240 chars max for main tweet
             content_type_desc = "TWITTER THREAD GENERATION" if has_description else "SINGLE TWEET GENERATION"
         
         # Extract additional campaign details with proper null handling
@@ -4599,32 +4622,45 @@ Use cases: Image descriptions, alt text, content inspiration
                 fallback_models = ['gpt-4o', 'gpt-4o-mini']  # Safe fallbacks for text
                 models_to_try = [preferred_model] + [m for m in fallback_models if m != preferred_model]
                 
-                system_prompt = """You are an expert Twitter content creator specializing in Web3 GenZ meme culture:
-- Viral tweet composition with perfect character limits (max 280 characters)
-- Strategic hashtag placement (2-4 hashtags max)
-- Emoji integration for engagement (3-5 maximum)
-- Hook-heavy opening lines with FOMO triggers
-- Clear call-to-action endings
-- Crypto/Web3 audience optimization
+                system_prompt = """You are a human Twitter content creator who writes highly engaging, story-driven content for Web3 audiences:
 
-WEB3 GENZ MEME CULTURE EXPERTISE:
-- Master of crypto memes: diamond hands 💎🙌, HODL, "this is the way", ape culture
-- Expert in FOMO creation through scarcity and exclusivity language
-- Skilled in subtle sarcasm and self-aware humor about crypto culture
-- Fluent in Web3 slang: gm, wagmi, ngmi, rekt, moon, lambo, etc.
-- Creates urgency with phrases like "still early", "don't fade this", "alpha incoming"
-- Uses ironic commentary and insider jokes that Web3 community understands
-- Builds social proof and community feeling through inclusive language
+ENGAGING STORYTELLING STYLE:
+- Write like you're sharing exciting news with a friend who loves crypto
+- Use storytelling techniques: set up intrigue, reveal key details, create anticipation
+- Make readers feel like they're discovering something special
+- Create "wow moments" and emotional hooks that make people want to learn more
+- Use conversational flow that draws readers deeper into the story
+- Build excitement about projects without sounding like corporate marketing
 
-CONTENT REQUIREMENTS:
-- Include subtle sarcasm that resonates with Web3 GenZ audience
-- Create FOMO through scarcity and exclusive access language
-- Reference being "early" or having "insider knowledge"
-- Use meme-inspired language patterns and cultural references
-- Apply Web3 community inside jokes and slang appropriately
-- Generate urgency and social proof to drive engagement
+READER ENGAGEMENT TECHNIQUES:
+- Start with attention-grabbing hooks that stop scrolling
+- Use curiosity gaps: hint at benefits before revealing details
+- Ask rhetorical questions that get readers thinking
+- Share insights as if you're an insider sharing alpha
+- Create FOMO through genuine value, not artificial urgency
+- End with clear value propositions that make readers want to visit the project
 
-Create content that drives maximum engagement, retweets, and community participation."""
+PROJECT REFERENCE RULES (CRITICAL):
+- NEVER use "our", "we", "us" when referring to projects
+- Always use third person: "they", "them", "their", "[project name]"
+- You are NOT part of the project team - you're an informed observer
+- Example: "They just launched..." not "We just launched..."
+- Example: "Their new bridge..." not "Our new bridge..."
+- Example: "BOB's latest update..." not "Our latest update..."
+
+CHARACTER LIMITS:
+- Main tweet: Maximum 240 characters (strict limit)
+- Each thread tweet: Maximum 240 characters (strict limit)
+- Leave room for natural hashtags and handles
+
+CONTENT GUIDELINES:
+- Sound authentic and conversational, not AI-generated
+- Use emojis sparingly - only when they feel natural
+- Address readers directly as "you" to create connection
+- Create genuine excitement about project developments
+- Focus on value and impact that will drive website visits
+
+Create content that makes readers genuinely excited to learn more about the project and visit their website."""
                 
                 result_text = None
                 last_error = None
@@ -4963,45 +4999,32 @@ class ClaudeContentTool(BaseTool):
             if "strategy" in prompt_lower or "analyze" in prompt_lower or "think" in prompt_lower:
                 # Use advanced reasoning for strategic content
                 result = self.generator.generate_with_thinking(
-                    prompt=f"Analyze and create strategic Twitter content: {prompt}",
+                    prompt=f"Create highly engaging, story-driven Twitter content: {prompt}. Write like you're sharing exciting alpha with crypto friends. CRITICAL: Use third person (they/them/their) for projects - NEVER 'our/we/us'. Address readers as 'you'. Maximum 240 characters per tweet. Create content that makes readers want to visit the project website.",
                     model=text_model,
                     thinking_duration="medium"
                 )
                 
                 if 'response' in result:
-                    return f"""
-🧠 STRATEGIC CONTENT ANALYSIS:
-
-{result['response']}
-
-🎯 Model: {result.get('model', text_model)}
-⚡ Thinking Duration: {result.get('thinking_duration', 'medium')}
-📊 Strategic Reasoning Applied
-🎪 Perfect for thought leadership content
-"""
+                    return result['response']
                 else:
-                    return f"❌ Strategic analysis error: {result.get('error', 'Unknown error')}"
+                    return f"Strategic analysis error: {result.get('error', 'Unknown error')}"
             
             elif "creative" in prompt_lower or "story" in prompt_lower:
                 # Generate creative content
                 result = self.generator.generate_creative_content(
-                    prompt=prompt,
+                    prompt=f"Create engaging, story-driven Twitter content: {prompt}. Write like an insider sharing exciting news. CRITICAL: Use third person (they/them/their) for projects - NEVER 'our/we/us'. Address readers as 'you'. Maximum 240 characters per tweet.",
                     content_type="social media post",
-                    style="engaging and professional",
+                    style="engaging storytelling",
                     model=text_model
                 )
-                
-            return f"""
-📝 PROFESSIONAL TWITTER CONTENT:
-
-{result}
-
-✍️ Style: Professional & engaging
-🎭 Content Type: Strategic social media
-🔥 Claude-powered creativity
-💼 Perfect for brand building
-🤖 Generated by: {text_model.upper()}
-"""
+                return result
+            
+            # Default content generation
+            result = self.generator.generate_content(
+                prompt=f"Create highly engaging Twitter content that drives website visits: {prompt}. Write like you're sharing alpha with crypto friends. CRITICAL: Use third person (they/them/their) for projects - NEVER 'our/we/us'. Address readers as 'you'. Maximum 240 characters per tweet. Make readers excited about the project.",
+                model=text_model
+            )
+            return result
             
         except Exception as e:
             return f"❌ Claude content generation error: {str(e)}"

@@ -46,6 +46,7 @@ from app.routes.enhanced_model_training import router as enhanced_training_route
 from app.routes.delta_model_training import router as delta_training_router
 from app.routes.realtime_predictions import router as realtime_predictions_router
 from app.routes.training_data_population import router as training_data_router
+from app.routes.watermark import router as watermark_router
 
 # Setup logging
 logger = setup_logger(__name__)
@@ -89,6 +90,7 @@ app.include_router(enhanced_training_router, prefix="/api", tags=["enhanced-trai
 app.include_router(delta_training_router)
 app.include_router(realtime_predictions_router)
 app.include_router(training_data_router)
+app.include_router(watermark_router, prefix="/api", tags=["watermark"])
 
 # Global progress tracker
 progress_tracker = ProgressTracker()

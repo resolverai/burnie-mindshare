@@ -9,7 +9,7 @@ import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
 import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance, ensureROASTTokenDisplay } from '../../utils/walletUtils'
 import { executeROASTPayment, prepareROASTDisplay } from '../../services/roastPaymentService'
 import TweetThreadDisplay from '../TweetThreadDisplay'
-import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
+import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, markdownToPlainText, markdownToHTML } from '../../utils/markdownParser'
 import WalletConnectionModal from '../WalletConnectionModal'
 import { useTwitter } from '../../contexts/TwitterContext'
 import { useMarketplaceAccess } from '../../hooks/useMarketplaceAccess'
@@ -314,16 +314,41 @@ export default function PurchaseContentModal({
 
     setIsPostingToTwitter(true)
     try {
-      const { text: tweetText, imageUrl: extractedImageUrl } = formatTwitterContentForManagement(content.content_text)
+      // Check if this is markdown content (longpost)
+      const shouldUseMarkdown = isMarkdownContent(content.post_type)
+      const hasMarkdownSyntax = content.content_text?.includes('##') || content.content_text?.includes('**')
+      const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
+      
+      let tweetText: string
+      let extractedImageUrl: string | null = null
+      
+      if (forceMarkdown) {
+        // For longpost content, convert markdown to plain text for Twitter
+        tweetText = markdownToPlainText(content.content_text)
+      } else {
+        // For regular content, use existing formatting
+        const formatted = formatTwitterContentForManagement(content.content_text)
+        tweetText = formatted.text
+        extractedImageUrl = formatted.imageUrl
+      }
+      
       // Use original image for posting (after purchase), not watermarked
       const displayImage = content.content_images && content.content_images.length > 0 
           ? content.content_images[0] 
           : extractedImageUrl
 
-      // Prepare tweet data
+      // Prepare tweet data - also convert thread items if they contain markdown
+      const processedThread = content.tweet_thread ? content.tweet_thread.map(tweet => {
+        // Check if thread item contains markdown
+        if (tweet.includes('##') || tweet.includes('**')) {
+          return markdownToPlainText(tweet)
+        }
+        return tweet
+      }) : []
+
       const tweetData = {
         mainTweet: tweetText,
-        thread: content.tweet_thread || [],
+        thread: processedThread,
         imageUrl: displayImage
       }
 
@@ -1180,6 +1205,21 @@ export default function PurchaseContentModal({
                   </div>
                 </div>
 
+                {/* Longpost Premium X Account Warning */}
+                {content.post_type === 'longpost' && (
+                  <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                      <span className="text-blue-400 font-semibold text-sm">ℹ️ Premium X Account Required</span>
+                    </div>
+                    <p className="text-white/80 text-xs leading-relaxed">
+                      This is a <span className="text-blue-400 font-semibold">longpost content</span>. You must have a <span className="text-blue-400 font-semibold">premium X (Twitter) account</span> that allows posting longer content to use this tweet effectively.
+                    </p>
+                  </div>
+                )}
+
                 {/* Payment Options */}
                 <div className="flex flex-col gap-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1481,14 +1521,43 @@ export default function PurchaseContentModal({
                   ) : (
                     /* Manual Posting Interface - Original tweets list */
                     (() => {
-                      // Parse content for display
-                      const { text: tweetText, imageUrl: extractedImageUrl } = content ? formatTwitterContentForManagement(content.content_text) : { text: '', imageUrl: null };
+                      // Parse content for display - handle markdown properly
+                      if (!content) {
+                        return null;
+                      }
+                      
+                      // Check if this is markdown content (longpost)
+                      const shouldUseMarkdown = isMarkdownContent(content.post_type)
+                      const hasMarkdownSyntax = content.content_text?.includes('##') || content.content_text?.includes('**')
+                      const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
+                      
+                      let tweetText: string
+                      let extractedImageUrl: string | null = null
+                      
+                      if (forceMarkdown) {
+                        // For longpost content, convert markdown to plain text for copying/posting
+                        tweetText = markdownToPlainText(content.content_text)
+                      } else {
+                        // For regular content, use existing formatting
+                        const formatted = formatTwitterContentForManagement(content.content_text)
+                        tweetText = formatted.text
+                        extractedImageUrl = formatted.imageUrl
+                      }
+                      
                       // Use original image for purchased content (post-purchase), watermarked for preview
                       const displayImage = isPurchased 
                         ? (content?.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl)
                         : (content?.watermark_image || (content?.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl));
 
-                      // Prepare tweets for copy
+                      // Prepare tweets for copy - also process thread items if they contain markdown
+                      const processedThreadItems = content?.tweet_thread ? content.tweet_thread.map(tweet => {
+                        // Check if thread item contains markdown
+                        if (tweet.includes('##') || tweet.includes('**')) {
+                          return markdownToPlainText(tweet)
+                        }
+                        return tweet
+                      }) : []
+
                       const tweetsData = [
                           { 
                               title: 'Tweet 1', 
@@ -1498,10 +1567,10 @@ export default function PurchaseContentModal({
                               title: 'Tweet 1 (Image)', 
                               image: displayImage 
                           }] : []),
-                          ...(content?.tweet_thread ? content.tweet_thread.map((tweet, idx) => ({ 
+                          ...(processedThreadItems.map((tweet, idx) => ({ 
                               title: `Tweet ${idx + 2}`, 
                               text: tweet 
-                          })) : [])
+                          })))
                       ];
 
                       return tweetsData.map((section, idx) => (
@@ -1540,7 +1609,18 @@ export default function PurchaseContentModal({
                             </button>
                           </div>
                           {section.text && (
-                            <div className="text-white/80 text-sm leading-relaxed">{section.text}</div>
+                            <div className="text-white/80 text-sm leading-relaxed">
+                              {forceMarkdown ? (
+                                <div 
+                                  className="markdown-content max-w-none"
+                                  dangerouslySetInnerHTML={{ 
+                                    __html: markdownToHTML(section.text)
+                                  }}
+                                />
+                              ) : (
+                                section.text
+                              )}
+                            </div>
                           )}
                           {section.image && (
                             <div className="mt-3 rounded-md overflow-hidden">

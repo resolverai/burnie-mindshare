@@ -55,6 +55,81 @@ export const isMarkdownContent = (postType: string | undefined): boolean => {
 };
 
 /**
+ * Convert markdown to HTML string for display purposes (matches renderMarkdown styling)
+ */
+export const markdownToHTML = (content: string): string => {
+  if (!content) return '';
+  
+  // Preprocess content (same as renderMarkdown)
+  let processedContent = content
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    .replace(/\\\\/g, '\\')
+    .trim();
+
+  // Convert markdown syntax to HTML (matching renderMarkdown component styles but with white text for dark background)
+  processedContent = processedContent
+    // Headers (matching renderMarkdown but with white text)
+    .replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mb-3 mt-6 text-white">$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2 class="text-xl font-bold mb-4 mt-6 text-white">$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mb-4 mt-6 text-white">$1</h1>')
+    
+    // Bold text (matching renderMarkdown)
+    .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
+    
+    // Italic text
+    .replace(/\*(.+?)\*/g, '<em class="italic text-white/90">$1</em>')
+    
+    // Code blocks
+    .replace(/`(.+?)`/g, '<code class="bg-gray-800 px-1 py-0.5 rounded text-sm font-mono text-orange-300">$1</code>')
+    
+    // Line breaks and paragraphs (matching renderMarkdown spacing)
+    .replace(/\n\n/g, '</p><p class="mb-4 text-white/80 leading-relaxed">')
+    .replace(/\n/g, '<br/>')
+    
+    // Wrap in paragraph tags (matching renderMarkdown paragraph styling)
+    processedContent = `<p class="mb-4 text-white/80 leading-relaxed">${processedContent}</p>`;
+  
+  return processedContent;
+};
+
+/**
+ * Convert markdown to plain text for Twitter posting and copying
+ */
+export const markdownToPlainText = (content: string): string => {
+  if (!content) return '';
+  
+  // Preprocess content to handle escaped characters (same as renderMarkdown)
+  let processedContent = content
+    .replace(/\\n/g, '\n')  // Convert \n to actual newlines
+    .replace(/\\t/g, '\t')  // Convert \t to actual tabs
+    .replace(/\\r/g, '\r')  // Convert \r to actual carriage returns
+    .replace(/\\\\/g, '\\') // Convert \\ to actual backslashes
+    .trim(); // Remove leading/trailing whitespace
+
+  // Convert markdown syntax to plain text
+  processedContent = processedContent
+    // Remove headers (convert ## Header to Header)
+    .replace(/^#{1,6}\s+(.+)$/gm, '$1')
+    // Remove bold/italic formatting (convert **text** and *text* to text)
+    .replace(/\*\*(.+?)\*\*/g, '$1')  // Bold
+    .replace(/\*(.+?)\*/g, '$1')      // Italic
+    // Remove inline code formatting (convert `code` to code)
+    .replace(/`(.+?)`/g, '$1')
+    // Convert bullet points (- item to • item)
+    .replace(/^-\s+(.+)$/gm, '• $1')
+    // Convert numbered lists (1. item to 1. item - keep as is)
+    // Remove blockquotes (> text to text)
+    .replace(/^>\s+(.+)$/gm, '$1')
+    // Clean up multiple newlines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return processedContent;
+};
+
+/**
  * Simple text formatter for non-markdown content
  */
 export const formatPlainText = (content: string): string => {
