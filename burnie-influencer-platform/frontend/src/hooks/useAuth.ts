@@ -30,6 +30,8 @@ export function useAuth() {
   })
 
   const [mounted, setMounted] = useState(false)
+  const [isDisconnecting, setIsDisconnecting] = useState(false)
+  const [userExplicitlyDisconnected, setUserExplicitlyDisconnected] = useState(false)
 
   // Initialize authentication state on mount
   useEffect(() => {
@@ -48,7 +50,7 @@ export function useAuth() {
           return
         }
 
-        // Check localStorage for existing authentication
+        // Check localStorage for existing authentication to maintain session
         const storedAuth = localStorage.getItem('burnie_yapper_auth_user')
         const storedToken = localStorage.getItem('burnie_yapper_auth_token')
         
@@ -105,6 +107,12 @@ export function useAuth() {
     if (!address || !chainId || !isConnected) {
       setAuthState(prev => ({ ...prev, error: 'Wallet not connected' }))
       return false
+    }
+
+    // Clear disconnect flag when user explicitly signs in
+    setUserExplicitlyDisconnected(false)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('burnie_user_disconnected')
     }
 
     setAuthState(prev => ({ ...prev, isLoading: true, error: null }))
@@ -177,81 +185,141 @@ This signature proves you own this wallet.`
       // Wallet disconnected - clear authentication completely
       console.log('🔄 Wallet disconnected, clearing all authentication state')
       
+      // Mark that user has explicitly disconnected
+      setUserExplicitlyDisconnected(true)
+      setIsDisconnecting(true)
+      
       // Clear ALL localStorage related to auth (only on client side)
       if (typeof window !== 'undefined') {
         localStorage.removeItem('burnie_yapper_auth_user')
         localStorage.removeItem('burnie_yapper_auth_token')
         localStorage.removeItem('burnie_yapper_auth_signature')
         
+        // Store the explicit disconnect flag with timestamp to automatically clear it
+        localStorage.setItem('burnie_user_disconnected', Date.now().toString())
+        
         // Clear any other potential auth-related storage
         Object.keys(localStorage).forEach(key => {
-          if (key.includes('burnie') || key.includes('auth') || key.includes('signature')) {
+          if (key.includes('burnie') && key !== 'burnie_user_disconnected' && (key.includes('auth') || key.includes('signature'))) {
             localStorage.removeItem(key)
           }
         })
       }
       
-      // Clear auth state completely
+      // Clear auth state completely - NEVER set needsSignature on disconnect
       setAuthState({
         isAuthenticated: false,
         isLoading: false,
         user: null,
-        needsSignature: false,
+        needsSignature: false, // Critical: NEVER prompt on disconnect
         error: null
       })
+      
+      // Clear disconnecting flag after a delay to prevent immediate reconnection
+      setTimeout(() => {
+        setIsDisconnecting(false)
+      }, 1000) // Increased to 1 second for more robust protection
+      
       return
     }
 
-    // Wallet connected - check if we need to authenticate this specific wallet (only on client side)
-    if (typeof window !== 'undefined') {
-      const storedAuth = localStorage.getItem('burnie_yapper_auth_user')
-      if (storedAuth) {
-        try {
-          const user = JSON.parse(storedAuth)
-          if (user.address === address.toLowerCase()) {
-            // Same wallet as stored auth - restore authentication immediately
-            console.log('✅ Wallet reconnected with stored auth, restoring session')
+    // Wallet connected - add small delay to prevent rapid disconnect/reconnect issues
+    const timeoutId = setTimeout(() => {
+      // Don't authenticate if we're in the middle of a disconnect process
+      if (isDisconnecting) {
+        console.log('🚫 Ignoring wallet connection during disconnect process')
+        return
+      }
+      
+      // Check if this is a brief reconnection during recent disconnect (within 2 seconds)
+      if (typeof window !== 'undefined') {
+        const userDisconnectedTime = localStorage.getItem('burnie_user_disconnected')
+        if (userDisconnectedTime) {
+          const disconnectTime = parseInt(userDisconnectedTime)
+          const timeSinceDisconnect = Date.now() - disconnectTime
+          
+          // Only block for 2 seconds after disconnect
+          if (timeSinceDisconnect < 2000) {
+            console.log('🚫 Ignoring brief reconnection during recent disconnect process')
+            // Set the state to show that wallet is connected but not authenticated
             setAuthState(prev => ({
               ...prev,
-              isAuthenticated: true,
-              user,
-              needsSignature: false,
+              isAuthenticated: false,
+              user: null,
+              needsSignature: false, // Don't auto-prompt during recent disconnect
               error: null,
               isLoading: false
             }))
             return
           } else {
-            // Different wallet - clear old auth data
-            console.log('🔄 Different wallet connected, clearing old auth data')
-            localStorage.removeItem('burnie_yapper_auth_user')
-            localStorage.removeItem('burnie_yapper_auth_token')
-            localStorage.removeItem('burnie_yapper_auth_signature')
+            // Clear old disconnect flag if more than 2 seconds have passed
+            localStorage.removeItem('burnie_user_disconnected')
           }
-        } catch (error) {
-          console.error('Error parsing stored auth:', error)
-          // Clear corrupted auth data
-          localStorage.removeItem('burnie_yapper_auth_user')
-          localStorage.removeItem('burnie_yapper_auth_token')
-          localStorage.removeItem('burnie_yapper_auth_signature')
         }
       }
-    }
+      
+      // Clear the explicit disconnection flag since user is connecting (not during disconnect)
+      setUserExplicitlyDisconnected(false)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('burnie_user_disconnected')
+      }
+      
+      console.log('🔐 Wallet connected (after debounce), checking authentication status')
+      
+      // Check if user is already authenticated with this wallet
+      if (typeof window !== 'undefined') {
+        const storedAuth = localStorage.getItem('burnie_yapper_auth_user')
+        if (storedAuth) {
+          try {
+            const user = JSON.parse(storedAuth)
+            if (user.address === address.toLowerCase()) {
+              // User is already authenticated with this wallet - don't require signature again
+              console.log('✅ User already authenticated with this wallet, maintaining session')
+              setAuthState(prev => ({
+                ...prev,
+                isAuthenticated: true,
+                user,
+                needsSignature: false,
+                error: null,
+                isLoading: false
+              }))
+              return
+            }
+          } catch (error) {
+            console.error('Error parsing stored auth:', error)
+          }
+        }
+      }
+      
+      // No valid authentication found - require signature for new session
+      console.log('🔍 No valid authentication found, requiring signature for new session with address:', address)
+      
+      // Clear any old/invalid auth data
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('burnie_yapper_auth_user')
+        localStorage.removeItem('burnie_yapper_auth_token')
+        localStorage.removeItem('burnie_yapper_auth_signature')
+      }
+      
+      // Require signature for new session
+      setAuthState(prev => ({
+        ...prev,
+        isAuthenticated: false,
+        user: null,
+        needsSignature: true,
+        error: null,
+        isLoading: false
+      }))
+    }, 100) // Small delay to prevent rapid fire state changes
 
-    // Different wallet or no stored auth - need signature confirmation
-    console.log('🔐 New wallet connected, requiring sign-in confirmation')
-    console.log('🔍 Setting needsSignature: true for address:', address)
-    setAuthState(prev => ({
-      ...prev,
-      isAuthenticated: false,
-      user: null,
-      needsSignature: true,
-      error: null,
-      isLoading: false
-    }))
-  }, [isConnected, address, mounted])
+    return () => clearTimeout(timeoutId)
+  }, [isConnected, address, mounted, isDisconnecting])
 
   const logout = useCallback(() => {
     console.log('🚪 Logging out user and clearing all state')
+    
+    // Set disconnecting flag to prevent re-authentication during logout
+    setIsDisconnecting(true)
     
     // Clear ALL localStorage related to auth (only on client side)
     if (typeof window !== 'undefined') {
@@ -259,25 +327,30 @@ This signature proves you own this wallet.`
       localStorage.removeItem('burnie_yapper_auth_token')
       localStorage.removeItem('burnie_yapper_auth_signature')
       
-      // Clear any other potential auth-related storage
+      // Clear any other potential auth-related storage including Twitter
       Object.keys(localStorage).forEach(key => {
-        if (key.includes('burnie') || key.includes('auth') || key.includes('signature')) {
+        if (key.includes('burnie') || key.includes('auth') || key.includes('signature') || key.includes('yapper_twitter')) {
           localStorage.removeItem(key)
         }
       })
     }
     
-    // Clear auth state completely
+    // Clear auth state completely - this will require signature on next connection
     setAuthState({
       isAuthenticated: false,
       isLoading: false,
       user: null,
-      needsSignature: false,
+      needsSignature: false, // Will be set to true when wallet reconnects
       error: null
     })
 
-    // Disconnect wallet
+    // Disconnect wallet last to trigger cleanup
     disconnect()
+    
+    // Clear disconnecting flag after logout process
+    setTimeout(() => {
+      setIsDisconnecting(false)
+    }, 500)
   }, [disconnect])
 
   const clearError = useCallback(() => {

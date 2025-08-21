@@ -41,8 +41,37 @@ export const useMarketplaceAccess = () => {
       return;
     }
 
-    // Authenticated = check if APPROVED (only auto-route if not on homepage)
-    // Homepage handles its own routing to prevent loops
+    // Authenticated = check access status automatically
+    const checkAccess = async () => {
+      try {
+        setAccessStatus(prev => ({ ...prev, isLoading: true }));
+
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/referrals/check-access/${address}`
+        );
+        const result = await response.json();
+
+        const hasAccess = result.success && result.data.hasAccess;
+        const status = result.data?.status || 'PENDING_REFERRAL';
+
+        setAccessStatus({
+          hasAccess,
+          status,
+          isLoading: false
+        });
+
+        console.log('✅ Access status checked:', { hasAccess, status });
+      } catch (error) {
+        console.error('❌ Error checking access:', error);
+        setAccessStatus({
+          hasAccess: false,
+          status: 'PENDING_REFERRAL',
+          isLoading: false
+        });
+      }
+    };
+
+    checkAccess();
   }, [address, isAuthenticated]);
 
   const checkAccessAndRoute = async (targetRoute?: string) => {

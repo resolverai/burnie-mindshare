@@ -6,7 +6,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit'
 import Image from 'next/image'
 import BiddingInterface from '@/components/yapper/BiddingInterface'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
-import { useTokenRegistration } from '@/hooks/useTokenRegistration'
+
 import { useAuth } from '@/hooks/useAuth'
 import { useMarketplaceAccess } from '@/hooks/useMarketplaceAccess'
 import { useRouter } from 'next/navigation'
@@ -31,9 +31,9 @@ export default function HomePage() {
     setMounted(true)
   }, [])
 
-  // Auto-trigger signature confirmation when wallet connects and signature is needed
+  // Smart auto-trigger signature when wallet connects on homepage
   useEffect(() => {
-    console.log('🔍 Signature trigger check:', { 
+    console.log('🔍 Homepage signature trigger check:', { 
       mounted, 
       needsSignature, 
       address: !!address, 
@@ -41,11 +41,19 @@ export default function HomePage() {
       isAuthenticated
     });
     
-    if (mounted && needsSignature && address && !authLoading) {
-      console.log('🔐 Triggering signature confirmation for homepage')
-      signIn()
+    // Only auto-trigger if:
+    // 1. Component is mounted (avoid SSR issues)
+    // 2. Wallet needs signature (new connection)
+    // 3. Wallet is connected 
+    // 4. Not currently loading auth
+    // 5. Not already authenticated
+    if (mounted && needsSignature && address && !authLoading && !isAuthenticated) {
+      console.log('🔐 Auto-triggering signature confirmation for new wallet connection')
+      signIn().catch(error => {
+        console.error('❌ Auto-signature failed:', error)
+      })
     }
-  }, [needsSignature, address, authLoading, signIn, mounted])
+  }, [needsSignature, address, authLoading, isAuthenticated, signIn, mounted])
 
   // Homepage routing logic
   useEffect(() => {
@@ -67,8 +75,7 @@ export default function HomePage() {
     handleHomepageRouting();
   }, [isAuthenticated, address, authLoading, mounted, checkAccessOnly, router])
   
-  // Auto-register ROAST token if wallet is connected (only on client)
-  useTokenRegistration()
+
 
   const navigationItems = [
     { id: 'marketplace', label: 'Marketplace', icon: '/home.svg', route: '/marketplace', active: true },

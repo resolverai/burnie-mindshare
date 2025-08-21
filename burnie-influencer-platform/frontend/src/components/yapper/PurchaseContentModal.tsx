@@ -6,8 +6,8 @@ import Image from 'next/image'
 import { generateRandomMindshare, formatMindshare } from '../../utils/mindshareUtils'
 
 import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
-import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance, ensureROASTTokenDisplay } from '../../utils/walletUtils'
-import { executeROASTPayment, prepareROASTDisplay } from '../../services/roastPaymentService'
+import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance } from '../../utils/walletUtils'
+import { executeROASTPayment } from '../../services/roastPaymentService'
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, markdownToPlainText, markdownToHTML } from '../../utils/markdownParser'
 import WalletConnectionModal from '../WalletConnectionModal'
@@ -59,7 +59,7 @@ export default function PurchaseContentModal({
   const { price: roastPrice } = useROASTPrice()
   const { twitter, connect, disconnect, refreshToken, isTwitterReady } = useTwitter()
   const { hasAccess } = useMarketplaceAccess()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, signIn } = useAuth()
   const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting()
   const router = useRouter()
   
@@ -512,17 +512,36 @@ export default function PurchaseContentModal({
   // Purchase functionality
   const handlePurchase = async () => {
     if (!content) {
+      console.error('No content to purchase')
       return
     }
 
-    // Show wallet connection modal if not connected
+    // Handle different authentication states
     if (!address) {
+      console.log('🔗 No wallet connected - opening wallet modal')
       setShowWalletModal(true)
       return
     }
 
-    // Check marketplace access for authenticated features (authenticated users only)
+    if (!isAuthenticated) {
+      console.log('🔐 Wallet connected but not authenticated - need signature')
+      try {
+        const authResult = await signIn()
+        if (authResult) {
+          console.log('✅ Authentication successful, continuing purchase...')
+          // Don't return here - continue with purchase flow since auth is now complete
+        } else {
+          console.log('❌ Authentication failed or cancelled')
+          return
+        }
+      } catch (error) {
+        console.error('❌ Authentication error:', error)
+        return
+      }
+    }
+
     if (isAuthenticated && !hasAccess) {
+      console.log('🚫 User authenticated but no marketplace access - redirect to access page')
       router.push('/access')
       return
     }
@@ -585,18 +604,7 @@ export default function PurchaseContentModal({
 
       console.log(`✅ Balance check passed: ${balanceData.data.balance} ${balanceData.data.tokenType} available`);
 
-      // Prepare ROAST token display using working implementation pattern
-      if (selectedPayment === 'roast') {
-        console.log('🏷️ Preparing ROAST token for optimal wallet display...');
-        
-        try {
-          // Use the working implementation approach
-          await prepareROASTDisplay();
-          console.log('✅ ROAST token prepared for wallet display');
-        } catch (error) {
-          console.log('⚠️ Token preparation failed - proceeding anyway:', error);
-        }
-      }
+      // Execute payment directly without token registration
 
       // Execute transaction using working implementation pattern
       let result: any;
@@ -1286,6 +1294,12 @@ export default function PurchaseContentModal({
                 className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 ${
                   isLoading 
                     ? 'bg-gray-500 cursor-not-allowed' 
+                    : !address
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : !isAuthenticated
+                    ? 'bg-orange-600 hover:bg-orange-700'
+                    : !hasAccess
+                    ? 'bg-purple-600 hover:bg-purple-700'
                     : 'bg-[#FD7A10] glow-orange-button hover:bg-[#e86d0f]'
                 } text-white`}
               >
@@ -1294,6 +1308,12 @@ export default function PurchaseContentModal({
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     <span>Processing...</span>
                   </div>
+                ) : !address ? (
+                  'Connect Wallet'
+                ) : !isAuthenticated ? (
+                  'Sign Message to Authenticate'
+                ) : !hasAccess ? (
+                  'Get Marketplace Access'
                 ) : (
                   'Buy Tweet'
                 )}

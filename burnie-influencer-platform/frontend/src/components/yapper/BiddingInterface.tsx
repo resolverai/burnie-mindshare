@@ -324,7 +324,6 @@ export default function BiddingInterface() {
         console.warn('⚠️ Treasury distribution will be processed automatically:', error);
       }
 
-      alert('🎉 Purchase successful! Content has been added to your library.');
       // Refetch marketplace data to remove purchased content
       refetch()
       

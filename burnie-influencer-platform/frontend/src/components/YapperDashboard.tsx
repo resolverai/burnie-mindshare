@@ -5,7 +5,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAccount, useDisconnect } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useROASTBalance } from '../hooks/useROASTBalance'
-import { useTokenRegistration } from '../hooks/useTokenRegistration'
+
 import { useAuth } from '../hooks/useAuth'
 import { useRouter } from 'next/navigation'
 import { useYapperTwitterConnection } from '../hooks/useYapperTwitterConnection'
@@ -29,8 +29,7 @@ interface YapperDashboardProps {
 export default function YapperDashboard({ activeSection = 'dashboard' }: YapperDashboardProps) {
   const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
   
-  // Automatically register ROAST token when wallet connects
-  useTokenRegistration()
+
   
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false) // Default to closed
   const [isReconnectingTwitter, setIsReconnectingTwitter] = useState(false)

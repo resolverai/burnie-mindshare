@@ -6,7 +6,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit'
 import Image from 'next/image'
 import BiddingInterface from '@/components/yapper/BiddingInterface'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
-import { useTokenRegistration } from '@/hooks/useTokenRegistration'
+
 import { useAuth } from '@/hooks/useAuth'
 import { useAuthGuard } from '@/hooks/useAuthGuard'
 import { useUserReferralCode } from '@/hooks/useUserReferralCode'
@@ -33,8 +33,7 @@ export default function MarketplacePage() {
     setMounted(true)
   }, [])
   
-  // Auto-register ROAST token if wallet is connected (only on client)
-  useTokenRegistration()
+
 
   const handleReferralCodeClick = async () => {
     if (referralCode?.code) {
