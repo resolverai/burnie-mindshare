@@ -15,6 +15,7 @@ import { useTwitter } from '../../contexts/TwitterContext'
 import { useMarketplaceAccess } from '../../hooks/useMarketplaceAccess'
 import { useAuth } from '../../hooks/useAuth'
 import { useTwitterPosting } from '../../hooks/useTwitterPosting'
+import { useRouter } from 'next/navigation'
 
 interface ContentItem {
   id: number
@@ -57,9 +58,10 @@ export default function PurchaseContentModal({
   const { address } = useAccount()
   const { price: roastPrice } = useROASTPrice()
   const { twitter, connect, disconnect, refreshToken, isTwitterReady } = useTwitter()
-  const { hasAccess, redirectToAccess } = useMarketplaceAccess()
+  const { hasAccess } = useMarketplaceAccess()
   const { isAuthenticated } = useAuth()
   const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting()
+  const router = useRouter()
   
   const [selectedVoiceTone, setSelectedVoiceTone] = useState("auto")
   const [selectedTone, setSelectedTone] = useState("Select tone")
@@ -521,7 +523,7 @@ export default function PurchaseContentModal({
 
     // Check marketplace access for authenticated features (authenticated users only)
     if (isAuthenticated && !hasAccess) {
-      redirectToAccess()
+      router.push('/access')
       return
     }
 

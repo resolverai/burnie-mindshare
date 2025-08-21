@@ -9,6 +9,7 @@ import { useROASTBalance } from '@/hooks/useROASTBalance'
 import { useTokenRegistration } from '@/hooks/useTokenRegistration'
 import { useAuth } from '@/hooks/useAuth'
 import { useMarketplaceAccess } from '@/hooks/useMarketplaceAccess'
+import { useRouter } from 'next/navigation'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -19,36 +20,52 @@ export default function HomePage() {
   const { address, isConnected } = useAccount()
   const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
   const { needsSignature, signIn, isLoading: authLoading, isAuthenticated } = useAuth()
-  const { hasAccess, redirectToAccess } = useMarketplaceAccess()
+  const { checkAccessOnly } = useMarketplaceAccess()
+  const router = useRouter()
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
   const [mounted, setMounted] = useState(false)
+
   
   // Handle SSR hydration
   useEffect(() => {
     setMounted(true)
   }, [])
 
-  // Redirect authenticated users without access to the access page
-  useEffect(() => {
-    // Only redirect if we're certain about the authentication state and access status
-    if (!authLoading && isAuthenticated && !hasAccess) {
-      // Add a small delay to avoid redirect loops and ensure state is stable
-      const timer = setTimeout(() => {
-        console.log('🔒 Authenticated user without access, redirecting to access page')
-        redirectToAccess()
-      }, 500)
-      
-      return () => clearTimeout(timer)
-    }
-  }, [authLoading, isAuthenticated, hasAccess, redirectToAccess])
-  
   // Auto-trigger signature confirmation when wallet connects and signature is needed
   useEffect(() => {
+    console.log('🔍 Signature trigger check:', { 
+      mounted, 
+      needsSignature, 
+      address: !!address, 
+      authLoading, 
+      isAuthenticated
+    });
+    
     if (mounted && needsSignature && address && !authLoading) {
-      console.log('🔐 Auto-triggering wallet signature confirmation for homepage')
+      console.log('🔐 Triggering signature confirmation for homepage')
       signIn()
     }
   }, [needsSignature, address, authLoading, signIn, mounted])
+
+  // Homepage routing logic
+  useEffect(() => {
+    const handleHomepageRouting = async () => {
+      if (!authLoading && mounted && isAuthenticated && address) {
+        console.log('🔍 Authenticated user on homepage, checking access status...');
+        const hasAccess = await checkAccessOnly();
+        if (hasAccess) {
+          console.log('🔄 APPROVED user on homepage, redirecting to /marketplace');
+          router.push('/marketplace');
+        } else {
+          console.log('🔄 NOT APPROVED user on homepage, redirecting to /access');
+          router.push('/access');
+        }
+      }
+      // If not authenticated, stay on homepage (public browsing)
+    };
+
+    handleHomepageRouting();
+  }, [isAuthenticated, address, authLoading, mounted, checkAccessOnly, router])
   
   // Auto-register ROAST token if wallet is connected (only on client)
   useTokenRegistration()

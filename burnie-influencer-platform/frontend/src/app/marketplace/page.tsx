@@ -8,17 +8,22 @@ import BiddingInterface from '@/components/yapper/BiddingInterface'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
 import { useTokenRegistration } from '@/hooks/useTokenRegistration'
 import { useAuth } from '@/hooks/useAuth'
-import { useMarketplaceAccess } from '@/hooks/useMarketplaceAccess'
+import { useAuthGuard } from '@/hooks/useAuthGuard'
 import { useUserReferralCode } from '@/hooks/useUserReferralCode'
 
 export default function MarketplacePage() {
-  console.log('🏪 Marketplace page loaded - no authentication required')
+  console.log('🏪 Marketplace page loaded - authentication required')
   
   const { address, isConnected } = useAccount()
   const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
   const { needsSignature, signIn, isLoading: authLoading, isAuthenticated } = useAuth()
-  const { hasAccess, redirectToAccess } = useMarketplaceAccess()
   const { referralCode, copyToClipboard } = useUserReferralCode()
+  
+  // Protect this route - redirect to homepage if not authenticated
+  useAuthGuard({ 
+    redirectTo: '/', 
+    requiresAuth: true 
+  })
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showCopySuccess, setShowCopySuccess] = useState(false)
@@ -27,23 +32,6 @@ export default function MarketplacePage() {
   useEffect(() => {
     setMounted(true)
   }, [])
-
-  // Redirect users who need authentication/access to the access page
-  useEffect(() => {
-    // Only redirect if we're certain about the authentication state and access status
-    if (!authLoading && isConnected && !hasAccess) {
-      // Add a small delay to avoid redirect loops and ensure state is stable
-      const timer = setTimeout(() => {
-        console.log('🔒 Connected user without access, redirecting to access page')
-        redirectToAccess()
-      }, 500)
-      
-      return () => clearTimeout(timer)
-    }
-  }, [authLoading, isConnected, hasAccess, redirectToAccess])
-  
-  // Note: Removed auto-signature trigger for marketplace to allow access page redirection
-  // Users should be redirected to access page first for authentication
   
   // Auto-register ROAST token if wallet is connected (only on client)
   useTokenRegistration()
@@ -63,6 +51,24 @@ export default function MarketplacePage() {
     { id: 'dashboard', label: 'Dashboard', icon: '/dashboard.svg', route: '/dashboard', requiresAuth: true },
     { id: 'mycontent', label: 'My content', icon: '/content.svg', route: '/my-content', requiresAuth: true }
   ]
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-yapper-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 animate-spin border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <h2 className="text-2xl font-bold text-white mb-2">Loading Marketplace</h2>
+          <p className="text-white/70">Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Don't render anything if not authenticated (redirect will handle it)
+  if (!isAuthenticated) {
+    return null
+  }
 
   return (
     <div className="min-h-screen yapper-background">

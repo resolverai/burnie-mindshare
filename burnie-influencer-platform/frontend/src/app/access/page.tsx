@@ -59,14 +59,27 @@ export default function AccessPage() {
       
       const result = await response.json()
       
-      if (result.success && result.data.hasAccess) {
-        router.push('/marketplace')
+      if (result.success) {
+        if (result.data.hasAccess) {
+          // APPROVED users should immediately go to marketplace
+          console.log('✅ User has access (APPROVED), redirecting to marketplace')
+          router.push('/marketplace')
+          return
+        } else {
+          // Use the actual status from backend
+          const actualStatus = result.data?.status || 'PENDING_REFERRAL'
+          console.log(`🔒 User access status: ${actualStatus}`)
+          setAccessStatus({
+            hasAccess: false,
+            status: actualStatus,
+            isLoading: false
+          })
+        }
       } else {
-        // Use the actual status from backend, don't default to PENDING_REFERRAL
-        const actualStatus = result.data?.status || 'PENDING_REFERRAL'
+        console.log('❌ Access check failed')
         setAccessStatus({
           hasAccess: false,
-          status: actualStatus,
+          status: 'PENDING_REFERRAL',
           isLoading: false
         })
       }
@@ -79,17 +92,14 @@ export default function AccessPage() {
     }
   }
 
-  // Check access status when authenticated
+  // Simple check: if authenticated, check status; if not, show access form
   useEffect(() => {
     if (!authLoading && isAuthenticated && address) {
       checkAccessStatus()
     } else if (!authLoading && !isAuthenticated) {
-      // Not authenticated - redirect to marketplace for public browsing
-      router.push('/marketplace')
-    } else {
       setAccessStatus(prev => ({ ...prev, isLoading: false }))
     }
-  }, [authLoading, isAuthenticated, address, router])
+  }, [authLoading, isAuthenticated, address])
 
   // Poll for approval status when user is on waitlist
   useEffect(() => {

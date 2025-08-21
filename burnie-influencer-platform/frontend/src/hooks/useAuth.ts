@@ -175,16 +175,23 @@ This signature proves you own this wallet.`
     
     if (!isConnected || !address) {
       // Wallet disconnected - clear authentication completely
-      console.log('🔄 Wallet disconnected, clearing authentication')
+      console.log('🔄 Wallet disconnected, clearing all authentication state')
       
-      // Clear localStorage (only on client side)
+      // Clear ALL localStorage related to auth (only on client side)
       if (typeof window !== 'undefined') {
         localStorage.removeItem('burnie_yapper_auth_user')
         localStorage.removeItem('burnie_yapper_auth_token')
         localStorage.removeItem('burnie_yapper_auth_signature')
+        
+        // Clear any other potential auth-related storage
+        Object.keys(localStorage).forEach(key => {
+          if (key.includes('burnie') || key.includes('auth') || key.includes('signature')) {
+            localStorage.removeItem(key)
+          }
+        })
       }
       
-      // Clear auth state
+      // Clear auth state completely
       setAuthState({
         isAuthenticated: false,
         isLoading: false,
@@ -213,15 +220,26 @@ This signature proves you own this wallet.`
               isLoading: false
             }))
             return
+          } else {
+            // Different wallet - clear old auth data
+            console.log('🔄 Different wallet connected, clearing old auth data')
+            localStorage.removeItem('burnie_yapper_auth_user')
+            localStorage.removeItem('burnie_yapper_auth_token')
+            localStorage.removeItem('burnie_yapper_auth_signature')
           }
         } catch (error) {
           console.error('Error parsing stored auth:', error)
+          // Clear corrupted auth data
+          localStorage.removeItem('burnie_yapper_auth_user')
+          localStorage.removeItem('burnie_yapper_auth_token')
+          localStorage.removeItem('burnie_yapper_auth_signature')
         }
       }
     }
 
     // Different wallet or no stored auth - need signature confirmation
     console.log('🔐 New wallet connected, requiring sign-in confirmation')
+    console.log('🔍 Setting needsSignature: true for address:', address)
     setAuthState(prev => ({
       ...prev,
       isAuthenticated: false,
@@ -233,16 +251,23 @@ This signature proves you own this wallet.`
   }, [isConnected, address, mounted])
 
   const logout = useCallback(() => {
-    console.log('🚪 Logging out user')
+    console.log('🚪 Logging out user and clearing all state')
     
-    // Clear localStorage (only on client side)
+    // Clear ALL localStorage related to auth (only on client side)
     if (typeof window !== 'undefined') {
       localStorage.removeItem('burnie_yapper_auth_user')
       localStorage.removeItem('burnie_yapper_auth_token')
       localStorage.removeItem('burnie_yapper_auth_signature')
+      
+      // Clear any other potential auth-related storage
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes('burnie') || key.includes('auth') || key.includes('signature')) {
+          localStorage.removeItem(key)
+        }
+      })
     }
     
-    // Clear auth state
+    // Clear auth state completely
     setAuthState({
       isAuthenticated: false,
       isLoading: false,

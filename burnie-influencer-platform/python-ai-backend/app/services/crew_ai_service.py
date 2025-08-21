@@ -12,6 +12,19 @@ import uuid
 import os
 from enum import Enum
 
+# Schemas for Image Generation Tools
+class ImageToolSchema(BaseModel):
+    prompt: str = Field(..., description="Image generation prompt as a simple string")
+
+class FalAIImageToolSchema(ImageToolSchema):
+    pass
+
+class OpenAIImageToolSchema(ImageToolSchema):
+    pass
+
+class GoogleImageToolSchema(ImageToolSchema):
+    pass
+
 from crewai import Agent, Task, Crew, Process
 from crewai.tools import BaseTool
 from langchain_openai import ChatOpenAI
@@ -691,6 +704,53 @@ class CrewAIService:
             # Background fetch failures should not impact the main flow
             logger.warning(f"🔄 Background: Twitter fetch exception for project {project_id}: {e}")
             # Don't re-raise - this is fire-and-forget
+
+    def _ensure_project_handle_tagged(self, main_tweet: str) -> str:
+        """
+        Sanity check: Ensure the project Twitter handle is tagged in the main_tweet.
+        If not present, add it at the end of the tweet.
+        """
+        try:
+            if not main_tweet or not main_tweet.strip():
+                logger.warning("⚠️ Empty main_tweet provided to sanity check")
+                return main_tweet
+            
+            # Get project Twitter handle from campaign data
+            project_twitter_handle = None
+            if hasattr(self, 'campaign_data') and self.campaign_data:
+                project_twitter_handle = self.campaign_data.get('projectTwitterHandle')
+            
+            # If no project handle available, return original tweet
+            if not project_twitter_handle or not project_twitter_handle.strip():
+                logger.info("📭 No project Twitter handle available for tagging")
+                return main_tweet
+            
+            # Clean the handle - ensure it starts with @
+            if not project_twitter_handle.startswith('@'):
+                project_twitter_handle = f"@{project_twitter_handle}"
+            
+            # Check if the handle is already in the tweet (case-insensitive)
+            if project_twitter_handle.lower() in main_tweet.lower():
+                logger.info(f"✅ Project handle {project_twitter_handle} already tagged in main_tweet")
+                return main_tweet
+            
+            # Handle is not present - add it at the end
+            # Ensure there's a space before the handle
+            if main_tweet.endswith(' '):
+                tagged_tweet = f"{main_tweet}{project_twitter_handle}"
+            else:
+                tagged_tweet = f"{main_tweet} {project_twitter_handle}"
+            
+            logger.info(f"🏷️ SANITY CHECK: Added project handle {project_twitter_handle} to main_tweet")
+            logger.info(f"🏷️ Original: {main_tweet[:50]}...")
+            logger.info(f"🏷️ Tagged: {tagged_tweet[:50]}...")
+            
+            return tagged_tweet
+            
+        except Exception as e:
+            logger.error(f"❌ Error in project handle sanity check: {e}")
+            # Return original tweet if sanity check fails
+            return main_tweet
 
     def _create_content_strategist_agent(self, llm) -> Agent:
         """Create the Content Strategist Agent with strategic analysis capabilities"""
@@ -2181,6 +2241,13 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - **STEP 3**: Original concept creation that amplifies the tweet's message uniquely
             - **STEP 4**: Professional enhancement with Essential Quality Keywords + NO-TEXT requirements
             - **STEP 5**: Prompt optimization for maximum AI model effectiveness with guaranteed no-text integration
+            
+            🚨 **CRITICAL TOOL INPUT FORMAT**:
+            - When calling {f"{image_provider}_image_generation" if has_image_tool else "image generation"} tool, provide ONLY a simple string prompt
+            - DO NOT use dictionary format, JSON format, or any complex structure
+            - Example: Use "A futuristic digital landscape..." NOT {{"description": "A futuristic...", "image_url": "..."}}
+            - The tool expects: prompt = "your generated prompt text here"
+            - Keep it simple: just the creative prompt string you generate
             - **CRITICAL**: Create original, dynamic prompts that ensure variety and prevent repetitive imagery
             - Campaign context: "{self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
             - Twitter-optimized dimensions with maximum visual impact
@@ -2538,6 +2605,9 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                         tweet_thread = parsed_json.get("thread_array", [])
                         json_found = True
                         
+                        # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
+                        final_content = self._ensure_project_handle_tagged(final_content)
+                        
                         logger.info(f"✅ Successfully parsed orchestrator JSON output (approach 1)")
                         logger.info(f"✅ Extracted main_tweet length: {len(final_content)} chars")
                         logger.info(f"✅ Extracted thread_array: {len(tweet_thread) if tweet_thread else 0} tweets")
@@ -2555,6 +2625,10 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                         final_content = final_content.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
                         tweet_thread = []  # No thread for longpost anyway
                         json_found = True
+                        
+                        # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
+                        final_content = self._ensure_project_handle_tagged(final_content)
+                        
                         logger.info(f"✅ Extracted main_tweet using approach 2, length: {len(final_content)} chars")
                         
                 if not json_found:
@@ -2563,11 +2637,17 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                     final_content = extraction_result["content_text"]
                     tweet_thread = extraction_result["tweet_thread"]
                     
+                    # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
+                    final_content = self._ensure_project_handle_tagged(final_content)
+                    
             except Exception as e:
                 logger.warning(f"⚠️ JSON parsing failed: {e}, falling back to extraction")
                 extraction_result = self._extract_twitter_content(raw_result)
                 final_content = extraction_result["content_text"]
                 tweet_thread = extraction_result["tweet_thread"]
+                
+                # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
+                final_content = self._ensure_project_handle_tagged(final_content)
             
             # Debug: Log extraction results
             post_type = getattr(self.mining_session, 'post_type', 'thread')
@@ -2596,6 +2676,9 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 extraction_result = self._extract_twitter_content(raw_result)
                 final_content = extraction_result["content_text"]
                 tweet_thread = extraction_result["tweet_thread"]
+                
+                # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
+                final_content = self._ensure_project_handle_tagged(final_content)
             
             # Debug: Check for Visual Creator URLs in orchestrator output
             import re
@@ -5540,6 +5623,7 @@ class FalAIContentTool(BaseTool):
 class OpenAIImageTool(BaseTool):
     name: str = "openai_image_generation"
     description: str = "Generate images ONLY using OpenAI models (dall-e-3, dall-e-2, gpt-image-1). Use this tool when user selected OpenAI as image provider."
+    args_schema: Type[BaseModel] = OpenAIImageToolSchema
     api_key: Optional[str] = None
     model_preferences: Dict[str, Any] = {}
     generator: Any = None
@@ -5633,6 +5717,7 @@ Technical Specifications:
 class GoogleImageTool(BaseTool):
     name: str = "google_image_generation" 
     description: str = "Generate images ONLY using Google models (imagen-*, gemini-*). Use this tool when user selected Google as image provider."
+    args_schema: Type[BaseModel] = GoogleImageToolSchema
     api_key: Optional[str] = None
     model_preferences: Dict[str, Any] = {}
     wallet_address: Optional[str] = None
@@ -5766,6 +5851,7 @@ Technical Specifications:
 class FalAIImageTool(BaseTool):
     name: str = "fal_image_generation"
     description: str = "Generate images using Fal.ai models (flux-pro, flux-dev, sdxl). Supports brand logo integration with flux-pro/kontext model."
+    args_schema: Type[BaseModel] = FalAIImageToolSchema
     api_key: Optional[str] = None
     model_preferences: Dict[str, Any] = {}
     wallet_address: Optional[str] = None

@@ -1,167 +1,112 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { useAuth } from './useAuth';
+import { useRouter } from 'next/navigation';
 
 interface AccessStatus {
   hasAccess: boolean;
   status: 'PENDING_REFERRAL' | 'PENDING_WAITLIST' | 'APPROVED' | 'REJECTED';
-  requiresReferral: boolean;
   isLoading: boolean;
-  user?: {
-    id: number;
-    walletAddress: string;
-    username?: string;
-    referralCode?: string;
-  };
 }
 
 export const useMarketplaceAccess = () => {
-  const { address, isConnected } = useAccount();
+  const { address } = useAccount();
   const { isAuthenticated } = useAuth();
+  const router = useRouter();
   const [accessStatus, setAccessStatus] = useState<AccessStatus>({
     hasAccess: false,
-    status: 'PENDING_REFERRAL', 
-    requiresReferral: true,
-    isLoading: true
+    status: 'PENDING_REFERRAL',
+    isLoading: false
   });
 
-  // Clear any potential cached access status when wallet address changes
-  useEffect(() => {
-    if (address) {
-      setAccessStatus({
-        hasAccess: false,
-        status: 'PENDING_REFERRAL',
-        requiresReferral: true,
-        isLoading: true
-      });
-    }
-  }, [address]);
-
+  // Simple logic: Check access when wallet connects and is authenticated
   useEffect(() => {
     if (!address) {
-      // No wallet connected - allow public browsing
+      // No wallet = public browsing allowed
       setAccessStatus({
         hasAccess: true,
         status: 'PENDING_REFERRAL',
-        requiresReferral: false,
         isLoading: false
       });
       return;
     }
 
     if (!isAuthenticated) {
-      // Wallet connected but not authenticated - redirect to access page for signature
+      // Wallet connected but not signed = no access
       setAccessStatus({
         hasAccess: false,
         status: 'PENDING_REFERRAL',
-        requiresReferral: true,
         isLoading: false
       });
       return;
     }
 
-    // Authenticated users are BLOCKED by default until we verify their access
-    // This prevents any authenticated user from seeing marketplace content
-    setAccessStatus({
-      hasAccess: false, // Block all authenticated users by default
-      status: 'PENDING_REFERRAL',
-      requiresReferral: true,
-      isLoading: true
-    });
-    
-    // Check access immediately for authenticated users
-    checkMarketplaceAccess();
+    // Authenticated = check if APPROVED (only auto-route if not on homepage)
+    // Homepage handles its own routing to prevent loops
   }, [address, isAuthenticated]);
 
-  const checkMarketplaceAccess = useCallback(async () => {
-    if (!address) {
-      return;
-    }
+  const checkAccessAndRoute = async (targetRoute?: string) => {
+    if (!address) return;
 
     try {
       setAccessStatus(prev => ({ ...prev, isLoading: true }));
 
-      // Add cache-busting parameter to force fresh API call
-      const timestamp = Date.now();
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/referrals/check-access/${address}?t=${timestamp}`
+        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/referrals/check-access/${address}`
       );
-      
       const result = await response.json();
-      
-      if (result.success) {
-        const newStatus = {
-          hasAccess: result.data.hasAccess,
-          status: result.data.status,
-          requiresReferral: result.data.requiresReferral,
-          isLoading: false,
-          user: result.data.user
-        };
-        setAccessStatus(newStatus);
-      } else {
-        // If check fails, connected users need referral approval
-        setAccessStatus({
-          hasAccess: false,
-          status: 'PENDING_REFERRAL',
-          requiresReferral: true,
-          isLoading: false
-        });
-      }
-    } catch (error) {
-      // On error for connected users, deny access for security
+
+      const hasAccess = result.success && result.data.hasAccess;
+      const status = result.data?.status || 'PENDING_REFERRAL';
+
       setAccessStatus({
-        hasAccess: false,
-        status: 'PENDING_REFERRAL',
-        requiresReferral: true,
+        hasAccess,
+        status,
         isLoading: false
       });
-    }
-  }, [address]);
 
-  const redirectToAccess = () => {
-    window.location.href = '/access';
-  };
-
-  const redirectToReferral = () => {
-    window.location.href = '/access';
-  };
-
-  const redirectToWaitlist = () => {
-    window.location.href = '/access';
-  };
-
-  const refreshAccess = () => {
-    if (isAuthenticated && address) {
-      // Force clear current status and re-check
+      // Route based on access status and target (only for non-homepage routes)
+      if (targetRoute && targetRoute !== 'homepage') {
+        if (hasAccess) {
+          // APPROVED user
+          router.push(targetRoute || '/marketplace');
+        } else {
+          // NOT APPROVED user
+          router.push('/access');
+        }
+      }
+    } catch (error) {
+      console.error('Error checking access:', error);
       setAccessStatus({
         hasAccess: false,
         status: 'PENDING_REFERRAL',
-        requiresReferral: true,
-        isLoading: true
+        isLoading: false
       });
-      checkMarketplaceAccess();
+      // Only auto-route to access if not called from homepage
+      if (targetRoute && targetRoute !== 'homepage') {
+        router.push('/access');
+      }
     }
   };
 
-  const forceRefreshAccess = () => {
-    if (isAuthenticated && address) {
-      setAccessStatus({
-        hasAccess: false,
-        status: 'PENDING_REFERRAL',
-        requiresReferral: true,
-        isLoading: true
-      });
-      checkMarketplaceAccess();
+  const checkAccessOnly = async () => {
+    if (!address) return false;
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/referrals/check-access/${address}`
+      );
+      const result = await response.json();
+      return result.success && result.data.hasAccess;
+    } catch (error) {
+      console.error('Error checking access:', error);
+      return false;
     }
   };
 
   return {
     ...accessStatus,
-    checkMarketplaceAccess,
-    redirectToAccess,
-    redirectToReferral,
-    redirectToWaitlist,
-    refreshAccess,
-    forceRefreshAccess
+    checkAccessAndRoute,
+    checkAccessOnly
   };
 };

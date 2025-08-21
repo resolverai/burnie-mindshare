@@ -94,11 +94,11 @@ export default function HeroCarousel({ slides, onProgressChange }: HeroCarouselP
                 <div className="absolute inset-0 rounded-[24px] overflow-hidden">
                   {(() => {
                     const isS3Url = slide.backgroundUrl.includes('amazonaws.com') || slide.backgroundUrl.includes('.s3.');
-                    console.log(`🎨 Carousel slide ${i + 1}:`, {
-                      url: slide.backgroundUrl.substring(0, 100) + '...',
-                      isS3: isS3Url,
-                      method: isS3Url ? 'Direct img tag' : 'Next.js Image'
-                    });
+                    // console.log(`🎨 Carousel slide ${i + 1}:`, {
+                    //   url: slide.backgroundUrl.substring(0, 100) + '...',
+                    //   isS3: isS3Url,
+                    //   method: isS3Url ? 'Direct img tag' : 'Next.js Image'
+                    // });
                     
                     return isS3Url ? (
                       // Use regular img tag for S3 URLs to avoid Next.js proxy

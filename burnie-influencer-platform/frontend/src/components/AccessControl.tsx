@@ -2,6 +2,7 @@ import React from 'react';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useMarketplaceAccess } from '../hooks/useMarketplaceAccess';
+import { useRouter } from 'next/navigation';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 
@@ -17,7 +18,16 @@ const AccessControl: React.FC<AccessControlProps> = ({
   fallbackComponent 
 }) => {
   const { isConnected } = useAccount();
-  const { hasAccess, status, requiresReferral, isLoading, redirectToReferral, redirectToWaitlist } = useMarketplaceAccess();
+  const { hasAccess, status, isLoading } = useMarketplaceAccess();
+  const router = useRouter();
+
+  const handleReferralRedirect = () => {
+    router.push('/referral');
+  };
+
+  const handleWaitlistRedirect = () => {
+    router.push('/waitlist');
+  };
 
   // Show loading state
   if (isLoading) {
@@ -66,14 +76,14 @@ const AccessControl: React.FC<AccessControlProps> = ({
             </CardHeader>
             <CardContent className="text-center space-y-3">
               <Button
-                onClick={redirectToWaitlist}
+                onClick={handleWaitlistRedirect}
                 className="bg-blue-600 hover:bg-blue-700 text-white"
               >
                 Check Waitlist Status
               </Button>
               <div className="text-white/50 text-sm">or</div>
               <Button
-                onClick={redirectToReferral}
+                onClick={handleReferralRedirect}
                 className="bg-purple-600 hover:bg-purple-700 text-white"
               >
                 Enter Referral Code
@@ -96,7 +106,7 @@ const AccessControl: React.FC<AccessControlProps> = ({
             </CardHeader>
             <CardContent className="text-center">
               <Button
-                onClick={redirectToReferral}
+                onClick={handleReferralRedirect}
                 className="bg-purple-600 hover:bg-purple-700 text-white"
               >
                 Try Referral Code
@@ -119,14 +129,14 @@ const AccessControl: React.FC<AccessControlProps> = ({
           </CardHeader>
           <CardContent className="text-center space-y-3">
             <Button
-              onClick={redirectToReferral}
+              onClick={handleReferralRedirect}
               className="w-full bg-purple-600 hover:bg-purple-700 text-white"
             >
               Enter Referral Code
             </Button>
             <div className="text-white/50 text-sm">or</div>
             <Button
-              onClick={redirectToWaitlist}
+              onClick={handleWaitlistRedirect}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white"
             >
               Join Waitlist
