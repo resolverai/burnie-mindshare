@@ -728,8 +728,8 @@ async def fetch_project_twitter(request: Request):
             )
         elif fetch_type in ['campaign_edit_admin', 'campaign_edit', 'manual']:
             # Fetch when campaign is updated/edited or manual trigger
-            logger.info(f"📋 Routing to campaign_edit_fetch (treating as campaign operation)")
-            result = await project_twitter_integration.handle_campaign_creation_fetch(
+            logger.info(f"📋 Routing to campaign_edit_fetch (fetch ALL since last tweet)")
+            result = await project_twitter_integration.handle_campaign_edit_fetch(
                 project_id=int(project_id),
                 project_name=str(project_name),
                 twitter_handle=str(twitter_handle)

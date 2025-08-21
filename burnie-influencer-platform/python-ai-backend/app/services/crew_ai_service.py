@@ -172,13 +172,17 @@ class CrewAIService:
             # Phase 1.5 & 2: Fetch complete campaign context from database and validate API keys
             await self._update_progress(12, "Fetching campaign context from database and validating API keys...")
             
+
+            
             # Run context fetching and API validation in parallel (non-blocking)
             import asyncio
             context_task = asyncio.create_task(self._fetch_complete_campaign_context(mining_session.campaign_id))
             api_validation_task = asyncio.create_task(self._validate_api_keys())
             
+
             # Wait for both tasks to complete
             missing_keys, _ = await asyncio.gather(api_validation_task, context_task)
+
             
             await self._update_progress(15, "Twitter context and API validation completed...")
             if missing_keys:
@@ -299,88 +303,28 @@ class CrewAIService:
             # Use database campaign context instead of mining session context
             campaign_context = getattr(self, 'campaign_data', {})
             
-            print(f"🔍 === PROJECT LOGO URL DEBUG ===")
-            print(f"🔍 campaign_data exists: {hasattr(self, 'campaign_data')}")
-            print(f"🔍 campaign_context: {campaign_context}")
-            
             if not campaign_context:
                 logger.warning("⚠️ No campaign data available from database for logo URL")
-                print(f"🔍 No campaign context available")
                 return ""
             
             # Check all possible logo fields
             logo_url = campaign_context.get('projectLogo', '')
             logo_url_alt = campaign_context.get('projectLogoUrl', '')
             
-            print(f"🔍 projectLogo field: '{logo_url}'")
-            print(f"🔍 projectLogoUrl field: '{logo_url_alt}'")
-            print(f"🔍 All campaign context keys: {list(campaign_context.keys())}")
-            
             # Use whichever is available
             final_logo_url = logo_url or logo_url_alt
             
             if final_logo_url:
                 logger.info(f"🏷️ Found project logo URL from database: {final_logo_url}")
-                print(f"🔍 ✅ Using logo URL: {final_logo_url}")
                 return final_logo_url
             else:
                 logger.warning("⚠️ No project logo URL found in database campaign context")
-                print(f"🔍 ❌ No logo URL found in any field")
                 return ""
         except Exception as e:
             logger.error(f"❌ Error getting project logo URL: {e}")
-            print(f"🔍 ❌ Exception getting logo URL: {e}")
             return ""
 
-    async def _fetch_project_twitter_context(self, mining_session: MiningSession):
-        """Fetch and store project Twitter context for content generation"""
-        try:
-            # Extract project information from campaign context
-            campaign_context = mining_session.campaign_context or {}
-            project_name = campaign_context.get('projectName') or campaign_context.get('project_name')
-            twitter_handle = campaign_context.get('projectTwitterHandle') or campaign_context.get('project_twitter_handle')
-            project_id = campaign_context.get('projectId') or campaign_context.get('project_id') or mining_session.campaign_id
-            
-            if not twitter_handle or not twitter_handle.strip():
-                logger.info("📭 No Twitter handle provided for this project - skipping Twitter context")
-                self.project_twitter_context = ""
-                return
-            
-            # Trigger daily Twitter data refresh if needed
-            logger.info(f"🐦 Checking for new Twitter data for project {project_id} (@{twitter_handle})")
-            
-            from .project_twitter_integration import project_twitter_integration
-            
-            # Check if we need to fetch new data (respects daily limit)
-            fetch_result = await project_twitter_integration.handle_content_generation_fetch(
-                project_id=int(project_id),
-                project_name=str(project_name or 'Unknown Project'),
-                twitter_handle=str(twitter_handle)
-            )
-            
-            if fetch_result.get('success'):
-                if fetch_result.get('skipped'):
-                    logger.info(f"📅 Twitter data already current for project {project_id}")
-                elif fetch_result.get('posts_fetched', 0) > 0:
-                    logger.info(f"✅ Fetched {fetch_result['posts_fetched']} new Twitter posts for project {project_id}")
-                else:
-                    logger.info(f"📭 No new Twitter posts found for project {project_id}")
-            else:
-                logger.warning(f"⚠️ Twitter data fetch failed: {fetch_result.get('error', 'Unknown error')}")
-            
-            # Get formatted Twitter context for AI generation
-            context = await project_twitter_integration.get_project_twitter_context(int(project_id))
-            
-            if context and context.strip():
-                self.project_twitter_context = context
-                logger.info(f"✅ Loaded Twitter context for content generation ({len(context)} characters)")
-            else:
-                self.project_twitter_context = ""
-                logger.info("📭 No Twitter context available for this project")
-                
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to fetch project Twitter context: {e}")
-            self.project_twitter_context = ""
+
 
     def _get_default_model_preferences(self):
         """Get default model preferences if user hasn't configured any"""
@@ -592,14 +536,21 @@ class CrewAIService:
 
     async def _fetch_complete_campaign_context(self, campaign_id: int):
         """Fetch complete campaign context from database instead of relying on frontend data"""
+
         try:
             logger.info(f"🔍 Fetching complete campaign context from database for campaign {campaign_id}")
             
+
             # Fetch campaign data from database
             campaign_data = self.campaign_repo.get_campaign_by_id(campaign_id)
+
+            
             if not campaign_data:
+
                 logger.error(f"❌ Campaign {campaign_id} not found in database")
                 return
+            
+
             
             logger.info(f"✅ Campaign data fetched: {campaign_data.get('title', 'Unknown')}")
             
@@ -623,6 +574,30 @@ class CrewAIService:
                 'projectTwitterHandle': campaign_data.get('projectTwitterHandle', ''),
             }
             
+
+            print(f"  - projectId: {campaign_context.get('projectId')}")
+            print(f"  - projectName: {campaign_context.get('projectName')}")
+            print(f"  - projectTwitterHandle from campaigns table: {campaign_context.get('projectTwitterHandle')}")
+            
+            # If no Twitter handle in campaigns table, fetch it from project_twitter_data table
+            project_id = campaign_context.get('projectId')
+            if project_id and not campaign_context.get('projectTwitterHandle'):
+
+                try:
+                    # Fetch Twitter handle from project_twitter_data table
+                    from app.services.project_twitter_integration import project_twitter_integration
+                    twitter_handle = await project_twitter_integration.get_project_twitter_handle(int(project_id))
+
+                    
+                    if twitter_handle:
+                        campaign_context['projectTwitterHandle'] = twitter_handle
+                except Exception as e:
+                    logger.error(f"❌ Error fetching Twitter handle for project {project_id}: {e}")
+            
+
+
+
+            
             # Store in mining session
             if hasattr(self, 'mining_session') and self.mining_session:
                 self.mining_session.campaign_context = campaign_context
@@ -631,20 +606,47 @@ class CrewAIService:
             # Store for easy access
             self.campaign_data = campaign_context
             
-            # Fetch Twitter context if project ID is available
+            # Fetch fresh Twitter data if project ID is available (with daily limit protection)
             project_id = campaign_context.get('projectId')
+
             if project_id:
-                logger.info(f"🐦 Fetching Twitter context for project {project_id}")
+                # STRATEGY: Use existing Twitter data immediately, fetch new data in background
+                logger.info(f"🐦 Loading existing Twitter context for project {project_id}")
                 
                 from app.services.project_twitter_integration import project_twitter_integration
+                
+                # 1. Get existing Twitter context immediately (non-blocking)
                 twitter_context_string = await project_twitter_integration.get_project_twitter_context(int(project_id))
                 
                 if twitter_context_string and twitter_context_string.strip():
                     self.project_twitter_context = twitter_context_string
-                    logger.info(f"✅ Twitter context loaded: {len(twitter_context_string)} characters")
+                    logger.info(f"✅ Using existing Twitter context: {len(twitter_context_string)} characters")
                 else:
                     self.project_twitter_context = ""
-                    logger.info("📭 No Twitter context available")
+                    logger.info("📭 No existing Twitter context available")
+                
+                # 2. Trigger background fetch for future content generation (fire-and-forget)
+                try:
+                    # Get project Twitter handle for background fetch
+                    twitter_handle = campaign_context.get('projectTwitterHandle')
+                    project_name = campaign_context.get('projectName') or 'Unknown Project'
+                    
+                    if twitter_handle and twitter_handle.strip():
+                        # Start background task - don't wait for it
+                        import asyncio
+                        asyncio.create_task(self._background_twitter_fetch(
+                            project_id=int(project_id),
+                            project_name=str(project_name),
+                            twitter_handle=str(twitter_handle)
+                        ))
+                        logger.info(f"🔄 Started background Twitter fetch for project {project_id}")
+                    else:
+                        logger.info("📭 No Twitter handle available for background fetch")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to start background Twitter fetch: {e}")
+                    # Don't fail content generation if background fetch fails to start
+
             else:
                 logger.warning("⚠️ No project ID found for Twitter context")
                 self.project_twitter_context = ""
@@ -652,9 +654,43 @@ class CrewAIService:
             logger.info(f"✅ Complete campaign context fetched for campaign {campaign_id}")
             
         except Exception as e:
+
             logger.error(f"❌ Failed to fetch complete campaign context: {e}")
             import traceback
+
             logger.error(traceback.format_exc())
+
+    async def _background_twitter_fetch(self, project_id: int, project_name: str, twitter_handle: str):
+        """
+        Background Twitter data fetching that doesn't block content generation.
+        This runs asynchronously to prepare data for future content generation.
+        """
+        try:
+            logger.info(f"🔄 Background: Starting Twitter fetch for project {project_id} (@{twitter_handle})")
+            
+            from app.services.project_twitter_integration import project_twitter_integration
+            
+            # Use content generation fetch which respects daily limits and has retry logic
+            fetch_result = await project_twitter_integration.handle_content_generation_fetch(
+                project_id=project_id,
+                project_name=project_name,
+                twitter_handle=twitter_handle
+            )
+            
+            if fetch_result.get('success'):
+                if fetch_result.get('skipped'):
+                    logger.info(f"🔄 Background: Twitter data already current for project {project_id}")
+                elif fetch_result.get('posts_fetched', 0) > 0:
+                    logger.info(f"🔄 Background: Fetched {fetch_result['posts_fetched']} new Twitter posts for project {project_id}")
+                else:
+                    logger.info(f"🔄 Background: No new Twitter posts found for project {project_id}")
+            else:
+                logger.warning(f"🔄 Background: Twitter fetch failed for project {project_id}: {fetch_result.get('error', 'Unknown error')}")
+                
+        except Exception as e:
+            # Background fetch failures should not impact the main flow
+            logger.warning(f"🔄 Background: Twitter fetch exception for project {project_id}: {e}")
+            # Don't re-raise - this is fire-and-forget
 
     def _create_content_strategist_agent(self, llm) -> Agent:
         """Create the Content Strategist Agent with strategic analysis capabilities"""
@@ -756,17 +792,20 @@ class CrewAIService:
         # Get Twitter context for content creation
         twitter_context = ""
         if hasattr(self, 'project_twitter_context') and self.project_twitter_context and self.project_twitter_context.strip():
-            # Parse tweets from the formatted string context
+            # Parse tweets from the formatted string context - prioritize recent 50 tweets
             lines = self.project_twitter_context.split('\n')
             recent_tweets = []
-            for line in lines[:10]:  # Take first 10 lines
+            for line in lines[:100]:  # Take first 100 lines to capture more tweets
                 if line.startswith('[202') and '] ' in line:  # Lines with dates
                     tweet_text = line.split('] ', 1)[1] if '] ' in line else line
-                    recent_tweets.append(tweet_text[:100] + '...' if len(tweet_text) > 100 else tweet_text)
+                    # Keep full tweet text for better context, truncate only for logging
+                    recent_tweets.append(tweet_text)
             
             if recent_tweets:
-                twitter_context = f"\n\nRecent Project Twitter Activity:\n" + "\n".join([f"- {tweet}" for tweet in recent_tweets[:3]])
-                logger.info(f"✅ Added {len(recent_tweets)} tweets to Text Content Creator context")
+                # Take the most recent 50 tweets for comprehensive context
+                top_recent_tweets = recent_tweets[:50]
+                twitter_context = f"\n\n🔥 **PRIORITY TWITTER CONTEXT** (Latest {len(top_recent_tweets)} Tweets):\n" + "\n".join([f"- {tweet}" for tweet in top_recent_tweets])
+                logger.info(f"✅ Added {len(top_recent_tweets)} recent tweets to Text Content Creator context")
 
         # Get post type from mining session
         post_type = getattr(self.mining_session, 'post_type', 'thread')
@@ -1003,10 +1042,34 @@ class CrewAIService:
                                               max_main_chars: int) -> str:
         """Generate post-type specific task description"""
         
-        # Common campaign requirements
-        campaign_info = f"""Create engaging {post_type.upper()} content using real AI models and tools:
+        # Twitter context (if available) - PRIORITIZED FIRST
+        twitter_context = ""
+        if hasattr(self, 'project_twitter_context') and self.project_twitter_context and self.project_twitter_context.strip():
+            # Parse and prioritize recent 50 tweets
+            lines = self.project_twitter_context.split('\n')
+            recent_tweets = []
+            for line in lines[:100]:  # Take first 100 lines to capture more tweets
+                if line.startswith('[202') and '] ' in line:  # Lines with dates
+                    tweet_text = line.split('] ', 1)[1] if '] ' in line else line
+                    recent_tweets.append(tweet_text)
+            
+            if recent_tweets:
+                # Take the most recent 50 tweets for comprehensive context
+                top_recent_tweets = recent_tweets[:50]
+                twitter_context = f"""
+        🔥 **PRIORITY TWITTER CONTEXT** (Latest {len(top_recent_tweets)} Tweets - USE FIRST):
+        {chr(10).join([f"- {tweet}" for tweet in top_recent_tweets])}
         
-        Campaign Requirements:
+        📈 **TWITTER CONTEXT USAGE PRIORITY**:
+        - **PRIMARY SOURCE**: Use recent tweets for cultural references, community callbacks, project updates
+        - **CONTENT INSPIRATION**: Extract signup instructions, airdrops, rewards, launches from tweets
+        - **ENGAGEMENT PATTERNS**: Mirror successful engagement styles from recent tweets
+        - **CURRENT NARRATIVES**: Identify trending topics and project developments
+        """
+        
+        # Campaign requirements (SECONDARY)
+        campaign_info = f"""
+        📋 **CAMPAIGN CONTEXT** (Secondary Reference):
         - Project Name: {project_name}
         - Token Ticker: {token_ticker}
         - Project Twitter Handle: {project_twitter_handle} {f'(Tag this in content!)' if project_twitter_handle else '(No handle available)'}
@@ -1016,21 +1079,14 @@ class CrewAIService:
         - Target Audience: {self.campaign_data.get('targetAudience', 'crypto/Web3 enthusiasts') if self.campaign_data else 'crypto/Web3 enthusiasts'}
         """
         
-        # Twitter context (if available)
-        twitter_context = ""
-        if hasattr(self, 'project_twitter_context') and self.project_twitter_context and self.project_twitter_context.strip():
-            twitter_context = f"""
-        📱 **PROJECT TWITTER CONTEXT** (Use for fresh, current content inspiration):
-        {self.project_twitter_context}
-        """
-        
         # Post-type specific instructions
         if post_type == 'thread':
             specific_instructions = f"""
         🧵 **THREAD CONTENT STRATEGY**:
-        - **main_tweet**: Primary focus on PROJECT DESCRIPTION + key recent development highlight
-        - **tweet_thread**: PRIORITIZE LATEST 20 TWEETS CONTEXT for FOMO creation (signup instructions, airdrops, rewards, launches)
-        - **FALLBACK**: If insufficient tweet context, use project description/brand guidelines for thread content
+        - **main_tweet**: FUSE recent tweet highlights + project essence for attention-grabbing hook
+        - **tweet_thread**: PRIORITIZE LATEST 50 TWEETS CONTEXT - extract actionable insights, community buzz, project momentum
+        - **NATURAL INTEGRATION**: Weave Twitter data seamlessly into storytelling (don't just quote tweets)
+        - **FALLBACK**: Only if no tweet context available, use project description/brand guidelines
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
         {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
@@ -1052,8 +1108,8 @@ class CrewAIService:
         - **NO follow-up tweets**: Shitposts should be standalone content (empty thread_array)
         - **Third person only**: Use "They/Their" for project, never "Our/We"
         - **Reader engagement**: Write like sharing exciting alpha with crypto friends
-        - **TWEET CONTEXT INTEGRATION**: Leverage latest 20 tweets for community callbacks
-        - **FALLBACK**: Use project description/brand guidelines when tweet context insufficient
+        - **TWEET CONTEXT INTEGRATION**: NATURALLY FUSE latest 50 tweets - extract community energy, trending narratives, project momentum
+        - **FALLBACK**: Only if no tweet context available, use project description/brand guidelines
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
         {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
@@ -1072,8 +1128,10 @@ class CrewAIService:
         elif post_type == 'longpost':
             specific_instructions = f"""
         📝 **LONGPOST CONTENT STRATEGY**:
-        - **Equal Balance (50-50)**: Latest 20 tweets data + project description/brand guidelines
-        - **FALLBACK**: If no tweet data available, use project description/brand guidelines only
+        - **PRIMARY FOCUS (70%)**: FUSE latest 50 tweets data - extract trends, community insights, project developments
+        - **SECONDARY (30%)**: Project description/brand guidelines for foundational context
+        - **NATURAL INTEGRATION**: Weave Twitter insights into comprehensive narrative
+        - **FALLBACK**: Only if no tweet data available, use project description/brand guidelines exclusively
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
         {f'- **MUST tag {project_twitter_handle}** intelligently throughout the content' if project_twitter_handle else '- No project Twitter handle available'}
@@ -2051,6 +2109,14 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             📖 **AUTONOMOUS PROMPT GENERATION PROCESS** (CRITICAL):
             You are an AI visual expert who creates original, compelling prompts without relying on templates. Your mission is to analyze tweet content and craft unique, high-impact visual prompts that perfectly complement the message.
             
+            🚫 **CRITICAL NO-TEXT REQUIREMENT**:
+            You MUST INTELLIGENTLY INTEGRATE "no text", "no words", "no letters", "no writing" directly into every visual prompt you generate. This ensures clean imagery without unwanted text overlays.
+            
+            **SMART NO-TEXT INTEGRATION EXAMPLES**:
+            - "...with photorealistic CGI, 8K ultra-detailed, NO TEXT OR WORDS visible, dramatic technological lighting..."
+            - "...masterpiece quality digital art, absolutely no writing or letters, award-winning composition..."
+            - "...volumetric lighting effects, strictly no text elements, clean minimalist design..."
+            
             **STEP-BY-STEP AUTONOMOUS PROCESS**:
             
             1. **Deep Content Analysis** (Post-Type Specific): 
@@ -2081,7 +2147,8 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                - Ensure Twitter-optimized dimensions and mobile readability
             
             5. **Prompt Optimization**:
-               - Structure: [Main Visual Concept] + [Specific Details] + [Style] + [Quality Keywords] + [Technical Specs]
+               - Structure: [Main Visual Concept] + [Specific Details] + [Style] + [NO-TEXT Requirement] + [Quality Keywords] + [Technical Specs]
+               - MANDATORY: Always include explicit no-text instructions in every prompt
                - Keep prompts clear, specific, and actionable for AI models
                - Include emotional descriptors that match the tweet's tone
                - Ensure visual directly supports and amplifies the tweet message
@@ -2093,18 +2160,19 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             → Emotion: Innovation, confidence, breakthrough
             → Style: Techno/cyberpunk with professional credibility  
             → Original Concept: Bitcoin and Ethereum symbols merging into a new hybrid form with energy flowing between them
-            → Generated Prompt: "Two golden orbs representing Bitcoin and Ethereum slowly merging into a brilliant hybrid symbol, with energy streams flowing between them in a high-tech laboratory setting, surrounding holographic charts showing upward growth, cyberpunk aesthetic with blue and gold neon lighting, photorealistic CGI, 8K ultra-detailed, dramatic technological lighting, masterpiece quality, award-winning digital art"
+            → Generated Prompt: "Two golden orbs representing Bitcoin and Ethereum slowly merging into a brilliant hybrid symbol, with energy streams flowing between them in a high-tech laboratory setting, surrounding holographic charts showing upward growth, cyberpunk aesthetic with blue and gold neon lighting, NO TEXT OR WORDS visible anywhere, photorealistic CGI, 8K ultra-detailed, dramatic technological lighting, masterpiece quality, award-winning digital art"
             
             This approach ensures variety, creativity, and perfect message-visual alignment for every unique tweet!
             
             **WORLD-CLASS IMAGE GENERATION REQUIREMENTS**:
             - Use your configured image tool ({f"{image_provider}_image_generation" if has_image_tool else "none available"})
             - **MANDATORY**: Follow the Autonomous Prompt Generation Process above - NO TEMPLATES
+            - **CRITICAL NO-TEXT RULE**: EVERY prompt MUST include explicit "no text", "no words", "no letters" instructions
             - **STEP 1**: Deep analysis of ALL Text Content Creator's output (main_tweet + thread_array for threads/shitposts, or full longpost content) for emotional tone and core concepts
             - **STEP 2**: Intelligent selection of artistic style that best fits the content
             - **STEP 3**: Original concept creation that amplifies the tweet's message uniquely
-            - **STEP 4**: Professional enhancement with Essential Quality Keywords
-            - **STEP 5**: Prompt optimization for maximum AI model effectiveness
+            - **STEP 4**: Professional enhancement with Essential Quality Keywords + NO-TEXT requirements
+            - **STEP 5**: Prompt optimization for maximum AI model effectiveness with guaranteed no-text integration
             - **CRITICAL**: Create original, dynamic prompts that ensure variety and prevent repetitive imagery
             - Campaign context: "{self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
             - Twitter-optimized dimensions with maximum visual impact
@@ -4624,6 +4692,12 @@ Use cases: Image descriptions, alt text, content inspiration
                 
                 system_prompt = """You are a human Twitter content creator who writes highly engaging, story-driven content for Web3 audiences:
 
+CONTEXT FUSION MASTERY:
+- INTELLIGENTLY WEAVE all available context (Twitter data, project info, community insights) into natural storytelling
+- EXTRACT actionable insights from recent tweets: launches, airdrops, partnerships, community buzz
+- TRANSFORM raw data into compelling narratives that feel like insider alpha sharing
+- SYNTHESIZE multiple sources to create unique perspectives that aren't just rehashing
+
 ENGAGING STORYTELLING STYLE:
 - Write like you're sharing exciting news with a friend who loves crypto
 - Use storytelling techniques: set up intrigue, reveal key details, create anticipation
@@ -4631,6 +4705,13 @@ ENGAGING STORYTELLING STYLE:
 - Create "wow moments" and emotional hooks that make people want to learn more
 - Use conversational flow that draws readers deeper into the story
 - Build excitement about projects without sounding like corporate marketing
+
+TWITTER CONTEXT INTEGRATION:
+- PRIORITIZE recent Twitter activity as your primary source of current events
+- Extract community sentiment, trending topics, and project momentum from tweets
+- Reference specific developments naturally (don't just quote tweets verbatim)
+- Build on existing community conversations and energy
+- Use Twitter data to create timely, relevant content that feels current
 
 READER ENGAGEMENT TECHNIQUES:
 - Start with attention-grabbing hooks that stop scrolling

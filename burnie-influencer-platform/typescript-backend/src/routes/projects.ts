@@ -564,6 +564,72 @@ router.get('/:projectId/twitter-status', async (req: Request, res: Response) => 
 });
 
 /**
+ * @route GET /api/projects/:projectId/twitter-handle
+ * @desc Get the Twitter handle for a project from project_twitter_data table
+ */
+router.get('/:projectId/twitter-handle', async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+
+    if (!projectId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing projectId parameter'
+      });
+    }
+
+    const projectIdNum = parseInt(projectId);
+    if (isNaN(projectIdNum)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid project ID'
+      });
+    }
+
+    logger.info(`🔍 Getting Twitter handle for project ${projectIdNum}`);
+
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available'
+      });
+    }
+
+    const projectTwitterDataRepository: Repository<ProjectTwitterData> = AppDataSource.getRepository(ProjectTwitterData);
+
+    // Get the most recent Twitter data entry for this project to get the handle
+    const twitterData = await projectTwitterDataRepository.findOne({
+      where: { projectId: projectIdNum },
+      order: { createdAt: 'DESC' }
+    });
+
+    if (!twitterData || !twitterData.twitterHandle) {
+      logger.info(`📭 No Twitter handle found for project ${projectIdNum}`);
+      return res.json({
+        success: true,
+        twitterHandle: null,
+        projectId: projectIdNum
+      });
+    }
+
+    logger.info(`✅ Found Twitter handle for project ${projectIdNum}: ${twitterData.twitterHandle}`);
+
+    return res.json({
+      success: true,
+      twitterHandle: twitterData.twitterHandle,
+      projectId: projectIdNum
+    });
+
+  } catch (error) {
+    logger.error('❌ Error getting project Twitter handle:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get project Twitter handle'
+    });
+  }
+});
+
+/**
  * @route GET /api/projects/:projectId/latest-tweet-id
  * @desc Get the latest tweet ID for a project (for incremental fetching)
  */

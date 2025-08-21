@@ -20,17 +20,28 @@ class ProjectTwitterIntegration:
             raise ValueError("TYPESCRIPT_BACKEND_URL environment variable is required")
         
     def format_twitter_handle(self, handle: str) -> str:
-        """Format Twitter handle for consistency"""
+        """Format Twitter handle for consistency - preserve @ symbol as database stores it"""
         if not handle:
             return ""
-        return handle.strip().lstrip('@')
+        
+        original_handle = handle
+        # Clean whitespace but preserve @ symbol since database stores handles with @
+        handle = handle.strip()
+        
+        # Ensure @ symbol is present (add if missing)
+        if not handle.startswith('@'):
+            handle = '@' + handle
+            
+
+        return handle
     
     async def fetch_and_store_project_tweets(
         self, 
         project_id: int,
         twitter_handle: str,
         count: int = 30,
-        since_id: Optional[str] = None
+        since_id: Optional[str] = None,
+        fetch_all_since_id: bool = False
     ) -> Dict[str, Any]:
         """
         Fetch Twitter posts for a project and store them in the database
@@ -68,26 +79,62 @@ class ProjectTwitterIntegration:
         
         try:
             logger.info(f"🐦 Fetching Twitter data for project {project_id} (@{handle})")
-            logger.info(f"🔧 Fetch parameters: count={count}, since_id={since_id}")
+            logger.info(f"🔧 Fetch parameters: count={count}, since_id={since_id}, fetch_all_since_id={fetch_all_since_id}")
             
-            # Fetch tweets and threads
-            logger.info(f"📡 Calling Twitter API for user: {handle}")
-            try:
-                individual_posts, threads = await twitter_service.get_latest_tweets_with_threads(
-                    username=handle,
-                    count=count,
-                    since_id=since_id
-                )
-                logger.info(f"📊 Twitter API response: {len(individual_posts)} individual posts, {len(threads)} threads")
-            except Exception as api_error:
-                logger.error(f"❌ Twitter API call failed: {api_error}")
-                return {
-                    'success': False,
-                    'error': f'Twitter API call failed: {str(api_error)}',
-                    'posts_fetched': 0
-                }
+            all_individual_posts = []
+            all_threads = []
             
-            if not individual_posts and not threads:
+            if fetch_all_since_id and since_id:
+                # Fetch ALL tweets since last tweet ID
+
+                logger.info(f"📜 Fetching ALL tweets since tweet ID: {since_id}")
+                
+                # For now, make a single call with max count to get all recent tweets
+                # The Twitter API with since_id will return all tweets newer than that ID
+                # up to the max_results limit (100)
+                try:
+                    individual_posts, threads = await twitter_service.get_latest_tweets_with_threads(
+                        username=handle,
+                        count=100,  # Get up to 100 tweets since last ID
+                        since_id=since_id
+                    )
+                    all_individual_posts = individual_posts
+                    all_threads = threads
+                    logger.info(f"📊 Fetch all since {since_id}: {len(individual_posts)} individual posts, {len(threads)} threads")
+                    
+                    # If we got exactly 100 tweets, there might be more
+                    if len(individual_posts) + len(threads) >= 100:
+                        logger.warning(f"⚠️ Got 100+ tweets, there might be more tweets available. Consider implementing full pagination.")
+                        
+                except Exception as api_error:
+                    logger.error(f"❌ Twitter API call failed: {api_error}")
+                    return {
+                        'success': False,
+                        'error': f'Twitter API call failed: {str(api_error)}',
+                        'posts_fetched': 0
+                    }
+                
+            else:
+                # Single fetch (for campaign creation or normal limited fetch)
+                logger.info(f"📡 Single fetch mode: calling Twitter API for user: {handle}")
+                try:
+                    individual_posts, threads = await twitter_service.get_latest_tweets_with_threads(
+                        username=handle,
+                        count=count,
+                        since_id=since_id
+                    )
+                    all_individual_posts = individual_posts
+                    all_threads = threads
+                    logger.info(f"📊 Single fetch result: {len(individual_posts)} individual posts, {len(threads)} threads")
+                except Exception as api_error:
+                    logger.error(f"❌ Twitter API call failed: {api_error}")
+                    return {
+                        'success': False,
+                        'error': f'Twitter API call failed: {str(api_error)}',
+                        'posts_fetched': 0
+                    }
+            
+            if not all_individual_posts and not all_threads:
                 logger.info(f"📭 No new tweets found for @{handle}")
                 return {
                     'success': True,
@@ -100,7 +147,7 @@ class ProjectTwitterIntegration:
             fetch_session_id = str(uuid.uuid4())
             
             # Process individual posts
-            for post in individual_posts:
+            for post in all_individual_posts:
                 posts_data.append({
                     'tweetId': post.tweet_id,
                     'conversationId': post.conversation_id,
@@ -115,7 +162,7 @@ class ProjectTwitterIntegration:
                 })
             
             # Process threads
-            for thread in threads:
+            for thread in all_threads:
                 # Store main thread tweet
                 thread_tweets_text = [tweet.text for tweet in thread.thread_tweets]
                 posts_data.append({
@@ -259,13 +306,17 @@ class ProjectTwitterIntegration:
         """
         try:
             formatted_handle = self.format_twitter_handle(twitter_handle)
+            
             url = f"{self.typescript_backend_url}/api/projects/{project_id}/twitter-status"
             params = {'twitterHandle': formatted_handle}
+            
+
             
             logger.info(f"🔗 Checking daily status: {url} with params {params}")
             
             response = requests.get(url, params=params, timeout=10)
             
+
             logger.info(f"📡 Daily status response: status={response.status_code}")
             
             if response.status_code == 200:
@@ -290,6 +341,47 @@ class ProjectTwitterIntegration:
                 'error': str(e)
             }
     
+    async def get_project_twitter_handle(self, project_id: int) -> Optional[str]:
+        """
+        Get the Twitter handle for a project from project_twitter_data table
+        
+        Args:
+            project_id: Project ID
+            
+        Returns:
+            Twitter handle if found, None otherwise
+        """
+        try:
+    
+            
+            url = f"{self.typescript_backend_url}/api/projects/{project_id}/twitter-handle"
+            
+
+            response = requests.get(url, timeout=10)
+            
+
+            
+            if response.status_code == 200:
+                data = response.json()
+
+                
+                if data.get('success') and data.get('twitterHandle'):
+                    handle = data['twitterHandle']
+
+                    return handle
+                else:
+
+                    return None
+            else:
+
+                logger.error(f"❌ Error getting project Twitter handle: HTTP {response.status_code}")
+                return None
+                
+        except Exception as e:
+
+            logger.error(f"❌ Error getting project Twitter handle: {e}")
+            return None
+
     async def get_latest_tweet_id(self, project_id: int, twitter_handle: str) -> Optional[str]:
         """
         Get the latest tweet ID for a project (for since_id parameter)
@@ -392,6 +484,61 @@ class ProjectTwitterIntegration:
                 'posts_fetched': 0
             }
     
+    async def handle_campaign_edit_fetch(
+        self,
+        project_id: int,
+        project_name: str,
+        twitter_handle: str
+    ) -> Dict[str, Any]:
+        """
+        Handle Twitter data fetching when a campaign is edited (fetch all since last tweet)
+        
+        Args:
+            project_id: Project ID
+            project_name: Project name (for logging)
+            twitter_handle: Twitter handle
+            
+        Returns:
+            Dictionary with fetch results
+        """
+        try:
+            logger.info(f"✏️ Campaign edited for {project_name} - fetching all new Twitter data since last tweet")
+            
+            # Get latest tweet ID for incremental fetch
+            since_id = await self.get_latest_tweet_id(project_id, twitter_handle)
+            
+            logger.info(f"🔄 Campaign edit triggered for {project_name} - fetching all tweets since last ID")
+            
+            result = await self.fetch_and_store_project_tweets(
+                project_id=project_id,
+                twitter_handle=twitter_handle,
+                count=50,  # Not used when fetch_all_since_id=True
+                since_id=since_id,
+                fetch_all_since_id=True  # Fetch ALL tweets since last tweet ID
+            )
+            
+            if result['success']:
+                if result['posts_fetched'] > 0:
+                    logger.info(f"✅ Campaign edit Twitter fetch completed for {project_name}: {result['posts_fetched']} new posts")
+                else:
+                    logger.info(f"📭 No new tweets found for {project_name} since last fetch")
+            else:
+                logger.warning(f"⚠️ Campaign edit Twitter fetch failed for {project_name}: {result.get('error', 'Unknown error')}")
+            
+            return result
+            
+        except Exception as e:
+            import traceback
+            logger.error(f"❌ Exception in handle_campaign_edit_fetch: {e}")
+            logger.error(f"❌ Full traceback in handle_campaign_edit_fetch:")
+            logger.error(traceback.format_exc())
+            traceback.print_exc()  # Print to console as well
+            return {
+                'success': False,
+                'error': f'Exception in campaign edit fetch: {str(e)}',
+                'posts_fetched': 0
+            }
+
     async def handle_content_generation_fetch(
         self,
         project_id: int,
@@ -409,11 +556,15 @@ class ProjectTwitterIntegration:
         Returns:
             Dictionary with fetch results
         """
+
+        
         logger.info(f"🔍 handle_content_generation_fetch called with: project_id={project_id}, twitter_handle='{twitter_handle}'")
         
         # Check if we already fetched today
+
         logger.info(f"📅 Checking daily fetch status for project {project_id}")
         daily_status = await self.check_daily_fetch_status(project_id, twitter_handle)
+
         logger.info(f"📊 Daily status result: {daily_status}")
         
         if daily_status.get('fetched_today', False):
@@ -433,8 +584,9 @@ class ProjectTwitterIntegration:
         result = await self.fetch_and_store_project_tweets(
             project_id=project_id,
             twitter_handle=twitter_handle,
-            count=50,  # Daily fetch: check more posts for updates
-            since_id=since_id
+            count=50,  # Not used when fetch_all_since_id=True
+            since_id=since_id,
+            fetch_all_since_id=True  # Fetch ALL tweets since last tweet ID
         )
         
         if result['success']:

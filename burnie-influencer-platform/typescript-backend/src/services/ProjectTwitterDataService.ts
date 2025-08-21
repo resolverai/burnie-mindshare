@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { Repository, MoreThanOrEqual, LessThan, Between } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { ProjectTwitterData } from '../models/ProjectTwitterData';
 import { Project } from '../models/Project';
@@ -42,19 +42,23 @@ export class ProjectTwitterDataService {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
+      console.log(`🔍 DEBUG: wasDataFetchedToday - Checking for projectId: ${projectId}, twitterHandle: '${twitterHandle}'`);
+      console.log(`🔍 DEBUG: wasDataFetchedToday - Date range: ${today.toISOString()} to ${tomorrow.toISOString()}`);
+
       const count = await this.repository.count({
         where: {
           projectId,
           twitterHandle,
-          createdAt: {
-            $gte: today,
-            $lt: tomorrow
-          } as any
+          createdAt: MoreThanOrEqual(today)
         }
       });
 
+      console.log(`🔍 DEBUG: wasDataFetchedToday - Found ${count} records for today`);
+      console.log(`🔍 DEBUG: wasDataFetchedToday - Returning: ${count > 0}`);
+
       return count > 0;
     } catch (error) {
+      console.log(`🔍 DEBUG: wasDataFetchedToday - ERROR: ${error}`);
       logger.error(`❌ Error checking daily fetch status for project ${projectId}:`, error);
       return true; // Return true to prevent duplicate attempts on error
     }

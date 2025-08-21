@@ -154,16 +154,16 @@ PROFESSIONAL QUALITY REQUIREMENTS (MANDATORY):
 - Clean vector art precision, geometric perfection, vibrant color palette mastery
 
 CRITICAL VISUAL QUALITY REQUIREMENTS:
-- Create clean, professional imagery with compelling text elements only when appropriate
-- Focus on visual storytelling through composition, colors, subjects, and optional impactful text
+- Create clean, professional imagery WITHOUT ANY TEXT OR WORDS
+- Focus on pure visual storytelling through composition, colors, subjects, and symbols
 - Use high-quality rendering with sharp details and vivid colors
-- Ensure balanced composition with proper subject placement and optional text integration
+- Ensure balanced composition with proper subject placement 
 - Apply cinematic lighting and artistic visual effects
 - Generate content suitable for social media with strong visual impact
 - Maintain 1792x1024 wide format for optimal display quality
 - Create imagery that makes viewers want to screenshot, save, and share
 - Generate content that sparks conversations and community engagement
-- Include readable, engaging text only when it enhances the overall message"""
+- STRICTLY NO TEXT, NO WORDS, NO LETTERS visible in the image"""
 
         return enhanced_prompt
     
@@ -1068,8 +1068,8 @@ PROFESSIONAL QUALITY REQUIREMENTS (MANDATORY):
 - Clean vector art precision, geometric perfection, vibrant color palette mastery
 
 CRITICAL VISUAL QUALITY REQUIREMENTS:
-- Create clean, professional imagery focused on visual storytelling
-- Focus on composition, colors, subjects, and project-relevant elements
+- Create clean, professional imagery focused on pure visual storytelling
+- Focus on composition, colors, subjects, and project-relevant symbols WITHOUT TEXT
 - Use high-quality rendering with sharp details and vivid colors
 - Ensure balanced composition with proper subject placement
 - Apply cinematic lighting and artistic visual effects
@@ -1077,8 +1077,8 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
 - Maintain 1792x1024 wide format for optimal display quality
 - Create imagery that makes viewers want to screenshot, save, and share
 - Generate content that sparks conversations and community engagement
-- NEVER include meta-text like "VISUAL REQUIREMENTS" or instructional guidelines
-- Only include text that directly relates to the tweet content and project branding"""
+- STRICTLY NO TEXT, NO WORDS, NO LETTERS visible anywhere in the image
+- NEVER include meta-text, instructions, or any written content whatsoever"""
 
         return enhanced_prompt
     

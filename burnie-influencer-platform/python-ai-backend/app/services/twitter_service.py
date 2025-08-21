@@ -6,11 +6,59 @@ from datetime import datetime, timezone
 import asyncio
 from dataclasses import dataclass
 import re
+import random
+import time
+from functools import wraps
 
 from app.config.settings import settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+def retry_on_rate_limit(max_retries: int = 3, base_delay: float = 60.0):
+    """
+    Decorator to retry Twitter API calls with exponential backoff on rate limits
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        base_delay: Base delay in seconds (Twitter rate limit window is typically 15 minutes)
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                    
+                except tweepy.TooManyRequests as e:
+                    last_exception = e
+                    
+                    if attempt == max_retries:
+                        logger.error(f"❌ Twitter API rate limit exceeded after {max_retries} retries")
+                        raise e
+                    
+                    # Calculate delay with exponential backoff + jitter
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 5)
+                    
+                    logger.warning(f"⚠️ Twitter API rate limit exceeded (attempt {attempt + 1}/{max_retries + 1})")
+                    logger.info(f"🔄 Retrying in {delay:.1f} seconds with exponential backoff...")
+                    
+                    await asyncio.sleep(delay)
+                    continue
+                    
+                except Exception as e:
+                    # For non-rate-limit exceptions, don't retry
+                    logger.error(f"❌ Twitter API error (non-rate-limit): {e}")
+                    raise e
+            
+            # This should never be reached, but just in case
+            if last_exception:
+                raise last_exception
+                
+        return wrapper
+    return decorator
 
 @dataclass
 class TwitterPost:
@@ -85,6 +133,7 @@ class TwitterService:
         hashtags = re.findall(hashtag_pattern, text)
         return [tag.lower() for tag in hashtags]
     
+    @retry_on_rate_limit(max_retries=3, base_delay=60.0)
     async def get_user_id(self, username: str) -> Optional[str]:
         """Get Twitter user ID from username"""
         if not self.client:
@@ -109,10 +158,14 @@ class TwitterService:
         except tweepy.Unauthorized:
             logger.error("❌ Twitter API unauthorized - check credentials")
             return None
+        except tweepy.TooManyRequests:
+            # Let the decorator handle rate limits
+            raise
         except Exception as e:
             logger.error(f"❌ Error fetching user ID for @{username}: {e}")
             return None
     
+    @retry_on_rate_limit(max_retries=3, base_delay=60.0)
     async def fetch_user_tweets(
         self, 
         username: str, 
@@ -138,75 +191,67 @@ class TwitterService:
         if not user_id:
             return []
         
-        try:
-            # Prepare tweet fields to fetch
-            tweet_fields = [
-                'id', 'text', 'created_at', 'conversation_id', 
-                'public_metrics', 'referenced_tweets', 'entities'
-            ]
+        # Prepare tweet fields to fetch
+        tweet_fields = [
+            'id', 'text', 'created_at', 'conversation_id', 
+            'public_metrics', 'referenced_tweets', 'entities'
+        ]
+        
+        # Build query parameters
+        kwargs = {
+            'max_results': min(max_results, 100),  # API limit is 100
+            'tweet_fields': tweet_fields,
+            'exclude': ['retweets', 'replies']  # Get only original tweets
+        }
+        
+        if since_id:
+            kwargs['since_id'] = since_id
+        
+        # Fetch tweets (rate limit handling is done by decorator)
+        tweets = self.client.get_users_tweets(user_id, **kwargs)
+        
+        if not tweets.data:
+            logger.info(f"📭 No tweets found for @{username}")
+            return []
+        
+        logger.info(f"📥 Fetched {len(tweets.data)} tweets for @{username}")
+        
+        # Convert to TwitterPost objects
+        twitter_posts = []
+        for tweet in tweets.data:
+            # Extract hashtags
+            hashtags = self.extract_hashtags(tweet.text)
             
-            # Build query parameters
-            kwargs = {
-                'max_results': min(max_results, 100),  # API limit is 100
-                'tweet_fields': tweet_fields,
-                'exclude': ['retweets', 'replies']  # Get only original tweets
+            # Get engagement metrics
+            metrics = tweet.public_metrics or {}
+            engagement = {
+                'likes': metrics.get('like_count', 0),
+                'retweets': metrics.get('retweet_count', 0),
+                'replies': metrics.get('reply_count', 0),
+                'views': metrics.get('impression_count', 0)
             }
             
-            if since_id:
-                kwargs['since_id'] = since_id
+            # Create TwitterPost object
+            post = TwitterPost(
+                tweet_id=tweet.id,
+                conversation_id=tweet.conversation_id or tweet.id,
+                text=tweet.text,
+                created_at=tweet.created_at,
+                author_username=username,
+                is_thread_start=tweet.conversation_id == tweet.id,
+                thread_position=1,  # Will be updated if part of thread
+                hashtags=hashtags,
+                engagement_metrics=engagement
+            )
             
-            # Fetch tweets
-            tweets = self.client.get_users_tweets(user_id, **kwargs)
-            
-            if not tweets.data:
-                logger.info(f"📭 No tweets found for @{username}")
-                return []
-            
-            logger.info(f"📥 Fetched {len(tweets.data)} tweets for @{username}")
-            
-            # Convert to TwitterPost objects
-            twitter_posts = []
-            for tweet in tweets.data:
-                # Extract hashtags
-                hashtags = self.extract_hashtags(tweet.text)
-                
-                # Get engagement metrics
-                metrics = tweet.public_metrics or {}
-                engagement = {
-                    'likes': metrics.get('like_count', 0),
-                    'retweets': metrics.get('retweet_count', 0),
-                    'replies': metrics.get('reply_count', 0),
-                    'views': metrics.get('impression_count', 0)
-                }
-                
-                # Create TwitterPost object
-                post = TwitterPost(
-                    tweet_id=tweet.id,
-                    conversation_id=tweet.conversation_id or tweet.id,
-                    text=tweet.text,
-                    created_at=tweet.created_at,
-                    author_username=username,
-                    is_thread_start=tweet.conversation_id == tweet.id,
-                    thread_position=1,  # Will be updated if part of thread
-                    hashtags=hashtags,
-                    engagement_metrics=engagement
-                )
-                
-                twitter_posts.append(post)
-            
-            # Sort by creation date (newest first)
-            twitter_posts.sort(key=lambda x: x.created_at, reverse=True)
-            
-            return twitter_posts
-            
-        except tweepy.TooManyRequests:
-            logger.warning("⚠️ Twitter API rate limit exceeded - waiting...")
-            await asyncio.sleep(60)  # Wait 1 minute
-            return []
-        except Exception as e:
-            logger.error(f"❌ Error fetching tweets for @{username}: {e}")
-            return []
+            twitter_posts.append(post)
+        
+        # Sort by creation date (newest first)
+        twitter_posts.sort(key=lambda x: x.created_at, reverse=True)
+        
+        return twitter_posts
     
+    @retry_on_rate_limit(max_retries=3, base_delay=60.0)
     async def fetch_thread_tweets(self, conversation_id: str) -> List[TwitterPost]:
         """
         Fetch all tweets in a thread/conversation
@@ -221,51 +266,46 @@ class TwitterService:
             logger.error("❌ Twitter client not available")
             return []
         
-        try:
-            # Search for tweets in this conversation
-            query = f"conversation_id:{conversation_id}"
+        # Search for tweets in this conversation
+        query = f"conversation_id:{conversation_id}"
+        
+        tweets = self.client.search_recent_tweets(
+            query=query,
+            max_results=100,  # Max results per request
+            tweet_fields=['id', 'text', 'created_at', 'conversation_id', 'author_id', 'public_metrics']
+        )
+        
+        if not tweets.data:
+            return []
+        
+        # Convert to TwitterPost objects and sort by creation time
+        thread_posts = []
+        for i, tweet in enumerate(sorted(tweets.data, key=lambda x: x.created_at)):
+            hashtags = self.extract_hashtags(tweet.text)
             
-            tweets = self.client.search_recent_tweets(
-                query=query,
-                max_results=100,  # Max results per request
-                tweet_fields=['id', 'text', 'created_at', 'conversation_id', 'author_id', 'public_metrics']
+            metrics = tweet.public_metrics or {}
+            engagement = {
+                'likes': metrics.get('like_count', 0),
+                'retweets': metrics.get('retweet_count', 0),
+                'replies': metrics.get('reply_count', 0),
+                'views': metrics.get('impression_count', 0)
+            }
+            
+            post = TwitterPost(
+                tweet_id=tweet.id,
+                conversation_id=conversation_id,
+                text=tweet.text,
+                created_at=tweet.created_at,
+                author_username="", # Will be filled by caller
+                is_thread_start=(i == 0),
+                thread_position=i + 1,
+                hashtags=hashtags,
+                engagement_metrics=engagement
             )
             
-            if not tweets.data:
-                return []
-            
-            # Convert to TwitterPost objects and sort by creation time
-            thread_posts = []
-            for i, tweet in enumerate(sorted(tweets.data, key=lambda x: x.created_at)):
-                hashtags = self.extract_hashtags(tweet.text)
-                
-                metrics = tweet.public_metrics or {}
-                engagement = {
-                    'likes': metrics.get('like_count', 0),
-                    'retweets': metrics.get('retweet_count', 0),
-                    'replies': metrics.get('reply_count', 0),
-                    'views': metrics.get('impression_count', 0)
-                }
-                
-                post = TwitterPost(
-                    tweet_id=tweet.id,
-                    conversation_id=conversation_id,
-                    text=tweet.text,
-                    created_at=tweet.created_at,
-                    author_username="", # Will be filled by caller
-                    is_thread_start=(i == 0),
-                    thread_position=i + 1,
-                    hashtags=hashtags,
-                    engagement_metrics=engagement
-                )
-                
-                thread_posts.append(post)
-            
-            return thread_posts
-            
-        except Exception as e:
-            logger.error(f"❌ Error fetching thread {conversation_id}: {e}")
-            return []
+            thread_posts.append(post)
+        
+        return thread_posts
     
     async def identify_and_fetch_threads(self, posts: List[TwitterPost]) -> List[TwitterThread]:
         """

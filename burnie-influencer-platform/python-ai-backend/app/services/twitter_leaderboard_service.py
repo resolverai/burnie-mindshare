@@ -314,11 +314,13 @@ class TwitterLeaderboardService:
             }
             
         except tweepy.TooManyRequests:
-            logger.warning(f"Rate limit hit for @{handle}")
+            logger.warning(f"⚠️ Twitter API rate limit exceeded for @{handle}")
+            logger.info(f"🔄 This will be handled by upper-level retry logic or scheduling")
             return {
                 "success": False, 
                 "error": "rate_limited",
-                "retry_after": 900  # 15 minutes
+                "retry_after": 900,  # 15 minutes
+                "should_retry": True  # Indicate this can be retried
             }
         except tweepy.NotFound:
             logger.warning(f"User not found: @{handle}")
