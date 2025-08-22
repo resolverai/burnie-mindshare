@@ -301,6 +301,9 @@ class AutomatedContentGenerator:
         """Create a mining session for content generation"""
         session_id = f"auto_{campaign['id']}_{content_type}_{int(time.time())}"
         
+        # Get user ID from wallet address
+        user_id = await self.get_user_id_from_wallet(wallet_address)
+        
         # Create campaign context
         campaign_context = {
             "campaign_id": campaign["id"],
