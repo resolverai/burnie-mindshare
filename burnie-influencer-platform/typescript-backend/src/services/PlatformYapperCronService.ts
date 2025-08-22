@@ -138,7 +138,7 @@ export class PlatformYapperCronService {
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
       try {
-        const response = await fetch(`${process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'}/api/ml-models/collect-platform-yapper-profile`, {
+        const response = await fetch(`${process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000'}/api/ml-models/collect-platform-yapper-profile`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

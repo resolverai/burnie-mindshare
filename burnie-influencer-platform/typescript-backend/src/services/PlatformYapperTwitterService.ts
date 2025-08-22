@@ -73,7 +73,7 @@ export class PlatformYapperTwitterService {
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
       try {
-        const response = await fetch(`${process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'}/api/platform-yapper-oauth-data`, {
+        const response = await fetch(`${process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000'}/api/platform-yapper-oauth-data`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

@@ -1365,7 +1365,7 @@ export class TwitterLearningService {
       const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
 
       try {
-        const response = await fetch(`${process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'}/api/analyze-creator-images`, {
+        const response = await fetch(`${process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000'}/api/analyze-creator-images`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1467,7 +1467,7 @@ export class TwitterLearningService {
       const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout for batch
 
       try {
-        const response = await fetch(`${process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'}/api/comprehensive-creator-batch-analysis`, {
+        const response = await fetch(`${process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000'}/api/comprehensive-creator-batch-analysis`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1525,7 +1525,7 @@ export class TwitterLearningService {
       const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
 
       try {
-        const response = await fetch(`${process.env.PYTHON_BACKEND_URL || 'http://localhost:8000'}/api/comprehensive-creator-analysis`, {
+        const response = await fetch(`${process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000'}/api/comprehensive-creator-analysis`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
