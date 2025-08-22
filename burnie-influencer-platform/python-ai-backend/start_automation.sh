@@ -20,7 +20,9 @@ show_usage() {
     echo ""
     echo "Commands:"
     echo "  test     - Run setup tests to verify configuration"
-    echo "  start    - Start automated content generation"
+    echo "  start    - Start automated content generation (parallel)"
+    echo "  start-sequential - Start automated content generation (sequential)"
+    echo "  test-run - Test single content generation for random campaign"
     echo "  monitor  - Monitor running automation"
     echo "  stop     - Stop running automation"
     echo "  status   - Check automation status"
@@ -29,7 +31,9 @@ show_usage() {
     echo ""
     echo "Examples:"
     echo "  $0 test                    # Test setup before running"
-    echo "  $0 start                   # Start automation in background"
+    echo "  $0 test-run                # Test single content generation"
+    echo "  $0 start                   # Start automation in background (parallel)"
+    echo "  $0 start-sequential        # Start automation in background (sequential)"
     echo "  $0 monitor                 # Monitor real-time progress"
     echo "  $0 logs                    # Show recent logs"
 }
@@ -43,7 +47,8 @@ run_tests() {
 
 # Function to start automation
 start_automation() {
-    echo "🚀 Starting automated content generation..."
+    local mode=${1:-parallel}
+    echo "🚀 Starting automated content generation ($mode mode)..."
     cd "$SCRIPT_DIR"
     
     # Check if already running
@@ -53,14 +58,45 @@ start_automation() {
         exit 1
     fi
     
+    # Prepare command based on mode
+    local cmd="python automated_content_generator.py"
+    if [ "$mode" = "sequential" ]; then
+        cmd="python automated_content_generator.py --sequential"
+    fi
+    
     # Start in background
-    nohup python automated_content_generator.py > "$LOG_DIR/content_generation.log" 2>&1 &
+    nohup $cmd > "$LOG_DIR/content_generation.log" 2>&1 &
     
     # Get the process ID
     PID=$!
     echo $PID > "$LOG_DIR/automation.pid"
     
-    echo "✅ Automation started with PID: $PID"
+    echo "✅ Automation started with PID: $PID ($mode mode)"
+    echo "📝 Logs: $LOG_DIR/content_generation.log"
+    echo "📊 Monitor: $0 monitor"
+    echo "🛑 Stop: $0 stop"
+}
+
+# Function to start test run
+start_test_run() {
+    echo "🧪 Starting test run - single content generation..."
+    cd "$SCRIPT_DIR"
+    
+    # Check if already running
+    if pgrep -f "automated_content_generator.py" > /dev/null; then
+        echo "⚠️ Automation is already running!"
+        echo "Use '$0 status' to check status or '$0 stop' to stop it."
+        exit 1
+    fi
+    
+    # Start test mode in background
+    nohup python automated_content_generator.py --test > "$LOG_DIR/content_generation.log" 2>&1 &
+    
+    # Get the process ID
+    PID=$!
+    echo $PID > "$LOG_DIR/automation.pid"
+    
+    echo "✅ Test run started with PID: $PID"
     echo "📝 Logs: $LOG_DIR/content_generation.log"
     echo "📊 Monitor: $0 monitor"
     echo "🛑 Stop: $0 stop"
@@ -170,8 +206,14 @@ case "${1:-help}" in
     test)
         run_tests
         ;;
+    test-run)
+        start_test_run
+        ;;
     start)
-        start_automation
+        start_automation "parallel"
+        ;;
+    start-sequential)
+        start_automation "sequential"
         ;;
     monitor)
         monitor_automation

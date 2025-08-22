@@ -59,9 +59,10 @@ logger = logging.getLogger(__name__)
 class AutomatedContentGenerator:
     """Automated content generation orchestrator"""
     
-    def __init__(self):
+    def __init__(self, test_mode: bool = False):
         self.campaign_repo = CampaignRepository()
         self.db = get_db_session()
+        self.test_mode = test_mode
         
         # Load configuration
         self.config = self.load_config()
@@ -76,6 +77,7 @@ class AutomatedContentGenerator:
         self.delay_between_generations = content_config.get("delay_between_generations", 2)
         self.delay_between_content_types = content_config.get("delay_between_content_types", 5)
         self.delay_between_campaigns = content_config.get("delay_between_campaigns", 10)
+        self.parallel_generations = content_config.get("parallel_generations", 5)  # Number of parallel generations
         
         # Rate limiting settings
         rate_limit_config = self.config.get("rate_limiting", {})
@@ -242,13 +244,17 @@ class AutomatedContentGenerator:
     
     async def generate_content_for_campaign_type(self, campaign: Dict[str, Any], content_type: str) -> bool:
         """Generate content for a specific campaign and content type"""
-        logger.info(f"🎯 Generating {self.content_count_per_type} {content_type}s for campaign: {campaign['name']}")
+        if self.test_mode:
+            logger.info(f"🧪 TEST MODE: Generating 1 {content_type} for campaign: {campaign['name']}")
+        else:
+            logger.info(f"🎯 Generating {self.content_count_per_type} {content_type}s for campaign: {campaign['name']}")
         logger.info(f"🤖 Using OpenAI GPT-4o for text generation with brand logo integration")
         logger.info(f"🎨 Using Fal.ai flux-pro/kontext for image generation with brand logo")
         
         success_count = 0
+        content_count = 1 if self.test_mode else self.content_count_per_type
         
-        for i in range(self.content_count_per_type):
+        for i in range(content_count):
             if self.rate_limit_detected:
                 logger.error("🛑 Rate limit detected. Stopping content generation.")
                 return False
@@ -293,7 +299,7 @@ class AutomatedContentGenerator:
                     )
                     
                     # Generate content
-                    logger.info(f"🚀 Starting content generation {i+1}/{self.content_count_per_type}")
+                    logger.info(f"🚀 Starting content generation {i+1}/{content_count}")
                     result = await crew_service.generate_content(
                         mining_session=mining_session,
                         user_api_keys=self.get_automation_api_keys(),
@@ -354,7 +360,7 @@ class AutomatedContentGenerator:
             # Add delay between generations to avoid overwhelming the system
             await asyncio.sleep(self.delay_between_generations)
         
-        logger.info(f"✅ Completed {content_type} generation: {success_count}/{self.content_count_per_type} successful")
+        logger.info(f"✅ Completed {content_type} generation: {success_count}/{content_count} successful")
         return True
     
     async def check_content_saved_in_db(self, campaign_id: int, content_type: str) -> bool:
@@ -435,8 +441,187 @@ class AutomatedContentGenerator:
             logger.error(f"❌ Error verifying watermark: {e}")
             return False
     
+    async def process_campaign_parallel(self, campaign: Dict[str, Any]) -> bool:
+        """Process a single campaign with parallel content generation"""
+        logger.info(f"🎯 Processing campaign: {campaign['name']} (ID: {campaign['id']}) with parallel generation")
+        
+        campaign_success = True
+        
+        for content_type in self.content_types:
+            if self.rate_limit_detected:
+                logger.error("🛑 Rate limit detected. Stopping campaign processing.")
+                return False
+            
+            logger.info(f"📝 Starting {content_type} generation for campaign {campaign['name']}")
+            
+            success = await self.generate_content_for_campaign_type_parallel(campaign, content_type)
+            
+            if not success:
+                campaign_success = False
+                logger.error(f"❌ Failed to generate {content_type} for campaign {campaign['name']}")
+                break
+            
+            # Add delay between content types
+            await asyncio.sleep(self.delay_between_content_types)
+        
+        if campaign_success:
+            self.stats["campaigns_processed"] += 1
+            logger.info(f"✅ Campaign {campaign['name']} processed successfully")
+        else:
+            logger.error(f"❌ Campaign {campaign['name']} processing failed")
+        
+        return campaign_success
+    
+    async def generate_content_for_campaign_type_parallel(self, campaign: Dict[str, Any], content_type: str) -> bool:
+        """Generate content for a specific campaign and content type with parallel processing"""
+        if self.test_mode:
+            logger.info(f"🧪 TEST MODE: Generating 1 {content_type} for campaign: {campaign['name']}")
+        else:
+            logger.info(f"🎯 Generating {self.content_count_per_type} {content_type}s for campaign: {campaign['name']} (parallel)")
+        logger.info(f"🤖 Using OpenAI GPT-4o for text generation with brand logo integration")
+        logger.info(f"🎨 Using Fal.ai flux-pro/kontext for image generation with brand logo")
+        
+        content_count = 1 if self.test_mode else self.content_count_per_type
+        success_count = 0
+        
+        # Process in batches for parallel generation
+        batch_size = min(self.parallel_generations, content_count)
+        
+        for batch_start in range(0, content_count, batch_size):
+            batch_end = min(batch_start + batch_size, content_count)
+            batch_size_actual = batch_end - batch_start
+            
+            logger.info(f"🔄 Processing batch {batch_start//batch_size + 1}: {batch_size_actual} generations in parallel")
+            
+            # Create tasks for parallel execution
+            tasks = []
+            for i in range(batch_start, batch_end):
+                task = self.generate_single_content(campaign, content_type, i + 1, content_count)
+                tasks.append(task)
+            
+            # Execute tasks in parallel
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process results
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"❌ Parallel generation error: {result}")
+                    if self.check_rate_limit(str(result)):
+                        self.rate_limit_detected = True
+                        return False
+                elif result:
+                    success_count += 1
+            
+            # Add delay between batches
+            if batch_end < content_count:
+                await asyncio.sleep(self.delay_between_generations)
+        
+        logger.info(f"✅ Completed {content_type} generation: {success_count}/{content_count} successful")
+        return True
+    
+    async def generate_single_content(self, campaign: Dict[str, Any], content_type: str, generation_num: int, total_count: int) -> bool:
+        """Generate a single piece of content"""
+        if self.rate_limit_detected:
+            return False
+        
+        # Reset retry count for each new generation
+        self.retry_count = 0
+        
+        while True:  # Retry loop for rate limits
+            try:
+                # Get random wallet
+                wallet_address = self.get_random_wallet()
+                logger.info(f"💰 [Gen {generation_num}/{total_count}] Using wallet: {wallet_address[:10]}...")
+                
+                # Create mining session
+                mining_session = await self.create_mining_session(campaign, content_type, wallet_address)
+                
+                # Create progress tracker (simplified for automation)
+                class SimpleProgressTracker:
+                    def __init__(self):
+                        self.progress = 0
+                        self.current_step = ""
+                    
+                    async def update_progress(self, progress: int, step: str):
+                        self.progress = progress
+                        self.current_step = step
+                        logger.info(f"📊 [Gen {generation_num}] Progress: {progress}% - {step}")
+                
+                progress_tracker = SimpleProgressTracker()
+                
+                # Create WebSocket manager (simplified for automation)
+                class SimpleWebSocketManager:
+                    async def send_message(self, session_id: str, message: str):
+                        logger.info(f"📡 [Gen {generation_num}] WebSocket: {message}")
+                
+                websocket_manager = SimpleWebSocketManager()
+                
+                # Initialize CrewAI service
+                crew_service = CrewAIService(
+                    session_id=mining_session.session_id,
+                    progress_tracker=progress_tracker,
+                    websocket_manager=websocket_manager
+                )
+                
+                # Generate content
+                logger.info(f"🚀 [Gen {generation_num}/{total_count}] Starting content generation")
+                result = await crew_service.generate_content(
+                    mining_session=mining_session,
+                    user_api_keys=self.get_automation_api_keys(),
+                    wallet_address=wallet_address
+                )
+                
+                if result and hasattr(result, 'content_images') and result.content_images:
+                    logger.info(f"✅ [Gen {generation_num}] Content generated with {len(result.content_images)} images")
+                    
+                    # Check if content was saved to database
+                    content_saved = await self.check_content_saved_in_db(campaign["id"], content_type)
+                    
+                    if content_saved:
+                        # Trigger approval flow
+                        approval_success = await self.trigger_approval_flow(campaign["id"], content_type)
+                        
+                        if approval_success:
+                            # Verify watermark was generated
+                            watermark_verified = await self.verify_watermark_generated(campaign["id"], content_type)
+                            
+                            if watermark_verified:
+                                logger.info(f"✅ [Gen {generation_num}] Content approved and watermarked successfully")
+                                self.stats["content_approved"] += 1
+                            else:
+                                logger.warning(f"⚠️ [Gen {generation_num}] Content approved but watermark not verified")
+                        else:
+                            logger.warning(f"⚠️ [Gen {generation_num}] Content generated but approval failed")
+                    else:
+                        logger.warning(f"⚠️ [Gen {generation_num}] Content generated but not saved to database")
+                else:
+                    logger.info(f"ℹ️ [Gen {generation_num}] Content generated without images - leaving in pending state")
+                
+                self.stats["content_generated"] += 1
+                
+                # Success - break out of retry loop
+                if self.retry_count > 0:
+                    self.mark_retry_successful()
+                return True
+                
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"❌ [Gen {generation_num}] Error generating content: {error_msg}")
+                
+                # Handle rate limits with retry logic
+                if await self.handle_rate_limit_with_retry(error_msg, f"content generation {generation_num}"):
+                    # Should retry - continue the while loop
+                    continue
+                elif self.rate_limit_detected:
+                    # Max retries exceeded - stop execution
+                    return False
+                else:
+                    # Non-rate-limit error - log and return False
+                    self.stats["errors"] += 1
+                    return False
+    
     async def process_campaign(self, campaign: Dict[str, Any]) -> bool:
-        """Process a single campaign - generate all content types"""
+        """Process a single campaign - generate all content types (sequential)"""
         logger.info(f"🎯 Processing campaign: {campaign['name']} (ID: {campaign['id']})")
         
         campaign_success = True
@@ -466,12 +651,22 @@ class AutomatedContentGenerator:
         
         return campaign_success
     
-    async def run(self):
+    async def run(self, use_parallel: bool = True):
         """Main execution method"""
-        logger.info("🚀 Starting Automated Content Generation")
+        if self.test_mode:
+            logger.info("🧪 Starting TEST MODE - Single Content Generation")
+        else:
+            logger.info("🚀 Starting Automated Content Generation")
+        
         logger.info(f"💰 Available wallets: {len(self.wallet_addresses)}")
         logger.info(f"📝 Content types: {self.content_types}")
-        logger.info(f"🔢 Content per type: {self.content_count_per_type}")
+        if self.test_mode:
+            logger.info(f"🔢 Content per type: 1 (TEST MODE)")
+        else:
+            logger.info(f"🔢 Content per type: {self.content_count_per_type}")
+        
+        if use_parallel and not self.test_mode:
+            logger.info(f"⚡ Parallel generation enabled: {self.parallel_generations} generations at once")
         
         try:
             # Get all active campaigns
@@ -483,22 +678,41 @@ class AutomatedContentGenerator:
             
             logger.info(f"📊 Found {len(campaigns)} active campaigns")
             
-            # Process campaigns sequentially
-            for campaign in campaigns:
-                if self.rate_limit_detected:
-                    logger.error("🛑 Rate limit detected. Stopping execution.")
-                    break
+            if self.test_mode:
+                # Test mode: pick a random campaign and generate 1 content of each type
+                import random
+                test_campaign = random.choice(campaigns)
+                logger.info(f"🧪 TEST MODE: Selected campaign '{test_campaign['name']}' for testing")
                 
-                logger.info(f"🎯 Processing campaign {campaign['id']}: {campaign['name']}")
+                if use_parallel:
+                    success = await self.process_campaign_parallel(test_campaign)
+                else:
+                    success = await self.process_campaign(test_campaign)
                 
-                success = await self.process_campaign(campaign)
-                
-                if not success:
-                    logger.error(f"❌ Failed to process campaign {campaign['name']}")
-                    continue
-                
-                # Add delay between campaigns
-                await asyncio.sleep(self.delay_between_campaigns)
+                if success:
+                    logger.info("✅ TEST MODE completed successfully!")
+                else:
+                    logger.error("❌ TEST MODE failed!")
+            else:
+                # Full mode: process all campaigns
+                for campaign in campaigns:
+                    if self.rate_limit_detected:
+                        logger.error("🛑 Rate limit detected. Stopping execution.")
+                        break
+                    
+                    logger.info(f"🎯 Processing campaign {campaign['id']}: {campaign['name']}")
+                    
+                    if use_parallel:
+                        success = await self.process_campaign_parallel(campaign)
+                    else:
+                        success = await self.process_campaign(campaign)
+                    
+                    if not success:
+                        logger.error(f"❌ Failed to process campaign {campaign['name']}")
+                        continue
+                    
+                    # Add delay between campaigns
+                    await asyncio.sleep(self.delay_between_campaigns)
             
             # Print final statistics
             self.print_statistics()
@@ -523,8 +737,20 @@ class AutomatedContentGenerator:
 
 async def main():
     """Main entry point"""
-    generator = AutomatedContentGenerator()
-    await generator.run()
+    import sys
+    
+    # Check for test mode flag
+    test_mode = "--test" in sys.argv
+    sequential_mode = "--sequential" in sys.argv
+    
+    if test_mode:
+        print("🧪 Running in TEST MODE - Single content generation for random campaign")
+    
+    if sequential_mode:
+        print("🔄 Running in SEQUENTIAL MODE - No parallel processing")
+    
+    generator = AutomatedContentGenerator(test_mode=test_mode)
+    await generator.run(use_parallel=not sequential_mode)
 
 if __name__ == "__main__":
     # Run the automated content generation

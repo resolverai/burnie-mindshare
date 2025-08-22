@@ -7,6 +7,7 @@
   "content_generation": {
     "content_types": ["shitpost", "longpost", "thread"],
     "content_count_per_type": 10,
+    "parallel_generations": 5,
     "delay_between_generations": 2,
     "delay_between_content_types": 5,
     "delay_between_campaigns": 10
