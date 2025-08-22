@@ -1145,7 +1145,7 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                             s3_key = None
                             
                             # Parse the URL to extract the S3 key properly
-                            from urllib.parse import urlparse, parse_qs
+                            from urllib.parse import urlparse, parse_qs, unquote
                             parsed_url = urlparse(logo_url)
                             
                             print(f"🔑 Parsed URL - netloc: {parsed_url.netloc}")
@@ -1155,7 +1155,7 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                             if 'burnie-mindshare-content-staging.s3.amazonaws.com' in parsed_url.netloc:
                                 # Format: https://burnie-mindshare-content-staging.s3.amazonaws.com/brand_logos/BOB-1754823915028.jpg
                                 # The URL already contains the full S3 key path
-                                s3_key = parsed_url.path.lstrip('/')  # Remove leading slash to get the full key
+                                s3_key = unquote(parsed_url.path.lstrip('/'))  # Decode URL-encoded characters
                                 print(f"🔑 Extracted S3 key (already contains brand_logos): {s3_key}")
                                 
                             elif 's3.amazonaws.com' in parsed_url.netloc and parsed_url.path.startswith('/'):
@@ -1163,13 +1163,13 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                                 path_parts = parsed_url.path.lstrip('/').split('/', 1)
                                 if len(path_parts) > 1:
                                     # This might already include the brand_logos folder
-                                    s3_key = path_parts[1]
+                                    s3_key = unquote(path_parts[1])  # Decode URL-encoded characters
                                     if not s3_key.startswith('brand_logos/'):
                                         s3_key = f"brand_logos/{s3_key}"
                                     print(f"🔑 Extracted S3 key from s3.amazonaws.com format: {s3_key}")
                             else:
                                 # Fallback: try to extract key from URL path
-                                s3_key = parsed_url.path.lstrip('/')
+                                s3_key = unquote(parsed_url.path.lstrip('/'))  # Decode URL-encoded characters
                                 # Only add brand_logos prefix if it's not already there
                                 if not s3_key.startswith('brand_logos/'):
                                     s3_key = f"brand_logos/{s3_key}"

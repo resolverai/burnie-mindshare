@@ -464,15 +464,24 @@ class AutomatedContentGenerator:
                                 approval_success = await self.trigger_approval_flow(campaign["id"], content_type)
                                 
                                 if approval_success:
-                                    # Verify watermark was generated
-                                    watermark_verified = await self.verify_watermark_generated(campaign["id"], content_type)
+                                    # Wait a bit for approval processing to complete
+                                    await asyncio.sleep(2)
                                     
-                                    if watermark_verified:
-                                        logger.info(f"✅ Content approved and watermarked successfully")
-                                        self.stats["content_approved"] += 1
-                                        success_count += 1
+                                    # Verify approval status in database
+                                    approval_verified = await self.verify_approval_status(campaign["id"], content_type)
+                                    
+                                    if approval_verified:
+                                        # Verify watermark was generated
+                                        watermark_verified = await self.verify_watermark_generated(campaign["id"], content_type)
+                                        
+                                        if watermark_verified:
+                                            logger.info(f"✅ Content approved and watermarked successfully")
+                                            self.stats["content_approved"] += 1
+                                            success_count += 1
+                                        else:
+                                            logger.warning(f"⚠️ Content approved but watermark not verified")
                                     else:
-                                        logger.warning(f"⚠️ Content approved but watermark not verified")
+                                        logger.warning(f"⚠️ Content approval not verified in database")
                                 else:
                                     logger.warning(f"⚠️ Content generated but approval failed")
                             else:
@@ -574,19 +583,26 @@ class AutomatedContentGenerator:
             
             # Call the actual approval API endpoint
             try:
-                # Get the approval endpoint from environment or use default
-                approval_url = os.getenv("APPROVAL_API_URL", "http://localhost:8000")
-                approval_endpoint = f"{approval_url}/api/content/approve/{content_id}"
+                # Get the typescript backend URL from environment
+                typescript_backend_url = os.getenv("TYPESCRIPT_BACKEND_URL", "http://localhost:3001")
+                approval_endpoint = f"{typescript_backend_url}/api/marketplace/approve-content"
                 
                 # Use httpx for async HTTP calls
                 import httpx
                 
+                # Prepare approval payload based on the marketplace approval API
+                approval_payload = {
+                    "contentId": content_id,
+                    "approvalStatus": "approved",
+                    "automated": True,
+                    "approvalNotes": "Automated approval from content generation script"
+                }
+                
+                logger.info(f"🔗 Calling approval API: {approval_endpoint}")
+                logger.info(f"📤 Approval payload: {approval_payload}")
+                
                 async with httpx.AsyncClient() as client:
-                    response = await client.post(approval_endpoint, json={
-                        "content_id": content_id,
-                        "approval_status": "approved",
-                        "automated": True
-                    })
+                    response = await client.post(approval_endpoint, json=approval_payload)
                     
                     if response.status_code == 200:
                         logger.info(f"✅ Approval API called successfully for content {content_id}")
@@ -604,6 +620,38 @@ class AutomatedContentGenerator:
             
         except Exception as e:
             logger.error(f"❌ Error triggering approval flow: {e}")
+            return False
+    
+    async def verify_approval_status(self, campaign_id: int, content_type: str) -> bool:
+        """Verify that content approval status was updated in database"""
+        try:
+            from sqlalchemy import text
+            
+            # Query the content_marketplace table to check approval status
+            query = text("""
+                SELECT "approvalStatus", "approvedAt", "createdAt"
+                FROM content_marketplace 
+                WHERE "campaignId" = :campaign_id 
+                AND "postType" = :content_type
+                AND "approvalStatus" = 'approved'
+                AND "approvedAt" IS NOT NULL
+                AND "createdAt" >= NOW() - INTERVAL '15 minutes'
+                ORDER BY "createdAt" DESC
+                LIMIT 1
+            """)
+            
+            result = self.db.execute(query, {"campaign_id": campaign_id, "content_type": content_type}).fetchone()
+            
+            if result:
+                approval_status, approved_at, created_at = result
+                logger.info(f"✅ Approval status verified: {approval_status} at {approved_at}")
+                return True
+            
+            logger.warning(f"⚠️ Approval status not verified for campaign {campaign_id}, type {content_type}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Error verifying approval status: {e}")
             return False
     
     async def verify_watermark_generated(self, campaign_id: int, content_type: str) -> bool:
@@ -626,7 +674,7 @@ class AutomatedContentGenerator:
             result = self.db.execute(query, {"campaign_id": campaign_id, "content_type": content_type}).fetchone()
             
             if result:
-                watermark_image, updated_at = result
+                watermark_image, created_at = result
                 logger.info(f"✅ Watermark verified: {watermark_image}")
                 return True
             
