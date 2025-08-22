@@ -529,7 +529,7 @@ class AutomatedContentGenerator:
             
             # Query the content_marketplace table
             query = text("""
-                SELECT id, "contentImages", "watermarkImage", "createdAt"
+                SELECT id, "contentImages", "watermarkImage", "createdAt", "walletAddress"
                 FROM content_marketplace 
                 WHERE "campaignId" = :campaign_id 
                 AND "postType" = :content_type
@@ -541,8 +541,8 @@ class AutomatedContentGenerator:
             result = self.db.execute(query, {"campaign_id": campaign_id, "content_type": content_type}).fetchone()
             
             if result:
-                content_id, content_images, watermark_image, created_at = result
-                logger.info(f"📊 Content found in DB: ID={content_id}, Images={content_images is not None}, Watermark={watermark_image is not None}")
+                content_id, content_images, watermark_image, created_at, wallet_address = result
+                logger.info(f"📊 Content found in DB: ID={content_id}, Images={content_images is not None}, Watermark={watermark_image is not None}, Wallet={wallet_address[:10] if wallet_address else 'None'}...")
                 return True
             
             return False
@@ -560,7 +560,7 @@ class AutomatedContentGenerator:
             from sqlalchemy import text
             
             query = text("""
-                SELECT id, "contentImages", "creatorId"
+                SELECT id, "contentImages", "creatorId", "walletAddress"
                 FROM content_marketplace 
                 WHERE "campaignId" = :campaign_id 
                 AND "postType" = :content_type
@@ -575,7 +575,7 @@ class AutomatedContentGenerator:
                 logger.error(f"❌ No content found to approve for campaign {campaign_id}, type {content_type}")
                 return False
             
-            content_id, content_images, creator_id = result
+            content_id, content_images, creator_id, wallet_address = result
             
             if not content_images:
                 logger.warning(f"⚠️ No images found in content {content_id} - skipping approval")
@@ -593,6 +593,7 @@ class AutomatedContentGenerator:
                 # Prepare approval payload based on the marketplace approval API
                 approval_payload = {
                     "contentId": content_id,
+                    "walletAddress": wallet_address,
                     "approvalStatus": "approved",
                     "automated": True,
                     "approvalNotes": "Automated approval from content generation script"
@@ -629,7 +630,7 @@ class AutomatedContentGenerator:
             
             # Query the content_marketplace table to check approval status
             query = text("""
-                SELECT "approvalStatus", "approvedAt", "createdAt"
+                SELECT "approvalStatus", "approvedAt", "createdAt", "walletAddress"
                 FROM content_marketplace 
                 WHERE "campaignId" = :campaign_id 
                 AND "postType" = :content_type
@@ -643,8 +644,8 @@ class AutomatedContentGenerator:
             result = self.db.execute(query, {"campaign_id": campaign_id, "content_type": content_type}).fetchone()
             
             if result:
-                approval_status, approved_at, created_at = result
-                logger.info(f"✅ Approval status verified: {approval_status} at {approved_at}")
+                approval_status, approved_at, created_at, wallet_address = result
+                logger.info(f"✅ Approval status verified: {approval_status} at {approved_at} for wallet {wallet_address[:10] if wallet_address else 'None'}...")
                 return True
             
             logger.warning(f"⚠️ Approval status not verified for campaign {campaign_id}, type {content_type}")
