@@ -145,6 +145,21 @@ class Settings(BaseSettings):
 # Global settings instance
 settings = Settings()
 
+# Debug: Log API key loading
+import logging
+logger = logging.getLogger(__name__)
+logger.info(f"🔍 Settings Debug: Environment variables loaded:")
+logger.info(f"🔍 Settings Debug: OPENAI_API_KEY present: {bool(settings.openai_api_key)}")
+logger.info(f"🔍 Settings Debug: ANTHROPIC_API_KEY present: {bool(settings.anthropic_api_key)}")
+logger.info(f"🔍 Settings Debug: FAL_API_KEY present: {bool(settings.fal_api_key)}")
+
+if settings.openai_api_key:
+    logger.info(f"🔍 Settings Debug: OpenAI API key length: {len(settings.openai_api_key)}, prefix: {settings.openai_api_key[:10]}...")
+if settings.anthropic_api_key:
+    logger.info(f"🔍 Settings Debug: Anthropic API key length: {len(settings.anthropic_api_key)}, prefix: {settings.anthropic_api_key[:10]}...")
+if settings.fal_api_key:
+    logger.info(f"🔍 Settings Debug: Fal API key length: {len(settings.fal_api_key)}, prefix: {settings.fal_api_key[:10]}...")
+
 def get_settings() -> Settings:
     """Get settings instance (for dependency injection)"""
     return settings

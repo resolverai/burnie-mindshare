@@ -15,6 +15,7 @@ import ReferralPayoutService from '../services/ReferralPayoutService';
 import { WatermarkService } from '../services/WatermarkService';
 import { createPublicClient, http, parseUnits, formatUnits } from 'viem';
 import { base } from 'viem/chains';
+import { MarketplaceContentService } from '../services/MarketplaceContentService';
 const AWS = require('aws-sdk');
 
 const router = Router();
@@ -28,6 +29,13 @@ const s3 = new AWS.S3({
 });
 
 const S3_BUCKET_NAME = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging';
+
+// Log AWS configuration for debugging
+logger.info(`🔧 AWS S3 Configuration:`);
+logger.info(`   Bucket: ${S3_BUCKET_NAME}`);
+logger.info(`   Region: ${process.env.AWS_REGION || 'us-east-1'}`);
+logger.info(`   Access Key ID: ${process.env.AWS_ACCESS_KEY_ID ? 'SET' : 'NOT SET'}`);
+logger.info(`   Secret Access Key: ${process.env.AWS_SECRET_ACCESS_KEY ? 'SET' : 'NOT SET'}`);
 
 /**
  * Check if a pre-signed URL has expired
@@ -52,17 +60,20 @@ function isUrlExpired(preSignedUrl: string): boolean {
 }
 
 /**
- * Extract S3 key from pre-signed URL
+ * Extract S3 key from pre-signed URL or direct S3 URL
  */
 function extractS3KeyFromUrl(preSignedUrl: string): string | null {
   try {
     const url = new URL(preSignedUrl);
     
-    // Handle bucket.s3.amazonaws.com format
+    // Handle bucket.s3.amazonaws.com format (both presigned and direct URLs)
     if (url.hostname.includes('.s3.amazonaws.com')) {
-      return url.pathname.substring(1); // Remove leading slash
+      const s3Key = url.pathname.substring(1); // Remove leading slash
+      logger.info(`🔍 Extracted S3 key from ${url.hostname}: ${s3Key}`);
+      return s3Key;
     }
     
+    logger.warn(`⚠️ URL does not contain .s3.amazonaws.com: ${preSignedUrl}`);
     return null;
   } catch (error) {
     logger.error(`❌ Failed to extract S3 key from URL: ${preSignedUrl}`, error);
@@ -71,10 +82,59 @@ function extractS3KeyFromUrl(preSignedUrl: string): string | null {
 }
 
 /**
- * Generate fresh pre-signed URL
+ * Generate presigned URL using Python backend (same as carousel route)
  */
-function generateFreshPreSignedUrl(s3Key: string): string | null {
+async function generatePresignedUrl(s3Key: string): Promise<string | null> {
+  // For watermark images, use Python backend (same as AI-generated content)
+  const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
+  if (!pythonBackendUrl) {
+    logger.error('PYTHON_AI_BACKEND_URL environment variable is not set, falling back to local generation');
+    return generatePresignedUrlLocal(s3Key);
+  }
+
   try {
+    logger.info(`🔗 Requesting presigned URL for S3 key: ${s3Key}`);
+    
+    const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Python backend responded with ${response.status}`);
+    }
+
+    const result = await response.json() as {
+      status: string;
+      presigned_url?: string;
+      error?: string;
+    };
+
+    if (result.status === 'success' && result.presigned_url) {
+      logger.info(`✅ Generated presigned URL for S3 key: ${s3Key}`);
+      return result.presigned_url;
+    } else {
+      logger.error(`Failed to generate presigned URL: ${result.error}`);
+      return null;
+    }
+  } catch (error) {
+    logger.error(`Error generating presigned URL for S3 key: ${s3Key}`, error);
+    // Fallback to local generation
+    return generatePresignedUrlLocal(s3Key);
+  }
+}
+
+/**
+ * Generate presigned URL locally (fallback)
+ */
+function generatePresignedUrlLocal(s3Key: string): string | null {
+  try {
+    logger.info(`🔍 Generating presigned URL locally for S3 key: ${s3Key}`);
+    logger.info(`🔍 Using bucket: ${S3_BUCKET_NAME}`);
+    logger.info(`🔍 AWS Region: ${process.env.AWS_REGION || 'us-east-1'}`);
+    
     const params = {
       Bucket: S3_BUCKET_NAME,
       Key: s3Key,
@@ -82,10 +142,12 @@ function generateFreshPreSignedUrl(s3Key: string): string | null {
     };
 
     const url = s3.getSignedUrl('getObject', params);
-    logger.info(`🔄 Generated fresh pre-signed URL for: ${s3Key}`);
+    logger.info(`🔄 Generated local presigned URL for: ${s3Key}`);
+    logger.info(`🔍 Presigned URL: ${url.substring(0, 150)}...`);
     return url;
   } catch (error) {
-    logger.error(`❌ Failed to generate fresh pre-signed URL for ${s3Key}:`, error);
+    logger.error(`❌ Failed to generate local presigned URL for ${s3Key}:`, error);
+    logger.error(`❌ AWS Config: Access Key ID exists: ${!!process.env.AWS_ACCESS_KEY_ID}, Secret exists: ${!!process.env.AWS_SECRET_ACCESS_KEY}`);
     return null;
   }
 }
@@ -101,16 +163,16 @@ async function refreshExpiredUrls(content: any): Promise<any> {
 
     let updatedText = content.contentText;
     for (const url of urls) {
-      if (isUrlExpired(url)) {
-        const s3Key = extractS3KeyFromUrl(url);
-        if (s3Key) {
-          const freshUrl = generateFreshPreSignedUrl(s3Key);
-          if (freshUrl) {
-            updatedText = updatedText.replace(url, freshUrl);
-            logger.info(`🔄 Refreshed expired URL in content ${content.id}`);
+              if (isUrlExpired(url)) {
+          const s3Key = extractS3KeyFromUrl(url);
+          if (s3Key) {
+            const freshUrl = await generatePresignedUrl(s3Key);
+            if (freshUrl) {
+              updatedText = updatedText.replace(url, freshUrl);
+              logger.info(`🔄 Refreshed expired URL in content ${content.id}`);
+            }
           }
         }
-      }
     }
     content.contentText = updatedText;
   }
@@ -118,31 +180,87 @@ async function refreshExpiredUrls(content: any): Promise<any> {
   // Process content images
   if (content.contentImages) {
     if (Array.isArray(content.contentImages)) {
-      content.contentImages = content.contentImages.map((imageUrl: string) => {
-        if (typeof imageUrl === 'string' && isUrlExpired(imageUrl)) {
-          const s3Key = extractS3KeyFromUrl(imageUrl);
-          if (s3Key) {
-            const freshUrl = generateFreshPreSignedUrl(s3Key);
-            if (freshUrl) {
-              logger.info(`🔄 Refreshed expired image URL in content ${content.id}`);
-              return freshUrl;
+      const updatedImages = await Promise.all(
+        content.contentImages.map(async (imageUrl: string) => {
+          if (typeof imageUrl === 'string' && isUrlExpired(imageUrl)) {
+            const s3Key = extractS3KeyFromUrl(imageUrl);
+            if (s3Key) {
+              const freshUrl = await generatePresignedUrl(s3Key);
+              if (freshUrl) {
+                logger.info(`🔄 Refreshed expired image URL in content ${content.id}`);
+                return freshUrl;
+              }
             }
           }
-        }
-        return imageUrl;
-      });
+          return imageUrl;
+        })
+      );
+      content.contentImages = updatedImages;
     }
   }
 
-  // Process watermark image (always generate presigned URL since watermarked images need authentication)
-  if (content.watermarkImage && typeof content.watermarkImage === 'string') {
-    // Always refresh watermark URLs as they're stored as direct S3 URLs without presigned signatures
-    const s3Key = extractS3KeyFromUrl(content.watermarkImage);
-    if (s3Key) {
-      const freshUrl = generateFreshPreSignedUrl(s3Key);
-      if (freshUrl) {
-        content.watermarkImage = freshUrl;
-        logger.info(`🔄 Generated presigned URL for watermark in content ${content.id}`);
+  // Process watermark image (ALWAYS generate presigned URL - watermark images are stored as direct S3 URLs)
+  // Support both camelCase (database) and snake_case (formatted) field names
+  const watermarkImage = content.watermarkImage || content.watermark_image;
+  if (watermarkImage && typeof watermarkImage === 'string') {
+    logger.info(`🔍 Processing watermark image for content ${content.id}: ${watermarkImage}`);
+    
+    // Check if this is already a presigned URL
+    if (watermarkImage.includes('?') && (watermarkImage.includes('X-Amz-Signature') || watermarkImage.includes('Signature'))) {
+      logger.info(`🔍 Watermark image already has presigned URL for content ${content.id}`);
+    } else {
+      // This is a direct S3 URL - convert it to presigned URL
+      logger.info(`🔍 Converting direct S3 URL to presigned URL for content ${content.id}`);
+      
+      const s3Key = extractS3KeyFromUrl(watermarkImage);
+      logger.info(`🔍 Extracted S3 key: ${s3Key}`);
+      
+      if (s3Key) {
+        const freshUrl = await generatePresignedUrl(s3Key);
+        logger.info(`🔍 Generated presigned URL: ${freshUrl ? 'SUCCESS' : 'FAILED'}`);
+        
+        if (freshUrl) {
+          // Update both possible field names
+          if (content.watermarkImage) {
+            content.watermarkImage = freshUrl;
+          }
+          if (content.watermark_image) {
+            content.watermark_image = freshUrl;
+          }
+          logger.info(`🔄 Generated presigned URL for watermark in content ${content.id}`);
+        } else {
+          logger.error(`❌ Failed to generate presigned URL for watermark in content ${content.id}, S3 key: ${s3Key}`);
+          // Fallback: keep the original URL but log the error
+          logger.warn(`⚠️ Keeping original watermark URL for content ${content.id}: ${watermarkImage}`);
+        }
+      } else {
+        logger.error(`❌ Failed to extract S3 key from watermark URL: ${watermarkImage}`);
+        // Try alternative extraction method for watermark URLs
+        if (watermarkImage.includes('s3.amazonaws.com')) {
+          try {
+            const url = new URL(watermarkImage);
+            const alternativeS3Key = url.pathname.substring(1); // Remove leading slash
+            logger.info(`🔍 Alternative S3 key extraction: ${alternativeS3Key}`);
+            
+            const freshUrl = await generatePresignedUrl(alternativeS3Key);
+            if (freshUrl) {
+              // Update both possible field names
+              if (content.watermarkImage) {
+                content.watermarkImage = freshUrl;
+              }
+              if (content.watermark_image) {
+                content.watermark_image = freshUrl;
+              }
+              logger.info(`🔄 Generated presigned URL using alternative method for content ${content.id}`);
+            } else {
+              logger.error(`❌ Alternative presigned URL generation failed for S3 key: ${alternativeS3Key}`);
+            }
+          } catch (error) {
+            logger.error(`❌ Alternative S3 key extraction failed: ${error}`);
+          }
+        } else {
+          logger.warn(`⚠️ Watermark URL does not contain s3.amazonaws.com: ${watermarkImage}`);
+        }
       }
     }
   }
@@ -230,133 +348,66 @@ async function processExpiredAuctions(): Promise<void> {
  */
 router.get('/content', async (req, res) => {
   try {
-    // SUPPRESSED: Don't process expired auctions for immediate purchase system
-    // await processExpiredAuctions();
-    
     const { 
       search,
       platform_source,
       project_name,
       post_type,
-      sort_by = 'quality',
+      sort_by = 'bidding_enabled',
       page = 1,
-      limit = 20 
+      limit = 18 
     } = req.query;
 
-    // Get approved content from the database
-    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
-    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+    const marketplaceService = new MarketplaceContentService();
     
-    let query = contentRepository
-      .createQueryBuilder('content')
-      .leftJoinAndSelect('content.creator', 'creator')
-      .leftJoinAndSelect('content.campaign', 'campaign')
-      .where('content.approvalStatus = :status', { status: 'approved' })
-      .andWhere('content.isAvailable = true')
-      .andWhere('content.isBiddable = true');
-      
-    // Exclude content that has been purchased using EXISTS
-    query = query.andWhere(
-      'NOT EXISTS (SELECT 1 FROM content_purchases cp WHERE cp.content_id = content.id AND cp.payment_status = \'completed\')'
-    );
-
-    if (platform_source) {
-      query = query.andWhere('campaign.platformSource = :platform', { platform: platform_source });
-    }
-
-    if (project_name) {
-      query = query.andWhere('campaign.projectName = :projectName', { projectName: project_name });
-    }
-
-    if (post_type) {
-      query = query.andWhere('content.postType = :postType', { postType: post_type });
-    }
-
-    if (search) {
-      query = query.andWhere('content.contentText ILIKE :search', { search: `%${search}%` });
-    }
-
-    // Sorting
-    switch (sort_by) {
-      case 'quality':
-        query = query.orderBy('content.qualityScore', 'DESC');
-        break;
-      case 'mindshare':
-        query = query.orderBy('content.predictedMindshare', 'DESC');
-        break;
-      case 'price_low':
-        query = query.orderBy('content.askingPrice', 'ASC');
-        break;
-      case 'price_high':
-        query = query.orderBy('content.askingPrice', 'DESC');
-        break;
-      case 'newest':
-        query = query.orderBy('content.createdAt', 'DESC');
-        break;
-      default:
-        query = query.orderBy('content.qualityScore', 'DESC');
-    }
-
-    const [contents, total] = await query
-      .skip((Number(page) - 1) * Number(limit))
-      .take(Number(limit))
-      .getManyAndCount();
+    const result = await marketplaceService.getMarketplaceContent({
+      search: search as string,
+      platform_source: platform_source as string,
+      project_name: project_name as string,
+      post_type: post_type as string,
+      sort_by: sort_by as string,
+      page: Number(page),
+      limit: Number(limit)
+    });
 
     // Refresh expired pre-signed URLs in all content
     const refreshedContents = await Promise.all(
-      contents.map(content => refreshExpiredUrls(content))
+      result.data.map(content => refreshExpiredUrls(content))
     );
 
-    // For immediate purchase system, we don't need bidding data
-    // but we'll keep a simplified structure for frontend compatibility
-    const formattedContents = refreshedContents.map(content => ({
-      id: content.id,
-      content_text: content.contentText,
-      tweet_thread: content.tweetThread || null, // Include tweet thread data
-      content_images: content.contentImages || [],
-      watermark_image: content.watermarkImage || null,
-      predicted_mindshare: Number(content.predictedMindshare || 0),
-      quality_score: Number(content.qualityScore || 0),
-      asking_price: Number(content.biddingAskPrice || content.askingPrice || 0),
-      post_type: content.postType || 'thread', // Include post type
-      creator: {
-        id: content.creator?.id,
-        username: content.creator?.username || 'Anonymous',
-        reputation_score: Number(content.creator?.reputationScore || 0),
-        wallet_address: content.creator?.walletAddress
-      },
-      campaign: {
-        id: content.campaign?.id,
-        title: content.campaign?.title || 'Unknown Campaign',
-        project_name: content.campaign?.projectName || content.campaign?.title || 'Unknown Project',
-        platform_source: content.campaign?.platformSource || 'unknown',
-        reward_token: content.campaign?.rewardToken || 'ROAST'
-      },
-      agent_name: content.agentName,
-      created_at: content.createdAt.toISOString(),
-      approved_at: content.approvedAt?.toISOString(),
-      // For immediate purchase system - no bidding data needed
-      current_highest_bid: null,
-      total_bids: 0,
-      bids: []
-    }));
+    // Update the result with refreshed content
+    result.data = refreshedContents;
 
-    res.json({
-      success: true,
-      data: formattedContents,
-      pagination: {
-        page: Number(page),
-        limit: Number(limit),
-        total,
-        totalPages: Math.ceil(total / Number(limit))
-      }
-    });
+    res.json(result);
 
   } catch (error) {
-    console.error('Error fetching marketplace content:', error);
+    logger.error('❌ Error fetching marketplace content:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch marketplace content',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route GET /api/marketplace/search-suggestions
+ * @desc Get search suggestions for platforms, projects, and post types
+ */
+router.get('/search-suggestions', async (req, res) => {
+  try {
+    const marketplaceService = new MarketplaceContentService();
+    const suggestions = await marketplaceService.getSearchSuggestions();
+    
+    res.json({
+      success: true,
+      data: suggestions
+    });
+  } catch (error) {
+    logger.error('❌ Error fetching search suggestions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch search suggestions',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
@@ -1662,7 +1713,12 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
     if (is_biddable) {
       content.biddingEndDate = bidding_end_date ? new Date(bidding_end_date) : null;
       content.biddingAskPrice = bidding_ask_price ? parseFloat(bidding_ask_price) : null;
-      content.biddingEnabledAt = new Date();
+      
+      // Ensure biddingEnabledAt is always set when enabling bidding
+      if (!content.biddingEnabledAt) {
+        content.biddingEnabledAt = new Date();
+        logger.info(`🔧 Set biddingEnabledAt for content ID ${content.id} (was missing)`);
+      }
     } else {
       content.biddingEndDate = null;
       content.biddingAskPrice = null;

@@ -26,42 +26,12 @@ import marketplaceService, { type MarketplaceContent } from '../../services/mark
 import { useROASTPrice, convertROASTToUSDC, formatUSDCPrice } from '../../utils/priceUtils'
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
+import { useInfiniteMarketplace } from '../../hooks/useInfiniteMarketplace'
+import SearchSuggestions from './SearchSuggestions'
 
-interface ContentItem {
-  id: number
-  creatorId: number
-  content_text: string
-  tweet_thread?: string[]
-  content_images?: string[]
+// Use MarketplaceContent type directly from the service
+type ContentItem = MarketplaceContent & {
   watermark_image?: string
-  predicted_mindshare: number
-  quality_score: number
-  asking_price: number
-  post_type?: string
-  creator: {
-    username: string
-    reputation_score: number
-  }
-  campaign: {
-    title: string
-    platform_source: string
-    reward_token: string
-  }
-  bids?: Array<{
-    amount: number
-    currency: string
-    bidder: string
-    is_winning: boolean
-  }>
-  highest_bid?: {
-    amount: number
-    currency: string
-    bidder: string
-  }
-  total_bids?: number
-  created_at: string
-  is_liked?: boolean
-  agent_name?: string
 }
 
 
@@ -73,7 +43,7 @@ export default function BiddingInterface() {
   const { price: roastPrice } = useROASTPrice()
   const [selectedPlatform, setSelectedPlatform] = useState('all')
   const [selectedProject, setSelectedProject] = useState('all')
-  const [sortBy, setSortBy] = useState<'mindshare' | 'quality'>('mindshare')
+  const [sortBy, setSortBy] = useState<'bidding_enabled' | 'mindshare' | 'quality' | 'price_low' | 'price_high' | 'newest'>('bidding_enabled')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [showPurchaseModal, setShowPurchaseModal] = useState<ContentItem | null>(null)
   // Copy protection state removed - no longer needed in public marketplace
@@ -102,32 +72,23 @@ export default function BiddingInterface() {
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 
-  // Fetch marketplace content from backend API
-  const { data: content = [], isLoading: isContentLoading, refetch } = useQuery({
-    queryKey: ['marketplace-content', debouncedSearchTerm, selectedPlatform, selectedProject],
-    queryFn: async () => {
-      const params = new URLSearchParams()
-      if (debouncedSearchTerm) params.append('search', debouncedSearchTerm)
-      if (selectedPlatform !== 'all') params.append('platform_source', selectedPlatform)
-      if (selectedProject !== 'all') params.append('project_name', selectedProject)
-      
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content?${params}`)
-        if (response.ok) {
-          const data = await response.json()
-          console.log('📦 Fetched marketplace content:', data)
-          return data.data || []
-        }
-        return []
-      } catch (error) {
-        console.error('Error fetching marketplace content:', error)
-        return []
-      }
-    },
-    staleTime: 2 * 60 * 1000, // 2 minutes - allow for reasonable refresh rate
-    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache longer  
-    refetchInterval: false, // Don't auto-refetch to prevent constant URL regeneration
-    refetchOnWindowFocus: false, // Don't refetch when user returns to tab
+  // Fetch marketplace content with infinite scroll
+  const {
+    content,
+    pagination,
+    isLoading: isContentLoading,
+    isError: isContentError,
+    error: contentError,
+    isFetchingNextPage,
+    hasNextPage,
+    lastElementRef,
+    refetch
+  } = useInfiniteMarketplace({
+    search: debouncedSearchTerm,
+    platform_source: selectedPlatform !== 'all' ? selectedPlatform : undefined,
+    project_name: selectedProject !== 'all' ? selectedProject : undefined,
+    sort_by: sortBy,
+    limit: 18
   })
 
 
@@ -147,6 +108,22 @@ export default function BiddingInterface() {
 
     return () => clearTimeout(timer)
   }, [searchTerm])
+
+  // Handle search suggestions
+  const handleSuggestionSelect = (type: 'platform' | 'project' | 'postType', value: string) => {
+    switch (type) {
+      case 'platform':
+        setSelectedPlatform(value)
+        break
+      case 'project':
+        setSelectedProject(value)
+        break
+      case 'postType':
+        // For now, we'll add post type to search term
+        setSearchTerm(prev => prev ? `${prev} ${value}` : value)
+        break
+    }
+  }
   
   // Price display component
   const PriceDisplay = ({ roastAmount }: { roastAmount: number }) => {
@@ -370,6 +347,7 @@ export default function BiddingInterface() {
         onProjectChange={handleProjectChange}
         searchTerm={searchTerm}
         onSearchChange={handleSearchChange}
+        onSuggestionSelect={handleSuggestionSelect}
       />
     </div>
   ), [searchTerm, selectedPlatform, selectedProject, handleSearchChange, handlePlatformChange, handleProjectChange])
@@ -407,41 +385,9 @@ export default function BiddingInterface() {
             ))}
           </div>
         ) : content && content.length > 0 ? (
-          (() => {
-            // Filter and sort content
-            let filteredContent = content.filter((item: ContentItem) => {
-              const matchesSearch = !searchTerm || 
-                item.content_text?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.campaign.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.creator.username?.toLowerCase().includes(searchTerm.toLowerCase())
-              
-              const matchesPlatform = selectedPlatform === 'all' || 
-                item.campaign.platform_source === selectedPlatform
-
-              const matchesProject = selectedProject === 'all' ||
-                (item.campaign as any).project_name === selectedProject
-              
-              return matchesSearch && matchesPlatform && matchesProject
-            })
-            
-            filteredContent.sort((a: ContentItem, b: ContentItem) => {
-              let aValue: number, bValue: number
-              
-              if (sortBy === 'mindshare') {
-                aValue = a.predicted_mindshare || 0
-                bValue = b.predicted_mindshare || 0
-              } else {
-                aValue = a.quality_score || 0
-                bValue = b.quality_score || 0
-              }
-              
-              return sortOrder === 'asc' ? aValue - bValue : bValue - aValue
-            })
-            
-            return (
-              <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 px-4 py-8">
-                {filteredContent.map((item: ContentItem) => {
-                  const shouldUseMarkdown = isMarkdownContent(item.post_type)
+                    <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 px-4 py-8">
+            {content.map((item: ContentItem) => {
+              const shouldUseMarkdown = isMarkdownContent(item.post_type)
                   const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
                   const forceMarkdown = hasMarkdownSyntax
                   
@@ -452,6 +398,12 @@ export default function BiddingInterface() {
                   // Use watermarked image for marketplace display, fallback to original for purchased content
                   const displayImage = item.watermark_image || 
                     (item.content_images && item.content_images.length > 0 ? item.content_images[0] : imageUrl)
+                  
+                  // Helper function to check if URL is a presigned S3 URL
+                  const isPresignedS3Url = (url: string) => {
+                    return url.includes('s3.amazonaws.com') && url.includes('?') && 
+                           (url.includes('X-Amz-Signature') || url.includes('Signature'))
+                  }
                   
                   return (
                     <article key={item.id} className="group relative rounded-[28px] overflow-hidden bg-yapper-surface content-card-3d hover:z-50 cursor-pointer">
@@ -464,6 +416,7 @@ export default function BiddingInterface() {
                             fill 
                             sizes="(min-width: 768px) 50vw, 100vw" 
                             className="object-cover transition-all duration-300 group-hover:blur-sm"
+                            unoptimized={isPresignedS3Url(displayImage)}
                           />
                         ) : (
                           <div className="absolute inset-0 flex items-center justify-center bg-yapper-muted transition-all duration-300 group-hover:blur-sm">
@@ -542,13 +495,26 @@ export default function BiddingInterface() {
                   )
                 })}
               </div>
-            )
-          })()
-        ) : (
+            ) : (
           <div className="text-center py-12">
             <div className="text-white/70 text-lg mb-2">No content found</div>
             <div className="text-white/50 text-sm">Try adjusting your search or filters, or check back later for new AI-generated content</div>
           </div>
+        )}
+
+        {/* Infinite Scroll Loading Indicator */}
+        {isFetchingNextPage && (
+          <div className="text-center py-8">
+            <div className="inline-flex items-center gap-2 text-white/70">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+              <span>Loading more content...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Intersection Observer Target for Infinite Scroll */}
+        {hasNextPage && (
+          <div ref={lastElementRef} className="h-4" />
         )}
       </div>
       

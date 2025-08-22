@@ -12,16 +12,39 @@ export interface MarketplaceContent {
     id: number
     username: string
     reputation_score: number
+    wallet_address?: string
   }
   campaign: {
     id: number
     title: string
     platform_source: string
     project_name?: string
+    reward_token: string
   }
   agent_name?: string
   created_at: string
   post_type?: string
+  approved_at?: string
+  bidding_enabled_at?: string
+}
+
+export interface MarketplaceResponse {
+  success: boolean
+  data: MarketplaceContent[]
+  pagination: {
+    currentPage: number
+    limit: number
+    totalItems: number
+    totalPages: number
+    hasNextPage: boolean
+    nextPage: number | null
+  }
+}
+
+export interface SearchSuggestions {
+  platforms: string[]
+  projects: string[]
+  postTypes: string[]
 }
 
 export interface MarketplaceParams {
@@ -35,7 +58,7 @@ export interface MarketplaceParams {
 }
 
 const marketplaceService = {
-  async getContent(params: MarketplaceParams = {}): Promise<MarketplaceContent[]> {
+  async getContent(params: MarketplaceParams = {}): Promise<MarketplaceResponse> {
     const queryParams = new URLSearchParams()
     
     Object.entries(params).forEach(([key, value]) => {
@@ -61,12 +84,40 @@ const marketplaceService = {
       const data = await response.json()
       
       if (data.success) {
-        return data.data || []
+        return data
       } else {
         throw new Error(data.message || 'Failed to fetch content')
       }
     } catch (error) {
       console.error('Marketplace service error:', error)
+      throw error
+    }
+  },
+
+  async getSearchSuggestions(): Promise<SearchSuggestions> {
+    const url = `${API_BASE_URL}/api/marketplace/search-suggestions`
+    
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch search suggestions: ${response.statusText}`)
+      }
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        return data.data
+      } else {
+        throw new Error(data.message || 'Failed to fetch search suggestions')
+      }
+    } catch (error) {
+      console.error('Search suggestions error:', error)
       throw error
     }
   },

@@ -141,6 +141,22 @@ class OpenAIProvider(LLMProvider):
     
     def __init__(self):
         self.settings = get_settings()
+        
+        # Debug: Log API key information
+        logger.info(f"🔍 OpenAIProvider Debug: openai_api_key present: {bool(self.settings.openai_api_key)}")
+        if self.settings.openai_api_key:
+            logger.info(f"🔍 OpenAIProvider Debug: API key length: {len(self.settings.openai_api_key)}")
+            logger.info(f"🔍 OpenAIProvider Debug: API key prefix: {self.settings.openai_api_key[:10]}...")
+            logger.info(f"🔍 OpenAIProvider Debug: API key format valid: {self.settings.openai_api_key.startswith('sk-')}")
+        
+        # Validate API key format
+        if not self.settings.openai_api_key:
+            raise ValueError("OpenAI API key is required for OpenAIProvider")
+        
+        if not self.settings.openai_api_key.startswith('sk-'):
+            logger.error(f"❌ Invalid OpenAI API key format. Expected 'sk-' prefix, got: {self.settings.openai_api_key[:10]}...")
+            raise ValueError("Invalid OpenAI API key format. Must start with 'sk-'")
+        
         self.client = AsyncOpenAI(api_key=self.settings.openai_api_key)
         self.model = "gpt-4o"  # GPT-4 with vision support
         
@@ -465,9 +481,23 @@ class AnthropicProvider(LLMProvider):
     
     def __init__(self):
         self.settings = get_settings()
+        
+        # Debug: Log API key information
+        logger.info(f"🔍 AnthropicProvider Debug: anthropic_api_key present: {bool(self.settings.anthropic_api_key)}")
+        if self.settings.anthropic_api_key:
+            logger.info(f"🔍 AnthropicProvider Debug: API key length: {len(self.settings.anthropic_api_key)}")
+            logger.info(f"🔍 AnthropicProvider Debug: API key prefix: {self.settings.anthropic_api_key[:10]}...")
+            logger.info(f"🔍 AnthropicProvider Debug: API key format valid: {self.settings.anthropic_api_key.startswith('sk-ant-')}")
+        
         # Ensure we're getting AsyncAnthropic client, not AsyncOpenAI
         if not self.settings.anthropic_api_key:
             raise ValueError("Anthropic API key is required for AnthropicProvider")
+        
+        # Validate API key format
+        if not self.settings.anthropic_api_key.startswith('sk-ant-'):
+            logger.error(f"❌ Invalid Anthropic API key format. Expected 'sk-ant-' prefix, got: {self.settings.anthropic_api_key[:10]}...")
+            raise ValueError("Invalid Anthropic API key format. Must start with 'sk-ant-'")
+        
         self.client = AsyncAnthropic(api_key=self.settings.anthropic_api_key)
         if not isinstance(self.client, AsyncAnthropic):
             raise TypeError(f"Expected AsyncAnthropic client, got {type(self.client)}")

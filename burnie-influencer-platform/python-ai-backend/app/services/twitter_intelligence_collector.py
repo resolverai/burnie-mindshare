@@ -31,8 +31,11 @@ class TwitterIntelligenceCollector:
         )
         
         # Initialize LLM service with environment-configured providers
-        default_provider = settings.DEFAULT_LLM_PROVIDER or 'anthropic'
-        fallback_provider = settings.FALLBACK_LLM_PROVIDER or 'openai'
+        default_provider = settings.default_llm_provider or 'anthropic'
+        fallback_provider = settings.fallback_llm_provider or 'openai'
+        
+        logger.info(f"🔧 TwitterIntelligenceCollector: Initializing LLM with primary={default_provider}, fallback={fallback_provider}")
+        
         self.llm_service = MultiProviderLLMService(
             primary_provider=default_provider,
             fallback_provider=fallback_provider

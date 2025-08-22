@@ -19,7 +19,6 @@ import { useRouter } from 'next/navigation'
 
 interface ContentItem {
   id: number
-  creatorId: number
   content_text: string
   tweet_thread?: string[]
   content_images?: string[]
@@ -28,17 +27,23 @@ interface ContentItem {
   quality_score: number
   asking_price: number
   creator: {
+    id: number
     username: string
     reputation_score: number
+    wallet_address?: string
   }
   campaign: {
+    id: number
     title: string
     platform_source: string
+    project_name?: string
     reward_token: string
   }
   agent_name?: string
   created_at: string
   post_type?: string
+  approved_at?: string
+  bidding_enabled_at?: string
 }
 
 interface PurchaseContentModalProps {
@@ -62,6 +67,12 @@ export default function PurchaseContentModal({
   const { isAuthenticated, signIn } = useAuth()
   const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting()
   const router = useRouter()
+  
+  // Helper function to check if URL is a presigned S3 URL
+  const isPresignedS3Url = (url: string) => {
+    return url.includes('s3.amazonaws.com') && url.includes('?') && 
+           (url.includes('X-Amz-Signature') || url.includes('Signature'))
+  }
   
   const [selectedVoiceTone, setSelectedVoiceTone] = useState("auto")
   const [selectedTone, setSelectedTone] = useState("Select tone")
@@ -148,12 +159,12 @@ export default function PurchaseContentModal({
 
   // Fetch miner information
   const fetchMinerInfo = async () => {
-    if (!content?.creatorId) return
+    if (!content?.creator?.id) return
 
     setIsLoadingMiner(true)
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/user/${content.creatorId}/profile`
+        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/user/${content.creator.id}/profile`
       )
       
       if (response.ok) {
@@ -178,10 +189,10 @@ export default function PurchaseContentModal({
 
   // Fetch miner info when modal opens
   useEffect(() => {
-    if (content?.creatorId) {
+    if (content?.creator?.id) {
       fetchMinerInfo()
     }
-  }, [content?.creatorId])
+  }, [content?.creator?.id])
 
   // Filter yappers based on search query
   const filteredYappers = allYappers.filter((yapper) => {
@@ -885,6 +896,7 @@ export default function PurchaseContentModal({
                                 width={500}
                                 height={300}
                                 className="w-full h-auto object-cover"
+                                unoptimized={isPresignedS3Url(contentData.imageUrl)}
                               />
 
                             </div>
@@ -918,6 +930,7 @@ export default function PurchaseContentModal({
                                 width={500}
                                 height={300}
                                 className="w-full h-auto object-cover"
+                                unoptimized={isPresignedS3Url(contentData.imageUrl)}
                               />
 
                             </div>
