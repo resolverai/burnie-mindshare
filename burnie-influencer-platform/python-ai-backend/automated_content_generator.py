@@ -35,6 +35,15 @@ from typing import Dict, List, Optional, Any
 import traceback
 from dotenv import load_dotenv
 
+# Try to import httpx for API calls, fallback to basic HTTP if not available
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    HTTPX_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("⚠️ httpx not available - will use fallback approval method")
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -109,6 +118,99 @@ class AutomatedContentGenerator:
     def get_random_wallet(self) -> str:
         """Get a random wallet address"""
         return random.choice(self.wallet_addresses)
+    
+    async def get_user_id_from_wallet(self, wallet_address: str) -> int:
+        """Get user ID from wallet address"""
+        try:
+            from sqlalchemy import text
+            
+            query = text("""
+                SELECT id FROM users 
+                WHERE "walletAddress" = :wallet_address
+                LIMIT 1
+            """)
+            
+            result = self.db.execute(query, {"wallet_address": wallet_address}).fetchone()
+            
+            if result:
+                user_id = result[0]
+                logger.info(f"👤 Found user ID {user_id} for wallet {wallet_address[:10]}...")
+                return user_id
+            else:
+                logger.warning(f"⚠️ No user found for wallet {wallet_address[:10]}... - using default user ID 1")
+                return 1
+                
+        except Exception as e:
+            logger.error(f"❌ Error getting user ID from wallet: {e}")
+            return 1
+    
+    def verify_content_images_s3_urls(self, content_images: List[str]) -> bool:
+        """Verify that content images are valid S3 URLs"""
+        if not content_images:
+            return False
+        
+        # Check if images are S3 URLs (should contain s3.amazonaws.com or your S3 domain)
+        s3_indicators = [
+            "s3.amazonaws.com",
+            "amazonaws.com",
+            "s3.",
+            "https://",
+            ".jpg", ".jpeg", ".png", ".webp"
+        ]
+        
+        for image_url in content_images:
+            if not isinstance(image_url, str):
+                logger.warning(f"⚠️ Invalid image URL type: {type(image_url)}")
+                return False
+            
+            # Check if URL contains S3 indicators
+            is_s3_url = any(indicator in image_url.lower() for indicator in s3_indicators)
+            
+            if not is_s3_url:
+                logger.warning(f"⚠️ Image URL doesn't appear to be S3: {image_url}")
+                return False
+        
+        logger.info(f"✅ All {len(content_images)} images are valid S3 URLs")
+        return True
+    
+    async def verify_database_schema(self) -> bool:
+        """Verify that the database schema matches our expectations"""
+        try:
+            from sqlalchemy import text
+            
+            # Check content_marketplace table structure
+            schema_query = text("""
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns 
+                WHERE table_name = 'content_marketplace'
+                ORDER BY ordinal_position
+            """)
+            
+            result = self.db.execute(schema_query).fetchall()
+            
+            logger.info("📊 Database schema verification:")
+            for column_name, data_type, is_nullable in result:
+                logger.info(f"   📋 {column_name}: {data_type} ({'NULL' if is_nullable == 'YES' else 'NOT NULL'})")
+            
+            # Check for required columns
+            required_columns = [
+                "id", "creatorId", "campaignId", "contentText", "contentImages", 
+                "postType", "approvalStatus", "watermarkImage", "createdAt"
+            ]
+            
+            existing_columns = [row[0] for row in result]
+            missing_columns = [col for col in required_columns if col not in existing_columns]
+            
+            if missing_columns:
+                logger.error(f"❌ Missing required columns: {missing_columns}")
+                return False
+            
+            logger.info("✅ Database schema verification passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error verifying database schema: {e}")
+            return False
     
     def load_config(self) -> Dict[str, Any]:
         """Load configuration from wallet_config.json"""
@@ -236,7 +338,7 @@ class AutomatedContentGenerator:
         
         return MiningSession(
             session_id=session_id,
-            user_id=1,  # Default user ID for automated generation
+            user_id=user_id,  # Use actual user ID from wallet
             campaign_id=campaign["id"],
             campaign_context=campaign_context,
             user_preferences=user_preferences,
@@ -345,28 +447,36 @@ class AutomatedContentGenerator:
                     
                     if result and hasattr(result, 'content_images') and result.content_images:
                         logger.info(f"✅ Content generated with {len(result.content_images)} images")
+                        logger.info(f"📸 Content images: {result.content_images}")
                         
-                        # Check if content was saved to database
-                        content_saved = await self.check_content_saved_in_db(campaign["id"], content_type)
-                        
-                        if content_saved:
-                            # Trigger approval flow
-                            approval_success = await self.trigger_approval_flow(campaign["id"], content_type)
+                        # Verify that content_images contains S3 URLs
+                        if self.verify_content_images_s3_urls(result.content_images):
+                            logger.info(f"✅ Content images are valid S3 URLs")
                             
-                            if approval_success:
-                                # Verify watermark was generated
-                                watermark_verified = await self.verify_watermark_generated(campaign["id"], content_type)
+                            # Check if content was saved to database
+                            content_saved = await self.check_content_saved_in_db(campaign["id"], content_type)
+                            
+                            if content_saved:
+                                # Trigger approval flow
+                                approval_success = await self.trigger_approval_flow(campaign["id"], content_type)
                                 
-                                if watermark_verified:
-                                    logger.info(f"✅ Content approved and watermarked successfully")
-                                    self.stats["content_approved"] += 1
-                                    success_count += 1
+                                if approval_success:
+                                    # Verify watermark was generated
+                                    watermark_verified = await self.verify_watermark_generated(campaign["id"], content_type)
+                                    
+                                    if watermark_verified:
+                                        logger.info(f"✅ Content approved and watermarked successfully")
+                                        self.stats["content_approved"] += 1
+                                        success_count += 1
+                                    else:
+                                        logger.warning(f"⚠️ Content approved but watermark not verified")
                                 else:
-                                    logger.warning(f"⚠️ Content approved but watermark not verified")
+                                    logger.warning(f"⚠️ Content generated but approval failed")
                             else:
-                                logger.warning(f"⚠️ Content generated but approval failed")
+                                logger.warning(f"⚠️ Content generated but not saved to database")
                         else:
-                            logger.warning(f"⚠️ Content generated but not saved to database")
+                            logger.warning(f"⚠️ Content images are not valid S3 URLs - content may not be properly uploaded")
+                            success_count += 1
                     else:
                         logger.info(f"ℹ️ Content generated without images - leaving in pending state")
                         success_count += 1
@@ -432,14 +542,62 @@ class AutomatedContentGenerator:
     async def trigger_approval_flow(self, campaign_id: int, content_type: str) -> bool:
         """Trigger the approval flow for content with images"""
         try:
-            # This would typically call the approval API endpoint
-            # For now, we'll simulate the approval process
-            
             logger.info(f"✅ Triggering approval flow for campaign {campaign_id}, type {content_type}")
             
-            # In a real implementation, you would call the approval API
-            # For now, we'll just return True to simulate success
-            return True
+            # Get the most recent content for this campaign and type
+            from sqlalchemy import text
+            
+            query = text("""
+                SELECT id, "contentImages", "creatorId"
+                FROM content_marketplace 
+                WHERE "campaignId" = :campaign_id 
+                AND "postType" = :content_type
+                AND "createdAt" >= NOW() - INTERVAL '10 minutes'
+                ORDER BY "createdAt" DESC
+                LIMIT 1
+            """)
+            
+            result = self.db.execute(query, {"campaign_id": campaign_id, "content_type": content_type}).fetchone()
+            
+            if not result:
+                logger.error(f"❌ No content found to approve for campaign {campaign_id}, type {content_type}")
+                return False
+            
+            content_id, content_images, creator_id = result
+            
+            if not content_images:
+                logger.warning(f"⚠️ No images found in content {content_id} - skipping approval")
+                return False
+            
+            # Call the actual approval API endpoint
+            try:
+                # Get the approval endpoint from environment or use default
+                approval_url = os.getenv("APPROVAL_API_URL", "http://localhost:8000")
+                approval_endpoint = f"{approval_url}/api/content/approve/{content_id}"
+                
+                # Use httpx for async HTTP calls
+                import httpx
+                
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(approval_endpoint, json={
+                        "content_id": content_id,
+                        "approval_status": "approved",
+                        "automated": True
+                    })
+                    
+                    if response.status_code == 200:
+                        logger.info(f"✅ Approval API called successfully for content {content_id}")
+                        return True
+                    else:
+                        logger.error(f"❌ Approval API failed with status {response.status_code}: {response.text}")
+                        return False
+                        
+            except ImportError:
+                logger.error("❌ httpx not available - cannot call approval API")
+                return False
+            except Exception as api_error:
+                logger.error(f"❌ Error calling approval API: {api_error}")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Error triggering approval flow: {e}")
@@ -452,13 +610,13 @@ class AutomatedContentGenerator:
             
             # Query the content_marketplace table to check for watermark
             query = text("""
-                SELECT "watermarkImage", "updatedAt"
+                SELECT "watermarkImage", "createdAt"
                 FROM content_marketplace 
                 WHERE "campaignId" = :campaign_id 
                 AND "postType" = :content_type
                 AND "watermarkImage" IS NOT NULL
                 AND "watermarkImage" != ''
-                ORDER BY "updatedAt" DESC
+                ORDER BY "createdAt" DESC
                 LIMIT 1
             """)
             
@@ -707,6 +865,9 @@ class AutomatedContentGenerator:
             logger.info(f"⚡ Parallel generation enabled: {self.parallel_generations} generations at once")
         
         try:
+            # Verify database schema first
+            await self.verify_database_schema()
+            
             # Get all active campaigns
             campaigns = self.campaign_repo.get_active_campaigns()
             
