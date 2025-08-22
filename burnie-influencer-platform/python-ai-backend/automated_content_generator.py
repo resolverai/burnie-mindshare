@@ -460,8 +460,11 @@ class AutomatedContentGenerator:
                             content_saved = await self.check_content_saved_in_db(campaign["id"], content_type)
                             
                             if content_saved:
+                                # Get the wallet address that was used to create this content
+                                wallet_address = self.get_random_wallet()  # Use the same wallet that was used for generation
+                                
                                 # Trigger approval flow
-                                approval_success = await self.trigger_approval_flow(campaign["id"], content_type)
+                                approval_success = await self.trigger_approval_flow(campaign["id"], content_type, wallet_address)
                                 
                                 if approval_success:
                                     # Wait a bit for approval processing to complete
@@ -551,16 +554,16 @@ class AutomatedContentGenerator:
             logger.error(f"❌ Error checking content in DB: {e}")
             return False
     
-    async def trigger_approval_flow(self, campaign_id: int, content_type: str) -> bool:
+    async def trigger_approval_flow(self, campaign_id: int, content_type: str, wallet_address: str) -> bool:
         """Trigger the approval flow for content with images"""
         try:
-            logger.info(f"✅ Triggering approval flow for campaign {campaign_id}, type {content_type}")
+            logger.info(f"✅ Triggering approval flow for campaign {campaign_id}, type {content_type} with wallet {wallet_address[:10]}...")
             
             # Get the most recent content for this campaign and type
             from sqlalchemy import text
             
             query = text("""
-                SELECT id, "contentImages", "creatorId", "walletAddress"
+                SELECT id, "contentImages", "creatorId"
                 FROM content_marketplace 
                 WHERE "campaignId" = :campaign_id 
                 AND "postType" = :content_type
@@ -575,7 +578,7 @@ class AutomatedContentGenerator:
                 logger.error(f"❌ No content found to approve for campaign {campaign_id}, type {content_type}")
                 return False
             
-            content_id, content_images, creator_id, wallet_address = result
+            content_id, content_images, creator_id = result
             
             if not content_images:
                 logger.warning(f"⚠️ No images found in content {content_id} - skipping approval")
@@ -825,8 +828,11 @@ class AutomatedContentGenerator:
                     content_saved = await self.check_content_saved_in_db(campaign["id"], content_type)
                     
                     if content_saved:
+                        # Get the wallet address that was used to create this content
+                        wallet_address = self.get_random_wallet()  # Use the same wallet that was used for generation
+                        
                         # Trigger approval flow
-                        approval_success = await self.trigger_approval_flow(campaign["id"], content_type)
+                        approval_success = await self.trigger_approval_flow(campaign["id"], content_type, wallet_address)
                         
                         if approval_success:
                             # Verify watermark was generated
