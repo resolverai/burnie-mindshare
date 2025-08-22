@@ -103,7 +103,9 @@ def test_database_connection():
         print(f"📊 Found {len(campaigns)} active campaigns")
         
         for campaign in campaigns[:3]:  # Show first 3 campaigns
-            print(f"   📋 Campaign: {campaign.get('name', 'Unknown')} (ID: {campaign.get('id', 'Unknown')})")
+            campaign_title = campaign.get('title', f"Campaign ID {campaign.get('id', 'Unknown')}")
+            project_name = campaign.get('projectName', 'Unknown')
+            print(f"   📋 Campaign: {campaign_title} (Project: {project_name}, ID: {campaign.get('id', 'Unknown')})")
         
         if len(campaigns) > 3:
             print(f"   ... and {len(campaigns) - 3} more campaigns")

@@ -202,14 +202,14 @@ class AutomatedContentGenerator:
         # Create campaign context
         campaign_context = {
             "campaign_id": campaign["id"],
-            "campaign_name": campaign.get("name", ""),
+            "campaign_title": campaign.get("title", ""),
             "project_name": campaign.get("projectName", ""),
-            "project_description": campaign.get("projectDescription", ""),
-            "project_website": campaign.get("projectWebsite", ""),
+            "project_description": campaign.get("description", ""),
+            "project_website": campaign.get("website", ""),
             "project_twitter_handle": campaign.get("projectTwitterHandle", ""),
-            "campaign_objectives": campaign.get("objectives", ""),
+            "campaign_objectives": campaign.get("description", ""),
             "target_audience": campaign.get("targetAudience", ""),
-            "key_messaging": campaign.get("keyMessaging", ""),
+            "key_messaging": campaign.get("brandGuidelines", ""),
         }
         
         # Create automation preferences (using our API keys and models)
@@ -248,10 +248,11 @@ class AutomatedContentGenerator:
     
     async def generate_content_for_campaign_type(self, campaign: Dict[str, Any], content_type: str) -> bool:
         """Generate content for a specific campaign and content type"""
+        campaign_title = campaign.get('title', f"Campaign ID {campaign.get('id', 'Unknown')}")
         if self.test_mode:
-            logger.info(f"🧪 TEST MODE: Generating 1 {content_type} for campaign: {campaign['name']}")
+            logger.info(f"🧪 TEST MODE: Generating 1 {content_type} for campaign: {campaign_title}")
         else:
-            logger.info(f"🎯 Generating {self.content_count_per_type} {content_type}s for campaign: {campaign['name']}")
+            logger.info(f"🎯 Generating {self.content_count_per_type} {content_type}s for campaign: {campaign_title}")
         logger.info(f"🤖 Using OpenAI GPT-4o for text generation with brand logo integration")
         logger.info(f"🎨 Using Fal.ai flux-pro/kontext for image generation with brand logo")
         
@@ -445,7 +446,8 @@ class AutomatedContentGenerator:
     
     async def process_campaign_parallel(self, campaign: Dict[str, Any]) -> bool:
         """Process a single campaign with parallel content generation"""
-        logger.info(f"🎯 Processing campaign: {campaign['name']} (ID: {campaign['id']}) with parallel generation")
+        campaign_title = campaign.get('title', f"Campaign ID {campaign.get('id', 'Unknown')}")
+        logger.info(f"🎯 Processing campaign: {campaign_title} (ID: {campaign['id']}) with parallel generation")
         
         campaign_success = True
         
@@ -454,13 +456,13 @@ class AutomatedContentGenerator:
                 logger.error("🛑 Rate limit detected. Stopping campaign processing.")
                 return False
             
-            logger.info(f"📝 Starting {content_type} generation for campaign {campaign['name']}")
+            logger.info(f"📝 Starting {content_type} generation for campaign {campaign_title}")
             
             success = await self.generate_content_for_campaign_type_parallel(campaign, content_type)
             
             if not success:
                 campaign_success = False
-                logger.error(f"❌ Failed to generate {content_type} for campaign {campaign['name']}")
+                logger.error(f"❌ Failed to generate {content_type} for campaign {campaign_title}")
                 break
             
             # Add delay between content types
@@ -468,18 +470,19 @@ class AutomatedContentGenerator:
         
         if campaign_success:
             self.stats["campaigns_processed"] += 1
-            logger.info(f"✅ Campaign {campaign['name']} processed successfully")
+            logger.info(f"✅ Campaign {campaign_title} processed successfully")
         else:
-            logger.error(f"❌ Campaign {campaign['name']} processing failed")
+            logger.error(f"❌ Campaign {campaign_title} processing failed")
         
         return campaign_success
     
     async def generate_content_for_campaign_type_parallel(self, campaign: Dict[str, Any], content_type: str) -> bool:
         """Generate content for a specific campaign and content type with parallel processing"""
+        campaign_title = campaign.get('title', f"Campaign ID {campaign.get('id', 'Unknown')}")
         if self.test_mode:
-            logger.info(f"🧪 TEST MODE: Generating 1 {content_type} for campaign: {campaign['name']}")
+            logger.info(f"🧪 TEST MODE: Generating 1 {content_type} for campaign: {campaign_title}")
         else:
-            logger.info(f"🎯 Generating {self.content_count_per_type} {content_type}s for campaign: {campaign['name']} (parallel)")
+            logger.info(f"🎯 Generating {self.content_count_per_type} {content_type}s for campaign: {campaign_title} (parallel)")
         logger.info(f"🤖 Using OpenAI GPT-4o for text generation with brand logo integration")
         logger.info(f"🎨 Using Fal.ai flux-pro/kontext for image generation with brand logo")
         
@@ -624,7 +627,8 @@ class AutomatedContentGenerator:
     
     async def process_campaign(self, campaign: Dict[str, Any]) -> bool:
         """Process a single campaign - generate all content types (sequential)"""
-        logger.info(f"🎯 Processing campaign: {campaign['name']} (ID: {campaign['id']})")
+        campaign_title = campaign.get('title', f"Campaign ID {campaign.get('id', 'Unknown')}")
+        logger.info(f"🎯 Processing campaign: {campaign_title} (ID: {campaign['id']})")
         
         campaign_success = True
         
@@ -633,13 +637,13 @@ class AutomatedContentGenerator:
                 logger.error("🛑 Rate limit detected. Stopping campaign processing.")
                 return False
             
-            logger.info(f"📝 Starting {content_type} generation for campaign {campaign['name']}")
+            logger.info(f"📝 Starting {content_type} generation for campaign {campaign_title}")
             
             success = await self.generate_content_for_campaign_type(campaign, content_type)
             
             if not success:
                 campaign_success = False
-                logger.error(f"❌ Failed to generate {content_type} for campaign {campaign['name']}")
+                logger.error(f"❌ Failed to generate {content_type} for campaign {campaign_title}")
                 break
             
             # Add delay between content types
@@ -647,9 +651,9 @@ class AutomatedContentGenerator:
         
         if campaign_success:
             self.stats["campaigns_processed"] += 1
-            logger.info(f"✅ Campaign {campaign['name']} processed successfully")
+            logger.info(f"✅ Campaign {campaign_title} processed successfully")
         else:
-            logger.error(f"❌ Campaign {campaign['name']} processing failed")
+            logger.error(f"❌ Campaign {campaign_title} processing failed")
         
         return campaign_success
     
@@ -684,7 +688,8 @@ class AutomatedContentGenerator:
                 # Test mode: pick a random campaign and generate 1 content of each type
                 import random
                 test_campaign = random.choice(campaigns)
-                logger.info(f"🧪 TEST MODE: Selected campaign '{test_campaign['name']}' for testing")
+                test_campaign_title = test_campaign.get('title', f"Campaign ID {test_campaign.get('id', 'Unknown')}")
+                logger.info(f"🧪 TEST MODE: Selected campaign '{test_campaign_title}' for testing")
                 
                 if use_parallel:
                     success = await self.process_campaign_parallel(test_campaign)
@@ -702,7 +707,8 @@ class AutomatedContentGenerator:
                         logger.error("🛑 Rate limit detected. Stopping execution.")
                         break
                     
-                    logger.info(f"🎯 Processing campaign {campaign['id']}: {campaign['name']}")
+                    campaign_title = campaign.get('title', f"Campaign ID {campaign.get('id', 'Unknown')}")
+                    logger.info(f"🎯 Processing campaign {campaign['id']}: {campaign_title}")
                     
                     if use_parallel:
                         success = await self.process_campaign_parallel(campaign)
@@ -710,7 +716,8 @@ class AutomatedContentGenerator:
                         success = await self.process_campaign(campaign)
                     
                     if not success:
-                        logger.error(f"❌ Failed to process campaign {campaign['name']}")
+                        campaign_title = campaign.get('title', f"Campaign ID {campaign.get('id', 'Unknown')}")
+                        logger.error(f"❌ Failed to process campaign {campaign_title}")
                         continue
                     
                     # Add delay between campaigns
