@@ -148,9 +148,9 @@ class AutomatedContentGenerator:
     def get_automation_api_keys(self) -> Dict[str, str]:
         """Get API keys from environment variables for automated generation"""
         return {
-            "openai": settings.OPENAI_API_KEY,
-            "anthropic": settings.ANTHROPIC_API_KEY,
-            "google": settings.GOOGLE_GEMINI_API_KEY,
+            "openai": settings.openai_api_key,
+            "anthropic": settings.anthropic_api_key,
+            "google": settings.google_gemini_api_key,
             "fal": settings.fal_api_key,  # FAL API key for image generation
         }
     
