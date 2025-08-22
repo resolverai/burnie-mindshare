@@ -33,6 +33,10 @@ import time
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import traceback
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add the app directory to the Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
@@ -366,21 +370,20 @@ class AutomatedContentGenerator:
     async def check_content_saved_in_db(self, campaign_id: int, content_type: str) -> bool:
         """Check if content was saved to the database"""
         try:
+            from sqlalchemy import text
+            
             # Query the content_marketplace table
-            query = """
+            query = text("""
                 SELECT id, "contentImages", "watermarkImage", "createdAt"
                 FROM content_marketplace 
-                WHERE "campaignId" = %s 
-                AND "postType" = %s
+                WHERE "campaignId" = :campaign_id 
+                AND "postType" = :content_type
                 AND "createdAt" >= NOW() - INTERVAL '10 minutes'
                 ORDER BY "createdAt" DESC
                 LIMIT 1
-            """
+            """)
             
-            cursor = self.db.cursor()
-            cursor.execute(query, (campaign_id, content_type))
-            result = cursor.fetchone()
-            cursor.close()
+            result = self.db.execute(query, {"campaign_id": campaign_id, "content_type": content_type}).fetchone()
             
             if result:
                 content_id, content_images, watermark_image, created_at = result
@@ -412,22 +415,21 @@ class AutomatedContentGenerator:
     async def verify_watermark_generated(self, campaign_id: int, content_type: str) -> bool:
         """Verify that watermark image was generated"""
         try:
+            from sqlalchemy import text
+            
             # Query the content_marketplace table to check for watermark
-            query = """
+            query = text("""
                 SELECT "watermarkImage", "updatedAt"
                 FROM content_marketplace 
-                WHERE "campaignId" = %s 
-                AND "postType" = %s
+                WHERE "campaignId" = :campaign_id 
+                AND "postType" = :content_type
                 AND "watermarkImage" IS NOT NULL
                 AND "watermarkImage" != ''
                 ORDER BY "updatedAt" DESC
                 LIMIT 1
-            """
+            """)
             
-            cursor = self.db.cursor()
-            cursor.execute(query, (campaign_id, content_type))
-            result = cursor.fetchone()
-            cursor.close()
+            result = self.db.execute(query, {"campaign_id": campaign_id, "content_type": content_type}).fetchone()
             
             if result:
                 watermark_image, updated_at = result

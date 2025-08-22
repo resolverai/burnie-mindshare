@@ -10,6 +10,10 @@ import json
 import os
 import sys
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add the app directory to the Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
@@ -75,8 +79,10 @@ def test_environment():
     
     if missing_vars:
         print(f"⚠️ Missing environment variables: {missing_vars}")
+        print(f"💡 Make sure .env file is in the same directory as the test script")
         return False
     
+    print(f"✅ All required environment variables are set")
     return True
 
 def test_database_connection():
@@ -116,8 +122,9 @@ def test_api_keys():
         from app.config.settings import settings
         
         # Check if keys are loaded
-        openai_key = settings.OPENAI_API_KEY
-        anthropic_key = settings.ANTHROPIC_API_KEY
+        openai_key = settings.openai_api_key
+        anthropic_key = settings.anthropic_api_key
+        fal_key = settings.fal_api_key
         
         if openai_key and len(openai_key) > 20:
             print(f"   ✅ OpenAI API Key: Valid format")
@@ -128,6 +135,11 @@ def test_api_keys():
             print(f"   ✅ Anthropic API Key: Valid format")
         else:
             print(f"   ❌ Anthropic API Key: Invalid or missing")
+        
+        if fal_key and len(fal_key) > 20:
+            print(f"   ✅ FAL API Key: Valid format")
+        else:
+            print(f"   ❌ FAL API Key: Invalid or missing")
         
         return True
         
@@ -141,22 +153,20 @@ def test_content_marketplace_table():
     
     try:
         from app.database.connection import get_db_session
+        from sqlalchemy import text
         
         db = get_db_session()
         
         # Test query to content_marketplace table
-        query = """
+        query = text("""
             SELECT COUNT(*) as total_content,
                    COUNT("contentImages") as content_with_images,
                    COUNT("watermarkImage") as content_with_watermarks
             FROM content_marketplace 
             WHERE "createdAt" >= NOW() - INTERVAL '7 days'
-        """
+        """)
         
-        cursor = db.cursor()
-        cursor.execute(query)
-        result = cursor.fetchone()
-        cursor.close()
+        result = db.execute(query).fetchone()
         
         if result:
             total, with_images, with_watermarks = result
