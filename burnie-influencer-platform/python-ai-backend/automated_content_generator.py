@@ -281,11 +281,18 @@ class AutomatedContentGenerator:
                         def __init__(self):
                             self.progress = 0
                             self.current_step = ""
+                            self.session = None
                         
                         async def update_progress(self, progress: int, step: str):
                             self.progress = progress
                             self.current_step = step
                             logger.info(f"📊 Progress: {progress}% - {step}")
+                        
+                        def get_session(self, session_id: str = None):
+                            return self.session
+                        
+                        async def update_agent_status(self, agent_name: str, status: str):
+                            logger.info(f"🤖 Agent {agent_name}: {status}")
                     
                     progress_tracker = SimpleProgressTracker()
                     
@@ -293,6 +300,31 @@ class AutomatedContentGenerator:
                     class SimpleWebSocketManager:
                         async def send_message(self, session_id: str, message: str):
                             logger.info(f"📡 WebSocket: {message}")
+                        
+                        async def send_progress_update(self, session_id: str, message):
+                            # Handle both string messages and dict messages
+                            if isinstance(message, dict):
+                                if "type" in message:
+                                    if message["type"] == "agent_update":
+                                        agent_type = message.get("agent_type", "Unknown")
+                                        status = message.get("status", "Unknown")
+                                        task = message.get("task", "")
+                                        logger.info(f"🤖 Agent Update: {agent_type} -> {status} ({task})")
+                                    elif message["type"] == "generation_milestone":
+                                        milestone = message.get("milestone", "Unknown")
+                                        logger.info(f"🎯 Milestone: {milestone}")
+                                    elif message["type"] == "content_preview":
+                                        content_type = message.get("content_type", "Unknown")
+                                        logger.info(f"👀 Content Preview: {content_type}")
+                                    else:
+                                        logger.info(f"📡 WebSocket Update: {message.get('type', 'Unknown')}")
+                                else:
+                                    logger.info(f"📡 WebSocket Update: {message}")
+                            else:
+                                logger.info(f"📡 Progress Update: {message}")
+                        
+                        async def send_milestone(self, session_id: str, milestone: str):
+                            logger.info(f"📡 Milestone: {milestone}")
                     
                     websocket_manager = SimpleWebSocketManager()
                     
