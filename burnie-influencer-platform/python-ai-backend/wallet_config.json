@@ -1,0 +1,27 @@
+{
+  "wallet_addresses": [
+    "0x1234567890123456789012345678901234567890",
+    "0x2345678901234567890123456789012345678901", 
+    "0x3456789012345678901234567890123456789012"
+  ],
+  "content_generation": {
+    "content_types": ["shitpost", "longpost", "thread"],
+    "content_count_per_type": 10,
+    "delay_between_generations": 2,
+    "delay_between_content_types": 5,
+    "delay_between_campaigns": 10
+  },
+  "rate_limiting": {
+    "stop_on_rate_limit": true,
+    "max_retries": 3,
+    "base_delay": 60,
+    "rate_limit_indicators": [
+      "rate limit",
+      "rate_limit", 
+      "too many requests",
+      "quota exceeded",
+      "429",
+      "rate limit exceeded"
+    ]
+  }
+}

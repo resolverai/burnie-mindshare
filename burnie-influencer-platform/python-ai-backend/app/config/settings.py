@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # AI Provider API Keys
     openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
     anthropic_api_key: Optional[str] = Field(default=None, env="ANTHROPIC_API_KEY")
+    fal_api_key: Optional[str] = Field(default=None, env="FAL_API_KEY")
     
     # Default LLM Provider Configuration (pluggable)
     default_llm_provider: str = Field(default="openai", env="DEFAULT_LLM_PROVIDER")
