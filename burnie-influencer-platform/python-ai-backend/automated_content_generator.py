@@ -120,10 +120,11 @@ class AutomatedContentGenerator:
         return random.choice(self.wallet_addresses)
     
     async def get_user_id_from_wallet(self, wallet_address: str) -> int:
-        """Get user ID from wallet address"""
+        """Get user ID from wallet address, create user if doesn't exist"""
         try:
             from sqlalchemy import text
             
+            # First, try to find existing user
             query = text("""
                 SELECT id FROM users 
                 WHERE "walletAddress" = :wallet_address
@@ -134,11 +135,29 @@ class AutomatedContentGenerator:
             
             if result:
                 user_id = result[0]
-                logger.info(f"👤 Found user ID {user_id} for wallet {wallet_address[:10]}...")
+                logger.info(f"👤 Found existing user ID {user_id} for wallet {wallet_address[:10]}...")
                 return user_id
             else:
-                logger.warning(f"⚠️ No user found for wallet {wallet_address[:10]}... - using default user ID 1")
-                return 1
+                # Create a new user for this wallet address
+                logger.info(f"👤 Creating new user for wallet {wallet_address[:10]}...")
+                
+                create_user_query = text("""
+                    INSERT INTO users ("walletAddress", "roleType", "createdAt", "updatedAt")
+                    VALUES (:wallet_address, 'miner', NOW(), NOW())
+                    RETURNING id
+                """)
+                
+                try:
+                    result = self.db.execute(create_user_query, {"wallet_address": wallet_address})
+                    self.db.commit()
+                    user_id = result.fetchone()[0]
+                    logger.info(f"✅ Created new user ID {user_id} for wallet {wallet_address[:10]}...")
+                    return user_id
+                except Exception as create_error:
+                    logger.error(f"❌ Failed to create user for wallet {wallet_address[:10]}: {create_error}")
+                    # Fallback to default user ID
+                    logger.warning(f"⚠️ Using default user ID 1 for wallet {wallet_address[:10]}...")
+                    return 1
                 
         except Exception as e:
             logger.error(f"❌ Error getting user ID from wallet: {e}")
@@ -584,6 +603,12 @@ class AutomatedContentGenerator:
                 logger.warning(f"⚠️ No images found in content {content_id} - skipping approval")
                 return False
             
+            # Verify user exists and has correct wallet address before calling approval API
+            user_verified = await self.verify_user_exists(wallet_address)
+            if not user_verified:
+                logger.error(f"❌ User verification failed for wallet {wallet_address[:10]}...")
+                return False
+            
             # Call the actual approval API endpoint
             try:
                 # Get the typescript backend URL from environment
@@ -604,6 +629,10 @@ class AutomatedContentGenerator:
                 
                 logger.info(f"🔗 Calling approval API: {approval_endpoint}")
                 logger.info(f"📤 Approval payload: {approval_payload}")
+                logger.info(f"🔍 Debug: content_id={content_id}, wallet_address={wallet_address}")
+                
+                # Also log the content details for debugging
+                logger.info(f"🔍 Debug: Content creatorId={creator_id}, wallet_address={wallet_address}")
                 
                 async with httpx.AsyncClient() as client:
                     response = await client.post(approval_endpoint, json=approval_payload)
@@ -656,6 +685,32 @@ class AutomatedContentGenerator:
             
         except Exception as e:
             logger.error(f"❌ Error verifying approval status: {e}")
+            return False
+    
+    async def verify_user_exists(self, wallet_address: str) -> bool:
+        """Verify that a user exists for the given wallet address"""
+        try:
+            from sqlalchemy import text
+            
+            query = text("""
+                SELECT id, "walletAddress", "roleType"
+                FROM users 
+                WHERE "walletAddress" = :wallet_address
+                LIMIT 1
+            """)
+            
+            result = self.db.execute(query, {"wallet_address": wallet_address}).fetchone()
+            
+            if result:
+                user_id, stored_wallet, role_type = result
+                logger.info(f"✅ User verified: ID={user_id}, Wallet={stored_wallet[:10]}..., Role={role_type}")
+                return True
+            else:
+                logger.error(f"❌ No user found for wallet {wallet_address[:10]}...")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error verifying user existence: {e}")
             return False
     
     async def verify_watermark_generated(self, campaign_id: int, content_type: str) -> bool:
