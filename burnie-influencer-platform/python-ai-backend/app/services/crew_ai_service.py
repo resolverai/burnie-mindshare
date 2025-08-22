@@ -1408,7 +1408,10 @@ class CrewAIService:
         # Video generation capabilities - ONLY add tool for user's chosen provider  
         available_video_providers = []
         
-        if video_provider == 'google' and self.user_api_keys.get('google'):
+        # Skip video tool creation if video_provider is explicitly set to 'none'
+        if video_provider == 'none':
+            logger.info(f"🔍 VIDEO GENERATION DISABLED: video_provider set to 'none'")
+        elif video_provider == 'google' and self.user_api_keys.get('google'):
             logger.info(f"🔍 DEBUG: Creating Google tool for video provider choice: {video_provider}")
             tools.append(GoogleVideoTool(
                 api_key=self.user_api_keys['google'],
@@ -1454,10 +1457,16 @@ class CrewAIService:
             fallback_strategy.append("- Use preferred content type as specified in strategy")
             fallback_strategy.append("- High-quality visual content generation")
         elif has_image_tool and not has_video_tool:
-            fallback_strategy.append("⚠️ VIDEO → IMAGE FALLBACK: No video API keys available")
-            fallback_strategy.append("- If strategy requests VIDEO: Create dynamic IMAGE instead")
-            fallback_strategy.append("- Use motion-suggesting imagery")
-            fallback_strategy.append("- Clearly indicate fallback was used")
+            if video_provider == 'none':
+                fallback_strategy.append("🚫 VIDEO GENERATION EXPLICITLY DISABLED: video_provider set to 'none'")
+                fallback_strategy.append("- ALWAYS generate IMAGES regardless of strategy suggestions")
+                fallback_strategy.append("- Ignore any video requests from content strategy")
+                fallback_strategy.append("- Force image generation for all visual content")
+            else:
+                fallback_strategy.append("⚠️ VIDEO → IMAGE FALLBACK: No video API keys available")
+                fallback_strategy.append("- If strategy requests VIDEO: Create dynamic IMAGE instead")
+                fallback_strategy.append("- Use motion-suggesting imagery")
+                fallback_strategy.append("- Clearly indicate fallback was used")
         elif has_video_tool and not has_image_tool:
             fallback_strategy.append("⚠️ IMAGE → VIDEO FALLBACK: No image API keys available")
             fallback_strategy.append("- If strategy requests IMAGE: Create short VIDEO instead")
@@ -1531,6 +1540,7 @@ class CrewAIService:
             - For VIDEO generation: ONLY use {video_provider}_video_generation tool  
             - NEVER use a different provider's tool than what the user selected
             - The user specifically chose {image_provider.upper()} for images and {video_provider.upper()} for videos
+            {"🚫 VIDEO GENERATION DISABLED: When video_provider is 'none', you MUST generate IMAGES only, even if strategy suggests video content" if video_provider == 'none' else ""}
             
             **YOUR TOOL USAGE**:
             {f"✅ Use `{image_provider}_image_generation` tool for images with model: {image_model}" if has_image_tool else "❌ No image generation available"}

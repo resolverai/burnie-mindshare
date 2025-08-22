@@ -164,17 +164,24 @@ class AutomatedContentGenerator:
             return 1
     
     def verify_content_images_s3_urls(self, content_images: List[str]) -> bool:
-        """Verify that content images are valid S3 URLs"""
+        """Verify that content images are valid S3 presigned URLs"""
         if not content_images:
             return False
         
-        # Check if images are S3 URLs (should contain s3.amazonaws.com or your S3 domain)
-        s3_indicators = [
+        # Check if images are S3 presigned URLs (must contain query parameters for authentication)
+        s3_presigned_indicators = [
             "s3.amazonaws.com",
             "amazonaws.com",
             "s3.",
             "https://",
             ".jpg", ".jpeg", ".png", ".webp"
+        ]
+        
+        # S3 presigned URL must have query parameters (AWSAccessKeyId, Signature, Expires)
+        presigned_required_params = [
+            "AWSAccessKeyId",
+            "Signature", 
+            "Expires"
         ]
         
         for image_url in content_images:
@@ -183,13 +190,21 @@ class AutomatedContentGenerator:
                 return False
             
             # Check if URL contains S3 indicators
-            is_s3_url = any(indicator in image_url.lower() for indicator in s3_indicators)
+            is_s3_url = any(indicator in image_url.lower() for indicator in s3_presigned_indicators)
             
             if not is_s3_url:
                 logger.warning(f"⚠️ Image URL doesn't appear to be S3: {image_url}")
                 return False
+            
+            # Check if URL has presigned authentication parameters
+            has_presigned_params = all(param in image_url for param in presigned_required_params)
+            
+            if not has_presigned_params:
+                logger.warning(f"⚠️ Image URL is S3 but not presigned (missing auth params): {image_url}")
+                logger.warning(f"⚠️ Required params: {presigned_required_params}")
+                return False
         
-        logger.info(f"✅ All {len(content_images)} images are valid S3 URLs")
+        logger.info(f"✅ All {len(content_images)} images are valid S3 presigned URLs")
         return True
     
     async def verify_database_schema(self) -> bool:
@@ -354,6 +369,10 @@ class AutomatedContentGenerator:
                 "image": {
                     "provider": "fal",  # Fal.ai for images (will use flux-pro/kontext with brand logo)
                     "model": "flux-pro"
+                },
+                "video": {
+                    "provider": "none",  # Explicitly disable video generation
+                    "model": "none"
                 }
             }
         }
@@ -471,16 +490,18 @@ class AutomatedContentGenerator:
                         logger.info(f"✅ Content generated with {len(result.content_images)} images")
                         logger.info(f"📸 Content images: {result.content_images}")
                         
-                        # Verify that content_images contains S3 URLs
+                        # Verify that content_images contains S3 presigned URLs
+                        logger.info(f"🔍 Verifying S3 presigned URLs for {len(result.content_images)} images...")
                         if self.verify_content_images_s3_urls(result.content_images):
-                            logger.info(f"✅ Content images are valid S3 URLs")
+                            logger.info(f"✅ Content images are valid S3 presigned URLs")
                             
                             # Check if content was saved to database
                             content_saved = await self.check_content_saved_in_db(campaign["id"], content_type)
                             
                             if content_saved:
-                                # Get the wallet address that was used to create this content
-                                wallet_address = self.get_random_wallet()  # Use the same wallet that was used for generation
+                                # Use the EXACT same wallet address that was used for content generation
+                                # Don't get a new random wallet - use the one that was already used
+                                logger.info(f"🔑 Using wallet {wallet_address[:10]}... for approval (same as generation)")
                                 
                                 # Trigger approval flow
                                 approval_success = await self.trigger_approval_flow(campaign["id"], content_type, wallet_address)
@@ -509,7 +530,7 @@ class AutomatedContentGenerator:
                             else:
                                 logger.warning(f"⚠️ Content generated but not saved to database")
                         else:
-                            logger.warning(f"⚠️ Content images are not valid S3 URLs - content may not be properly uploaded")
+                            logger.warning(f"⚠️ Content images are not valid S3 presigned URLs - content may not be properly uploaded")
                             success_count += 1
                     else:
                         logger.info(f"ℹ️ Content generated without images - leaving in pending state")
@@ -883,21 +904,31 @@ class AutomatedContentGenerator:
                     content_saved = await self.check_content_saved_in_db(campaign["id"], content_type)
                     
                     if content_saved:
-                        # Get the wallet address that was used to create this content
-                        wallet_address = self.get_random_wallet()  # Use the same wallet that was used for generation
+                        # Use the EXACT same wallet address that was used for content generation
+                        # Don't get a new random wallet - use the one that was already used
+                        logger.info(f"🔑 Using wallet {wallet_address[:10]}... for approval (same as generation)")
                         
                         # Trigger approval flow
                         approval_success = await self.trigger_approval_flow(campaign["id"], content_type, wallet_address)
                         
                         if approval_success:
-                            # Verify watermark was generated
-                            watermark_verified = await self.verify_watermark_generated(campaign["id"], content_type)
+                            # Wait a bit for approval processing to complete
+                            await asyncio.sleep(2)
                             
-                            if watermark_verified:
-                                logger.info(f"✅ [Gen {generation_num}] Content approved and watermarked successfully")
-                                self.stats["content_approved"] += 1
+                            # Verify approval status in database
+                            approval_verified = await self.verify_approval_status(campaign["id"], content_type)
+                            
+                            if approval_verified:
+                                # Verify watermark was generated
+                                watermark_verified = await self.verify_watermark_generated(campaign["id"], content_type)
+                                
+                                if watermark_verified:
+                                    logger.info(f"✅ [Gen {generation_num}] Content approved and watermarked successfully")
+                                    self.stats["content_approved"] += 1
+                                else:
+                                    logger.warning(f"⚠️ [Gen {generation_num}] Content approved but watermark not verified")
                             else:
-                                logger.warning(f"⚠️ [Gen {generation_num}] Content approved but watermark not verified")
+                                logger.warning(f"⚠️ [Gen {generation_num}] Content approval not verified in database")
                         else:
                             logger.warning(f"⚠️ [Gen {generation_num}] Content generated but approval failed")
                     else:
