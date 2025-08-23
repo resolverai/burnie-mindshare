@@ -25,6 +25,7 @@ import yapperTwitterAuthRoutes from './routes/yapper-twitter-auth';
 import twitterQueueRoutes from './routes/twitterQueue';
 import yapperProfileRoutes from './routes/yapperProfiles';
 import leaderboardYapperRoutes from './routes/leaderboardYapper';
+import usersRoutes from './routes/users';
 import campaignMindshareRoutes from './routes/campaignMindshare';
 import intelligenceRoutes from './routes/intelligence';
 import platformYapperCronRoutes from './routes/platformYapperCron';
@@ -107,6 +108,7 @@ app.use('/api/admin/snapshots', adminSnapshotsRoutes); // Admin snapshot managem
 app.use('/api/twitter-queue', twitterQueueRoutes);
 app.use('/api/yapper-profiles', yapperProfileRoutes); // Twitter fetch queue management
 app.use('/api/leaderboard-yapper', leaderboardYapperRoutes); // Leaderboard yapper data management
+app.use('/api/users', usersRoutes); // User profile management
 app.use('/api/campaign-mindshare', campaignMindshareRoutes); // Campaign mindshare and sentiment data
 app.use('/api/intelligence', intelligenceRoutes); // ML intelligence and training data endpoints
 app.use('/api/platform-yapper-cron', platformYapperCronRoutes); // Platform yapper cron management

@@ -52,15 +52,70 @@ export default function BiddingInterface() {
   const [heroPosition, setHeroPosition] = useState(0)
 
 
-  // Generate consistent random mindshare for each item (using id as seed)
-  const getRandomMindshare = useCallback((itemId: string) => {
+  // Generate consistent random leaderboard position change for each item (using id as seed)
+  // Intelligent distribution: higher for tweets with 2+ Twitter handles, lower for others
+  const getRandomLeaderboardPositionChange = useCallback((itemId: string, contentText: string, tweetThread?: string[]) => {
     // Use item id to generate consistent random value
     const seed = itemId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)
-    const random = (Math.sin(seed) * 10000) % 1
-    const min = 85.0
-    const max = 100.0
-    const value = Math.abs(random) * (max - min) + min
-    return Math.round(value * 10) / 10
+    
+    // Count Twitter handles in the content
+    const allText = [contentText, ...(tweetThread || [])].join(' ')
+    const twitterHandleMatches = allText.match(/@[\w]+/g) || []
+    const uniqueHandles = new Set(twitterHandleMatches.map(handle => handle.toLowerCase()))
+    const handleCount = uniqueHandles.size
+    
+    // Determine distribution type based on handle count
+    const hasMultipleHandles = handleCount >= 2
+    
+    // Generate two pseudo-random numbers using different seeds
+    const random1 = (Math.sin(seed) * 10000) % 1
+    const random2 = (Math.sin(seed * 2) * 10000) % 1
+    
+    // Ensure we don't get 0 or 1 (which cause issues with log)
+    const u1 = Math.max(0.0001, Math.min(0.9999, Math.abs(random1)))
+    const u2 = Math.max(0.0001, Math.min(0.9999, Math.abs(random2)))
+    
+    // Use a simpler approach: combine two random numbers with intelligent skew
+    const combined = (u1 + u2) / 2 // Average of two random numbers
+    
+    let skewed: number
+    let position: number
+    
+    if (hasMultipleHandles) {
+      // Higher distribution for tweets with 2+ handles (skewed towards higher numbers)
+      // Use inverse power function to bias towards higher values
+      skewed = 1 - Math.pow(1 - combined, 1.5) // Inverse power skews towards higher values
+      position = Math.floor(skewed * 45) + 5
+    } else {
+      // Lower distribution for tweets with 0-1 handles (skewed towards lower numbers)
+      // Use power function to bias towards lower values
+      skewed = Math.pow(combined, 1.5) // Power > 1 skews towards lower values
+      position = Math.floor(skewed * 45) + 5
+    }
+    
+    // Ensure we're within bounds and return a valid number
+    const result = Math.max(5, Math.min(50, position))
+    
+    // Debug logging to catch any remaining issues
+    if (isNaN(result) || !isFinite(result)) {
+      console.error('❌ Invalid leaderboard position generated:', {
+        itemId,
+        handleCount,
+        hasMultipleHandles,
+        seed,
+        random1,
+        random2,
+        u1,
+        u2,
+        combined,
+        skewed,
+        position,
+        result
+      })
+      return hasMultipleHandles ? 35 : 15 // Fallback values based on distribution type
+    }
+    
+    return result
   }, [])
 
 
@@ -427,7 +482,7 @@ export default function BiddingInterface() {
                             <span className="text-white text-md md:text-xl font-medium font-nt-brick">{item.campaign.title}</span>
                           </div>
                                         <div className="text-white text-xs md:text-sm font-medium">
-                Predicted Mindshare: <span className="font-semibold">{getRandomMindshare(item.id.toString()).toFixed(1)}%</span>
+                                                Predicted Position Change: <span className="font-semibold">+{getRandomLeaderboardPositionChange(item.id.toString(), item.content_text, item.tweet_thread)}</span>
               </div>
                         </div>
 
@@ -460,8 +515,8 @@ export default function BiddingInterface() {
                               </h3>
                               <div className="grid grid-cols-2 gap-4 md:gap-8 text-white/85 mt-4">
                                 <div>
-                                  <div className="text-xs md:text-sm font-semibold">Predicted Mindshare</div>
-                                  <div className="text-lg md:text-xl font-semibold">{getRandomMindshare(item.id.toString()).toFixed(1)}%</div>
+                                  <div className="text-xs md:text-sm font-semibold">Predicted Position Change</div>
+                                  <div className="text-lg md:text-xl font-semibold">+{getRandomLeaderboardPositionChange(item.id.toString(), item.content_text, item.tweet_thread)}</div>
                                 </div>
                                 <div>
                                   <div className="text-xs md:text-sm font-semibold">Quality Score</div>

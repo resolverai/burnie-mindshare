@@ -92,15 +92,14 @@ export default function PurchaseContentModal({
   const [selectedYapper, setSelectedYapper] = useState<string>("")
   const [isLoadingYappers, setIsLoadingYappers] = useState(false)
   const [yapperSearchQuery, setYapperSearchQuery] = useState<string>("")
-  const [minerInfo, setMinerInfo] = useState<{
-    username: string;
-    twitterUsername?: string;
-    twitterDisplayName?: string;
-    profileImageUrl?: string;
-  } | null>(null)
-  const [isLoadingMiner, setIsLoadingMiner] = useState(false)
+  // Removed minerInfo state to protect privacy - only show username from users table
   const [showTweetManagement, setShowTweetManagement] = useState(false)
   const [postingMethod, setPostingMethod] = useState<'twitter' | 'manual'>('twitter')
+  const [loggedInUserInfo, setLoggedInUserInfo] = useState<{
+    username: string;
+    profileImage?: string;
+  } | null>(null)
+  const [isLoadingUserInfo, setIsLoadingUserInfo] = useState(false)
   const [isPostingToTwitter, setIsPostingToTwitter] = useState(false)
   const [twitterPostingResult, setTwitterPostingResult] = useState<{
     success: boolean;
@@ -159,42 +158,40 @@ export default function PurchaseContentModal({
     }
   }, [selectedVoiceTone])
 
-  // Fetch miner information
-  const fetchMinerInfo = async () => {
-    if (!content?.creator?.id) return
+  // Fetch logged-in user's information from users table
+  const fetchLoggedInUserInfo = async () => {
+    if (!address || !isAuthenticated) return
 
-    setIsLoadingMiner(true)
+    setIsLoadingUserInfo(true)
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/user/${content.creator.id}/profile`
+        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/users/profile/${address}`
       )
       
       if (response.ok) {
         const data = await response.json()
         if (data.success) {
-          setMinerInfo({
+          setLoggedInUserInfo({
             username: data.user.username,
-            twitterUsername: data.twitterConnection?.twitterUsername,
-            twitterDisplayName: data.twitterConnection?.twitterDisplayName,
-            profileImageUrl: data.twitterConnection?.profileImageUrl
+            profileImage: data.user.profile?.profileImage
           })
         }
       } else {
-        console.error('Failed to fetch miner info')
+        console.error('Failed to fetch user info')
       }
     } catch (error) {
-      console.error('Error fetching miner info:', error)
+      console.error('Error fetching user info:', error)
     } finally {
-      setIsLoadingMiner(false)
+      setIsLoadingUserInfo(false)
     }
   }
 
-  // Fetch miner info when modal opens
+  // Fetch user info when modal opens and user is authenticated
   useEffect(() => {
-    if (content?.creator?.id) {
-      fetchMinerInfo()
+    if (address && isAuthenticated) {
+      fetchLoggedInUserInfo()
     }
-  }, [content?.creator?.id])
+  }, [address, isAuthenticated])
 
   // Filter yappers based on search query
   const filteredYappers = allYappers.filter((yapper) => {
@@ -206,17 +203,44 @@ export default function PurchaseContentModal({
   })
 
   // Helper functions to get display data based on Twitter connection (for tweet preview only)
+  // Priority: Twitter handle > Logged-in user username > Miner username (for non-logged-in users)
   const getDisplayName = () => {
-    return twitter.profile?.displayName || twitter.profile?.username || content?.creator.username || 'User'
+    if (twitter.isConnected && twitter.profile?.displayName) {
+      return twitter.profile.displayName
+    }
+    if (twitter.isConnected && twitter.profile?.username) {
+      return twitter.profile.username
+    }
+    // If no Twitter connected but user is logged in, show their username from users table
+    if (address && isAuthenticated && loggedInUserInfo?.username) {
+      return loggedInUserInfo.username
+    }
+    // If not logged in, show miner's username
+    return content?.creator?.username || 'User'
   }
 
   const getTwitterHandle = () => {
-    return twitter.profile?.username || content?.creator.username.toLowerCase() || 'user'
+    if (twitter.isConnected && twitter.profile?.username) {
+      return twitter.profile.username
+    }
+    // If no Twitter connected but user is logged in, show their username from users table
+    if (address && isAuthenticated && loggedInUserInfo?.username) {
+      return loggedInUserInfo.username.toLowerCase()
+    }
+    // If not logged in, show miner's username
+    return content?.creator?.username?.toLowerCase() || 'user'
   }
 
   const getInitialLetter = () => {
-    const name = twitter.profile?.username || content?.creator.username || 'U'
-    return name.charAt(0).toUpperCase()
+    if (twitter.isConnected && twitter.profile?.username) {
+      return twitter.profile.username.charAt(0).toUpperCase()
+    }
+    // If no Twitter connected but user is logged in, show their username from users table
+    if (address && isAuthenticated && loggedInUserInfo?.username) {
+      return loggedInUserInfo.username.charAt(0).toUpperCase()
+    }
+    // If not logged in, show miner's username
+    return content?.creator?.username?.charAt(0).toUpperCase() || 'U'
   }
 
   // Content parsing functions for tweet management (from TweetPreviewModal)
@@ -493,14 +517,71 @@ export default function PurchaseContentModal({
     console.log('Generation would start here! (Token is valid and ready)')
   }
 
-  // Generate consistent random mindshare for this content item
-  const getRandomMindshare = (itemId: string) => {
+  // Generate consistent random leaderboard position change for this content item
+  // Intelligent distribution: higher for tweets with 2+ Twitter handles, lower for others
+  const getRandomLeaderboardPositionChange = (itemId: string, contentText: string, tweetThread?: string[]) => {
     const seed = itemId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)
-    const random = (Math.sin(seed) * 10000) % 1
-    const min = 85.0
-    const max = 100.0
-    const value = Math.abs(random) * (max - min) + min
-    return Math.round(value * 10) / 10
+    
+    // Count Twitter handles in the content
+    const allText = [contentText, ...(tweetThread || [])].join(' ')
+    const twitterHandleMatches = allText.match(/@[\w]+/g) || []
+    const uniqueHandles = new Set(twitterHandleMatches.map(handle => handle.toLowerCase()))
+    const handleCount = uniqueHandles.size
+    
+    // Determine distribution type based on handle count
+    const hasMultipleHandles = handleCount >= 2
+    
+    // Generate two pseudo-random numbers using different seeds
+    const random1 = (Math.sin(seed) * 10000) % 1
+    const random2 = (Math.sin(seed * 2) * 10000) % 1
+    
+    // Ensure we don't get 0 or 1 (which cause issues with log)
+    const u1 = Math.max(0.0001, Math.min(0.9999, Math.abs(random1)))
+    const u2 = Math.max(0.0001, Math.min(0.9999, Math.abs(random2)))
+    
+    // Use a simpler approach: combine two random numbers with intelligent skew
+    const combined = (u1 + u2) / 2 // Average of two random numbers
+    
+    let skewed: number
+    let position: number
+    
+    if (hasMultipleHandles) {
+      // Higher distribution for tweets with 2+ handles (skewed towards higher numbers)
+      // Use inverse power function to bias towards higher values
+      skewed = 1 - Math.pow(1 - combined, 1.5) // Inverse power skews towards higher values
+      position = Math.floor(skewed * 45) + 5
+    } else {
+      // Lower distribution for tweets with 0-1 handles (skewed towards lower numbers)
+      // Use power function to bias towards lower values
+      skewed = Math.pow(combined, 1.5) // Power > 1 skews towards lower values
+    }
+    
+    // Transform to 5-50 range
+    position = Math.floor(skewed * 45) + 5
+    
+    // Ensure we're within bounds and return a valid number
+    const result = Math.max(5, Math.min(50, position))
+    
+    // Debug logging to catch any remaining issues
+    if (isNaN(result) || !isFinite(result)) {
+      console.error('❌ Invalid leaderboard position generated:', {
+        itemId,
+        handleCount,
+        hasMultipleHandles,
+        seed,
+        random1,
+        random2,
+        u1,
+        u2,
+        combined,
+        skewed,
+        position,
+        result
+      })
+      return hasMultipleHandles ? 35 : 15 // Fallback values based on distribution type
+    }
+    
+    return result
   }
 
   // Copy protection functions
@@ -891,7 +972,7 @@ export default function PurchaseContentModal({
                   <div className="flex gap-3 pr-2">
                     <div className="relative flex-shrink-0">
                       <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-orange-500 flex items-center justify-center relative z-10 overflow-hidden">
-                        {twitter.profile?.profileImage ? (
+                        {twitter.isConnected && twitter.profile?.profileImage ? (
                           <img 
                             src={twitter.profile.profileImage} 
                             alt={`${getDisplayName()} profile`}
@@ -903,7 +984,7 @@ export default function PurchaseContentModal({
                             }}
                           />
                         ) : null}
-                        <span className={`text-white font-bold text-sm ${twitter.profile?.profileImage ? 'hidden' : ''}`}>{getInitialLetter()}</span>
+                        <span className={`text-white font-bold text-sm ${(twitter.isConnected && twitter.profile?.profileImage) ? 'hidden' : ''}`}>{getInitialLetter()}</span>
               </div>
                     </div>
                     <div className="flex-1 min-w-0">
@@ -980,7 +1061,7 @@ export default function PurchaseContentModal({
                     <div className="flex gap-3 pr-2">
                       <div className="relative flex-shrink-0">
                         <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-orange-500 flex items-center justify-center relative z-10 overflow-hidden">
-                          {twitter.profile?.profileImage ? (
+                          {twitter.isConnected && twitter.profile?.profileImage ? (
                             <img 
                               src={twitter.profile.profileImage} 
                               alt={`${getDisplayName()} profile`}
@@ -992,7 +1073,7 @@ export default function PurchaseContentModal({
                               }}
                             />
                           ) : null}
-                          <span className={`text-white font-bold text-sm ${twitter.profile?.profileImage ? 'hidden' : ''}`}>{getInitialLetter()}</span>
+                          <span className={`text-white font-bold text-sm ${(twitter.isConnected && twitter.profile?.profileImage) ? 'hidden' : ''}`}>{getInitialLetter()}</span>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -1024,13 +1105,13 @@ export default function PurchaseContentModal({
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-[#FFCC00] rounded-full flex items-center justify-center overflow-hidden">
                         <span className="text-black font-bold text-lg">
-                          {minerInfo ? minerInfo.username.charAt(0).toUpperCase() : (content?.creator?.username?.charAt(0).toUpperCase() || 'U')}
+                          {content?.creator?.username?.charAt(0).toUpperCase() || 'U'}
                         </span>
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-white font-bold">
-                            {minerInfo ? minerInfo.username : (content?.creator?.username || 'User')}
+                            {content?.creator?.username || 'User'}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-white/60">
@@ -1056,8 +1137,8 @@ export default function PurchaseContentModal({
                     {/* Stats */}
                     <div className="flex flex-row items-center justify-start px-4">
                       <div className="flex flex-col w-[50%]">
-                        <div className="text-white/80 text-xs">Predicted Mindshare</div>
-                        <div className="text-white text-md font-semibold">{getRandomMindshare(content.id.toString()).toFixed(1)}%</div>
+                        <div className="text-white/80 text-xs">Predicted Position Change</div>
+                        <div className="text-white text-md font-semibold">+{getRandomLeaderboardPositionChange(content.id.toString(), content.content_text, content.tweet_thread)}</div>
                       </div>
                       <div className="flex flex-col w-[50%]">
                         <div className="text-white/80 text-xs">Quality Score</div>
