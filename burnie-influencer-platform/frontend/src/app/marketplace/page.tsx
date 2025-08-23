@@ -57,7 +57,7 @@ export default function MarketplacePage() {
       <div className="min-h-screen bg-yapper-background flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 animate-spin border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <h2 className="text-2xl font-bold text-white mb-2">Loading Marketplace</h2>
+                          <h2 className="text-2xl font-bold text-[#743636] mb-2">Loading Marketplace</h2>
           <p className="text-white/70">Checking authentication...</p>
         </div>
       </div>

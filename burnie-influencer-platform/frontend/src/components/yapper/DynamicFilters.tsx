@@ -52,13 +52,13 @@ export default function DynamicFilters({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // Platform configuration
+  // Platform configuration - using appropriate platform-related icons
   const platformIcons: Record<string, string> = {
-    'cookie.fun': '/openledger.svg',
-    'yaps.kaito.ai': '/sapien.svg',
-    'burnie': '/openledger.svg',
-    'openledger': '/openledger.svg',
-    'kaito': '/sapien.svg'
+    'cookie.fun': '/globe.svg',
+    'yaps.kaito.ai': '/globe.svg',
+    'burnie': '/globe.svg',
+    'openledger': '/globe.svg',
+    'kaito': '/globe.svg'
   }
 
   // Filter out 'all' from platforms and projects since we have hardcoded "All" buttons
@@ -101,6 +101,7 @@ export default function DynamicFilters({
                 alt={platform} 
                 width={16} 
                 height={16} 
+                className="filter brightness-0 invert" // Make icon white
               />
               {platform === 'cookie.fun' ? 'Cookie.fun' : 
                platform === 'yaps.kaito.ai' ? 'Kaito.ai' : 
@@ -141,6 +142,7 @@ export default function DynamicFilters({
                         alt={platform} 
                         width={16} 
                         height={16} 
+                        className="filter brightness-0 invert" // Make icon white
                       />
                       {platform === 'cookie.fun' ? 'Cookie.fun' : 
                        platform === 'yaps.kaito.ai' ? 'Kaito.ai' : 

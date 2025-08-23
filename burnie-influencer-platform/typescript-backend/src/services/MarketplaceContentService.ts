@@ -165,13 +165,13 @@ export class MarketplaceContentService {
    * Apply sorting to the query - using a variety-based approach for better campaign distribution
    */
   private applySorting(query: any, sortBy: string): any {
-    // Since we can't use RANDOM() with DISTINCT, we'll create variety through strategic ordering
-    // This approach groups content by campaign but varies the order within each group
+    // Create variety by interleaving content from different campaigns
+    // This prevents all content from one campaign from being grouped together
     return query
-      .orderBy('content.campaignId', 'ASC')  // Group by campaign first for variety
-      .addOrderBy('content.qualityScore', 'DESC')  // Within each campaign, show best content first
+      .orderBy('content.qualityScore', 'DESC')  // Show best content first across all campaigns
       .addOrderBy('content.createdAt', 'DESC')  // Then by creation date (newer first)
-      .addOrderBy('content.id', 'ASC');  // Finally by ID for consistent ordering
+      .addOrderBy('content.campaignId', 'ASC')  // Finally by campaign ID for consistent ordering
+      .addOrderBy('content.id', 'ASC');  // And by ID for final consistency
   }
 
   /**
