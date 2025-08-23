@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { useQuery } from '@tanstack/react-query'
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { fetchFilterOptions } from '../../services/filterService'
-import SearchSuggestions from './SearchSuggestions'
+
 
 interface DynamicFiltersProps {
   selectedPlatform: string
@@ -14,7 +14,7 @@ interface DynamicFiltersProps {
   onProjectChange: (project: string) => void
   searchTerm?: string
   onSearchChange?: (e: React.ChangeEvent<HTMLInputElement>) => void
-  onSuggestionSelect?: (type: 'platform' | 'project' | 'postType', value: string) => void
+
 }
 
 export default function DynamicFilters({
@@ -23,8 +23,7 @@ export default function DynamicFilters({
   onPlatformChange,
   onProjectChange,
   searchTerm,
-  onSearchChange,
-  onSuggestionSelect
+  onSearchChange
 }: DynamicFiltersProps) {
   const [isPlatformDropdownOpen, setIsPlatformDropdownOpen] = useState(false)
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
@@ -236,12 +235,7 @@ export default function DynamicFilters({
               className="rounded-[8px] h-8 w-full bg-white/10 placeholder:text-white/30 text-white pl-10 pr-4 border border-white/20 focus:border-white/40 focus:outline-none"
             />
           </div>
-          {/* Search Suggestions */}
-          {onSuggestionSelect && (
-            <div className="mt-2">
-              <SearchSuggestions onSelectSuggestion={onSuggestionSelect} />
-            </div>
-          )}
+
         </div>
       )}
     </div>

@@ -51,13 +51,15 @@ interface PurchaseContentModalProps {
   isOpen: boolean
   onClose: () => void
   onPurchase?: (contentId: number, price: number, currency: 'ROAST' | 'USDC', transactionHash?: string) => void
+  onContentUpdate?: (updatedContent: ContentItem) => void
 }
 
 export default function PurchaseContentModal({
   content,
   isOpen,
   onClose,
-  onPurchase
+  onPurchase,
+  onContentUpdate
 }: PurchaseContentModalProps) {
   
   const { address } = useAccount()
@@ -651,6 +653,35 @@ export default function PurchaseContentModal({
         if (onPurchase) {
           const transactionHash = result.transactionHash;
           await onPurchase(content.id, content.asking_price, selectedPayment === 'roast' ? 'ROAST' : 'USDC', transactionHash)
+        }
+        
+        // Refresh presigned URLs for content images after purchase
+        try {
+          console.log('🔄 Refreshing presigned URLs for purchased content...');
+          const refreshResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${content.id}/refresh-urls`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            }
+          });
+          
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json();
+            if (refreshData.success && refreshData.data) {
+              console.log('✅ Successfully refreshed presigned URLs');
+              // Update the content with fresh URLs
+              if (onContentUpdate) {
+                onContentUpdate(refreshData.data);
+              }
+            } else {
+              console.warn('⚠️ Failed to refresh presigned URLs:', refreshData.error);
+            }
+          } else {
+            console.warn('⚠️ Presigned URL refresh API call failed:', refreshResponse.status);
+          }
+        } catch (error) {
+          console.warn('⚠️ Error refreshing presigned URLs:', error);
+          // Don't fail the purchase if URL refresh fails
         }
         
         // Set purchase success state
@@ -1261,7 +1292,7 @@ export default function PurchaseContentModal({
                           )}
                         </div>
                       </div>
-                      <div className="text-white text-xl font-bold">{content.asking_price}</div>
+                      <div className="text-white text-xl font-bold">{Math.round(Number(content.asking_price || 0))}</div>
                       <div className="text-white/60 text-xs">Platform Token</div>
                     </div>
 
@@ -1308,7 +1339,7 @@ export default function PurchaseContentModal({
                   isLoading 
                     ? 'bg-gray-500 cursor-not-allowed' 
                     : !address
-                    ? 'bg-blue-600 hover:bg-blue-700'
+                    ? 'bg-[#FD7A10] hover:bg-[#e86d0f] glow-orange-button'
                     : !isAuthenticated
                     ? 'bg-orange-600 hover:bg-orange-700'
                     : !hasAccess
@@ -1354,7 +1385,7 @@ export default function PurchaseContentModal({
                   <div className="flex flex-col gap-1">
                     <div className="text-white font-bold">Content Owned</div>
                     <div className="text-white text-xs">
-                      Purchased • {content.asking_price} ROAST
+                      Purchased • {Math.round(Number(content.asking_price || 0))} ROAST
                     </div>
                   </div>
                 </div>

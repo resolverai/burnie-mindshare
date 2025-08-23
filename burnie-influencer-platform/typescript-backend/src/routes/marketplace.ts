@@ -1480,11 +1480,19 @@ router.get('/my-content/miner/:userId', async (req: Request, res: Response) => {
 
 /**
  * @route GET /api/marketplace/my-content/yapper/wallet/:walletAddress
- * @desc Get yapper's owned content (direct purchases only) for My Content section
+ * @desc Get yapper's owned content (direct purchases only) for My Content section with pagination and search
  */
 router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res: Response): Promise<void> => {
   try {
     const { walletAddress } = req.params;
+    const { 
+      search,
+      platform_source,
+      project_name,
+      post_type,
+      page = 1,
+      limit = 18 
+    } = req.query;
     
     if (!walletAddress) {
       res.status(400).json({
@@ -1497,16 +1505,50 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
     // For immediate purchase system, only show content from purchases (not won bids)
     const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
     
-    // Get content purchased directly
-    const purchases = await purchaseRepository
+    // Build query with filters
+    let queryBuilder = purchaseRepository
       .createQueryBuilder('purchase')
       .leftJoinAndSelect('purchase.content', 'content')
       .leftJoinAndSelect('content.creator', 'creator')
       .leftJoinAndSelect('content.campaign', 'campaign')
       .where('LOWER(purchase.buyerWalletAddress) = LOWER(:walletAddress)', { walletAddress })
-      .andWhere('purchase.paymentStatus = :status', { status: 'completed' })
+      .andWhere('purchase.paymentStatus = :status', { status: 'completed' });
+
+    // Apply search filters
+    if (search && search.toString().trim()) {
+      const searchTerm = `%${search.toString().toLowerCase()}%`;
+      queryBuilder = queryBuilder.andWhere(
+        '(LOWER(content.contentText) LIKE :search OR LOWER(campaign.title) LIKE :search OR LOWER(campaign.projectName) LIKE :search OR LOWER(campaign.platformSource) LIKE :search)',
+        { search: searchTerm }
+      );
+    }
+
+    if (platform_source && platform_source !== 'all') {
+      queryBuilder = queryBuilder.andWhere('LOWER(campaign.platformSource) = LOWER(:platformSource)', { platformSource: platform_source });
+    }
+
+    if (project_name && project_name !== 'all') {
+      queryBuilder = queryBuilder.andWhere('LOWER(campaign.projectName) = LOWER(:projectName)', { projectName: project_name });
+    }
+
+    if (post_type && post_type !== 'all') {
+      queryBuilder = queryBuilder.andWhere('LOWER(content.postType) = LOWER(:postType)', { postType: post_type });
+    }
+
+    // Get total count for pagination
+    const totalCount = await queryBuilder.getCount();
+
+    // Apply pagination
+    const pageNum = Math.max(1, parseInt(page.toString()));
+    const limitNum = Math.min(50, Math.max(1, parseInt(limit.toString())));
+    const offset = (pageNum - 1) * limitNum;
+
+    queryBuilder = queryBuilder
       .orderBy('purchase.purchasedAt', 'DESC')
-      .getMany();
+      .skip(offset)
+      .take(limitNum);
+
+    const purchases = await queryBuilder.getMany();
 
     // Refresh expired pre-signed URLs in purchased content
     const refreshedPurchases = await Promise.all(
@@ -1521,11 +1563,12 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
       id: purchase.content.id,
       content_text: purchase.content.contentText,
       tweet_thread: purchase.content.tweetThread || null,
-      content_images: purchase.content.contentImages,
+      content_images: purchase.content.contentImages, // Use original images, not watermarked
+      watermark_image: purchase.content.watermarkImage || null,
       predicted_mindshare: Number(purchase.content.predictedMindshare),
       quality_score: Number(purchase.content.qualityScore),
       asking_price: Number(purchase.content.askingPrice),
-      post_type: purchase.content.postType || 'thread', // Include post type
+      post_type: purchase.content.postType || 'thread',
       creator: {
         username: purchase.content.creator?.username || 'Anonymous',
         reputation_score: purchase.content.creator?.reputationScore || 0
@@ -1533,36 +1576,41 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
       campaign: {
         title: purchase.content.campaign?.title || 'Unknown Campaign',
         platform_source: purchase.content.campaign?.platformSource || 'unknown',
+        project_name: purchase.content.campaign?.projectName || null,
         reward_token: purchase.content.campaign?.rewardToken || 'ROAST'
       },
       agent_name: purchase.content.agentName,
       created_at: purchase.content.createdAt.toISOString(),
       approved_at: purchase.content.approvedAt?.toISOString(),
-      winning_bid: {
-        amount: Number(purchase.purchasePrice),
-        currency: purchase.currency,
-        bid_date: purchase.purchasedAt?.toISOString() || purchase.createdAt.toISOString()
-      },
+      purchased_at: purchase.purchasedAt.toISOString(),
+      acquisition_type: 'purchase' as const,
       payment_details: {
-        payment_currency: purchase.paymentCurrency || 'ROAST',
-        conversion_rate: Number(purchase.conversionRate || 0),
-        original_roast_price: Number(purchase.originalRoastPrice || 0),
-        miner_payout_roast: Number(purchase.minerPayoutRoast || 0)
+        payment_currency: purchase.paymentCurrency,
+        conversion_rate: purchase.conversionRate || 1,
+        original_roast_price: purchase.originalRoastPrice,
+        miner_payout_roast: purchase.minerPayoutRoast
       },
-      transaction_hash: purchase.transactionHash, // Add transaction hash for BaseScan link
-      treasury_transaction_hash: purchase.treasuryTransactionHash, // Treasury payout transaction
-      acquisition_type: 'purchase' // Only purchased content for immediate purchase system
+      transaction_hash: purchase.transactionHash,
+      treasury_transaction_hash: purchase.treasuryTransactionHash
     }));
 
-    console.log(`📦 Found ${formattedPurchaseContent.length} purchases for yapper ${walletAddress}`);
+    console.log(`📦 Found ${formattedPurchaseContent.length} purchases for yapper ${walletAddress} (page ${pageNum}, limit ${limitNum})`);
 
     res.json({
       success: true,
       data: formattedPurchaseContent,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: totalCount,
+        pages: Math.ceil(totalCount / limitNum),
+        hasNextPage: pageNum < Math.ceil(totalCount / limitNum),
+        hasPreviousPage: pageNum > 1
+      },
       metadata: {
-        total: formattedPurchaseContent.length,
+        total: totalCount,
         won_bids: 0, // No longer showing won bids
-        direct_purchases: formattedPurchaseContent.length
+        direct_purchases: totalCount
       }
     });
   } catch (error) {
@@ -1570,6 +1618,7 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
     res.status(500).json({ error: 'Failed to fetch yapper content' });
   }
 });
+
 
 /**
  * @route GET /api/marketplace/my-content/yapper/:userId
@@ -2939,6 +2988,83 @@ router.get('/analytics/miner/portfolio/:walletAddress', async (req: Request, res
   } catch (error) {
     console.error('Error fetching miner portfolio analytics:', error);
     return res.status(500).json({ error: 'Failed to fetch portfolio analytics' });
+  }
+});
+
+// Add endpoint to refresh presigned URLs for purchased content
+router.post('/content/:id/refresh-urls', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Content ID is required' });
+    }
+    
+    const contentId = parseInt(id);
+    if (isNaN(contentId)) {
+      return res.status(400).json({ error: 'Invalid content ID' });
+    }
+    
+    // Get content item from database
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const content = await contentRepository.findOne({
+      where: { id: contentId },
+      relations: ['creator', 'campaign']
+    });
+    
+    if (!content) {
+      return res.status(404).json({ error: 'Content not found' });
+    }
+    
+    logger.info(`🔄 Refreshing presigned URLs for content ${contentId}`);
+    
+    // Refresh expired URLs using the same logic as marketplace content fetch
+    const refreshedContent = await refreshExpiredUrls(content);
+    
+    // Format the content for frontend (same as MarketplaceContentService)
+    const formattedContent = {
+      id: refreshedContent.id,
+      content_text: refreshedContent.contentText,
+      tweet_thread: refreshedContent.tweetThread,
+      content_images: refreshedContent.contentImages,
+      watermark_image: refreshedContent.watermarkImage || refreshedContent.watermark_image,
+      predicted_mindshare: refreshedContent.predictedMindshare,
+      quality_score: refreshedContent.qualityScore,
+      asking_price: refreshedContent.askingPrice,
+      creator: {
+        id: refreshedContent.creator.id,
+        username: refreshedContent.creator.username,
+        reputation_score: refreshedContent.creator.reputationScore,
+        wallet_address: refreshedContent.creator.walletAddress
+      },
+      campaign: {
+        id: refreshedContent.campaign.id,
+        title: refreshedContent.campaign.title,
+        platform_source: refreshedContent.campaign.platformSource,
+        project_name: refreshedContent.campaign.projectName,
+        reward_token: refreshedContent.campaign.rewardToken
+      },
+      agent_name: refreshedContent.agentName,
+      created_at: refreshedContent.createdAt,
+      post_type: refreshedContent.postType,
+      approved_at: refreshedContent.approvedAt,
+      bidding_enabled_at: refreshedContent.biddingEnabledAt
+    };
+    
+    logger.info(`✅ Successfully refreshed presigned URLs for content ${contentId}`);
+    
+    return res.json({
+      success: true,
+      data: formattedContent
+    });
+    
+  } catch (error) {
+    logger.error(`❌ Error refreshing presigned URLs for content:`, error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to refresh presigned URLs',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 });
 

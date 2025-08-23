@@ -27,7 +27,7 @@ import { useROASTPrice, convertROASTToUSDC, formatUSDCPrice } from '../../utils/
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
 import { useInfiniteMarketplace } from '../../hooks/useInfiniteMarketplace'
-import SearchSuggestions from './SearchSuggestions'
+
 
 // Use MarketplaceContent type directly from the service
 type ContentItem = MarketplaceContent & {
@@ -109,21 +109,7 @@ export default function BiddingInterface() {
     return () => clearTimeout(timer)
   }, [searchTerm])
 
-  // Handle search suggestions
-  const handleSuggestionSelect = (type: 'platform' | 'project' | 'postType', value: string) => {
-    switch (type) {
-      case 'platform':
-        setSelectedPlatform(value)
-        break
-      case 'project':
-        setSelectedProject(value)
-        break
-      case 'postType':
-        // For now, we'll add post type to search term
-        setSearchTerm(prev => prev ? `${prev} ${value}` : value)
-        break
-    }
-  }
+
   
   // Price display component
   const PriceDisplay = ({ roastAmount }: { roastAmount: number }) => {
@@ -227,6 +213,15 @@ export default function BiddingInterface() {
 
 
   // Copy protection event listeners removed - marketplace is now public
+
+  // Handle content update after successful purchase
+  const handleContentUpdate = (updatedContent: ContentItem) => {
+    console.log('🔄 Content updated with fresh URLs:', updatedContent);
+    // Update the showPurchaseModal state with fresh URLs if it's the same content
+    if (showPurchaseModal && showPurchaseModal.id === updatedContent.id) {
+      setShowPurchaseModal(updatedContent);
+    }
+  };
 
   // Handle purchase function (updated to use marketplace service)
   const handlePurchaseCallback = async (contentId: number, price: number, currency: 'ROAST' | 'USDC' = 'ROAST', transactionHash?: string) => {
@@ -347,7 +342,6 @@ export default function BiddingInterface() {
         onProjectChange={handleProjectChange}
         searchTerm={searchTerm}
         onSearchChange={handleSearchChange}
-        onSuggestionSelect={handleSuggestionSelect}
       />
     </div>
   ), [searchTerm, selectedPlatform, selectedProject, handleSearchChange, handlePlatformChange, handleProjectChange])
@@ -524,6 +518,7 @@ export default function BiddingInterface() {
         isOpen={!!showPurchaseModal}
         onClose={() => setShowPurchaseModal(null)}
         onPurchase={handlePurchaseCallback}
+        onContentUpdate={handleContentUpdate}
       />
 
       {/* Copy protection removed from marketplace - now public */}

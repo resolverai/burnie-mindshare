@@ -4,6 +4,75 @@ import { Repository } from 'typeorm';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
 
+// Helper function to extract S3 key from URL
+function extractS3KeyFromUrl(url: string): string | null {
+  try {
+    if (!url.includes('s3.amazonaws.com')) {
+      return null;
+    }
+    
+    const urlObj = new URL(url);
+    const path = urlObj.pathname;
+    
+    // Remove leading slash and query parameters
+    const s3Key = path.substring(1).split('?')[0];
+    
+    if (s3Key && s3Key.length > 0) {
+      return s3Key;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error extracting S3 key from URL:', error);
+    return null;
+  }
+}
+
+// Helper function to generate presigned URL for Twitter media upload
+async function generatePresignedUrlForTwitter(s3Key: string): Promise<string | null> {
+  try {
+    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
+    if (!pythonBackendUrl) {
+      console.error('PYTHON_AI_BACKEND_URL environment variable is not set');
+      return null;
+    }
+
+    console.log(`🔗 Requesting presigned URL for S3 key: ${s3Key}`);
+    
+    const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        s3_key: s3Key,
+        expiration: 3600 // 1 hour
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Python backend responded with ${response.status}`);
+    }
+
+    const result = await response.json() as {
+      status: string;
+      presigned_url?: string;
+      error?: string;
+    };
+
+    if (result.status === 'success' && result.presigned_url) {
+      console.log(`✅ Generated presigned URL for S3 key: ${s3Key}`);
+      return result.presigned_url;
+    } else {
+      console.error(`Failed to generate presigned URL: ${result.error}`);
+      return null;
+    }
+  } catch (error) {
+    console.error(`Error generating presigned URL for S3 key: ${s3Key}`, error);
+    return null;
+  }
+}
+
 const router = Router();
 
 // Import the YapperTwitterConnection model
@@ -65,13 +134,18 @@ const refreshTwitterToken = async (connection: YapperTwitterConnection): Promise
 // Upload media to Twitter
 const uploadMediaToTwitter = async (accessToken: string, imageUrl: string): Promise<string | null> => {
   try {
+    console.log('🔍 Starting media upload for URL:', imageUrl);
+    
     // Download the image
     const imageResponse = await fetch(imageUrl);
     if (!imageResponse.ok) {
       throw new Error(`Failed to download image: ${imageResponse.statusText}`);
     }
 
-    const imageBuffer = await imageResponse.buffer();
+    // For node-fetch v2, use arrayBuffer() instead of buffer()
+    const imageArrayBuffer = await imageResponse.arrayBuffer();
+    const imageBuffer = Buffer.from(imageArrayBuffer);
+    console.log('🔍 Downloaded image, size:', imageBuffer.length, 'bytes');
     
     // Create form data for Twitter media upload
     const formData = new FormData();
@@ -80,37 +154,50 @@ const uploadMediaToTwitter = async (accessToken: string, imageUrl: string): Prom
       contentType: 'image/jpeg'
     });
     formData.append('media_category', 'tweet_image');
+    
+    console.log('🔍 FormData created with media size:', imageBuffer.length, 'bytes');
 
     // Upload to Twitter using API v2 endpoint
-    const uploadResponse = await fetch('https://api.x.com/2/media/upload', {
+    const uploadResponse = await fetch('https://api.twitter.com/2/media/upload', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        ...formData.getHeaders()
+        'Authorization': `Bearer ${accessToken}`
+        // Don't set Content-Type - let FormData set it with boundary
       },
       body: formData
     });
+    
+    console.log('🔍 Twitter API request sent to:', 'https://api.twitter.com/2/media/upload');
+    console.log('🔍 Request headers:', {
+      'Authorization': `Bearer ${accessToken.substring(0, 10)}...`,
+      'Content-Type': 'multipart/form-data (auto-generated)'
+    });
 
     console.log('🔍 Media upload response status:', uploadResponse.status);
+    console.log('🔍 Media upload response headers:', Object.fromEntries(uploadResponse.headers.entries()));
     
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      console.error('Media upload failed:', errorText);
-      console.error('Upload response status:', uploadResponse.status);
-      console.error('Upload response headers:', Object.fromEntries(uploadResponse.headers.entries()));
+      console.error('❌ Media upload failed with status:', uploadResponse.status);
+      console.error('❌ Error response:', errorText);
       
       // Try to parse the error response
       try {
         const errorJson = JSON.parse(errorText);
-        console.error('Detailed error response:', errorJson);
+        console.error('❌ Detailed error response:', errorJson);
       } catch (e) {
-        console.error('Error response is not JSON:', errorText);
+        console.error('❌ Error response is not JSON:', errorText);
       }
       
       // Media upload API v2 authentication issue
       if (uploadResponse.status === 403) {
         console.error('❌ Media upload 403: Check if user has media.write scope');
         console.error('🔧 May need to add media.write scope to OAuth request');
+      }
+      
+      // Rate limit issue
+      if (uploadResponse.status === 429) {
+        console.error('❌ Media upload 429: Rate limit exceeded');
       }
       
       return null;
@@ -297,11 +384,41 @@ router.post('/post-thread', async (req: Request, res: Response) => {
 
     // Upload media if image exists
     let mediaId: string | null = null;
+    console.log('🔍 Checking for image URL:', imageUrl);
     if (imageUrl) {
-      mediaId = await uploadMediaToTwitter(accessToken, imageUrl);
-      if (!mediaId) {
-        console.warn('Failed to upload media, proceeding without image');
+      console.log('🔍 Image URL found, attempting media upload...');
+      
+      // Generate fresh presigned URL before uploading to Twitter
+      let freshImageUrl = imageUrl;
+      if (imageUrl.includes('s3.amazonaws.com')) {
+        try {
+          console.log('🔍 Generating fresh presigned URL for Twitter media upload...');
+          const s3Key = extractS3KeyFromUrl(imageUrl);
+          if (s3Key) {
+            const presignedUrl = await generatePresignedUrlForTwitter(s3Key);
+            if (presignedUrl) {
+              freshImageUrl = presignedUrl;
+              console.log('✅ Generated fresh presigned URL for Twitter media upload');
+            } else {
+              console.warn('⚠️ Failed to generate fresh presigned URL, using original URL');
+            }
+          } else {
+            console.warn('⚠️ Could not extract S3 key from image URL, using original URL');
+          }
+        } catch (error) {
+          console.error('❌ Error generating fresh presigned URL:', error);
+          console.warn('⚠️ Using original URL for media upload');
+        }
       }
+      
+      mediaId = await uploadMediaToTwitter(accessToken, freshImageUrl);
+      if (!mediaId) {
+        console.warn('⚠️ Failed to upload media, proceeding without image');
+      } else {
+        console.log('✅ Media uploaded successfully, media ID:', mediaId);
+      }
+    } else {
+      console.log('🔍 No image URL provided, proceeding without media');
     }
 
     // Create main tweet

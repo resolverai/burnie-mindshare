@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAccount } from 'wagmi'
-import { useQuery } from '@tanstack/react-query'
 import Image from 'next/image'
 import { 
   DocumentDuplicateIcon,
@@ -19,6 +18,7 @@ import TweetThreadDisplay from '../TweetThreadDisplay'
 import TweetPreviewModal from './TweetPreviewModal'
 import DynamicFilters from './DynamicFilters'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
+import { useInfiniteMyContent } from '../../hooks/useInfiniteMyContent'
 
 interface ContentItem {
   id: number
@@ -42,7 +42,7 @@ interface ContentItem {
   agent_name?: string
   created_at: string
   approved_at?: string
-  winning_bid: {
+  winning_bid?: {
     amount: number
     currency: string
     bid_date: string
@@ -63,15 +63,63 @@ export default function YapperMyContent() {
   
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
   const [selectedPlatform, setSelectedPlatform] = useState('all')
   const [selectedProject, setSelectedProject] = useState('all')
   const [selectedPostType, setSelectedPostType] = useState('all')
-  const [sortBy, setSortBy] = useState<'mindshare' | 'quality'>('mindshare')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null)
+
+  // Debounced search - only search after user stops typing for 500ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm)
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  // Infinite query for my content
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage
+  } = useInfiniteMyContent({
+    search: debouncedSearchTerm,
+    platform_source: selectedPlatform !== 'all' ? selectedPlatform : undefined,
+    project_name: selectedProject !== 'all' ? selectedProject : undefined,
+    post_type: selectedPostType !== 'all' ? selectedPostType : undefined,
+    limit: 18
+  })
+
+  // Flatten all pages into a single array
+  const allContent = data?.pages.flatMap((page: any) => page.data) || []
+
+  // Intersection Observer for infinite scroll
+  const lastElementRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage()
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    if (lastElementRef.current) {
+      observer.observe(lastElementRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   // Content parsing functions
   const extractImageUrl = (contentText: string): string | null => {
@@ -267,100 +315,50 @@ export default function YapperMyContent() {
   const calculateActualAmountPaid = (item: ContentItem): { amount: number; currency: string } => {
     const { payment_details } = item
     
+    // Add null checks and fallbacks
+    if (!payment_details) {
+      return { amount: 0, currency: 'ROAST' }
+    }
+    
     if (payment_details.payment_currency === 'USDC') {
-      const usdcAmount = (item.winning_bid.amount * payment_details.conversion_rate) + 0.03
+      // Explicitly convert to Number to prevent string concatenation
+      const originalPrice = Number(payment_details.original_roast_price) || 0
+      const conversionRate = Number(payment_details.conversion_rate) || 1
+      const usdcAmount = (originalPrice * conversionRate) + 0.03
       return {
         amount: Number(usdcAmount.toFixed(3)),
         currency: 'USDC'
       }
     } else {
+      // Explicitly convert to Number to prevent string concatenation
       return {
-        amount: item.winning_bid.amount,
+        amount: Number(payment_details.original_roast_price) || 0,
         currency: 'ROAST'
       }
     }
   }
-
-  // Fetch yapper's purchased content
-  const { data: content, isLoading } = useQuery({
-    queryKey: ['yapper-content', address],
-    queryFn: async () => {
-      if (!address) return []
-      
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/my-content/yapper/wallet/${address}`)
-        if (response.ok) {
-          const data = await response.json()
-          console.log('📦 Fetched yapper purchased content:', data)
-          return data.data || []
-        }
-        return []
-      } catch (error) {
-        console.error('Error fetching yapper purchased content:', error)
-        return []
-      }
-    },
-    refetchInterval: 30000,
-    enabled: !!address,
-  })
-
-  // Filter and sort content
-  const filteredAndSortedContent = content ? content
-    .filter((item: ContentItem) => {
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase()
-        const contentMatch = item.content_text.toLowerCase().includes(searchLower)
-        const campaignMatch = item.campaign.title.toLowerCase().includes(searchLower)
-        const creatorMatch = item.creator.username.toLowerCase().includes(searchLower)
-        if (!contentMatch && !campaignMatch && !creatorMatch) return false
-      }
-      
-      if (selectedPlatform !== 'all' && item.campaign.platform_source !== selectedPlatform) {
-        return false
-      }
-      
-      const matchesPostType = selectedPostType === 'all' || 
-        (item.post_type || 'thread') === selectedPostType
-      
-      return matchesPostType
-    })
-    .sort((a: ContentItem, b: ContentItem) => {
-      let aValue: number, bValue: number
-      if (sortBy === 'mindshare') {
-        aValue = a.predicted_mindshare || 0
-        bValue = b.predicted_mindshare || 0
-      } else {
-        aValue = a.quality_score || 0
-        bValue = b.quality_score || 0
-      }
-      return sortOrder === 'asc' ? aValue - bValue : bValue - aValue
-    }) : []
 
   // Stats data
   const stats = [
     {
       key: "tweets",
       label: "Tweets bought",
-      value: content?.length?.toString() || "0",
+      value: allContent.length.toString(),
       icon: "/tweetsbag.svg",
     },
     {
       key: "roast",
       label: "Total spent (ROAST+USDC)",
-      value: content ? content.reduce((sum: number, item: ContentItem) => {
+      value: (allContent.reduce((sum: number, item: ContentItem) => {
         const payment = calculateActualAmountPaid(item)
-        return sum + payment.amount
-      }, 0).toFixed(0) : "0",
+        // Ensure we're always adding numbers
+        return sum + Number(payment.amount || 0)
+      }, 0) || 0).toFixed(0),
       icon: "/roastusdc.svg",
     },
-    // Mindshare metric hidden per user request
-    // {
-    //   key: "msgenerated",
-    //   label: "Mindshare generated",
-    //   value: content ? (content.reduce((sum: number, item: ContentItem) => sum + item.predicted_mindshare, 0) / content.length).toFixed(1) + '%' : "0%",
-    //   icon: "/msgenerated.svg",
-    // },
   ]
+
+
 
 
 
@@ -406,9 +404,9 @@ export default function YapperMyContent() {
               </div>
             ))}
           </div>
-        ) : filteredAndSortedContent && filteredAndSortedContent.length > 0 ? (
+        ) : allContent && allContent.length > 0 ? (
           <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
-            {filteredAndSortedContent.map((item: ContentItem) => {
+            {allContent.map((item: ContentItem) => {
               const shouldUseMarkdown = isMarkdownContent(item.post_type)
               const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
               const forceMarkdown = hasMarkdownSyntax
@@ -485,16 +483,26 @@ export default function YapperMyContent() {
               )
             })}
           </div>
-        ) : content && content.length > 0 ? (
-          <div className="text-center py-12">
-            <div className="text-white/70 text-lg mb-2">No content matches your filters</div>
-            <div className="text-white/50">Try adjusting your search or filter criteria</div>
-          </div>
         ) : (
           <div className="text-center py-12">
             <div className="text-white/70 text-lg mb-2">No content owned yet</div>
             <div className="text-white/50">Purchase content from the marketplace to see it here</div>
           </div>
+        )}
+
+        {/* Infinite Scroll Loading Indicator */}
+        {isFetchingNextPage && (
+          <div className="text-center py-8">
+            <div className="inline-flex items-center gap-2 text-white/70">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
+              <span>Loading more content...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Intersection Observer Target for Infinite Scroll */}
+        {hasNextPage && (
+          <div ref={lastElementRef} className="h-4" />
         )}
 
         {/* Tweet Preview Modal */}
