@@ -2208,11 +2208,11 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             **If you have OpenAI image tool** → Use `openai_image_generation`:
             - Available models: dall-e-3, dall-e-2, gpt-image-1, gpt-4o
-            - Example: openai_image_generation("A modern Web3 office with futuristic elements")
+            - Example: openai_image_generation("A modern business office discussing blockchain technology")
             
             **If you have Fal.ai image tool** → Use `fal_image_generation`:
             - Available models: flux-*, stable-diffusion-*, ideogram-*, etc.
-            - Example: fal_image_generation("A dynamic crypto trading dashboard with neon elements")
+            - Example: fal_image_generation("A professional business meeting discussing blockchain technology")
             
             **If you have Google image tool** → Use `google_image_generation`:
             - Available models: imagen-*, gemini-*
@@ -2234,23 +2234,32 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             **ARTISTIC STYLE CATEGORIES** (Choose autonomously based on content):
             
-            **STYLE OPTIONS** (Select what fits the tweet emotion and content type):
-            • Comic/Cartoon - for humorous, relatable content
-            • Meme/Internet Culture - for FOMO, viral content, or when meme-style fits the message
-            • Techno/Cyberpunk - for futuristic, innovation themes
-            • FOMO/Urgency - for time-sensitive opportunities
-            • Animated/Dynamic - for action-oriented content
-            • Community/Social - for inclusive, gathering themes
-            • Urgency/Pressure - for "last chance" messaging
-            • Vector Art/Clean - for professional, minimalist content
-            • Hyper Realistic - for serious, credible messaging
-            • Photo Realistic - for authentic, trustworthy content
-            • Pixel Art/Retro - for nostalgic, gaming references
-            • Studio Lightning - for polished, professional look
-            • Cinematic - for dramatic, epic storytelling
-            • Abstract/Conceptual - for complex ideas visualization
+            **STYLE OPTIONS** (Select what fits the tweet emotion and content type - PRIORITIZE VARIETY):
+            • **Professional & Corporate**: Clean, modern business aesthetics for serious content
+            • **Warm & Natural**: Earthy tones, natural lighting for community/trust content
+            • **Minimalist & Clean**: Simple, elegant designs for clear messaging
+            • **Comic/Cartoon**: Humorous, relatable content with playful elements
+            • **Meme/Internet Culture**: FOMO, viral content when meme-style fits
+            • **Techno/Modern**: Subtle tech elements without overwhelming cyberpunk
+            • **FOMO/Urgency**: Time-sensitive opportunities with dynamic elements
+            • **Animated/Dynamic**: Action-oriented content with movement suggestions
+            • **Community/Social**: Inclusive, gathering themes with warm colors
+            • **Vector Art/Clean**: Professional, minimalist content with precision
+            • **Hyper Realistic**: Serious, credible messaging with photorealistic quality
+            • **Photo Realistic**: Authentic, trustworthy content with natural aesthetics
+            • **Pixel Art/Retro**: Nostalgic, gaming references when appropriate
+            • **Studio Lighting**: Polished, professional look with controlled lighting
+            • **Cinematic**: Dramatic, epic storytelling with atmospheric depth
+            • **Abstract/Conceptual**: Complex ideas visualization with artistic interpretation
             
             **IMPORTANT**: You can choose ANY style for ANY content type (shitpost, longpost, thread) based on what best fits the content and message. Don't feel restricted by content type stereotypes.
+            
+            **STYLE DIVERSITY REQUIREMENT** (CRITICAL):
+            - AVOID overusing holographic, neon, or cyberpunk aesthetics
+            - PRIORITIZE variety across different campaigns and content types
+            - Consider professional, warm, natural, and minimalist styles FIRST
+            - Only use holographic/neon/cyberpunk when it truly fits the content theme
+            - Balance futuristic elements with approachable, professional aesthetics
             
             **ESSENTIAL QUALITY KEYWORDS** (ALWAYS include these for professional output):
             
@@ -2267,7 +2276,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             "Hyperrealistic CGI", "3D render", "volumetric lighting", "perfect reflections", "dynamic lighting effects"
             
             **Style Descriptors**:
-            "Clean vector art", "geometric precision", "vibrant color palette", "rich color depth", "atmospheric lighting"
+            "Clean vector art", "geometric precision", "vibrant color palette", "rich color depth", "atmospheric lighting", "warm natural tones", "professional color schemes", "subtle gradients", "soft lighting", "natural shadows", "corporate aesthetics", "minimalist design"
             
             📖 **AUTONOMOUS PROMPT GENERATION PROCESS** (CRITICAL):
             You are an AI visual expert who creates original, compelling prompts without relying on templates. Your mission is to analyze tweet content and craft unique, high-impact visual prompts that perfectly complement the message.
@@ -2294,11 +2303,13 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             2. **Intelligent Style Selection**:
                - Choose the most appropriate artistic style from the options above
+               - **PRIORITIZE VARIETY**: Avoid repeating the same style across different campaigns
                - Consider your target audience (Web3 GenZ, crypto enthusiasts, tech-savvy users)
                - Match visual complexity to message complexity
                - Decide on realism level: cartoon → stylized → photorealistic
                - **FULL STYLE FREEDOM**: You can choose ANY style for ANY content type based on what best fits the message
                - **MEME CHARACTER DECISION**: Decide autonomously whether to include web3 meme characters (Pepe, Wojak, Chad, etc.) based on content relevance
+               - **STYLE DIVERSITY CHECK**: If you've recently used holographic/neon/cyberpunk, consider professional, warm, or minimalist alternatives
             
             3. **Original Concept Creation**:
                - Generate a unique visual concept that amplifies the tweet's message
@@ -2326,9 +2337,9 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             Example Analysis Process:
             Tweet: "BOB's hybrid model is revolutionizing Bitcoin DeFi"
             → Emotion: Innovation, confidence, breakthrough
-            → Style: Techno/cyberpunk with professional credibility  
-            → Original Concept: Bitcoin and Ethereum symbols merging into a new hybrid form with energy flowing between them
-            → Generated Prompt: "Two golden orbs representing Bitcoin and Ethereum slowly merging into a brilliant hybrid symbol, with energy streams flowing between them in a high-tech laboratory setting, surrounding holographic charts showing upward growth, cyberpunk aesthetic with blue and gold neon lighting, NO TEXT OR WORDS visible anywhere, photorealistic CGI, 8K ultra-detailed, dramatic technological lighting, masterpiece quality, award-winning digital art"
+            → Style: Professional and modern with subtle tech elements
+            → Original Concept: Bitcoin and Ethereum symbols elegantly merging into a unified form
+            → Generated Prompt: "Two golden orbs representing Bitcoin and Ethereum gracefully merging into a unified symbol, set against a clean, modern background with subtle geometric patterns, professional business aesthetic with warm, natural lighting, NO TEXT OR WORDS visible anywhere, photorealistic CGI, 8K ultra-detailed, studio lighting, masterpiece quality, award-winning digital art"
             
             This approach ensures variety, creativity, and perfect message-visual alignment for every unique tweet!
             
