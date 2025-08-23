@@ -20,14 +20,16 @@ show_usage() {
     echo ""
     echo "Commands:"
     echo "  test     - Run setup tests to verify configuration"
-    echo "  start    - Start automated content generation (parallel)"
-    echo "  start-sequential - Start automated content generation (sequential)"
+    echo "  start    - Start PERSISTENT automated content generation (parallel)"
+    echo "  start-sequential - Start PERSISTENT automated content generation (sequential)"
     echo "  test-run - Test single content generation for random campaign"
     echo "  monitor  - Monitor running automation"
     echo "  stop     - Stop running automation"
     echo "  status   - Check automation status"
     echo "  logs     - Show recent logs"
     echo "  help     - Show this help message"
+    echo ""
+    echo "Note: The automation runs PERSISTENTLY until explicitly stopped"
     echo ""
     echo "Examples:"
     echo "  $0 test                    # Test setup before running"
@@ -48,7 +50,9 @@ run_tests() {
 # Function to start automation
 start_automation() {
     local mode=${1:-parallel}
-    echo "🚀 Starting automated content generation ($mode mode)..."
+    echo "🚀 Starting PERSISTENT automated content generation ($mode mode)..."
+    echo "💡 The script will run indefinitely until you stop it with Ctrl+C"
+    echo "🔄 It will process ALL campaigns and restart automatically"
     cd "$SCRIPT_DIR"
     
     # Check if already running

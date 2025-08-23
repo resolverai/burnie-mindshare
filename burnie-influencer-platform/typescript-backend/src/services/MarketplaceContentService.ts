@@ -154,11 +154,11 @@ export class MarketplaceContentService {
   }
 
   /**
-   * Apply sorting to the query - keeping it simple with createdAt DESC
+   * Apply sorting to the query - using random order for better campaign distribution
    */
   private applySorting(query: any, sortBy: string): any {
-    // Always sort by createdAt DESC for simplicity
-    return query.orderBy('content.createdAt', 'DESC');
+    // Use random sorting to show content from different campaigns spread throughout
+    return query.orderBy('RANDOM()');
   }
 
   /**

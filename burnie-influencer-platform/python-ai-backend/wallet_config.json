@@ -13,8 +13,6 @@
     "delay_between_campaigns": 10
   },
   "rate_limiting": {
-    "stop_on_rate_limit": true,
-    "max_retries": 3,
     "base_delay": 60,
     "rate_limit_indicators": [
       "rate limit",
