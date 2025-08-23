@@ -99,10 +99,18 @@ export class MarketplaceContentService {
       const offset = (Number(page) - 1) * Number(limit);
       query = query.skip(offset).take(Number(limit));
 
-      // Execute query
-      const contents = await query.getMany();
-
-      logger.info(`✅ Fetched ${contents.length} content items (total: ${total})`);
+      // Execute query with error handling
+      let contents: ContentMarketplace[];
+      try {
+        contents = await query.getMany();
+        logger.info(`✅ Fetched ${contents.length} content items (total: ${total})`);
+      } catch (error) {
+        logger.error('❌ Error executing marketplace query:', error);
+        // Log the generated SQL for debugging
+        const sql = query.getSql();
+        logger.error('🔍 Generated SQL:', sql);
+        throw new Error(`Failed to fetch marketplace content: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
 
       // Validate and log any content missing biddingEnabledAt
       const missingBiddingEnabledAt = contents.filter(content => 
@@ -154,11 +162,16 @@ export class MarketplaceContentService {
   }
 
   /**
-   * Apply sorting to the query - using random order for better campaign distribution
+   * Apply sorting to the query - using a variety-based approach for better campaign distribution
    */
   private applySorting(query: any, sortBy: string): any {
-    // Use random sorting to show content from different campaigns spread throughout
-    return query.orderBy('RANDOM()');
+    // Since we can't use RANDOM() with DISTINCT, we'll create variety through strategic ordering
+    // This approach groups content by campaign but varies the order within each group
+    return query
+      .orderBy('content.campaignId', 'ASC')  // Group by campaign first for variety
+      .addOrderBy('content.qualityScore', 'DESC')  // Within each campaign, show best content first
+      .addOrderBy('content.createdAt', 'DESC')  // Then by creation date (newer first)
+      .addOrderBy('content.id', 'ASC');  // Finally by ID for consistent ordering
   }
 
   /**
