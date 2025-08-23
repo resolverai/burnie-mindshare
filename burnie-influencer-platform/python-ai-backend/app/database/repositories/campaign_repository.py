@@ -27,12 +27,12 @@ class CampaignRepository:
             return None
     
     def get_active_campaigns(self) -> List[Dict[str, Any]]:
-        """Get all active campaigns"""
+        """Get all active campaigns ordered by ID in ascending order"""
         try:
             query = text("""
                 SELECT * FROM campaigns 
                 WHERE status = 'ACTIVE'
-                ORDER BY "createdAt" DESC
+                ORDER BY id ASC
             """)
             
             db = get_db_session()

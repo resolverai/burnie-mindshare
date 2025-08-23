@@ -1016,7 +1016,7 @@ class AutomatedContentGenerator:
                 logger.warning("⚠️ No active campaigns found in database")
                 return
             
-            logger.info(f"📊 Found {len(campaigns)} active campaigns")
+            logger.info(f"📊 Found {len(campaigns)} active campaigns (ordered by ID ascending)")
             
             if self.test_mode:
                 # Test mode: pick a random campaign and generate 1 content of each type
