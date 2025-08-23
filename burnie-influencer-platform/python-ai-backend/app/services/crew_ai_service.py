@@ -1498,6 +1498,15 @@ class CrewAIService:
             - **IMPORTANT**: Generate natural prompts first, then the system will automatically append logo color preservation instructions
             """
         
+        # Validate tools before creating agent
+        if not tools:
+            logger.error("❌ No tools provided to Visual Content Creator agent")
+            raise ValueError("Visual Content Creator agent requires tools")
+        
+        # Log available tools for debugging
+        tool_names = [tool.name for tool in tools] if tools else []
+        logger.info(f"🔧 Visual Content Creator tools: {tool_names}")
+        
         return Agent(
             role="Visual Content Creator",
             goal="Create professional visual content that perfectly aligns with text content and incorporates successful visual strategies",
@@ -1524,10 +1533,10 @@ class CrewAIService:
             - Extract visual cues from text content (tone, themes, messaging) for prompt generation
             - Ensure brand consistency between text and visual elements
             
-            🔧 YOUR AVAILABLE TOOLS:
+            🔧 YOUR AVAILABLE TOOLS (CRITICAL - ONLY USE THESE):
             {chr(10).join(capabilities_text) if capabilities_text else "- Visual Concept Tool (descriptions only)"}
             
-            🚨 CRITICAL: PROVIDER-SPECIFIC TOOL USAGE
+            🚨 CRITICAL: PROVIDER-SPECIFIC TOOL USAGE - NO EXCEPTIONS
             
             USER'S PROVIDER CHOICES:
             - Image Provider: {image_provider.upper()} 
@@ -1535,16 +1544,23 @@ class CrewAIService:
             - Video Provider: {video_provider.upper()}
             - Video Model: {video_model}
             
-            **MANDATORY TOOL SELECTION RULES**:
+            **MANDATORY TOOL SELECTION RULES - NEVER DEVIATE**:
             - For IMAGE generation: ONLY use {image_provider}_image_generation tool
             - For VIDEO generation: ONLY use {video_provider}_video_generation tool  
             - NEVER use a different provider's tool than what the user selected
+            - NEVER invent or hallucinate tools that don't exist
             - The user specifically chose {image_provider.upper()} for images and {video_provider.upper()} for videos
             {"🚫 VIDEO GENERATION DISABLED: When video_provider is 'none', you MUST generate IMAGES only, even if strategy suggests video content" if video_provider == 'none' else ""}
             
-            **YOUR TOOL USAGE**:
+            **YOUR TOOL USAGE - VERIFY BEFORE USING**:
             {f"✅ Use `{image_provider}_image_generation` tool for images with model: {image_model}" if has_image_tool else "❌ No image generation available"}
             {f"✅ Use `{video_provider}_video_generation` tool for videos with model: {video_model}" if has_video_tool else "❌ No video generation available"}
+            
+            🚨 **TOOL VERIFICATION CHECKLIST** (MANDATORY BEFORE EACH TOOL USE):
+            1. Check if the tool name exists in your available tools list above
+            2. Verify the tool name matches EXACTLY (case-sensitive)
+            3. If tool doesn't exist, DO NOT attempt to use it
+            4. Report the missing tool and use available alternatives
             
             🛡️ INTELLIGENT FALLBACK STRATEGY:
             {chr(10).join(fallback_strategy)}
@@ -1973,6 +1989,42 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             expected_output=f"Single JSON object with main_tweet, {'hashtags_used, character_counts, and approach fields' if post_type == 'longpost' else 'thread_array, hashtags_used, and character_counts fields'} - no additional text or explanations"
         )
 
+    def _create_tool_validation_callback(self):
+        """Create a callback to validate tool usage and prevent hallucination"""
+        from langchain.callbacks.base import BaseCallbackHandler
+        
+        class ToolValidationCallback(BaseCallbackHandler):
+            def __init__(self, available_tools):
+                self.available_tools = [tool.name for tool in available_tools] if available_tools else []
+                self.logger = logging.getLogger(__name__)
+            
+            def on_tool_start(self, serialized, input_str, **kwargs):
+                """Called when a tool starts executing"""
+                tool_name = serialized.get("name", "unknown")
+                if tool_name not in self.available_tools:
+                    self.logger.error(f"🚨 TOOL HALLUCINATION DETECTED: '{tool_name}' not in available tools: {self.available_tools}")
+                    raise ValueError(f"Tool '{tool_name}' not available. Available tools: {self.available_tools}")
+                else:
+                    self.logger.info(f"✅ Tool validation passed: '{tool_name}' is available")
+        
+        return ToolValidationCallback(self.agents[AgentType.VISUAL_CONTENT].tools if hasattr(self.agents, AgentType.VISUAL_CONTENT) else [])
+    
+    def _validate_tool_availability(self, tool_name: str, available_tools: list) -> bool:
+        """Validate if a tool is available to prevent hallucination"""
+        if not available_tools:
+            logger.error(f"❌ No tools available for validation")
+            return False
+        
+        tool_names = [tool.name for tool in available_tools] if hasattr(available_tools[0], 'name') else available_tools
+        
+        if tool_name not in tool_names:
+            logger.error(f"🚨 TOOL HALLUCINATION DETECTED: '{tool_name}' not in available tools: {tool_names}")
+            logger.error(f"🔧 Available tools: {tool_names}")
+            return False
+        
+        logger.info(f"✅ Tool validation passed: '{tool_name}' is available")
+        return True
+    
     def _create_visual_task(self) -> Task:
         """Create task for Visual Creator Agent"""
         # Get the same configuration that was used in agent creation
@@ -1984,6 +2036,12 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         # Check if tools are available
         has_image_tool = image_provider in ['openai', 'fal', 'google'] and self.user_api_keys.get(image_provider if image_provider != 'fal' else 'fal')
         has_video_tool = video_provider == 'google' and self.user_api_keys.get('google')
+        
+        # Validate tool availability and log for debugging
+        logger.info(f"🔧 Visual task tool validation:")
+        logger.info(f"  - Image provider: {image_provider}, Available: {has_image_tool}")
+        logger.info(f"  - Video provider: {video_provider}, Available: {has_video_tool}")
+        logger.info(f"  - API keys: {list(self.user_api_keys.keys()) if self.user_api_keys else 'None'}")
         
         return Task(
             description=f"""
@@ -2002,6 +2060,21 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             **NEVER DEVIATE FROM USER'S PROVIDER CHOICE**:
             The user specifically selected {image_provider.upper()} for images and {video_provider.upper()} for videos.
             You have access ONLY to tools for their chosen providers.
+            
+            🚨 **CRITICAL TOOL VALIDATION** (MANDATORY BEFORE EACH TOOL USE):
+            **BEFORE using any tool, you MUST verify it exists in your available tools list:**
+            
+            **YOUR AVAILABLE TOOLS ARE:**
+            - leaderboard_success_patterns (for getting visual success patterns)
+            {f"- {image_provider}_image_generation (for generating images)" if has_image_tool else "- NO IMAGE GENERATION TOOLS AVAILABLE"}
+            {f"- {video_provider}_video_generation (for generating videos)" if has_video_tool else "- NO VIDEO GENERATION TOOLS AVAILABLE"}
+            
+            **TOOL USAGE RULES:**
+            1. NEVER use a tool that's not in the list above
+            2. NEVER invent or hallucinate tool names
+            3. If you need a tool that's not available, report it and use alternatives
+            4. Always verify tool name spelling and case sensitivity
+            5. If unsure about a tool, call leaderboard_success_patterns first to get guidance
             
             🏆 **MANDATORY: USE LEADERBOARD SUCCESS PATTERNS**:
             BEFORE generating any visual content, you MUST call the `leaderboard_success_patterns` tool to get proven visual strategies from top-performing yappers for this campaign.
@@ -2026,12 +2099,19 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
               → Combine their patterns with text content for optimal visuals
             
             **REQUIRED WORKFLOW**:
+            0. ZERO: VERIFY your available tools before starting (see tool list above)
             1. FIRST: Call `leaderboard_success_patterns` tool with visual analysis request
             2. SECOND: Parse JSON and identify yappers with meaningful visual_success_patterns
             3. THIRD: IF visual patterns available → Select best yapper; IF not → ignore all patterns
             4. FOURTH: Analyze the text content output from Text Creator Agent
             5. FIFTH: Create visual strategy (pattern-based OR purely text-based)
             6. SIXTH: Generate visual content using your provider-specific tools
+            
+            **TOOL VALIDATION CHECK** (MANDATORY):
+            Before step 6, verify you have the correct tool:
+            - For images: Check if `{image_provider}_image_generation` exists in your tools
+            - For videos: Check if `{video_provider}_video_generation` exists in your tools
+            - If tool doesn't exist, report the issue and use available alternatives
             
             **VISUAL PATTERN DECISION-MAKING**:
             - SMART FILTERING: Only use yappers with actual visual success data
@@ -2067,21 +2147,24 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
             - Post Type: {getattr(self.mining_session, 'post_type', 'thread').upper()}
             
-            📋 **POST TYPE VISUAL STRATEGY**:
+            📋 **POST TYPE VISUAL STRATEGY** (FULL CREATIVE FREEDOM):
             {f'- LONGPOST: Generate ONE compelling image to accompany the comprehensive text content' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
-             f'- SHITPOST: Generate humorous, meme-style image for MAIN TWEET ONLY (no thread images)' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
-             '- THREAD: Generate engaging image/video for main tweet based on strategist recommendation'}
+             f'- SHITPOST: Generate ONE image for main tweet only (no thread images)' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
+             '- THREAD: Generate ONE engaging image/video for main tweet based on strategist recommendation'}
             
-            📋 **STRATEGY-DRIVEN CONTENT TYPE**:
-            {f'- Generate ONE professional image that complements the longpost content theme' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
-             f'- Generate ONE meme-style image for shitpost main tweet only' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
-             '- Review the Content Strategist recommendation (IMAGE or VIDEO)'}
-            {'' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
-             f'- Use ironic, humorous, crypto meme aesthetic' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
-             '- Follow the strategic decision as your PRIMARY goal'}
-            {'' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
-             f'- Focus on absurd, relatable scenarios with crypto elements' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
-             '- Apply intelligent fallback hierarchy if needed'}
+            📋 **CONTENT STYLE FREEDOM** (AGENT DECIDES AUTONOMOUSLY):
+            {f'- LONGPOST: You have FULL FREEDOM to choose style - professional, meme-style, or any other style that fits the content' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
+             f'- SHITPOST: You have FULL FREEDOM to choose style - meme-style, professional, or any other style that fits the content' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
+             '- THREAD: You have FULL FREEDOM to choose style - professional, meme-style, or any other style that fits the content'}
+            
+            🎭 **WEB3 MEME CHARACTER INTEGRATION** (AGENT DECIDES AUTONOMOUSLY):
+            **FOR ALL CONTENT TYPES** (shitpost, longpost, thread):
+            - You have COMPLETE FREEDOM to decide whether to include famous web3 meme characters
+            - You can choose to include them if they enhance the message and fit the content
+            - You can choose NOT to include them if they don't fit the content or message
+            - This decision is entirely up to your creative judgment based on content analysis
+            - Examples of web3 meme characters you might consider: Pepe, Wojak, Chad, etc.
+            - But you are NOT required to use them - it's purely optional based on your analysis
             
             🎯 **EXECUTION HIERARCHY**:
             
@@ -2151,9 +2234,9 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             **ARTISTIC STYLE CATEGORIES** (Choose autonomously based on content):
             
-            **STYLE OPTIONS** (Select what fits the tweet emotion):
+            **STYLE OPTIONS** (Select what fits the tweet emotion and content type):
             • Comic/Cartoon - for humorous, relatable content
-            • Meme/Internet Culture - for FOMO, viral content  
+            • Meme/Internet Culture - for FOMO, viral content, or when meme-style fits the message
             • Techno/Cyberpunk - for futuristic, innovation themes
             • FOMO/Urgency - for time-sensitive opportunities
             • Animated/Dynamic - for action-oriented content
@@ -2166,6 +2249,8 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             • Studio Lightning - for polished, professional look
             • Cinematic - for dramatic, epic storytelling
             • Abstract/Conceptual - for complex ideas visualization
+            
+            **IMPORTANT**: You can choose ANY style for ANY content type (shitpost, longpost, thread) based on what best fits the content and message. Don't feel restricted by content type stereotypes.
             
             **ESSENTIAL QUALITY KEYWORDS** (ALWAYS include these for professional output):
             
@@ -2205,17 +2290,22 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                - Extract key concepts: project features, benefits, community aspects, timing, opportunities
                - Determine the primary message goal: inform, excite, create urgency, build community, etc.
                - Consider the full content scope when designing visual concepts
+               - **IMPORTANT**: Don't let content type (shitpost/longpost/thread) limit your creative choices
             
             2. **Intelligent Style Selection**:
                - Choose the most appropriate artistic style from the options above
                - Consider your target audience (Web3 GenZ, crypto enthusiasts, tech-savvy users)
                - Match visual complexity to message complexity
                - Decide on realism level: cartoon → stylized → photorealistic
+               - **FULL STYLE FREEDOM**: You can choose ANY style for ANY content type based on what best fits the message
+               - **MEME CHARACTER DECISION**: Decide autonomously whether to include web3 meme characters (Pepe, Wojak, Chad, etc.) based on content relevance
             
             3. **Original Concept Creation**:
                - Generate a unique visual concept that amplifies the tweet's message
                - Create original scenes, characters, or compositions (do NOT copy templates)
                - Incorporate crypto/Web3 cultural elements naturally when relevant
+               - **MEME CHARACTER INTEGRATION**: If you decide to include web3 meme characters, integrate them naturally and meaningfully
+               - **STYLE FLEXIBILITY**: Don't feel restricted by content type - create the visual style that best serves the message
                - Design for maximum viral potential and engagement
             
             4. **Professional Enhancement**:
@@ -2247,16 +2337,27 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - **MANDATORY**: Follow the Autonomous Prompt Generation Process above - NO TEMPLATES
             - **CRITICAL NO-TEXT RULE**: EVERY prompt MUST include explicit "no text", "no words", "no letters" instructions
             - **STEP 1**: Deep analysis of ALL Text Content Creator's output (main_tweet + thread_array for threads/shitposts, or full longpost content) for emotional tone and core concepts
-            - **STEP 2**: Intelligent selection of artistic style that best fits the content
-            - **STEP 3**: Original concept creation that amplifies the tweet's message uniquely
+            - **STEP 2**: Intelligent selection of artistic style that best fits the content (FULL FREEDOM for all content types)
+            - **STEP 3**: Original concept creation that amplifies the tweet's message uniquely (including optional web3 meme characters if relevant)
             - **STEP 4**: Professional enhancement with Essential Quality Keywords + NO-TEXT requirements
             - **STEP 5**: Prompt optimization for maximum AI model effectiveness with guaranteed no-text integration
+            - **CREATIVE FREEDOM**: Remember, you can choose ANY style for ANY content type based on what best serves the message
             
             🚨 **CRITICAL TOOL INPUT FORMAT**:
             - When calling {f"{image_provider}_image_generation" if has_image_tool else "image generation"} tool, provide ONLY a simple string prompt
             - DO NOT use dictionary format, JSON format, or any complex structure
             - Example: Use "A futuristic digital landscape..." NOT {{"description": "A futuristic...", "image_url": "..."}}
             - The tool expects: prompt = "your generated prompt text here"
+            
+            🚨 **FINAL TOOL SAFETY CHECK**:
+            **BEFORE calling any tool, repeat this checklist:**
+            1. ✅ Tool name exists in my available tools list
+            2. ✅ Tool name spelling is EXACTLY correct (case-sensitive)
+            3. ✅ I'm using the right provider tool for the right content type
+            4. ✅ If tool doesn't exist, I will report it and use alternatives
+            5. ✅ I will NOT hallucinate or invent tools that don't exist
+            
+            **If any check fails, STOP and report the issue before proceeding.**
             - Keep it simple: just the creative prompt string you generate
             - **CRITICAL**: Create original, dynamic prompts that ensure variety and prevent repetitive imagery
             - Campaign context: "{self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
