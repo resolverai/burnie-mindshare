@@ -85,6 +85,9 @@ export class ContentMarketplace {
   @Column({ type: 'timestamp', nullable: true })
   biddingEnabledAt?: Date | null; // When bidding was enabled
 
+  @Column({ type: 'varchar', length: 50, default: 'mining_interface' })
+  source!: string; // 'mining_interface' or 'yapper_interface'
+
   // Relations
   @ManyToOne(() => User, user => user.id)
   @JoinColumn({ name: 'creatorId' })

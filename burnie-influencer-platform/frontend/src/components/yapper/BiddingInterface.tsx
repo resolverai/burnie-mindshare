@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAccount } from 'wagmi'
 import Image from 'next/image'
@@ -27,7 +27,48 @@ import { useROASTPrice, convertROASTToUSDC, formatUSDCPrice } from '../../utils/
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
 import { useInfiniteMarketplace } from '../../hooks/useInfiniteMarketplace'
+import { useUserReferralCode } from '@/hooks/useUserReferralCode'
+import { useAuth } from '@/hooks/useAuth'
 
+
+// Referral Code Section Component
+const ReferralCodeSection = () => {
+  const { referralCode, copyToClipboard } = useUserReferralCode()
+  const { isAuthenticated } = useAuth()
+  const [showCopySuccess, setShowCopySuccess] = useState(false)
+
+  const handleReferralCodeClick = async () => {
+    if (referralCode?.code) {
+      const success = await copyToClipboard(referralCode.code)
+      if (success) {
+        setShowCopySuccess(true)
+        setTimeout(() => setShowCopySuccess(false), 2000)
+      }
+    }
+  }
+
+  if (!isAuthenticated || !referralCode) return null
+
+  return (
+    <div className="flex justify-end -mt-2 mb-1">
+      <button
+        onClick={handleReferralCodeClick}
+        className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white/70 hover:text-white/90 rounded text-[10px] font-medium transition-all duration-200 flex items-center gap-1 backdrop-blur-sm"
+        title="Click to copy your referral code"
+      >
+        <span className="text-[8px]">🔗</span>
+        <span className="text-[10px]">Ref: {referralCode.code}</span>
+      </button>
+      
+      {/* Copy success tooltip */}
+      {showCopySuccess && (
+        <div className="absolute top-16 right-0 bg-green-600 text-white text-[8px] px-1.5 py-0.5 rounded whitespace-nowrap z-50">
+          Copied!
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Use MarketplaceContent type directly from the service
 type ContentItem = MarketplaceContent & {
@@ -50,6 +91,7 @@ export default function BiddingInterface() {
   const [isScreenshotDetected, setIsScreenshotDetected] = useState(false)
   const [expandedLongposts, setExpandedLongposts] = useState<Set<number>>(new Set())
   const [heroPosition, setHeroPosition] = useState(0)
+  const [clickedCards, setClickedCards] = useState<Set<number>>(new Set())
 
 
   // Generate consistent random leaderboard position change for each item (using id as seed)
@@ -176,14 +218,16 @@ export default function BiddingInterface() {
       }
     }, [roastAmount, roastPrice])
 
-    return (
-      <div className="text-white text-lg md:text-2xl font-semibold">
-        {roastAmount} <span className="text-sm md:text-base align-middle font-semibold">$ROAST</span>
-        {roastPrice > 0 && (
-          <div className="text-sm text-white/80">
-            ({formatUSDCPrice(usdcAmount)} USDC)
-          </div>
-        )}
+              return (
+      <div className="text-white text-[10px] xs:text-xs sm:text-lg md:text-lg lg:text-2xl font-semibold">
+        <div className="flex flex-row items-baseline gap-1 xs:gap-2 sm:gap-2">
+          <span className="text-center xs:text-left sm:text-left">{roastAmount} <span className="text-[8px] xs:text-[9px] sm:text-sm md:text-sm lg:text-base align-middle font-semibold">$ROAST</span></span>
+          {roastPrice > 0 && (
+            <span className="text-xs xs:text-xs sm:text-sm md:hidden lg:block text-white/80 text-center xs:text-left sm:text-left">
+              ({formatUSDCPrice(usdcAmount)} USDC)
+            </span>
+          )}
+        </div>
       </div>
     )
   }
@@ -276,6 +320,26 @@ export default function BiddingInterface() {
     if (showPurchaseModal && showPurchaseModal.id === updatedContent.id) {
       setShowPurchaseModal(updatedContent);
     }
+  };
+
+  const handleCardClick = (itemId: number) => {
+    setClickedCards(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(itemId)) {
+        // If clicking the same card, close it
+        newSet.delete(itemId);
+      } else {
+        // If clicking a different card, close all others and open this one
+        newSet.clear();
+        newSet.add(itemId);
+      }
+      return newSet;
+    });
+  };
+
+  // Close all cards when clicking outside
+  const handleOutsideClick = () => {
+    setClickedCards(new Set());
   };
 
   // Handle purchase function (updated to use marketplace service)
@@ -388,7 +452,7 @@ export default function BiddingInterface() {
 
   // Filters Component - memoized to prevent unnecessary re-renders
   const FiltersBar = useCallback(() => (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-2.5 xs:gap-3 sm:gap-4">
       {/* Dynamic Platform and Project Filters */}
       <DynamicFilters
         selectedPlatform={selectedPlatform}
@@ -402,9 +466,9 @@ export default function BiddingInterface() {
   ), [searchTerm, selectedPlatform, selectedProject, handleSearchChange, handlePlatformChange, handleProjectChange])
 
   return (
-    <div className="relative">
+    <div className="relative" onClick={handleOutsideClick}>
       {/* Marketplace is now public - no copy protection on main interface */}
-      <div className="px-4 py-6 space-y-6">
+      <div className="px-2.5 xs:px-3 sm:px-4 md:px-6 py-3 xs:py-4 sm:py-6 space-y-3 xs:space-y-4 sm:space-y-6 max-w-full overflow-hidden">
         {/* Hero Carousel Section */}
         {!isCarouselLoading && carouselSlides.length > 0 && (
           <HeroCarousel slides={carouselSlides} onProgressChange={setHeroPosition} />
@@ -415,18 +479,21 @@ export default function BiddingInterface() {
           <ProgressSlider 
             segments={carouselSlides.length} 
             position={heroPosition} 
-            className="w-32 md:w-44 mx-auto" 
+            className="w-20 xs:w-24 sm:w-32 md:w-44 mx-auto" 
           />
         )}
         
-
+        {/* Referral Code Section - Show on mobile and tablet, hidden on desktop */}
+        <div className="xl:hidden">
+          <ReferralCodeSection />
+        </div>
         
         {/* Filters */}
         {FiltersBar()}
 
         {/* Content Grid */}
         {isContentLoading ? (
-          <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 xs:gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="yapper-card animate-pulse">
                 <div className="aspect-[16/10] bg-gray-300"></div>
@@ -434,7 +501,10 @@ export default function BiddingInterface() {
             ))}
           </div>
         ) : content && content.length > 0 ? (
-                    <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 px-4 py-8">
+                    <div 
+                      className="grid gap-2.5 xs:gap-3 sm:gap-4 md:gap-6 lg:gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 px-1 xs:px-1.5 sm:px-2 md:px-4 py-2.5 xs:py-3 sm:py-4 md:py-8 touch-pan-y max-w-full"
+                      onClick={handleOutsideClick}
+                    >
             {content.map((item: ContentItem) => {
               const shouldUseMarkdown = isMarkdownContent(item.post_type)
                   const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
@@ -455,83 +525,100 @@ export default function BiddingInterface() {
                   }
                   
                   return (
-                    <article key={item.id} className="group relative rounded-[28px] overflow-hidden bg-yapper-surface content-card-3d hover:z-50 cursor-pointer">
-                      <div className="relative aspect-[16/10]">
+                    <article 
+                      key={item.id} 
+                      className={`group relative rounded-xl xs:rounded-2xl sm:rounded-[28px] overflow-hidden bg-yapper-surface content-card-3d hover:z-50 cursor-pointer touch-pan-y transition-all duration-300 w-full max-w-[calc(100%-0.5rem)] xs:max-w-[calc(100%-0.5rem)] sm:max-w-full md:max-w-full mx-auto xs:mx-auto sm:mx-0 ${
+                        clickedCards.has(item.id) ? 'scale-105 z-50 shadow-2xl my-2' : 'scale-100'
+                      }`}
+                    >
+                      <div 
+                        className="relative aspect-[16/10] h-[220px] xs:h-[240px] sm:h-[260px] md:h-[280px] lg:h-auto"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleCardClick(item.id);
+                        }}
+                      >
                         {/* Background layer */}
                         {displayImage ? (
                           <Image 
                             src={displayImage} 
                             alt="Project" 
                             fill 
-                            sizes="(min-width: 768px) 50vw, 100vw" 
-                            className="object-cover transition-all duration-300 group-hover:blur-sm"
+                            sizes="(max-width: 375px) 100vw, (max-width: 430px) 100vw, (max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" 
+                            className={`object-cover transition-all duration-300 ${
+                              clickedCards.has(item.id) || false ? 'blur-sm' : 'md:group-hover:blur-sm'
+                            }`}
                             unoptimized={isPresignedS3Url(displayImage)}
                           />
                         ) : (
-                          <div className="absolute inset-0 flex items-center justify-center bg-yapper-muted transition-all duration-300 group-hover:blur-sm">
-                            <div className="text-white/50 text-center">
-                              <div className="text-4xl mb-2">📝</div>
-                              <div className="text-sm">AI Generated Content</div>
+                          <div className={`absolute inset-0 flex items-center justify-center bg-yapper-muted transition-all duration-300 ${
+                            clickedCards.has(item.id) || false ? 'blur-sm' : 'md:group-hover:blur-sm'
+                          }`}>
+                            <div className="text-white/50 text-center px-1.5 xs:px-2">
+                              <div className="text-2xl xs:text-3xl sm:text-4xl mb-1.5 xs:mb-2">📝</div>
+                              <div className="text-xs xs:text-xs sm:text-sm">AI Generated Content</div>
                             </div>
                           </div>
                         )}
 
-                        {/* Base overlay when not hovered */}
-                        <div className="absolute inset-0 hidden md:flex flex-col justify-end p-4 md:p-5 transition-opacity duration-300 opacity-100 group-hover:opacity-0 gap-1">
+                        {/* Base overlay when not hovered (hidden on mobile, visible on desktop) */}
+                        <div 
+                          className="absolute inset-0 hidden md:flex flex-col justify-end p-3 md:p-5 transition-opacity duration-300 opacity-100 group-hover:opacity-0 gap-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCardClick(item.id);
+                          }}
+                        >
                           <div className="flex items-center gap-2">
-                            <span className="text-white text-md md:text-xl font-medium font-nt-brick">{item.campaign.title}</span>
+                            <span className="text-white text-sm md:text-lg font-medium font-nt-brick truncate">{item.campaign.title}</span>
                           </div>
-                                        <div className="text-white text-xs md:text-sm font-medium">
-                                                Predicted Position Change: <span className="font-semibold">+{getRandomLeaderboardPositionChange(item.id.toString(), item.content_text, item.tweet_thread)}</span>
-              </div>
                         </div>
 
-                        {/* Overlay content (hover-reveal on md+) */}
-                        <div className="absolute inset-0 transition-opacity duration-300 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 bg-white/10 backdrop-blur-sm">
+                        {/* Overlay content (click-reveal on mobile, hover-reveal on desktop) */}
+                        <div 
+                          className={`absolute inset-0 transition-all duration-300 bg-white/10 backdrop-blur-sm ${
+                            clickedCards.has(item.id) || false ? 'opacity-100 scale-105 z-10' : 'opacity-0 md:group-hover:opacity-100 md:group-hover:scale-105'
+                          }`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCardClick(item.id);
+                          }}
+                        >
                           <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/25 to-black/40" aria-hidden />
 
                           <div className="relative z-10 h-full w-full flex flex-col">
                             {/* Top badges */}
-                            <div className="px-4 md:px-5 pt-4 md:pt-5 flex items-center justify-between">
-                              <span className="inline-flex h-9 items-center rounded-[12px] px-3 bg-[#451616] hover:bg-[#743636] transition-colors text-white text-sm font-medium max-w-[200px]">
-                                <Image src="/openledger.svg" alt="Project" width={16} height={16} className="mr-2 flex-shrink-0" />
-                                <span className="truncate">
+                            <div className="px-1.5 xs:px-2 sm:px-3 md:px-5 pt-1.5 xs:pt-2 sm:pt-3 md:pt-5 flex flex-row items-start sm:items-center justify-between sm:justify-start gap-2 xs:gap-3 sm:gap-4 md:gap-20 lg:gap-60 ml-0 xs:ml-[10px] sm:ml-[15px] md:ml-0 mt-1.5 xs:mt-2 sm:mt-3 md:mt-0 max-w-[85vw] xs:max-w-[70vw] sm:max-w-[85vw] md:max-w-[90vw] lg:max-w-[85vw] xl:max-w-full">
+                              <span className="inline-flex h-8 xs:h-9 sm:h-9 items-center rounded-md xs:rounded-lg sm:rounded-[10px] md:rounded-[12px] px-1.5 xs:px-2 sm:px-3 md:px-3 bg-[#451616] hover:bg-[#743636] transition-colors text-white text-xs xs:text-xs sm:text-sm font-medium max-w-[70px] xs:max-w-[80px] sm:max-w-[100px] md:max-w-[200px]">
+                                <Image src="/openledger.svg" alt="Project" width={12} height={12} className="mr-1 xs:mr-1 sm:mr-2 flex-shrink-0 w-3 h-3 xs:w-4 xs:h-4 sm:w-4 sm:h-4" />
+                                <span className="truncate text-xs xs:text-xs sm:text-sm">
                                   {(item.campaign as any).project_name || item.campaign.title || 'Project'}
                                 </span>
                               </span>
                               {((item.campaign as any).platformSource || (item.campaign as any).platform_source) && (
-                                <span className="inline-flex h-9 items-center rounded-full bg-[#FFEB68] px-4 text-[#3b2a00] text-sm font-semibold shadow-[0_6px_20px_rgba(0,0,0,0.25)]">
+                                <span className="inline-flex h-8 xs:h-9 sm:h-9 items-center rounded-full bg-[#FFEB68] px-1.5 xs:px-2 sm:px-3 md:px-4 text-[#3b2a00] text-xs xs:text-xs sm:text-sm font-semibold shadow-[0_4px_16px_rgba(0,0,0,0.25)] md:shadow-[0_6px_20px_rgba(0,0,0,0.25)] max-w-[70px] xs:max-w-[80px] sm:max-w-full">
                                   {(item.campaign as any).platformSource || (item.campaign as any).platform_source}
                                 </span>
                               )}
                             </div>
 
-                            {/* Title and stats */}
-                            <div className="px-4 md:px-5 mt-6 md:mt-12">
-                              <h3 className="text-white text-base md:text-[16px] font-semibold drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)] truncate whitespace-nowrap overflow-hidden font-nt-brick">
-                                {item.campaign.title && item.campaign.title.length > 45 
+                            {/* Title only - stats removed */}
+                            <div className="px-1.5 xs:px-2 sm:px-3 md:px-5 mt-2 xs:mt-2.5 sm:mt-4 md:mt-4 lg:mt-6 max-w-[85vw] xs:max-w-[70vw] sm:max-w-[300px] md:max-w-[90vw] lg:max-w-[85vw] xl:max-w-none ml-0 xs:ml-[10px] sm:ml-[15px] md:ml-0">
+                              <h3 className="text-white text-xs xs:text-xs sm:text-sm md:text-base lg:text-[16px] font-semibold drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)] line-clamp-2 font-nt-brick leading-tight mb-1 xs:mb-1.5 sm:mb-2 md:mb-3 text-left">
+                                {item.campaign.title && item.campaign.title.length > 45
                                   ? item.campaign.title.substring(0, 45) + '...' 
                                   : (item.campaign.title || 'Campaign Title')}
                               </h3>
-                              <div className="grid grid-cols-2 gap-4 md:gap-8 text-white/85 mt-4">
-                                <div>
-                                  <div className="text-xs md:text-sm font-semibold">Predicted Position Change</div>
-                                  <div className="text-lg md:text-xl font-semibold">+{getRandomLeaderboardPositionChange(item.id.toString(), item.content_text, item.tweet_thread)}</div>
-                                </div>
-                                <div>
-                                  <div className="text-xs md:text-sm font-semibold">Quality Score</div>
-                                  <div className="text-lg md:text-xl font-semibold">{item.quality_score.toFixed(1)}/100</div>
-                                </div>
-                              </div>
                             </div>
 
                             {/* Bottom bar */}
-                            <div className="mt-auto px-4 md:px-5 pb-4 md:pb-5">
-                              <div className="flex items-center justify-between rounded-[12px] bg-white/10 backdrop-blur-md px-4 md:px-5 py-2 shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
+                            <div className="mt-auto px-1.5 xs:px-2 sm:px-3 md:px-5 pb-2 xs:pb-2.5 sm:pb-4 md:pb-5 w-full max-w-[calc(100%-1rem)] xs:max-w-[calc(100%-1rem)] sm:max-w-full ml-0 xs:ml-[10px] sm:ml-[15px] md:ml-0">
+                              <div className="flex flex-col sm:flex-row items-center justify-between sm:justify-between md:justify-start lg:justify-between rounded-md xs:rounded-lg sm:rounded-[10px] md:rounded-[12px] bg-white/10 backdrop-blur-md px-2 xs:px-2.5 sm:px-4 md:px-4 lg:px-5 py-2.5 xs:py-3 sm:py-3 md:py-2.5 lg:py-3 shadow-[0_6px_20px_rgba(0,0,0,0.25)] md:shadow-[0_10px_30px_rgba(0,0,0,0.25)] gap-2 xs:gap-2.5 sm:gap-3 md:gap-20 lg:gap-3 max-w-[85vw] xs:max-w-[70vw] sm:max-w-[85vw] md:max-w-[90vw] lg:max-w-[85vw] xl:max-w-full">
                                 <PriceDisplay roastAmount={item.asking_price} />
                                 <button
                                   onClick={() => setShowPurchaseModal(item)}
-                                  className="btn-yapper-primary h-9 md:h-10 px-4 md:px-5 glow-button-orange"
+                                  className="btn-yapper-primary h-9 xs:h-10 sm:h-10 md:h-10 lg:h-12 px-2.5 xs:px-3 sm:px-5 md:px-4 lg:px-5 glow-button-orange w-full sm:w-auto min-w-[70px] xs:min-w-[80px] sm:min-w-[100px] md:min-w-[80px] lg:min-w-[100px] xl:min-w-[100px] text-xs xs:text-xs sm:text-sm md:text-xs lg:text-base font-medium flex-shrink-0 shadow-lg touch-manipulation"
                                 >
                                   Preview
                                 </button>
@@ -545,18 +632,18 @@ export default function BiddingInterface() {
                 })}
               </div>
             ) : (
-          <div className="text-center py-12">
-            <div className="text-white/70 text-lg mb-2">No content found</div>
-            <div className="text-white/50 text-sm">Try adjusting your search or filters, or check back later for new AI-generated content</div>
+          <div className="text-center py-6 xs:py-8 sm:py-12 px-3 xs:px-4">
+            <div className="text-white/70 text-sm xs:text-base sm:text-lg mb-2">No content found</div>
+            <div className="text-white/50 text-xs xs:text-sm">Try adjusting your search or filters, or check back later for new AI-generated content</div>
           </div>
         )}
 
         {/* Infinite Scroll Loading Indicator */}
         {isFetchingNextPage && (
-          <div className="text-center py-8">
+          <div className="text-center py-5 xs:py-6 sm:py-8">
             <div className="inline-flex items-center gap-2 text-white/70">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white"></div>
-              <span>Loading more content...</span>
+              <div className="animate-spin rounded-full h-4 w-4 xs:h-5 xs:w-5 sm:h-6 sm:w-6 border-b-2 border-white"></div>
+              <span className="text-xs xs:text-sm sm:text-base">Loading more content...</span>
             </div>
           </div>
         )}

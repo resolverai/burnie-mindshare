@@ -98,6 +98,10 @@ const envSchema = Joi.object({
   // External Platform Aggregation
   COOKIE_FUN_API_URL: Joi.string().uri().default('https://api.cookie.fun'),
   YAPS_KAITO_API_URL: Joi.string().uri().default('https://api.yaps.kaito.ai'),
+  
+  // Yapper Interface Configuration
+  YAPPER_INTERFACE_EXTRA_PRICE: Joi.number().min(0).default(0), // Extra ROAST amount for yapper interface content
+  YAPPER_INTERFACE_CREATOR_WALLET: Joi.string().required(), // Wallet address for yapper interface content creation
   YAP_MARKET_API_URL: Joi.string().uri().default('https://api.yap.market'),
   
   // Content Scoring
@@ -244,6 +248,12 @@ export const env = {
     cookieFun: { apiUrl: envVars.COOKIE_FUN_API_URL },
     yapsKaito: { apiUrl: envVars.YAPS_KAITO_API_URL },
     yapMarket: { apiUrl: envVars.YAP_MARKET_API_URL },
+  },
+
+  // Yapper Interface Configuration
+  yapperInterface: {
+    extraPrice: envVars.YAPPER_INTERFACE_EXTRA_PRICE,
+    creatorWallet: envVars.YAPPER_INTERFACE_CREATOR_WALLET,
   },
 
   // Content Scoring

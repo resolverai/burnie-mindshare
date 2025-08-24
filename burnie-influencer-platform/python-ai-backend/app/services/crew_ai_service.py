@@ -81,7 +81,7 @@ class CrewAIService:
     optimized for maximum mindshare and engagement using user's preferred models.
     """
     
-    def __init__(self, session_id: str, progress_tracker, websocket_manager, websocket_session_id: str = None):
+    def __init__(self, session_id: str, progress_tracker, websocket_manager, websocket_session_id: str = None, execution_id: str = None):
         """
         Initialize CrewAI service with dual session ID support
         
@@ -90,11 +90,13 @@ class CrewAIService:
             websocket_session_id: Session ID for WebSocket communication (defaults to session_id)
             progress_tracker: Progress tracking instance
             websocket_manager: WebSocket manager instance
+            execution_id: Execution ID for yapper interface database updates
         """
         self.session_id = session_id  # Internal session ID for isolation
         self.websocket_session_id = websocket_session_id or session_id  # WebSocket session ID for frontend
         self.progress_tracker = progress_tracker
         self.websocket_manager = websocket_manager
+        self.execution_id = execution_id  # Store execution_id for database updates
         
         # Initialize repositories
         self.user_repo = UserRepository()
@@ -129,6 +131,9 @@ class CrewAIService:
         # S3 organization parameters
         self.wallet_address = None
         self.agent_id = None
+        
+        # Yapper-specific context
+        self.selected_yapper_handle = None  # Twitter handle of selected yapper for pattern
 
     async def generate_content(self, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None, wallet_address: str = None) -> ContentGenerationResponse:
         """Main entry point for multi-agentic content generation"""
@@ -443,6 +448,13 @@ class CrewAIService:
         except Exception as e:
             logger.error(f"❌ Error setting up agents: {e}")
             raise
+
+    def _get_success_pattern_tool_name(self) -> str:
+        """Get the correct success pattern tool name based on the request source"""
+        if self.selected_yapper_handle:
+            return "yapper_specific_success_pattern"
+        else:
+            return "leaderboard_success_pattern"
 
     def _create_data_analyst_agent(self, llm) -> Agent:
         """Create the Data Analyst Agent with real mindshare prediction capabilities"""
@@ -818,12 +830,24 @@ class CrewAIService:
         # Create tools based on user preferences
         tools = []
         
-        # Add Leaderboard Success Pattern Tool for autonomous decision making
-        tools.append(LeaderboardYapperSuccessPatternTool(
-            campaign_id=self.mining_session.campaign_id,
-            user_api_keys=self.user_api_keys,
-            model_preferences=self.model_preferences
-        ))
+        # Add Success Pattern Tool based on request type
+        if self.selected_yapper_handle:
+            # For yapper interface requests, use yapper-specific tool
+            logger.info(f"🎯 Using yapper-specific success pattern tool for @{self.selected_yapper_handle}")
+            tools.append(YapperSpecificSuccessPatternTool(
+                campaign_id=self.mining_session.campaign_id,
+                selected_yapper_handle=self.selected_yapper_handle,
+                user_api_keys=self.user_api_keys,
+                model_preferences=self.model_preferences
+            ))
+        else:
+            # For mining interface requests, use general leaderboard tool
+            logger.info(f"🏆 Using general leaderboard success pattern tool")
+            tools.append(LeaderboardYapperSuccessPatternTool(
+                campaign_id=self.mining_session.campaign_id,
+                user_api_keys=self.user_api_keys,
+                model_preferences=self.model_preferences
+            ))
         
         if text_provider == 'openai' and self.user_api_keys.get('openai'):
             logger.info(f"✅ Creating OpenAI tool with API key: {'***' + self.user_api_keys['openai'][-4:] if self.user_api_keys['openai'] else 'None'}")
@@ -903,6 +927,19 @@ class CrewAIService:
         project_twitter_handle_raw = project_twitter_handle_raw or ''
         project_twitter_handle = self._format_twitter_handle(project_twitter_handle_raw)
         
+        # Check if this is a yapper interface request with specific yapper pattern
+        yapper_specific_instructions = ""
+        if self.selected_yapper_handle:
+            yapper_specific_instructions = f"""
+            
+            🎯 **YAPPER-SPECIFIC PATTERN REQUIREMENT** (CRITICAL):
+            - You MUST analyze and follow the specific success pattern of @{self.selected_yapper_handle}
+            - Use the yapper_specific_success_pattern tool to get this yapper's specific patterns
+            - Generate content that mirrors their successful style and approach
+            - This is NOT optional - you MUST follow their pattern for this content
+            - Tag @{self.selected_yapper_handle} at the end of the main_tweet for attribution
+            """
+        
         # Common base backstory with autonomous decision-making capabilities
         base_backstory = f"""You are a human {post_type.upper()} content creator with AUTONOMOUS DECISION-MAKING capabilities who writes naturally engaging content:
             - Natural, authentic Twitter content for crypto/Web3 audiences
@@ -915,16 +952,21 @@ class CrewAIService:
             🤖 **AUTONOMOUS DECISION-MAKING AUTHORITY**:
             You have COMPLETE AUTONOMY to decide the optimal content strategy by choosing from:
             1. **Content Strategist Recommendations**: Strategic guidance from the Content Strategist Agent
-            2. **Leaderboard Success Patterns**: Proven strategies from top-performing yappers (use leaderboard_success_patterns tool)
+            2. **Success Patterns**: Proven strategies from yappers (use the success pattern tool)
             3. **Hybrid Approach**: Combine both strategies for maximum effectiveness
             4. **Creative Innovation**: Generate entirely new approaches based on campaign context
             
             **YOUR DECISION-MAKING PROCESS**:
-            - FIRST: Call leaderboard_success_patterns tool to get top yapper insights (returns JSON with individual yapper patterns)
+            - FIRST: Call the success pattern tool to get yapper insights (returns JSON with individual yapper patterns)
             - ANALYZE: Parse JSON response to examine each yapper's text_success_patterns individually
             - COMPARE: Evaluate strategist guidance vs specific yapper patterns vs campaign needs
             - DECIDE: Choose which yapper's pattern to follow (if any) or create hybrid approach
             - EXECUTE: Generate content using your chosen strategy
+            
+            **SUCCESS PATTERN TOOL USAGE**:
+            - Only ONE success pattern tool will be available in your tools list
+            - Use whichever tool is provided (either yapper_specific_success_pattern or leaderboard_success_pattern)
+            - Do not try to use both - only the appropriate one will be available
             
             🏷️ **YAPPER HANDLE TAGGING REQUIREMENTS** (CRITICAL):
             - IF you use a specific yapper's success pattern for content generation:
@@ -957,6 +999,7 @@ class CrewAIService:
             Content Preferences: {json.dumps(agent_config, indent=2)}
             Model Configuration: {text_provider.upper()} {text_model}
         {twitter_context}
+        {yapper_specific_instructions}
         
         🎭 **ENGAGING CONTENT CREATION REQUIREMENTS**:
         - Write highly engaging, story-driven content that drives website visits
@@ -1175,7 +1218,7 @@ class CrewAIService:
         - **Third person only**: Use "They/Their" for project, never "Our/We"
         - **Reader engagement**: Write like sharing exciting alpha with crypto friends
         - **TWEET CONTEXT INTEGRATION**: NATURALLY FUSE latest 50 COMPLETE tweets - extract community energy, trending narratives, project momentum from FULL tweet content
-        - **COMPLETE CONTEXT**: Use full tweet text without any truncation or summarization
+        - **COMPLETE CONTENT**: Use full tweet text without any truncation or summarization
         - **FALLBACK**: Only if no tweet context available, use project description/brand guidelines
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
@@ -1351,12 +1394,24 @@ class CrewAIService:
         # Create tools based on ONLY the user's chosen providers - strict separation
         tools = []
         
-        # Add Leaderboard Success Pattern Tool for autonomous visual strategy decision making
-        tools.append(LeaderboardYapperSuccessPatternTool(
-            campaign_id=self.mining_session.campaign_id,
-            user_api_keys=self.user_api_keys,
-            model_preferences=self.model_preferences
-        ))
+        # Add Success Pattern Tool based on request type
+        if self.selected_yapper_handle:
+            # For yapper interface requests, use yapper-specific tool
+            logger.info(f"🎯 Using yapper-specific success pattern tool for @{self.selected_yapper_handle} in Visual Content Creator")
+            tools.append(YapperSpecificSuccessPatternTool(
+                campaign_id=self.mining_session.campaign_id,
+                selected_yapper_handle=self.selected_yapper_handle,
+                user_api_keys=self.user_api_keys,
+                model_preferences=self.model_preferences
+            ))
+        else:
+            # For mining interface requests, use general leaderboard tool
+            logger.info(f"🏆 Using general leaderboard success pattern tool in Visual Content Creator")
+            tools.append(LeaderboardYapperSuccessPatternTool(
+                campaign_id=self.mining_session.campaign_id,
+                user_api_keys=self.user_api_keys,
+                model_preferences=self.model_preferences
+            ))
         
 
         # Image generation capabilities - ONLY add tool for user's chosen provider
@@ -1515,16 +1570,26 @@ class CrewAIService:
             🤖 **AUTONOMOUS VISUAL DECISION-MAKING AUTHORITY**:
             You have COMPLETE AUTONOMY to create visual content that perfectly aligns with text by choosing from:
             1. **Text Content Analysis**: Analyze the text content output from Text Creator Agent
-            2. **Visual Success Patterns**: Use leaderboard_success_patterns tool to get proven visual strategies  
+            2. **Visual Success Patterns**: Use the success pattern tool to get proven visual strategies  
             3. **Text-Visual Synergy**: Create visuals that enhance and complement the text message
             4. **Dynamic Prompt Generation**: Generate optimal prompts combining text themes + visual success patterns
             
+            **SUCCESS PATTERN TOOL USAGE**:
+            - Only ONE success pattern tool will be available in your tools list
+            - Use whichever tool is provided (either yapper_specific_success_pattern or leaderboard_success_pattern)
+            - Do not try to use both - only the appropriate one will be available
+            
             **YOUR VISUAL ALIGNMENT PROCESS**:
             - FIRST: Receive and analyze text content from Text Creator Agent (main_tweet + thread_array)
-            - SECOND: Call leaderboard_success_patterns tool to get visual success strategies
+            - SECOND: Call the success pattern tool to get visual success strategies
             - ANALYZE: Determine visual approach that best enhances the text content
             - DECIDE: Choose visual strategy that creates cohesive text+visual content package
             - EXECUTE: Generate dynamic prompt that combines text alignment + proven visual patterns
+            
+            **AVAILABLE SUCCESS PATTERN TOOLS**:
+            - If yapper interface: Use `yapper_specific_success_pattern` tool
+            - If mining interface: Use `leaderboard_success_pattern` tool
+            - Only ONE tool will be available - use whichever one is provided
             
             🎯 **TEXT-VISUAL ALIGNMENT REQUIREMENTS** (CRITICAL):
             - Generated visuals MUST align with and enhance the text content themes
@@ -1951,10 +2016,11 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             brand_guidelines, should_generate_thread, max_main_chars
         )
         
-        # Enhanced task description with leaderboard success pattern tool requirement
+        # Enhanced task description with dynamic success pattern tool requirement
+        success_pattern_tool = self._get_success_pattern_tool_name()
         enhanced_task_description = f"""
-        🏆 **MANDATORY FIRST STEP - LEADERBOARD SUCCESS PATTERNS**:
-        You MUST start by calling the `leaderboard_success_patterns` tool to get JSON data of top 3 yappers' success patterns.
+        🏆 **MANDATORY FIRST STEP - SUCCESS PATTERNS**:
+        You MUST start by calling the `{success_pattern_tool}` tool to get JSON data of success patterns.
         The tool returns structured JSON with each yapper's individual patterns and their Twitter handles.
         
         **CRITICAL ANALYSIS OF TOOL OUTPUT**:
@@ -1973,7 +2039,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         {task_description}
         
         🎯 **ENHANCED WORKFLOW**:
-        1. FIRST: Call leaderboard_success_patterns tool
+        1. FIRST: Call {success_pattern_tool} tool
         2. SECOND: Parse JSON and analyze each yapper's text_success_patterns
         3. THIRD: Compare with Content Strategist recommendations
         4. FOURTH: Make autonomous decision on approach
@@ -2065,19 +2131,19 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             **BEFORE using any tool, you MUST verify it exists in your available tools list:**
             
             **YOUR AVAILABLE TOOLS ARE:**
-            - leaderboard_success_patterns (for getting visual success patterns)
+            - {self._get_success_pattern_tool_name()} (for getting visual success patterns)
             {f"- {image_provider}_image_generation (for generating images)" if has_image_tool else "- NO IMAGE GENERATION TOOLS AVAILABLE"}
             {f"- {video_provider}_video_generation (for generating videos)" if has_video_tool else "- NO VIDEO GENERATION TOOLS AVAILABLE"}
             
-            **TOOL USAGE RULES:**
+            **TOOL USAGE RULES**:
             1. NEVER use a tool that's not in the list above
             2. NEVER invent or hallucinate tool names
             3. If you need a tool that's not available, report it and use alternatives
             4. Always verify tool name spelling and case sensitivity
-            5. If unsure about a tool, call leaderboard_success_patterns first to get guidance
+            5. If unsure about a tool, call {self._get_success_pattern_tool_name()} first to get guidance
             
-            🏆 **MANDATORY: USE LEADERBOARD SUCCESS PATTERNS**:
-            BEFORE generating any visual content, you MUST call the `leaderboard_success_patterns` tool to get proven visual strategies from top-performing yappers for this campaign.
+            🏆 **MANDATORY: USE SUCCESS PATTERNS**:
+            BEFORE generating any visual content, you MUST call the `{self._get_success_pattern_tool_name()}` tool to get proven visual strategies from top-performing yappers for this campaign.
             The tool returns structured JSON with each yapper's individual patterns and their Twitter handles.
             
             **CRITICAL ANALYSIS OF TOOL OUTPUT**:
@@ -2100,7 +2166,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             **REQUIRED WORKFLOW**:
             0. ZERO: VERIFY your available tools before starting (see tool list above)
-            1. FIRST: Call `leaderboard_success_patterns` tool with visual analysis request
+            1. FIRST: Call `{self._get_success_pattern_tool_name()}` tool with visual analysis request
             2. SECOND: Parse JSON and identify yappers with meaningful visual_success_patterns
             3. THIRD: IF visual patterns available → Select best yapper; IF not → ignore all patterns
             4. FOURTH: Analyze the text content output from Text Creator Agent
@@ -3454,7 +3520,8 @@ No image generated
             sync_payload = {
                 "content_data": content_data,
                 "creator_id": mining_session.user_id,
-                "asking_price": asking_price
+                "asking_price": asking_price,
+                "source": getattr(mining_session, 'source', 'mining_interface')  # Include source information
             }
             
             logger.info(f"🔄 Syncing content to marketplace with {len(content.content_images) if content.content_images else 0} image(s)")
@@ -3468,7 +3535,42 @@ No image generated
                 
                 if response.status_code == 201:
                     sync_result = response.json()
-                    logger.info(f"✅ Content synced to marketplace: ID {sync_result['data']['id']}")
+                    content_id = sync_result['data']['id']
+                    logger.info(f"✅ Content synced to marketplace: ID {content_id}")
+                    
+                    # If this is a yapper interface request, update execution tracking with content ID
+                    if self.execution_id and getattr(mining_session, 'source', 'mining_interface') == 'yapper_interface':
+                        try:
+                            # Update execution tracking with content ID
+                            update_response = await client.put(
+                                f"{typescript_backend_url}/api/execution/{self.execution_id}/content-id",
+                                json={"contentId": content_id},
+                                timeout=10.0
+                            )
+                            
+                            if update_response.status_code == 200:
+                                logger.info(f"✅ Execution tracking updated with content ID: {content_id}")
+                                
+                                # Now update execution status to completed
+                                status_response = await client.put(
+                                    f"{typescript_backend_url}/api/execution/{self.execution_id}/status",
+                                    json={
+                                        "status": "completed",
+                                        "progress": 100,
+                                        "message": "Content generation completed successfully"
+                                    },
+                                    timeout=10.0
+                                )
+                                
+                                if status_response.status_code == 200:
+                                    logger.info(f"✅ Execution status updated to completed: {self.execution_id}")
+                                else:
+                                    logger.warning(f"⚠️ Failed to update execution status: {status_response.status_code} - {status_response.text}")
+                            else:
+                                logger.warning(f"⚠️ Failed to update execution tracking: {update_response.status_code} - {update_response.text}")
+                        except Exception as update_error:
+                            logger.error(f"❌ Error updating execution tracking: {update_error}")
+                    
                     return True
                 else:
                     logger.warning(f"⚠️ Marketplace sync failed: {response.status_code} - {response.text}")
@@ -3607,9 +3709,199 @@ No image generated
 class LeaderboardYapperToolInput(BaseModel):
     query: str = Field(default="", description="Analysis request for success patterns")
 
+# Yapper-Specific Success Pattern Tool (for yapper interface requests)
+class YapperSpecificSuccessPatternTool(BaseTool):
+    name: str = "yapper_specific_success_pattern"
+    description: str = "Extract and analyze success patterns from a specific yapper for content generation. Use this when generating content in a specific yapper's style."
+    campaign_id: int = None
+    selected_yapper_handle: str = None
+    user_api_keys: Dict[str, str] = {}
+    model_preferences: Dict[str, Any] = {}
+    
+    def __init__(self, campaign_id: int, selected_yapper_handle: str, user_api_keys: Dict[str, str] = None, model_preferences: Dict[str, Any] = None):
+        super().__init__()
+        self.campaign_id = campaign_id
+        self.selected_yapper_handle = selected_yapper_handle
+        self.user_api_keys = user_api_keys or {}
+        self.model_preferences = model_preferences or {}
+    
+    def _run(self, **kwargs) -> str:
+        """
+        Extract success patterns from the specific selected yapper for content generation
+        
+        Args:
+            **kwargs: Flexible arguments - handles various CrewAI input formats
+            
+        Returns:
+            JSON string with the specific yapper's success patterns
+        """
+        try:
+            logger.info(f"🎯 Extracting success patterns for yapper @{self.selected_yapper_handle} in campaign {self.campaign_id}")
+            
+            # Get specific yapper's success patterns from database
+            # Use a new event loop to avoid conflicts with existing async context
+            import asyncio
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                success_patterns = loop.run_until_complete(self._extract_specific_yapper_patterns())
+            finally:
+                loop.close()
+            
+            if not success_patterns:
+                return f"No success patterns available for yapper @{self.selected_yapper_handle} in this campaign."
+            
+            # Return the specific yapper's patterns
+            return success_patterns
+            
+        except Exception as e:
+            logger.error(f"❌ Error extracting success patterns for yapper @{self.selected_yapper_handle}: {str(e)}")
+            return f"Error extracting success patterns for yapper @{self.selected_yapper_handle}: {str(e)}"
+    
+    async def _extract_specific_yapper_patterns(self) -> str:
+        """Extract success patterns for the specific selected yapper"""
+        try:
+            import asyncpg
+            from app.config.settings import settings
+            
+            conn = await asyncpg.connect(
+                host=settings.database_host,
+                port=settings.database_port,
+                user=settings.database_user,
+                password=settings.database_password,
+                database=settings.database_name
+            )
+            
+            try:
+                logger.info(f"🔍 Extracting patterns for yapper @{self.selected_yapper_handle} in campaign {self.campaign_id}")
+                
+                # Clean the handle - remove @ symbol for database query
+                clean_handle = self.selected_yapper_handle.lstrip('@') if self.selected_yapper_handle else ''
+                logger.info(f"🔍 Cleaned handle for database query: '{clean_handle}'")
+                
+                # Query for the specific yapper's success patterns from leaderboard_yapper_data
+                # First try to find in the specific campaign, then fallback to any campaign
+                query = """
+                SELECT 
+                    "twitterHandle",
+                    "anthropic_analysis",
+                    "openai_analysis"
+                FROM leaderboard_yapper_data 
+                WHERE LOWER("twitterHandle") = LOWER($1)
+                ORDER BY "snapshotDate" DESC
+                LIMIT 1;
+                """
+                
+                logger.info(f"🔍 Executing query: {query} with parameter: '{clean_handle}'")
+                
+                # Debug: Check if the connection is working
+                logger.info(f"🔍 Database connection status: {conn.is_closed()}")
+                
+                row = await conn.fetchrow(query, clean_handle)
+                
+                logger.info(f"🔍 Query result: {row}")
+                
+                if not row:
+                    logger.warning(f"⚠️ No database row found for handle: '{clean_handle}'")
+                    # Try a broader search without campaign restriction
+                    fallback_query = """
+                    SELECT 
+                        "twitterHandle",
+                        "anthropic_analysis",
+                        "openai_analysis"
+                    FROM leaderboard_yapper_data 
+                    WHERE LOWER("twitterHandle") = LOWER($1)
+                    ORDER BY "snapshotDate" DESC
+                    LIMIT 1;
+                    """
+                    
+                    logger.info(f"🔍 Trying fallback query: {fallback_query}")
+                    row = await conn.fetchrow(fallback_query, clean_handle)
+                    
+                    if not row:
+                        logger.warning(f"⚠️ No database row found in fallback query for handle: '{clean_handle}'")
+                        return f"No success patterns found for yapper @{self.selected_yapper_handle} in any campaign"
+                    else:
+                        logger.info(f"✅ Found yapper in fallback query: {row['twitterHandle']}")
+                
+                logger.info(f"✅ Found database row for yapper: {row['twitterHandle']}")
+                
+                # Extract the analysis data - handle both JSON strings and dicts
+                anthropic_analysis = row['anthropic_analysis']
+                openai_analysis = row['openai_analysis']
+                
+                logger.info(f"🔍 Raw anthropic_analysis type: {type(anthropic_analysis)}")
+                logger.info(f"🔍 Raw openai_analysis type: {type(openai_analysis)}")
+                
+                # Parse JSON strings if they're stored as strings
+                if isinstance(anthropic_analysis, str):
+                    try:
+                        import json
+                        anthropic_analysis = json.loads(anthropic_analysis)
+                        logger.info(f"🔍 Parsed anthropic_analysis from string")
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"⚠️ Failed to parse anthropic_analysis JSON: {e}")
+                        anthropic_analysis = {}
+                
+                if isinstance(openai_analysis, str):
+                    try:
+                        import json
+                        openai_analysis = json.loads(openai_analysis)
+                        logger.info(f"🔍 Parsed openai_analysis from string")
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"⚠️ Failed to parse openai_analysis JSON: {e}")
+                        openai_analysis = {}
+                
+                # Ensure we have dictionaries
+                if not isinstance(anthropic_analysis, dict):
+                    logger.warning(f"⚠️ anthropic_analysis is not a dict, it's: {type(anthropic_analysis)}")
+                    anthropic_analysis = {}
+                if not isinstance(openai_analysis, dict):
+                    logger.warning(f"⚠️ openai_analysis is not a dict, it's: {type(openai_analysis)}")
+                    openai_analysis = {}
+                
+                logger.info(f"🔍 Final anthropic_analysis keys: {list(anthropic_analysis.keys()) if anthropic_analysis else 'None'}")
+                logger.info(f"🔍 Final openai_analysis keys: {list(openai_analysis.keys()) if openai_analysis else 'None'}")
+                
+                # Format the response - map the actual database fields to expected output
+                # Handle the case where some fields might be strings or arrays
+                text_patterns = anthropic_analysis.get('text', {}).get('winning_formulas', [])
+                if isinstance(text_patterns, str):
+                    text_patterns = [text_patterns]
+                
+                visual_patterns = anthropic_analysis.get('images', {}).get('success_patterns', [])
+                if isinstance(visual_patterns, str):
+                    visual_patterns = [visual_patterns]
+                
+                # Also include viral_mechanics if available
+                viral_mechanics = anthropic_analysis.get('images', {}).get('viral_mechanics', '')
+                if viral_mechanics and viral_mechanics not in visual_patterns:
+                    visual_patterns.append(viral_mechanics)
+                
+                result = {
+                    "yapper_handle": row['twitterHandle'],
+                    "text_success_patterns": text_patterns,
+                    "visual_success_patterns": visual_patterns,
+                    "overall_style": anthropic_analysis.get('text', {}).get('communication_style', '') if anthropic_analysis and anthropic_analysis.get('text') else '',
+                    "content_voice": anthropic_analysis.get('text', {}).get('topic_strategy', '') if anthropic_analysis and anthropic_analysis.get('text') else '',
+                    "ml_features": anthropic_analysis.get('ml_features', {}) if anthropic_analysis else {},
+                    "competitive_intelligence": anthropic_analysis.get('competitive_intelligence', {}) if anthropic_analysis else {}
+                }
+                
+                logger.info(f"🔍 Final result structure: {json.dumps(result, indent=2)}")
+                
+                return json.dumps(result, indent=2)
+                
+            finally:
+                await conn.close()
+                
+        except Exception as e:
+            logger.error(f"❌ Database error extracting yapper patterns: {str(e)}")
+            return f"Database error: {str(e)}"
+
 # Leaderboard Yapper Success Pattern Analysis Tool
 class LeaderboardYapperSuccessPatternTool(BaseTool):
-    name: str = "leaderboard_success_patterns"
+    name: str = "leaderboard_success_pattern"
     description: str = "Extract and analyze success patterns from 3 randomly selected leaderboard yappers for the current campaign. Call this tool with any string input to get insights."
     campaign_id: int = None
     user_api_keys: Dict[str, str] = {}

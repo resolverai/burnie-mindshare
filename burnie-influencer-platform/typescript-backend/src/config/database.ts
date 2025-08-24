@@ -31,6 +31,7 @@ import { SNAPPrediction } from '../models/SNAPPrediction';
 import { LeaderboardYapperData } from '../models/LeaderboardYapperData';
 import { YapperCookieProfile } from '../models/YapperCookieProfile';
 import { CampaignMindshareData } from '../models/CampaignMindshareData';
+import { ExecutionTracking } from '../models/ExecutionTracking';
 
 // Import new ML intelligence entities
 import { PlatformYapperTwitterData } from '../models/PlatformYapperTwitterData';
@@ -89,6 +90,7 @@ export const AppDataSource = new DataSource({
     LeaderboardYapperData,
     YapperCookieProfile,
     CampaignMindshareData,
+    ExecutionTracking,
     // New ML intelligence entities
     PlatformYapperTwitterData,
     PlatformYapperTwitterProfile,

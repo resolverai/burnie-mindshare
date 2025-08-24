@@ -177,11 +177,12 @@ async function refreshExpiredUrls(content: any): Promise<any> {
     content.contentText = updatedText;
   }
 
-  // Process content images
-  if (content.contentImages) {
-    if (Array.isArray(content.contentImages)) {
+  // Process content images (handle both camelCase and snake_case field names)
+  const contentImages = content.contentImages || content.content_images;
+  if (contentImages) {
+    if (Array.isArray(contentImages)) {
       const updatedImages = await Promise.all(
-        content.contentImages.map(async (imageUrl: string) => {
+        contentImages.map(async (imageUrl: string) => {
           if (typeof imageUrl === 'string' && isUrlExpired(imageUrl)) {
             const s3Key = extractS3KeyFromUrl(imageUrl);
             if (s3Key) {
@@ -195,7 +196,13 @@ async function refreshExpiredUrls(content: any): Promise<any> {
           return imageUrl;
         })
       );
-      content.contentImages = updatedImages;
+      // Update both possible field names
+      if (content.contentImages) {
+        content.contentImages = updatedImages;
+      }
+      if (content.content_images) {
+        content.content_images = updatedImages;
+      }
     }
   }
 
@@ -514,6 +521,41 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    // Format content for frontend consumption (same as MarketplaceContentService)
+    const formattedContent = {
+      id: content.id,
+      content_text: content.contentText,
+      tweet_thread: content.tweetThread || null,
+      content_images: content.contentImages || [],
+      watermark_image: content.watermarkImage || null,
+      predicted_mindshare: Number(content.predictedMindshare || 0),
+      quality_score: Number(content.qualityScore || 0),
+      asking_price: Number(content.biddingAskPrice || content.askingPrice || 0),
+      bidding_ask_price: Number(content.biddingAskPrice || content.askingPrice || 0),
+      post_type: content.postType || 'thread',
+      creator: {
+        id: content.creator?.id,
+        username: content.creator?.username || 'Anonymous',
+        reputation_score: Number(content.creator?.reputationScore || 0),
+        wallet_address: content.creator?.walletAddress
+      },
+      campaign: {
+        id: content.campaign?.id,
+        title: content.campaign?.title || 'Unknown Campaign',
+        project_name: content.campaign?.projectName || content.campaign?.title || 'Unknown Project',
+        platform_source: content.campaign?.platformSource || 'unknown',
+        reward_token: content.campaign?.rewardToken || 'ROAST'
+      },
+      agent_name: content.agentName,
+      created_at: content.createdAt.toISOString(),
+      approved_at: content.approvedAt?.toISOString(),
+      bidding_enabled_at: content.biddingEnabledAt?.toISOString() || 
+        (content.isBiddable ? content.createdAt.toISOString() : null),
+      is_biddable: content.isBiddable,
+      is_available: content.isAvailable,
+      approval_status: content.approvalStatus
+    };
+
     // Get current bids
     const biddingRepository = AppDataSource.getRepository(BiddingSystem);
     const bids = await biddingRepository.find({
@@ -528,7 +570,7 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
     res.json({
       success: true,
       data: {
-        content,
+        content: formattedContent,
         bids: bids.map(bid => ({
           id: bid.id,
           bidAmount: bid.bidAmount,
@@ -3031,6 +3073,7 @@ router.post('/content/:id/refresh-urls', async (req: Request, res: Response) => 
       predicted_mindshare: refreshedContent.predictedMindshare,
       quality_score: refreshedContent.qualityScore,
       asking_price: refreshedContent.askingPrice,
+      bidding_ask_price: Number(refreshedContent.biddingAskPrice || refreshedContent.askingPrice || 0),
       creator: {
         id: refreshedContent.creator.id,
         username: refreshedContent.creator.username,

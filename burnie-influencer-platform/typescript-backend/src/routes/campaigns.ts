@@ -1097,7 +1097,7 @@ router.get('/marketplace-ready', async (req: Request, res: Response) => {
 router.post('/:id/sync-content', async (req: Request, res: Response) => {
   try {
     const campaignId = parseInt(req.params.id || '0');
-    const { content_data, creator_id, asking_price } = req.body;
+    const { content_data, creator_id, asking_price, source } = req.body;
 
     if (isNaN(campaignId) || !content_data || !creator_id) {
       return res.status(400).json({
@@ -1144,7 +1144,8 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
       isAvailable: false, // Not available until approved
       approvalStatus: 'pending', // Awaiting user approval in mining interface
       generationMetadata: content_data.generation_metadata || {},
-      postType: content_data.post_type || 'thread' // Store the post type (shitpost, longpost, or thread)
+      postType: content_data.post_type || 'thread', // Store the post type (shitpost, longpost, or thread)
+      source: source || 'mining_interface' // Store the source of the request
     });
 
     const savedContent = await contentRepository.save(marketplaceContent);

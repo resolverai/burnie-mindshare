@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     generation_timeout: int = Field(default=300, env="GENERATION_TIMEOUT")  # 5 minutes
     max_concurrent_sessions: int = Field(default=10, env="MAX_CONCURRENT_SESSIONS")
     
+    # Yapper Interface Settings
+    yapper_interface_extra_price: int = Field(default=0, env="YAPPER_INTERFACE_EXTRA_PRICE")
+    yapper_interface_creator_wallet: str = Field(env="YAPPER_INTERFACE_CREATOR_WALLET")
+    
     # Quality thresholds
     min_quality_score: float = Field(default=0.7, env="MIN_QUALITY_SCORE")
     min_mindshare_prediction: float = Field(default=0.6, env="MIN_MINDSHARE_PREDICTION")

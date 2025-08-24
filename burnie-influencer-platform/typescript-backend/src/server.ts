@@ -36,6 +36,9 @@ import filterOptionsRoutes from './routes/filterOptions';
 import referralRoutes from './routes/referrals';
 import waitlistRoutes from './routes/waitlist';
 import twitterPostingRoutes from './routes/twitterPosting';
+import executionRoutes from './routes/execution';
+import yapperInterfaceRoutes from './routes/yapperInterface';
+import contentApprovalRoutes from './routes/contentApproval';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -122,6 +125,9 @@ app.use('/api/filter-options', filterOptionsRoutes); // Filter options for platf
 app.use('/api/referrals', referralRoutes); // Referral system routes
 app.use('/api/waitlist', waitlistRoutes); // Waitlist management routes
 app.use('/api/twitter', twitterPostingRoutes); // Twitter posting and management routes
+app.use('/api/execution', executionRoutes); // Execution tracking for yapper interface
+app.use('/api/yapper-interface', yapperInterfaceRoutes); // Yapper interface content generation
+app.use('/api/content-approval', contentApprovalRoutes); // Content approval and biddable marking
 
 // Start server
 const startServer = async () => {

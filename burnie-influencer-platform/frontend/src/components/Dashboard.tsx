@@ -179,7 +179,7 @@ export default function Dashboard() {
       {/* Header */}
       <header className="bg-gray-900/80 backdrop-blur-md border-b border-gray-700/50 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-20">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center h-auto sm:h-20 gap-4 sm:gap-0">
             <div className="flex items-center space-x-4">
               <a href="/" className="flex items-center space-x-2 text-gray-400 hover:text-white transition-colors">
                 <ArrowLeftIcon className="h-4 w-4" />
@@ -191,29 +191,29 @@ export default function Dashboard() {
                   <FireIconSolid className="h-6 w-6 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-orange-400 to-red-500 bg-clip-text text-transparent">
+                  <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-orange-400 to-red-500 bg-clip-text text-transparent">
                     Campaign Manager
                   </h1>
-                  <p className="text-sm text-gray-400">
+                  <p className="text-xs sm:text-sm text-gray-400">
                     Manage your AI-powered campaigns
                   </p>
                 </div>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:space-x-3">
               <button
                 onClick={() => setShowCreateProject(true)}
-                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors font-medium flex items-center space-x-2"
+                className="px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors font-medium flex items-center justify-center space-x-2 text-sm sm:text-base"
               >
                 <PlusIcon className="h-4 w-4" />
-                <span>New Project</span>
+                <span className="text-sm sm:text-base">New Project</span>
               </button>
               <button
                 onClick={() => setShowCreateCampaign(true)}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors font-medium flex items-center space-x-2 border border-gray-600"
+                className="px-3 sm:px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors font-medium flex items-center justify-center space-x-2 border border-gray-600 text-sm sm:text-base"
               >
                 <PlusIcon className="h-4 w-4" />
-                <span>New Campaign</span>
+                <span className="text-sm sm:text-base">New Campaign</span>
               </button>
             </div>
           </div>
@@ -223,7 +223,7 @@ export default function Dashboard() {
       {/* Navigation Tabs */}
       <div className="bg-gray-800/50 backdrop-blur-sm border-b border-gray-700/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <nav className="flex space-x-8">
+          <nav className="flex flex-wrap gap-2 sm:space-x-8">
             {tabs.map((tab) => {
               const Icon = tab.icon
               return (
@@ -234,7 +234,7 @@ export default function Dashboard() {
                     activeTab === tab.key
                       ? 'border-orange-500 text-orange-400 bg-orange-500/10'
                       : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-600'
-                  } whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm flex items-center transition-all duration-200 rounded-t-lg`}
+                  } whitespace-nowrap py-2 sm:py-4 px-3 sm:px-6 border-b-2 font-medium text-sm flex items-center transition-all duration-200 rounded-t-lg`}
                 >
                   <Icon className="h-4 w-4 mr-2" />
                   {tab.label}
@@ -246,12 +246,12 @@ export default function Dashboard() {
       </div>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         <div className="animate-fade-in">
           {activeTab === 'overview' && (
             <div className="space-y-8">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-white">Platform Overview</h2>
+                <h2 className="text-xl sm:text-2xl font-bold text-white">Platform Overview</h2>
                 <div className="flex items-center space-x-2 text-sm text-gray-400">
                   <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
                     Live Data
@@ -272,14 +272,14 @@ export default function Dashboard() {
                 recentActivity={dashboardData.recentActivity}
               />
               
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-semibold text-white">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8">
+                              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-4 sm:p-6">
+                <div className="flex items-center justify-between mb-6">
+                                      <h3 className="text-base sm:text-lg font-semibold text-white">
                       Recent Projects
                     </h3>
-                    <FolderIcon className="h-5 w-5 text-gray-400" />
-                  </div>
+                  <FolderIcon className="h-5 w-5 text-gray-400" />
+                </div>
                   <ProjectsList 
                     projects={projects?.items?.slice(0, 5) || []} 
                     loading={projectsLoading}
@@ -294,9 +294,9 @@ export default function Dashboard() {
                   )}
                 </div>
                 
-                <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
+                <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-4 sm:p-6">
                   <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-semibold text-white">
+                    <h3 className="text-base sm:text-lg font-semibold text-white">
                       Active Campaigns
                     </h3>
                     <MegaphoneIcon className="h-5 w-5 text-gray-400" />
@@ -319,9 +319,9 @@ export default function Dashboard() {
           )}
 
           {activeTab === 'projects' && (
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
+            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-4 sm:p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-white">
+                <h2 className="text-lg sm:text-xl font-semibold text-white">
                   All Projects
                 </h2>
                 <button
@@ -329,7 +329,7 @@ export default function Dashboard() {
                   className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors font-medium flex items-center space-x-2"
                 >
                   <PlusIcon className="h-4 w-4" />
-                  <span>New Project</span>
+                  <span className="text-sm sm:text-base">New Project</span>
                 </button>
               </div>
               <ProjectsList 
@@ -340,9 +340,9 @@ export default function Dashboard() {
           )}
 
           {activeTab === 'campaigns' && (
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6">
+            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-4 sm:p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-white">
+                <h2 className="text-lg sm:text-xl font-semibold text-white">
                   All Campaigns
                 </h2>
                 <button
@@ -350,7 +350,7 @@ export default function Dashboard() {
                   className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors font-medium flex items-center space-x-2"
                 >
                   <PlusIcon className="h-4 w-4" />
-                  <span>New Campaign</span>
+                  <span className="text-sm sm:text-base">New Campaign</span>
                 </button>
               </div>
               <CampaignsList 

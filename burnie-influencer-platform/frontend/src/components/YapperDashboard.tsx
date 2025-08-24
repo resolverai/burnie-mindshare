@@ -21,6 +21,7 @@ import YapperHistory from './yapper/YapperHistory'
 import YapperPortfolio from './yapper/YapperPortfolio'
 import YapperMyContent from './yapper/YapperMyContent'
 import YapperTwitterConnection from './yapper/YapperTwitterConnection'
+import MobileBottomNav from './MobileBottomNav'
 
 interface YapperDashboardProps {
   activeSection?: string
@@ -215,7 +216,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
           </div>
 
           {/* Right Side - Social Icons + Points + Status + Wallet */}
-          <div className="flex items-center flex-row justify-end gap-2">
+          <div className="flex items-center flex-row justify-end gap-2 ml-auto">
             {/* Social Icons */}
             <div className="items-center md:flex hidden gap-2">
               <a href="https://x.com/burnieio" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center p-1">
@@ -231,7 +232,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
             </div>
 
             {/* ROAST Balance Badge */}
-            <div className="px-3 py-1 bg-white text-black rounded-full text-lg font-bold md:flex hidden font-silkscreen">
+            <div className="px-3 py-1 bg-white text-black rounded-full text-lg font-bold xl:flex hidden font-silkscreen">
               🔥 {balanceLoading ? '...' : roastBalance}
             </div>
 
@@ -248,8 +249,9 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
       {/* Main Layout with Sidebar */}
       <div className="flex">
         {/* Left Sidebar Navigation - Fixed, starts after header */}
+        {/* Hidden on mobile, tablet landscape (iPad Mini, iPad Air) - only show on desktop (lg: 1024px+) */}
                   <aside
-            className={`${isSidebarExpanded ? 'w-52' : 'w-16'} bg-yapper-surface border-r border-yapper transition-[width] duration-300 ease-in-out flex flex-col h-[calc(100vh-64px)] shadow-sm flex-shrink-0 sticky top-16`}
+            className={`hidden lg:flex ${isSidebarExpanded ? 'w-52' : 'w-16'} bg-yapper-surface border-r border-yapper transition-[width] duration-300 ease-in-out flex-col h-[calc(100vh-64px)] shadow-sm flex-shrink-0 sticky top-16`}
           style={{ willChange: "width" }}
         >
           {/* Collapse/Expand Button */}
@@ -350,7 +352,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
 
               {/* Main Content Area - Direct content */}
         <div className="flex-1 min-h-[calc(100vh-64px)] flex flex-col">
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto px-4 md:px-6 lg:px-6 touch-pan-y overscroll-contain">
           {renderContent()}
         </main>
         
@@ -362,8 +364,17 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
             </div>
           </div>
         </footer>
+              </div>
       </div>
-    </div>
+
+      {/* Mobile Bottom Navigation */}
+      <MobileBottomNav 
+        navigationItems={navigationItems}
+        isAuthenticated={true}
+      />
+
+      {/* Mobile & Tablet Bottom Padding to prevent content from being hidden behind bottom nav */}
+      <div className="lg:hidden h-20"></div>
     </div>
   )
 } 

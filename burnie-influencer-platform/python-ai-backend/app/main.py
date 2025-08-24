@@ -142,6 +142,9 @@ class CampaignAgentPair(BaseModel):
     campaign_context: dict
     post_type: Optional[str] = "thread"  # New field: "shitpost", "longpost", or "thread"
     include_brand_logo: Optional[bool] = False  # New field: whether to include brand logo in generated images
+    source: Optional[str] = "mining_interface"  # New field: "mining_interface" or "yapper_interface"
+    selected_yapper_handle: Optional[str] = None  # New field: Twitter handle of selected yapper for pattern
+    price: Optional[float] = None  # New field: Price in ROAST for the content
 
 class StartMiningRequest(BaseModel):
     """Request model for starting content generation"""
@@ -154,6 +157,12 @@ class StartMiningRequest(BaseModel):
     
     # New multi-campaign support
     campaigns: Optional[List[CampaignAgentPair]] = None
+    
+    # Source parameter for tracking content generation origin
+    source: Optional[str] = "mining_interface"  # "mining_interface" or "yapper_interface"
+    
+    # Execution ID from TypeScript backend (for yapper interface)
+    execution_id: Optional[str] = None
     
     user_preferences: Optional[dict] = None
     user_api_keys: Optional[Dict[str, str]] = None  # API keys from Neural Keys interface
@@ -272,47 +281,102 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
         else:
             raise HTTPException(status_code=400, detail="Either campaigns list or single campaign_id and agent_id are required")
         
-        # Validate API keys first
-        if not request.user_api_keys:
-            raise HTTPException(status_code=400, detail="API keys are required. Please configure at least your text generation API key in Neural Keys.")
+        # Check if this is a yapper interface request
+        is_yapper_interface = request.source == "yapper_interface"
         
-        # Count available API keys and categorize them
-        text_providers = ['openai', 'anthropic']
-        visual_providers = ['openai', 'google', 'fal', 'replicate', 'stability']
-        
-        available_text_keys = [k for k in text_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
-        available_visual_keys = [k for k in visual_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
-        available_all_keys = [k for k, v in request.user_api_keys.items() if v and v.strip()]
-        
-        # Text generation is mandatory
-        if not available_text_keys:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Text generation API key is required. Please configure OpenAI or Anthropic API key in Neural Keys. Text content is mandatory for Twitter posts."
-            )
+        if is_yapper_interface:
+            # For yapper interface, skip API key validation - will use system keys
+            available_text_keys = ['system_keys']
+            available_visual_keys = ['system_keys']
+            available_all_keys = ['system_keys']
+            generation_mode = "full_multimodal"
+            generation_message = f"Yapper interface content generation initiated for {len(campaigns_to_process)} campaign(s). Using system API keys."
+        else:
+            # For mining interface, validate API keys
+            if not request.user_api_keys:
+                raise HTTPException(status_code=400, detail="API keys are required. Please configure at least your text generation API key in Neural Keys.")
+            
+            # Count available API keys and categorize them
+            text_providers = ['openai', 'anthropic']
+            visual_providers = ['openai', 'google', 'fal', 'replicate', 'stability']
+            
+            available_text_keys = [k for k in text_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
+            available_visual_keys = [k for k in visual_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
+            available_all_keys = [k for k, v in request.user_api_keys.items() if v and v.strip()]
+            
+            # Text generation is mandatory
+            if not available_text_keys:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Text generation API key is required. Please configure OpenAI or Anthropic API key in Neural Keys. Text content is mandatory for Twitter posts."
+                )
+            
+            # Determine generation capabilities
+            generation_message = f"Mining process initiated for {len(campaigns_to_process)} campaign(s). "
+            if available_visual_keys:
+                generation_message += f"Text generation enabled with {available_text_keys[0].upper()}. Visual content generation available with {len(available_visual_keys)} provider(s)."
+                generation_mode = "full_multimodal"
+            else:
+                generation_message += f"Text generation enabled with {available_text_keys[0].upper()}. Visual content will be skipped (no visual API keys available)."
+                generation_mode = "text_only"
         
         # Generate unique session ID
         session_id = f"user_{user_id}_{uuid.uuid4().hex[:8]}"
         
-        # Determine generation capabilities
-        generation_message = f"Mining process initiated for {len(campaigns_to_process)} campaign(s). "
-        if available_visual_keys:
-            generation_message += f"Text generation enabled with {available_text_keys[0].upper()}. Visual content generation available with {len(available_visual_keys)} provider(s)."
-            generation_mode = "full_multimodal"
+        if is_yapper_interface:
+            # For yapper interface, return execution_id immediately and start background task
+            # Use the execution_id from TypeScript backend if provided, otherwise generate one
+            if request.execution_id:
+                execution_id = request.execution_id
+                logger.info(f"🔗 Using provided execution_id from TypeScript backend: {execution_id}")
+            else:
+                # Fallback: Generate execution_id in the correct format: exec_timestamp_randomstring
+                import time
+                timestamp = int(time.time() * 1000)  # Current timestamp in milliseconds
+                random_suffix = uuid.uuid4().hex[:8]  # Random 8-character suffix
+                execution_id = f"exec_{timestamp}_{random_suffix}"
+                logger.info(f"🔗 Generated fallback execution_id: {execution_id}")
+            
+            # Start background content generation for yapper interface
+            background_tasks.add_task(
+                run_yapper_interface_generation,
+                execution_id,
+                session_id,
+                user_id,
+                campaigns_to_process,
+                request.user_preferences or {},
+                request.user_api_keys,
+                request.wallet_address,
+                request.source
+            )
+            
+            logger.info(f"🚀 Started yapper interface generation: {execution_id} for user {request.wallet_address}")
+            
+            return {
+                "execution_id": execution_id,
+                "session_id": session_id,
+                "status": "started",
+                "message": f"Content generation started for {len(campaigns_to_process)} campaign(s). Use execution_id to track progress.",
+                "campaigns_count": len(campaigns_to_process),
+                "source": "yapper_interface",
+                "api_keys_status": {
+                    "text_providers_available": available_text_keys,
+                    "visual_providers_available": available_visual_keys,
+                    "total_keys_configured": len(available_all_keys),
+                    "generation_mode": generation_mode
+                }
+            }
         else:
-            generation_message += f"Text generation enabled with {available_text_keys[0].upper()}. Visual content will be skipped (no visual API keys available)."
-            generation_mode = "text_only"
-        
-        # Start background content generation for multiple campaigns
-        background_tasks.add_task(
-            run_multi_campaign_generation,
-            session_id,
-            user_id, # Pass user_id
-            campaigns_to_process,
-            request.user_preferences or {},
-            request.user_api_keys,
-            request.wallet_address  # Added missing wallet_address parameter
-        )
+            # For mining interface, use existing flow
+            background_tasks.add_task(
+                run_multi_campaign_generation,
+                session_id,
+                user_id, # Pass user_id
+                campaigns_to_process,
+                request.user_preferences or {},
+                request.user_api_keys,
+                request.wallet_address  # Added missing wallet_address parameter
+            )
         
         logger.info(f"🚀 Started mining session: {session_id} for user {request.wallet_address} with {len(campaigns_to_process)} campaign(s) (Text: {len(available_text_keys)} keys, Visual: {len(available_visual_keys)} keys)")
         
@@ -410,6 +474,131 @@ async def get_active_sessions():
     except Exception as e:
         logger.error(f"❌ Error getting active sessions: {e}")
         raise HTTPException(status_code=500, detail="Failed to get active sessions")
+
+# Background task for yapper interface content generation
+async def run_yapper_interface_generation(
+    execution_id: str,
+    session_id: str, 
+    user_id: int,
+    campaigns: List[CampaignAgentPair], 
+    user_preferences: dict, 
+    user_api_keys: Dict[str, str],
+    wallet_address: str = None,
+    source: str = "yapper_interface"
+):
+    """Background task that runs content generation for yapper interface with execution tracking"""
+    try:
+        logger.info(f"🧠 Starting yapper interface generation for execution: {execution_id}")
+        
+        # Process campaigns sequentially for yapper interface (better for tracking)
+        generated_content_list = []
+        
+        for index, campaign_pair in enumerate(campaigns):
+            try:
+                logger.info(f"🎯 Processing campaign {index + 1}/{len(campaigns)} for execution: {execution_id}")
+                
+                # Create individual mining session for this campaign
+                campaign_session_id = f"{execution_id}_campaign_{campaign_pair.campaign_id}"
+                mining_session = MiningSession(
+                    session_id=execution_id,  # Use execution_id as session_id
+                    user_id=user_id,
+                    campaign_id=campaign_pair.campaign_id,
+                    agent_id=campaign_pair.agent_id,
+                    campaign_context=campaign_pair.campaign_context,
+                    user_preferences=user_preferences,
+                    user_api_keys=user_api_keys,
+                    post_type=campaign_pair.post_type,
+                    include_brand_logo=campaign_pair.include_brand_logo,
+                    source=source  # Set the source for this session
+                )
+                
+                # Initialize CrewAI service
+                crew_service = CrewAIService(
+                    session_id=execution_id,  # Use execution_id consistently
+                    progress_tracker=progress_tracker,
+                    websocket_manager=manager,
+                    websocket_session_id=execution_id,  # Use execution_id for websocket session too
+                    execution_id=execution_id  # Pass execution_id for database updates
+                )
+                
+                # Set the mining session so it can access campaign context
+                crew_service.mining_session = mining_session
+                
+                # Set yapper-specific context
+                if campaign_pair.selected_yapper_handle:
+                    crew_service.selected_yapper_handle = campaign_pair.selected_yapper_handle
+                
+                # For yapper interface, use system API keys instead of user keys
+                if source == "yapper_interface":
+                    # Use system API keys from environment
+                    from app.config.settings import settings
+                    system_api_keys = {
+                        'openai': settings.openai_api_key,
+                        'anthropic': settings.anthropic_api_key,
+                        'fal': settings.fal_api_key,
+                        'google': settings.google_api_key
+                    }
+                    logger.info(f"🔑 Using system API keys for yapper interface content generation")
+                else:
+                    # Use user API keys for mining interface
+                    system_api_keys = user_api_keys
+                
+                # Run content generation for this specific campaign
+                result = await crew_service.generate_content(
+                    mining_session,
+                    user_api_keys=system_api_keys,  # Use system keys for yapper interface
+                    agent_id=campaign_pair.agent_id,
+                    wallet_address=wallet_address
+                )
+                
+                # Format the result for this campaign
+                campaign_content = {
+                    "execution_id": execution_id,
+                    "campaign_id": campaign_pair.campaign_id,
+                    "agent_id": campaign_pair.agent_id,
+                    "content_text": result.content_text,
+                    "tweet_thread": result.tweet_thread,
+                    "content_images": result.content_images,
+                    "quality_score": result.quality_score,
+                    "predicted_mindshare": result.predicted_mindshare,
+                    "generation_metadata": result.generation_metadata,
+                    "source": source,
+                    "selected_yapper_handle": campaign_pair.selected_yapper_handle,
+                    "price": campaign_pair.price,
+                    "status": "completed"
+                }
+                
+                generated_content_list.append(campaign_content)
+                logger.info(f"✅ Completed campaign {index + 1}/{len(campaigns)} for execution: {execution_id}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error generating content for campaign {campaign_pair.campaign_id}: {e}")
+                generated_content_list.append({
+                    "execution_id": execution_id,
+                    "campaign_id": campaign_pair.campaign_id,
+                    "agent_id": campaign_pair.agent_id,
+                    "error": str(e),
+                    "status": "failed"
+                })
+        
+        # Content saving is handled automatically by CrewAI service
+        # Just like in mining interface, the _sync_to_marketplace method handles database saving
+        logger.info(f"✅ Content generation completed for execution: {execution_id}")
+        logger.info(f"📝 Generated {len(generated_content_list)} content items")
+        
+        # Log any errors that occurred during generation
+        failed_items = [item for item in generated_content_list if item.get('status') == 'failed']
+        if failed_items:
+            logger.warning(f"⚠️ {len(failed_items)} campaigns failed during generation")
+            for item in failed_items:
+                logger.warning(f"   Campaign {item.get('campaign_id')}: {item.get('error')}")
+        
+        # Execution status will be updated by CrewAI service when content is synced to marketplace
+        
+        logger.info(f"✅ Yapper interface generation completed for execution: {execution_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error in yapper interface generation for execution {execution_id}: {e}")
 
 # Background task for multi-campaign content generation
 async def run_multi_campaign_generation(

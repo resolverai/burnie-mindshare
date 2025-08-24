@@ -58,7 +58,7 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
     const [selectedTone, setSelectedTone] = useState("Select tone");
     const [toneOpen, setToneOpen] = useState<boolean>(false);
     const [isPurchased, setIsPurchased] = useState<boolean>(startPurchased ?? true);
-    
+
     // Twitter posting state
     const [postingMethod, setPostingMethod] = useState<'twitter' | 'manual'>('twitter');
     const [isPostingToTwitter, setIsPostingToTwitter] = useState(false);
@@ -357,19 +357,19 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                         {/* Twitter Thread Container */}
                         <div className="w-full flex-1 overflow-y-auto pr-1 lg:pr-2 rounded-2xl">
                             <style jsx>{`
-                                div::-webkit-scrollbar {
-                                    width: 6px;
-                                }
-                                div::-webkit-scrollbar-track {
-                                    background: transparent;
-                                }
-                                div::-webkit-scrollbar-thumb {
-                                    background-color: #374151;
-                                    border-radius: 3px;
-                                }
-                                div::-webkit-scrollbar-thumb:hover {
-                                    background-color: #4B5563;
-                                }
+                                    div::-webkit-scrollbar {
+                                        width: 6px;
+                                    }
+                                    div::-webkit-scrollbar-track {
+                                        background: transparent;
+                                    }
+                                    div::-webkit-scrollbar-thumb {
+                                        background-color: #374151;
+                                        border-radius: 3px;
+                                    }
+                                    div::-webkit-scrollbar-thumb:hover {
+                                        background-color: #4B5563;
+                                    }
                             `}</style>
 
                             {/* Single Tweet Container with Thread Structure */}
@@ -472,14 +472,14 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
 
                         {/* Content Owned Status */}
                         <div className="bg-[#331C1E] rounded-md px-4 py-3 flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
-                                <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                                    <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <div className="text-white font-bold">Content Owned</div>
-                                <div className="text-white text-xs">
+                                <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
+                                    <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                        <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                                    </svg>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <div className="text-white font-bold">Content Owned</div>
+                                    <div className="text-white text-xs">
                                     {contentData?.acquisition_type === 'purchase' ? (
                                         <>
                                             Purchased • {Math.round(Number(contentData?.asking_price || 0))} ROAST
@@ -489,9 +489,9 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                             Won • {Math.round(Number(contentData?.winning_bid?.amount || 0))} {contentData?.winning_bid?.currency || 'ROAST'}
                                         </>
                                     )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
                         {/* How to thread - Only show for manual posting */}
                         {postingMethod === 'manual' && (
@@ -679,40 +679,40 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                             ) : (
                                 /* Manual Posting Interface - Original tweets list */
                                 <div>
-                                    {/* Tweets List */}
-                                    {tweetsData.map((section, idx) => (
+                            {/* Tweets List */}
+                            {tweetsData.map((section, idx) => (
                                         <div key={idx} className="bg-[#FFFFFF1A] rounded-md p-4 mb-4">
-                                            <div className="flex items-center justify-between mb-3">
-                                                <div className="text-white/90 text-sm">{section.title}</div>
-                                                <button
-                                                    type="button" 
-                                                    onClick={() => {
-                                                        if (section.text) {
-                                                            navigator.clipboard?.writeText(section.text);
-                                                        } else if (section.image) {
-                                                            downloadImage(String(section.image), `tweet-image-${idx + 1}.png`);
-                                                        }
-                                                    }}
-                                                    className="text-[#FD7A10] border border-[#FD7A10] rounded-sm px-2 py-1 text-xs flex flex-row gap-1 items-center cursor-pointer hover:bg-[#FD7A10] hover:text-white transition-colors"
-                                                >
-                                                    {section.image ? (
-                                                        <>
-                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                                                <polyline points="7,10 12,15 17,10" />
-                                                                <line x1="12" y1="15" x2="12" y2="3" />
-                                                            </svg>
-                                                            <span className="text-xs">Download</span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Image src="/copy.svg" alt="Copy" width={16} height={16} />
-                                                            <span className="text-xs">Copy</span>
-                                                        </>
-                                                    )}
-                                                </button>
-                                            </div>
-                                            {section.text && (
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="text-white/90 text-sm">{section.title}</div>
+                                        <button
+                                            type="button" 
+                                            onClick={() => {
+                                                if (section.text) {
+                                                    navigator.clipboard?.writeText(section.text);
+                                                } else if (section.image) {
+                                                    downloadImage(String(section.image), `tweet-image-${idx + 1}.png`);
+                                                }
+                                            }}
+                                            className="text-[#FD7A10] border border-[#FD7A10] rounded-sm px-2 py-1 text-xs flex flex-row gap-1 items-center cursor-pointer hover:bg-[#FD7A10] hover:text-white transition-colors"
+                                        >
+                                            {section.image ? (
+                                                <>
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                                        <polyline points="7,10 12,15 17,10" />
+                                                        <line x1="12" y1="15" x2="12" y2="3" />
+                                                    </svg>
+                                                    <span className="text-xs">Download</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Image src="/copy.svg" alt="Copy" width={16} height={16} />
+                                                    <span className="text-xs">Copy</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                    {section.text && (
                                                 <div className="text-white/80 text-sm leading-relaxed">
                                                     {isMarkdownContent(contentData?.post_type) || contentData?.content_text?.includes('##') || contentData?.content_text?.includes('**') ? (
                                                         <div 
@@ -725,48 +725,48 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                                         section.text
                                                     )}
                                                 </div>
-                                            )}
-                                            {section.image && (
-                                                <div className="mt-3 rounded-md overflow-hidden">
+                                    )}
+                                    {section.image && (
+                                        <div className="mt-3 rounded-md overflow-hidden">
                                                     <img src={String(section.image)} alt="Tweet image" className="w-[50%] h-auto object-cover" />
-                                                </div>
-                                            )}
                                         </div>
-                                    ))}
+                                    )}
+                                </div>
+                            ))}
                                 </div>
                             )}
                         </div>
 
                         {/* Blockchain Transaction - Always at bottom */}
-                        {contentData?.transaction_hash && (
+                            {contentData?.transaction_hash && (
                             <div className="bg-[#331C1E] rounded-md px-4 py-3 flex items-center justify-between mt-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
-                                        <svg className="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M3 3h18v18H3zM9 9h6v6H9z" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <div className="text-white font-medium text-sm">Base Transaction</div>
-                                        <div className="text-white/60 text-xs font-mono">
-                                            {contentData.transaction_hash.slice(0, 10)}...{contentData.transaction_hash.slice(-8)}
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">
+                                            <svg className="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <path d="M3 3h18v18H3zM9 9h6v6H9z" strokeLinecap="round" strokeLinejoin="round"/>
+                                            </svg>
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <div className="text-white font-medium text-sm">Base Transaction</div>
+                                            <div className="text-white/60 text-xs font-mono">
+                                                {contentData.transaction_hash.slice(0, 10)}...{contentData.transaction_hash.slice(-8)}
+                                            </div>
                                         </div>
                                     </div>
+                                    <button
+                                        onClick={() => {
+                                            window.open(`https://basescan.org/tx/${contentData.transaction_hash}`, '_blank', 'noopener,noreferrer');
+                                        }}
+                                        className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/20 hover:bg-blue-500/30 transition-colors"
+                                        title="View on BaseScan"
+                                    >
+                                        <svg className="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <circle cx="11" cy="11" r="8"/>
+                                            <path d="m21 21-4.35-4.35"/>
+                                        </svg>
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={() => {
-                                        window.open(`https://basescan.org/tx/${contentData.transaction_hash}`, '_blank', 'noopener,noreferrer');
-                                    }}
-                                    className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-500/20 hover:bg-blue-500/30 transition-colors"
-                                    title="View on BaseScan"
-                                >
-                                    <svg className="w-4 h-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <circle cx="11" cy="11" r="8"/>
-                                        <path d="m21 21-4.35-4.35"/>
-                                    </svg>
-                                </button>
-                            </div>
-                        )}
+                            )}
                     </div>
                 </div>
             </div>

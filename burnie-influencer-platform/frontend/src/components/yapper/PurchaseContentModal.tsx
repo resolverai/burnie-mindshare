@@ -26,6 +26,7 @@ interface ContentItem {
   predicted_mindshare: number
   quality_score: number
   asking_price: number
+  bidding_ask_price?: number  // Add bidding ask price field
   creator: {
     id: number
     username: string
@@ -76,6 +77,269 @@ export default function PurchaseContentModal({
            (url.includes('X-Amz-Signature') || url.includes('Signature'))
   }
   
+  // Helper function to get the correct price (bidding_ask_price if available, otherwise asking_price)
+  const getDisplayPrice = (content: ContentItem | null) => {
+    if (!content) return 0
+    return content.bidding_ask_price || content.asking_price || 0
+  }
+  
+  // Yapper interface content generation functions
+  const generateContentFromYapper = async () => {
+    if (!selectedYapper || !localContent) return
+    
+    try {
+      setIsGeneratingContent(true)
+      setGenerationStatus('Starting content generation...')
+      setGenerationProgress(0)
+      
+      // Call TypeScript backend to start content generation
+      const response = await fetch('/api/yapper-interface/generate-content', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          wallet_address: address,
+          campaigns: [{
+            campaign_id: typeof localContent.campaign.id === 'string' ? parseInt(localContent.campaign.id) : localContent.campaign.id,
+            agent_id: 1, // Default agent
+            campaign_context: {
+              // Provide some basic context for the campaign
+              campaign_title: localContent.campaign.title || 'Unknown Campaign',
+              platform_source: localContent.campaign.platform_source || 'Unknown Platform',
+              project_name: localContent.campaign.project_name || 'Unknown Project',
+              reward_token: localContent.campaign.reward_token || 'Unknown Token',
+              post_type: localContent.post_type || 'thread'
+            },
+            post_type: localContent.post_type || 'thread',
+            include_brand_logo: true,
+            source: 'yapper_interface',
+            selected_yapper_handle: selectedYapper,
+            price: getDisplayPrice(localContent)
+          }],
+          user_preferences: {},
+          user_api_keys: {}, // Empty for yapper interface - system will use system keys
+          source: 'yapper_interface'
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to start content generation')
+      }
+      
+      const result = await response.json()
+      setExecutionId(result.execution_id)
+      setGenerationStatus('Content generation started. Polling for updates...')
+      setGenerationProgress(10)
+      
+      // Start polling for execution status
+      startExecutionPolling(result.execution_id)
+      
+    } catch (error) {
+      console.error('Error starting content generation:', error)
+      setGenerationStatus('Failed to start content generation')
+      setIsGeneratingContent(false)
+    }
+  }
+  
+  const startExecutionPolling = async (execId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/yapper-interface/status/${execId}`)
+        
+        if (!response.ok) {
+          clearInterval(pollInterval)
+          setGenerationStatus('Failed to get execution status')
+          setIsGeneratingContent(false)
+          return
+        }
+        
+        const status = await response.json()
+        setGenerationProgress(status.progress || 0)
+        setGenerationStatus(status.message || 'Processing...')
+        
+        if (status.status === 'completed') {
+          clearInterval(pollInterval)
+          // Keep shimmer active during approval process
+          setGenerationStatus('Content generation completed! Starting approval process...')
+          
+          // Store execution ID for the next steps
+          setExecutionId(execId)
+          
+          // Start approval process (shimmer continues until approval is complete)
+          await startApprovalProcess(execId)
+        } else if (status.status === 'failed') {
+          clearInterval(pollInterval)
+          setIsGeneratingContent(false)
+          setGenerationStatus(`Generation failed: ${status.error || 'Unknown error'}`)
+        }
+        
+      } catch (error) {
+        console.error('Error polling execution status:', error)
+        clearInterval(pollInterval)
+        setGenerationStatus('Error checking status')
+        setIsGeneratingContent(false)
+      }
+    }, 2000) // Poll every 2 seconds
+  }
+  
+  const startApprovalProcess = async (execId: string) => {
+    try {
+      setGenerationStatus('Starting content approval process...')
+      
+      // Get execution details to find content ID
+      const execResponse = await fetch(`/api/execution/status/${execId}`)
+      if (!execResponse.ok) {
+        throw new Error('Failed to get execution details')
+      }
+      
+      const execDetails = await execResponse.json()
+      console.log('🔍 Execution details:', execDetails)
+      
+      if (!execDetails.content_id) {
+        throw new Error('Content ID not found in execution details. Content may not have been generated properly.')
+      }
+      
+      // Validate that content generation was successful
+      if (execDetails.status !== 'completed') {
+        throw new Error(`Execution status is ${execDetails.status}, expected 'completed'. Content generation may have failed.`)
+      }
+      
+      // No need to validate content images here - they will be watermarked during approval
+      console.log('🔍 Starting approval process for content ID:', execDetails.content_id)
+      
+      // Step 1: Approve content and create watermarks
+      setGenerationStatus('Creating watermarks and approving content...')
+      const approveResponse = await fetch(`/api/marketplace/approve-content`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contentId: execDetails.content_id,
+          walletAddress: address
+        })
+      })
+      
+      if (!approveResponse.ok) {
+        const errorData = await approveResponse.json().catch(() => ({}))
+        throw new Error(`Failed to approve content: ${errorData.message || approveResponse.statusText}`)
+      }
+      
+      const approveResult = await approveResponse.json()
+      setGenerationStatus('Content approved! Making it available for purchase...')
+      
+      // Step 2: Enable bidding (pushes content to marketplace)
+      const biddableResponse = await fetch(`/api/marketplace/content/${execDetails.content_id}/bidding`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          is_biddable: true,
+          bidding_ask_price: getDisplayPrice(localContent) || 100,
+          wallet_address: address
+        })
+      })
+      
+      if (!biddableResponse.ok) {
+        const errorData = await biddableResponse.json().catch(() => ({}))
+        throw new Error(`Failed to enable bidding: ${errorData.message || biddableResponse.statusText}`)
+      }
+      
+      const biddableResult = await biddableResponse.json()
+      
+      // Success! Content is now available on marketplace
+      setGenerationStatus('🎉 Content successfully generated and available on marketplace!')
+      
+      // Fetch the final watermarked content to replace the modal content
+      try {
+        const contentResponse = await fetch(`/api/marketplace/content/${execDetails.content_id}`)
+        if (contentResponse.ok) {
+          const responseData = await contentResponse.json()
+          console.log('✅ API response received:', responseData)
+          
+          // Extract content from the nested data structure
+          const newContent = responseData.data?.content
+          if (!newContent) {
+            throw new Error('Content not found in API response')
+          }
+          
+          console.log('✅ New watermarked content extracted:', newContent)
+          
+          // Now refresh the URLs to get presigned URLs for images
+          console.log('🔄 Refreshing presigned URLs for content...')
+          const refreshResponse = await fetch(`/api/marketplace/content/${execDetails.content_id}/refresh-urls`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          })
+          
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json()
+            console.log('✅ URLs refreshed:', refreshData)
+            
+            if (refreshData.success && refreshData.data) {
+              // Use the refreshed content with presigned URLs
+              const refreshedContent = refreshData.data
+              console.log('✅ Refreshed content with presigned URLs:', refreshedContent)
+              
+              // Update local content state to show new content in modal
+              setLocalContent(refreshedContent)
+              setGeneratedContent(refreshedContent)
+              
+              console.log('🔍 State updates applied:')
+              console.log('  - localContent set to:', refreshedContent)
+              console.log('  - generatedContent set to:', refreshedContent)
+              console.log('  - Content ID:', refreshedContent.id)
+              console.log('  - Content text length:', refreshedContent.content_text?.length)
+              console.log('  - Has images:', refreshedContent.content_images?.length > 0)
+              console.log('  - Watermark image:', refreshedContent.watermark_image)
+              
+              // Notify parent component about content update
+              if (onContentUpdate) {
+                onContentUpdate(refreshedContent)
+              }
+              
+              // Update the content state to show the new content
+              // This will trigger a re-render with the new content
+              setGenerationStatus('✅ Content replaced! You can now preview and purchase the generated content.')
+              
+              // Only now hide the shimmer - content is fully ready
+              setIsGeneratingContent(false)
+            } else {
+              throw new Error('Failed to refresh URLs')
+            }
+          } else {
+            console.warn('⚠️ Failed to refresh URLs, using original content')
+            // Fallback to original content without presigned URLs
+            setLocalContent(newContent)
+            setGeneratedContent(newContent)
+            
+            if (onContentUpdate) {
+              onContentUpdate(newContent)
+            }
+            
+            setGenerationStatus('✅ Content replaced! You can now preview and purchase the generated content.')
+            setIsGeneratingContent(false)
+          }
+        } else {
+          throw new Error(`Failed to fetch content: ${contentResponse.status} ${contentResponse.statusText}`)
+        }
+      } catch (error) {
+        console.error('Error fetching generated content:', error)
+        setGenerationStatus('✅ Content generated! You can now preview and purchase.')
+        setIsGeneratingContent(false) // Hide shimmer even on error
+      }
+      
+    } catch (error) {
+      console.error('Error in approval process:', error)
+      setGenerationStatus(`Approval failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      
+      // Show error to user
+      alert(`Content generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+  
   const [selectedVoiceTone, setSelectedVoiceTone] = useState("auto")
   const [selectedTone, setSelectedTone] = useState("Select tone")
   const [selectedPayment, setSelectedPayment] = useState("roast")
@@ -99,6 +363,105 @@ export default function PurchaseContentModal({
     username: string;
     profileImage?: string;
   } | null>(null)
+  
+  // Local content state that can be updated when new content is generated
+  const [localContent, setLocalContent] = useState<ContentItem | null>(content)
+  
+  // Yapper interface content generation state
+  const [isGeneratingContent, setIsGeneratingContent] = useState(false)
+  const [executionId, setExecutionId] = useState<string | null>(null)
+  const [generationProgress, setGenerationProgress] = useState(0)
+  const [generationStatus, setGenerationStatus] = useState<string>('')
+  const [generatedContent, setGeneratedContent] = useState<ContentItem | null>(null)
+  
+  // Store original content for fallback
+  const [originalContent, setOriginalContent] = useState<ContentItem | null>(content)
+  
+  // Update local content when content prop changes
+  useEffect(() => {
+    setLocalContent(content)
+    setOriginalContent(content)
+  }, [content])
+  
+  // Handle purchase with content management
+  const handlePurchaseWithContentManagement = async (contentToPurchase: ContentItem, price: number, currency: 'ROAST' | 'USDC') => {
+    try {
+      // If this is generated content, mark it as unavailable after purchase
+      if (generatedContent && contentToPurchase.id === generatedContent.id) {
+        // Mark generated content as unavailable
+        await fetch(`/api/content-approval/mark-unavailable/${contentToPurchase.id}`, {
+          method: 'POST'
+        })
+        
+        // Restore original content to marketplace (make it available again)
+        if (originalContent) {
+          await fetch(`/api/content-approval/restore-availability/${originalContent.id}`, {
+            method: 'POST'
+          })
+        }
+        
+        // Call the original purchase handler
+        if (onPurchase) {
+          onPurchase(contentToPurchase.id, price, currency)
+        }
+        
+        // Close modal
+        onClose()
+      } else {
+        // Regular purchase flow for original content
+        if (onPurchase) {
+          onPurchase(contentToPurchase.id, price, currency)
+        }
+      }
+    } catch (error) {
+      console.error('Error in purchase with content management:', error)
+    }
+  }
+  
+  // Individual shimmer components for different content elements
+  const TextShimmer = () => (
+    <div className="space-y-2 animate-pulse">
+      <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded"></div>
+      <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-3/4"></div>
+      <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-1/2"></div>
+    </div>
+  )
+
+  const ImageShimmer = () => (
+    <div className="w-full h-48 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 animate-pulse rounded-2xl"></div>
+  )
+
+  const ThreadItemShimmer = () => (
+    <div className="space-y-2 animate-pulse">
+      <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-full"></div>
+      <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-4/5"></div>
+      <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-3/4"></div>
+    </div>
+  )
+
+  // Full shimmer loading component for tweet preview (fallback)
+  const TweetPreviewShimmer = () => (
+    <div className="animate-pulse">
+      {/* Image shimmer */}
+      <div className="w-full h-48 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded-2xl mb-4"></div>
+      
+      {/* Text shimmer */}
+      <div className="space-y-3">
+        <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-3/4"></div>
+        <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-1/2"></div>
+        <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-5/6"></div>
+        <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-2/3"></div>
+      </div>
+      
+      {/* Thread shimmer */}
+      <div className="mt-6 space-y-3">
+        <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-full"></div>
+        <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-4/5"></div>
+        <div className="h-4 bg-gradient-to-r from-gray-600 via-gray-500 to-gray-600 rounded w-3/4"></div>
+      </div>
+    </div>
+  )
+  
   const [isLoadingUserInfo, setIsLoadingUserInfo] = useState(false)
   const [isPostingToTwitter, setIsPostingToTwitter] = useState(false)
   const [twitterPostingResult, setTwitterPostingResult] = useState<{
@@ -106,6 +469,15 @@ export default function PurchaseContentModal({
     message: string;
     tweetUrl?: string;
   } | null>(null)
+
+  // Store original content when modal opens
+  useEffect(() => {
+    if (content && !originalContent) {
+      setOriginalContent(content)
+    }
+  }, [content, originalContent])
+  
+
 
   // Auto-close wallet modal when wallet connects
   useEffect(() => {
@@ -216,7 +588,7 @@ export default function PurchaseContentModal({
       return loggedInUserInfo.username
     }
     // If not logged in, show miner's username
-    return content?.creator?.username || 'User'
+    return localContent?.creator?.username || 'User'
   }
 
   const getTwitterHandle = () => {
@@ -228,7 +600,7 @@ export default function PurchaseContentModal({
       return loggedInUserInfo.username.toLowerCase()
     }
     // If not logged in, show miner's username
-    return content?.creator?.username?.toLowerCase() || 'user'
+    return localContent?.creator?.username?.toLowerCase() || 'user'
   }
 
   const getInitialLetter = () => {
@@ -240,7 +612,7 @@ export default function PurchaseContentModal({
       return loggedInUserInfo.username.charAt(0).toUpperCase()
     }
     // If not logged in, show miner's username
-    return content?.creator?.username?.charAt(0).toUpperCase() || 'U'
+    return localContent?.creator?.username?.charAt(0).toUpperCase() || 'U'
   }
 
   // Content parsing functions for tweet management (from TweetPreviewModal)
@@ -308,6 +680,45 @@ export default function PurchaseContentModal({
     }
   }
 
+  const getTweetManagementData = () => {
+    if (!localContent) return { tweetText: '', formatted: null, displayImage: '', processedThread: [] }
+
+    // Check if this is a longpost that should be rendered as markdown
+    const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
+    
+    // Check if content has markdown syntax
+    const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
+    
+    // Force markdown if we detect markdown syntax
+    const forceMarkdown = hasMarkdownSyntax
+    
+    let tweetText = ''
+    if (shouldUseMarkdown || forceMarkdown) {
+      tweetText = markdownToPlainText(localContent.content_text)
+    } else {
+      const formatted = formatTwitterContentForManagement(localContent.content_text)
+      tweetText = formatted.text || ''
+    }
+    
+    const displayImage = localContent.content_images && localContent.content_images.length > 0
+      ? localContent.content_images[0]
+      : ''
+    
+    const processedThread = localContent.tweet_thread ? localContent.tweet_thread.map(tweet => {
+      return {
+        text: tweet,
+        imageUrl: null
+      }
+    }) : []
+    
+    return {
+      tweetText,
+      formatted: null,
+      displayImage,
+      processedThread
+    }
+  }
+
   // Download image function (from TweetPreviewModal)
   const downloadImage = async (imageUrl: string, filename: string = 'tweet-image.png') => {
     try {
@@ -349,13 +760,13 @@ export default function PurchaseContentModal({
 
   // Twitter posting function
   const handlePostToTwitter = async () => {
-    if (!content) return
+    if (!localContent) return
 
     setIsPostingToTwitter(true)
     try {
       // Check if this is markdown content (longpost)
-      const shouldUseMarkdown = isMarkdownContent(content.post_type)
-      const hasMarkdownSyntax = content.content_text?.includes('##') || content.content_text?.includes('**')
+      const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
+      const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
       const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
       
       let tweetText: string
@@ -363,21 +774,21 @@ export default function PurchaseContentModal({
       
       if (forceMarkdown) {
         // For longpost content, convert markdown to plain text for Twitter
-        tweetText = markdownToPlainText(content.content_text)
+        tweetText = markdownToPlainText(localContent.content_text)
       } else {
         // For regular content, use existing formatting
-        const formatted = formatTwitterContentForManagement(content.content_text)
+        const formatted = formatTwitterContentForManagement(localContent.content_text)
         tweetText = formatted.text
         extractedImageUrl = formatted.imageUrl
       }
       
       // Use original image for posting (after purchase), not watermarked
-      const displayImage = content.content_images && content.content_images.length > 0 
-          ? content.content_images[0] 
+      const displayImage = localContent.content_images && localContent.content_images.length > 0 
+          ? localContent.content_images[0] 
           : extractedImageUrl
 
       // Prepare tweet data - also convert thread items if they contain markdown
-      const processedThread = content.tweet_thread ? content.tweet_thread.map(tweet => {
+      const processedThread = localContent.tweet_thread ? localContent.tweet_thread.map(tweet => {
         // Check if thread item contains markdown
         if (tweet.includes('##') || tweet.includes('**')) {
           return markdownToPlainText(tweet)
@@ -652,20 +1063,21 @@ export default function PurchaseContentModal({
         return
       }
 
-      // Check balance via backend (no wallet confirmation needed)
-      let requiredAmount: number;
-      let tokenType: string;
-      
-      if (selectedPayment === 'roast') {
-        requiredAmount = content.asking_price;
-        tokenType = 'roast';
-      } else {
-        const usdcPrice = roastPrice ? (content.asking_price * roastPrice) : 0;
-        requiredAmount = usdcPrice + 0.03; // Add 0.03 USDC fee
-        tokenType = 'usdc';
+      // Calculate required amount
+      if (!localContent) {
+        throw new Error('No content available for purchase');
       }
+      
+      const requiredAmount = getDisplayPrice(localContent);
+      
+      // Calculate USDC equivalent
+              const usdcPrice = roastPrice ? (getDisplayPrice(localContent) * roastPrice) : 0;
+      
+      // Add 0.03 USDC fee
+      const usdcFee = 0.03;
+      const totalUSDC = usdcPrice + usdcFee;
 
-      console.log(`🔍 Checking ${tokenType.toUpperCase()} balance via backend...`);
+      console.log(`🔍 Checking ${'ROAST'.toUpperCase()} balance via backend...`);
       
       // Backend balance check
       const balanceResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/check-balance`, {
@@ -675,7 +1087,7 @@ export default function PurchaseContentModal({
         },
         body: JSON.stringify({
           walletAddress: address,
-          tokenType: tokenType,
+          tokenType: 'roast',
           requiredAmount: requiredAmount
         }),
       });
@@ -703,11 +1115,11 @@ export default function PurchaseContentModal({
       // Execute transaction using working implementation pattern
       let result: any;
       if (selectedPayment === 'roast') {
-        console.log(`🔄 Executing ROAST payment: ${content.asking_price} ROAST to ${treasuryAddress}`)
+        console.log(`🔄 Executing ROAST payment: ${requiredAmount} ROAST to ${treasuryAddress}`)
         
         try {
           // Use the working implementation service for better wallet display
-          const transactionHash = await executeROASTPayment(content.asking_price, treasuryAddress);
+          const transactionHash = await executeROASTPayment(requiredAmount, treasuryAddress);
           result = {
             success: true,
             transactionHash: transactionHash,
@@ -724,45 +1136,50 @@ export default function PurchaseContentModal({
           success = false;
         }
       } else {
-        console.log(`🔄 Initiating USDC transfer: ${requiredAmount} USDC to ${treasuryAddress}`)
-        result = await transferUSDC(requiredAmount, treasuryAddress)
+        console.log(`🔄 Initiating USDC transfer: ${totalUSDC} USDC to ${treasuryAddress}`)
+        result = await transferUSDC(totalUSDC, treasuryAddress)
         success = result.success
       }
 
       if (success) {
-        // Call the onPurchase callback with transaction hash (this will handle backend recording)
-        if (onPurchase) {
+        // Call the content management purchase handler
+        if (result.success) {
           const transactionHash = result.transactionHash;
-          await onPurchase(content.id, content.asking_price, selectedPayment === 'roast' ? 'ROAST' : 'USDC', transactionHash)
-        }
-        
-        // Refresh presigned URLs for content images after purchase
-        try {
-          console.log('🔄 Refreshing presigned URLs for purchased content...');
-          const refreshResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${content.id}/refresh-urls`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            }
-          });
+          await handlePurchaseWithContentManagement(localContent, requiredAmount, selectedPayment === 'roast' ? 'ROAST' : 'USDC')
           
-          if (refreshResponse.ok) {
-            const refreshData = await refreshResponse.json();
-            if (refreshData.success && refreshData.data) {
-              console.log('✅ Successfully refreshed presigned URLs');
-              // Update the content with fresh URLs
-              if (onContentUpdate) {
-                onContentUpdate(refreshData.data);
+          // Also call the original onPurchase callback if provided
+          if (onPurchase) {
+            await onPurchase(localContent.id, requiredAmount, selectedPayment === 'roast' ? 'ROAST' : 'USDC', transactionHash)
+          }
+          
+          // Refresh presigned URLs for purchased content
+          console.log('🔄 Refreshing presigned URLs for purchased content...');
+          try {
+            const refreshResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${localContent.id}/refresh-urls`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              }
+            });
+            
+            if (refreshResponse.ok) {
+              const refreshData = await refreshResponse.json();
+              if (refreshData.success && refreshData.data) {
+                console.log('✅ Successfully refreshed presigned URLs');
+                // Update the content with fresh URLs
+                if (onContentUpdate) {
+                  onContentUpdate(refreshData.data);
+                }
+              } else {
+                console.warn('⚠️ Failed to refresh presigned URLs:', refreshData.error);
               }
             } else {
-              console.warn('⚠️ Failed to refresh presigned URLs:', refreshData.error);
+              console.warn('⚠️ Presigned URL refresh API call failed:', refreshResponse.status);
             }
-          } else {
-            console.warn('⚠️ Presigned URL refresh API call failed:', refreshResponse.status);
+          } catch (error) {
+            console.warn('⚠️ Error refreshing presigned URLs:', error);
+            // Don't fail the purchase if URL refresh fails
           }
-        } catch (error) {
-          console.warn('⚠️ Error refreshing presigned URLs:', error);
-          // Don't fail the purchase if URL refresh fails
         }
         
         // Set purchase success state
@@ -860,26 +1277,26 @@ export default function PurchaseContentModal({
 
   // Comprehensive content parsing logic (same as BiddingInterface and mining interface)
   const getContentData = () => {
-    if (!content) return { text: '', hashtags: [], characterCount: 0, imageUrl: null, shouldUseMarkdown: false }
+    if (!localContent) return { text: '', hashtags: [], characterCount: 0, imageUrl: null, shouldUseMarkdown: false }
 
     // Check if this is a longpost that should be rendered as markdown
-    const shouldUseMarkdown = isMarkdownContent(content.post_type)
+    const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
     
     // Check if content has markdown syntax
-    const hasMarkdownSyntax = content.content_text?.includes('##') || content.content_text?.includes('**')
+    const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
     
     // Force markdown if we detect markdown syntax
     const forceMarkdown = hasMarkdownSyntax
     
     // For longposts, use raw content; for others, use parsed content
     const { text, imageUrl: extractedImageUrl } = (shouldUseMarkdown || forceMarkdown)
-      ? { text: content.content_text, imageUrl: null }
-      : formatTwitterContent(content.content_text)
+      ? { text: localContent.content_text, imageUrl: null }
+      : formatTwitterContent(localContent.content_text)
     
     // Use watermarked image for preview, original for purchased content
     const imageUrl = isPurchased 
-      ? (content.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl)
-      : (content.watermark_image || (content.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl))
+      ? (localContent.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl)
+      : (localContent.watermark_image || (localContent.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl))
     
     const hashtags = extractHashtags(text)
     
@@ -904,17 +1321,57 @@ export default function PurchaseContentModal({
   const contentData = getContentData()
 
   // Debug logging for content parsing (similar to mining interface)
-  console.log('🔍 PurchaseModal: Post type:', content?.post_type)
+  console.log('🔍 PurchaseModal: Post type:', localContent?.post_type)
   console.log('🔍 PurchaseModal: Should use markdown:', contentData.shouldUseMarkdown)
-  console.log('🔍 PurchaseModal: Has markdown syntax:', content?.content_text?.includes('##') || content?.content_text?.includes('**'))
-  console.log('🔍 PurchaseModal: Raw content length:', content?.content_text?.length)
+  console.log('🔍 PurchaseModal: Has markdown syntax:', localContent?.content_text?.includes('##') || localContent?.content_text?.includes('**'))
+  console.log('🔍 PurchaseModal: Raw content length:', localContent?.content_text?.length)
   console.log('🔍 PurchaseModal: Parsed text length:', contentData.text?.length)
   console.log('🖼️ PurchaseModal: Image URL:', contentData.imageUrl)
 
   // Calculate USDC price
-  const usdcPrice = roastPrice ? (content.asking_price * roastPrice).toFixed(2) : '0.00'
+          const usdcPrice = roastPrice && localContent ? (getDisplayPrice(localContent) * roastPrice).toFixed(2) : '0.00'
   const usdcFee = '0.030' // Constant 0.03 USDC fee
-  const totalUSDC = roastPrice ? (parseFloat(usdcPrice) + parseFloat(usdcFee)).toFixed(2) : '0.00'
+  const totalUSDC = roastPrice && localContent ? (parseFloat(usdcPrice) + parseFloat(usdcFee)).toFixed(2) : '0.00'
+
+  // Helper functions to get display data based on Twitter connection (for tweet preview only)
+  const getDisplayUsername = () => {
+    if (twitter.isConnected && twitter.profile?.displayName) {
+      return twitter.profile.displayName
+    }
+    if (twitter.isConnected && twitter.profile?.username) {
+      return twitter.profile.username
+    }
+    // If no Twitter connected but user is logged in, show their username from users table
+    if (address && isAuthenticated && loggedInUserInfo?.username) {
+      return loggedInUserInfo.username
+    }
+    // If not logged in, show miner's username
+    return localContent?.creator?.username || 'User'
+  }
+
+  const getDisplayUsernameLower = () => {
+    if (twitter.isConnected && twitter.profile?.username) {
+      return twitter.profile.username
+    }
+    // If no Twitter connected but user is logged in, show their username from users table
+    if (address && isAuthenticated && loggedInUserInfo?.username) {
+      return loggedInUserInfo.username.toLowerCase()
+    }
+    // If not logged in, show miner's username
+    return localContent?.creator?.username?.toLowerCase() || 'user'
+  }
+
+  const getDisplayUsernameInitial = () => {
+    if (twitter.isConnected && twitter.profile?.username) {
+      return twitter.profile.username.charAt(0).toUpperCase()
+    }
+    // If no Twitter connected but user is logged in, show their username from users table
+    if (address && isAuthenticated && loggedInUserInfo?.username) {
+      return loggedInUserInfo.username.charAt(0).toUpperCase()
+    }
+    // If not logged in, show miner's username
+    return localContent?.creator?.username?.charAt(0).toUpperCase() || 'U'
+  }
 
   return (
     <div
@@ -925,7 +1382,7 @@ export default function PurchaseContentModal({
       style={{ height: '100vh', minHeight: '100vh' }}
       tabIndex={0}
     >
-      <div className="relative w-full max-w-[95vw] lg:max-w-6xl rounded-2xl bg-[#492222] max-h-[100vh] overflow-y-auto lg:overflow-y-hidden shadow-2xl p-4 lg:p-6 overscroll-contain">
+      <div className="relative w-full max-w-none lg:max-w-6xl rounded-none lg:rounded-2xl bg-transparent lg:bg-[#492222] max-h-[100vh] overflow-y-auto lg:overflow-y-hidden shadow-none lg:shadow-2xl p-0 lg:p-6 overscroll-contain touch-pan-y modal-scrollable">
         {/* Close Button */}
             <button
               onClick={onClose}
@@ -937,33 +1394,46 @@ export default function PurchaseContentModal({
           </svg>
             </button>
 
-        <div className="flex flex-col lg:flex-row max-h-[90vh] gap-4 overflow-y-auto lg:overflow-hidden">
-          {/* Left Panel - Tweet Preview */}
-          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-2xl">
+        <div className="flex flex-col lg:flex-row max-h-[90vh] gap-0 lg:gap-4 overflow-y-auto lg:overflow-hidden touch-pan-y">
+          {/* Left Panel - Tweet Preview + Mobile Purchase Options Combined */}
+          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-screen lg:min-h-0">
             <h2 className="text-white/80 text-base lg:text-lg font-medium mb-4 lg:mb-6">Tweet preview</h2>
 
             {/* Twitter Thread Container */}
-            <div className="w-full flex-1 overflow-y-auto pr-1 lg:pr-2 rounded-2xl">
+            <div className="w-full flex-1 overflow-y-auto pr-0 lg:pr-2 rounded-none lg:rounded-2xl touch-pan-y overscroll-contain modal-scrollable scrollbar-hide">
+              
+
               <style jsx>{`
                 div::-webkit-scrollbar {
-                  width: 6px;
+                  width: 0px !important;
+                  display: none !important;
                 }
                 div::-webkit-scrollbar-track {
-                  background: transparent;
+                  background: #121418 !important;
+                  display: none !important;
                 }
                 div::-webkit-scrollbar-thumb {
-                  background-color: #374151;
-                  border-radius: 3px;
+                  background-color: transparent !important;
+                  display: none !important;
                 }
                 div::-webkit-scrollbar-thumb:hover {
-                  background-color: #4B5563;
+                  background-color: transparent !important;
+                  display: none !important;
+                }
+                .scrollbar-hide {
+                  -ms-overflow-style: none !important;
+                  scrollbar-width: none !important;
+                }
+                .scrollbar-hide::-webkit-scrollbar {
+                  width: 0px !important;
+                  display: none !important;
                 }
               `}</style>
 
               {/* Single Tweet Container with Thread Structure */}
               <div className="relative">
                 {/* Continuous Thread Line - Only show for threads, not longposts */}
-                {content.tweet_thread && content.tweet_thread.length > 1 && !contentData.shouldUseMarkdown && (
+                {localContent?.tweet_thread && localContent.tweet_thread.length > 1 && !contentData.shouldUseMarkdown && (
                   <div className="absolute left-5 top-10 bottom-0 w-0.5 bg-gray-600 z-0"></div>
                 )}
 
@@ -984,23 +1454,26 @@ export default function PurchaseContentModal({
                             }}
                           />
                         ) : null}
-                        <span className={`text-white font-bold text-sm ${(twitter.isConnected && twitter.profile?.profileImage) ? 'hidden' : ''}`}>{getInitialLetter()}</span>
+                        <span className={`text-white font-bold text-sm ${(twitter.isConnected && twitter.profile?.profileImage) ? 'hidden' : ''}`}>{getDisplayUsernameInitial()}</span>
               </div>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-white font-bold text-xs lg:text-sm">{getDisplayName()}</span>
+                        <span className="text-white font-bold text-xs lg:text-sm">{getDisplayUsername()}</span>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="#1DA1F2">
-                          <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.72 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
+                          <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.58 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
                         </svg>
-                        <span className="text-gray-500 text-xs lg:text-sm">@{getTwitterHandle()}</span>
+                        <span className="text-gray-500 text-xs lg:text-sm">@{getDisplayUsernameLower()}</span>
                   </div>
 
                       {/* For longposts: Image first, then content */}
                       {contentData.shouldUseMarkdown ? (
                         <>
                           {/* Longpost Image at top */}
-                          {contentData.imageUrl && (
+                          {isGeneratingContent ? (
+                            <ImageShimmer />
+                          ) : (
+                            contentData.imageUrl ? (
                             <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
                               <Image
                                 src={contentData.imageUrl} 
@@ -1008,14 +1481,18 @@ export default function PurchaseContentModal({
                                 width={500}
                                 height={300}
                                 className="w-full h-auto object-cover"
-                                unoptimized={isPresignedS3Url(contentData.imageUrl)}
+                                  unoptimized={isPresignedS3Url(contentData.imageUrl)}
                               />
 
                             </div>
+                            ) : null
                           )}
                           
                           {/* Longpost Content with white text styling */}
                           <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
+                            {isGeneratingContent ? (
+                              <TextShimmer />
+                            ) : (
                             <div 
                               className="longpost-markdown-content"
                               style={{
@@ -1024,17 +1501,25 @@ export default function PurchaseContentModal({
                             >
                               {formatContentText(contentData.text, contentData.shouldUseMarkdown)}
                             </div>
+                            )}
                           </div>
                         </>
                       ) : (
                         <>
                           {/* Regular content (shitpost/thread): Content first, then image */}
                           <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
-                            {formatContentText(contentData.text, contentData.shouldUseMarkdown)}
+                            {isGeneratingContent ? (
+                              <TextShimmer />
+                            ) : (
+                              formatContentText(contentData.text, contentData.shouldUseMarkdown)
+                            )}
                           </div>
                           
                           {/* Tweet Images for regular content */}
-                          {contentData.imageUrl && (
+                          {isGeneratingContent ? (
+                            <ImageShimmer />
+                          ) : (
+                            contentData.imageUrl ? (
                             <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
                               <Image
                                 src={contentData.imageUrl} 
@@ -1042,10 +1527,11 @@ export default function PurchaseContentModal({
                                 width={500}
                                 height={300}
                                 className="w-full h-auto object-cover"
-                                unoptimized={isPresignedS3Url(contentData.imageUrl)}
+                                  unoptimized={isPresignedS3Url(contentData.imageUrl)}
                               />
 
                             </div>
+                            ) : null
                           )}
                         </>
                       )}
@@ -1056,7 +1542,7 @@ export default function PurchaseContentModal({
                 </div>
 
                 {/* Thread Replies - Only show for threads, not longposts */}
-                {content.tweet_thread && content.tweet_thread.length > 1 && !contentData.shouldUseMarkdown && content.tweet_thread.slice(1).map((tweet, index) => (
+                {localContent?.tweet_thread && localContent.tweet_thread.length > 1 && !contentData.shouldUseMarkdown && localContent.tweet_thread.slice(1).map((tweet, index) => (
                   <div key={index} className="relative pb-3">
                     <div className="flex gap-3 pr-2">
                       <div className="relative flex-shrink-0">
@@ -1073,30 +1559,351 @@ export default function PurchaseContentModal({
                               }}
                             />
                           ) : null}
-                          <span className={`text-white font-bold text-sm ${(twitter.isConnected && twitter.profile?.profileImage) ? 'hidden' : ''}`}>{getInitialLetter()}</span>
+                          <span className={`text-white font-bold text-sm ${(twitter.isConnected && twitter.profile?.profileImage) ? 'hidden' : ''}`}>{getDisplayUsernameInitial()}</span>
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-white font-bold text-xs lg:text-sm">{getDisplayName()}</span>
+                          <span className="text-white font-bold text-xs lg:text-sm">{getDisplayUsername()}</span>
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="#1DA1F2">
-                            <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.72 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
+                            <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.58 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
                           </svg>
-                          <span className="text-gray-500 text-xs lg:text-sm">@{getTwitterHandle()}</span>
+                          <span className="text-gray-500 text-xs lg:text-sm">@{getDisplayUsernameLower()}</span>
                         </div>
                         <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
-                          {tweet}
+                          {isGeneratingContent ? (
+                            <ThreadItemShimmer />
+                          ) : (
+                            tweet
+                          )}
                         </div>
                       </div>
                     </div>
                   </div>
                 ))}
                 </div>
+
+              {/* Longpost Warning Message - Only show on mobile for longposts */}
+              {contentData.shouldUseMarkdown && (
+                <div className="lg:hidden mt-4 p-3 bg-orange-500/20 border border-orange-500/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-5 h-5 text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    <span className="text-orange-400 text-sm font-medium">Longpost Content</span>
+            </div>
+                  <p className="text-orange-300 text-xs mt-1">
+                    This is a longpost that will be posted as a single tweet. Make sure your X account supports long tweets.
+                  </p>
+          </div>
+              )}
+
+              {/* Mobile Purchase Options - Now inside the same scrollable container */}
+              <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32">
+                  {/* Voice Tone Selection - Mobile/Tablet */}
+                  <div className="mb-6">
+                    <h3 className="text-white text-[12px] xs:text-[10px] sm:text-[12px] md:text-[16px] font-semibold mb-2 xs:mb-3 md:mb-4">Select tweet voice tone</h3>
+                    <p className="text-white/60 text-[10px] xs:text-[8px] sm:text-[10px] md:text-[12px] mb-3 xs:mb-4 md:mb-4">Tweet content and tone will be updated as per your preferences</p>
+                    
+                    <div className="grid grid-cols-3 bg-[#220808B2] rounded-full p-1 gap-1">
+                      <button
+                        onClick={() => setSelectedVoiceTone("auto")}
+                        className={`py-2 xs:py-2.5 md:py-3 px-2 xs:px-3 md:px-4 rounded-full text-[10px] xs:text-[8px] sm:text-[12px] md:text-[16px] font-bold transition-all duration-200 text-center ${
+                          selectedVoiceTone === "auto"
+                            ? "bg-white text-black shadow-lg"
+                            : "text-white/80 hover:text-white hover:bg-white/10"
+                        }`}
+                      >
+                        Automated
+                      </button>
+                      <button
+                        onClick={() => setSelectedVoiceTone("custom")}
+                        className={`py-2 xs:py-2.5 md:py-3 px-2 xs:px-3 md:px-4 rounded-full text-[10px] xs:text-[8px] sm:text-[12px] md:text-[16px] font-bold transition-all duration-200 text-center ${
+                          selectedVoiceTone === "custom"
+                            ? "bg-white text-black shadow-lg"
+                            : "text-white/80 hover:text-white hover:bg-white/10"
+                        }`}
+                      >
+                        Choose Yapper
+                      </button>
+                      <button
+                        onClick={() => setSelectedVoiceTone("mystyle")}
+                        className={`py-2 xs:py-2.5 md:py-3 px-2 xs:px-3 md:px-4 rounded-full text-[10px] xs:text-[8px] sm:text-[12px] md:text-[16px] font-bold transition-all duration-200 text-center ${
+                          selectedVoiceTone === "mystyle"
+                            ? "bg-white text-black shadow-lg"
+                            : "text-white/80 hover:text-white hover:bg-white/10"
+                        }`}
+                      >
+                        My Voice
+                      </button>
+                    </div>
+
+                    {/* Voice Tone Specific Content */}
+                    {selectedVoiceTone === "auto" && (
+                      <div className="mt-3 xs:mt-4 md:mt-4 p-2.5 xs:p-3 md:p-3 bg-[#220808]/50 rounded-lg border border-white/10">
+                        <div className="flex items-center justify-between">
+                          <span className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Extra fee per tweet</span>
+                          <span className="text-green-400 font-semibold text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">FREE</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedVoiceTone === "custom" && (
+                      <div className="mt-3 xs:mt-4 md:mt-4 space-y-2.5 xs:space-y-3 md:space-y-3">
+                        {/* Search input */}
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="Search yappers..."
+                            value={yapperSearchQuery}
+                            onChange={(e) => setYapperSearchQuery(e.target.value)}
+                            className="w-full bg-[#220808] border border-[#4A3636] rounded-lg px-2.5 xs:px-3 md:px-3 py-2 xs:py-2.5 md:py-2.5 text-white text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px] placeholder-white/50 focus:outline-none focus:border-[#FD7A10] focus:ring-1 focus:ring-[#FD7A10]/20"
+                          />
+                          <svg
+                            className="absolute right-2.5 xs:right-3 md:right-3 top-1/2 transform -translate-y-1/2 w-3.5 xs:w-4 md:w-4 h-3.5 xs:h-4 md:h-4 text-white/50"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                        </div>
+                        
+                        {isLoadingYappers ? (
+                          <div className="flex items-center justify-center py-2.5 xs:py-3 md:py-3">
+                            <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Loading yappers...</div>
+                          </div>
+                        ) : filteredYappers.length > 0 ? (
+                          <div className="space-y-1.5 xs:space-y-2 md:space-y-2 max-h-28 xs:max-h-32 md:max-h-32 overflow-y-auto">
+                            {filteredYappers.map((yapper) => (
+                              <button
+                                key={yapper.id}
+                                type="button"
+                                onClick={() => setSelectedYapper(yapper.twitter_handle)}
+                                className={`w-full text-left p-2 xs:p-2.5 md:p-2.5 rounded-lg border transition-all duration-200 ${
+                                  selectedYapper === yapper.twitter_handle
+                                    ? 'bg-[#FD7A10] border-[#FD7A10] text-black shadow-lg'
+                                    : 'bg-[#220808] border-[#4A3636] text-white hover:bg-[#2a1212] hover:border-[#FD7A10]/30'
+                                }`}
+                              >
+                                <div className="flex items-center gap-1.5 xs:gap-2 md:gap-2">
+                                  <div className="w-4 xs:w-5 md:w-5 h-4 xs:h-5 md:h-5 bg-gradient-to-r from-orange-500 to-orange-600 rounded-full flex items-center justify-center text-white font-bold text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">
+                                    @
+                                  </div>
+                                  <div>
+                                    <div className="font-medium font-nt-brick text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">@{yapper.twitter_handle}</div>
+                                    <div className={`text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px] ${selectedYapper === yapper.twitter_handle ? 'text-black/60' : 'text-white/50'}`}>
+                                      {yapper.display_name}
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center py-2.5 xs:py-3 md:py-3">
+                            <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px] text-center">
+                              {yapperSearchQuery ? 'No yappers found matching your search' : 'No yappers available'}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Fee message */}
+                        <div className="flex items-center justify-between p-2 xs:p-2 md:p-2 bg-[#220808]/50 rounded-lg">
+                          <span className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Extra fee per tweet</span>
+                          <div className="text-right text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">
+                            <span className="line-through">500 ROAST</span>
+                            <span className="text-green-400 ml-2 font-semibold">FREE</span>
+                          </div>
+                        </div>
+                        
+                        {/* Generate Content Button - Removed since main action button now handles this */}
+                        
+                        {/* Generation Status */}
+                        {isGeneratingContent && (
+                          <div className="p-3 bg-[#220808]/80 rounded-lg border border-[#FD7A10]/30">
+                            <div className="text-[#FD7A10] text-[10px] xs:text-[12px] md:text-[14px] font-medium mb-2">
+                              {generationStatus}
+                            </div>
+                            {/* Progress Bar */}
+                            <div className="w-full bg-[#4A3636] rounded-full h-2 mb-2">
+                              <div 
+                                className="bg-[#FD7A10] h-2 rounded-full transition-all duration-300 ease-out"
+                                style={{ width: `${generationProgress}%` }}
+                              ></div>
+                            </div>
+                            <div className="text-white/60 text-[10px] xs:text-[12px] md:text-[14px] text-center">
+                              {generationProgress}% Complete
+                            </div>
+                            <div className="w-full bg-gray-700 rounded-full h-2">
+                              <div 
+                                className="bg-[#FD7A10] h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${generationProgress}%` }}
+                              ></div>
+                            </div>
+                            <div className="text-white/60 text-[8px] xs:text-[10px] md:text-[12px] mt-1">
+                              {generationProgress}% Complete
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {selectedVoiceTone === "mystyle" && (
+                      <div className="mt-3 xs:mt-4 md:mt-4 space-y-2.5 xs:space-y-3 md:space-y-3">
+                        {!twitter.isConnected ? (
+                          <div className="text-center p-3 xs:p-4 md:p-4 bg-[#220808]/50 rounded-lg border border-white/10">
+                            <h4 className="text-white text-[6px] xs:text-[12px] md:text-[16px] font-semibold mb-1.5 xs:mb-2 md:mb-2">
+                              {twitter.hasPreviousConnection && (twitter.tokenStatus === 'expired' || twitter.tokenStatus === 'missing')
+                                ? 'Twitter reconnection required' 
+                                : 'Twitter access required'}
+                            </h4>
+                            <p className="text-white/60 text-[6px] xs:text-[12px] md:text-[16px] mb-2 xs:mb-3 md:mb-3">
+                              {twitter.hasPreviousConnection && (twitter.tokenStatus === 'expired' || twitter.tokenStatus === 'missing')
+                                ? 'Your Twitter access has been disconnected. Please reconnect to continue using your voice tone.'
+                                : 'By getting access to your previous tweets, our AI model can generate content in your voice of tone'}
+                            </p>
+                            <button
+                              onClick={handleTwitterAuthVoice}
+                              className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-lg py-2 xs:py-2.5 md:py-2.5 cursor-pointer hover:bg-[#FD7A10]/10 transition-colors text-[6px] xs:text-[12px] md:text-[16px]"
+                              disabled={twitter.isLoading}
+                            >
+                              {twitter.isLoading ? 'Connecting...' : (
+                                twitter.hasPreviousConnection && (twitter.tokenStatus === 'expired' || twitter.tokenStatus === 'missing')
+                                  ? 'Reconnect Twitter' 
+                                  : 'Grant twitter access'
+                              )}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2.5 xs:space-y-3 md:space-y-3">
+                            {/* Connected bar */}
+                            <div className="flex items-center justify-between bg-[#220808] rounded-lg px-2.5 xs:px-3 md:px-3 py-2 xs:py-2.5 md:py-2.5">
+                              <span className="text-white/80 text-[6px] xs:text-[12px] md:text-[16px]">Twitter profile</span>
+                              <div className="flex items-center gap-1.5 xs:gap-2 md:gap-2">
+                                <span className="text-white/80 text-[6px] xs:text-[12px] md:text-[16px]">@{twitter.profile?.username || 'profile'}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => disconnect()}
+                                  className="text-white/60 hover:text-white/90 text-[6px] xs:text-[12px] md:text-[16px] underline"
+                                  disabled={twitter.isLoading}
+                                >
+                                  {twitter.isLoading ? 'Disconnecting...' : 'Disconnect'}
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Fee row + Generate button */}
+                            <div className="flex items-center justify-between p-2 xs:p-2 md:p-2 bg-[#220808]/50 rounded-lg">
+                              <span className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Extra fee per tweet</span>
+                              <div className="text-right text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">
+                                <span className="line-through">500 ROAST</span>
+                                <span className="text-green-400 ml-2 font-semibold">FREE</span>
+                              </div>
+                            </div>
+                            
+                            <button 
+                              onClick={handleGenerate}
+                              className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-lg py-2 xs:py-2.5 md:py-2.5 cursor-pointer hover:bg-[#FD7A10]/10 transition-colors text-[6px] xs:text-[12px] md:text-[16px] font-medium"
+                            >
+                              <svg className="w-3.5 xs:w-4 md:w-4 h-3.5 xs:h-4 md:h-4 mr-1.5 xs:mr-2 md:mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                              </svg>
+                              Generate
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payment Options - Mobile/Tablet */}
+                  <div className="mb-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div
+                        onClick={() => setSelectedPayment("roast")}
+                        className={`p-3 rounded-lg cursor-pointer transition-colors bg-[#12141866] border-2 ${
+                          selectedPayment === "roast" ? 'border-[#FD7A10]' : 'border-transparent'
+                        }`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-white font-semibold text-[6px] xs:text-[12px] md:text-[16px]">$ROAST</span>
+                          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                            selectedPayment === "roast" ? "border-[#FD7A10] bg-[#FD7A10]" : "border-[#FD7A10]"
+                          }`}>
+                            {selectedPayment === "roast" && (
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-white text-[6px] xs:text-[12px] md:text-[16px] font-bold">{Math.round(getDisplayPrice(localContent))}</div>
+                        <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Platform Token</div>
+                      </div>
+
+                      <div
+                        onClick={() => setSelectedPayment("usdc")}
+                        className={`p-3 rounded-lg cursor-pointer transition-colors bg-[#12141866] border-2 ${
+                          selectedPayment === "usdc" ? 'border-[#FD7A10]' : 'border-transparent'
+                        }`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-white font-semibold text-[6px] xs:text-[12px] md:text-[16px]">USDC</span>
+                          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                            selectedPayment === "usdc" ? "border-[#FD7A10] bg-[#FD7A10]" : "border-[#FD7A10]"
+                          }`}>
+                            {selectedPayment === "usdc" && (
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-white text-[6px] xs:text-[12px] md:text-[16px] font-bold">${totalUSDC}</div>
+                        <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Including 0.03 USDC fee</div>
+                      </div>
+                    </div>
+
+                    {/* Motivational message for USDC users */}
+                    {selectedPayment === "usdc" && (
+                      <div className="mt-3 bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <svg className="w-4 h-4 text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M3 4a1 1 0 011-1h4a1 1 0 010 2H6.414l2.293 2.293a1 1 0 01-1.414 1.414L5 6.414V8a1 1 0 01-2 0V4zm9 1a1 1 0 010-2h4a1 1 0 011 1v4a1 1 0 01-2 0V6.414l-2.293 2.293a1 1 0 11-1.414-1.414L13.586 5H12z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-orange-400 font-semibold text-[6px] xs:text-[12px] md:text-[16px]">💡 Save Money with ROAST</span>
+                        </div>
+                        <p className="text-white/80 text-[6px] xs:text-[12px] md:text-[16px] leading-relaxed">
+                          Pay with <span className="text-orange-400 font-semibold">ROAST tokens</span> and save <span className="text-green-400 font-semibold">0.03 USDC</span> in fees! 
+                          ROAST holders also get <span className="text-orange-400 font-semibold">exclusive access</span> to premium content and <span className="text-orange-400 font-semibold">early features</span>.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  
+
+
+                  {/* Action Button - Changes based on selected voice tone */}
+                  {selectedVoiceTone === "custom" && selectedYapper ? (
+                    <button
+
+                      onClick={generateContentFromYapper}
+                      disabled={isGeneratingContent || !address}
+                      className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isGeneratingContent ? 'Generating...' : `Generate Content from @${selectedYapper}`}
+                    </button>
+                  ) : (
+                    <button
+
+                      onClick={handlePurchase}
+                      disabled={isLoading}
+                      className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoading ? 'Processing...' : 'Buy Tweet'}
+                    </button>
+                  )}
+                </div>
             </div>
           </div>
 
-          {/* Right Panel */}
-          <div className="w-full lg:w-1/2 px-4 pt-4 lg:px-8 lg:pt-8 flex flex-col gap-4 overflow-y-auto justify-between">
+          {/* Right Panel - Hidden on mobile, shown on desktop */}
+          <div className="hidden lg:flex w-full lg:w-1/2 px-4 pt-4 lg:px-8 lg:pt-8 flex-col gap-4 overflow-y-auto justify-between">
             {!isPurchased ? (
               <>
                 <div className="flex flex-col gap-4">
@@ -1105,13 +1912,13 @@ export default function PurchaseContentModal({
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-[#FFCC00] rounded-full flex items-center justify-center overflow-hidden">
                         <span className="text-black font-bold text-lg">
-                          {content?.creator?.username?.charAt(0).toUpperCase() || 'U'}
+                          {getDisplayUsernameInitial()}
                         </span>
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-white font-bold">
-                            {content?.creator?.username || 'User'}
+                            {getDisplayUsername()}
                           </span>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-white/60">
@@ -1119,32 +1926,22 @@ export default function PurchaseContentModal({
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="#FFCC00">
                               <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                             </svg>
-              </div>
+                          </div>
                           <div className="flex items-center gap-1 text-xs">
-                            {/* <span className="text-white">{content.creator.reputation_score} reputation</span>
+                            {/* <span className="text-white">{localContent?.creator?.reputation_score} reputation</span>
                             <span className="text-white">•</span> */}
-                            <span className="text-white">{new Date(content.created_at).toLocaleDateString()}</span>
-            </div>
-                          {/* {content.agent_name && (
+                            <span className="text-white">{new Date(localContent?.created_at || '').toLocaleDateString()}</span>
+                          </div>
+                          {/* {localContent?.agent_name && (
                             <div className="flex items-start justify-start gap-1">
-                              <span className="px-2 py-1 bg-blue-100 text-blue-400 text-xs rounded-2xl font-semibold">🤖 {content.agent_name}</span>
-              </div>
+                              <span className="px-2 py-1 bg-blue-100 text-blue-400 text-xs rounded-2xl font-semibold">🤖 {localContent.agent_name}</span>
+                            </div>
                           )} */}
             </div>
           </div>
                     </div>
 
-                    {/* Stats */}
-                    <div className="flex flex-row items-center justify-start px-4">
-                      <div className="flex flex-col w-[50%]">
-                        <div className="text-white/80 text-xs">Predicted Position Change</div>
-                        <div className="text-white text-md font-semibold">+{getRandomLeaderboardPositionChange(content.id.toString(), content.content_text, content.tweet_thread)}</div>
-                      </div>
-                      <div className="flex flex-col w-[50%]">
-                        <div className="text-white/80 text-xs">Quality Score</div>
-                        <div className="text-white text-md font-semibold">{content.quality_score.toFixed(1)}/100</div>
-                      </div>
-                    </div>
+
 
 
                   </div>
@@ -1175,6 +1972,9 @@ export default function PurchaseContentModal({
                             }`}
                         >
                           Choose Yapper
+                          {selectedVoiceTone === "custom" && selectedYapper && (
+                            <span className="ml-1 text-xs">✨</span>
+                          )}
                         </button>
                         <button
                           onClick={() => setSelectedVoiceTone("mystyle")}
@@ -1258,8 +2058,8 @@ export default function PurchaseContentModal({
 
                           {/* Fee per tweet message */}
                           <div className="flex flex-row items-center justify-between gap-1 mt-2">
-                            <div className="text-white/60 text-xs">Extra fee per tweet</div>
-                            <div className="text-right text-white/60 text-xs">
+                            <div className="text-white/60 text-[8px] xs:text-[8px] md:text-[12px]">Extra fee per tweet</div>
+                            <div className="text-right text-white/60 text-[8px] xs:text-[8px] md:text-[12px]">
                               <span className="line-through">500 ROAST</span>
                               <span className="text-green-400 ml-2 font-semibold">FREE</span>
                             </div>
@@ -1298,14 +2098,14 @@ export default function PurchaseContentModal({
                           ) : (
                             <div className="flex flex-col gap-4">
                               {/* Connected bar */}
-                              <div className="flex items-center justify-between bg-[#220808] rounded-sm px-4 py-2">
-                                <div className="text-white/80 text-sm">Twitter profile</div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-white/80 text-sm">@{twitter.profile?.username || 'profile'}</span>
+                              <div className="flex items-center justify-between bg-[#220808] rounded-lg px-2.5 xs:px-3 md:px-3 py-2 xs:py-2.5 md:py-2.5">
+                                <span className="text-white/80 text-[6px] xs:text-[12px] md:text-[16px]">Twitter profile</span>
+                                <div className="flex items-center gap-1.5 xs:gap-2 md:gap-2">
+                                  <span className="text-white/80 text-[6px] xs:text-[12px] md:text-[16px]">@{twitter.profile?.username || 'profile'}</span>
                                   <button
                                     type="button"
                                     onClick={() => disconnect()}
-                                    className="text-white/60 hover:text-white/90 text-xs underline"
+                                    className="text-white/60 hover:text-white/90 text-[6px] xs:text-[12px] md:text-[16px] underline"
                                     disabled={twitter.isLoading}
                                   >
                                     {twitter.isLoading ? 'Disconnecting...' : 'Disconnect'}
@@ -1314,24 +2114,23 @@ export default function PurchaseContentModal({
                               </div>
 
                               {/* Fee row + Generate button */}
-                              <div className="flex flex-row items-center justify-between gap-1">
-                                <div className="text-white/60 text-sm">Extra fee per tweet</div>
-                                <div className="text-right text-white/60 text-xs">
+                              <div className="flex items-center justify-between p-2 xs:p-2 md:p-2 bg-[#220808]/50 rounded-lg">
+                                <span className="text-white/60 text-[8px] xs:text-[12px] md:text-[16px]">Extra fee per tweet</span>
+                                <div className="text-right text-white/60 text-[6px] xs:text-[12px] md:text-[16px]">
                                   <span className="line-through">500 ROAST</span>
                                   <span className="text-green-400 ml-2 font-semibold">FREE</span>
                                 </div>
                               </div>
-                              <div className="">
+                              
                                 <button 
                                   onClick={handleGenerate}
-                                  className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-sm py-3 cursor-pointer hover:bg-[#FD7A10]/10 transition-colors"
+                                className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-lg py-2 xs:py-2.5 md:py-2.5 cursor-pointer hover:bg-[#FD7A10]/10 transition-colors text-[6px] xs:text-[12px] md:text-[16px] font-medium"
                                 >
-                                  <svg className="w-4 h-4 mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-3.5 xs:w-4 md:w-4 h-3.5 xs:h-4 md:h-4 mr-1.5 xs:mr-2 md:mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                                   </svg>
                                   Generate
                                 </button>
-                              </div>
                       </div>
                           )}
                         </>
@@ -1341,7 +2140,7 @@ export default function PurchaseContentModal({
                 </div>
 
                 {/* Longpost Premium X Account Warning */}
-                {content.post_type === 'longpost' && (
+                {localContent?.post_type === 'longpost' && (
                   <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-lg p-4">
                     <div className="flex items-center gap-2 mb-2">
                       <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
@@ -1373,7 +2172,7 @@ export default function PurchaseContentModal({
                           )}
                         </div>
                       </div>
-                      <div className="text-white text-xl font-bold">{Math.round(Number(content.asking_price || 0))}</div>
+                      <div className="text-white text-xl font-bold">{Math.round(getDisplayPrice(localContent))}</div>
                       <div className="text-white/60 text-xs">Platform Token</div>
                     </div>
 
@@ -1412,12 +2211,15 @@ export default function PurchaseContentModal({
                       </p>
                 </div>
               )}
+              
+
 
               <button
-                onClick={handlePurchase}
-                disabled={isLoading}
+
+                onClick={selectedVoiceTone === "custom" && selectedYapper !== "" ? generateContentFromYapper : handlePurchase}
+                disabled={isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)}
                 className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 ${
-                  isLoading 
+                  isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)
                     ? 'bg-gray-500 cursor-not-allowed' 
                     : !address
                     ? 'bg-[#FD7A10] hover:bg-[#e86d0f] glow-orange-button'
@@ -1428,10 +2230,10 @@ export default function PurchaseContentModal({
                     : 'bg-[#FD7A10] glow-orange-button hover:bg-[#e86d0f]'
                 } text-white`}
               >
-                {isLoading ? (
+                {isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent) ? (
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Processing...</span>
+                    <span>{isGeneratingContent ? 'Generating...' : 'Processing...'}</span>
                   </div>
                 ) : !address ? (
                   'Connect Wallet'
@@ -1439,6 +2241,8 @@ export default function PurchaseContentModal({
                   'Sign Message to Authenticate'
                 ) : !hasAccess ? (
                   'Get Marketplace Access'
+                ) : selectedVoiceTone === "custom" && selectedYapper !== "" ? (
+                  `Generate Content from @${selectedYapper}`
                 ) : (
                   'Buy Tweet'
                 )}
@@ -1466,7 +2270,7 @@ export default function PurchaseContentModal({
                   <div className="flex flex-col gap-1">
                     <div className="text-white font-bold">Content Owned</div>
                     <div className="text-white text-xs">
-                      Purchased • {Math.round(Number(content.asking_price || 0))} ROAST
+                      Purchased • {Math.round(getDisplayPrice(localContent))} ROAST
                     </div>
                   </div>
                 </div>
@@ -1669,13 +2473,13 @@ export default function PurchaseContentModal({
                     /* Manual Posting Interface - Original tweets list */
                     (() => {
                       // Parse content for display - handle markdown properly
-                      if (!content) {
+                      if (!localContent) {
                         return null;
                       }
                       
                       // Check if this is markdown content (longpost)
-                      const shouldUseMarkdown = isMarkdownContent(content.post_type)
-                      const hasMarkdownSyntax = content.content_text?.includes('##') || content.content_text?.includes('**')
+                      const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
+                      const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
                       const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
                       
                       let tweetText: string
@@ -1683,21 +2487,21 @@ export default function PurchaseContentModal({
                       
                       if (forceMarkdown) {
                         // For longpost content, convert markdown to plain text for copying/posting
-                        tweetText = markdownToPlainText(content.content_text)
+                        tweetText = markdownToPlainText(localContent.content_text)
                       } else {
                         // For regular content, use existing formatting
-                        const formatted = formatTwitterContentForManagement(content.content_text)
+                        const formatted = formatTwitterContentForManagement(localContent.content_text)
                         tweetText = formatted.text
                         extractedImageUrl = formatted.imageUrl
                       }
                       
                       // Use original image for purchased content (post-purchase), watermarked for preview
                       const displayImage = isPurchased 
-                        ? (content?.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl)
-                        : (content?.watermark_image || (content?.content_images && content.content_images.length > 0 ? content.content_images[0] : extractedImageUrl));
+                        ? (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl)
+                        : (localContent?.watermark_image || (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl));
 
                       // Prepare tweets for copy - also process thread items if they contain markdown
-                      const processedThreadItems = content?.tweet_thread ? content.tweet_thread.map(tweet => {
+                      const processedThreadItems = localContent?.tweet_thread ? localContent.tweet_thread.map(tweet => {
                         // Check if thread item contains markdown
                         if (tweet.includes('##') || tweet.includes('**')) {
                           return markdownToPlainText(tweet)
@@ -1810,7 +2614,7 @@ export default function PurchaseContentModal({
           <div className="bg-white rounded-lg p-8 max-w-md mx-4 text-center">
             <div className="h-16 w-16 text-red-500 mx-auto mb-4">
               <svg className="w-full h-full" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
             </div>
             <h3 className="text-xl font-bold text-gray-900 mb-4">Content Protected</h3>
