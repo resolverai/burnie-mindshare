@@ -56,6 +56,35 @@ def clean_llm_response(content: str, provider_name: str = "LLM") -> str:
         cleaned = re.sub(r'^`+|`+$', '', cleaned).strip()
         logger.info(f"🧹 {provider_name}: No code blocks found, cleaned directly")
     
+    # CRITICAL: Clean invalid control characters that break JSON parsing
+    # Replace problematic Unicode characters and control characters
+    import unicodedata
+    
+    # Normalize Unicode characters
+    cleaned = unicodedata.normalize('NFKC', cleaned)
+    
+    # Replace specific problematic characters
+    char_replacements = {
+        '\u2014': ' - ',  # em dash
+        '\u2013': ' - ',  # en dash
+        '\u2018': "'",    # left single quotation mark
+        '\u2019': "'",    # right single quotation mark
+        '\u201C': '"',    # left double quotation mark
+        '\u201D': '"',    # right double quotation mark
+        '\u2026': '...',  # horizontal ellipsis
+        '\u00A0': ' ',    # non-breaking space
+        '\u200B': '',     # zero-width space
+        '\u200C': '',     # zero-width non-joiner
+        '\u200D': '',     # zero-width joiner
+        '\uFEFF': '',     # zero-width no-break space (BOM)
+    }
+    
+    for old_char, new_char in char_replacements.items():
+        cleaned = cleaned.replace(old_char, new_char)
+    
+    # Remove any remaining control characters except newlines and tabs
+    cleaned = ''.join(char for char in cleaned if char >= ' ' or char in '\n\t\r')
+    
     # Remove any remaining markdown artifacts
     cleaned = re.sub(r'^#+\s*', '', cleaned, flags=re.MULTILINE)  # Remove headers
     cleaned = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned)  # Remove bold markdown
@@ -847,43 +876,29 @@ class AnthropicProvider(LLMProvider):
                         pointer = " " * (e.colno - 1) + "^"
                         logger.warning(f"🎭 Error position: {pointer}")
                 
-                # Try to fix truncated JSON by adding missing closing braces
-                if is_truncated and cleaned_content.strip():
-                    logger.warning(f"🎭 Attempting to fix truncated JSON...")
+                # Try multiple parsing strategies
+                parsing_strategies = [
+                    ("Try to fix truncated JSON", lambda: self._fix_truncated_json(cleaned_content, is_truncated)),
+                    ("Try to parse original content without cleaning", lambda: json.loads(result_text)),
+                    ("Try to extract JSON from raw response", lambda: self._extract_json_from_raw(result_text)),
+                    ("Try to manually parse the response", lambda: self._manual_json_parse(result_text))
+                ]
+                
+                result = None
+                for strategy_name, strategy_func in parsing_strategies:
                     try:
-                        # Count opening braces and try to complete the JSON
-                        open_braces = cleaned_content.count('{') - cleaned_content.count('}')
-                        open_brackets = cleaned_content.count('[') - cleaned_content.count(']')
-                        
-                        fixed_content = cleaned_content.rstrip()
-                        if not fixed_content.endswith(','):
-                            fixed_content = fixed_content.rstrip(',')  # Remove trailing comma if any
-                        
-                        # Add missing closing brackets and braces
-                        fixed_content += ']' * open_brackets
-                        fixed_content += '}' * open_braces
-                        
-                        result = json.loads(fixed_content)
-                        logger.info(f"🎭 Successfully fixed truncated JSON! Added {open_brackets} ] and {open_braces} }}")
-                    except json.JSONDecodeError as fix_error:
-                        logger.warning(f"🎭 Failed to fix truncated JSON: {fix_error}")
-                        logger.warning(f"🎭 Trying to parse original content without cleaning...")
-                        try:
-                            result = json.loads(result_text)
-                            logger.info(f"🎭 Anthropic original content parsed successfully")
-                        except json.JSONDecodeError as e2:
-                            logger.error(f"🎭 All JSON parsing attempts failed")
-                            logger.error(f"🎭 Original error: {e2}")
-                            result = {"raw_response": result_text, "parsed": False, "truncated": is_truncated}
-                else:
-                    logger.warning(f"🎭 Trying to parse original content without cleaning...")
-                    try:
-                        result = json.loads(result_text)
-                        logger.info(f"🎭 Anthropic original content parsed successfully")
-                    except json.JSONDecodeError as e2:
-                        logger.error(f"🎭 Both cleaned and original content failed to parse")
-                        logger.error(f"🎭 Original error: {e2}")
-                        result = {"raw_response": result_text, "parsed": False, "truncated": is_truncated}
+                        logger.warning(f"🎭 {strategy_name}...")
+                        result = strategy_func()
+                        if result:
+                            logger.info(f"🎭 {strategy_name} succeeded!")
+                            break
+                    except Exception as strategy_error:
+                        logger.warning(f"🎭 {strategy_name} failed: {strategy_error}")
+                        continue
+                
+                if not result:
+                    logger.error(f"🎭 All JSON parsing strategies failed")
+                    result = {"raw_response": result_text, "parsed": False, "truncated": is_truncated}
                 
             return {
                 "success": True,
@@ -1087,6 +1102,86 @@ class AnthropicProvider(LLMProvider):
                 "provider": "anthropic",
                 "error": str(e)
             }
+
+    def _fix_truncated_json(self, content: str, is_truncated: bool) -> dict:
+        """Try to fix truncated JSON by adding missing closing braces"""
+        if not is_truncated or not content.strip():
+            raise ValueError("Not a truncated JSON")
+            
+        # Count opening braces and try to complete the JSON
+        open_braces = content.count('{') - content.count('}')
+        open_brackets = content.count('[') - content.count(']')
+        
+        fixed_content = content.rstrip()
+        if not fixed_content.endswith(','):
+            fixed_content = fixed_content.rstrip(',')  # Remove trailing comma if any
+        
+        # Add missing closing brackets and braces
+        fixed_content += ']' * open_brackets
+        fixed_content += '}' * open_braces
+        
+        return json.loads(fixed_content)
+    
+    def _extract_json_from_raw(self, raw_content: str) -> dict:
+        """Extract JSON from raw response using regex patterns"""
+        import re
+        
+        # Try to find JSON object in the raw content
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        matches = re.findall(json_pattern, raw_content, re.DOTALL)
+        
+        if matches:
+            # Try the longest match first
+            for match in sorted(matches, key=len, reverse=True):
+                try:
+                    return json.loads(match)
+                except json.JSONDecodeError:
+                    continue
+        
+        raise ValueError("No valid JSON found in raw content")
+    
+    def _manual_json_parse(self, raw_content: str) -> dict:
+        """Manually parse the response by looking for specific patterns"""
+        import re
+        
+        # Look for leaderboard_rankings specifically
+        if '"leaderboard_rankings"' in raw_content:
+            # Try to extract just the leaderboard data
+            start_idx = raw_content.find('"leaderboard_rankings"')
+            if start_idx >= 0:
+                # Find the opening bracket after leaderboard_rankings
+                bracket_start = raw_content.find('[', start_idx)
+                if bracket_start >= 0:
+                    # Count brackets to find the end
+                    bracket_count = 0
+                    end_idx = bracket_start
+                    for i, char in enumerate(raw_content[bracket_start:], bracket_start):
+                        if char == '[':
+                            bracket_count += 1
+                        elif char == ']':
+                            bracket_count -= 1
+                            if bracket_count == 0:
+                                end_idx = i + 1
+                                break
+                    
+                    if end_idx > bracket_start:
+                        # Extract the leaderboard data
+                        leaderboard_data = raw_content[bracket_start:end_idx]
+                        try:
+                            parsed_data = json.loads(leaderboard_data)
+                            # Create a minimal valid structure
+                            return {
+                                "leaderboard_rankings": parsed_data,
+                                "campaign_information": {},
+                                "project_metrics": {},
+                                "trending_patterns": {},
+                                "ui_elements": {},
+                                "additional_context": {}
+                            }
+                        except json.JSONDecodeError:
+                            pass
+        
+        raise ValueError("Could not manually parse the response")
 
     def get_provider_name(self) -> str:
         return "anthropic"

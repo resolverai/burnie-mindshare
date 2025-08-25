@@ -3636,6 +3636,31 @@ class CookieFunProcessor:
                 logger.info(f"Result keys: {list(result.keys())}")
                 logger.info(f"Provider from result: {result.get('provider')}")
                 
+                # Handle case where LLM response parsing failed
+                if not extracted_data or extracted_data.get("parsed") == False:
+                    logger.warning(f"🔥🔥🔥 LLM RESPONSE PARSING FAILED - USING FALLBACK 🔥🔥🔥")
+                    logger.warning(f"Raw response available: {bool(result.get('raw_response'))}")
+                    
+                    # Try to extract data from raw response as fallback
+                    raw_response = result.get("raw_response", "")
+                    if raw_response:
+                        # Try to manually extract leaderboard data from raw response
+                        fallback_data = self._extract_leaderboard_from_raw_response(raw_response)
+                        if fallback_data:
+                            extracted_data = fallback_data
+                            logger.info(f"🔥🔥🔥 FALLBACK EXTRACTION SUCCESSFUL 🔥🔥🔥")
+                        else:
+                            logger.error(f"🔥🔥🔥 FALLBACK EXTRACTION ALSO FAILED 🔥🔥🔥")
+                            # Create empty structure to prevent crashes
+                            extracted_data = {
+                                "leaderboard_rankings": [],
+                                "campaign_information": {},
+                                "project_metrics": {},
+                                "trending_patterns": {},
+                                "ui_elements": {},
+                                "additional_context": {}
+                            }
+                
                 # Map the correct keys from LLM response
                 leaderboard_data = extracted_data.get("leaderboard_rankings", [])
                 campaign_info = extracted_data.get("campaign_information", {})
@@ -3812,3 +3837,72 @@ class CookieFunProcessor:
                 "success": False,
                 "error": str(e)
             }
+
+    def _extract_leaderboard_from_raw_response(self, raw_response: str) -> dict:
+        """Extract leaderboard data from raw LLM response when JSON parsing fails"""
+        import re
+        import json
+        
+        try:
+            logger.info(f"🔄 Attempting to extract leaderboard data from raw response...")
+            
+            # Look for leaderboard_rankings specifically
+            if '"leaderboard_rankings"' in raw_response:
+                # Try to extract just the leaderboard data
+                start_idx = raw_response.find('"leaderboard_rankings"')
+                if start_idx >= 0:
+                    # Find the opening bracket after leaderboard_rankings
+                    bracket_start = raw_response.find('[', start_idx)
+                    if bracket_start >= 0:
+                        # Count brackets to find the end
+                        bracket_count = 0
+                        end_idx = bracket_start
+                        for i, char in enumerate(raw_response[bracket_start:], bracket_start):
+                            if char == '[':
+                                bracket_count += 1
+                            elif char == ']':
+                                bracket_count -= 1
+                                if bracket_count == 0:
+                                    end_idx = i + 1
+                                    break
+                        
+                        if end_idx > bracket_start:
+                            # Extract the leaderboard data
+                            leaderboard_data = raw_response[bracket_start:end_idx]
+                            try:
+                                parsed_data = json.loads(leaderboard_data)
+                                logger.info(f"✅ Successfully extracted {len(parsed_data)} leaderboard entries from raw response")
+                                
+                                # Create a minimal valid structure
+                                return {
+                                    "leaderboard_rankings": parsed_data,
+                                    "campaign_information": {},
+                                    "project_metrics": {},
+                                    "trending_patterns": {},
+                                    "ui_elements": {},
+                                    "additional_context": {}
+                                }
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"❌ Failed to parse extracted leaderboard data: {e}")
+            
+            # Try alternative approach - look for JSON-like structure
+            json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+            matches = re.findall(json_pattern, raw_response, re.DOTALL)
+            
+            if matches:
+                # Try the longest match first
+                for match in sorted(matches, key=len, reverse=True):
+                    try:
+                        parsed = json.loads(match)
+                        if "leaderboard_rankings" in parsed:
+                            logger.info(f"✅ Successfully extracted leaderboard data using regex pattern")
+                            return parsed
+                    except json.JSONDecodeError:
+                        continue
+            
+            logger.warning(f"❌ Could not extract leaderboard data from raw response")
+            return None
+            
+        except Exception as e:
+            logger.error(f"❌ Error in fallback extraction: {str(e)}")
+            return None
