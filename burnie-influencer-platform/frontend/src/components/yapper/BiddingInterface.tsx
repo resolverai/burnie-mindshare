@@ -322,19 +322,9 @@ export default function BiddingInterface() {
     }
   };
 
-  const handleCardClick = (itemId: number) => {
-    setClickedCards(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(itemId)) {
-        // If clicking the same card, close it
-        newSet.delete(itemId);
-      } else {
-        // If clicking a different card, close all others and open this one
-        newSet.clear();
-        newSet.add(itemId);
-      }
-      return newSet;
-    });
+  const handleCardClick = (item: ContentItem) => {
+    // Open PurchaseContentModal instead of expanding card
+    setShowPurchaseModal(item);
   };
 
   // Close all cards when clicking outside
@@ -536,7 +526,7 @@ export default function BiddingInterface() {
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          handleCardClick(item.id);
+                          handleCardClick(item);
                         }}
                       >
                         {/* Background layer */}
@@ -562,16 +552,16 @@ export default function BiddingInterface() {
                           </div>
                         )}
 
-                        {/* Base overlay when not hovered (hidden on mobile, visible on desktop) */}
+                        {/* Base overlay when not hovered (visible on all devices) */}
                         <div 
-                          className="absolute inset-0 hidden md:flex flex-col justify-end p-3 md:p-5 transition-opacity duration-300 opacity-100 group-hover:opacity-0 gap-2"
+                          className="absolute inset-0 flex flex-col justify-end p-3 md:p-5 transition-opacity duration-300 opacity-100 group-hover:opacity-0 gap-2"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleCardClick(item.id);
+                            handleCardClick(item);
                           }}
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-white text-sm md:text-lg font-medium font-nt-brick truncate">{item.campaign.title}</span>
+                            <span className="text-white text-xs xs:text-sm sm:text-base md:text-lg font-medium font-nt-brick truncate">{item.campaign.title}</span>
                           </div>
                         </div>
 
@@ -582,7 +572,7 @@ export default function BiddingInterface() {
                           }`}
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleCardClick(item.id);
+                            handleCardClick(item);
                           }}
                         >
                           <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/25 to-black/40" aria-hidden />

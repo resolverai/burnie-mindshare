@@ -58,6 +58,27 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Add middleware to increase max body size limit
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
+class LargePayloadMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Increase max body size to 50MB for admin snapshots
+        if request.url.path.startswith("/api/admin/snapshots"):
+            # For admin snapshots, allow larger payloads
+            request.scope["max_content_size"] = 100 * 1024 * 1024  # 100MB
+        else:
+            # Default max body size for other endpoints
+            request.scope["max_content_size"] = 10 * 1024 * 1024  # 10MB
+        
+        response = await call_next(request)
+        return response
+
+app.add_middleware(LargePayloadMiddleware)
+
 # CORS middleware - get allowed origins from environment
 allowed_origins = os.getenv('ALLOWED_ORIGINS', 
     'http://localhost:3000,http://localhost:3001,http://localhost:3004,'

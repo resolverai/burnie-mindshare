@@ -421,7 +421,14 @@ export default function YapperMyContent() {
                 : imageUrl
               
                           return (
-              <article key={item.id} className="group relative rounded-[28px] overflow-hidden bg-[--color-surface] cursor-pointer">
+              <article 
+                key={item.id} 
+                className="group relative rounded-[28px] overflow-hidden bg-[--color-surface] cursor-pointer"
+                onClick={() => {
+                  setSelectedContent(item)
+                  setIsModalOpen(true)
+                }}
+              >
                   <div className="relative aspect-[16/10]">
                     {/* Background layer */}
                     {displayImage ? (
@@ -464,7 +471,8 @@ export default function YapperMyContent() {
                           
                           <div className="flex items-center justify-center">
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation() // Prevent card click from triggering
                                 setSelectedContent(item)
                                 setIsModalOpen(true)
                               }}
