@@ -374,7 +374,7 @@ export default function AdminSnapshotsPage() {
               onClick={() => router.push('/admin/dashboard')}
               variant="outline"
               size="sm"
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 text-gray-700 border-gray-300 hover:bg-gray-50"
             >
               <ArrowLeft className="h-4 w-4" />
               Back to Dashboard
@@ -394,6 +394,7 @@ export default function AdminSnapshotsPage() {
             variant="outline"
             size="sm"
             disabled={refreshing}
+            className="text-gray-700 border-gray-300 hover:bg-gray-50"
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
             {refreshing ? 'Refreshing...' : 'Refresh All'}
@@ -403,6 +404,7 @@ export default function AdminSnapshotsPage() {
                       onClick={() => handleProcessSnapshots()}
                       disabled={isProcessing}
                       size="sm"
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
                     >
                       {isProcessing ? (
                         <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
@@ -623,7 +625,7 @@ export default function AdminSnapshotsPage() {
 
                     <div className="flex gap-2">
                       {snapshot.hasData && (
-                        <Button size="sm" variant="outline">
+                        <Button size="sm" variant="outline" className="text-gray-700 border-gray-300 hover:bg-gray-50">
                           <Eye className="h-4 w-4" />
                         </Button>
                       )}
@@ -631,6 +633,7 @@ export default function AdminSnapshotsPage() {
                         size="sm" 
                         variant="outline"
                         onClick={() => handleDeleteSnapshot(snapshot.id)}
+                        className="text-gray-700 border-gray-300 hover:bg-gray-50"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

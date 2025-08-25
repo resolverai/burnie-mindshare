@@ -11,7 +11,7 @@ from datetime import datetime, date
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Request
 from pydantic import BaseModel, Field
 
 from app.services.cookie_fun_processor import CookieFunProcessor
@@ -485,7 +485,13 @@ async def _store_comprehensive_results(snapshot_id: int, results: Dict[str, Any]
 async def _store_leaderboard_results(snapshot_ids: List[int], results: Dict[str, Any]):
     """Store leaderboard processing results in leaderboard_yapper_data table"""
     try:
+        print(f"\n🔥🔥🔥 BACKGROUND TASK STARTED 🔥🔥🔥")
+        print(f"💾 Storing leaderboard results for snapshots {snapshot_ids}")
+        print(f"💾 Results keys: {list(results.keys()) if results else 'None'}")
+        print(f"🔥🔥🔥 END BACKGROUND TASK START 🔥🔥🔥\n")
+        
         logger.info(f"💾 Storing leaderboard results for snapshots {snapshot_ids}")
+        logger.info(f"💾 Background task started - this should be visible in logs")
         
         # Get TypeScript backend URL
         settings = get_settings()
@@ -497,7 +503,19 @@ async def _store_leaderboard_results(snapshot_ids: List[int], results: Dict[str,
         # Debug: Log leaderboard data extraction
         logger.info(f"💾 Found {len(leaderboard_data)} leaderboard entries in results")
         logger.info(f"💾 Available result keys: {list(results.keys())}")
+        logger.info(f"💾 Campaign ID from results: {results.get('campaign_id')}")
         logger.info(f"💾 FULL RESULTS OBJECT: {results}")
+        
+        # Check if data is in a different key
+        if not leaderboard_data:
+            logger.warning("💾 No data in 'leaderboard_data' key, checking other keys...")
+            for key, value in results.items():
+                if isinstance(value, list) and len(value) > 0:
+                    logger.info(f"💾 Found list in key '{key}' with {len(value)} items")
+                    if key == "leaderboard_rankings":
+                        logger.info("💾 Found 'leaderboard_rankings' - this should be mapped to 'leaderboard_data'")
+                        leaderboard_data = value
+                        break
         
         if not leaderboard_data:
             logger.warning("⚠️ No leaderboard data found in results")
@@ -507,13 +525,13 @@ async def _store_leaderboard_results(snapshot_ids: List[int], results: Dict[str,
         # Debug: Log ALL leaderboard entries found
         logger.info(f"💾 ALL LEADERBOARD ENTRIES FOUND ({len(leaderboard_data)}):")
         for i, entry in enumerate(leaderboard_data):
-            logger.info(f"💾   {i+1}. {entry.get('display_name')} (@{entry.get('twitter_handle')}) - Rank: {entry.get('daily_rank')}")
+            logger.info(f"💾   {i+1}. {entry.get('username')} (@{entry.get('handle')}) - Rank: {entry.get('position')}")
         
         # Process each yapper in the leaderboard
         for yapper in leaderboard_data:
             # Debug: Log yapper data structure
             logger.info(f"💾 Processing yapper data: {yapper}")
-            logger.info(f"💾 Required fields - campaign_id: {results.get('campaign_id')}, snapshot_date: {results.get('snapshot_date')}, twitter_handle: {yapper.get('twitter_handle')}")
+            logger.info(f"💾 Required fields - campaign_id: {results.get('campaign_id')}, snapshot_date: {results.get('snapshot_date')}, twitter_handle: {yapper.get('handle')}")
             
             # Convert snapshot_date to string if it's a date object
             snapshot_date_str = results.get("snapshot_date")
@@ -530,18 +548,18 @@ async def _store_leaderboard_results(snapshot_ids: List[int], results: Dict[str,
                 "platform_source": "cookie.fun",
                 "snapshot_date": snapshot_date_str,
                 
-                # Yapper information
-                "yapper_twitter_handle": yapper.get("twitter_handle"),
-                "yapper_display_name": yapper.get("display_name"),
-                "daily_rank": yapper.get("daily_rank"),
+                # Yapper information - map from LLM response structure
+                "yapper_twitter_handle": yapper.get("handle"),  # LLM response has "handle"
+                "yapper_display_name": yapper.get("username"),  # LLM response has "username"
+                "daily_rank": yapper.get("position"),  # LLM response has "position"
                 
-                # SNAP metrics
+                # SNAP metrics - map from LLM response structure
                 "total_snaps": yapper.get("total_snaps"),
-                "snaps_24h": yapper.get("snaps_24h"),
+                "snaps_24h": yapper.get("snaps_24h") or yapper.get("seven_day_snaps"),  # LLM response has "seven_day_snaps"
                 "snap_velocity": yapper.get("snap_velocity"),
                 
-                # Social metrics  
-                "smart_followers_count": yapper.get("smart_followers") or yapper.get("smart_followers_count"),
+                # Social metrics - map from LLM response structure
+                "smart_followers_count": yapper.get("smart_followers"),  # LLM response has "smart_followers"
                 "engagement_rate": yapper.get("engagement_rate"),
                 
                 # Metadata
@@ -561,10 +579,10 @@ async def _store_leaderboard_results(snapshot_ids: List[int], results: Dict[str,
                     json=storage_data
                 ) as response:
                     if response.status == 200:
-                        logger.info(f"✅ Leaderboard data stored for yapper: {yapper.get('display_name')}")
+                        logger.info(f"✅ Leaderboard data stored for yapper: {yapper.get('username')}")
                     else:
                         error_text = await response.text()
-                        logger.error(f"❌ Failed to store leaderboard data for {yapper.get('display_name')}: {error_text}")
+                        logger.error(f"❌ Failed to store leaderboard data for {yapper.get('username')}: {error_text}")
                         
     except Exception as e:
         logger.error(f"❌ Error storing leaderboard results: {e}")
@@ -640,7 +658,7 @@ async def _store_yapper_profile_results(snapshot_id: int, result: Dict[str, Any]
 # New request model for batch processing
 class BatchProcessRequest(BaseModel):
     snapshot_ids: List[int]
-    image_paths: List[str]
+    s3_keys: List[str]  # S3 keys instead of image paths
     platform_source: str = "cookie.fun"
     snapshot_date: str  # ISO date string
     snapshot_type: str = "leaderboard"  # "leaderboard" or "yapper_profile"
@@ -660,7 +678,7 @@ class BatchProcessResponse(BaseModel):
 @router.post("/process-batch", response_model=BatchProcessResponse)
 async def process_batch_snapshots(request: BatchProcessRequest, background_tasks: BackgroundTasks):
     """
-    Process multiple snapshots in batch mode using multi-image LLM analysis
+    Process multiple snapshots in batch mode using multi-image LLM analysis with local download
     This is much more efficient than processing each image individually
     """
     start_time = time.time()
@@ -668,16 +686,16 @@ async def process_batch_snapshots(request: BatchProcessRequest, background_tasks
     try:
         # FORCE CONSOLE OUTPUT - YOU SHOULD SEE THIS IN YOUR PYTHON AI BACKEND TERMINAL
         print(f"\n🔥🔥🔥 PYTHON AI BACKEND - BATCH PROCESSING REQUEST RECEIVED 🔥🔥🔥")
-        print(f"🔄 Starting batch processing: {len(request.image_paths)} images, type: {request.snapshot_type}")
+        print(f"🔄 Starting batch processing: {len(request.s3_keys)} images, type: {request.snapshot_type}")
         print(f"🔄 Snapshot IDs: {request.snapshot_ids}")
-        print(f"🔄 Image paths: {request.image_paths}")
+        print(f"🔄 S3 Keys: {request.s3_keys}")
         print(f"🔄 Platform source: {request.platform_source}")
         print(f"🔄 Campaign ID: {getattr(request, 'campaign_id', 'Not provided')}")
         print(f"🔥🔥🔥 END REQUEST INFO 🔥🔥🔥\n")
         
-        logger.info(f"🔄 Starting batch processing: {len(request.image_paths)} images, type: {request.snapshot_type}")
+        logger.info(f"🔄 Starting batch processing: {len(request.s3_keys)} images, type: {request.snapshot_type}")
         logger.info(f"🔄 Snapshot IDs: {request.snapshot_ids}")
-        logger.info(f"🔄 Image paths: {request.image_paths}")
+        logger.info(f"🔄 S3 Keys: {request.s3_keys}")
         logger.info(f"🔄 Platform source: {request.platform_source}")
         logger.info(f"🔄 Campaign ID: {getattr(request, 'campaign_id', 'Not provided')}")
         
@@ -688,15 +706,18 @@ async def process_batch_snapshots(request: BatchProcessRequest, background_tasks
         # Get processor
         processor = CookieFunProcessor()
         
+        # Generate presigned URLs for S3 access
+        presigned_urls = await processor.generate_presigned_urls_for_processing(request.s3_keys)
+        
         if request.snapshot_type == "yapper_profile":
             # Process all yapper profile snapshots together for the same date
-            logger.info(f"🎯 Processing {len(request.image_paths)} yapper profile snapshots together for batch analysis")
+            logger.info(f"🎯 Processing {len(request.s3_keys)} yapper profile snapshots together for batch analysis")
             
             yapper_handle = request.yapper_twitter_handle or "unknown_yapper"
             
-            # Use batch processing for yapper profiles
-            result = await processor._process_yapper_profiles_batch(
-                image_paths=request.image_paths,
+            # Use batch processing for yapper profiles with presigned URLs
+            result = await processor._process_yapper_profiles_batch_with_presigned_urls(
+                presigned_urls=presigned_urls,
                 snapshot_date=snapshot_date,
                 snapshot_ids=request.snapshot_ids,
                 yapper_handle=yapper_handle
@@ -715,32 +736,33 @@ async def process_batch_snapshots(request: BatchProcessRequest, background_tasks
             batch_result = {
                 "success": True,
                 "processing_mode": "parallel_yapper_profiles",
-                "images_processed": len(request.image_paths),
+                "images_processed": len(request.s3_keys),
                 "successful_profiles": len(successful_results),
                 "failed_profiles": len(failed_results),
                 "results": successful_results,
                 "failures": failed_results
             }
             
-            api_calls_made = len(request.image_paths)  # One call per yapper profile
-            efficiency_gain = f"Parallel processing of {len(request.image_paths)} profiles"
+            api_calls_made = len(request.s3_keys)  # One call per yapper profile
+            efficiency_gain = f"Parallel processing of {len(request.s3_keys)} profiles"
             
         else:
             # For campaigns/leaderboards, use true multi-image batch processing
-            logger.info(f"🏆 Processing {len(request.image_paths)} campaign screenshots with multi-image LLM")
+            logger.info(f"🏆 Processing {len(request.s3_keys)} campaign screenshots with multi-image LLM and local download")
             
             # Fetch campaigns and projects context
             campaigns_context = await _fetch_campaigns_context()
             projects_context = await _fetch_projects_context()
             
-            # Process all images together using multi-image LLM
-            batch_result = await processor.process_multiple_snapshots_comprehensive(
-                image_paths=request.image_paths,
+            # Process all images together using multi-image LLM with local download
+            batch_result = await processor.process_multiple_snapshots_comprehensive_with_local_download(
+                presigned_urls=presigned_urls,
                 snapshot_date=snapshot_date,
                 campaigns_context=campaigns_context,
                 projects_context=projects_context,
                 snapshot_ids=request.snapshot_ids,
-                snapshot_type=request.snapshot_type
+                snapshot_type=request.snapshot_type,
+                campaign_id=request.campaign_id
             )
             
             # Store results in background
@@ -756,6 +778,9 @@ async def process_batch_snapshots(request: BatchProcessRequest, background_tasks
                             )
                 else:
                     # Store leaderboard results (campaign/leaderboard snapshots)
+                    logger.info(f"💾 Adding background task to store leaderboard results")
+                    logger.info(f"💾 Background task data keys: {list(batch_result.keys())}")
+                    logger.info(f"💾 Background task leaderboard_data length: {len(batch_result.get('leaderboard_data', []))}")
                     background_tasks.add_task(
                         _store_leaderboard_results,
                         request.snapshot_ids,
@@ -763,7 +788,7 @@ async def process_batch_snapshots(request: BatchProcessRequest, background_tasks
                     )
             
             api_calls_made = 3  # Multi-image analysis uses only 3 API calls instead of N
-            efficiency_gain = f"{len(request.image_paths)}x reduction in API calls (3 calls for {len(request.image_paths)} images)"
+            efficiency_gain = f"{len(request.s3_keys)}x reduction in API calls (3 calls for {len(request.s3_keys)} images)"
         
         processing_time = time.time() - start_time
         
@@ -771,7 +796,7 @@ async def process_batch_snapshots(request: BatchProcessRequest, background_tasks
         
         return BatchProcessResponse(
             success=batch_result.get("success", False),  # Use actual processing result
-            images_processed=batch_result.get("images_processed", len(request.image_paths)),
+            images_processed=batch_result.get("images_processed", len(request.s3_keys)),
             processing_mode=batch_result.get("processing_mode", "batch"),
             processing_time=processing_time,
             api_calls_made=api_calls_made,

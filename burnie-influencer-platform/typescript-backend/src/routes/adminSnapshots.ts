@@ -34,12 +34,15 @@ function extractS3KeyFromUrl(s3Url: string): string | null {
     // Remove leading slash
     const pathWithoutSlash = pathname.startsWith('/') ? pathname.slice(1) : pathname;
     
+    // Decode URL-encoded characters in the path
+    const decodedPath = decodeURIComponent(pathWithoutSlash);
+    
     // If hostname contains bucket name, the entire path is the key
     if (url.hostname.includes('.s3.') || url.hostname.includes('.s3-')) {
-      return pathWithoutSlash;
+      return decodedPath;
     }
     
-    return pathWithoutSlash;
+    return decodedPath;
   } catch (error) {
     logger.error(`Error extracting S3 key from URL: ${s3Url}`, error);
     return null;
@@ -89,25 +92,9 @@ async function generatePresignedUrlForLLM(s3Key: string): Promise<string | null>
   }
 }
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = path.join(process.cwd(), 'uploads', 'snapshots');
-    // Create directory if it doesn't exist
-    fs.mkdirSync(uploadDir, { recursive: true });
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename with timestamp
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const platform = req.body.platformSource || 'unknown';
-    const extension = path.extname(file.originalname);
-    cb(null, `${platform}_${timestamp}${extension}`);
-  }
-});
-
+// Configure multer for memory storage (S3-first approach)
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(), // Store files in memory for S3 upload
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB max file size
   },
@@ -188,7 +175,7 @@ router.get('/campaigns', async (req: Request, res: Response) => {
   }
 });
 
-// Upload snapshot(s)
+// Upload snapshot(s) - S3-First Approach
 router.post('/upload', upload.array('screenshots', 10), async (req: Request, res: Response): Promise<Response> => {
   try {
     const files = req.files as Express.Multer.File[];
@@ -248,91 +235,118 @@ router.post('/upload', upload.array('screenshots', 10), async (req: Request, res
       });
     }
 
+    // Import S3 service
+    const { s3Service } = await import('../services/S3Service');
+
     for (const file of files) {
-      // Check for exact file path duplicates first
-      const duplicateFile = await snapshotRepository.findOne({
-        where: {
-          filePath: file.path
-        }
-      });
+      try {
+        // Upload file directly to S3 with proper folder structure
+        const s3Result = await s3Service.uploadFile(
+          file.buffer,
+          file.originalname,
+          file.mimetype,
+          'snapshots',
+          campaignId ? parseInt(campaignId) : undefined,
+          parsedSnapshotDate
+        );
 
-      if (duplicateFile) {
-        logger.warn(`File already exists: ${file.originalname}, skipping...`);
-        continue; // Skip this file
-      }
-
-      // Check for duplicates based on snapshot type (just for logging)
-      if (isYapperProfile && yapperTwitterHandle) {
-        const existingSnapshot = await snapshotRepository.findOne({
+        // Check for duplicates based on S3 key
+        const duplicateFile = await snapshotRepository.findOne({
           where: {
-            platformSource,
-            yapperTwitterHandle,
-            snapshotDate: parsedSnapshotDate
+            s3Key: s3Result.s3Key
           }
         });
 
-        if (existingSnapshot) {
-          logger.info(`Additional yapper profile snapshot for ${platformSource}, @${yapperTwitterHandle}, date ${snapshotDate}`);
+        if (duplicateFile) {
+          logger.warn(`File already exists in S3: ${file.originalname}, skipping...`);
+          continue; // Skip this file
         }
-      } else if (campaignId) {
-        const existingSnapshot = await snapshotRepository.findOne({
-          where: {
-            platformSource,
-            campaignId: parseInt(campaignId),
-            snapshotDate: parsedSnapshotDate
+
+        // Check for duplicates based on snapshot type (just for logging)
+        if (isYapperProfile && yapperTwitterHandle) {
+          const existingSnapshot = await snapshotRepository.findOne({
+            where: {
+              platformSource,
+              yapperTwitterHandle,
+              snapshotDate: parsedSnapshotDate
+            }
+          });
+
+          if (existingSnapshot) {
+            logger.info(`Additional yapper profile snapshot for ${platformSource}, @${yapperTwitterHandle}, date ${snapshotDate}`);
           }
-        });
+        } else if (campaignId) {
+          const existingSnapshot = await snapshotRepository.findOne({
+            where: {
+              platformSource,
+              campaignId: parseInt(campaignId),
+              snapshotDate: parsedSnapshotDate
+            }
+          });
 
-        if (existingSnapshot) {
-          logger.info(`Additional campaign snapshot for ${platformSource}, campaign ${campaignId}, date ${snapshotDate}`);
+          if (existingSnapshot) {
+            logger.info(`Additional campaign snapshot for ${platformSource}, campaign ${campaignId}, date ${snapshotDate}`);
+          }
         }
-      }
 
-      const snapshot = new PlatformSnapshot();
-      snapshot.platformSource = platformSource;
-      snapshot.filePath = file.path;
-      snapshot.originalFileName = file.originalname;
-      snapshot.processingStatus = ProcessingStatus.PENDING;
-      snapshot.snapshotType = snapshotType as SnapshotType || SnapshotType.LEADERBOARD;
-      snapshot.snapshotTimeframe = snapshotTimeframe || expectedTimeframe;
-      snapshot.snapshotDate = parsedSnapshotDate;
-      if (campaignId) {
-        snapshot.campaignId = parseInt(campaignId);
-      }
-      if (yapperTwitterHandle) {
-        snapshot.yapperTwitterHandle = yapperTwitterHandle;
-      }
-      if (createdBy) {
-        snapshot.createdBy = createdBy;
-      }
-      
-      if (metadata) {
-        try {
-          snapshot.metadata = JSON.parse(metadata);
-        } catch (e) {
-          snapshot.metadata = { raw: metadata };
+        const snapshot = new PlatformSnapshot();
+        snapshot.platformSource = platformSource;
+        snapshot.filePath = s3Result.s3Url; // Store S3 URL in filePath
+        snapshot.s3Key = s3Result.s3Key; // Store S3 key for future reference
+        snapshot.originalFileName = file.originalname;
+        snapshot.processingStatus = ProcessingStatus.PENDING;
+        snapshot.snapshotType = snapshotType as SnapshotType || SnapshotType.LEADERBOARD;
+        snapshot.snapshotTimeframe = snapshotTimeframe || expectedTimeframe;
+        snapshot.snapshotDate = parsedSnapshotDate;
+        if (campaignId) {
+          snapshot.campaignId = parseInt(campaignId);
         }
+        if (yapperTwitterHandle) {
+          snapshot.yapperTwitterHandle = yapperTwitterHandle;
+        }
+        if (createdBy) {
+          snapshot.createdBy = createdBy;
+        }
+        
+        if (metadata) {
+          try {
+            snapshot.metadata = JSON.parse(metadata);
+          } catch (e) {
+            snapshot.metadata = { raw: metadata };
+          }
+        }
+
+        const savedSnapshot = await snapshotRepository.save(snapshot);
+        uploadedSnapshots.push(savedSnapshot);
+
+        logger.info(`📸 Snapshot uploaded to S3: ${file.originalname} for ${platformSource}`);
+        
+      } catch (uploadError) {
+        logger.error(`❌ Failed to upload file ${file.originalname}: ${uploadError}`);
+        // Continue with other files even if one fails
       }
-
-      const savedSnapshot = await snapshotRepository.save(snapshot);
-      uploadedSnapshots.push(savedSnapshot);
-
-      logger.info(`📸 Snapshot uploaded: ${file.originalname} for ${platformSource}`);
-      
-      // Don't trigger individual processing - we'll do batch processing after all files are saved
     }
 
     // Trigger batch processing for all uploaded files
     if (uploadedSnapshots.length > 0) {
-      const batchProcessingData = {
+      const batchProcessingData: any = {
         snapshot_ids: uploadedSnapshots.map(s => s.id),
-        image_paths: uploadedSnapshots.map(s => s.filePath),
+        s3_keys: uploadedSnapshots.map(s => s.s3Key), // Send S3 keys instead of file paths
         platform_source: platformSource,
         snapshot_date: snapshotDate,
-        snapshot_type: snapshotType || 'leaderboard',
-        campaign_id: campaignId ? parseInt(campaignId) : undefined,
-        yapper_twitter_handle: yapperTwitterHandle
+        snapshot_type: snapshotType || 'leaderboard'
       };
+      
+      // Only include optional fields if they have values
+      if (campaignId) {
+        batchProcessingData.campaign_id = parseInt(campaignId);
+      }
+      if (yapperTwitterHandle) {
+        batchProcessingData.yapper_twitter_handle = yapperTwitterHandle;
+      }
+      
+      // Debug: Log the exact payload being sent
+      logger.info(`🚀 Sending batch processing payload: ${JSON.stringify(batchProcessingData, null, 2)}`);
       
       // Call Python AI backend for batch processing
       const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
@@ -632,14 +646,29 @@ router.get('/pending-summary', async (req: Request, res: Response): Promise<Resp
     }>();
     
     pendingSnapshots.forEach(snapshot => {
-      const groupKey = `${snapshot.platformSource}_${snapshot.campaignId || 'no-campaign'}_${typeof snapshot.snapshotDate === 'string' ? new Date(snapshot.snapshotDate).toISOString().split('T')[0] : snapshot.snapshotDate.toISOString().split('T')[0]}`;
+      // Safely handle snapshotDate which might be null/undefined
+      let snapshotDateStr = 'unknown';
+              if (snapshot.snapshotDate) {
+          try {
+            const date = snapshot.snapshotDate instanceof Date 
+              ? snapshot.snapshotDate 
+              : new Date(snapshot.snapshotDate);
+            snapshotDateStr = date.toISOString().split('T')[0] || 'unknown';
+          } catch (error) {
+            logger.warn(`Invalid snapshot date for snapshot ${snapshot.id}: ${snapshot.snapshotDate}`);
+            snapshotDateStr = 'unknown';
+          }
+        }
+      
+      const platformSource = snapshot.platformSource || 'unknown';
+      const groupKey = `${platformSource}_${snapshot.campaignId || 'no-campaign'}_${snapshotDateStr}`;
       
       if (!groups.has(groupKey)) {
         groups.set(groupKey, {
-          platform: snapshot.platformSource,
+          platform: platformSource,
           campaignId: snapshot.campaignId || null,
           campaignTitle: snapshot.campaign?.title || 'No campaign',
-          snapshotDate: snapshot.snapshotDate?.toISOString().split('T')[0] || 'unknown',
+          snapshotDate: snapshotDateStr,
           count: 0
         });
       }
@@ -729,6 +758,7 @@ router.get('/history', async (req: Request, res: Response) => {
         processedAt: snapshot.processedAt,
         hasData: !!snapshot.processedData,
         s3Url: snapshot.s3Url,
+        s3Key: snapshot.s3Key,
         filePath: snapshot.filePath
       })),
       pagination: {
@@ -902,12 +932,12 @@ async function processSnapshotsWithAI(snapshots: PlatformSnapshot[]) {
     }
     
     // Prepare batch request for Python AI backend using the correct format
-    const batchRequest = {
+    const batchRequest: any = {
       snapshot_ids: snapshots.map(s => s.id),
-      image_paths: await Promise.all(snapshots.map(async (s) => {
+      s3_keys: await Promise.all(snapshots.map(async (s) => {
         // Check if it's an S3 URL
         if (s.filePath && s.filePath.startsWith('http')) {
-          logger.warn(`⚠️ Snapshot ${s.id} has S3 URL instead of local path: ${s.filePath}`);
+          logger.info(`🔗 Snapshot ${s.id} has S3 URL: ${s.filePath}`);
           
           // Extract S3 key from URL
           const s3Key = extractS3KeyFromUrl(s.filePath);
@@ -916,38 +946,59 @@ async function processSnapshotsWithAI(snapshots: PlatformSnapshot[]) {
             throw new Error(`Snapshot ${s.id} - invalid S3 URL: ${s.filePath}`);
           }
           
-          // Generate presigned URL for LLM processing
-          logger.info(`🔗 Generating presigned URL for snapshot ${s.id} with S3 key: ${s3Key}`);
-          const presignedUrl = await generatePresignedUrlForLLM(s3Key);
-          if (!presignedUrl) {
-            logger.error(`❌ Failed to generate presigned URL for snapshot ${s.id}`);
-            throw new Error(`Snapshot ${s.id} - failed to generate presigned URL for S3 key: ${s3Key}`);
-          }
-          
-          logger.info(`✅ Using presigned URL for snapshot ${s.id}: ${presignedUrl.substring(0, 100)}...`);
-          return presignedUrl;
+          logger.info(`✅ Using S3 key for snapshot ${s.id}: ${s3Key}`);
+          return s3Key;
         }
         
-        // Check if local file exists
+        // For local files, we need to upload to S3 first or use s3Key if available
+        if (s.s3Key) {
+          logger.info(`✅ Using existing S3 key for snapshot ${s.id}: ${s.s3Key}`);
+          return s.s3Key;
+        }
+        
+        // If no S3 key and local file, we need to upload to S3 first
         const fs = require('fs');
         if (!fs.existsSync(s.filePath)) {
           logger.error(`❌ Local file missing for snapshot ${s.id}: ${s.filePath}`);
           throw new Error(`Local file missing for snapshot ${s.id}: ${s.filePath}`);
         }
         
-        logger.info(`✅ Using local file for snapshot ${s.id}: ${s.filePath}`);
-        return s.filePath;
+        logger.warn(`⚠️ Snapshot ${s.id} has local file but no S3 key. Uploading to S3 first...`);
+        
+        // Upload to S3 and get the key
+        const { s3Service } = await import('../services/S3Service');
+        const fileBuffer = fs.readFileSync(s.filePath);
+        const fileName = s.filePath.split('/').pop() || 'snapshot.png';
+        
+        const s3Result = await s3Service.uploadFile(
+          fileBuffer,
+          fileName,
+          'image/png',
+          'snapshots',
+          s.campaignId || undefined,
+          s.snapshotDate
+        );
+        
+        logger.info(`✅ Uploaded local file to S3 for snapshot ${s.id}: ${s3Result.s3Key}`);
+        return s3Result.s3Key;
       })),
       platform_source: firstSnapshot.platformSource,
       snapshot_date: firstSnapshot.snapshotDate instanceof Date 
         ? typeof firstSnapshot.snapshotDate === 'string' ? new Date(firstSnapshot.snapshotDate).toISOString() : firstSnapshot.snapshotDate.toISOString() 
         : new Date(firstSnapshot.snapshotDate).toISOString(),
-      snapshot_type: firstSnapshot.snapshotType || 'leaderboard',
-      campaign_id: firstSnapshot.campaignId || undefined,
-      yapper_twitter_handle: firstSnapshot.yapperTwitterHandle || undefined
+      snapshot_type: firstSnapshot.snapshotType || 'leaderboard'
     };
+    
+    // Only include optional fields if they have values
+    if (firstSnapshot.campaignId) {
+      batchRequest.campaign_id = firstSnapshot.campaignId;
+    }
+    if (firstSnapshot.yapperTwitterHandle) {
+      batchRequest.yapper_twitter_handle = firstSnapshot.yapperTwitterHandle;
+    }
 
     logger.info(`🤖 Sending ${snapshots.length} snapshots to AI backend for processing`);
+    logger.info(`🚀 Batch request payload: ${JSON.stringify(batchRequest, null, 2)}`);
 
     // Call Python AI backend
     const response = await fetch(`${pythonBackendUrl}/api/admin/snapshots/process-batch`, {
@@ -1205,6 +1256,62 @@ router.post('/cleanup/immediate', async (req: Request, res: Response): Promise<R
     return res.status(500).json({
       success: false,
       message: 'Failed to run immediate cleanup',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Fix S3 keys for existing snapshots
+router.post('/fix-s3-keys', async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const snapshotRepository = AppDataSource.getRepository(PlatformSnapshot);
+    
+    // Find all snapshots that have S3 URLs (regardless of s3Key status)
+    const snapshotsToFix = await snapshotRepository
+      .createQueryBuilder('snapshot')
+      .where('snapshot.filePath LIKE \'https://%.s3.%amazonaws.com/%\'')
+      .getMany();
+
+    if (snapshotsToFix.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No snapshots found that need S3 key fixes',
+        fixed: 0
+      });
+    }
+
+    logger.info(`🔧 Found ${snapshotsToFix.length} snapshots to fix S3 keys`);
+
+    let fixed = 0;
+    for (const snapshot of snapshotsToFix) {
+      logger.info(`🔧 Processing snapshot ${snapshot.id}: filePath = ${snapshot.filePath}`);
+      if (snapshot.filePath) {
+        const s3Key = extractS3KeyFromUrl(snapshot.filePath);
+        logger.info(`🔧 Extracted S3 key for snapshot ${snapshot.id}: ${s3Key}`);
+        if (s3Key) {
+          await snapshotRepository.update(snapshot.id, {
+            s3Key: s3Key
+          });
+          fixed++;
+          logger.info(`🔧 Fixed snapshot ${snapshot.id}: s3Key = ${s3Key}`);
+        } else {
+          logger.error(`❌ Could not extract S3 key from ${snapshot.filePath}`);
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Fixed S3 keys for ${fixed} snapshots`,
+      fixed,
+      total: snapshotsToFix.length
+    });
+
+  } catch (error) {
+    logger.error('❌ Error fixing S3 keys:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fix S3 keys',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }

@@ -49,6 +49,9 @@ export class PlatformSnapshot {
   @Column({ type: 'varchar', length: 500, nullable: true })
   s3Url?: string;
 
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  s3Key?: string;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   originalFileName?: string;
 

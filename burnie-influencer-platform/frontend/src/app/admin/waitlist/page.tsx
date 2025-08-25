@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
+import { ArrowLeft } from 'lucide-react';
 
 interface WaitlistEntry {
   id: number;
@@ -31,6 +33,7 @@ interface ApprovalForm {
 }
 
 const WaitlistManagement: React.FC = () => {
+  const router = useRouter();
   const [waitlistEntries, setWaitlistEntries] = useState<WaitlistEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
@@ -174,6 +177,17 @@ const WaitlistManagement: React.FC = () => {
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <Button 
+              onClick={() => router.push('/admin/dashboard')}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 text-gray-700 border-gray-300 hover:bg-gray-50"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Dashboard
+            </Button>
+          </div>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Waitlist Management</h1>
@@ -255,7 +269,8 @@ const WaitlistManagement: React.FC = () => {
                     <Button
                       type="button"
                       onClick={() => setShowApprovalModal(false)}
-                      className="bg-gray-300 hover:bg-gray-400 text-gray-700"
+                      variant="outline"
+                      className="text-gray-700 border-gray-300 hover:bg-gray-50"
                     >
                       Cancel
                     </Button>
@@ -381,13 +396,15 @@ const WaitlistManagement: React.FC = () => {
                       <div className="flex gap-2">
                         <Button
                           onClick={() => handleApprovalAction(entry, 'approve')}
-                          className="bg-green-600 hover:bg-green-700 text-white text-sm px-3 py-1"
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white"
                         >
                           Approve
                         </Button>
                         <Button
                           onClick={() => handleApprovalAction(entry, 'reject')}
-                          className="bg-red-600 hover:bg-red-700 text-white text-sm px-3 py-1"
+                          size="sm"
+                          className="bg-red-600 hover:bg-red-700 text-white"
                         >
                           Reject
                         </Button>
@@ -406,7 +423,8 @@ const WaitlistManagement: React.FC = () => {
             <Button
               onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
               disabled={currentPage === 1}
-              className="bg-gray-300 hover:bg-gray-400 text-gray-700 disabled:opacity-50"
+              variant="outline"
+              className="text-gray-700 border-gray-300 hover:bg-gray-50 disabled:opacity-50"
             >
               Previous
             </Button>
@@ -418,7 +436,8 @@ const WaitlistManagement: React.FC = () => {
             <Button
               onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
               disabled={currentPage === totalPages}
-              className="bg-gray-300 hover:bg-gray-400 text-gray-700 disabled:opacity-50"
+              variant="outline"
+              className="text-gray-700 border-gray-300 hover:bg-gray-50 disabled:opacity-50"
             >
               Next
             </Button>

@@ -72,41 +72,90 @@ class CookieFunProcessor:
             """,
             
             "leaderboard_extraction": """
-            Extract comprehensive data from this Cookie.fun leaderboard screenshot:
+            Analyze these Cookie.fun leaderboard screenshots and extract data in this EXACT JSON format:
             
-            1. Campaign Information:
-               - Campaign title and description
-               - Total SNAP pool and rewards
-               - Campaign timeline and status
-               - Gaming theme/category
+            {
+              "campaign_information": {
+                "title": "string",
+                "description": "string", 
+                "project_name": "string",
+                "project_description": "string",
+                "total_snaps_distributed": "string",
+                "reward_pools": {
+                  "snappers_reward_pool": "string",
+                  "stakers_reward_pool": "string"
+                },
+                "timeline": "string",
+                "categories": ["string"],
+                "website": "string",
+                "confidence_score": 0.95
+              },
+              "project_metrics": {
+                "mindshare": "string",
+                "mindshare_change_7d": "string", 
+                "sentiment": "string",
+                "sentiment_change_7d": "string",
+                "pre_tge_status": true,
+                "confidence_score": 0.9
+              },
+              "leaderboard_rankings": [
+                {
+                  "position": 1,
+                  "username": "string",
+                  "handle": "string", 
+                  "total_snaps": 83.63,
+                  "seven_day_snaps": 15.89,
+                  "status": "string",
+                  "smart_followers": 33,
+                  "special_badge": "string"
+                }
+              ],
+              "gaming_context": {
+                "campaign_mechanics": "string",
+                "reward_structure": "string",
+                "engagement_type": "string", 
+                "competition_elements": ["string"],
+                "community_features": ["string"],
+                "confidence_score": 0.85
+              },
+              "trending_patterns": {
+                "top_performers_characteristics": ["string"],
+                "engagement_strategies": ["string"],
+                "success_indicators": ["string"],
+                "confidence_score": 0.8
+              },
+              "ui_elements": {
+                "color_scheme": {
+                  "primary": "string",
+                  "secondary": "string", 
+                  "background": "string",
+                  "accent": "string"
+                },
+                "visual_hierarchy": {
+                  "header": "string",
+                  "metrics": "string",
+                  "leaderboard": "string",
+                  "actions": "string"
+                },
+                "call_to_action_buttons": ["string"],
+                "engagement_metrics": ["string"],
+                "confidence_score": 0.9
+              },
+              "additional_context": {
+                "platform": "string",
+                "campaign_type": "string",
+                "social_integration": "string",
+                "backing": "string", 
+                "technology_focus": "string",
+                "confidence_score": 0.95
+              }
+            }
             
-            2. Leaderboard Rankings (extract all visible entries):
-               - Position (#1, #2, etc.)
-               - Username/handle
-               - SNAP count
-               - 24h/7d changes (if visible)
-               - Achievement badges/status
-            
-            3. Gaming Context:
-               - Gaming achievements mentioned
-               - Tournament references
-               - Community engagement indicators
-               - Gaming terminology used
-            
-            4. Trending Patterns:
-               - Content themes visible
-               - Popular hashtags
-               - Gaming terminology usage
-               - Success strategies evident
-            
-            5. UI Elements:
-               - Color scheme analysis
-               - Visual hierarchy
-               - Call-to-action buttons
-               - Engagement metrics displayed
-            
-            Respond with a structured JSON object containing all extracted data.
-            Include confidence scores for each major section (0-1 scale).
+            IMPORTANT: 
+            - Extract ALL leaderboard entries from ALL images
+            - Use the EXACT field names shown above
+            - Include ALL entries found across multiple images
+            - Ensure leaderboard_rankings is a complete list
             """,
             
             "trend_analysis": """
@@ -3261,4 +3310,505 @@ class CookieFunProcessor:
                 "snapshot_date": snapshot_date.isoformat(),
                 "snapshot_ids": snapshot_ids,
                 "processing_timestamp": datetime.utcnow().isoformat()
+            }
+
+    async def generate_presigned_urls_for_processing(self, s3_keys: List[str]) -> List[str]:
+        """
+        Generate presigned URLs for S3 keys to be used in LLM processing
+        """
+        try:
+            logger.info(f"🔗 Generating presigned URLs for {len(s3_keys)} S3 keys")
+            
+            # Import S3 service
+            from app.services.s3_snapshot_storage import S3SnapshotStorage
+            s3_storage = S3SnapshotStorage()
+            
+            presigned_urls = []
+            for s3_key in s3_keys:
+                try:
+                    # Generate presigned URL with 1 hour expiration (3600 seconds)
+                    presigned_url = await s3_storage.generate_presigned_url(s3_key, expiration=3600)
+                    presigned_urls.append(presigned_url)
+                    logger.info(f"🔗 Generated presigned URL for {s3_key}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate presigned URL for {s3_key}: {e}")
+                    # Continue with other keys even if one fails
+                    
+            logger.info(f"✅ Generated {len(presigned_urls)} presigned URLs out of {len(s3_keys)} S3 keys")
+            return presigned_urls
+            
+        except Exception as e:
+            logger.error(f"❌ Error generating presigned URLs: {e}")
+            return []
+
+    async def _process_yapper_profiles_batch_with_presigned_urls(
+        self,
+        presigned_urls: List[str],
+        snapshot_date: date,
+        snapshot_ids: List[int],
+        yapper_handle: str
+    ) -> Dict[str, Any]:
+        """
+        Process yapper profile snapshots using presigned URLs instead of local file paths
+        """
+        try:
+            logger.info(f"🎯 Processing {len(presigned_urls)} yapper profile snapshots with presigned URLs")
+            
+            # Clean yapper handle
+            clean_handle = yapper_handle.strip().replace('@', '')
+            
+            # Step 1: Process all images together using multi-image LLM analysis with presigned URLs
+            profile_result = await self._extract_yapper_profile_data_batch_with_presigned_urls(
+                presigned_urls, 
+                clean_handle
+            )
+            
+            if not profile_result.get("success"):
+                return {
+                    "success": False,
+                    "error": f"LLM batch processing failed: {profile_result.get('error')}",
+                    "yapper_twitter_handle": clean_handle,
+                    "snapshot_date": snapshot_date.isoformat(),
+                    "snapshot_ids": snapshot_ids
+                }
+            
+            # Step 2: Store consolidated yapper profile data in database
+            wrapped_profile_result = {
+                "success": True,
+                "result": profile_result
+            }
+            storage_result = await self._store_yapper_profile_data(
+                wrapped_profile_result,
+                clean_handle,
+                snapshot_date,
+                snapshot_ids[0] if snapshot_ids else None
+            )
+            
+            # Step 3: Build comprehensive result
+            comprehensive_result = {
+                "success": True,
+                "yapper_twitter_handle": clean_handle,
+                "display_name": profile_result.get("display_name"),
+                "snapshot_date": snapshot_date.isoformat(),
+                "snapshot_ids": snapshot_ids,
+                "total_snapshots_processed": len(presigned_urls),
+                
+                # Core metrics from consolidated analysis
+                "total_snaps_7d": profile_result.get("total_snaps_7d"),
+                "mindshare_percent": profile_result.get("mindshare_percent"),
+                "smart_followers_7d": profile_result.get("smart_followers_7d"),
+                "smart_engagement": profile_result.get("smart_engagement"),
+                
+                # Token and badge data
+                "token_sentiments": profile_result.get("token_sentiments", []),
+                "badges": profile_result.get("badges", []),
+                "bullish_tokens": profile_result.get("bullish_tokens", []),
+                "bearish_tokens": profile_result.get("bearish_tokens", []),
+                
+                # Social and trend data
+                "social_graph": profile_result.get("social_graph", {}),
+                "mindshare_history": profile_result.get("mindshare_history", []),
+                "smart_followers_trend": profile_result.get("smart_followers_trend", []),
+                
+                # Storage results
+                "profile_storage": storage_result,
+                
+                # Processing metadata
+                "llm_provider": profile_result.get("llm_provider"),
+                "extraction_confidence": profile_result.get("extraction_confidence", 0.8),
+                "processing_timestamp": datetime.utcnow().isoformat(),
+                "processing_mode": "multi_image_batch_with_local_download"
+            }
+            
+            logger.info(f"✅ Multi-image batch processing with local download completed for @{clean_handle}")
+            return comprehensive_result
+            
+        except Exception as e:
+            logger.error(f"❌ Error in batch yapper profile processing with local download: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "yapper_twitter_handle": yapper_handle,
+                "snapshot_date": snapshot_date.isoformat(),
+                "snapshot_ids": snapshot_ids,
+                "processing_timestamp": datetime.utcnow().isoformat()
+            }
+
+    async def process_multiple_snapshots_comprehensive_with_local_download(
+        self,
+        presigned_urls: List[str],
+        snapshot_date: date,
+        campaigns_context: List[Dict[str, Any]],
+        projects_context: List[Dict[str, Any]],
+        snapshot_ids: List[int],
+        snapshot_type: str = "leaderboard",
+        campaign_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Process multiple snapshots comprehensively using local download instead of presigned URLs
+        """
+        try:
+            logger.info(f"🏆 Processing {len(presigned_urls)} snapshots with local download")
+            
+            # Step 1: Process all images together using local download and multi-image LLM analysis
+            leaderboard_result = await self._extract_leaderboard_data_batch_with_local_download(
+                presigned_urls,
+                campaigns_context,
+                projects_context,
+                campaign_id
+            )
+            
+            if not leaderboard_result.get("success"):
+                return {
+                    "success": False,
+                    "error": f"LLM batch processing failed: {leaderboard_result.get('error')}",
+                    "snapshot_date": snapshot_date.isoformat(),
+                    "snapshot_ids": snapshot_ids
+                }
+            
+            # Step 2: Storage will be handled by background task in admin_snapshots.py
+            # No need to store here - just return the data
+            storage_result = {"success": True, "message": "Storage handled by background task"}
+            
+            # Step 3: Build comprehensive result
+            comprehensive_result = {
+                "success": True,
+                "snapshot_date": snapshot_date.isoformat(),
+                "snapshot_ids": snapshot_ids,
+                "total_snapshots_processed": len(presigned_urls),
+                
+                # Leaderboard data
+                "leaderboard_data": leaderboard_result.get("leaderboard_data", []),
+                "campaign_id": leaderboard_result.get("campaign_id"),
+                "campaign_title": leaderboard_result.get("campaign_title"),
+                
+                # Analysis results
+                "trend_analysis": leaderboard_result.get("trend_analysis", {}),
+                "competitive_analysis": leaderboard_result.get("competitive_analysis", {}),
+                "category_analysis": leaderboard_result.get("category_analysis", {}),
+                
+                # Storage results
+                "leaderboard_storage": storage_result,
+                
+                # Processing metadata
+                "llm_provider": leaderboard_result.get("llm_provider"),
+                "extraction_confidence": leaderboard_result.get("extraction_confidence", 0.8),
+                "processing_timestamp": datetime.utcnow().isoformat(),
+                "processing_mode": "multi_image_batch_with_local_download"
+            }
+            
+            logger.info(f"✅ Multi-image batch processing with local download completed - {len(presigned_urls)} snapshots")
+            return comprehensive_result
+            
+        except Exception as e:
+            logger.error(f"❌ Error in comprehensive batch processing with local download: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "snapshot_date": snapshot_date.isoformat(),
+                "snapshot_ids": snapshot_ids,
+                "processing_timestamp": datetime.utcnow().isoformat()
+            }
+
+    async def _extract_yapper_profile_data_batch_with_presigned_urls(
+        self,
+        presigned_urls: List[str],
+        yapper_handle: str
+    ) -> Dict[str, Any]:
+        """
+        Extract yapper profile data from multiple images using presigned URLs
+        """
+        try:
+            logger.info(f"🎯 Extracting yapper profile data from {len(presigned_urls)} images with presigned URLs")
+            
+            # Use LLM service to process multiple images with presigned URLs
+            result = await self.llm_service.analyze_multiple_images_with_urls(
+                image_urls=presigned_urls,
+                prompt=self.prompts["leaderboard_extraction"],
+                context=f"Yapper handle: @{yapper_handle}"
+            )
+            
+            if not result.get("success"):
+                return {
+                    "success": False,
+                    "error": result.get("error", "LLM analysis failed")
+                }
+            
+            # Parse and structure the extracted data
+            extracted_data = result.get("extracted_data", {})
+            
+            return {
+                "success": True,
+                "display_name": extracted_data.get("display_name", yapper_handle),
+                "total_snaps_7d": extracted_data.get("total_snaps_7d"),
+                "mindshare_percent": extracted_data.get("mindshare_percent"),
+                "smart_followers_7d": extracted_data.get("smart_followers_7d"),
+                "smart_engagement": extracted_data.get("smart_engagement"),
+                "token_sentiments": extracted_data.get("token_sentiments", []),
+                "badges": extracted_data.get("badges", []),
+                "bullish_tokens": extracted_data.get("bullish_tokens", []),
+                "bearish_tokens": extracted_data.get("bearish_tokens", []),
+                "social_graph": extracted_data.get("social_graph", {}),
+                "mindshare_history": extracted_data.get("mindshare_history", []),
+                "smart_followers_trend": extracted_data.get("smart_followers_trend", []),
+                "llm_provider": result.get("llm_provider"),
+                "extraction_confidence": result.get("confidence", 0.8)
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error extracting yapper profile data with presigned URLs: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def _extract_leaderboard_data_batch_with_local_download(
+        self,
+        presigned_urls: List[str],
+        campaigns_context: List[Dict[str, Any]],
+        projects_context: List[Dict[str, Any]],
+        campaign_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Extract leaderboard data by downloading images locally first, then processing
+        """
+        import tempfile
+        import os
+        import aiohttp
+        import aiofiles
+        
+        try:
+            logger.info(f"📥 Downloading {len(presigned_urls)} images locally for processing")
+            
+            # Create temporary directory
+            with tempfile.TemporaryDirectory() as temp_dir:
+                local_image_paths = []
+                
+                # Download all images
+                async with aiohttp.ClientSession() as session:
+                    for i, url in enumerate(presigned_urls):
+                        try:
+                            async with session.get(url) as response:
+                                if response.status == 200:
+                                    image_data = await response.read()
+                                    local_path = os.path.join(temp_dir, f"image_{i}.png")
+                                    
+                                    async with aiofiles.open(local_path, 'wb') as f:
+                                        await f.write(image_data)
+                                    
+                                    local_image_paths.append(local_path)
+                                    logger.info(f"✅ Downloaded image {i+1}/{len(presigned_urls)}")
+                                else:
+                                    logger.error(f"❌ Failed to download image {i+1}: {response.status}")
+                        except Exception as e:
+                            logger.error(f"❌ Error downloading image {i+1}: {str(e)}")
+                
+                if not local_image_paths:
+                    return {
+                        "success": False,
+                        "error": "Failed to download any images"
+                    }
+                
+                logger.info(f"📥 Successfully downloaded {len(local_image_paths)} images. Processing with LLM...")
+                
+                # Process with LLM using local file paths
+                result = await self.llm_service.analyze_multiple_images_with_text(
+                    image_paths=local_image_paths,
+                    prompt=self.prompts["leaderboard_extraction"],
+                    context=f"Campaigns: {len(campaigns_context)}, Projects: {len(projects_context)}"
+                )
+                
+                if not result.get("success"):
+                    return {
+                        "success": False,
+                        "error": result.get("error", "LLM analysis failed")
+                    }
+                
+                # Parse and structure the extracted data
+                # For analyze_multiple_images_with_text, data is in "result" key
+                # For analyze_multiple_images_with_urls, data is in "extracted_data" key
+                extracted_data = result.get("result", result.get("extracted_data", {}))
+                
+                # Debug: Log the extracted data structure
+                logger.info(f"🔥🔥🔥 LOCAL DOWNLOAD EXTRACTED DATA STRUCTURE 🔥🔥🔥")
+                logger.info(f"Keys in extracted_data: {list(extracted_data.keys())}")
+                logger.info(f"Leaderboard rankings found: {len(extracted_data.get('leaderboard_rankings', []))}")
+                logger.info(f"Result keys: {list(result.keys())}")
+                logger.info(f"Provider from result: {result.get('provider')}")
+                
+                # Map the correct keys from LLM response
+                leaderboard_data = extracted_data.get("leaderboard_rankings", [])
+                campaign_info = extracted_data.get("campaign_information", {})
+                project_metrics = extracted_data.get("project_metrics", {})
+                trending_patterns = extracted_data.get("trending_patterns", {})
+                ui_elements = extracted_data.get("ui_elements", {})
+                
+                # Debug: Log the data mapping
+                print(f"\n🔥🔥🔥 DATA MAPPING DEBUG 🔥🔥🔥")
+                print(f"extracted_data keys: {list(extracted_data.keys())}")
+                print(f"leaderboard_rankings length: {len(extracted_data.get('leaderboard_rankings', []))}")
+                print(f"leaderboard_data length: {len(leaderboard_data)}")
+                print(f"campaign_id from parameter: {campaign_id}")
+                print(f"🔥🔥🔥 END DATA MAPPING DEBUG 🔥🔥🔥\n")
+                
+                final_result = {
+                    "success": True,
+                    "leaderboard_data": leaderboard_data,
+                    "campaign_id": campaign_id,  # Use campaign_id from parameter
+                    "campaign_title": campaign_info.get("title"),
+                    "trend_analysis": trending_patterns,
+                    "competitive_analysis": extracted_data.get("competitive", {}),
+                    "category_analysis": extracted_data.get("category_analysis", {}),
+                    "llm_provider": result.get("provider"),
+                    "extraction_confidence": result.get("confidence", 0.8)
+                }
+                
+                logger.info(f"🔥🔥🔥 FINAL RESULT STRUCTURE 🔥🔥🔥")
+                logger.info(f"Final result keys: {list(final_result.keys())}")
+                logger.info(f"leaderboard_data length: {len(final_result.get('leaderboard_data', []))}")
+                logger.info(f"llm_provider: {final_result.get('llm_provider')}")
+                logger.info(f"campaign_id from parameter: {campaign_id}")
+                logger.info(f"campaign_id in final_result: {final_result.get('campaign_id')}")
+                
+                # Debug: Print the final result structure
+                print(f"\n🔥🔥🔥 FINAL RESULT DEBUG 🔥🔥🔥")
+                print(f"Final result keys: {list(final_result.keys())}")
+                print(f"leaderboard_data length: {len(final_result.get('leaderboard_data', []))}")
+                print(f"campaign_id: {final_result.get('campaign_id')}")
+                print(f"🔥🔥🔥 END FINAL RESULT DEBUG 🔥🔥🔥\n")
+                
+                return final_result
+                
+        except Exception as e:
+            logger.error(f"❌ Error in local download processing: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def _store_leaderboard_data(
+        self,
+        leaderboard_result: Dict[str, Any],
+        snapshot_date: date,
+        snapshot_ids: List[int]
+    ) -> Dict[str, Any]:
+        """
+        Store leaderboard data in the TypeScript backend database
+        
+        Args:
+            leaderboard_result: The LLM-extracted leaderboard data
+            snapshot_date: Date the snapshot was taken
+            snapshot_ids: List of snapshot IDs that were processed
+            
+        Returns:
+            Storage result with success status
+        """
+        try:
+            if not leaderboard_result.get("success"):
+                logger.warning(f"📊 No leaderboard data to store - extraction failed")
+                return {"success": False, "error": "Leaderboard extraction failed"}
+
+            leaderboard_data = leaderboard_result.get("leaderboard_data", [])
+            campaign_id = leaderboard_result.get("campaign_id")
+            
+            # Debug: Log what we're getting
+            logger.info(f"🔥🔥🔥 STORAGE DEBUG 🔥🔥🔥")
+            logger.info(f"leaderboard_result keys: {list(leaderboard_result.keys())}")
+            logger.info(f"leaderboard_data type: {type(leaderboard_data)}")
+            logger.info(f"leaderboard_data length: {len(leaderboard_data) if leaderboard_data else 0}")
+            logger.info(f"leaderboard_data sample: {leaderboard_data[:2] if leaderboard_data else 'None'}")
+            
+            if not leaderboard_data:
+                logger.warning(f"📊 No leaderboard data found in result")
+                return {"success": False, "error": "No leaderboard data found"}
+
+            logger.info(f"📊 Storing {len(leaderboard_data)} leaderboard entries for campaign {campaign_id}")
+            
+            # Store each leaderboard entry
+            stored_entries = []
+            failed_entries = []
+            
+            for entry in leaderboard_data:
+                try:
+                    # Map LLM response to database fields
+                    storage_payload = {
+                        "snapshotIds": snapshot_ids,
+                        "snapshotDate": snapshot_date.isoformat(),
+                        "platformSource": "cookie.fun",
+                        "llmProvider": leaderboard_result.get("llm_provider"),
+                        "processingStatus": "completed",
+                        "extractionConfidence": leaderboard_result.get("extraction_confidence", 0.8)
+                    }
+                    
+                    # Yapper data - map from LLM response structure
+                    if "handle" in entry:
+                        storage_payload["yapperTwitterHandle"] = entry["handle"]
+                    if "username" in entry:
+                        storage_payload["displayName"] = entry["username"]
+                    if "total_snaps" in entry:
+                        storage_payload["totalSnaps"] = entry["total_snaps"]
+                    if "seven_day_snaps" in entry:
+                        storage_payload["sevenDaySnaps"] = entry["seven_day_snaps"]
+                    if "smart_followers" in entry:
+                        storage_payload["smartFollowers"] = entry["smart_followers"]
+                    if "position" in entry:
+                        storage_payload["rank"] = entry["position"]
+                    if "status" in entry:
+                        storage_payload["status"] = entry["status"]
+                    if "special_badge" in entry:
+                        storage_payload["specialBadge"] = entry["special_badge"]
+                    
+                    # Campaign data
+                    if campaign_id:
+                        storage_payload["campaignId"] = campaign_id
+                    if "campaign_title" in leaderboard_result:
+                        storage_payload["campaignTitle"] = leaderboard_result["campaign_title"]
+                    
+                    # Send to TypeScript backend
+                    settings = get_settings()
+                    typescript_backend_url = settings.typescript_backend_url
+                    
+                    async with aiohttp.ClientSession() as session:
+                        url = f"{typescript_backend_url}/api/leaderboard-yapper/store"
+                        
+                        async with session.post(url, json=storage_payload) as response:
+                            if response.status == 200:
+                                result = await response.json()
+                                if result.get("success"):
+                                    stored_entries.append(entry.get("handle", "unknown"))
+                                    logger.info(f"✅ Stored leaderboard entry for {entry.get('handle', 'unknown')}")
+                                else:
+                                    failed_entries.append({
+                                        "yapper": entry.get("handle", "unknown"),
+                                        "error": result.get("message", "Unknown error")
+                                    })
+                                    logger.error(f"❌ Failed to store leaderboard entry: {result.get('message')}")
+                            else:
+                                failed_entries.append({
+                                    "yapper": entry.get("handle", "unknown"),
+                                    "error": f"HTTP {response.status}"
+                                })
+                                logger.error(f"❌ HTTP error storing leaderboard entry: {response.status}")
+                                
+                except Exception as e:
+                    failed_entries.append({
+                        "yapper": entry.get("handle", "unknown"),
+                        "error": str(e)
+                    })
+                    logger.error(f"❌ Exception storing leaderboard entry: {str(e)}")
+
+            return {
+                "success": True,
+                "total_entries": len(leaderboard_data),
+                "stored_entries": len(stored_entries),
+                "failed_entries": len(failed_entries),
+                "stored_yappers": stored_entries,
+                "failed_details": failed_entries
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error in _store_leaderboard_data: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
             }

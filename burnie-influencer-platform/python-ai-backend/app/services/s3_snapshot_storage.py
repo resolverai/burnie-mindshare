@@ -194,17 +194,20 @@ class S3SnapshotStorage:
             logger.error(f"❌ S3 deletion failed: {error_msg}")
             return {"success": False, "error": error_msg}
     
-    def generate_presigned_url(
+    async def generate_presigned_url(
         self, 
         s3_key: str, 
         expiration: int = 3600
     ) -> Optional[str]:
         """Generate presigned URL for snapshot access"""
         try:
-            response = self.s3_client.generate_presigned_url(
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                self.s3_client.generate_presigned_url,
                 'get_object',
-                Params={'Bucket': self.bucket_name, 'Key': s3_key},
-                ExpiresIn=expiration
+                {'Bucket': self.bucket_name, 'Key': s3_key},
+                expiration
             )
             return response
         except Exception as e:

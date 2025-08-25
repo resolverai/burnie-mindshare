@@ -367,6 +367,83 @@ class OpenAIProvider(LLMProvider):
                 "error": str(e),
                 "images_processed": 0
             }
+
+    async def analyze_multiple_images_with_urls(
+        self, 
+        image_urls: List[str], 
+        prompt: str, 
+        context: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Analyze multiple images using presigned URLs with OpenAI GPT-4 Vision"""
+        try:
+            # Encode all images from URLs to base64
+            image_data_list = []
+            for image_url in image_urls:
+                image_base64, media_type = await self._encode_image(image_url)
+                image_data_list.append(image_base64)
+            
+            # Build messages with multiple images
+            messages = await self._build_multi_image_messages(prompt, image_data_list, {"context": context})
+            
+            # Call OpenAI API with all images
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=15000,
+                temperature=0.1,
+            )
+            
+            # Parse response
+            content = response.choices[0].message.content
+            
+            # Debug: Log raw LLM response
+            logger.info(f"🔥🔥🔥 RAW LLM RESPONSE FROM OPENAI 🔥🔥🔥")
+            logger.info(f"Content: {content}")
+            print(f"🔥🔥🔥 RAW LLM RESPONSE FROM OPENAI 🔥🔥🔥")
+            print(f"Content: {content}")
+            
+            # Clean response: Remove markdown code blocks and extra whitespace
+            cleaned_content = clean_llm_response(content, "OpenAI")
+            
+            # Debug: Log cleaned response
+            logger.info(f"🔥🔥🔥 CLEANED LLM RESPONSE 🔥🔥🔥")
+            logger.info(f"Cleaned: {cleaned_content}")
+            print(f"🔥🔥🔥 CLEANED LLM RESPONSE 🔥🔥🔥")
+            print(f"Cleaned: {cleaned_content}")
+            
+            try:
+                result = json.loads(cleaned_content)
+                logger.info(f"✅ OpenAI URL-based multi-image analysis: JSON parsed successfully")
+                logger.info(f"🔥🔥🔥 PARSED JSON RESULT 🔥🔥🔥")
+                logger.info(f"Result: {json.dumps(result, indent=2)}")
+                print(f"🔥🔥🔥 PARSED JSON RESULT 🔥🔥🔥")
+                print(f"Result: {json.dumps(result, indent=2)}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"❌ OpenAI URL-based multi-image analysis: JSON parse failed: {e}")
+                result = {"raw_response": content, "parsed": False}
+                
+            return {
+                "success": True,
+                "provider": "openai",
+                "model": self.model,
+                "extracted_data": result,
+                "confidence": 0.8,
+                "images_processed": len(image_urls),
+                "usage": {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ OpenAI URL-based multi-image analysis failed: {str(e)}")
+            return {
+                "success": False,
+                "provider": "openai",
+                "error": str(e),
+                "images_processed": 0
+            }
     
     async def _build_multi_image_messages(
         self, 
@@ -829,6 +906,97 @@ class AnthropicProvider(LLMProvider):
                 "error": str(e),
                 "images_processed": 0
             }
+
+    async def analyze_multiple_images_with_urls(
+        self, 
+        image_urls: List[str], 
+        prompt: str, 
+        context: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Analyze multiple images using presigned URLs with Anthropic Claude"""
+        try:
+            # Debug: Check client type before API call
+            if not isinstance(self.client, AsyncAnthropic):
+                error_msg = f"CRITICAL: Expected AsyncAnthropic client, got {type(self.client)}. This indicates a provider mixup."
+                logger.error(error_msg)
+                return {
+                    "success": False,
+                    "provider": "anthropic",
+                    "error": error_msg,
+                    "images_processed": 0
+                }
+            
+            # Encode all images from URLs to base64
+            image_data_list = []
+            for image_url in image_urls:
+                image_base64, media_type = await self._encode_image(image_url)
+                image_data_list.append((image_base64, media_type))
+            
+            # Build content with multiple images
+            content = self._build_multi_image_content(prompt, image_data_list, {"context": context})
+            
+            # Call Anthropic API with all images
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=15000,
+                temperature=0.1,
+                messages=[{
+                    "role": "user",
+                    "content": content
+                }]
+            )
+            
+            # Parse response
+            result_text = response.content[0].text
+            
+            # Debug: Log raw LLM response
+            logger.info(f"🔥🔥🔥 RAW LLM RESPONSE FROM ANTHROPIC 🔥🔥🔥")
+            logger.info(f"Content: {result_text}")
+            print(f"🔥🔥🔥 RAW LLM RESPONSE FROM ANTHROPIC 🔥🔥🔥")
+            print(f"Content: {result_text}")
+            
+            # Clean response: Remove markdown code blocks and extra whitespace
+            cleaned_content = clean_llm_response(result_text, "Anthropic")
+            
+            # Debug: Log cleaned response
+            logger.info(f"🔥🔥🔥 CLEANED LLM RESPONSE 🔥🔥🔥")
+            logger.info(f"Cleaned: {cleaned_content}")
+            print(f"🔥🔥🔥 CLEANED LLM RESPONSE 🔥🔥🔥")
+            print(f"Cleaned: {cleaned_content}")
+            
+            try:
+                result = json.loads(cleaned_content)
+                logger.info(f"✅ Anthropic URL-based multi-image analysis: JSON parsed successfully")
+                logger.info(f"🔥🔥🔥 PARSED JSON RESULT 🔥🔥🔥")
+                logger.info(f"Result: {json.dumps(result, indent=2)}")
+                print(f"🔥🔥🔥 PARSED JSON RESULT 🔥🔥🔥")
+                print(f"Result: {json.dumps(result, indent=2)}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"❌ Anthropic URL-based multi-image analysis: JSON parse failed: {e}")
+                result = {"raw_response": result_text, "parsed": False}
+                
+            return {
+                "success": True,
+                "provider": "anthropic",
+                "model": self.model,
+                "extracted_data": result,
+                "confidence": 0.8,
+                "images_processed": len(image_urls),
+                "usage": {
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                    "total_tokens": response.usage.input_tokens + response.usage.output_tokens
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Anthropic URL-based multi-image analysis failed: {str(e)}")
+            return {
+                "success": False,
+                "provider": "anthropic",
+                "error": str(e),
+                "images_processed": 0
+            }
     
     def _build_multi_image_content(
         self, 
@@ -1125,3 +1293,70 @@ class MultiProviderLLMService:
             'provider': None,
             'error': 'All providers failed for text-only analysis'
         }
+
+    async def analyze_multiple_images_with_urls(
+        self, 
+        image_urls: List[str], 
+        prompt: str, 
+        context: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Analyze multiple images using presigned URLs with primary provider, fallback to secondary if needed"""
+        
+        # Debug: Check provider types at call time
+        logger.info(f"🔧 PRIMARY PROVIDER CHECK: type={type(self.primary_provider).__name__}, client_type={type(self.primary_provider.client)}, name={self.primary_provider.get_provider_name()}")
+        logger.info(f"🔧 FALLBACK PROVIDER CHECK: type={type(self.fallback_provider).__name__}, client_type={type(self.fallback_provider.client)}, name={self.fallback_provider.get_provider_name()}")
+        
+        # Try primary provider
+        logger.info(f"Attempting multi-image analysis with URLs ({len(image_urls)} images) with {self.primary_provider.get_provider_name()}")
+        result = await self.primary_provider.analyze_multiple_images_with_urls(image_urls, prompt, context)
+        
+        if result["success"]:
+            logger.info(f"✅ Primary provider {self.primary_provider.get_provider_name()} succeeded with URLs")
+            return result
+        
+        logger.warning(f"❌ Primary provider {self.primary_provider.get_provider_name()} failed with URLs: {result.get('error', 'Unknown error')}")
+        
+        # Try fallback provider
+        logger.warning(f"Primary provider failed, trying {self.fallback_provider.get_provider_name()} for multi-image analysis with URLs")
+        logger.info(f"🔍 Fallback provider details: type={type(self.fallback_provider).__name__}, client_type={type(self.fallback_provider.client)}")
+        result = await self.fallback_provider.analyze_multiple_images_with_urls(image_urls, prompt, context)
+        
+        if result["success"]:
+            logger.info(f"✅ Fallback provider {self.fallback_provider.get_provider_name()} succeeded with URLs")
+            return result
+        
+        logger.error(f"❌ Both providers failed with URLs. Primary: {self.primary_provider.get_provider_name()}, Fallback: {self.fallback_provider.get_provider_name()}")
+        return result
+
+    async def analyze_multiple_images_with_text(
+        self, 
+        image_paths: List[str], 
+        prompt: str, 
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Analyze multiple images using local file paths with primary provider, fallback to secondary if needed"""
+        
+        # Debug: Check provider types at call time
+        logger.info(f"🔧 PRIMARY PROVIDER CHECK: type={type(self.primary_provider).__name__}, name={self.primary_provider.get_provider_name()}")
+        logger.info(f"🔧 FALLBACK PROVIDER CHECK: type={type(self.fallback_provider).__name__}, name={self.fallback_provider.get_provider_name()}")
+        
+        # Try primary provider
+        logger.info(f"Attempting multi-image analysis with local files ({len(image_paths)} images) with {self.primary_provider.get_provider_name()}")
+        result = await self.primary_provider.analyze_multiple_images_with_text(image_paths, prompt, context)
+        
+        if result["success"]:
+            logger.info(f"✅ Primary provider {self.primary_provider.get_provider_name()} succeeded with local files")
+            return result
+        
+        logger.warning(f"❌ Primary provider {self.primary_provider.get_provider_name()} failed with local files: {result.get('error', 'Unknown error')}")
+        
+        # Try fallback provider
+        logger.warning(f"Primary provider failed, trying {self.fallback_provider.get_provider_name()} for multi-image analysis with local files")
+        result = await self.fallback_provider.analyze_multiple_images_with_text(image_paths, prompt, context)
+        
+        if result["success"]:
+            logger.info(f"✅ Fallback provider {self.fallback_provider.get_provider_name()} succeeded with local files")
+            return result
+        
+        logger.error(f"❌ Both providers failed with local files. Primary: {self.primary_provider.get_provider_name()}, Fallback: {self.fallback_provider.get_provider_name()}")
+        return result
