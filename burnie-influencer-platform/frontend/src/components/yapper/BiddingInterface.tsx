@@ -382,7 +382,32 @@ export default function BiddingInterface() {
       
       if (!confirmResponse.ok) {
         console.error('❌ Failed to confirm purchase:', confirmResult);
-        alert('Payment completed but there was an issue confirming with our servers. Your transaction hash: ' + transactionHash);
+        
+        // Try to rollback the purchase to restore content availability
+        try {
+          console.log('🔄 Attempting to rollback purchase to restore content availability...');
+          const rollbackResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/purchase/${result.data.purchaseId}/rollback`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              transactionHash: transactionHash,
+              reason: 'Purchase confirmation failed'
+            }),
+          });
+          
+          if (rollbackResponse.ok) {
+            console.log('✅ Purchase rollback successful - content restored to marketplace');
+            alert('Payment completed but there was an issue confirming with our servers. Your transaction hash: ' + transactionHash + '\n\nContent has been restored to the marketplace. Please try purchasing again.');
+          } else {
+            console.error('❌ Purchase rollback failed');
+            alert('Payment completed but there was an issue confirming with our servers. Your transaction hash: ' + transactionHash + '\n\nPlease contact support to restore the content to the marketplace.');
+          }
+        } catch (rollbackError) {
+          console.error('❌ Purchase rollback error:', rollbackError);
+          alert('Payment completed but there was an issue confirming with our servers. Your transaction hash: ' + transactionHash + '\n\nPlease contact support to restore the content to the marketplace.');
+        }
         return;
       }
 

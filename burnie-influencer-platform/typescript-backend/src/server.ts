@@ -42,6 +42,8 @@ import contentApprovalRoutes from './routes/contentApproval';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
+import { AppDataSource } from './config/database';
+import { ContentMarketplace } from './models/ContentMarketplace';
 
 const app = express();
 const server = createServer(app);
@@ -137,6 +139,58 @@ const startServer = async () => {
     
     // Start database keepalive
     startDatabaseKeepalive();
+
+    // Start purchase flow cleanup job - only after database is fully initialized
+    const startPurchaseFlowCleanup = () => {
+      // Wait for database to be fully ready before starting cleanup
+      const checkAndStartCleanup = () => {
+        if (AppDataSource.isInitialized) {
+          logger.info('🔄 Starting purchase flow cleanup service...');
+          
+          setInterval(async () => {
+            try {
+              // Double-check database connection before each cleanup
+              if (AppDataSource.isInitialized) {
+                await AppDataSource.query('SELECT 1'); // Test connection
+                
+                const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+                
+                // Find and reset expired purchase flows
+                const expiredFlows = await contentRepository
+                  .createQueryBuilder('content')
+                  .where('content.inPurchaseFlow = :inPurchaseFlow', { inPurchaseFlow: true })
+                  .andWhere('content.purchaseFlowExpiresAt < :now', { now: new Date() })
+                  .getMany();
+                
+                if (expiredFlows.length > 0) {
+                  for (const content of expiredFlows) {
+                    content.inPurchaseFlow = false;
+                    content.purchaseFlowInitiatedBy = null;
+                    content.purchaseFlowInitiatedAt = null;
+                    content.purchaseFlowExpiresAt = null;
+                    await contentRepository.save(content);
+                  }
+                  
+                  logger.info(`🔄 Cleaned up ${expiredFlows.length} expired purchase flows`);
+                }
+              }
+            } catch (error) {
+              logger.error('❌ Purchase flow cleanup failed:', error);
+              // Don't crash the service, just log the error
+            }
+          }, 5 * 60 * 1000); // Run every 5 minutes
+        } else {
+          // Database not ready yet, retry in 5 seconds
+          logger.info('⏳ Database not ready yet, retrying purchase flow cleanup setup in 5 seconds...');
+          setTimeout(checkAndStartCleanup, 5000);
+        }
+      };
+      
+      // Start the check process
+      checkAndStartCleanup();
+    };
+
+    startPurchaseFlowCleanup();
     
     // await initializeRedis();
     

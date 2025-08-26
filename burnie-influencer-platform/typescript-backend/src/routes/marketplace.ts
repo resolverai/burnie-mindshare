@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { AppDataSource } from '../config/database';
+import { AppDataSource, recoverDatabaseConnection } from '../config/database';
 import { ContentMarketplace } from '../models/ContentMarketplace';
 import { BiddingSystem } from '../models/BiddingSystem';
 import { PaymentTransaction, TransactionType, Currency } from '../models/PaymentTransaction';
@@ -19,6 +19,51 @@ import { MarketplaceContentService } from '../services/MarketplaceContentService
 const AWS = require('aws-sdk');
 
 const router = Router();
+
+// Database connection check middleware
+const checkDatabaseConnection = async (req: Request, res: Response, next: Function): Promise<void> => {
+  try {
+    if (!AppDataSource.isInitialized) {
+      logger.error('❌ Database not initialized, attempting recovery...');
+      const recovered = await recoverDatabaseConnection();
+      if (!recovered) {
+        res.status(503).json({
+          success: false,
+          message: 'Database service unavailable'
+        });
+        return;
+      }
+    }
+    
+    // Test database connection
+    await AppDataSource.query('SELECT 1');
+    next();
+  } catch (error) {
+    logger.error('❌ Database connection check failed, attempting recovery...', error);
+    try {
+      const recovered = await recoverDatabaseConnection();
+      if (recovered) {
+        next();
+      } else {
+        res.status(503).json({
+          success: false,
+          message: 'Database connection failed'
+        });
+        return;
+      }
+    } catch (recoveryError) {
+      logger.error('❌ Database recovery failed:', recoveryError);
+      res.status(503).json({
+        success: false,
+        message: 'Database service unavailable'
+      });
+      return;
+    }
+  }
+};
+
+// Apply database connection check to all routes
+router.use(checkDatabaseConnection);
 
 // Configure AWS S3 for pre-signed URL generation
 const s3 = new AWS.S3({
@@ -3270,8 +3315,34 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    console.log('🔍 Content found for purchase:', {
+      contentId: parseInt(contentId),
+      isAvailable: content.isAvailable,
+      isBiddable: content.isBiddable,
+      approvalStatus: content.approvalStatus,
+      createdAt: content.createdAt,
+      approvedAt: content.approvedAt,
+      biddingEnabledAt: content.biddingEnabledAt,
+      walletAddress: content.walletAddress,
+      creatorId: content.creatorId,
+      askingPrice: content.askingPrice,
+      biddingAskPrice: content.biddingAskPrice
+    });
+
     // Check if content is available
     if (!content.isAvailable) {
+      console.error('❌ Content availability check failed:', {
+        contentId: parseInt(contentId),
+        isAvailable: content.isAvailable,
+        isBiddable: content.isBiddable,
+        approvalStatus: content.approvalStatus,
+        createdAt: content.createdAt,
+        approvedAt: content.approvedAt,
+        biddingEnabledAt: content.biddingEnabledAt,
+        walletAddress: content.walletAddress,
+        creatorId: content.creatorId
+      });
+      
       res.status(400).json({
         success: false,
         message: 'Content is no longer available for purchase'
@@ -3446,6 +3517,20 @@ router.post('/purchase/:id/confirm', async (req: Request, res: Response): Promis
 
     await purchaseRepository.save(purchase);
 
+    // Mark content as unavailable after successful purchase and clear purchase flow
+    if (purchase.content) {
+      const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+      purchase.content.isAvailable = false;
+      purchase.content.isBiddable = false;
+      purchase.content.inPurchaseFlow = false;
+      purchase.content.purchaseFlowInitiatedBy = null;
+      purchase.content.purchaseFlowInitiatedAt = null;
+      purchase.content.purchaseFlowExpiresAt = null;
+      await contentRepository.save(purchase.content);
+      
+      logger.info(`Content ${purchase.content.id} marked as unavailable and purchase flow cleared after successful purchase`);
+    }
+
     // TODO: Trigger treasury-to-miner transfer using private key
     // This will be implemented in the wallet integration step
 
@@ -3605,6 +3690,87 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
     res.status(500).json({
       success: false,
       message: 'Failed to process treasury distribution',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/purchase/:id/rollback
+ * @desc Rollback a purchase to restore content availability
+ */
+router.post('/purchase/:id/rollback', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { transactionHash, reason } = req.body;
+
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: 'Purchase ID is required'
+      });
+      return;
+    }
+
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    
+    const purchase = await purchaseRepository.findOne({
+      where: { id: parseInt(id) },
+      relations: ['content']
+    });
+
+    if (!purchase) {
+      res.status(404).json({
+        success: false,
+        message: 'Purchase not found'
+      });
+      return;
+    }
+
+    // Only allow rollback for purchases that are not completed
+    if (purchase.paymentStatus === 'completed') {
+      res.status(400).json({
+        success: false,
+        message: 'Cannot rollback completed purchases'
+      });
+      return;
+    }
+
+    logger.info(`🔄 Rolling back purchase ${id} to restore content availability`);
+
+    // Restore content availability
+    if (purchase.content) {
+      purchase.content.isAvailable = true;
+      purchase.content.isBiddable = true;
+      await contentRepository.save(purchase.content);
+      logger.info(`✅ Content ${purchase.content.id} restored to marketplace`);
+    }
+
+    // Mark purchase as rolled back
+    purchase.paymentStatus = 'rolled_back';
+    purchase.rollbackReason = reason || 'Purchase confirmation failed';
+    purchase.rollbackTransactionHash = transactionHash;
+    purchase.rolledBackAt = new Date();
+    
+    await purchaseRepository.save(purchase);
+
+    logger.info(`✅ Purchase ${id} rolled back successfully`);
+
+    res.json({
+      success: true,
+      data: {
+        message: 'Purchase rolled back successfully',
+        contentId: purchase.content?.id,
+        purchaseId: purchase.id,
+        rollbackReason: purchase.rollbackReason
+      }
+    });
+  } catch (error) {
+    logger.error('Error rolling back purchase:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to rollback purchase',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
@@ -4532,6 +4698,186 @@ router.get('/user/:userId/profile', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to fetch user profile'
+    });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/content/:id/check-availability
+ * @desc Check if content is available for purchase and not in purchase flow
+ */
+router.post('/content/:id/check-availability', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { walletAddress } = req.body;
+
+    if (!id || !walletAddress) {
+      res.status(400).json({
+        success: false,
+        message: 'Content ID and wallet address are required'
+      });
+      return;
+    }
+
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    
+    const content = await contentRepository.findOne({
+      where: { id: parseInt(id) },
+      relations: ['creator']
+    });
+
+    if (!content) {
+      res.status(404).json({
+        success: false,
+        message: 'Content not found'
+      });
+      return;
+    }
+
+    // Check if content is available for purchase
+    if (!content.isAvailable || !content.isBiddable) {
+      res.json({
+        success: true,
+        data: {
+          available: false,
+          inPurchaseFlow: false,
+          purchaseState: 'unavailable',
+          message: 'Content is not available for purchase'
+        }
+      });
+      return;
+    }
+
+    // Check if content is currently in purchase flow
+    if (content.inPurchaseFlow) {
+      // Check if the purchase flow has expired
+      const now = new Date();
+      if (content.purchaseFlowExpiresAt && now > content.purchaseFlowExpiresAt) {
+        // Purchase flow expired, reset it
+        content.inPurchaseFlow = false;
+        content.purchaseFlowInitiatedBy = null;
+        content.purchaseFlowInitiatedAt = null;
+        content.purchaseFlowExpiresAt = null;
+        await contentRepository.save(content);
+        
+        logger.info(`🔄 Purchase flow expired for content ${id}, reset to available`);
+      } else {
+        // Content is in active purchase flow
+        const timeUntilExpiry = content.purchaseFlowExpiresAt ? 
+          Math.ceil((content.purchaseFlowExpiresAt.getTime() - now.getTime()) / 1000 / 60) : 5;
+        
+        res.json({
+          success: true,
+          data: {
+            available: false,
+            inPurchaseFlow: true,
+            purchaseState: 'in_purchase_flow',
+            message: 'This content is being purchased by another user',
+            estimatedWaitTime: `${timeUntilExpiry} minutes`,
+            canRetry: true
+          }
+        });
+        return;
+      }
+    }
+
+    // Content is available, reserve it for this user
+    const PURCHASE_FLOW_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+    const expiresAt = new Date(Date.now() + PURCHASE_FLOW_TIMEOUT);
+    
+    content.inPurchaseFlow = true;
+    content.purchaseFlowInitiatedBy = walletAddress;
+    content.purchaseFlowInitiatedAt = new Date();
+    content.purchaseFlowExpiresAt = expiresAt;
+    
+    await contentRepository.save(content);
+    
+    logger.info(`🔒 Content ${id} reserved for purchase by ${walletAddress} until ${expiresAt}`);
+
+    res.json({
+      success: true,
+      data: {
+        available: true,
+        inPurchaseFlow: false,
+        purchaseState: 'reserved',
+        message: 'Content reserved for purchase',
+        expiresAt: expiresAt.toISOString(),
+        timeoutMinutes: 5
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error checking content availability:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check content availability',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/content/:id/release-purchase-flow
+ * @desc Release content from purchase flow (when user cancels or fails)
+ */
+router.post('/content/:id/release-purchase-flow', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { walletAddress } = req.body;
+
+    if (!id || !walletAddress) {
+      res.status(400).json({
+        success: false,
+        message: 'Content ID and wallet address are required'
+      });
+      return;
+    }
+
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    
+    const content = await contentRepository.findOne({
+      where: { id: parseInt(id) }
+    });
+
+    if (!content) {
+      res.status(404).json({
+        success: false,
+        message: 'Content not found'
+      });
+      return;
+    }
+
+    // Only allow the user who initiated the purchase flow to release it
+    if (content.inPurchaseFlow && content.purchaseFlowInitiatedBy === walletAddress) {
+      content.inPurchaseFlow = false;
+      content.purchaseFlowInitiatedBy = null;
+      content.purchaseFlowInitiatedAt = null;
+      content.purchaseFlowExpiresAt = null;
+      
+      await contentRepository.save(content);
+      
+      logger.info(`🔓 Content ${id} released from purchase flow by ${walletAddress}`);
+
+      res.json({
+        success: true,
+        data: {
+          message: 'Purchase flow released successfully',
+          contentId: parseInt(id)
+        }
+      });
+    } else {
+      res.status(403).json({
+        success: false,
+        message: 'You can only release purchase flows you initiated'
+      });
+    }
+
+  } catch (error) {
+    logger.error('Error releasing purchase flow:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to release purchase flow',
+      error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });

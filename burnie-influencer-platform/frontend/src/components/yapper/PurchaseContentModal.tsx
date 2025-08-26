@@ -71,6 +71,26 @@ export default function PurchaseContentModal({
   const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting()
   const router = useRouter()
   
+  // Helper function to get the current content to display
+  // Prioritizes generated content over original content prop to avoid showing old content
+  const getCurrentContent = (): ContentItem | null => {
+    // If we have generated content and it's different from the original content, use generated content
+    if (hasGeneratedContent && generatedContent && generatedContent.id !== originalContent?.id) {
+      console.log('🔍 getCurrentContent: Using generated content', { 
+        generatedContentId: generatedContent.id, 
+        originalContentId: originalContent?.id 
+      })
+      return generatedContent
+    }
+    
+    // Otherwise use local content (which should be the most current)
+    console.log('🔍 getCurrentContent: Using local content', { 
+      localContentId: localContent?.id, 
+      originalContentId: originalContent?.id 
+    })
+    return localContent
+  }
+  
   // Helper function to check if URL is a presigned S3 URL
   const isPresignedS3Url = (url: string) => {
     return url.includes('s3.amazonaws.com') && url.includes('?') && 
@@ -82,6 +102,8 @@ export default function PurchaseContentModal({
     if (!content) return 0
     return content.bidding_ask_price || content.asking_price || 0
   }
+  
+
   
   // Yapper interface content generation functions
   const generateContentFromYapper = async () => {
@@ -304,7 +326,8 @@ export default function PurchaseContentModal({
               // This will trigger a re-render with the new content
               setGenerationStatus('✅ Content replaced! You can now preview and purchase the generated content.')
               
-              // Only now hide the shimmer - content is fully ready
+              // Mark that content has been generated and hide shimmer
+              setHasGeneratedContent(true)
               setIsGeneratingContent(false)
             } else {
               throw new Error('Failed to refresh URLs')
@@ -320,6 +343,7 @@ export default function PurchaseContentModal({
             }
             
             setGenerationStatus('✅ Content replaced! You can now preview and purchase the generated content.')
+            setHasGeneratedContent(true)
             setIsGeneratingContent(false)
           }
         } else {
@@ -369,6 +393,7 @@ export default function PurchaseContentModal({
   
   // Yapper interface content generation state
   const [isGeneratingContent, setIsGeneratingContent] = useState(false)
+  const [hasGeneratedContent, setHasGeneratedContent] = useState(false) // Track if content has been generated
   const [executionId, setExecutionId] = useState<string | null>(null)
   const [generationProgress, setGenerationProgress] = useState(0)
   const [generationStatus, setGenerationStatus] = useState<string>('')
@@ -377,46 +402,150 @@ export default function PurchaseContentModal({
   // Store original content for fallback
   const [originalContent, setOriginalContent] = useState<ContentItem | null>(content)
   
+  // Store purchased content details for success screen
+  const [purchasedContentDetails, setPurchasedContentDetails] = useState<{
+    id: number;
+    title: string;
+    price: number;
+    currency: string;
+    transactionHash: string;
+  } | null>(null)
+  
   // Update local content when content prop changes
   useEffect(() => {
-    setLocalContent(content)
-    setOriginalContent(content)
-  }, [content])
+    console.log('🔄 Content prop changed:', { 
+      contentId: content?.id, 
+      isPurchased, 
+      showTweetManagement,
+      hasPurchasedContentDetails: !!purchasedContentDetails,
+      hasGeneratedContent,
+      generatedContentId: generatedContent?.id
+    })
+    
+    // If we have generated content and it's different from the incoming content prop,
+    // prioritize the generated content to avoid showing old content
+    if (hasGeneratedContent && generatedContent && content?.id !== generatedContent.id) {
+      console.log('🔄 Prioritizing generated content over content prop to avoid showing old content')
+      setLocalContent(generatedContent)
+      setOriginalContent(generatedContent)
+    } else {
+      setLocalContent(content)
+      setOriginalContent(content)
+    }
+    
+    // Reset generation state when new content is loaded (but preserve if we're in purchase flow)
+    if (!isPurchased && !showTweetManagement && !purchasedContentDetails) {
+      console.log('🔄 Resetting generation state for new content')
+      setHasGeneratedContent(false)
+      setGeneratedContent(null)
+      setGenerationStatus('')
+    } else {
+      console.log('🛡️ Preserving generation state - purchase in progress or completed')
+    }
+    
+    // Only reset purchase state if this is a completely different content
+    // Don't reset if we're in the middle of a purchase flow or if purchase is completed
+    if (!isPurchased && !showTweetManagement && !purchasedContentDetails) {
+      console.log('🔄 Resetting purchase state for new content')
+      setIsPurchased(false)
+      setShowTweetManagement(false)
+      setPurchasedContentDetails(null)
+    } else {
+      console.log('🛡️ Preserving purchase state - purchase in progress or completed')
+    }
+  }, [content, isPurchased, showTweetManagement, purchasedContentDetails, hasGeneratedContent, generatedContent])
+  
+  // Reset generation state when user changes voice tone or yapper
+  useEffect(() => {
+    setHasGeneratedContent(false)
+    setGeneratedContent(null)
+    setGenerationStatus('')
+  }, [selectedVoiceTone, selectedYapper])
   
   // Handle purchase with content management
-  const handlePurchaseWithContentManagement = async (contentToPurchase: ContentItem, price: number, currency: 'ROAST' | 'USDC') => {
+  const handlePurchaseWithContentManagement = async (contentToPurchase: ContentItem, price: number, currency: 'ROAST' | 'USDC', transactionHash?: string) => {
     try {
-      // If this is generated content, mark it as unavailable after purchase
-      if (generatedContent && contentToPurchase.id === generatedContent.id) {
-        // Mark generated content as unavailable
-        await fetch(`/api/content-approval/mark-unavailable/${contentToPurchase.id}`, {
-          method: 'POST'
-        })
-        
-        // Restore original content to marketplace (make it available again)
-        if (originalContent) {
-          await fetch(`/api/content-approval/restore-availability/${originalContent.id}`, {
-            method: 'POST'
-          })
-        }
-        
-        // Call the original purchase handler
-        if (onPurchase) {
-          onPurchase(contentToPurchase.id, price, currency)
-        }
-        
-        // Close modal
-        onClose()
-      } else {
-        // Regular purchase flow for original content
-        if (onPurchase) {
-          onPurchase(contentToPurchase.id, price, currency)
-        }
+      console.log('🔄 handlePurchaseWithContentManagement called with:', { 
+        contentId: contentToPurchase?.id, 
+        price, 
+        currency, 
+        transactionHash,
+        hasContent: !!contentToPurchase
+      })
+      
+      if (!contentToPurchase) {
+        console.error('❌ No content provided to handlePurchaseWithContentManagement')
+        return
       }
+      
+      // Call the original purchase handler with transaction hash
+      // Content availability will be managed by the backend after successful purchase
+      if (onPurchase) {
+        console.log('📞 Calling onPurchase callback...')
+        onPurchase(contentToPurchase.id, price, currency, transactionHash)
+        console.log('✅ onPurchase callback completed')
+      }
+      
+      // Set success state immediately after purchase callback completes
+      console.log('🎉 Setting purchase success state...')
+      setIsPurchased(true)
+      setShowTweetManagement(true)
+      
+      // Store purchased content details for success screen
+      setPurchasedContentDetails({
+        id: contentToPurchase.id,
+        title: contentToPurchase.campaign?.title || 'Unknown Content',
+        price: price,
+        currency: currency,
+        transactionHash: transactionHash || ''
+      })
+      
+      console.log('✅ Purchase success state set - isPurchased:', true, 'showTweetManagement:', true)
+      
+      // Verify state changes were applied
+      console.log('🔍 Current state after setting:', { 
+        isPurchased: true, 
+        showTweetManagement: true,
+        purchasedContentDetails: {
+          id: contentToPurchase.id,
+          title: contentToPurchase.campaign.title,
+          price: price,
+          currency: currency,
+          transactionHash: transactionHash || ''
+        }
+      })
+      
+      // Don't close modal - let it show success state for Twitter posting
+      // The modal will be closed when user explicitly chooses to close or post to Twitter
+      console.log('✅ Purchase completed successfully, showing success state');
     } catch (error) {
       console.error('Error in purchase with content management:', error)
     }
   }
+
+  // Release purchase flow when user cancels or modal closes
+  const releasePurchaseFlow = async () => {
+    if (!localContent || !address) {
+      console.log('⚠️ Cannot release purchase flow - missing localContent or address')
+      return;
+    }
+    
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${localContent.id}/release-purchase-flow`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          walletAddress: address
+        }),
+      });
+      
+      console.log('🔓 Purchase flow released for content:', localContent.id);
+    } catch (error) {
+      console.error('Error releasing purchase flow:', error);
+    }
+  };
   
   // Individual shimmer components for different content elements
   const TextShimmer = () => (
@@ -1016,9 +1145,21 @@ export default function PurchaseContentModal({
 
   // Purchase functionality
   const handlePurchase = async () => {
-    if (!content) {
-      console.error('No content to purchase')
+    if (!content && !purchasedContentDetails) {
+      console.error('No content to purchase and no existing purchase details')
       return
+    }
+    
+    // If we have purchase details but no content, we're already in success state
+    if (!content && purchasedContentDetails) {
+      console.log('✅ Already in purchase success state, no need to purchase again')
+      return
+    }
+
+    // Check content availability before proceeding with purchase
+    const isAvailable = await checkContentAvailability();
+    if (!isAvailable) {
+      return;
     }
 
     // Handle different authentication states
@@ -1145,12 +1286,7 @@ export default function PurchaseContentModal({
         // Call the content management purchase handler
         if (result.success) {
           const transactionHash = result.transactionHash;
-          await handlePurchaseWithContentManagement(localContent, requiredAmount, selectedPayment === 'roast' ? 'ROAST' : 'USDC')
-          
-          // Also call the original onPurchase callback if provided
-          if (onPurchase) {
-            await onPurchase(localContent.id, requiredAmount, selectedPayment === 'roast' ? 'ROAST' : 'USDC', transactionHash)
-          }
+          await handlePurchaseWithContentManagement(localContent, requiredAmount, selectedPayment === 'roast' ? 'ROAST' : 'USDC', transactionHash)
           
           // Refresh presigned URLs for purchased content
           console.log('🔄 Refreshing presigned URLs for purchased content...');
@@ -1182,29 +1318,72 @@ export default function PurchaseContentModal({
           }
         }
         
-        // Set purchase success state
-        setIsPurchased(true)
+        // Success state is now set in handlePurchaseWithContentManagement
+        console.log('🎉 Purchase successful! Success state will be set by handlePurchaseWithContentManagement')
       } else {
         console.error('Transaction failed. Please try again.')
       }
     } catch (error) {
       console.error('Purchase failed:', error)
       console.error('Purchase failed. Please try again.')
+      
+      // Release purchase flow if purchase fails
+      if (localContent && address) {
+        await releasePurchaseFlow();
+      }
     } finally {
       setIsLoading(false)
     }
   }
 
+  // Track if modal was just opened to prevent state reset during purchase flow
+  const modalJustOpened = React.useRef(false)
+  
   // Reset state when modal opens
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !modalJustOpened.current) {
+      console.log('🔄 Modal just opened, resetting state...')
+      modalJustOpened.current = true
       setIsPurchased(false)
       setIsLoading(false)
       setSelectedVoiceTone("auto")
       setSelectedPayment("roast")
+      setShowTweetManagement(false)
+      setPurchasedContentDetails(null)
       // Twitter state reset handled by global context
+    } else if (!isOpen) {
+      modalJustOpened.current = false
     }
   }, [isOpen])
+
+  // Cleanup purchase flow when modal closes
+  useEffect(() => {
+    if (!isOpen && localContent && address) {
+      console.log('🔒 Modal closing, releasing purchase flow...')
+      // Release purchase flow when modal closes
+      releasePurchaseFlow();
+    }
+  }, [isOpen, localContent, address]);
+  
+  // Debug logging for state changes
+  useEffect(() => {
+    console.log('🔍 Modal state changed:', { 
+      isOpen, 
+      isPurchased, 
+      showTweetManagement, 
+      hasPurchasedContentDetails: !!purchasedContentDetails 
+    });
+  }, [isOpen, isPurchased, showTweetManagement, purchasedContentDetails]);
+  
+  // Monitor showTweetManagement changes specifically
+  useEffect(() => {
+    console.log('🎯 showTweetManagement changed to:', showTweetManagement);
+  }, [showTweetManagement]);
+  
+  // Monitor isPurchased changes specifically
+  useEffect(() => {
+    console.log('🎯 isPurchased changed to:', isPurchased);
+  }, [isPurchased]);
 
   const toneOptions = [
     "Select tone",
@@ -1216,7 +1395,11 @@ export default function PurchaseContentModal({
     "Contrarian",
   ]
 
-  if (!isOpen || !content) return null
+  // Allow modal to stay open even if content becomes unavailable after purchase
+  if (!isOpen) return null
+  
+  // If we have purchase details, keep modal open even without content
+  if (!content && !purchasedContentDetails) return null
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
@@ -1277,7 +1460,10 @@ export default function PurchaseContentModal({
 
   // Comprehensive content parsing logic (same as BiddingInterface and mining interface)
   const getContentData = () => {
-    if (!localContent) return { text: '', hashtags: [], characterCount: 0, imageUrl: null, shouldUseMarkdown: false }
+    if (!localContent) {
+      console.log('⚠️ getContentData called with null localContent, returning empty data')
+      return { text: '', hashtags: [], characterCount: 0, imageUrl: null, shouldUseMarkdown: false }
+    }
 
     // Check if this is a longpost that should be rendered as markdown
     const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
@@ -1373,6 +1559,48 @@ export default function PurchaseContentModal({
     return localContent?.creator?.username?.charAt(0).toUpperCase() || 'U'
   }
 
+  // Check content availability before opening wallet
+  const checkContentAvailability = async (): Promise<boolean> => {
+    if (!localContent || !address) {
+      console.log('⚠️ Cannot check content availability - missing localContent or address')
+      return false;
+    }
+    
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${localContent.id}/check-availability`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          walletAddress: address
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('Failed to check content availability:', result);
+        return false;
+      }
+
+      if (!result.data.available) {
+        // Show user-friendly message
+        if (result.data.inPurchaseFlow) {
+          alert(`This content is being purchased by another user. Please wait ${result.data.estimatedWaitTime} and try again.`);
+        } else {
+          alert(result.data.message || 'Content is not available for purchase.');
+        }
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error checking content availability:', error);
+      return false;
+    }
+  };
+
   return (
     <div
       className="fixed top-0 left-0 w-full h-full bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto touch-pan-y"
@@ -1433,7 +1661,10 @@ export default function PurchaseContentModal({
               {/* Single Tweet Container with Thread Structure */}
               <div className="relative">
                 {/* Continuous Thread Line - Only show for threads, not longposts */}
-                {localContent?.tweet_thread && localContent.tweet_thread.length > 1 && !contentData.shouldUseMarkdown && (
+                {(() => {
+                  const currentContent = getCurrentContent()
+                  return currentContent?.tweet_thread && currentContent.tweet_thread.length > 1 && !contentData.shouldUseMarkdown
+                })() && (
                   <div className="absolute left-5 top-10 bottom-0 w-0.5 bg-gray-600 z-0"></div>
                 )}
 
@@ -1455,16 +1686,16 @@ export default function PurchaseContentModal({
                           />
                         ) : null}
                         <span className={`text-white font-bold text-sm ${(twitter.isConnected && twitter.profile?.profileImage) ? 'hidden' : ''}`}>{getDisplayUsernameInitial()}</span>
-              </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-white font-bold text-xs lg:text-sm">{getDisplayUsername()}</span>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#1DA1F2">
-                          <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.58 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
-                        </svg>
-                        <span className="text-gray-500 text-xs lg:text-sm">@{getDisplayUsernameLower()}</span>
-                  </div>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-white font-bold text-xs lg:text-sm">{getDisplayUsername()}</span>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="#1DA1F2">
+                            <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.58 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
+                          </svg>
+                          <span className="text-gray-500 text-xs lg:text-sm">@{getDisplayUsernameLower()}</span>
+                        </div>
 
                       {/* For longposts: Image first, then content */}
                       {contentData.shouldUseMarkdown ? (
@@ -1542,46 +1773,52 @@ export default function PurchaseContentModal({
                 </div>
 
                 {/* Thread Replies - Only show for threads, not longposts */}
-                {localContent?.tweet_thread && localContent.tweet_thread.length > 1 && !contentData.shouldUseMarkdown && localContent.tweet_thread.slice(1).map((tweet, index) => (
-                  <div key={index} className="relative pb-3">
-                    <div className="flex gap-3 pr-2">
-                      <div className="relative flex-shrink-0">
-                        <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-orange-500 flex items-center justify-center relative z-10 overflow-hidden">
-                          {twitter.isConnected && twitter.profile?.profileImage ? (
-                            <img 
-                              src={twitter.profile.profileImage} 
-                              alt={`${getDisplayName()} profile`}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                                target.nextElementSibling?.classList.remove('hidden');
-                              }}
-                            />
-                          ) : null}
-                          <span className={`text-white font-bold text-sm ${(twitter.isConnected && twitter.profile?.profileImage) ? 'hidden' : ''}`}>{getDisplayUsernameInitial()}</span>
+                {(() => {
+                  const currentContent = getCurrentContent()
+                  if (currentContent?.tweet_thread && currentContent.tweet_thread.length > 1 && !contentData.shouldUseMarkdown) {
+                    return currentContent.tweet_thread.slice(1).map((tweet, index) => (
+                      <div key={index} className="relative pb-3">
+                        <div className="flex gap-3 pr-2">
+                          <div className="relative flex-shrink-0">
+                            <div className="w-9 h-9 lg:w-10 lg:h-10 rounded-full bg-orange-500 flex items-center justify-center relative z-10 overflow-hidden">
+                              {twitter.isConnected && twitter.profile?.profileImage ? (
+                                <img 
+                                  src={twitter.profile.profileImage} 
+                                  alt={`${getDisplayName()} profile`}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.style.display = 'none';
+                                    target.nextElementSibling?.classList.remove('hidden');
+                                  }}
+                                />
+                              ) : null}
+                              <span className={`text-white font-bold text-sm ${(twitter.isConnected && twitter.profile?.profileImage) ? 'hidden' : ''}`}>{getDisplayUsernameInitial()}</span>
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-white font-bold text-xs lg:text-sm">{getDisplayUsername()}</span>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="#1DA1F2">
+                                <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.58 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
+                              </svg>
+                              <span className="text-gray-500 text-xs lg:text-sm">@{getDisplayUsernameLower()}</span>
+                            </div>
+                            <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
+                              {isGeneratingContent ? (
+                                <ThreadItemShimmer />
+                              ) : (
+                                tweet
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-white font-bold text-xs lg:text-sm">{getDisplayUsername()}</span>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="#1DA1F2">
-                            <path d="M22.46 6.003c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.58 8.58 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.29 3.9 12.14 12.14 0 0 1-8.82-4.47 4.27 4.27 0 0 0 1.32 5.71 4.25 4.25 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.43 4.19 4.3 4.3 0 0 1-1.93.07 4.28 4.28 0 0 0 4 2.97A8.58 8.58 0 0 1 2 18.13a12.1 12.1 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.37-.01-.56A8.72 8.58 0 0 0 23 4.59a8.52 8.52 0 0 1-2.54.7z" />
-                          </svg>
-                          <span className="text-gray-500 text-xs lg:text-sm">@{getDisplayUsernameLower()}</span>
-                        </div>
-                        <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
-                          {isGeneratingContent ? (
-                            <ThreadItemShimmer />
-                          ) : (
-                            tweet
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                </div>
+                    ))
+                  }
+                  return null
+                })()}
+              </div>
 
               {/* Longpost Warning Message - Only show on mobile for longposts */}
               {contentData.shouldUseMarkdown && (
@@ -1599,7 +1836,9 @@ export default function PurchaseContentModal({
               )}
 
               {/* Mobile Purchase Options - Now inside the same scrollable container */}
-              <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32">
+              {!isPurchased ? (
+                // Show Buy Tweet view when not purchased
+                <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32">
                   {/* Voice Tone Selection - Mobile/Tablet */}
                   <div className="mb-6">
                     <h3 className="text-white text-[12px] xs:text-[10px] sm:text-[12px] md:text-[16px] font-semibold mb-2 xs:mb-3 md:mb-4">Select tweet voice tone</h3>
@@ -1719,33 +1958,7 @@ export default function PurchaseContentModal({
                         
                         {/* Generate Content Button - Removed since main action button now handles this */}
                         
-                        {/* Generation Status */}
-                        {isGeneratingContent && (
-                          <div className="p-3 bg-[#220808]/80 rounded-lg border border-[#FD7A10]/30">
-                            <div className="text-[#FD7A10] text-[10px] xs:text-[12px] md:text-[14px] font-medium mb-2">
-                              {generationStatus}
-                            </div>
-                            {/* Progress Bar */}
-                            <div className="w-full bg-[#4A3636] rounded-full h-2 mb-2">
-                              <div 
-                                className="bg-[#FD7A10] h-2 rounded-full transition-all duration-300 ease-out"
-                                style={{ width: `${generationProgress}%` }}
-                              ></div>
-                            </div>
-                            <div className="text-white/60 text-[10px] xs:text-[12px] md:text-[14px] text-center">
-                              {generationProgress}% Complete
-                            </div>
-                            <div className="w-full bg-gray-700 rounded-full h-2">
-                              <div 
-                                className="bg-[#FD7A10] h-2 rounded-full transition-all duration-300"
-                                style={{ width: `${generationProgress}%` }}
-                              ></div>
-                            </div>
-                            <div className="text-white/60 text-[8px] xs:text-[10px] md:text-[12px] mt-1">
-                              {generationProgress}% Complete
-                            </div>
-                          </div>
-                        )}
+                        {/* Generation Status - Removed for cleaner UI experience */}
                       </div>
                     )}
 
@@ -1878,28 +2091,772 @@ export default function PurchaseContentModal({
                   
 
 
-                  {/* Action Button - Changes based on selected voice tone */}
-                  {selectedVoiceTone === "custom" && selectedYapper ? (
-                    <button
-
-                      onClick={generateContentFromYapper}
-                      disabled={isGeneratingContent || !address}
-                      className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isGeneratingContent ? 'Generating...' : `Generate Content from @${selectedYapper}`}
-                    </button>
+                  {/* Action Button - Changes based on selected voice tone and generation state */}
+                  {!isPurchased ? (
+                    // Show Buy Tweet view when not purchased
+                    <>
+                      {selectedVoiceTone === "custom" && selectedYapper !== "" ? (
+                        // Yapper interface - show different buttons based on generation state
+                        hasGeneratedContent ? (
+                          // Content has been generated - show Buy Tweet button
+                          <button
+                            onClick={handlePurchase}
+                            disabled={isLoading}
+                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isLoading ? 'Processing...' : 'Buy Tweet'}
+                          </button>
+                        ) : (
+                          // Content not generated yet - show Generate button with spinner
+                          <button
+                            onClick={generateContentFromYapper}
+                            disabled={isGeneratingContent || !address}
+                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                          >
+                            {isGeneratingContent ? (
+                              <>
+                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span>Generating...</span>
+                              </>
+                            ) : (
+                              `Generate Content from @${selectedYapper}`
+                            )}
+                          </button>
+                        )
+                      ) : (
+                        // Regular purchase flow (auto generated tone)
+                        <button
+                          onClick={handlePurchase}
+                          disabled={isLoading}
+                          className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isLoading ? 'Processing...' : 'Buy Tweet'}
+                        </button>
+                      )}
+                    </>
+                  ) : !showTweetManagement ? (
+                    // Show Purchase Successful view when purchased but not yet in tweet management
+                    <div className="w-full bg-[#12141866] rounded-lg border border-green-500/30 p-6">
+                      <div className="flex flex-col items-center text-center gap-4">
+                        <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center">
+                          <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                        <div>
+                          <h3 className="text-white text-xl font-bold mb-2">Purchase Successful!</h3>
+                          <p className="text-white/60">Your content is now ready to tweet</p>
+                        </div>
+                        <button 
+                          onClick={() => setShowTweetManagement(true)}
+                          className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg"
+                        >
+                          Tweet Now
+                        </button>
+                      </div>
+                    </div>
                   ) : (
-                    <button
+                    // Show Twitter Posting view when in tweet management
+                    <div className="w-full bg-[#12141866] rounded-lg border border-white/20 p-6">
+                      <div className="flex flex-col gap-4">
+                        {/* Header */}
+                        <div className="flex items-center gap-3 mb-4">
+                          <button
+                            onClick={() => setShowTweetManagement(false)}
+                            className="text-white/60 hover:text-white transition-colors"
+                          >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M19 12H5M12 19l-7-7 7-7"/>
+                            </svg>
+                          </button>
+                          <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
+                            <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <div className="text-white font-bold">Content Owned</div>
+                            <div className="text-white text-xs">
+                              Purchased • {purchasedContentDetails ? `${purchasedContentDetails.price} ${purchasedContentDetails.currency}` : 'Processing...'}
+                            </div>
+                          </div>
+                        </div>
 
-                      onClick={handlePurchase}
-                      disabled={isLoading}
-                      className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isLoading ? 'Processing...' : 'Buy Tweet'}
-                    </button>
+                        {/* Transaction Hash Display */}
+                        {purchasedContentDetails?.transactionHash && (
+                          <div className="bg-[#331C1E] rounded-lg p-4 mb-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <svg className="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                                </svg>
+                                <span className="text-white/80 text-sm">Transaction Hash:</span>
+                              </div>
+                              <a
+                                href={`https://basescan.org/tx/${purchasedContentDetails.transactionHash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 text-sm underline"
+                              >
+                                View on Base
+                              </a>
+                            </div>
+                            <div className="text-white text-xs font-mono mt-2 break-all">
+                              {purchasedContentDetails.transactionHash}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Posting Method Selection - Hidden when tweet is posted successfully */}
+                        {!twitterPostingResult?.success && (
+                          <>
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                              <div className="relative">
+                                <input
+                                  type="radio"
+                                  id="post-twitter-mobile"
+                                  name="posting-method-mobile"
+                                  value="twitter"
+                                  checked={postingMethod === 'twitter'}
+                                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
+                                  className="sr-only"
+                                />
+                                <label htmlFor="post-twitter-mobile" className="flex items-center gap-2 cursor-pointer">
+                                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                    postingMethod === 'twitter' 
+                                      ? 'border-[#FD7A10] bg-[#FD7A10]' 
+                                      : 'border-white/40'
+                                  }`}>
+                                    {postingMethod === 'twitter' && (
+                                      <div className="w-2 h-2 bg-white rounded-full"></div>
+                                    )}
+                                  </div>
+                                  <span className="text-white text-sm font-medium">Post on X</span>
+                                </label>
+                              </div>
+                              <div className="relative">
+                                <input
+                                  type="radio"
+                                  id="post-manual-mobile"
+                                  name="posting-method-mobile"
+                                  value="manual"
+                                  checked={postingMethod === 'manual'}
+                                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
+                                  className="sr-only"
+                                />
+                                <label htmlFor="post-manual-mobile" className="flex items-center gap-2 cursor-pointer">
+                                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                    postingMethod === 'manual' 
+                                      ? 'border-[#FD7A10] bg-[#FD7A10]' 
+                                      : 'border-white/40'
+                                  }`}>
+                                    {postingMethod === 'manual' && (
+                                      <div className="w-2 h-2 bg-white rounded-full"></div>
+                                    )}
+                                  </div>
+                                  <span className="text-white text-sm font-medium">I will do it manually</span>
+                                </label>
+                              </div>
+                            </div>
+
+                            {postingMethod === 'manual' && (
+                              <div className="bg-[#331C1E] rounded-md px-4 py-2 flex items-start gap-3">
+                                <div className="flex items-center justify-center">
+                                  <svg width="24" height="24" viewBox="0 0 24 24" fill="#FD7A10">
+                                    <path d="M9 21c0 .5.4 1 1 1h4c.6 0 1-.5 1-1v-1H9v1zm3-19C8.1 2 5 5.1 5 9c0 2.4 1.2 4.5 3 5.7V17c0 .5.4 1 1 1h6c.6 0 1-.5 1-1v-2.3c1.8-1.2 3-3.3 3-5.7 0-3.9-3.1-7-7-7z" />
+                                  </svg>
+                                </div>
+                                <div className="text-white/80 text-sm">
+                                  <div className="font-medium mb-1">How to thread: After posting the first tweet, click the + button on Twitter, paste Tweet 2, post it, then repeat for Tweet 3, etc.</div>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                        {/* Content Area - Twitter Posting or Manual */}
+                        <div className="flex-1 overflow-y-auto space-y-4">
+                          {twitterPostingResult?.success ? (
+                            <div className="flex flex-col items-center justify-center text-center h-full gap-6">
+                              <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center">
+                                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              </div>
+                              <div>
+                                <h3 className="text-white text-xl font-bold mb-2">{twitterPostingResult.message}</h3>
+                                {twitterPostingResult.tweetUrl && (
+                                  <a 
+                                    href={twitterPostingResult.tweetUrl} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-green-300 hover:text-green-200 underline"
+                                  >
+                                    View Tweet on X
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          ) : postingMethod === 'twitter' ? (
+                            <div className="flex flex-col h-full">
+                              {twitter.isConnected && twitter.tokenStatus === 'valid' ? (
+                                <div className="flex-1 flex flex-col justify-end">
+                                  <div className="space-y-3 mb-6">
+                                    <div className="flex items-center gap-3 text-green-400 text-sm">
+                                      <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                      </svg>
+                                      <span>We don't store or share any personal details from twitter</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-green-400 text-sm">
+                                      <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                      </svg>
+                                      <span>We never post on our behalf. Write access is just for post draft creation</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex-1 flex flex-col justify-center">
+                                  <div className="bg-[#331C1E] rounded-xl p-6 mb-8">
+                                    <div className="flex justify-center mb-4">
+                                      <div className="w-20 h-20 bg-[#331C1E] rounded-2xl flex items-center justify-center">
+                                        <img src="/twitter-logo-white.png" alt="X" className="w-12 h-12" />
+                                      </div>
+                                    </div>
+                                    <h3 className="text-white text-xl font-semibold mb-3 text-center">Twitter access required</h3>
+                                    <p className="text-white/80 text-sm text-center">
+                                      To create draft on your twitter account we require write access
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Fixed Bottom Section */}
+                              <div className="pt-4">
+                                {/* Error Messages */}
+                                {twitterPostingResult && !twitterPostingResult.success && (
+                                  <div className="mb-3 py-2 rounded text-sm text-red-400 bg-red-400/10">
+                                    ❌ {twitterPostingResult.message}
+                                  </div>
+                                )}
+
+                                {/* Tweet Button - Hide after successful posting */}
+                                {!twitterPostingResult?.success && (
+                                  <button
+                                    onClick={handlePostToTwitter}
+                                    disabled={isPostingToTwitter}
+                                    className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3"
+                                    style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
+                                  >
+                                    {isPostingToTwitter ? (
+                                      <div className="flex items-center justify-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                        <span>Posting...</span>
+                                      </div>
+                                    ) : (
+                                      'Tweet'
+                                    )}
+                                  </button>
+                                )}
+                                
+                                {/* Auth Button - Shows when auth is required */}
+                                <button
+                                  onClick={handleTwitterAuth}
+                                  disabled={twitter.isLoading}
+                                  className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
+                                  style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
+                                >
+                                  {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            /* Manual Posting Interface - Original tweets list */
+                            (() => {
+                              // Parse content for display - handle markdown properly
+                              if (!localContent) {
+                                return null;
+                              }
+                              
+                              // Check if this is markdown content (longpost)
+                              const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
+                              const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
+                              const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
+                              
+                              let tweetText: string
+                              let extractedImageUrl: string | null = null
+                              
+                              if (forceMarkdown) {
+                                // For longpost content, convert markdown to plain text for copying/posting
+                                tweetText = markdownToPlainText(localContent.content_text)
+                              } else {
+                                // For regular content, use existing formatting
+                                const formatted = formatTwitterContentForManagement(localContent.content_text)
+                                tweetText = formatted.text
+                                extractedImageUrl = formatted.imageUrl
+                              }
+                              
+                              // Use original image for purchased content (post-purchase), watermarked for preview
+                              const displayImage = isPurchased 
+                                ? (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl)
+                                : (localContent?.watermark_image || (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl));
+
+                              // Prepare tweets for copy - also process thread items if they contain markdown
+                              const processedThreadItems = localContent?.tweet_thread ? localContent.tweet_thread.map(tweet => {
+                                // Check if thread item contains markdown
+                                if (tweet.includes('##') || tweet.includes('**')) {
+                                  return markdownToPlainText(tweet)
+                                }
+                                return tweet
+                              }) : []
+
+                              const tweetsData = [
+                                  { 
+                                      title: 'Tweet 1', 
+                                      text: tweetText || 'Sample tweet content will appear here...' 
+                                  },
+                                  ...(displayImage ? [{ 
+                                      title: 'Tweet 1 (Image)', 
+                                      image: displayImage 
+                                  }] : []),
+                                  ...(processedThreadItems.map((tweet, idx) => ({ 
+                                      title: `Tweet ${idx + 2}`, 
+                                      text: tweet 
+                                  })))
+                              ];
+
+                              return tweetsData.map((section, idx) => (
+                                <div key={idx} className="bg-[#FFFFFF1A] rounded-md p-4">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="text-white/90 text-sm">{section.title}</div>
+                                    <button
+                                      type="button" 
+                                      onClick={() => {
+                                        if (section.text) {
+                                          navigator.clipboard?.writeText(section.text);
+                                        } else if (section.image) {
+                                          downloadImage(String(section.image), `tweet-image-${idx + 1}.png`);
+                                        }
+                                      }}
+                                      className="text-[#FD7A10] border border-[#FD7A10] rounded-sm px-2 py-1 text-xs flex flex-row gap-1 items-center cursor-pointer hover:bg-[#FD7A10] hover:text-white transition-colors"
+                                    >
+                                      {section.image ? (
+                                        <>
+                                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                            <polyline points="7,10 12,15 17,10" />
+                                            <line x1="12" y1="15" x2="12" y2="3" />
+                                          </svg>
+                                          <span className="text-xs">Download</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2 2v1"></path>
+                                          </svg>
+                                          <span className="text-xs">Copy</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                  {section.text && (
+                                    <div className="text-white/80 text-sm leading-relaxed">
+                                      {forceMarkdown ? (
+                                        <div 
+                                          className="markdown-content max-w-none"
+                                          dangerouslySetInnerHTML={{ 
+                                            __html: markdownToHTML(section.text)
+                                          }}
+                                        />
+                                      ) : (
+                                        section.text
+                                      )}
+                                    </div>
+                                  )}
+                                  {section.image && (
+                                    <div className="mt-3">
+                                      <img 
+                                        src={section.image} 
+                                        alt="Tweet image" 
+                                        className="w-full h-auto rounded-md"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              ));
+                            })()
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
+              ) : !showTweetManagement ? (
+                // Show Purchase Successful view when purchased but not yet in tweet management
+                <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-green-500/30 mb-32">
+                  <div className="flex flex-col items-center text-center gap-4">
+                    <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center">
+                      <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-white text-xl font-bold mb-2">Purchase Successful!</h3>
+                      <p className="text-white/60">Your content is now ready to tweet</p>
+                    </div>
+                    <button 
+                      onClick={() => setShowTweetManagement(true)}
+                      className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg"
+                    >
+                      Tweet Now
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                // Show Twitter Posting view when in tweet management
+                <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32">
+                  <div className="flex flex-col gap-4">
+                    {/* Header */}
+                    <div className="flex items-center gap-3 mb-4">
+                      <button
+                        onClick={() => setShowTweetManagement(false)}
+                        className="text-white/60 hover:text-white transition-colors"
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M19 12H5M12 19l-7-7 7-7"/>
+                        </svg>
+                      </button>
+                      <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
+                        <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                          <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <div className="text-white font-bold">Content Owned</div>
+                        <div className="text-white text-xs">
+                          Purchased • {purchasedContentDetails ? `${purchasedContentDetails.price} ${purchasedContentDetails.currency}` : 'Processing...'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Transaction Hash Display */}
+                    {purchasedContentDetails?.transactionHash && (
+                      <div className="bg-[#331C1E] rounded-lg p-4 mb-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <svg className="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                            </svg>
+                            <span className="text-white/80 text-sm">Transaction Hash:</span>
+                          </div>
+                          <a
+                            href={`https://basescan.org/tx/${purchasedContentDetails.transactionHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-400 hover:text-blue-300 text-sm underline"
+                          >
+                            View on Base
+                          </a>
+                        </div>
+                        <div className="text-white text-xs font-mono mt-2 break-all">
+                          {purchasedContentDetails.transactionHash}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Posting Method Selection - Hidden when tweet is posted successfully */}
+                    {!twitterPostingResult?.success && (
+                      <>
+                        <div className="grid grid-cols-2 gap-4 mb-4">
+                          <div className="relative">
+                            <input
+                              type="radio"
+                              id="post-twitter-mobile"
+                              name="posting-method-mobile"
+                              value="twitter"
+                              checked={postingMethod === 'twitter'}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
+                              className="sr-only"
+                            />
+                            <label htmlFor="post-twitter-mobile" className="flex items-center gap-2 cursor-pointer">
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                postingMethod === 'twitter' 
+                                  ? 'border-[#FD7A10] bg-[#FD7A10]' 
+                                  : 'border-white/40'
+                              }`}>
+                                {postingMethod === 'twitter' && (
+                                  <div className="w-2 h-2 bg-white rounded-full"></div>
+                                )}
+                              </div>
+                              <span className="text-white text-sm font-medium">Post on X</span>
+                            </label>
+                          </div>
+                          <div className="relative">
+                            <input
+                              type="radio"
+                              id="post-manual-mobile"
+                              name="posting-method-mobile"
+                              value="manual"
+                              checked={postingMethod === 'manual'}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
+                              className="sr-only"
+                            />
+                            <label htmlFor="post-manual-mobile" className="flex items-center gap-2 cursor-pointer">
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                                postingMethod === 'manual' 
+                                  ? 'border-[#FD7A10] bg-[#FD7A10]' 
+                                  : 'border-white/40'
+                              }`}>
+                                {postingMethod === 'manual' && (
+                                  <div className="w-2 h-2 bg-white rounded-full"></div>
+                                )}
+                              </div>
+                              <span className="text-white text-sm font-medium">I will do it manually</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        {postingMethod === 'manual' && (
+                          <div className="bg-[#331C1E] rounded-md px-4 py-2 flex items-start gap-3">
+                            <div className="flex items-center justify-center">
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="#FD7A10">
+                                <path d="M9 21c0 .5.4 1 1 1h4c.6 0 1-.5 1-1v-1H9v1zm3-19C8.1 2 5 5.1 5 9c0 2.4 1.2 4.5 3 5.7V17c0 .5.4 1 1 1h6c.6 0 1-.5 1-1v-2.3c1.8-1.2 3-3.3 3-5.7 0-3.9-3.1-7-7-7z" />
+                              </svg>
+                            </div>
+                            <div className="text-white/80 text-sm">
+                              <div className="font-medium mb-1">How to thread: After posting the first tweet, click the + button on Twitter, paste Tweet 2, post it, then repeat for Tweet 3, etc.</div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Content Area - Twitter Posting or Manual */}
+                    <div className="flex-1 overflow-y-auto space-y-4">
+                      {twitterPostingResult?.success ? (
+                        <div className="flex flex-col items-center justify-center text-center h-full gap-6">
+                          <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center">
+                            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                          <div>
+                            <h3 className="text-white text-xl font-bold mb-2">{twitterPostingResult.message}</h3>
+                            {twitterPostingResult.tweetUrl && (
+                              <a 
+                                href={twitterPostingResult.tweetUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-green-300 hover:text-green-200 underline"
+                              >
+                                View Tweet on X
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ) : postingMethod === 'twitter' ? (
+                        <div className="flex flex-col h-full">
+                          {twitter.isConnected && twitter.tokenStatus === 'valid' ? (
+                            <div className="flex-1 flex flex-col justify-end">
+                              <div className="space-y-3 mb-6">
+                                <div className="flex items-center gap-3 text-green-400 text-sm">
+                                  <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                  <span>We don't store or share any personal details from twitter</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-green-400 text-sm">
+                                  <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                  <span>We never post on our behalf. Write access is just for post draft creation</span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex-1 flex flex-col justify-center">
+                              <div className="bg-[#331C1E] rounded-xl p-6 mb-8">
+                                <div className="flex justify-center mb-4">
+                                  <div className="w-20 h-20 bg-[#331C1E] rounded-2xl flex items-center justify-center">
+                                    <img src="/twitter-logo-white.png" alt="X" className="w-12 h-12" />
+                                  </div>
+                                </div>
+                                <h3 className="text-white text-xl font-semibold mb-3 text-center">Twitter access required</h3>
+                                <p className="text-white/80 text-sm text-center">
+                                  To create draft on your twitter account we require write access
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Fixed Bottom Section */}
+                          <div className="pt-4">
+                            {/* Error Messages */}
+                            {twitterPostingResult && !twitterPostingResult.success && (
+                              <div className="mb-3 py-2 rounded text-sm text-red-400 bg-red-400/10">
+                                ❌ {twitterPostingResult.message}
+                              </div>
+                            )}
+
+                            {/* Tweet Button - Hide after successful posting */}
+                            {!twitterPostingResult?.success && (
+                              <button
+                                onClick={handlePostToTwitter}
+                                disabled={isPostingToTwitter}
+                                className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3"
+                                style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
+                              >
+                                {isPostingToTwitter ? (
+                                  <div className="flex items-center justify-center gap-2">
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                    <span>Posting...</span>
+                                  </div>
+                                ) : (
+                                  'Tweet'
+                                )}
+                              </button>
+                            )}
+                            
+                            {/* Auth Button - Shows when auth is required */}
+                            <button
+                              onClick={handleTwitterAuth}
+                              disabled={twitter.isLoading}
+                              className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
+                              style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
+                            >
+                              {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Manual Posting Interface - Original tweets list */
+                        (() => {
+                          // Parse content for display - handle markdown properly
+                          if (!localContent) {
+                            return null;
+                          }
+                          
+                          // Check if this is markdown content (longpost)
+                          const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
+                          const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
+                          const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
+                          
+                          let tweetText: string
+                          let extractedImageUrl: string | null = null
+                          
+                          if (forceMarkdown) {
+                            // For longpost content, convert markdown to plain text for copying/posting
+                            tweetText = markdownToPlainText(localContent.content_text)
+                          } else {
+                            // For regular content, use existing formatting
+                            const formatted = formatTwitterContentForManagement(localContent.content_text)
+                            tweetText = formatted.text
+                            extractedImageUrl = formatted.imageUrl
+                          }
+                          
+                          // Use original image for purchased content (post-purchase), watermarked for preview
+                          const displayImage = isPurchased 
+                            ? (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl)
+                            : (localContent?.watermark_image || (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl));
+
+                          // Prepare tweets for copy - also process thread items if they contain markdown
+                          const processedThreadItems = localContent?.tweet_thread ? localContent.tweet_thread.map(tweet => {
+                            // Check if thread item contains markdown
+                            if (tweet.includes('##') || tweet.includes('**')) {
+                              return markdownToPlainText(tweet)
+                            }
+                            return tweet
+                          }) : []
+
+                          const tweetsData = [
+                              { 
+                                  title: 'Tweet 1', 
+                                  text: tweetText || 'Sample tweet content will appear here...' 
+                              },
+                              ...(displayImage ? [{ 
+                                  title: 'Tweet 1 (Image)', 
+                                  image: displayImage 
+                              }] : []),
+                              ...(processedThreadItems.map((tweet, idx) => ({ 
+                                  title: `Tweet ${idx + 2}`, 
+                                  text: tweet 
+                              })))
+                          ];
+
+                          return tweetsData.map((section, idx) => (
+                            <div key={idx} className="bg-[#FFFFFF1A] rounded-md p-4">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="text-white/90 text-sm">{section.title}</div>
+                                <button
+                                  type="button" 
+                                  onClick={() => {
+                                    if (section.text) {
+                                      navigator.clipboard?.writeText(section.text);
+                                    } else if (section.image) {
+                                      downloadImage(String(section.image), `tweet-image-${idx + 1}.png`);
+                                    }
+                                  }}
+                                  className="text-[#FD7A10] border border-[#FD7A10] rounded-sm px-2 py-1 text-xs flex flex-row gap-1 items-center cursor-pointer hover:bg-[#FD7A10] hover:text-white transition-colors"
+                                >
+                                  {section.image ? (
+                                    <>
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                        <polyline points="7,10 12,15 17,10" />
+                                        <line x1="12" y1="15" x2="12" y2="3" />
+                                      </svg>
+                                      <span className="text-xs">Download</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2 2v1"></path>
+                                      </svg>
+                                      <span className="text-xs">Copy</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                              {section.text && (
+                                <div className="text-white/80 text-sm leading-relaxed">
+                                  {forceMarkdown ? (
+                                    <div 
+                                      className="markdown-content max-w-none"
+                                      dangerouslySetInnerHTML={{ 
+                                        __html: markdownToHTML(section.text)
+                                      }}
+                                    />
+                                  ) : (
+                                    section.text
+                                  )}
+                                </div>
+                              )}
+                              {section.image && (
+                                <div className="mt-3">
+                                  <img 
+                                    src={section.image} 
+                                    alt="Tweet image" 
+                                    className="w-full h-auto rounded-md"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          ));
+                        })()
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
+
+
           </div>
 
           {/* Right Panel - Hidden on mobile, shown on desktop */}
@@ -1937,8 +2894,8 @@ export default function PurchaseContentModal({
                               <span className="px-2 py-1 bg-blue-100 text-blue-400 text-xs rounded-2xl font-semibold">🤖 {localContent.agent_name}</span>
                             </div>
                           )} */}
-            </div>
-          </div>
+                        </div>
+                      </div>
                     </div>
 
 
@@ -2215,12 +3172,13 @@ export default function PurchaseContentModal({
 
 
               <button
-
-                onClick={selectedVoiceTone === "custom" && selectedYapper !== "" ? generateContentFromYapper : handlePurchase}
+                onClick={selectedVoiceTone === "custom" && selectedYapper !== "" ? 
+                  (hasGeneratedContent ? handlePurchase : generateContentFromYapper) : 
+                  handlePurchase}
                 disabled={isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)}
                 className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 ${
                   isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)
-                    ? 'bg-gray-500 cursor-not-allowed' 
+                    ? 'bg-[#FD7A10] cursor-not-allowed' 
                     : !address
                     ? 'bg-[#FD7A10] hover:bg-[#e86d0f] glow-orange-button'
                     : !isAuthenticated
@@ -2228,13 +3186,16 @@ export default function PurchaseContentModal({
                     : !hasAccess
                     ? 'bg-purple-600 hover:bg-purple-700'
                     : 'bg-[#FD7A10] glow-orange-button hover:bg-[#e86d0f]'
-                } text-white`}
+                } text-white flex items-center justify-center gap-2`}
               >
                 {isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent) ? (
-                  <div className="flex items-center justify-center gap-2">
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <>
+                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
                     <span>{isGeneratingContent ? 'Generating...' : 'Processing...'}</span>
-                  </div>
+                  </>
                 ) : !address ? (
                   'Connect Wallet'
                 ) : !isAuthenticated ? (
@@ -2242,101 +3203,116 @@ export default function PurchaseContentModal({
                 ) : !hasAccess ? (
                   'Get Marketplace Access'
                 ) : selectedVoiceTone === "custom" && selectedYapper !== "" ? (
-                  `Generate Content from @${selectedYapper}`
+                  hasGeneratedContent ? 'Buy Tweet' : `Generate Content from @${selectedYapper}`
                 ) : (
                   'Buy Tweet'
                 )}
               </button>
                 </div>
                   </>
-                ) : showTweetManagement ? (
+                ) : (() => {
+                  console.log('🔍 Conditional rendering check:', { 
+                    showTweetManagement, 
+                    isPurchased, 
+                    hasPurchasedContentDetails: !!purchasedContentDetails 
+                  });
+                  return showTweetManagement;
+                })() ? (
               /* Tweet Management State */
               <div className="flex flex-col gap-4 h-full">
-                {/* Header with back button */}
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setShowTweetManagement(false)}
-                    className="text-white/60 hover:text-white transition-colors"
-                  >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M19 12H5M12 19l-7-7 7-7"/>
-                    </svg>
-                  </button>
-                  <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                      <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <div className="text-white font-bold">Content Owned</div>
-                    <div className="text-white text-xs">
-                      Purchased • {Math.round(getDisplayPrice(localContent))} ROAST
-                    </div>
-                  </div>
-                </div>
-
-                {/* Posting Method Selection */}
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div className="relative">
-                    <input
-                      type="radio"
-                      id="post-twitter"
-                      name="posting-method"
-                      value="twitter"
-                      checked={postingMethod === 'twitter'}
-                      onChange={(e) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
-                      className="sr-only"
-                    />
-                    <label htmlFor="post-twitter" className="flex items-center gap-2 cursor-pointer">
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                        postingMethod === 'twitter' 
-                          ? 'border-[#FD7A10] bg-[#FD7A10]' 
-                          : 'border-white/40'
-                      }`}>
-                        {postingMethod === 'twitter' && (
-                          <div className="w-2 h-2 bg-white rounded-full"></div>
-                        )}
-                      </div>
-                      <span className="text-white text-sm font-medium">Post on X</span>
-                    </label>
-                  </div>
-                  <div className="relative">
-                    <input
-                      type="radio"
-                      id="post-manual"
-                      name="posting-method"
-                      value="manual"
-                      checked={postingMethod === 'manual'}
-                      onChange={(e) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
-                      className="sr-only"
-                    />
-                    <label htmlFor="post-manual" className="flex items-center gap-2 cursor-pointer">
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                        postingMethod === 'manual' 
-                          ? 'border-[#FD7A10] bg-[#FD7A10]' 
-                          : 'border-white/40'
-                      }`}>
-                        {postingMethod === 'manual' && (
-                          <div className="w-2 h-2 bg-white rounded-full"></div>
-                        )}
-                      </div>
-                      <span className="text-white text-sm font-medium">I will do it manually</span>
-                    </label>
-                  </div>
-                </div>
-
-                {postingMethod === 'manual' && (
-                  /* How to thread info for manual posting */
-                  <div className="bg-[#331C1E] rounded-md px-4 py-2 flex items-start gap-3">
-                    <div className="flex items-center justify-center">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="#FD7A10">
-                        <path d="M9 21c0 .5.4 1 1 1h4c.6 0 1-.5 1-1v-1H9v1zm3-19C8.1 2 5 5.1 5 9c0 2.4 1.2 4.5 3 5.7V17c0 .5.4 1 1 1h6c.6 0 1-.5 1-1v-2.3c1.8-1.2 3-3.3 3-5.7 0-3.9-3.1-7-7-7z" />
+                {/* Header with back button and close button */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setShowTweetManagement(false)}
+                      className="text-white/60 hover:text-white transition-colors"
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                      </svg>
+                    </button>
+                    <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                        <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     </div>
-                    <div className="text-white/80 text-sm">
-                      <div className="font-medium mb-1">How to thread: After posting the first tweet, click the + button on Twitter, paste Tweet 2, post it, then repeat for Tweet 3, etc.</div>
+                    <div className="flex flex-col gap-1">
+                      <div className="text-white font-bold">Content Owned</div>
+                      <div className="text-white text-xs">
+                        Purchased • {purchasedContentDetails ? `${purchasedContentDetails.price} ${purchasedContentDetails.currency}` : 'Processing...'}
+                      </div>
                     </div>
                   </div>
+                </div>
+
+
+
+                {/* Posting Method Selection - Hidden when tweet is posted successfully */}
+                {!twitterPostingResult?.success && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div className="relative">
+                        <input
+                          type="radio"
+                          id="post-twitter-desktop"
+                          name="posting-method-desktop"
+                          value="twitter"
+                          checked={postingMethod === 'twitter'}
+                          onChange={(e) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
+                          className="sr-only"
+                        />
+                        <label htmlFor="post-twitter-desktop" className="flex items-center gap-2 cursor-pointer">
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                            postingMethod === 'twitter' 
+                              ? 'border-[#FD7A10] bg-[#FD7A10]' 
+                              : 'border-white/40'
+                          }`}>
+                            {postingMethod === 'twitter' && (
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            )}
+                          </div>
+                          <span className="text-white text-sm font-medium">Post on X</span>
+                        </label>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="radio"
+                          id="post-manual-desktop"
+                          name="posting-method-desktop"
+                          value="manual"
+                          checked={postingMethod === 'manual'}
+                          onChange={(e) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
+                          className="sr-only"
+                        />
+                        <label htmlFor="post-manual-desktop" className="flex items-center gap-2 cursor-pointer">
+                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                            postingMethod === 'manual' 
+                              ? 'border-[#FD7A10] bg-[#FD7A10]' 
+                              : 'border-white/40'
+                          }`}>
+                            {postingMethod === 'manual' && (
+                              <div className="w-2 h-2 bg-white rounded-full"></div>
+                            )}
+                          </div>
+                          <span className="text-white text-sm font-medium">I will do it manually</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {postingMethod === 'manual' && (
+                      /* How to thread info for manual posting */
+                      <div className="bg-[#331C1E] rounded-md px-4 py-2 flex items-start gap-3 mb-4">
+                        <div className="flex items-center justify-center">
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="#FD7A10">
+                            <path d="M9 21c0 .5.4 1 1 1h4c.6 0 1-.5 1-1v-1H9v1zm3-19C8.1 2 5 5.1 5 9c0 2.4 1.2 4.5 3 5.7V17c0 .5.4 1 1 1h6c.6 0 1-.5 1-1v-2.3c1.8-1.2 3-3.3 3-5.7 0-3.9-3.1-7-7-7z" />
+                          </svg>
+                        </div>
+                        <div className="text-white/80 text-sm">
+                          <div className="font-medium mb-1">How to thread: After posting the first tweet, click the + button on Twitter, paste Tweet 2, post it, then repeat for Tweet 3, etc.</div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Content Area - Twitter Posting or Manual */}
@@ -2366,6 +3342,31 @@ export default function PurchaseContentModal({
                   ) : postingMethod === 'twitter' ? (
                     /* Twitter Posting Interface */
                     <div className="flex flex-col h-full">
+                      {/* Transaction Hash Display */}
+                      {purchasedContentDetails?.transactionHash && (
+                        <div className="bg-[#331C1E] rounded-lg p-4 mb-4 mx-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <svg className="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                              </svg>
+                              <span className="text-white/80 text-sm">Transaction Hash:</span>
+                            </div>
+                            <a
+                              href={`https://basescan.org/tx/${purchasedContentDetails.transactionHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 hover:text-blue-300 text-sm underline"
+                            >
+                              View on Base
+                            </a>
+                          </div>
+                          <div className="text-white text-xs font-mono mt-2 break-all">
+                            {purchasedContentDetails.transactionHash}
+                          </div>
+                        </div>
+                      )}
+
                       {(() => {
                         // Debug logging
                         console.log('🔍 Twitter Status Debug:', {

@@ -31,11 +31,11 @@ export class ContentPurchase {
   @Column({ type: 'decimal', precision: 20, scale: 8, name: 'original_roast_price' })
   originalRoastPrice!: number // Original asking price in ROAST (from bidding)
 
-  @Column({ name: 'transaction_hash', length: 255, nullable: true })
-  transactionHash!: string
+  @Column({ name: 'transaction_hash', type: 'varchar', length: 255, nullable: true })
+  transactionHash!: string | null
 
   @Column({ type: 'varchar', length: 50, default: 'pending', name: 'payment_status' })
-  paymentStatus!: 'pending' | 'completed' | 'failed' | 'refunded'
+  paymentStatus!: 'pending' | 'completed' | 'failed' | 'refunded' | 'rolled_back'
 
   @Column({ type: 'decimal', precision: 20, scale: 8, name: 'platform_fee', default: 0 })
   platformFee!: number // Always in payment currency
@@ -46,11 +46,34 @@ export class ContentPurchase {
   @Column({ type: 'decimal', precision: 20, scale: 8, name: 'miner_payout_roast', default: 0 })
   minerPayoutRoast!: number // Explicit ROAST amount for miner (for clarity)
 
-  @Column({ name: 'treasury_transaction_hash', length: 255, nullable: true })
-  treasuryTransactionHash!: string
+  @Column({ name: 'treasury_transaction_hash', type: 'varchar', length: 255, nullable: true })
+  treasuryTransactionHash!: string | null
 
   @Column({ type: 'varchar', length: 50, default: 'pending', name: 'payout_status' })
   payoutStatus!: 'pending' | 'completed' | 'failed'
+
+  // Rollback Fields
+  @Column({ name: 'rollback_reason', type: 'text', nullable: true })
+  rollbackReason!: string | null
+
+  @Column({ name: 'rollback_transaction_hash', type: 'varchar', length: 255, nullable: true })
+  rollbackTransactionHash!: string | null
+
+  @Column({ name: 'rolled_back_at', type: 'timestamp', nullable: true })
+  rolledBackAt!: Date | null
+
+  // Purchase Flow Control - Prevents race conditions
+  @Column({ name: 'in_purchase_flow', type: 'boolean', default: false })
+  inPurchaseFlow!: boolean
+
+  @Column({ name: 'purchase_flow_initiated_by', type: 'varchar', length: 255, nullable: true })
+  purchaseFlowInitiatedBy!: string | null // Wallet address of user in purchase flow
+
+  @Column({ name: 'purchase_flow_initiated_at', type: 'timestamp', nullable: true })
+  purchaseFlowInitiatedAt!: Date | null
+
+  @Column({ name: 'purchase_flow_expires_at', type: 'timestamp', nullable: true })
+  purchaseFlowExpiresAt!: Date | null
 
   // Referral Payout Fields
   @Column({ type: 'decimal', precision: 20, scale: 8, name: 'direct_referrer_payout', default: 0 })
@@ -59,11 +82,11 @@ export class ContentPurchase {
   @Column({ type: 'decimal', precision: 20, scale: 8, name: 'grand_referrer_payout', default: 0 })
   grandReferrerPayout!: number // ROAST amount paid to grand referrer
 
-  @Column({ name: 'direct_referrer_tx_hash', length: 255, nullable: true })
-  directReferrerTxHash?: string
+  @Column({ name: 'direct_referrer_tx_hash', type: 'varchar', length: 255, nullable: true })
+  directReferrerTxHash!: string | null
 
-  @Column({ name: 'grand_referrer_tx_hash', length: 255, nullable: true })
-  grandReferrerTxHash?: string
+  @Column({ name: 'grand_referrer_tx_hash', type: 'varchar', length: 255, nullable: true })
+  grandReferrerTxHash!: string | null
 
   @Column({ type: 'varchar', length: 50, default: 'pending', name: 'referral_payout_status' })
   referralPayoutStatus!: 'pending' | 'completed' | 'failed' | 'not_applicable'

@@ -93,7 +93,14 @@ export class MarketplaceContentService {
 
       // Get total count for pagination
       const totalQuery = query.clone();
-      const total = await totalQuery.getCount();
+      let total: number;
+      try {
+        total = await totalQuery.getCount();
+      } catch (error) {
+        logger.error('❌ Error getting total count:', error);
+        // If count fails, try to get content anyway with a default total
+        total = 0;
+      }
 
       // Apply pagination
       const offset = (Number(page) - 1) * Number(limit);

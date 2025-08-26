@@ -29,13 +29,13 @@ export class ContentMarketplace {
   contentText!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  tweetThread?: string[]; // Array of tweet thread messages
+  tweetThread!: string[] | null; // Array of tweet thread messages
 
   @Column({ type: 'jsonb', nullable: true })
-  contentImages?: any;
+  contentImages!: any | null;
 
   @Column({ type: 'text', nullable: true })
-  watermarkImage?: string;
+  watermarkImage!: string | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 4 })
   predictedMindshare!: number;
@@ -50,43 +50,56 @@ export class ContentMarketplace {
   isAvailable!: boolean;
 
   @Column({ type: 'jsonb', nullable: true })
-  generationMetadata?: any;
+  generationMetadata!: any | null;
 
   @Column({ type: 'varchar', length: 50, default: 'pending' })
   approvalStatus!: string; // 'pending', 'approved', 'rejected'
 
   @Column({ type: 'integer', nullable: true })
-  agentId?: number; // ID of the agent used for content generation
+  agentId!: number | null; // ID of the agent used for content generation
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  agentName?: string; // Name of the agent used
+  agentName!: string | null; // Name of the agent used
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  walletAddress?: string; // Wallet address of the miner who created this content
+  walletAddress!: string | null; // Wallet address of the miner who created this content
 
   @Column({ type: 'varchar', length: 20, default: 'thread' })
   postType!: string; // Type of post: 'shitpost', 'longpost', or 'thread'
 
   @Column({ type: 'timestamp', nullable: true })
-  approvedAt?: Date; // When the content was approved
+  approvedAt!: Date | null; // When the content was approved
 
   @Column({ type: 'timestamp', nullable: true })
-  rejectedAt?: Date; // When the content was rejected
+  rejectedAt!: Date | null; // When the content was rejected
 
   @Column({ type: 'boolean', default: false })
   isBiddable!: boolean; // Whether content is available for bidding
 
   @Column({ type: 'timestamp', nullable: true })
-  biddingEndDate?: Date | null; // When bidding ends for this content
+  biddingEndDate!: Date | null; // When bidding ends for this content
 
   @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true })
-  biddingAskPrice?: number | null; // Miner's ask price for bidding
+  biddingAskPrice!: number | null; // Miner's ask price for bidding
 
-  @Column({ type: 'timestamp', nullable: true })
-  biddingEnabledAt?: Date | null; // When bidding was enabled
+  @Column({ name: 'bidding_enabled_at', type: 'timestamp', nullable: true })
+  biddingEnabledAt!: Date | null // When bidding was enabled
 
-  @Column({ type: 'varchar', length: 50, default: 'mining_interface' })
-  source!: string; // 'mining_interface' or 'yapper_interface'
+  @Column({ name: 'source', length: 50, default: 'mining_interface' })
+  source!: string // 'mining_interface' or 'yapper_interface'
+
+  // Purchase Flow Control - Prevents race conditions
+  @Column({ name: 'in_purchase_flow', type: 'boolean', default: false })
+  inPurchaseFlow!: boolean
+
+  @Column({ name: 'purchase_flow_initiated_by', type: 'varchar', length: 255, nullable: true })
+  purchaseFlowInitiatedBy!: string | null // Wallet address of user in purchase flow
+
+  @Column({ name: 'purchase_flow_initiated_at', type: 'timestamp', nullable: true })
+  purchaseFlowInitiatedAt!: Date | null
+
+  @Column({ name: 'purchase_flow_expires_at', type: 'timestamp', nullable: true })
+  purchaseFlowExpiresAt!: Date | null
 
   // Relations
   @ManyToOne(() => User, user => user.id)

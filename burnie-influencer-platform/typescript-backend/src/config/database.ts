@@ -249,4 +249,23 @@ export const startDatabaseKeepalive = (): void => {
       }
     }
   }, 30000); // Keep alive every 30 seconds
+};
+
+// Enhanced connection recovery with exponential backoff
+export const recoverDatabaseConnection = async (): Promise<boolean> => {
+  try {
+    if (AppDataSource.isInitialized) {
+      // Test current connection
+      await AppDataSource.query('SELECT 1');
+      return true;
+    }
+    
+    // Try to initialize
+    await AppDataSource.initialize();
+    logger.info('✅ Database connection recovered');
+    return true;
+  } catch (error) {
+    logger.error('❌ Database connection recovery failed:', error);
+    return false;
+  }
 }; 
