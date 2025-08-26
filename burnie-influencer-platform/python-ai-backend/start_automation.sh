@@ -16,26 +16,31 @@ echo "=================================================="
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [COMMAND]"
+    echo "Usage: $0 [COMMAND] [OPTIONS]"
     echo ""
     echo "Commands:"
     echo "  test     - Run setup tests to verify configuration"
     echo "  start    - Start PERSISTENT automated content generation (parallel)"
     echo "  start-sequential - Start PERSISTENT automated content generation (sequential)"
     echo "  test-run - Test single content generation for random campaign"
+    echo "  campaign <ID> - Generate content for specific campaign ID only"
     echo "  monitor  - Monitor running automation"
     echo "  stop     - Stop running automation"
     echo "  status   - Check automation status"
     echo "  logs     - Show recent logs"
     echo "  help     - Show this help message"
     echo ""
-    echo "Note: The automation runs PERSISTENTLY until explicitly stopped"
+    echo "Options:"
+    echo "  --campaign <ID> - Specify campaign ID for single campaign mode"
+    echo ""
+    echo "Note: The automation runs PERSISTENTLY until explicitly stopped (except for single campaign mode)"
     echo ""
     echo "Examples:"
     echo "  $0 test                    # Test setup before running"
     echo "  $0 test-run                # Test single content generation"
     echo "  $0 start                   # Start automation in background (parallel)"
     echo "  $0 start-sequential        # Start automation in background (sequential)"
+    echo "  $0 campaign 123            # Generate content for campaign ID 123 only"
     echo "  $0 monitor                 # Monitor real-time progress"
     echo "  $0 logs                    # Show recent logs"
 }
@@ -76,6 +81,40 @@ start_automation() {
     echo $PID > "$LOG_DIR/automation.pid"
     
     echo "✅ Automation started with PID: $PID ($mode mode)"
+    echo "📝 Logs: $LOG_DIR/content_generation.log"
+    echo "📊 Monitor: $0 monitor"
+    echo "🛑 Stop: $0 stop"
+}
+
+# Function to start single campaign automation
+start_campaign_automation() {
+    local campaign_id=$1
+    
+    if [ -z "$campaign_id" ]; then
+        echo "❌ Error: Campaign ID is required"
+        echo "Usage: $0 campaign <CAMPAIGN_ID>"
+        exit 1
+    fi
+    
+    echo "🎯 Starting content generation for campaign ID: $campaign_id..."
+    echo "💡 The script will process only this campaign and then exit"
+    cd "$SCRIPT_DIR"
+    
+    # Check if already running
+    if pgrep -f "automated_content_generator.py" > /dev/null; then
+        echo "⚠️ Automation is already running!"
+        echo "Use '$0 status' to check status or '$0 stop' to stop it."
+        exit 1
+    fi
+    
+    # Start single campaign mode
+    nohup python automated_content_generator.py --campaign "$campaign_id" > "$LOG_DIR/content_generation.log" 2>&1 &
+    
+    # Get the process ID
+    PID=$!
+    echo $PID > "$LOG_DIR/automation.pid"
+    
+    echo "✅ Single campaign automation started with PID: $PID"
     echo "📝 Logs: $LOG_DIR/content_generation.log"
     echo "📊 Monitor: $0 monitor"
     echo "🛑 Stop: $0 stop"
@@ -218,6 +257,9 @@ case "${1:-help}" in
         ;;
     start-sequential)
         start_automation "sequential"
+        ;;
+    campaign)
+        start_campaign_automation "$2"
         ;;
     monitor)
         monitor_automation

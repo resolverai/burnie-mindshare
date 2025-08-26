@@ -37,6 +37,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 import traceback
 from dotenv import load_dotenv
+import fcntl
 
 # Try to import httpx for API calls, fallback to basic HTTP if not available
 try:
@@ -72,13 +73,143 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+class AutomationStateManager:
+    """Manages automation state persistence for crash recovery"""
+    
+    def __init__(self, state_file_path: str = "automation_state.json"):
+        self.state_file = state_file_path
+        self.state = self.load_state()
+    
+    def load_state(self) -> Dict[str, Any]:
+        """Load existing state or create new state"""
+        try:
+            if os.path.exists(self.state_file):
+                with open(self.state_file, 'r') as f:
+                    state = json.load(f)
+                    logger.info(f"📂 Loaded existing state: {state.get('current_campaign_id', 'None')}")
+                    return state
+            else:
+                logger.info("📂 No existing state found, starting fresh")
+                return self.create_initial_state()
+        except Exception as e:
+            logger.error(f"❌ Error loading state: {e}")
+            logger.info("📂 Creating fresh state due to error")
+            return self.create_initial_state()
+    
+    def create_initial_state(self) -> Dict[str, Any]:
+        """Create initial state structure"""
+        return {
+            "last_updated": datetime.now().isoformat(),
+            "current_campaign_id": None,
+            "current_campaign_title": None,
+            "completed_campaigns": [],
+            "current_campaign_progress": {
+                "content_types_completed": [],
+                "content_types_remaining": [],
+                "last_content_generated": None,
+                "generation_count": 0
+            },
+            "overall_stats": {
+                "campaigns_processed": 0,
+                "content_generated": 0,
+                "errors": 0,
+                "rate_limits_hit": 0,
+                "retries_attempted": 0,
+                "retries_successful": 0
+            },
+            "resume_point": None
+        }
+    
+    def save_state(self):
+        """Save current state to file with file locking"""
+        try:
+            self.state["last_updated"] = datetime.now().isoformat()
+            
+            # Use file locking to prevent corruption
+            with open(self.state_file, 'w') as f:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                json.dump(self.state, f, indent=2, default=str)
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            
+            logger.debug(f"💾 State saved: Campaign {self.state.get('current_campaign_id', 'None')}")
+        except Exception as e:
+            logger.error(f"❌ Error saving state: {e}")
+    
+    def update_campaign_progress(self, campaign_id: int, campaign_title: str, content_type: str, success: bool):
+        """Update progress for current campaign"""
+        if self.state["current_campaign_id"] != campaign_id:
+            # New campaign started
+            self.state["current_campaign_id"] = campaign_id
+            self.state["current_campaign_title"] = campaign_title
+            self.state["current_campaign_progress"] = {
+                "content_types_completed": [],
+                "content_types_remaining": ["shitpost", "longpost", "thread"],
+                "last_content_generated": None,
+                "generation_count": 0
+            }
+        
+        if success:
+            # Mark content type as completed
+            if content_type not in self.state["current_campaign_progress"]["content_types_completed"]:
+                self.state["current_campaign_progress"]["content_types_completed"].append(content_type)
+            
+            if content_type in self.state["current_campaign_progress"]["content_types_remaining"]:
+                self.state["current_campaign_progress"]["content_types_remaining"].remove(content_type)
+        
+        self.state["current_campaign_progress"]["last_content_generated"] = content_type
+        self.state["current_campaign_progress"]["generation_count"] += 1
+        
+        self.save_state()
+    
+    def mark_campaign_complete(self, campaign_id: int):
+        """Mark campaign as complete and move to next"""
+        if campaign_id not in self.state["completed_campaigns"]:
+            self.state["completed_campaigns"].append(campaign_id)
+        
+        self.state["current_campaign_id"] = None
+        self.state["current_campaign_title"] = None
+        self.state["current_campaign_progress"] = {
+            "content_types_completed": [],
+            "content_types_remaining": [],
+            "last_content_generated": None,
+            "generation_count": 0
+        }
+        
+        self.state["overall_stats"]["campaigns_processed"] += 1
+        
+        self.save_state()
+        logger.info(f"✅ Campaign {campaign_id} marked as complete")
+    
+    def update_overall_stats(self, stats: Dict[str, Any]):
+        """Update overall statistics"""
+        self.state["overall_stats"].update(stats)
+        self.save_state()
+    
+    def get_resume_point(self) -> Optional[int]:
+        """Get the campaign ID to resume from"""
+        return self.state.get("current_campaign_id")
+    
+    def get_completed_campaigns(self) -> List[int]:
+        """Get list of completed campaign IDs"""
+        return self.state.get("completed_campaigns", [])
+    
+    def clear_state(self):
+        """Clear state for fresh start"""
+        self.state = self.create_initial_state()
+        self.save_state()
+        logger.info("🧹 State cleared for fresh start")
+
 class AutomatedContentGenerator:
     """Automated content generation orchestrator"""
     
-    def __init__(self, test_mode: bool = False):
+    def __init__(self, test_mode: bool = False, specific_campaign_id: Optional[int] = None):
         self.campaign_repo = CampaignRepository()
         self.db = get_db_session()
         self.test_mode = test_mode
+        self.specific_campaign_id = specific_campaign_id
+        
+        # Initialize state manager
+        self.state_manager = AutomationStateManager()
         
         # Load configuration
         self.config = self.load_config()
@@ -103,6 +234,7 @@ class AutomatedContentGenerator:
         # Rate limit detection and retry tracking
         self.rate_limit_detected = False
         self.retry_count = 0
+        self.max_rate_limit_retries = 3  # Maximum rate limit retries before stopping
         
         # Statistics
         self.stats = {
@@ -298,23 +430,26 @@ class AutomatedContentGenerator:
         return False
     
     async def handle_rate_limit_with_retry(self, error_message: str, operation_name: str) -> bool:
-        """Handle rate limit with exponential backoff retry logic"""
+        """Handle rate limit with exponential backoff retry logic - max 3 retries"""
         if not self.check_rate_limit(error_message):
             return False  # Not a rate limit error
         
         self.retry_count += 1
         self.stats["rate_limits_hit"] += 1
         
-        # NEVER stop on rate limits - retry indefinitely with exponential backoff
-        # The script should continue until explicitly killed, not stop on API rate limits
-        logger.warning(f"🔄 Rate limit hit - will retry indefinitely until rate limit resets")
+        # Check if we've exceeded max retries
+        if self.retry_count > self.max_rate_limit_retries:
+            logger.error(f"🛑 Rate limit retries exceeded ({self.max_rate_limit_retries}) for {operation_name}")
+            logger.error(f"🛑 Stopping execution due to persistent rate limiting")
+            self.rate_limit_detected = True  # Set flag to stop execution
+            return False  # Don't retry anymore
         
         # Calculate exponential backoff delay with jitter
         delay = self.base_delay * (2 ** (self.retry_count - 1))  # Exponential backoff
         jitter = random.uniform(0.8, 1.2)  # Add 20% jitter
         final_delay = int(delay * jitter)
         
-        logger.warning(f"⚠️ Rate limit detected in {operation_name}. Retry {self.retry_count} (will retry indefinitely)")
+        logger.warning(f"⚠️ Rate limit detected in {operation_name}. Retry {self.retry_count}/{self.max_rate_limit_retries}")
         logger.info(f"⏳ Waiting {final_delay} seconds before retry...")
         
         self.stats["retries_attempted"] += 1
@@ -326,8 +461,12 @@ class AutomatedContentGenerator:
         return True  # Should retry
     
     def mark_retry_successful(self):
-        """Mark a retry as successful"""
+        """Mark a retry as successful and reset rate limit state"""
         self.stats["retries_successful"] += 1
+        # Reset rate limit state after successful retry
+        self.rate_limit_detected = False
+        self.retry_count = 0
+        logger.info(f"✅ Rate limit retry successful - resetting state for next operation")
     
     async def create_mining_session(self, campaign: Dict[str, Any], content_type: str, wallet_address: str) -> MiningSession:
         """Create a mining session for content generation"""
@@ -773,12 +912,24 @@ class AutomatedContentGenerator:
             
             logger.info(f"📝 Starting {content_type} generation for campaign {campaign_title}")
             
-            success = await self.generate_content_for_campaign_type_parallel(campaign, content_type)
-            
-            if not success:
-                campaign_success = False
-                logger.error(f"❌ Failed to generate {content_type} for campaign {campaign_title}")
-                break
+            try:
+                success = await self.generate_content_for_campaign_type_parallel(campaign, content_type)
+                
+                if not success:
+                    logger.error(f"❌ Failed to generate {content_type} for campaign {campaign_title} - continuing to next content type")
+                    # Update state with failure
+                    self.state_manager.update_campaign_progress(campaign['id'], campaign_title, content_type, False)
+                    # Don't break - continue with other content types
+                else:
+                    logger.info(f"✅ Successfully generated {content_type} for campaign {campaign_title}")
+                    # Update state with success
+                    self.state_manager.update_campaign_progress(campaign['id'], campaign_title, content_type, True)
+            except Exception as e:
+                logger.error(f"❌ Exception generating {content_type} for campaign {campaign_title}: {e}")
+                logger.info(f"🔄 Continuing to next content type despite error")
+                # Update state with failure
+                self.state_manager.update_campaign_progress(campaign['id'], campaign_title, content_type, False)
+                # Continue with other content types - don't let one failure stop everything
             
             # Add delay between content types
             await asyncio.sleep(self.delay_between_content_types)
@@ -1009,14 +1160,40 @@ class AutomatedContentGenerator:
             # Verify database schema first
             await self.verify_database_schema()
             
-            # Get all active campaigns
-            campaigns = self.campaign_repo.get_active_campaigns()
+            # Get campaigns based on mode and resume point
+            if self.specific_campaign_id:
+                # Single campaign mode
+                campaign = self.campaign_repo.get_campaign_by_id(self.specific_campaign_id)
+                if not campaign:
+                    logger.error(f"❌ Campaign ID {self.specific_campaign_id} not found in database")
+                    return
+                campaigns = [campaign]
+                logger.info(f"🎯 Single campaign mode: Processing campaign ID {self.specific_campaign_id}")
+            else:
+                # All campaigns mode with resume logic
+                all_campaigns = self.campaign_repo.get_active_campaigns()
+                if not all_campaigns:
+                    logger.warning("⚠️ No active campaigns found in database")
+                    return
+                
+                # Check for resume point
+                resume_campaign_id = self.state_manager.get_resume_point()
+                completed_campaigns = self.state_manager.get_completed_campaigns()
+                
+                if resume_campaign_id:
+                    logger.info(f"🔄 Resuming from campaign ID: {resume_campaign_id}")
+                    # Filter campaigns to start from resume point
+                    campaigns = [c for c in all_campaigns if c['id'] >= resume_campaign_id]
+                    logger.info(f"📊 Resuming with {len(campaigns)} campaigns (from ID {resume_campaign_id})")
+                else:
+                    logger.info("🚀 Starting fresh automation run")
+                    campaigns = all_campaigns
+                
+                # Log completed campaigns
+                if completed_campaigns:
+                    logger.info(f"✅ Already completed campaigns: {completed_campaigns}")
             
-            if not campaigns:
-                logger.warning("⚠️ No active campaigns found in database")
-                return
-            
-            logger.info(f"📊 Found {len(campaigns)} active campaigns (ordered by ID ascending)")
+            logger.info(f"📊 Found {len(campaigns)} campaigns to process")
             
             if self.test_mode:
                 # Test mode: pick a random campaign and generate 1 content of each type
@@ -1053,6 +1230,8 @@ class AutomatedContentGenerator:
                             logger.error(f"❌ Failed to process campaign {campaign_title} - continuing to next campaign")
                         else:
                             logger.info(f"✅ Successfully processed campaign {campaign_title}")
+                            # Mark campaign as complete in state
+                            self.state_manager.mark_campaign_complete(campaign['id'])
                     except Exception as e:
                         logger.error(f"❌ Exception processing campaign {campaign_title}: {e}")
                         logger.info(f"🔄 Continuing to next campaign despite error")
@@ -1061,22 +1240,37 @@ class AutomatedContentGenerator:
                     # Add delay between campaigns
                     await asyncio.sleep(self.delay_between_campaigns)
             
+            # Update state with final statistics
+            self.state_manager.update_overall_stats(self.stats)
+            
             # Print final statistics
             self.print_statistics()
             
             # Show completion message
-            logger.info("🎉 === ALL CAMPAIGNS PROCESSED SUCCESSFULLY ===")
-            logger.info("🔄 Script will now restart from the beginning to check for new campaigns")
-            logger.info("🛑 To stop the script, use Ctrl+C or kill the process")
-            
-            # Restart the process to check for new campaigns (infinite loop)
-            await asyncio.sleep(30)  # Wait 30 seconds before restarting
-            logger.info("🔄 Restarting content generation process...")
-            await self.run(use_parallel=use_parallel)
+            if self.specific_campaign_id:
+                logger.info("🎉 === SINGLE CAMPAIGN PROCESSED SUCCESSFULLY ===")
+                logger.info("🛑 Script completed for campaign ID {self.specific_campaign_id}")
+            else:
+                logger.info("🎉 === ALL CAMPAIGNS PROCESSED SUCCESSFULLY ===")
+                logger.info("🔄 Script will now restart from the beginning to check for new campaigns")
+                logger.info("🛑 To stop the script, use Ctrl+C or kill the process")
+                
+                # Restart the process to check for new campaigns (infinite loop) - only for all campaigns mode
+                await asyncio.sleep(30)  # Wait 30 seconds before restarting
+                logger.info("🔄 Restarting content generation process...")
+                await self.run(use_parallel=use_parallel)
             
         except Exception as e:
             logger.error(f"❌ Fatal error in automated content generation: {e}")
             logger.error(traceback.format_exc())
+            
+            # Check if we stopped due to rate limit retries
+            if self.rate_limit_detected:
+                logger.error("🛑 === SCRIPT STOPPED DUE TO RATE LIMIT RETRIES EXCEEDED ===")
+                logger.error(f"🛑 Rate limit retries exceeded ({self.max_rate_limit_retries})")
+                logger.error("🛑 Please check API rate limits and restart the script later")
+                logger.error("🛑 Consider reducing parallel generations or increasing delays")
+            
             raise
     
     def print_statistics(self):
@@ -1096,15 +1290,33 @@ async def main():
     """Main entry point"""
     import sys
     
-    # Check for test mode flag
+    # Check for command line arguments
     test_mode = "--test" in sys.argv
     sequential_mode = "--sequential" in sys.argv
+    clear_state = "--clear-state" in sys.argv
+    
+    # Check for campaign ID argument
+    campaign_id = None
+    for i, arg in enumerate(sys.argv):
+        if arg == "--campaign" and i + 1 < len(sys.argv):
+            try:
+                campaign_id = int(sys.argv[i + 1])
+            except ValueError:
+                print("❌ Error: Campaign ID must be a valid integer")
+                sys.exit(1)
+            break
     
     if test_mode:
         print("🧪 Running in TEST MODE - Single content generation for random campaign")
     
     if sequential_mode:
         print("🔄 Running in SEQUENTIAL MODE - No parallel processing")
+    
+    if campaign_id:
+        print(f"🎯 Running for SPECIFIC CAMPAIGN ID: {campaign_id}")
+    
+    if clear_state:
+        print("🧹 Clearing automation state for fresh start")
     
     # Set up signal handler for graceful shutdown
     def signal_handler(signum, frame):
@@ -1115,11 +1327,20 @@ async def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    print("🚀 Starting PERSISTENT automated content generation")
-    print("💡 The script will run indefinitely until you stop it with Ctrl+C")
-    print("🔄 It will process all campaigns and restart automatically")
+    if campaign_id:
+        print(f"🚀 Starting content generation for campaign ID: {campaign_id}")
+        print("💡 The script will process only this campaign and then exit")
+    else:
+        print("🚀 Starting PERSISTENT automated content generation")
+        print("💡 The script will run indefinitely until you stop it with Ctrl+C")
+        print("🔄 It will process all campaigns and restart automatically")
     
-    generator = AutomatedContentGenerator(test_mode=test_mode)
+    generator = AutomatedContentGenerator(test_mode=test_mode, specific_campaign_id=campaign_id)
+    
+    # Clear state if requested
+    if clear_state:
+        generator.state_manager.clear_state()
+    
     await generator.run(use_parallel=not sequential_mode)
 
 if __name__ == "__main__":

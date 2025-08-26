@@ -207,3 +207,116 @@ const [purchasedContentDetails, setPurchasedContentDetails] = useState({
 3. **State Persistence** - Modal stays open through content changes
 4. **Error Recovery** - Automatic cleanup and user notification
 5. **Flexible Workflows** - Support for both existing and generated content
+
+## Content Display Consistency Fixes
+
+### **Problem Identified**
+After implementing the content generation flow, a critical UI issue emerged where:
+- **Left Panel (Tweet Preview)**: Would show newly generated content after purchase
+- **Right Panel (Purchase Success/Tweet Management)**: Would still display old content from when the modal was opened
+- **User Confusion**: Users saw different content in different panels, leading to confusion about what they actually purchased
+
+### **Root Cause Analysis**
+The issue stemmed from:
+1. **Content Prop Synchronization**: The `useEffect` handling content prop changes wasn't properly prioritizing generated content
+2. **State Management Gap**: `localContent` state was updated with new content, but display logic wasn't consistently using it
+3. **Panel Inconsistency**: Left and right panels were referencing different content sources
+
+### **Solution Implemented**
+
+#### **1. Content Priority Helper Function**
+```typescript
+// Helper function to get the current content to display
+// Prioritizes generated content over original content prop to avoid showing old content
+const getCurrentContent = (): ContentItem | null => {
+  // If we have generated content and it's different from the original content, use generated content
+  if (hasGeneratedContent && generatedContent && generatedContent.id !== originalContent?.id) {
+    console.log('🔍 getCurrentContent: Using generated content', { 
+      generatedContentId: generatedContent.id, 
+      originalContentId: originalContent?.id 
+    })
+    return generatedContent
+  }
+  
+  // Otherwise, fall back to local content
+  return localContent
+}
+```
+
+#### **2. Enhanced Content Prop Change Handler**
+```typescript
+// Update local content when content prop changes
+useEffect(() => {
+  console.log('🔄 Content prop changed:', { 
+    contentId: content?.id, 
+    isPurchased, 
+    showTweetManagement,
+    hasPurchasedContentDetails: !!purchasedContentDetails,
+    hasGeneratedContent,
+    generatedContentId: generatedContent?.id
+  })
+  
+  // If we have generated content and it's different from the incoming content prop,
+  // prioritize the generated content to avoid showing old content
+  if (hasGeneratedContent && generatedContent && generatedContent.id !== content?.id) {
+    console.log('🔒 Preserving generated content, ignoring content prop change')
+    return
+  }
+  
+  // Normal content prop update
+  setLocalContent(content)
+  setOriginalContent(content)
+  
+  // Reset generation state for new content
+  if (content?.id !== originalContent?.id) {
+    setHasGeneratedContent(false)
+    setGeneratedContent(null)
+    setGenerationStatus('')
+  }
+}, [content, hasGeneratedContent, generatedContent, originalContent])
+```
+
+#### **3. Consistent Content Display Logic**
+- **Left Panel (Tweet Preview)**: Now uses `getCurrentContent()` to ensure it always shows the most current content
+- **Right Panel (Purchase Success/Tweet Management)**: Also uses the same content logic for consistency
+- **Content Threading**: Thread display logic updated to use `getCurrentContent()` for proper content synchronization
+
+#### **4. UI Enhancement for Posting Method Selection**
+```typescript
+// Desktop posting method selection now hidden after successful tweet posting
+{/* Posting Method Selection - Hidden when tweet is posted successfully */}
+{!twitterPostingResult?.success && (
+  <>
+    {/* Radio buttons for Post on X / Manual posting */}
+    {/* Manual posting instructions */}
+  </>
+)}
+```
+
+### **Technical Benefits of the Fix**
+
+1. **Content Consistency**: Both panels now display the same content, eliminating user confusion
+2. **State Preservation**: Generated content is preserved even when content props change
+3. **Improved UX**: Users see exactly what they purchased across all views
+4. **Maintainable Code**: Centralized content logic through `getCurrentContent()` helper
+5. **Responsive Design**: Fixes work consistently across mobile, tablet, and desktop views
+
+### **Implementation Details**
+
+#### **Content Priority Logic**
+```typescript
+// Priority order for content display:
+// 1. Generated content (if different from original)
+// 2. Local content state
+// 3. Original content prop (fallback)
+```
+
+#### **State Synchronization**
+- **Content Generation**: Updates both `localContent` and `generatedContent` states
+- **Purchase Flow**: Maintains content consistency through state transitions
+- **Modal Persistence**: Content display remains consistent even after modal state changes
+
+#### **Performance Considerations**
+- **Minimal Re-renders**: Content changes only trigger updates when necessary
+- **Efficient Comparisons**: Content ID comparisons prevent unnecessary state updates
+- **Memory Management**: Proper cleanup of generation states when switching content
