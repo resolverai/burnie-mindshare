@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useAccount } from 'wagmi'
 import Image from 'next/image'
 import { generateRandomMindshare, formatMindshare } from '../../utils/mindshareUtils'
@@ -70,6 +70,11 @@ export default function PurchaseContentModal({
   const { isAuthenticated, signIn } = useAuth()
   const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting()
   const router = useRouter()
+  
+  // Note: Bottom navigation bar hiding should be implemented in the parent layout component
+  
+    // Note: Bottom navigation bar hiding should be implemented in the parent layout component
+  // This modal only handles content views, not the global bottom navigation
   
   // Helper function to get the current content to display
   // Prioritizes generated content over original content prop to avoid showing old content
@@ -1350,6 +1355,7 @@ export default function PurchaseContentModal({
       setSelectedPayment("roast")
       setShowTweetManagement(false)
       setPurchasedContentDetails(null)
+      // Bottom navigation bar visibility is handled by parent component
       // Twitter state reset handled by global context
     } else if (!isOpen) {
       modalJustOpened.current = false
@@ -1624,11 +1630,15 @@ export default function PurchaseContentModal({
 
         <div className="flex flex-col lg:flex-row max-h-[90vh] gap-0 lg:gap-4 overflow-y-auto lg:overflow-hidden touch-pan-y">
           {/* Left Panel - Tweet Preview + Mobile Purchase Options Combined */}
-          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-screen lg:min-h-0">
+          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-screen lg:min-h-0 relative lg:mt-0 mt-2.5 md:mt-3 pb-10 md:pb-12 lg:pb-12">
             <h2 className="text-white/80 text-base lg:text-lg font-medium mb-4 lg:mb-6">Tweet preview</h2>
+            
+            {/* Note: Bottom navigation bar hiding should be implemented in the parent layout component */}
 
             {/* Twitter Thread Container */}
-            <div className="w-full flex-1 overflow-y-auto pr-0 lg:pr-2 rounded-none lg:rounded-2xl touch-pan-y overscroll-contain modal-scrollable scrollbar-hide">
+            <div 
+              className="w-full flex-1 overflow-y-auto pr-0 lg:pr-2 rounded-none lg:rounded-2xl touch-pan-y overscroll-contain modal-scrollable scrollbar-hide"
+            >
               
 
               <style jsx>{`
@@ -1656,6 +1666,8 @@ export default function PurchaseContentModal({
                   width: 0px !important;
                   display: none !important;
                 }
+                
+                /* Note: Bottom navigation bar animations should be implemented in the parent layout component */
               `}</style>
 
               {/* Single Tweet Container with Thread Structure */}
@@ -1838,7 +1850,9 @@ export default function PurchaseContentModal({
               {/* Mobile Purchase Options - Now inside the same scrollable container */}
               {!isPurchased ? (
                 // Show Buy Tweet view when not purchased
-                <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32">
+                <div 
+                  className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-16"
+                >
                   {/* Voice Tone Selection - Mobile/Tablet */}
                   <div className="mb-6">
                     <h3 className="text-white text-[12px] xs:text-[10px] sm:text-[12px] md:text-[16px] font-semibold mb-2 xs:mb-3 md:mb-4">Select tweet voice tone</h3>
@@ -2102,7 +2116,7 @@ export default function PurchaseContentModal({
                           <button
                             onClick={handlePurchase}
                             disabled={isLoading}
-                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:cursor-not-allowed mb-6 md:mb-8"
                           >
                             {isLoading ? 'Processing...' : 'Buy Tweet'}
                           </button>
@@ -2111,7 +2125,7 @@ export default function PurchaseContentModal({
                           <button
                             onClick={generateContentFromYapper}
                             disabled={isGeneratingContent || !address}
-                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-6 md:mb-8"
                           >
                             {isGeneratingContent ? (
                               <>
@@ -2131,7 +2145,7 @@ export default function PurchaseContentModal({
                         <button
                           onClick={handlePurchase}
                           disabled={isLoading}
-                          className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:cursor-not-allowed mb-6 md:mb-8"
                         >
                           {isLoading ? 'Processing...' : 'Buy Tweet'}
                         </button>
@@ -2152,7 +2166,7 @@ export default function PurchaseContentModal({
                         </div>
                         <button 
                           onClick={() => setShowTweetManagement(true)}
-                          className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg"
+                          className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg mb-6 md:mb-8"
                         >
                           Tweet Now
                         </button>
@@ -2498,7 +2512,9 @@ export default function PurchaseContentModal({
                 </div>
               ) : !showTweetManagement ? (
                 // Show Purchase Successful view when purchased but not yet in tweet management
-                <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-green-500/30 mb-32">
+                <div 
+                  className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-green-500/30 mb-16"
+                >
                   <div className="flex flex-col items-center text-center gap-4">
                     <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center">
                       <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2511,7 +2527,7 @@ export default function PurchaseContentModal({
                     </div>
                     <button 
                       onClick={() => setShowTweetManagement(true)}
-                      className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg"
+                      className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg mb-6 md:mb-8"
                     >
                       Tweet Now
                     </button>
@@ -2519,7 +2535,9 @@ export default function PurchaseContentModal({
                 </div>
               ) : (
                 // Show Twitter Posting view when in tweet management
-                <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32">
+                <div 
+                  className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-16"
+                >
                   <div className="flex flex-col gap-4">
                     {/* Header */}
                     <div className="flex items-center gap-3 mb-4">
@@ -3176,7 +3194,7 @@ export default function PurchaseContentModal({
                   (hasGeneratedContent ? handlePurchase : generateContentFromYapper) : 
                   handlePurchase}
                 disabled={isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)}
-                className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 ${
+                className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 mb-6 md:mb-8 ${
                   isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)
                     ? 'bg-[#FD7A10] cursor-not-allowed' 
                     : !address
@@ -3599,7 +3617,7 @@ export default function PurchaseContentModal({
                 </div>
                 <button 
                   onClick={() => setShowTweetManagement(true)}
-                  className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg"
+                  className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg mb-6 md:mb-8"
                 >
                   Tweet Now
               </button>
