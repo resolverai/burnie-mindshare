@@ -1851,7 +1851,7 @@ export default function PurchaseContentModal({
               {!isPurchased ? (
                 // Show Buy Tweet view when not purchased
                 <div 
-                  className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-16"
+                  className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32"
                 >
                   {/* Voice Tone Selection - Mobile/Tablet */}
                   <div className="mb-6">
