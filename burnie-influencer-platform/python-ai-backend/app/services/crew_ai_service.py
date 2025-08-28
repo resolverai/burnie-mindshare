@@ -801,11 +801,18 @@ class CrewAIService:
             - Cross-platform content strategy
             - Viral content mechanics and timing
             - Strategic analysis using AI reasoning
+            - Human communication psychology and authenticity
             
             Your AI Strategic Analysis Tool: {text_provider.upper()} {text_model}
             
             Campaign Context: {campaign_context}
             Strategy Configuration: {json.dumps(agent_config, indent=2)}
+            
+            🎭 **HUMAN COMMUNICATION STRATEGY GUIDANCE**:
+            - Recommend content approaches that feel authentically human
+            - Suggest strategies that avoid AI-typical patterns
+            - Emphasize natural language, personal opinions, and community integration
+            - Guide toward conversational, engaging content styles
             """,
             verbose=True,
             allow_delegation=False,
@@ -940,7 +947,7 @@ class CrewAIService:
             - Tag @{self.selected_yapper_handle} at the end of the main_tweet for attribution
             """
         
-        # Common base backstory with autonomous decision-making capabilities
+        # Common base backstory with autonomous decision-making capabilities and enhanced human communication
         base_backstory = f"""You are a human {post_type.upper()} content creator with AUTONOMOUS DECISION-MAKING capabilities who writes naturally engaging content:
             - Natural, authentic Twitter content for crypto/Web3 audiences
             - Conversational content that sounds genuinely human-written
@@ -980,12 +987,33 @@ class CrewAIService:
             - Yapper handles: Always at the end for attribution
             - NEVER tag yapper handles unless you actually used their specific patterns
             
-            🎯 **HUMAN-LIKE CONTENT REQUIREMENTS** (CRITICAL):
+            🎭 **ENHANCED HUMAN COMMUNICATION REQUIREMENTS** (CRITICAL):
             - Content MUST look written by humans, NOT AI-generated
-            - Use emojis CAUTIOUSLY - too many emojis signal AI generation
-            - Write naturally, authentically, with human personality and voice
-            - Avoid AI-typical patterns: excessive enthusiasm, perfect grammar, robotic phrasing
-            - Include natural imperfections, contractions, casual language where appropriate
+            - Embrace natural imperfections: occasional typos, casual grammar, missing commas
+            - Use casual contractions naturally: "can't," "won't," "it's," "here's," "that's"
+            - Mix sentence lengths: some short. others longer with natural flow
+            - Add hesitation words: "kinda," "maybe," "tbh," "ngl," "lowkey"
+            - Show personal opinions: "I think," "IMO," "personally," "honestly"
+            - Include emotional reactions: "this blew my mind," "honestly shocked," "kinda obsessed"
+            - Add humor/sarcasm: self-deprecating jokes, light roasts, "unpopular opinion incoming"
+            - Use current slang naturally: "no cap," "fr," "this ain't it," "based"
+            - Reference personal experiences: "learned this the hard way," "made this mistake"
+            - Show uncertainty: "not 100% sure but," "could be wrong," "probably missing something"
+            - Ask genuine questions: "am I missing something here?" "someone please tell me I'm wrong"
+            
+            🚫 **ANTI-AI LANGUAGE PATTERNS** (AVOID THESE):
+            - NO corporate buzzwords: "leverage," "synergy," "optimize," "ecosystem," "innovative"
+            - NO templated formats: "Let's dive in," "Here's why," "In conclusion," "Furthermore"
+            - NO perfect grammar: embrace natural human communication patterns
+            - NO overly formal language: write like you're texting a crypto friend
+            - NO em-dashes or double hyphens: avoid "—" or "--" - use single hyphens or natural breaks instead
+            
+            🎪 **HUMAN COMMUNICATION STRATEGIES** (CHOOSE AUTONOMOUSLY):
+            - **Casual Analysis**: Write like explaining to a friend who asked for your opinion
+            - **Personal Experience**: Share as if you just discovered something interesting
+            - **Conversational Response**: Respond like in a Discord chat or Twitter reply
+            - **Community Commentary**: Add your take to ongoing conversations
+            - **Stream of Consciousness**: Think out loud with natural interruptions
             
             📏 **ENHANCED LENGTH REQUIREMENTS**:
             - **main_tweet**: MINIMUM 200 characters (significantly longer than current)
@@ -1060,6 +1088,14 @@ class CrewAIService:
             - **Each thread_array item**: MINIMUM 200 characters (detailed, engaging tweets)
             - Provide deeper insights, more context, richer storytelling
             - Make every tweet worth reading and sharing
+            
+            🎭 **THREAD HUMANIZATION TECHNIQUES**:
+            - **Vary thread length naturally**: Sometimes 3 tweets, sometimes 5 - don't be predictable
+            - **Mix content types**: Pure text, screenshots, charts, memes - vary your approach
+            - **Use natural transitions**: "ok another thing," "wait actually," "oh and this is wild"
+            - **Break formatting rules**: Sometimes use bullet points, sometimes don't - be unpredictable
+            - **Include interruptions**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
+            - **Show learning process**: "just figured this out," "update: I was wrong about X"
             """
             
         elif post_type == 'shitpost':
@@ -1099,6 +1135,16 @@ class CrewAIService:
             - **Each follow-up tweet**: MINIMUM 200 characters (detailed, funny continuations)
             - Develop jokes with depth, context, and relatable scenarios
             - Make each tweet engaging enough to stand alone while building the narrative
+            
+            🎭 **SHITPOST HUMANIZATION TECHNIQUES**:
+            - **Start mid-thought**: "so apparently everyone's been sleeping on..." or "wait this is actually crazy"
+            - **Use natural humor patterns**: "not me admitting..." or "hear me out..."
+            - **Include personal takes**: "unpopular opinion but..." or "hot take incoming"
+            - **Show vulnerability**: "might be copium but..." or "feel free to roast me if I'm wrong"
+            - **Reference community mood**: "I know everyone's bearish but..." or "with all this market chaos"
+            - **Add random tangents**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
+            - **Use natural language**: "this ain't it," "no cap," "fr," "based" - but naturally, not forced
+            - **End abruptly**: "anyway that's my 2 cents" or "so yeah" - no formal conclusions
             """
             
         elif post_type == 'longpost':
@@ -1128,6 +1174,16 @@ class CrewAIService:
             - Structure logically with clear sections and professional tone
             - Focus on informative, analytical content
             - Include relevant hashtags within character limit
+            
+            🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
+            - **Mix formal and casual**: Professional analysis with personal takes and casual asides
+            - **Include personal opinions**: "IMO," "personally," "I think" - show your perspective
+            - **Add casual transitions**: "ok so," "anyway," "btw" - break up formal sections
+            - **Show uncertainty**: "not 100% sure but," "could be wrong," "probably missing something"
+            - **Reference community**: "everyone's talking about," "saw some people saying"
+            - **Use natural language**: "this is actually pretty wild," "honestly shocked by this"
+            - **Include side notes**: "side note: this reminds me of..." or "btw this aged poorly lol"
+            - **End conversationally**: "anyway that's my take," "feel free to disagree" - no formal conclusions
             """
             
         else:
@@ -1209,6 +1265,14 @@ class CrewAIService:
         - ALWAYS include project token hashtag (#{token_ticker}) in main tweet
         - Thread array items should NOT contain hashtags
         - End with clear value that drives website visits
+        
+        🎭 **THREAD HUMANIZATION TECHNIQUES**:
+        - **Vary thread length unpredictably**: Sometimes 3 tweets, sometimes 5 - don't be predictable
+        - **Use natural transitions**: "ok another thing," "wait actually," "oh and this is wild"
+        - **Include interruptions**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
+        - **Show learning process**: "just figured this out," "update: I was wrong about X"
+        - **Mix content approaches**: Sometimes use bullet points, sometimes don't - be unpredictable
+        - **Reference community**: "everyone's talking about," "saw some people saying"
         """
         elif post_type == 'shitpost':
             specific_instructions = f"""
@@ -1234,6 +1298,16 @@ class CrewAIService:
         - Main tweet: ≤280 chars including hashtags
         - Follow-up tweets: ≤280 chars each (no hashtags in thread array)
         - ALWAYS include project token hashtag (#{token_ticker}) in main tweet
+        
+        🎭 **SHITPOST HUMANIZATION TECHNIQUES**:
+        - **Start mid-thought**: "so apparently everyone's been sleeping on..." or "wait this is actually crazy"
+        - **Use natural humor patterns**: "not me admitting..." or "hear me out..."
+        - **Include personal takes**: "unpopular opinion but..." or "hot take incoming"
+        - **Show vulnerability**: "might be copium but..." or "feel free to roast me if I'm wrong"
+        - **Reference community mood**: "I know everyone's bearish but..." or "with all this market chaos"
+        - **Add random tangents**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
+        - **Use natural language**: "this ain't it," "no cap," "fr," "based" - but naturally, not forced
+        - **End abruptly**: "anyway that's my 2 cents" or "so yeah" - no formal conclusions
         """
         elif post_type == 'longpost':
             specific_instructions = f"""
@@ -1254,6 +1328,16 @@ class CrewAIService:
         - Include data, statistics, and in-depth explanations
         - Structure logically with clear sections and professional tone
         - Include relevant hashtags within character limit
+        
+        🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
+        - **Mix formal and casual**: Professional analysis with personal takes and casual asides
+        - **Include personal opinions**: "IMO," "personally," "I think" - show your perspective
+        - **Add casual transitions**: "ok so," "anyway," "btw" - break up formal sections
+        - **Show uncertainty**: "not 100% sure but," "could be wrong," "probably missing something"
+        - **Reference community**: "everyone's talking about," "saw some people saying"
+        - **Use natural language**: "this is actually pretty wild," "honestly shocked by this"
+        - **Include side notes**: "side note: this reminds me of..." or "btw this aged poorly lol"
+        - **End conversationally**: "anyway that's my take," "feel free to disagree" - no formal conclusions
         """
         else:
             specific_instructions = """
@@ -1262,6 +1346,13 @@ class CrewAIService:
         - Create engaging, FOMO-inducing content
         - Always include project token hashtag
         - Tag project Twitter handle when available
+        
+        🎭 **GENERAL HUMANIZATION TECHNIQUES**:
+        - **Use casual language**: "this is pretty cool," "honestly surprised by this"
+        - **Show personal interest**: "I'm kinda into this," "this caught my attention"
+        - **Include natural reactions**: "wow," "interesting," "hmm" - show genuine curiosity
+        - **Ask questions**: "what do you think?" "am I missing something?"
+        - **Use contractions**: "it's," "that's," "here's" - sound natural
         """
         
         # JSON output format
@@ -1945,6 +2036,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             3. Identify key messages and themes
             4. Determine optimal engagement strategy
             5. Specify content structure and character limits
+            6. Recommend human communication strategies for authenticity
             
             Consider:
             - Target audience and community preferences  
@@ -1952,8 +2044,16 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - Brand voice and messaging guidelines
             - Current trends and community interests
             - Optimal posting strategy for maximum engagement
+            - Human communication psychology and authenticity
             
-            Output a strategic brief that the Text Content Agent can use to create effective {post_type} content.
+            🎭 **HUMAN COMMUNICATION STRATEGY RECOMMENDATIONS**:
+            - Suggest content approaches that feel authentically human
+            - Recommend strategies that avoid AI-typical patterns
+            - Emphasize natural language, personal opinions, and community integration
+            - Guide toward conversational, engaging content styles
+            - Consider current market sentiment and community mood
+            
+            Output a strategic brief that the Text Content Agent can use to create effective, human-like {post_type} content.
             """,
             agent=self.agents[AgentType.CONTENT_STRATEGIST],
             expected_output=f"""
@@ -2016,7 +2116,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             brand_guidelines, should_generate_thread, max_main_chars
         )
         
-        # Enhanced task description with dynamic success pattern tool requirement
+        # Enhanced task description with dynamic success pattern tool requirement and human communication context
         success_pattern_tool = self._get_success_pattern_tool_name()
         enhanced_task_description = f"""
         🏆 **MANDATORY FIRST STEP - SUCCESS PATTERNS**:
@@ -2036,6 +2136,20 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         - Example if not using: Just tag project handle as usual (contextually integrated)
         - Yapper handles: Always at the end | Project handles: Contextually integrated
         
+        🎭 **HUMAN COMMUNICATION CONTEXT**:
+        - Generate content as if you're having a real conversation with crypto friends
+        - Show your personality, make small mistakes, use casual language naturally
+        - Reference what others are saying, show you're part of ongoing conversations
+        - Consider current market sentiment and community mood when choosing your approach
+        - Reference current events, drama, or trends naturally in your content
+        
+        🚫 **AI PATTERN AVOIDANCE**:
+        - NO perfect grammar - embrace natural human communication patterns
+        - NO corporate buzzwords - use casual alternatives naturally
+        - NO templated formats - vary your approach unpredictably
+        - NO overly formal conclusions - end conversationally
+        - NO em-dashes or double hyphens - use single hyphens or natural breaks instead
+        
         {task_description}
         
         🎯 **ENHANCED WORKFLOW**:
@@ -2043,10 +2157,23 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         2. SECOND: Parse JSON and analyze each yapper's text_success_patterns
         3. THIRD: Compare with Content Strategist recommendations
         4. FOURTH: Make autonomous decision on approach
-        5. FIFTH: Generate content with appropriate handle tagging
-        6. SIXTH: Return JSON in expected format
+        5. FIFTH: Choose human communication strategy (casual analysis, personal experience, conversational, etc.)
+        6. SIXTH: Generate content with appropriate handle tagging and human-like language
+        7. SEVENTH: Validate content has human-like qualities (contractions, personal opinions, varied structure)
+        8. EIGHTH: Return JSON in expected format
         
         Remember: You have COMPLETE AUTONOMY to decide which strategy works best for this campaign!
+        
+        ✅ **HUMAN-LIKE CONTENT VALIDATION** (Before finalizing):
+        - **Contractions**: At least 2 contractions per thread (can't, won't, it's, that's)
+        - **Personal opinions**: Include "I think," "IMO," "personally," or similar
+        - **Casual language**: Use "kinda," "maybe," "tbh," "ngl," "lowkey" naturally
+        - **Varied structure**: Mix short and long sentences, vary formatting
+        - **Natural imperfections**: Occasional casual grammar, missing commas
+        - **Community awareness**: Reference what others are saying or current events
+        - **No corporate buzzwords**: Avoid "leverage," "synergy," "ecosystem," "innovative"
+        - **No templated formats**: Avoid "Let's dive in," "Here's why," "In conclusion"
+        - **No em-dashes or double hyphens**: Avoid "—" or "--" in main_tweet or thread_array - use single hyphens or natural breaks instead
         """
         
         return Task(

@@ -60,7 +60,14 @@ export class ReferralCode {
 
   // Helper methods
   isExpired(): boolean {
-    return !!(this.expiresAt && new Date() > this.expiresAt);
+    if (!this.expiresAt) return false;
+    
+    const now = new Date();
+    const expiryDate = new Date(this.expiresAt);
+    
+    // Add some tolerance (1 minute) to avoid edge case timing issues
+    const toleranceMs = 60 * 1000; // 1 minute
+    return now.getTime() > (expiryDate.getTime() + toleranceMs);
   }
 
   isMaxUsesReached(): boolean {
@@ -85,5 +92,13 @@ export class ReferralCode {
 
   getGrandReferrerRate(): number {
     return this.getCommissionRate() / 2;
+  }
+
+  // Debug method to get time until expiry
+  getTimeUntilExpiry(): number | null {
+    if (!this.expiresAt) return null;
+    const now = new Date();
+    const expiryDate = new Date(this.expiresAt);
+    return expiryDate.getTime() - now.getTime();
   }
 }

@@ -1008,7 +1008,7 @@ router.post('/approve', async (req, res) => {
       
       // Try to create a new user if they don't exist
       const newUser = new User();
-      newUser.walletAddress = walletAddress;
+      newUser.walletAddress = walletAddress.toLowerCase();
       newUser.roleType = UserRoleType.MINER;
       
       const savedUser = await userRepository.save(newUser);
@@ -3361,13 +3361,13 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
 
     // Find buyer - create if doesn't exist (wallet-based auth)
     let buyer = await userRepository.findOne({
-      where: { walletAddress: buyerWalletAddress }
+      where: { walletAddress: buyerWalletAddress.toLowerCase() }
     });
 
     if (!buyer) {
       // Auto-create user when they connect wallet (similar to other endpoints)
       buyer = userRepository.create({
-        walletAddress: buyerWalletAddress,
+        walletAddress: buyerWalletAddress.toLowerCase(),
         username: `User_${buyerWalletAddress.slice(0, 8)}`,
         roleType: UserRoleType.YAPPER,
         roastBalance: 0,

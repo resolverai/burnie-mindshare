@@ -71,6 +71,9 @@ class UserRepository:
     def create_user_from_wallet(self, wallet_address: str) -> Dict[str, Any]:
         """Create a new user from wallet address"""
         try:
+            # Normalize wallet address to lowercase to prevent case sensitivity issues
+            normalized_wallet_address = wallet_address.lower()
+            
             query = text("""
                 INSERT INTO users ("walletAddress", "roleType", "createdAt", "updatedAt")
                 VALUES (:wallet_address, 'miner', NOW(), NOW())
@@ -78,7 +81,7 @@ class UserRepository:
             """)
             
             db = get_db_session()
-            result = db.execute(query, {"wallet_address": wallet_address}).fetchone()
+            result = db.execute(query, {"wallet_address": normalized_wallet_address}).fetchone()
             db.commit()
             
             if result:

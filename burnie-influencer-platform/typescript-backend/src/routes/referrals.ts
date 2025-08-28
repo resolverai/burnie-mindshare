@@ -191,6 +191,16 @@ router.post('/validate', async (req: Request, res: Response): Promise<void> => {
       if (referralCode.isMaxUsesReached()) reason = 'Referral code has reached maximum uses';
       if (!referralCode.isActive) reason = 'Referral code is inactive';
 
+      // Log detailed debugging information
+      logger.info(`❌ Referral code validation failed: ${code}`);
+      logger.info(`📅 Code expires at: ${referralCode.expiresAt}`);
+      logger.info(`⏰ Current time: ${new Date()}`);
+      logger.info(`⏰ Time until expiry: ${referralCode.getTimeUntilExpiry()} ms`);
+      logger.info(`🔍 isExpired(): ${referralCode.isExpired()}`);
+      logger.info(`🔍 isMaxUsesReached(): ${referralCode.isMaxUsesReached()}`);
+      logger.info(`🔍 isActive: ${referralCode.isActive}`);
+      logger.info(`🔍 Reason: ${reason}`);
+
       res.status(400).json({
         success: false,
         message: reason
@@ -222,7 +232,7 @@ router.post('/validate', async (req: Request, res: Response): Promise<void> => {
 
     // Find referrer (community leader)
     const referrer = await userRepository.findOne({
-      where: { walletAddress: referralCode.leaderWalletAddress }
+      where: { walletAddress: referralCode.leaderWalletAddress.toLowerCase() }
     });
 
     // Find grand referrer (who referred the community leader)
@@ -458,12 +468,22 @@ router.get('/my-code/:walletAddress', async (req: Request, res: Response): Promi
         leaderWalletAddress: (walletAddress as string).toLowerCase(),
         tier: 'SILVER' as any,
         maxUses: 500,
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // 1 year
+        expiresAt: (() => {
+          // Create expiry date 1 year from now, ensuring proper date handling
+          const now = new Date();
+          const expiryDate = new Date(now);
+          expiryDate.setFullYear(now.getFullYear() + 1);
+          return expiryDate;
+        })()
       });
 
       await referralCodeRepository.save(userReferralCode);
       
+      // Log the expiry date for debugging
       logger.info(`✅ Generated personal referral code ${code!} for user ${walletAddress}`);
+      logger.info(`📅 Referral code expires at: ${userReferralCode.expiresAt}`);
+      logger.info(`⏰ Current time: ${new Date()}`);
+      logger.info(`⏰ Time until expiry: ${userReferralCode.expiresAt ? userReferralCode.expiresAt.getTime() - Date.now() : 'N/A'} ms`);
     }
 
     res.json({

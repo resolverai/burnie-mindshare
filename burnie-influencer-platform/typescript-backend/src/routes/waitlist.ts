@@ -253,7 +253,7 @@ router.put('/admin/approve/:id', async (req: Request, res: Response): Promise<vo
 
     // Update user access status
     const user = await userRepository.findOne({
-      where: { walletAddress: waitlistEntry.walletAddress }
+      where: { walletAddress: waitlistEntry.walletAddress.toLowerCase() }
     });
 
     if (user) {
@@ -320,7 +320,7 @@ router.put('/admin/reject/:id', async (req: Request, res: Response): Promise<voi
 
     // Update user access status
     const user = await userRepository.findOne({
-      where: { walletAddress: waitlistEntry.walletAddress }
+      where: { walletAddress: waitlistEntry.walletAddress.toLowerCase() }
     });
 
     if (user) {
