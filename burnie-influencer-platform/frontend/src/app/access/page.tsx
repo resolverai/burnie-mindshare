@@ -129,7 +129,7 @@ export default function AccessPage() {
         <div className="flex-1"></div>
 
         {/* Center Logo */}
-        <div className="absolute left-1/2 -translate-x-1/2 z-20">
+        <div className="absolute left-4 lg:left-1/2 lg:-translate-x-1/2 z-20">
           <div className="text-white text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-bold relative group cursor-pointer">
             <span className="relative z-10 no-underline hover:no-underline transition-colors text-white font-nt-brick">
               YAP.BURNIE

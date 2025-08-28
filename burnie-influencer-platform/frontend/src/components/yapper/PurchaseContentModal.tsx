@@ -1630,7 +1630,7 @@ export default function PurchaseContentModal({
 
         <div className="flex flex-col lg:flex-row max-h-[90vh] gap-0 lg:gap-4 overflow-y-auto lg:overflow-hidden touch-pan-y">
           {/* Left Panel - Tweet Preview + Mobile Purchase Options Combined */}
-          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-screen lg:min-h-0 relative lg:mt-0 mt-2.5 md:mt-3 pb-10 md:pb-12 lg:pb-12">
+          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-[calc(100vh+120px)] lg:min-h-0 relative lg:mt-0 mt-2.5 md:mt-3 pb-20 md:pb-24 lg:pb-12">
             <h2 className="text-white/80 text-base lg:text-lg font-medium mb-4 lg:mb-6">Tweet preview</h2>
             
             {/* Note: Bottom navigation bar hiding should be implemented in the parent layout component */}
@@ -1665,6 +1665,19 @@ export default function PurchaseContentModal({
                 .scrollbar-hide::-webkit-scrollbar {
                   width: 0px !important;
                   display: none !important;
+                }
+                
+                /* Mobile browser UI element handling */
+                @media (max-width: 768px) {
+                  /* Account for mobile browser UI elements */
+                  .modal-scrollable {
+                    padding-bottom: env(safe-area-inset-bottom, 80px) !important;
+                  }
+                  
+                  /* Ensure action buttons are always visible */
+                  button[class*="bg-[#FD7A10]"] {
+                    margin-bottom: 80px !important;
+                  }
                 }
                 
                 /* Note: Bottom navigation bar animations should be implemented in the parent layout component */
@@ -2363,7 +2376,7 @@ export default function PurchaseContentModal({
                                   <button
                                     onClick={handlePostToTwitter}
                                     disabled={isPostingToTwitter}
-                                    className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3"
+                                    className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-8 md:mb-10"
                                     style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
                                   >
                                     {isPostingToTwitter ? (
@@ -2381,7 +2394,7 @@ export default function PurchaseContentModal({
                                 <button
                                   onClick={handleTwitterAuth}
                                   disabled={twitter.isLoading}
-                                  className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
+                                  className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors mb-8 md:mb-10"
                                   style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
                                 >
                                   {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
@@ -2726,7 +2739,7 @@ export default function PurchaseContentModal({
                               <button
                                 onClick={handlePostToTwitter}
                                 disabled={isPostingToTwitter}
-                                className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3"
+                                className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-8 md:mb-10"
                                 style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
                               >
                                 {isPostingToTwitter ? (
@@ -2744,7 +2757,7 @@ export default function PurchaseContentModal({
                             <button
                               onClick={handleTwitterAuth}
                               disabled={twitter.isLoading}
-                              className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
+                              className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors mb-8 md:mb-10"
                               style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
                             >
                               {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
@@ -3481,7 +3494,7 @@ export default function PurchaseContentModal({
                         <button
                           onClick={handleTwitterAuth}
                           disabled={twitter.isLoading}
-                          className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
+                          className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors mb-8 md:mb-10"
                           style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
                         >
                           {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
