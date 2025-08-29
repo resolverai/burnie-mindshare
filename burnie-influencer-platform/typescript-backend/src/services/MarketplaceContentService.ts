@@ -209,10 +209,10 @@ export class MarketplaceContentService {
         reward_token: content.campaign?.rewardToken || 'ROAST'
       },
       agent_name: content.agentName,
-      created_at: content.createdAt.toISOString(),
-      approved_at: content.approvedAt?.toISOString(),
+      created_at: content.createdAt?.toISOString() || null,
+      approved_at: content.approvedAt?.toISOString() || null,
       bidding_enabled_at: content.biddingEnabledAt?.toISOString() || 
-        (content.isBiddable ? content.createdAt.toISOString() : null), // Fallback to createdAt if biddable but missing
+        (content.isBiddable ? content.createdAt?.toISOString() || null : null), // Fallback to createdAt if biddable but missing
       // For immediate purchase system - no bidding data needed
       current_highest_bid: null,
       total_bids: 0,

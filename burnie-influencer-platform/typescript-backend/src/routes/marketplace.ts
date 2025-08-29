@@ -1484,11 +1484,11 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       },
       agent_name: content.agentName,
       created_at: content.createdAt.toISOString(),
-      approved_at: content.approvedAt?.toISOString(),
+      approved_at: content.approvedAt?.toISOString() || null,
       is_biddable: content.isBiddable,
-      bidding_end_date: content.biddingEndDate?.toISOString(),
+      bidding_end_date: content.biddingEndDate?.toISOString() || null,
       bidding_ask_price: content.biddingAskPrice ? Number(content.biddingAskPrice) : null,
-      bidding_enabled_at: content.biddingEnabledAt?.toISOString()
+      bidding_enabled_at: content.biddingEnabledAt?.toISOString() || null
     }));
 
     return res.json({
@@ -1551,11 +1551,11 @@ router.get('/my-content/miner/:userId', async (req: Request, res: Response) => {
       },
       agent_name: content.agentName,
       created_at: content.createdAt.toISOString(),
-      approved_at: content.approvedAt?.toISOString(),
+      approved_at: content.approvedAt?.toISOString() || null,
       is_biddable: content.isBiddable,
-      bidding_end_date: content.biddingEndDate?.toISOString(),
+      bidding_end_date: content.biddingEndDate?.toISOString() || null,
       bidding_ask_price: content.biddingAskPrice ? Number(content.biddingAskPrice) : null,
-      bidding_enabled_at: content.biddingEnabledAt?.toISOString()
+      bidding_enabled_at: content.biddingEnabledAt?.toISOString() || null
     }));
 
     return res.json({
@@ -1674,9 +1674,9 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
         reward_token: purchase.content.campaign?.rewardToken || 'ROAST'
       },
       agent_name: purchase.content.agentName,
-      created_at: purchase.content.createdAt.toISOString(),
-      approved_at: purchase.content.approvedAt?.toISOString(),
-      purchased_at: purchase.purchasedAt.toISOString(),
+      created_at: purchase.content.createdAt?.toISOString() || null,
+      approved_at: purchase.content.approvedAt?.toISOString() || null,
+      purchased_at: purchase.purchasedAt?.toISOString() || null,
       acquisition_type: 'purchase' as const,
       payment_details: {
         payment_currency: purchase.paymentCurrency,
@@ -1760,12 +1760,12 @@ router.get('/my-content/yapper/:userId', async (req: Request, res: Response) => 
         reward_token: bid.content.campaign?.rewardToken || 'ROAST'
       },
       agent_name: bid.content.agentName,
-      created_at: bid.content.createdAt.toISOString(),
-      approved_at: bid.content.approvedAt?.toISOString(),
+      created_at: bid.content.createdAt?.toISOString() || null,
+      approved_at: bid.content.approvedAt?.toISOString() || null,
       winning_bid: {
         amount: Number(bid.bidAmount),
         currency: bid.bidCurrency,
-        bid_date: bid.createdAt.toISOString()
+        bid_date: bid.createdAt?.toISOString() || null
       }
     }));
 
@@ -1875,9 +1875,9 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
       data: {
         id: updatedContent.id,
         is_biddable: updatedContent.isBiddable,
-        bidding_end_date: updatedContent.biddingEndDate?.toISOString(),
+        bidding_end_date: updatedContent.biddingEndDate?.toISOString() || null,
         bidding_ask_price: updatedContent.biddingAskPrice ? Number(updatedContent.biddingAskPrice) : null,
-        bidding_enabled_at: updatedContent.biddingEnabledAt?.toISOString()
+        bidding_enabled_at: updatedContent.biddingEnabledAt?.toISOString() || null
       },
       message: is_biddable ? 'Content enabled for bidding' : 'Content disabled for bidding'
     });

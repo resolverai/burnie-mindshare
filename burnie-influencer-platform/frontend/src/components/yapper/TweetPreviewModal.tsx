@@ -154,6 +154,12 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
         }
     }, [isOpen]);
 
+    // Helper function to detect mobile devices
+    const isMobileDevice = () => {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+               window.innerWidth <= 768
+    }
+
     // Download image function
     const downloadImage = async (imageUrl: string, filename: string = 'tweet-image.png') => {
         try {
@@ -171,6 +177,27 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                 }
             }
             
+            // For mobile devices, use direct link approach to avoid blob URL issues
+            if (isMobileDevice()) {
+                console.log('📱 Mobile device detected, using direct download approach')
+                
+                // Create a temporary link with download attribute
+                const link = document.createElement('a')
+                link.href = downloadUrl
+                link.download = filename
+                link.target = '_blank'
+                link.rel = 'noopener noreferrer'
+                
+                // Add to document, click, and remove
+                document.body.appendChild(link)
+                link.click()
+                document.body.removeChild(link)
+                
+                console.log('✅ Mobile image download initiated')
+                return
+            }
+            
+            // For desktop, use the blob approach (which works better on desktop)
             const response = await fetch(downloadUrl);
             
             if (!response.ok) {
@@ -186,9 +213,10 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
             link.click();
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
-            console.log('✅ Image download initiated');
+            console.log('✅ Desktop image download initiated');
         } catch (error) {
             console.error('❌ Failed to download image:', error);
+            console.log('🔄 Falling back to opening image in new tab')
             window.open(imageUrl, '_blank');
         }
     };

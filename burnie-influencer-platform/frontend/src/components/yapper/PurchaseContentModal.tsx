@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
 import Image from 'next/image'
 import { generateRandomMindshare, formatMindshare } from '../../utils/mindshareUtils'
 
@@ -10,7 +11,7 @@ import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance } from
 import { executeROASTPayment } from '../../services/roastPaymentService'
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, markdownToPlainText, markdownToHTML } from '../../utils/markdownParser'
-import WalletConnectionModal from '../WalletConnectionModal'
+
 import { useTwitter } from '../../contexts/TwitterContext'
 import { useMarketplaceAccess } from '../../hooks/useMarketplaceAccess'
 import { useAuth } from '../../hooks/useAuth'
@@ -71,11 +72,6 @@ export default function PurchaseContentModal({
   const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting()
   const router = useRouter()
   
-  // Note: Bottom navigation bar hiding should be implemented in the parent layout component
-  
-    // Note: Bottom navigation bar hiding should be implemented in the parent layout component
-  // This modal only handles content views, not the global bottom navigation
-  
   // Helper function to get the current content to display
   // Prioritizes generated content over original content prop to avoid showing old content
   const getCurrentContent = (): ContentItem | null => {
@@ -112,7 +108,8 @@ export default function PurchaseContentModal({
   
   // Yapper interface content generation functions
   const generateContentFromYapper = async () => {
-    if (!selectedYapper || !localContent) return
+    const currentContent = getCurrentContent()
+    if (!selectedYapper || !currentContent) return
     
     try {
       setIsGeneratingContent(true)
@@ -128,21 +125,21 @@ export default function PurchaseContentModal({
         body: JSON.stringify({
           wallet_address: address,
           campaigns: [{
-            campaign_id: typeof localContent.campaign.id === 'string' ? parseInt(localContent.campaign.id) : localContent.campaign.id,
+            campaign_id: typeof currentContent.campaign.id === 'string' ? parseInt(currentContent.campaign.id) : currentContent.campaign.id,
             agent_id: 1, // Default agent
             campaign_context: {
               // Provide some basic context for the campaign
-              campaign_title: localContent.campaign.title || 'Unknown Campaign',
-              platform_source: localContent.campaign.platform_source || 'Unknown Platform',
-              project_name: localContent.campaign.project_name || 'Unknown Project',
-              reward_token: localContent.campaign.reward_token || 'Unknown Token',
-              post_type: localContent.post_type || 'thread'
+              campaign_title: currentContent.campaign.title || 'Unknown Campaign',
+              platform_source: currentContent.campaign.platform_source || 'Unknown Platform',
+              project_name: currentContent.campaign.project_name || 'Unknown Project',
+              reward_token: currentContent.campaign.reward_token || 'Unknown Token',
+              post_type: currentContent.post_type || 'thread'
             },
-            post_type: localContent.post_type || 'thread',
+            post_type: currentContent.post_type || 'thread',
             include_brand_logo: true,
             source: 'yapper_interface',
             selected_yapper_handle: selectedYapper,
-            price: getDisplayPrice(localContent)
+            price: getDisplayPrice(currentContent)
           }],
           user_preferences: {},
           user_api_keys: {}, // Empty for yapper interface - system will use system keys
@@ -376,7 +373,6 @@ export default function PurchaseContentModal({
   const [isPurchased, setIsPurchased] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showCopyProtection, setShowCopyProtection] = useState(false)
-  const [showWalletModal, setShowWalletModal] = useState(false)
   const [allYappers, setAllYappers] = useState<Array<{
     id: number;
     twitter_handle: string;
@@ -431,12 +427,13 @@ export default function PurchaseContentModal({
     // prioritize the generated content to avoid showing old content
     if (hasGeneratedContent && generatedContent && content?.id !== generatedContent.id) {
       console.log('🔄 Prioritizing generated content over content prop to avoid showing old content')
-      setLocalContent(generatedContent)
-      setOriginalContent(generatedContent)
-    } else {
-      setLocalContent(content)
-      setOriginalContent(content)
+      // Don't overwrite generated content with incoming content prop
+      return
     }
+    
+    // Only update if we don't have generated content or if this is the same content
+    setLocalContent(content)
+    setOriginalContent(content)
     
     // Reset generation state when new content is loaded (but preserve if we're in purchase flow)
     if (!isPurchased && !showTweetManagement && !purchasedContentDetails) {
@@ -530,13 +527,14 @@ export default function PurchaseContentModal({
 
   // Release purchase flow when user cancels or modal closes
   const releasePurchaseFlow = async () => {
-    if (!localContent || !address) {
-      console.log('⚠️ Cannot release purchase flow - missing localContent or address')
+    const currentContent = getCurrentContent()
+    if (!currentContent || !address) {
+      console.log('⚠️ Cannot release purchase flow - missing currentContent or address')
       return;
     }
     
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${localContent.id}/release-purchase-flow`, {
+      await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${currentContent.id}/release-purchase-flow`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -546,7 +544,7 @@ export default function PurchaseContentModal({
         }),
       });
       
-      console.log('🔓 Purchase flow released for content:', localContent.id);
+      console.log('🔓 Purchase flow released for content:', currentContent.id);
     } catch (error) {
       console.error('Error releasing purchase flow:', error);
     }
@@ -613,12 +611,7 @@ export default function PurchaseContentModal({
   
 
 
-  // Auto-close wallet modal when wallet connects
-  useEffect(() => {
-    if (address && showWalletModal) {
-      setShowWalletModal(false)
-    }
-  }, [address, showWalletModal])
+  // Auto-close wallet modal when wallet connects - removed, using RainbowKit instead
 
   // Twitter connection is now handled by global context - no local effects needed
 
@@ -815,30 +808,31 @@ export default function PurchaseContentModal({
   }
 
   const getTweetManagementData = () => {
-    if (!localContent) return { tweetText: '', formatted: null, displayImage: '', processedThread: [] }
+    const currentContent = getCurrentContent()
+    if (!currentContent) return { tweetText: '', formatted: null, displayImage: '', processedThread: [] }
 
     // Check if this is a longpost that should be rendered as markdown
-    const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
+    const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
     
     // Check if content has markdown syntax
-    const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
+    const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
     
     // Force markdown if we detect markdown syntax
     const forceMarkdown = hasMarkdownSyntax
     
     let tweetText = ''
     if (shouldUseMarkdown || forceMarkdown) {
-      tweetText = markdownToPlainText(localContent.content_text)
+      tweetText = markdownToPlainText(currentContent.content_text)
     } else {
-      const formatted = formatTwitterContentForManagement(localContent.content_text)
+      const formatted = formatTwitterContentForManagement(currentContent.content_text)
       tweetText = formatted.text || ''
     }
     
-    const displayImage = localContent.content_images && localContent.content_images.length > 0
-      ? localContent.content_images[0]
+    const displayImage = currentContent.content_images && currentContent.content_images.length > 0
+      ? currentContent.content_images[0]
       : ''
     
-    const processedThread = localContent.tweet_thread ? localContent.tweet_thread.map(tweet => {
+    const processedThread = currentContent.tweet_thread ? currentContent.tweet_thread.map(tweet => {
       return {
         text: tweet,
         imageUrl: null
@@ -851,6 +845,12 @@ export default function PurchaseContentModal({
       displayImage,
       processedThread
     }
+  }
+
+  // Helper function to detect mobile devices
+  const isMobileDevice = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+           window.innerWidth <= 768
   }
 
   // Download image function (from TweetPreviewModal)
@@ -870,6 +870,27 @@ export default function PurchaseContentModal({
         }
       }
       
+      // For mobile devices, use direct link approach to avoid blob URL issues
+      if (isMobileDevice()) {
+        console.log('📱 Mobile device detected, using direct download approach')
+        
+        // Create a temporary link with download attribute
+        const link = document.createElement('a')
+        link.href = downloadUrl
+        link.download = filename
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+        
+        // Add to document, click, and remove
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        console.log('✅ Mobile image download initiated')
+        return
+      }
+      
+      // For desktop, use the blob approach (which works better on desktop)
       const response = await fetch(downloadUrl)
       
       if (!response.ok) {
@@ -885,22 +906,24 @@ export default function PurchaseContentModal({
       link.click()
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
-      console.log('✅ Image download initiated')
+      console.log('✅ Desktop image download initiated')
     } catch (error) {
       console.error('❌ Failed to download image:', error)
+      console.log('🔄 Falling back to opening image in new tab')
       window.open(imageUrl, '_blank')
     }
   }
 
   // Twitter posting function
   const handlePostToTwitter = async () => {
-    if (!localContent) return
+    const currentContent = getCurrentContent()
+    if (!currentContent) return
 
     setIsPostingToTwitter(true)
     try {
       // Check if this is markdown content (longpost)
-      const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
-      const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
+      const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
+      const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
       const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
       
       let tweetText: string
@@ -908,21 +931,21 @@ export default function PurchaseContentModal({
       
       if (forceMarkdown) {
         // For longpost content, convert markdown to plain text for Twitter
-        tweetText = markdownToPlainText(localContent.content_text)
+        tweetText = markdownToPlainText(currentContent.content_text)
       } else {
         // For regular content, use existing formatting
-        const formatted = formatTwitterContentForManagement(localContent.content_text)
+        const formatted = formatTwitterContentForManagement(currentContent.content_text)
         tweetText = formatted.text
         extractedImageUrl = formatted.imageUrl
       }
       
       // Use original image for posting (after purchase), not watermarked
-      const displayImage = localContent.content_images && localContent.content_images.length > 0 
-          ? localContent.content_images[0] 
+      const displayImage = currentContent.content_images && currentContent.content_images.length > 0 
+          ? currentContent.content_images[0] 
           : extractedImageUrl
 
       // Prepare tweet data - also convert thread items if they contain markdown
-      const processedThread = localContent.tweet_thread ? localContent.tweet_thread.map(tweet => {
+      const processedThread = currentContent.tweet_thread ? currentContent.tweet_thread.map(tweet => {
         // Check if thread item contains markdown
         if (tweet.includes('##') || tweet.includes('**')) {
           return markdownToPlainText(tweet)
@@ -973,7 +996,7 @@ export default function PurchaseContentModal({
   // Twitter authentication for posting - use global Twitter context
   const handleTwitterAuth = async () => {
     if (!address) {
-      setShowWalletModal(true)
+      console.log('🔗 No wallet connected - should open RainbowKit modal')
       return
     }
 
@@ -992,7 +1015,7 @@ export default function PurchaseContentModal({
   // Original Twitter authentication for My Voice tab
   const handleTwitterAuthVoice = async () => {
     if (!address) {
-      setShowWalletModal(true)
+      console.log('🔗 No wallet connected - should open RainbowKit modal')
       return
     }
 
@@ -1011,7 +1034,7 @@ export default function PurchaseContentModal({
   // Generate button handler with trigger-based token refresh
   const handleGenerate = async () => {
     if (!address) {
-      setShowWalletModal(true)
+      console.log('🔗 No wallet connected - should open RainbowKit modal')
       return
     }
 
@@ -1169,8 +1192,7 @@ export default function PurchaseContentModal({
 
     // Handle different authentication states
     if (!address) {
-      console.log('🔗 No wallet connected - opening wallet modal')
-      setShowWalletModal(true)
+      console.log('🔗 No wallet connected - should open RainbowKit modal')
       return
     }
 
@@ -1210,14 +1232,15 @@ export default function PurchaseContentModal({
       }
 
       // Calculate required amount
-      if (!localContent) {
+      const currentContent = getCurrentContent()
+      if (!currentContent) {
         throw new Error('No content available for purchase');
       }
       
-      const requiredAmount = getDisplayPrice(localContent);
+      const requiredAmount = getDisplayPrice(currentContent);
       
       // Calculate USDC equivalent
-              const usdcPrice = roastPrice ? (getDisplayPrice(localContent) * roastPrice) : 0;
+              const usdcPrice = roastPrice ? (getDisplayPrice(currentContent) * roastPrice) : 0;
       
       // Add 0.03 USDC fee
       const usdcFee = 0.03;
@@ -1291,12 +1314,12 @@ export default function PurchaseContentModal({
         // Call the content management purchase handler
         if (result.success) {
           const transactionHash = result.transactionHash;
-          await handlePurchaseWithContentManagement(localContent, requiredAmount, selectedPayment === 'roast' ? 'ROAST' : 'USDC', transactionHash)
+          await handlePurchaseWithContentManagement(currentContent, requiredAmount, selectedPayment === 'roast' ? 'ROAST' : 'USDC', transactionHash)
           
           // Refresh presigned URLs for purchased content
           console.log('🔄 Refreshing presigned URLs for purchased content...');
           try {
-            const refreshResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${localContent.id}/refresh-urls`, {
+            const refreshResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${currentContent.id}/refresh-urls`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -1355,7 +1378,6 @@ export default function PurchaseContentModal({
       setSelectedPayment("roast")
       setShowTweetManagement(false)
       setPurchasedContentDetails(null)
-      // Bottom navigation bar visibility is handled by parent component
       // Twitter state reset handled by global context
     } else if (!isOpen) {
       modalJustOpened.current = false
@@ -1364,12 +1386,12 @@ export default function PurchaseContentModal({
 
   // Cleanup purchase flow when modal closes
   useEffect(() => {
-    if (!isOpen && localContent && address) {
+    if (!isOpen && getCurrentContent() && address) {
       console.log('🔒 Modal closing, releasing purchase flow...')
       // Release purchase flow when modal closes
       releasePurchaseFlow();
     }
-  }, [isOpen, localContent, address]);
+  }, [isOpen, address]);
   
   // Debug logging for state changes
   useEffect(() => {
@@ -1466,29 +1488,30 @@ export default function PurchaseContentModal({
 
   // Comprehensive content parsing logic (same as BiddingInterface and mining interface)
   const getContentData = () => {
-    if (!localContent) {
-      console.log('⚠️ getContentData called with null localContent, returning empty data')
+    const currentContent = getCurrentContent()
+    if (!currentContent) {
+      console.log('⚠️ getContentData called with null currentContent, returning empty data')
       return { text: '', hashtags: [], characterCount: 0, imageUrl: null, shouldUseMarkdown: false }
     }
 
     // Check if this is a longpost that should be rendered as markdown
-    const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
+    const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
     
     // Check if content has markdown syntax
-    const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
+    const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
     
     // Force markdown if we detect markdown syntax
     const forceMarkdown = hasMarkdownSyntax
     
     // For longposts, use raw content; for others, use parsed content
     const { text, imageUrl: extractedImageUrl } = (shouldUseMarkdown || forceMarkdown)
-      ? { text: localContent.content_text, imageUrl: null }
-      : formatTwitterContent(localContent.content_text)
+      ? { text: currentContent.content_text, imageUrl: null }
+      : formatTwitterContent(currentContent.content_text)
     
     // Use watermarked image for preview, original for purchased content
     const imageUrl = isPurchased 
-      ? (localContent.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl)
-      : (localContent.watermark_image || (localContent.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl))
+      ? (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
+      : (currentContent.watermark_image || (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl))
     
     const hashtags = extractHashtags(text)
     
@@ -1513,17 +1536,18 @@ export default function PurchaseContentModal({
   const contentData = getContentData()
 
   // Debug logging for content parsing (similar to mining interface)
-  console.log('🔍 PurchaseModal: Post type:', localContent?.post_type)
+  const currentContent = getCurrentContent()
+  console.log('🔍 PurchaseModal: Post type:', currentContent?.post_type)
   console.log('🔍 PurchaseModal: Should use markdown:', contentData.shouldUseMarkdown)
-  console.log('🔍 PurchaseModal: Has markdown syntax:', localContent?.content_text?.includes('##') || localContent?.content_text?.includes('**'))
-  console.log('🔍 PurchaseModal: Raw content length:', localContent?.content_text?.length)
+  console.log('🔍 PurchaseModal: Has markdown syntax:', currentContent?.content_text?.includes('##') || currentContent?.content_text?.includes('**'))
+  console.log('🔍 PurchaseModal: Raw content length:', currentContent?.content_text?.length)
   console.log('🔍 PurchaseModal: Parsed text length:', contentData.text?.length)
   console.log('🖼️ PurchaseModal: Image URL:', contentData.imageUrl)
 
   // Calculate USDC price
-          const usdcPrice = roastPrice && localContent ? (getDisplayPrice(localContent) * roastPrice).toFixed(2) : '0.00'
+          const usdcPrice = roastPrice && currentContent ? (getDisplayPrice(currentContent) * roastPrice).toFixed(2) : '0.00'
   const usdcFee = '0.030' // Constant 0.03 USDC fee
-  const totalUSDC = roastPrice && localContent ? (parseFloat(usdcPrice) + parseFloat(usdcFee)).toFixed(2) : '0.00'
+  const totalUSDC = roastPrice && currentContent ? (parseFloat(usdcPrice) + parseFloat(usdcFee)).toFixed(2) : '0.00'
 
   // Helper functions to get display data based on Twitter connection (for tweet preview only)
   const getDisplayUsername = () => {
@@ -1538,7 +1562,7 @@ export default function PurchaseContentModal({
       return loggedInUserInfo.username
     }
     // If not logged in, show miner's username
-    return localContent?.creator?.username || 'User'
+    return getCurrentContent()?.creator?.username || 'User'
   }
 
   const getDisplayUsernameLower = () => {
@@ -1550,7 +1574,7 @@ export default function PurchaseContentModal({
       return loggedInUserInfo.username.toLowerCase()
     }
     // If not logged in, show miner's username
-    return localContent?.creator?.username?.toLowerCase() || 'user'
+    return getCurrentContent()?.creator?.username?.toLowerCase() || 'user'
   }
 
   const getDisplayUsernameInitial = () => {
@@ -1562,18 +1586,19 @@ export default function PurchaseContentModal({
       return loggedInUserInfo.username.charAt(0).toUpperCase()
     }
     // If not logged in, show miner's username
-    return localContent?.creator?.username?.charAt(0).toUpperCase() || 'U'
+    return getCurrentContent()?.creator?.username?.charAt(0).toUpperCase() || 'U'
   }
 
   // Check content availability before opening wallet
   const checkContentAvailability = async (): Promise<boolean> => {
-    if (!localContent || !address) {
-      console.log('⚠️ Cannot check content availability - missing localContent or address')
+    const currentContent = getCurrentContent()
+    if (!currentContent || !address) {
+      console.log('⚠️ Cannot check content availability - missing currentContent or address')
       return false;
     }
     
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${localContent.id}/check-availability`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${currentContent.id}/check-availability`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1630,15 +1655,11 @@ export default function PurchaseContentModal({
 
         <div className="flex flex-col lg:flex-row max-h-[90vh] gap-0 lg:gap-4 overflow-y-auto lg:overflow-hidden touch-pan-y">
           {/* Left Panel - Tweet Preview + Mobile Purchase Options Combined */}
-          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-[calc(100vh+120px)] lg:min-h-0 relative lg:mt-0 mt-2.5 md:mt-3 pb-20 md:pb-24 lg:pb-12">
+          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-screen lg:min-h-0">
             <h2 className="text-white/80 text-base lg:text-lg font-medium mb-4 lg:mb-6">Tweet preview</h2>
-            
-            {/* Note: Bottom navigation bar hiding should be implemented in the parent layout component */}
 
             {/* Twitter Thread Container */}
-            <div 
-              className="w-full flex-1 overflow-y-auto pr-0 lg:pr-2 rounded-none lg:rounded-2xl touch-pan-y overscroll-contain modal-scrollable scrollbar-hide"
-            >
+            <div className="w-full flex-1 overflow-y-auto pr-0 lg:pr-2 rounded-none lg:rounded-2xl touch-pan-y overscroll-contain modal-scrollable scrollbar-hide">
               
 
               <style jsx>{`
@@ -1666,21 +1687,6 @@ export default function PurchaseContentModal({
                   width: 0px !important;
                   display: none !important;
                 }
-                
-                /* Mobile browser UI element handling */
-                @media (max-width: 768px) {
-                  /* Account for mobile browser UI elements */
-                  .modal-scrollable {
-                    padding-bottom: env(safe-area-inset-bottom, 80px) !important;
-                  }
-                  
-                  /* Ensure action buttons are always visible */
-                  button[class*="bg-[#FD7A10]"] {
-                    margin-bottom: 80px !important;
-                  }
-                }
-                
-                /* Note: Bottom navigation bar animations should be implemented in the parent layout component */
               `}</style>
 
               {/* Single Tweet Container with Thread Structure */}
@@ -1863,9 +1869,7 @@ export default function PurchaseContentModal({
               {/* Mobile Purchase Options - Now inside the same scrollable container */}
               {!isPurchased ? (
                 // Show Buy Tweet view when not purchased
-                <div 
-                  className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32"
-                >
+                <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32">
                   {/* Voice Tone Selection - Mobile/Tablet */}
                   <div className="mb-6">
                     <h3 className="text-white text-[12px] xs:text-[10px] sm:text-[12px] md:text-[16px] font-semibold mb-2 xs:mb-3 md:mb-4">Select tweet voice tone</h3>
@@ -2075,7 +2079,7 @@ export default function PurchaseContentModal({
                             )}
                           </div>
                         </div>
-                        <div className="text-white text-[6px] xs:text-[12px] md:text-[16px] font-bold">{Math.round(getDisplayPrice(localContent))}</div>
+                        <div className="text-white text-[6px] xs:text-[12px] md:text-[16px] font-bold">{Math.round(getDisplayPrice(getCurrentContent()))}</div>
                         <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Platform Token</div>
                       </div>
 
@@ -2129,7 +2133,7 @@ export default function PurchaseContentModal({
                           <button
                             onClick={handlePurchase}
                             disabled={isLoading}
-                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:cursor-not-allowed mb-6 md:mb-8"
+                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {isLoading ? 'Processing...' : 'Buy Tweet'}
                           </button>
@@ -2138,7 +2142,7 @@ export default function PurchaseContentModal({
                           <button
                             onClick={generateContentFromYapper}
                             disabled={isGeneratingContent || !address}
-                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-6 md:mb-8"
+                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                           >
                             {isGeneratingContent ? (
                               <>
@@ -2158,7 +2162,7 @@ export default function PurchaseContentModal({
                         <button
                           onClick={handlePurchase}
                           disabled={isLoading}
-                          className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:cursor-not-allowed mb-6 md:mb-8"
+                          className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isLoading ? 'Processing...' : 'Buy Tweet'}
                         </button>
@@ -2179,7 +2183,7 @@ export default function PurchaseContentModal({
                         </div>
                         <button 
                           onClick={() => setShowTweetManagement(true)}
-                          className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg mb-6 md:mb-8"
+                          className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg"
                         >
                           Tweet Now
                         </button>
@@ -2376,7 +2380,7 @@ export default function PurchaseContentModal({
                                   <button
                                     onClick={handlePostToTwitter}
                                     disabled={isPostingToTwitter}
-                                    className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-8 md:mb-10"
+                                    className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3"
                                     style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
                                   >
                                     {isPostingToTwitter ? (
@@ -2394,7 +2398,7 @@ export default function PurchaseContentModal({
                                 <button
                                   onClick={handleTwitterAuth}
                                   disabled={twitter.isLoading}
-                                  className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors mb-8 md:mb-10"
+                                  className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
                                   style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
                                 >
                                   {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
@@ -2405,13 +2409,14 @@ export default function PurchaseContentModal({
                             /* Manual Posting Interface - Original tweets list */
                             (() => {
                               // Parse content for display - handle markdown properly
-                              if (!localContent) {
+                              const currentContent = getCurrentContent()
+                              if (!currentContent) {
                                 return null;
                               }
                               
                               // Check if this is markdown content (longpost)
-                              const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
-                              const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
+                              const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
+                              const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
                               const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
                               
                               let tweetText: string
@@ -2419,21 +2424,21 @@ export default function PurchaseContentModal({
                               
                               if (forceMarkdown) {
                                 // For longpost content, convert markdown to plain text for copying/posting
-                                tweetText = markdownToPlainText(localContent.content_text)
+                                tweetText = markdownToPlainText(currentContent.content_text)
                               } else {
                                 // For regular content, use existing formatting
-                                const formatted = formatTwitterContentForManagement(localContent.content_text)
+                                const formatted = formatTwitterContentForManagement(currentContent.content_text)
                                 tweetText = formatted.text
                                 extractedImageUrl = formatted.imageUrl
                               }
                               
                               // Use original image for purchased content (post-purchase), watermarked for preview
                               const displayImage = isPurchased 
-                                ? (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl)
-                                : (localContent?.watermark_image || (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl));
+                                ? (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
+                                : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
 
                               // Prepare tweets for copy - also process thread items if they contain markdown
-                              const processedThreadItems = localContent?.tweet_thread ? localContent.tweet_thread.map(tweet => {
+                              const processedThreadItems = currentContent?.tweet_thread ? currentContent.tweet_thread.map(tweet => {
                                 // Check if thread item contains markdown
                                 if (tweet.includes('##') || tweet.includes('**')) {
                                   return markdownToPlainText(tweet)
@@ -2525,9 +2530,7 @@ export default function PurchaseContentModal({
                 </div>
               ) : !showTweetManagement ? (
                 // Show Purchase Successful view when purchased but not yet in tweet management
-                <div 
-                  className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-green-500/30 mb-16"
-                >
+                <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-green-500/30 mb-32">
                   <div className="flex flex-col items-center text-center gap-4">
                     <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center">
                       <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2540,7 +2543,7 @@ export default function PurchaseContentModal({
                     </div>
                     <button 
                       onClick={() => setShowTweetManagement(true)}
-                      className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg mb-6 md:mb-8"
+                      className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg"
                     >
                       Tweet Now
                     </button>
@@ -2548,9 +2551,7 @@ export default function PurchaseContentModal({
                 </div>
               ) : (
                 // Show Twitter Posting view when in tweet management
-                <div 
-                  className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-16"
-                >
+                <div className="lg:hidden mt-6 p-4 bg-[#12141866] rounded-2xl border border-white/20 mb-32">
                   <div className="flex flex-col gap-4">
                     {/* Header */}
                     <div className="flex items-center gap-3 mb-4">
@@ -2739,7 +2740,7 @@ export default function PurchaseContentModal({
                               <button
                                 onClick={handlePostToTwitter}
                                 disabled={isPostingToTwitter}
-                                className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-8 md:mb-10"
+                                className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3"
                                 style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
                               >
                                 {isPostingToTwitter ? (
@@ -2757,7 +2758,7 @@ export default function PurchaseContentModal({
                             <button
                               onClick={handleTwitterAuth}
                               disabled={twitter.isLoading}
-                              className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors mb-8 md:mb-10"
+                              className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
                               style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
                             >
                               {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
@@ -2768,13 +2769,14 @@ export default function PurchaseContentModal({
                         /* Manual Posting Interface - Original tweets list */
                         (() => {
                           // Parse content for display - handle markdown properly
-                          if (!localContent) {
+                          const currentContent = getCurrentContent()
+                          if (!currentContent) {
                             return null;
                           }
                           
                           // Check if this is markdown content (longpost)
-                          const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
-                          const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
+                          const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
+                          const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
                           const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
                           
                           let tweetText: string
@@ -2782,21 +2784,21 @@ export default function PurchaseContentModal({
                           
                           if (forceMarkdown) {
                             // For longpost content, convert markdown to plain text for copying/posting
-                            tweetText = markdownToPlainText(localContent.content_text)
+                            tweetText = markdownToPlainText(currentContent.content_text)
                           } else {
                             // For regular content, use existing formatting
-                            const formatted = formatTwitterContentForManagement(localContent.content_text)
+                            const formatted = formatTwitterContentForManagement(currentContent.content_text)
                             tweetText = formatted.text
                             extractedImageUrl = formatted.imageUrl
                           }
                           
                           // Use original image for purchased content (post-purchase), watermarked for preview
                           const displayImage = isPurchased 
-                            ? (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl)
-                            : (localContent?.watermark_image || (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl));
+                            ? (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
+                            : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
 
                           // Prepare tweets for copy - also process thread items if they contain markdown
-                          const processedThreadItems = localContent?.tweet_thread ? localContent.tweet_thread.map(tweet => {
+                          const processedThreadItems = currentContent?.tweet_thread ? currentContent.tweet_thread.map(tweet => {
                             // Check if thread item contains markdown
                             if (tweet.includes('##') || tweet.includes('**')) {
                               return markdownToPlainText(tweet)
@@ -3160,7 +3162,7 @@ export default function PurchaseContentModal({
                           )}
                         </div>
                       </div>
-                      <div className="text-white text-xl font-bold">{Math.round(getDisplayPrice(localContent))}</div>
+                                              <div className="text-white text-xl font-bold">{Math.round(getDisplayPrice(getCurrentContent()))}</div>
                       <div className="text-white/60 text-xs">Platform Token</div>
                     </div>
 
@@ -3202,43 +3204,76 @@ export default function PurchaseContentModal({
               
 
 
-              <button
-                onClick={selectedVoiceTone === "custom" && selectedYapper !== "" ? 
-                  (hasGeneratedContent ? handlePurchase : generateContentFromYapper) : 
-                  handlePurchase}
-                disabled={isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)}
-                className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 mb-6 md:mb-8 ${
-                  isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)
-                    ? 'bg-[#FD7A10] cursor-not-allowed' 
-                    : !address
-                    ? 'bg-[#FD7A10] hover:bg-[#e86d0f] glow-orange-button'
-                    : !isAuthenticated
-                    ? 'bg-orange-600 hover:bg-orange-700'
-                    : !hasAccess
-                    ? 'bg-purple-600 hover:bg-purple-700'
-                    : 'bg-[#FD7A10] glow-orange-button hover:bg-[#e86d0f]'
-                } text-white flex items-center justify-center gap-2`}
-              >
-                {isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent) ? (
-                  <>
-                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    <span>{isGeneratingContent ? 'Generating...' : 'Processing...'}</span>
-                  </>
-                ) : !address ? (
-                  'Connect Wallet'
-                ) : !isAuthenticated ? (
-                  'Sign Message to Authenticate'
-                ) : !hasAccess ? (
-                  'Get Marketplace Access'
-                ) : selectedVoiceTone === "custom" && selectedYapper !== "" ? (
-                  hasGeneratedContent ? 'Buy Tweet' : `Generate Content from @${selectedYapper}`
-                ) : (
-                  'Buy Tweet'
+              <ConnectButton.Custom>
+                {({ openConnectModal }) => (
+                  <button
+                    onClick={() => {
+                      // Handle different button actions based on state
+                      if (isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)) {
+                        return; // No action during loading/generation
+                      }
+                      
+                      if (!address) {
+                        openConnectModal(); // Open RainbowKit connect modal
+                        return;
+                      }
+                      
+                      if (!isAuthenticated) {
+                        signIn(); // Open signature modal
+                        return;
+                      }
+                      
+                      if (!hasAccess) {
+                        router.push('/access'); // Redirect to access page
+                        return;
+                      }
+                      
+                      // Handle content generation or purchase
+                      if (selectedVoiceTone === "custom" && selectedYapper !== "") {
+                        if (hasGeneratedContent) {
+                          handlePurchase(); // Purchase generated content
+                        } else {
+                          generateContentFromYapper(); // Generate content
+                        }
+                      } else {
+                        handlePurchase(); // Purchase existing content
+                      }
+                    }}
+                    disabled={isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)}
+                    className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 ${
+                      isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)
+                        ? 'bg-[#FD7A10] cursor-not-allowed' 
+                        : !address
+                        ? 'bg-[#FD7A10] hover:bg-[#e86d0f] glow-orange-button'
+                        : !isAuthenticated
+                        ? 'bg-orange-600 hover:bg-orange-700'
+                        : !hasAccess
+                        ? 'bg-purple-600 hover:bg-purple-700'
+                        : 'bg-[#FD7A10] glow-orange-button hover:bg-[#e86d0f]'
+                    } text-white flex items-center justify-center gap-2`}
+                  >
+                    {isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent) ? (
+                      <>
+                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>{isGeneratingContent ? 'Generating...' : 'Processing...'}</span>
+                      </>
+                    ) : !address ? (
+                      'Connect Wallet'
+                    ) : !isAuthenticated ? (
+                      'Sign Message to Authenticate'
+                    ) : !hasAccess ? (
+                      'Get Marketplace Access'
+                    ) : selectedVoiceTone === "custom" && selectedYapper !== "" ? (
+                      hasGeneratedContent ? 'Buy Tweet' : `Generate Content from @${selectedYapper}`
+                    ) : (
+                      'Buy Tweet'
+                    )}
+                  </button>
                 )}
-              </button>
+              </ConnectButton.Custom>
                 </div>
                   </>
                 ) : (() => {
@@ -3494,7 +3529,7 @@ export default function PurchaseContentModal({
                         <button
                           onClick={handleTwitterAuth}
                           disabled={twitter.isLoading}
-                          className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors mb-8 md:mb-10"
+                          className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
                           style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
                         >
                           {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
@@ -3505,13 +3540,14 @@ export default function PurchaseContentModal({
                     /* Manual Posting Interface - Original tweets list */
                     (() => {
                       // Parse content for display - handle markdown properly
-                      if (!localContent) {
+                      const currentContent = getCurrentContent()
+                      if (!currentContent) {
                         return null;
                       }
                       
                       // Check if this is markdown content (longpost)
-                      const shouldUseMarkdown = isMarkdownContent(localContent.post_type)
-                      const hasMarkdownSyntax = localContent.content_text?.includes('##') || localContent.content_text?.includes('**')
+                      const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
+                      const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
                       const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
                       
                       let tweetText: string
@@ -3519,21 +3555,21 @@ export default function PurchaseContentModal({
                       
                       if (forceMarkdown) {
                         // For longpost content, convert markdown to plain text for copying/posting
-                        tweetText = markdownToPlainText(localContent.content_text)
+                        tweetText = markdownToPlainText(currentContent.content_text)
                       } else {
                         // For regular content, use existing formatting
-                        const formatted = formatTwitterContentForManagement(localContent.content_text)
+                        const formatted = formatTwitterContentForManagement(currentContent.content_text)
                         tweetText = formatted.text
                         extractedImageUrl = formatted.imageUrl
                       }
                       
                       // Use original image for purchased content (post-purchase), watermarked for preview
                       const displayImage = isPurchased 
-                        ? (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl)
-                        : (localContent?.watermark_image || (localContent?.content_images && localContent.content_images.length > 0 ? localContent.content_images[0] : extractedImageUrl));
+                        ? (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
+                        : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
 
                       // Prepare tweets for copy - also process thread items if they contain markdown
-                      const processedThreadItems = localContent?.tweet_thread ? localContent.tweet_thread.map(tweet => {
+                      const processedThreadItems = currentContent?.tweet_thread ? currentContent.tweet_thread.map(tweet => {
                         // Check if thread item contains markdown
                         if (tweet.includes('##') || tweet.includes('**')) {
                           return markdownToPlainText(tweet)
@@ -3630,7 +3666,7 @@ export default function PurchaseContentModal({
                 </div>
                 <button 
                   onClick={() => setShowTweetManagement(true)}
-                  className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg mb-6 md:mb-8"
+                  className="w-full bg-[#FD7A10] glow-orange-button text-white font-semibold py-4 rounded-sm text-lg"
                 >
                   Tweet Now
               </button>
@@ -3664,13 +3700,7 @@ export default function PurchaseContentModal({
         </div>
       )}
 
-      {/* Wallet Connection Modal */}
-      <WalletConnectionModal
-        isOpen={showWalletModal}
-        onClose={() => setShowWalletModal(false)}
-        title="Connect Your Wallet"
-        message="Please connect your wallet to purchase content from the marketplace"
-      />
+      {/* Wallet Connection Modal - Removed, using RainbowKit instead */}
     </div>
   )
 } 
