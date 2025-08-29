@@ -16,6 +16,7 @@ import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 import TweetThreadDisplay from './TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../utils/markdownParser'
 import { buildApiUrl } from '../utils/api-config'
+import { showToast } from '../utils/toast'
 
 interface ContentItem {
   id: number
@@ -43,6 +44,7 @@ interface ContentItem {
   bidding_enabled_at?: string
   post_type?: string // Type of post: 'shitpost', 'longpost', or 'thread'
   status?: 'pending' | 'approved' | 'rejected' // Add status field
+  is_available?: boolean // Add availability field
 }
 
 interface BiddingModalData {
@@ -54,12 +56,22 @@ interface BiddingModalData {
 export default function MinerMyContent() {
   const { address } = useAccount()
   const queryClient = useQueryClient()
-  const [showBiddingModal, setShowBiddingModal] = useState<BiddingModalData | null>(null)
-  const [biddingEndDate, setBiddingEndDate] = useState('')
+  const [showBiddingModal, setShowBiddingModal] = useState<{
+    contentId: number
+    currentPrice: number
+    isEnabled: boolean
+  } | null>(null)
   const [biddingAskPrice, setBiddingAskPrice] = useState('')
+  const [biddingEndDate, setBiddingEndDate] = useState('')
+  const [updatingContentId, setUpdatingContentId] = useState<number | null>(null)
+  const [showRejectModal, setShowRejectModal] = useState<{
+    contentId: number
+    contentTitle: string
+  } | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
   const [biddingFilter, setBiddingFilter] = useState<'all' | 'enabled' | 'disabled'>('all')
+  const [availabilityFilter, setAvailabilityFilter] = useState<'all' | 'available' | 'unavailable'>('all')
 
   // Content parsing functions (same as bidding interface)
   const extractImageUrl = (contentText: string): string | null => {
@@ -154,12 +166,18 @@ export default function MinerMyContent() {
 
   // Fetch miner's content (including pending content)
   const { data: content, isLoading } = useQuery({
-    queryKey: ['miner-content', address],
+    queryKey: ['miner-content', address, availabilityFilter],
     queryFn: async () => {
       if (!address) return []
       
       try {
-        const response = await fetch(buildApiUrl(`marketplace/my-content/miner/wallet/${address}?include_pending=true`))
+        const params = new URLSearchParams()
+        params.append('include_pending', 'true')
+        if (availabilityFilter === 'available') {
+          params.append('only_available', 'true')
+        }
+        
+        const response = await fetch(buildApiUrl(`marketplace/my-content/miner/wallet/${address}?${params.toString()}`))
         const result = await response.json()
         return result.data || []
       } catch (error) {
@@ -177,48 +195,143 @@ export default function MinerMyContent() {
       biddingEndDate?: string
       biddingAskPrice?: number
     }) => {
-      const response = await fetch(buildApiUrl(`marketplace/content/${contentId}/bidding`), {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          is_biddable,
-          bidding_end_date: biddingEndDate,
-          bidding_ask_price: biddingAskPrice,
-          wallet_address: address
-        }),
+      // Create AbortController for timeout
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+      
+      try {
+        const response = await fetch(buildApiUrl(`marketplace/content/${contentId}/bidding`), {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            is_biddable,
+            bidding_end_date: biddingEndDate,
+            bidding_ask_price: biddingAskPrice,
+            wallet_address: address
+          }),
+          signal: controller.signal
+        })
+        
+        clearTimeout(timeoutId)
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`)
+        }
+        
+        return response.json()
+      } catch (error) {
+        clearTimeout(timeoutId)
+        
+        if (error.name === 'AbortError') {
+          throw new Error('Request timed out. Please try again.')
+        }
+        
+        throw error
+      }
+    },
+    onMutate: async ({ contentId, is_biddable, biddingAskPrice }) => {
+      console.log(`🔄 Starting optimistic update for content ${contentId}`)
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['miner-content'] })
+      
+      // Snapshot the previous value
+      const previousContent = queryClient.getQueryData(['miner-content', address, availabilityFilter])
+      
+      // Optimistically update the UI
+      queryClient.setQueryData(['miner-content', address, availabilityFilter], (old: any) => {
+        if (!old) return old
+        return old.map((item: ContentItem) => 
+          item.id === contentId 
+            ? { 
+                ...item, 
+                is_biddable,
+                bidding_ask_price: is_biddable ? biddingAskPrice : null,
+                bidding_enabled_at: is_biddable ? new Date().toISOString() : null
+              }
+            : item
+        )
       })
       
-      if (!response.ok) {
-        throw new Error('Failed to update bidding settings')
-      }
-      
-      return response.json()
+      console.log(`✨ Optimistic update completed for content ${contentId}`)
+      return { previousContent }
     },
-    onSuccess: () => {
+    onError: (err, variables, context) => {
+      console.log(`❌ Bidding update failed for content ${variables.contentId}:`, err.message)
+      // Revert optimistic update on error
+      if (context?.previousContent) {
+        queryClient.setQueryData(['miner-content', address, availabilityFilter], context.previousContent)
+        console.log(`🔄 Reverted optimistic update for content ${variables.contentId}`)
+      }
+      console.error('❌ Bidding update failed:', err)
+      
+      // Show error toast
+      showToast(`Failed to ${variables.is_biddable ? 'enable' : 'disable'} bidding: ${err.message}`, 'error')
+    },
+    onSettled: () => {
+      console.log(`🏁 Bidding mutation settled, clearing loading state`)
+      // Always refetch after mutation settles
       queryClient.invalidateQueries({ queryKey: ['miner-content'] })
+      setUpdatingContentId(null) // Clear updating state after mutation settles
+    },
+    onSuccess: (data, variables) => {
+      console.log(`✅ Bidding update successful for content ${variables.contentId}`)
       setShowBiddingModal(null)
+      
+      // Show success toast
+      const action = variables.is_biddable ? 'enabled' : 'disabled'
+      const priceText = variables.biddingAskPrice ? ` with price ${variables.biddingAskPrice} ROAST` : ''
+      showToast(`Bidding ${action} successfully${priceText}!`, 'success')
     },
   })
 
-  const handleBiddingToggle = (contentId: number, isEnabled: boolean) => {
+  const handleBiddingToggle = (contentId: number, isEnabled: boolean, postType?: string) => {
+    console.log(`🚀 Starting bidding toggle for content ${contentId}: ${isEnabled ? 'enable' : 'disable'}`)
+    setUpdatingContentId(contentId)
+    
     if (isEnabled) {
-      // Show modal to set pricing and end date
-      setShowBiddingModal({
+      // Immediately enable bidding with default pricing
+      const defaultPrice = postType === 'longpost' ? 1999 : 999
+      console.log(`💰 Setting default price for ${postType}: ${defaultPrice} ROAST`)
+      
+      // Make the call asynchronous - don't await
+      biddingMutation.mutate({
         contentId,
-        currentPrice: 0,
-        isEnabled: false
+        is_biddable: true,
+        biddingAskPrice: defaultPrice
       })
-      setBiddingEndDate('')
-      setBiddingAskPrice('')
+      console.log(`✅ Bidding mutation triggered asynchronously for content ${contentId}`)
     } else {
       // Disable bidding directly
+      console.log(`⏸️ Disabling bidding for content ${contentId}`)
+      // Make the call asynchronous - don't await
       biddingMutation.mutate({
         contentId,
         is_biddable: false
       })
+      console.log(`✅ Bidding disable mutation triggered asynchronously for content ${contentId}`)
     }
+  }
+
+  const handlePriceUpdate = (contentId: number, currentPrice: number) => {
+    // Show modal to update price
+    setShowBiddingModal({
+      contentId,
+      currentPrice,
+      isEnabled: true
+    })
+    setBiddingAskPrice(currentPrice.toString())
+    setBiddingEndDate('')
+  }
+
+  const handleRejectContent = (contentId: number, contentTitle: string) => {
+    // Show confirmation modal for rejecting approved content
+    setShowRejectModal({
+      contentId,
+      contentTitle
+    })
   }
 
   // Approve content mutation
@@ -255,6 +368,16 @@ export default function MinerMyContent() {
   // Reject content mutation
   const rejectMutation = useMutation({
     mutationFn: async (contentId: number) => {
+      console.log('🚀 Starting reject mutation for content ID:', contentId, 'with wallet:', address)
+      
+      if (!contentId || isNaN(contentId)) {
+        throw new Error(`Invalid content ID: ${contentId}`)
+      }
+      
+      if (!address) {
+        throw new Error('Wallet address is required')
+      }
+      
       const response = await fetch(buildApiUrl('marketplace/reject-content'), {
         method: 'POST',
         headers: {
@@ -266,32 +389,49 @@ export default function MinerMyContent() {
         }),
       })
       
+      console.log('📡 Reject API response status:', response.status)
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || 'Failed to reject content')
+        console.error('❌ Reject API error response:', errorData)
+        throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`)
       }
       
-      return response.json()
+      const result = await response.json()
+      console.log('✅ Reject API success response:', result)
+      return result
     },
-    onSuccess: (data) => {
-      console.log('✅ Content rejected successfully:', data)
+    onSuccess: (data, variables) => {
+      console.log('✅ Content rejected successfully:', { data, contentId: variables })
       queryClient.invalidateQueries({ queryKey: ['miner-content'] })
+      showToast('Content rejected successfully!', 'success')
     },
-    onError: (error) => {
-      console.error('❌ Failed to reject content:', error)
-      alert(`Failed to reject content: ${error.message}`)
+    onError: (error, variables) => {
+      console.error('❌ Failed to reject content:', { error, contentId: variables })
+      showToast(`Failed to reject content: ${error.message}`, 'error')
     }
   })
 
   const handleEnableBidding = () => {
     if (!showBiddingModal) return
 
-    biddingMutation.mutate({
-      contentId: showBiddingModal.contentId,
-      is_biddable: true,
-      biddingEndDate: biddingEndDate || undefined,
-      biddingAskPrice: biddingAskPrice ? parseFloat(biddingAskPrice) : undefined
-    })
+    if (showBiddingModal.isEnabled) {
+      // Update existing bidding price
+      biddingMutation.mutate({
+        contentId: showBiddingModal.contentId,
+        is_biddable: true,
+        biddingAskPrice: biddingAskPrice ? parseFloat(biddingAskPrice) : undefined,
+        biddingEndDate: biddingEndDate || undefined
+      })
+    } else {
+      // Enable new bidding
+      biddingMutation.mutate({
+        contentId: showBiddingModal.contentId,
+        is_biddable: true,
+        biddingEndDate: biddingEndDate || undefined,
+        biddingAskPrice: biddingAskPrice ? parseFloat(biddingAskPrice) : undefined
+      })
+    }
   }
 
   // Filter content based on search term, status, and bidding
@@ -310,6 +450,13 @@ export default function MinerMyContent() {
       (biddingFilter === 'disabled' && !item.is_biddable)
     
     if (!biddingMatch) return false
+
+    // Availability filter
+    const availabilityMatch = availabilityFilter === 'all' ||
+      (availabilityFilter === 'available' && item.is_available) ||
+      (availabilityFilter === 'unavailable' && !item.is_available)
+    
+    if (!availabilityMatch) return false
     
     // Search filter
     if (!searchTerm) return true
@@ -389,13 +536,31 @@ export default function MinerMyContent() {
                   </svg>
                 </div>
               </div>
+
+              {/* Availability Filter Dropdown */}
+              <div className="relative sm:w-48">
+                <select
+                  value={availabilityFilter}
+                  onChange={(e) => setAvailabilityFilter(e.target.value as 'all' | 'available' | 'unavailable')}
+                  className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
+                >
+                  <option value="all">All Availability</option>
+                  <option value="available">🟢 Available</option>
+                  <option value="unavailable">🔴 Unavailable</option>
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Content Stats */}
         {content && content.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
             <div className="bg-gray-800/30 rounded-lg p-4 border border-gray-700">
               <div className="text-2xl font-bold text-white">
                 {content.length}
@@ -413,6 +578,9 @@ export default function MinerMyContent() {
                 {content.filter(item => item.status === 'approved' || !item.status).length}
               </div>
               <div className="text-sm text-green-300">Approved</div>
+              <div className="text-xs text-green-400 mt-1">
+                {content.filter(item => (item.status === 'approved' || !item.status) && item.is_available).length} available
+              </div>
             </div>
             <div className="bg-red-900/20 rounded-lg p-4 border border-red-600/30">
               <div className="text-2xl font-bold text-red-400">
@@ -431,6 +599,12 @@ export default function MinerMyContent() {
                 {content.filter(item => !item.is_biddable).length}
               </div>
               <div className="text-sm text-purple-300">Bidding Disabled</div>
+            </div>
+            <div className="bg-emerald-900/20 rounded-lg p-4 border border-emerald-600/30">
+              <div className="text-2xl font-bold text-emerald-400">
+                {content.filter(item => item.is_available).length}
+              </div>
+              <div className="text-sm text-emerald-300">Available</div>
             </div>
           </div>
         )}
@@ -484,7 +658,22 @@ export default function MinerMyContent() {
               console.log('🔍 MyContent: Processed text preview:', text?.substring(0, 200))
               
               return (
-                <div key={item.id} className="bg-gray-800/50 rounded-lg border border-gray-700 hover:border-orange-500/50 transition-all duration-300">
+                <div key={item.id} className={`bg-gray-800/50 rounded-lg border transition-all duration-300 relative ${
+                  updatingContentId === item.id 
+                    ? 'opacity-75 border-orange-500/50 shadow-lg shadow-orange-500/20' 
+                    : 'border-gray-700 hover:border-orange-500/50'
+                }`}>
+                  {/* Individual Loading Overlay - Only shows for this specific content item */}
+                  {updatingContentId === item.id && (
+                    <div className="absolute inset-0 bg-black/20 rounded-lg flex items-center justify-center z-10">
+                      <div className="bg-gray-800 rounded-lg p-4 border border-gray-600 shadow-lg">
+                        <div className="flex items-center space-x-3">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500"></div>
+                          <span className="text-white font-medium">Updating bidding settings...</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="p-6 space-y-6">
                     {/* Header with Content Info */}
                     <div className="flex items-center justify-between pb-4 border-b border-gray-700">
@@ -659,11 +848,55 @@ export default function MinerMyContent() {
                             <input
                               type="checkbox"
                               checked={item.is_biddable}
-                              onChange={(e) => handleBiddingToggle(item.id, e.target.checked)}
-                              className="w-4 h-4 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500"
+                              onChange={(e) => handleBiddingToggle(item.id, e.target.checked, item.post_type)}
+                              disabled={updatingContentId === item.id}
+                              className="w-4 h-4 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             />
+                            {updatingContentId === item.id && (
+                              <div className="ml-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
+                              </div>
+                            )}
                           </div>
                         </div>
+
+                        {/* Content Moderation Section - Show for available and approved content that is NOT biddable */}
+                        {item.is_available && (item.status === 'approved' || !item.status) && !item.is_biddable && (
+                          <div className="mb-4 p-3 bg-yellow-900/20 rounded-lg border border-yellow-600/30">
+                            <h5 className="text-sm font-medium text-yellow-400 mb-2">Content Moderation</h5>
+                            <p className="text-xs text-yellow-300 mb-3">
+                              This content is currently available and approved but not enabled for bidding. You can reject it if needed.
+                            </p>
+                            <button
+                              onClick={() => {
+                                console.log('🔍 Reject button clicked for content:', {
+                                  id: item.id,
+                                  title: item.campaign.title,
+                                  status: item.status,
+                                  is_available: item.is_available,
+                                  is_biddable: item.is_biddable
+                                })
+                                handleRejectContent(item.id, item.campaign.title)
+                              }}
+                              disabled={rejectMutation.isPending}
+                              className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                            >
+                              <XMarkIcon className="h-4 w-4 mr-2" />
+                              {rejectMutation.isPending ? 'Rejecting...' : 'Reject Content'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Info message for content that can't be rejected */}
+                        {item.is_available && (item.status === 'approved' || !item.status) && item.is_biddable && (
+                          <div className="mb-4 p-3 bg-blue-900/20 rounded-lg border border-blue-600/30">
+                            <h5 className="text-sm font-medium text-blue-400 mb-2">Content Status</h5>
+                            <p className="text-xs text-blue-300">
+                              This content is currently available, approved, and enabled for bidding. 
+                              To reject it, first disable bidding using the checkbox above.
+                            </p>
+                          </div>
+                        )}
 
                       {item.is_biddable && (
                         <div className="space-y-3 pt-3 border-t border-gray-700">
@@ -686,6 +919,17 @@ export default function MinerMyContent() {
                               Bidding enabled {formatTimeAgo(item.bidding_enabled_at)}
                             </p>
                           )}
+                          
+                          {/* Price Update Button */}
+                          <div className="pt-2">
+                            <button
+                              onClick={() => handlePriceUpdate(item.id, item.bidding_ask_price || 0)}
+                              disabled={updatingContentId === item.id}
+                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {updatingContentId === item.id ? 'Updating...' : '💰 Update Price'}
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -699,17 +943,21 @@ export default function MinerMyContent() {
           <div className="text-center py-12">
             <div className="text-gray-400 text-lg mb-2">
               {searchTerm ? 'No content matches your search' : 
+               statusFilter !== 'all' && biddingFilter !== 'all' && availabilityFilter !== 'all' ? `No ${statusFilter} content with ${biddingFilter} bidding and ${availabilityFilter} availability` :
                statusFilter !== 'all' && biddingFilter !== 'all' ? `No ${statusFilter} content with ${biddingFilter} bidding` :
+               statusFilter !== 'all' && availabilityFilter !== 'all' ? `No ${statusFilter} content with ${availabilityFilter} availability` :
                statusFilter === 'pending' ? 'No pending content' :
                statusFilter === 'approved' ? 'No approved content' :
                statusFilter === 'rejected' ? 'No rejected content' :
                biddingFilter === 'enabled' ? 'No content with bidding enabled' :
                biddingFilter === 'disabled' ? 'No content with bidding disabled' :
+               availabilityFilter === 'available' ? 'No available content' :
+               availabilityFilter === 'unavailable' ? 'No unavailable content' :
                'No content yet'}
             </div>
             <div className="text-gray-500">
               {searchTerm ? 'Try adjusting your search terms or filters' : 
-               statusFilter !== 'all' || biddingFilter !== 'all' ? 'Try changing your filter settings to see more content' :
+               statusFilter !== 'all' || biddingFilter !== 'all' || availabilityFilter !== 'all' ? 'Try changing your filter settings to see more content' :
                'Start mining to create content that can be reviewed and published'}
             </div>
           </div>
@@ -719,7 +967,9 @@ export default function MinerMyContent() {
         {showBiddingModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
             <div className="bg-gray-800 rounded-xl border border-gray-600 p-6 max-w-md w-full mx-4 shadow-xl">
-              <h3 className="text-lg font-semibold text-white mb-4">Enable Bidding</h3>
+              <h3 className="text-lg font-semibold text-white mb-4">
+                {showBiddingModal.isEnabled ? 'Update Bidding Price' : 'Enable Bidding'}
+              </h3>
               
               <div className="space-y-4">
                 <div>
@@ -760,10 +1010,65 @@ export default function MinerMyContent() {
                 </button>
                 <button
                   onClick={handleEnableBidding}
-                  disabled={biddingMutation.isPending}
+                  disabled={updatingContentId === showBiddingModal?.contentId}
                   className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50"
                 >
-                  {biddingMutation.isPending ? 'Enabling...' : 'Enable Bidding'}
+                  {updatingContentId === showBiddingModal?.contentId ? 'Updating...' : (showBiddingModal?.isEnabled ? 'Update Price' : 'Enable Bidding')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reject Content Confirmation Modal */}
+        {showRejectModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-xl border border-gray-600 p-6 max-w-md w-full mx-4 shadow-xl">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="w-10 h-10 bg-red-600 rounded-full flex items-center justify-center">
+                  <XMarkIcon className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Reject Approved Content</h3>
+                  <p className="text-sm text-gray-400">This action cannot be undone</p>
+                </div>
+              </div>
+              
+              <div className="mb-6">
+                <p className="text-gray-300 mb-3">
+                  Are you sure you want to reject the content from campaign:
+                </p>
+                <div className="bg-gray-700 rounded-lg p-3 border border-gray-600">
+                  <p className="text-white font-medium">"{showRejectModal.contentTitle}"</p>
+                </div>
+                <p className="text-sm text-red-400 mt-2">
+                  ⚠️ This will immediately remove the content from the marketplace and disable bidding.
+                </p>
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setShowRejectModal(null)}
+                  className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (showRejectModal) {
+                      console.log('🔍 Confirmed rejection for content:', {
+                        contentId: showRejectModal.contentId,
+                        contentTitle: showRejectModal.contentTitle,
+                        wallet: address
+                      })
+                      rejectMutation.mutate(showRejectModal.contentId)
+                      setShowRejectModal(null)
+                    }
+                  }}
+                  disabled={rejectMutation.isPending}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                >
+                  {rejectMutation.isPending ? 'Rejecting...' : 'Yes, Reject Content'}
                 </button>
               </div>
             </div>

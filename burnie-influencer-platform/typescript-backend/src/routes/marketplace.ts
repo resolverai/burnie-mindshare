@@ -1405,11 +1405,12 @@ router.post('/reject', async (req, res) => {
  * @route GET /api/marketplace/my-content/miner/wallet/:walletAddress
  * @desc Get miner's content for My Content section by wallet address
  * @query include_pending - if 'true', includes all content statuses, otherwise only approved
+ * @query only_available - if 'true', only returns content where isAvailable = true
  */
 router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: Response) => {
   try {
     const { walletAddress } = req.params;
-    const { include_pending } = req.query;
+    const { include_pending, only_available } = req.query;
     
     if (!walletAddress) {
       return res.status(400).json({
@@ -1446,6 +1447,11 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       queryBuilder = queryBuilder.andWhere('content.approvalStatus = :status', { status: 'approved' });
     }
     
+    // Filter by availability if only_available is true
+    if (only_available === 'true') {
+      queryBuilder = queryBuilder.andWhere('content.isAvailable = :isAvailable', { isAvailable: true });
+    }
+    
     const contents = await queryBuilder
       .orderBy('content.createdAt', 'DESC')
       .getMany();
@@ -1466,6 +1472,7 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       asking_price: Number(content.askingPrice),
       post_type: content.postType || 'thread', // Include post type
       status: content.approvalStatus, // Add approval status
+      is_available: content.isAvailable, // Add availability status
       creator: {
         username: content.creator?.username || 'Anonymous',
         reputation_score: content.creator?.reputationScore || 0

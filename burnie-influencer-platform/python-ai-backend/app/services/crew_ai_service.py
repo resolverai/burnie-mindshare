@@ -1081,7 +1081,7 @@ class CrewAIService:
             - Main tweet: Hook with image-worthy content
             - Thread tweets: Expand with recent tweet insights or project details
             - Never skip thread generation due to insufficient data
-            - Always include project token hashtag in main tweet
+            - Always include project token mention ($${token_ticker}) in main tweet
             
             📏 **THREAD LENGTH REQUIREMENTS** (CRITICAL):
             - **main_tweet**: MINIMUM 200 characters (create substantial, valuable content)
@@ -1128,7 +1128,7 @@ class CrewAIService:
             - End with natural engagement hooks that invite community participation
             - Reference bullish on [random thing], moon, HODL culture
             - Build jokes progressively, keep each tweet punchy
-            - Always include project token hashtag in main tweet
+            - Always include project token mention ($${token_ticker}) in main tweet
             
             📏 **SHITPOST LENGTH REQUIREMENTS** (CRITICAL):
             - **main_tweet**: MINIMUM 200 characters (create substantial humor content)
@@ -1173,7 +1173,7 @@ class CrewAIService:
             - Include data, statistics, and in-depth explanations
             - Structure logically with clear sections and professional tone
             - Focus on informative, analytical content
-            - Include relevant hashtags within character limit
+            - Focus on content quality and engagement
             
             🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
             - **Mix formal and casual**: Professional analysis with personal takes and casual asides
@@ -1193,7 +1193,7 @@ class CrewAIService:
             📱 **GENERAL CONTENT STRATEGY**:
             - Focus on project description and available context
             - Create engaging, FOMO-inducing content
-            - Always include project token hashtag
+            - Always include project token mention ($${token_ticker})
             - Tag project Twitter handle when available
             """
 
@@ -1259,10 +1259,10 @@ class CrewAIService:
         
         🔥 **THREAD REQUIREMENTS**:
         - Generate 2-5 tweets in thread format
-        - Main tweet: Attention-grabbing hook that makes readers want to learn more (≤240 chars including hashtags)
+        - Main tweet: Attention-grabbing hook that makes readers want to learn more (≤240 chars total)
         - Thread tweets: Story-driven content that builds excitement about the project (≤240 chars each)
         - Use third person pronouns: "They launched...", "Their new feature...", never "Our/We"
-        - ALWAYS include project token hashtag (#{token_ticker}) in main tweet
+        - ALWAYS include project token mention ($${token_ticker}) in main tweet
         - Thread array items should NOT contain hashtags
         - End with clear value that drives website visits
         
@@ -1295,9 +1295,9 @@ class CrewAIService:
         - Exploit Viral Mechanics and Psychological Triggers for maximum reach
         - Use Web3 Cultural Elements intelligently (crypto behaviors + mainstream bridges)
         - Optimize for scroll-stopping power and community engagement
-        - Main tweet: ≤280 chars including hashtags
+        - Main tweet: ≤280 chars total
         - Follow-up tweets: ≤280 chars each (no hashtags in thread array)
-        - ALWAYS include project token hashtag (#{token_ticker}) in main tweet
+        - ALWAYS include project token mention ($${token_ticker}) in main tweet
         
         🎭 **SHITPOST HUMANIZATION TECHNIQUES**:
         - **Start mid-thought**: "so apparently everyone's been sleeping on..." or "wait this is actually crazy"
@@ -1327,7 +1327,7 @@ class CrewAIService:
         - Use detailed analysis with markdown headers (##), **bold** emphasis
         - Include data, statistics, and in-depth explanations
         - Structure logically with clear sections and professional tone
-        - Include relevant hashtags within character limit
+        - Focus on content quality and engagement
         
         🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
         - **Mix formal and casual**: Professional analysis with personal takes and casual asides
@@ -1344,7 +1344,7 @@ class CrewAIService:
         📱 **GENERAL CONTENT STRATEGY**:
         - Focus on project description and available context
         - Create engaging, FOMO-inducing content
-        - Always include project token hashtag
+        - Always include project token mention ($${token_ticker})
         - Tag project Twitter handle when available
         
         🎭 **GENERAL HUMANIZATION TECHNIQUES**:
@@ -1369,7 +1369,7 @@ class CrewAIService:
         MANDATORY JSON OUTPUT FORMAT:
         {{
           "main_tweet": "Your main content here (2000-{max_main_chars} chars in MARKDOWN format with headers, formatting)",
-          "hashtags_used": ["{token_ticker}", "DeFi", "Crypto"],
+          "hashtags_used": ["$${token_ticker}", "DeFi", "Crypto"],
           "character_count": {max_main_chars//2},
           "approach": "analytical"
         }}
@@ -1385,12 +1385,12 @@ class CrewAIService:
         
         MANDATORY JSON OUTPUT FORMAT (SHITPOST - MAIN TWEET ONLY):
         {{
-          "main_tweet": "Your engaging shitpost main tweet here (≤240 chars total including hashtags)",
+          "main_tweet": "Your engaging shitpost main tweet here (≤240 chars total)",
           "thread_array": [],
-          "hashtags_used": ["{token_ticker}", "DeFi"],
+          "hashtags_used": ["$${token_ticker}", "DeFi"],
           "character_counts": {{
             "main_tweet_text": 245,
-            "main_tweet_hashtags": 28,
+            "main_tweet_total": 245,
             "thread_tweet_1": 275,
             "thread_tweet_2": 280,
             "thread_tweet_3": 265
@@ -1400,24 +1400,24 @@ class CrewAIService:
         
         CRITICAL JSON RULES:
         - Return ONLY the JSON object, no other text
-        - HASHTAG PLACEMENT: All hashtags MUST appear ONLY in main_tweet, NEVER in thread_array items
-        - Thread array items should be plain text without any hashtags
+        - CONTENT PLACEMENT: Main tweet should contain the token mention ($${token_ticker}), thread_array items should be plain text
+        - Thread array items should be plain text without any special formatting
         """
         elif post_type == 'thread' and should_generate_thread:
             return f"""
         
         MANDATORY JSON OUTPUT FORMAT:
         {{
-          "main_tweet": "Your engaging thread main tweet here (≤240 chars total including hashtags)",
+          "main_tweet": "Your engaging thread main tweet here (≤240 chars total)",
           "thread_array": [
             "Engaging thread tweet 1 (≤240 chars, no hashtags)",
             "Engaging thread tweet 2 (≤240 chars, no hashtags)", 
             "Engaging thread tweet 3 (≤240 chars, no hashtags, optional)"
           ],
-          "hashtags_used": ["{token_ticker}", "DeFi"],
+          "hashtags_used": ["$${token_ticker}", "DeFi"],
           "character_counts": {{
             "main_tweet_text": 245,
-            "main_tweet_hashtags": 28,
+            "main_tweet_total": 245,
             "thread_tweet_1": 275,
             "thread_tweet_2": 280,
             "thread_tweet_3": 265
@@ -1427,8 +1427,8 @@ class CrewAIService:
         
         CRITICAL JSON RULES:
         - Return ONLY the JSON object, no other text
-        - HASHTAG PLACEMENT: All hashtags MUST appear ONLY in main_tweet, NEVER in thread_array items
-        - Thread array items should be plain text without any hashtags
+        - CONTENT PLACEMENT: Main tweet should contain the token mention ($${token_ticker}), thread_array items should be plain text
+        - Thread array items should be plain text without any special formatting
         """
         else:
             return f"""
@@ -1436,7 +1436,7 @@ class CrewAIService:
         MANDATORY JSON OUTPUT FORMAT:
         {{
           "main_tweet": "Your engaging single tweet text here (≤240 chars total)",
-          "hashtags_used": ["{token_ticker}", "DeFi", "Crypto"],
+          "hashtags_used": ["$${token_ticker}", "DeFi", "Crypto"],
           "character_count": 275,
           "approach": "engaging"
         }}
@@ -4710,8 +4710,8 @@ NEW AGENT OUTPUT FORMATS TO EXPECT:
 {{
   "main_tweet": "🚀 BOB is revolutionizing crypto gains! You can join...",
   "thread_array": ["With BOB, you get...", "Thousands of users...", "You can maximize..."],
-  "hashtags_used": ["BOB", "DeFi", "Crypto"],
-  "character_counts": {{"main_tweet_text": 245, "main_tweet_hashtags": 28}},
+              "hashtags_used": ["$${token_ticker}", "DeFi", "Crypto"],
+      "character_counts": {{"main_tweet_text": 245, "main_tweet_total": 245}},
   "approach": "engaging"
 }}
 
