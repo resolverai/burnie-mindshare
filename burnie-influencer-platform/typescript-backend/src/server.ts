@@ -39,6 +39,7 @@ import twitterPostingRoutes from './routes/twitterPosting';
 import executionRoutes from './routes/execution';
 import yapperInterfaceRoutes from './routes/yapperInterface';
 import contentApprovalRoutes from './routes/contentApproval';
+import textOnlyRegenerationRoutes from './routes/textOnlyRegeneration';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -130,6 +131,7 @@ app.use('/api/twitter', twitterPostingRoutes); // Twitter posting and management
 app.use('/api/execution', executionRoutes); // Execution tracking for yapper interface
 app.use('/api/yapper-interface', yapperInterfaceRoutes); // Yapper interface content generation
 app.use('/api/content-approval', contentApprovalRoutes); // Content approval and biddable marking
+app.use('/api/text-only-regeneration', textOnlyRegenerationRoutes); // Text-only content regeneration
 
 // Start server
 const startServer = async () => {
@@ -159,7 +161,6 @@ const startServer = async () => {
                 const expiredFlows = await contentRepository
                   .createQueryBuilder('content')
                   .where('content.inPurchaseFlow = :inPurchaseFlow', { inPurchaseFlow: true })
-                  .andWhere('content.purchaseFlowExpiresAt < :now', { now: new Date() })
                   .getMany();
                 
                 if (expiredFlows.length > 0) {
@@ -167,7 +168,6 @@ const startServer = async () => {
                     content.inPurchaseFlow = false;
                     content.purchaseFlowInitiatedBy = null;
                     content.purchaseFlowInitiatedAt = null;
-                    content.purchaseFlowExpiresAt = null;
                     await contentRepository.save(content);
                   }
                   

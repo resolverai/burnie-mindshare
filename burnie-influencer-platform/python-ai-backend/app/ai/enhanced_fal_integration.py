@@ -1045,7 +1045,7 @@ class FalAIClient:
         enable_safety_checker: bool = True,
         sync_mode: bool = False,
         custom_params: Optional[Dict[str, Any]] = None,
-        on_queue_update: Optional[Callable] = None
+        on_queue_update: Optional[Callable[[], None]] = None
     ) -> Dict[str, Any]:
         """
         Generate image using specified model

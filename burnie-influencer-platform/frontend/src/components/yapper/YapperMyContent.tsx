@@ -56,10 +56,32 @@ interface ContentItem {
   transaction_hash?: string
   treasury_transaction_hash?: string
   acquisition_type: 'bid' | 'purchase'
+  // Text-only regeneration support
+  isAvailable?: boolean
+  imagePrompt?: string
+  updatedTweet?: string
+  updatedThread?: string[]
 }
 
 export default function YapperMyContent() {
   const { address } = useAccount()
+  
+  // Helper function to get display content based on priority algorithm
+  const getDisplayContent = (content: ContentItem) => {
+    // Always prioritize updated content if it exists (regardless of availability status)
+    if (content.updatedTweet || content.updatedThread) {
+      return {
+        text: content.updatedTweet || content.content_text,
+        thread: content.updatedThread || content.tweet_thread || []
+      }
+    }
+    
+    // Fallback to original content
+    return {
+      text: content.content_text,
+      thread: content.tweet_thread || []
+    }
+  }
   
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('')
@@ -436,12 +458,27 @@ export default function YapperMyContent() {
           <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
             {allContent.map((item: ContentItem) => {
               const shouldUseMarkdown = isMarkdownContent(item.post_type)
-              const hasMarkdownSyntax = item.content_text?.includes('##') || item.content_text?.includes('**')
+              const displayContent = getDisplayContent(item)
+              
+              // Debug: Log content processing for items with updated content
+              if (item.updatedTweet || item.updatedThread) {
+                console.log('🔍 MyContent - Item with updates:', {
+                  id: item.id,
+                  hasUpdatedTweet: !!item.updatedTweet,
+                  hasUpdatedThread: !!item.updatedThread,
+                  originalText: item.content_text?.substring(0, 50) + '...',
+                  updatedText: item.updatedTweet?.substring(0, 50) + '...',
+                  displayText: displayContent.text?.substring(0, 50) + '...',
+                  isAvailable: item.isAvailable
+                });
+              }
+              
+              const hasMarkdownSyntax = displayContent.text?.includes('##') || displayContent.text?.includes('**')
               const forceMarkdown = hasMarkdownSyntax
               
               const { text, hashtags, characterCount, imageUrl } = (shouldUseMarkdown || forceMarkdown)
-                ? { text: item.content_text, hashtags: [], characterCount: item.content_text?.length || 0, imageUrl: null }
-                : formatTwitterContent(item.content_text)
+                ? { text: displayContent.text, hashtags: [], characterCount: displayContent.text?.length || 0, imageUrl: null }
+                : formatTwitterContent(displayContent.text)
               
               // For My Content, show original images since user owns the content
               const displayImage = item.content_images && item.content_images.length > 0 

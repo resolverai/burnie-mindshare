@@ -537,6 +537,75 @@ router.get('/content-old', async (req, res) => {
 });
 
 /**
+ * @route PUT /api/marketplace/content/:id/update-text-only
+ * @desc Update content with text-only regeneration data from Python backend
+ */
+router.put('/content/:id/update-text-only', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { updatedTweet, updatedThread, imagePrompt } = req.body;
+    
+    if (!id || isNaN(parseInt(id))) {
+      res.status(400).json({
+        error: 'Invalid content ID',
+        message: 'Valid content ID is required'
+      });
+      return;
+    }
+    
+    if (!updatedTweet) {
+      res.status(400).json({
+        error: 'Missing required fields',
+        message: 'updatedTweet is required'
+      });
+      return;
+    }
+    
+    logger.info(`📝 Updating content ${id} with text-only regeneration data`);
+    
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const content = await contentRepository.findOne({
+      where: { id: parseInt(id) }
+    });
+    
+    if (!content) {
+      res.status(404).json({
+        error: 'Content not found',
+        message: 'Content with this ID not found'
+      });
+      return;
+    }
+    
+    // Update the content with new text data
+    content.updatedTweet = updatedTweet;
+    content.updatedThread = updatedThread || [];
+    content.imagePrompt = imagePrompt || '';
+    
+    await contentRepository.save(content);
+    
+    logger.info(`✅ Successfully updated content ${id} with text-only regeneration data`);
+    
+    res.json({
+      success: true,
+      message: 'Content updated successfully',
+      content: {
+        id: content.id,
+        updatedTweet: content.updatedTweet,
+        updatedThread: content.updatedThread,
+        imagePrompt: content.imagePrompt
+      }
+    });
+    
+  } catch (error) {
+    logger.error(`❌ Error updating content ${req.params.id}:`, error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
  * @route GET /api/marketplace/content/:id
  * @desc Get specific content details with bidding information
  */
@@ -578,6 +647,10 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
       asking_price: Number(content.biddingAskPrice || content.askingPrice || 0),
       bidding_ask_price: Number(content.biddingAskPrice || content.askingPrice || 0),
       post_type: content.postType || 'thread',
+      // Add text-only regeneration fields
+      updatedTweet: content.updatedTweet || null,
+      updatedThread: content.updatedThread || null,
+      imagePrompt: content.imagePrompt || null,
       creator: {
         id: content.creator?.id,
         username: content.creator?.username || 'Anonymous',
@@ -598,6 +671,7 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
         (content.isBiddable ? content.createdAt.toISOString() : null),
       is_biddable: content.isBiddable,
       is_available: content.isAvailable,
+      isAvailable: content.isAvailable, // Add this for frontend compatibility
       approval_status: content.approvalStatus
     };
 
@@ -1663,6 +1737,10 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
       quality_score: Number(purchase.content.qualityScore),
       asking_price: Number(purchase.content.askingPrice),
       post_type: purchase.content.postType || 'thread',
+      // Add text-only regeneration fields
+      updatedTweet: purchase.content.updatedTweet || null,
+      updatedThread: purchase.content.updatedThread || null,
+      imagePrompt: purchase.content.imagePrompt || null,
       creator: {
         username: purchase.content.creator?.username || 'Anonymous',
         reputation_score: purchase.content.creator?.reputationScore || 0
@@ -3532,7 +3610,7 @@ router.post('/purchase/:id/confirm', async (req: Request, res: Response): Promis
       purchase.content.inPurchaseFlow = false;
       purchase.content.purchaseFlowInitiatedBy = null;
       purchase.content.purchaseFlowInitiatedAt = null;
-      purchase.content.purchaseFlowExpiresAt = null;
+      // purchaseFlowExpiresAt field removed - no longer needed
       await contentRepository.save(purchase.content);
       
       logger.info(`Content ${purchase.content.id} marked as unavailable and purchase flow cleared after successful purchase`);
@@ -4759,47 +4837,34 @@ router.post('/content/:id/check-availability', async (req: Request, res: Respons
     if (content.inPurchaseFlow) {
       // Check if the purchase flow has expired
       const now = new Date();
-      if (content.purchaseFlowExpiresAt && now > content.purchaseFlowExpiresAt) {
-        // Purchase flow expired, reset it
-        content.inPurchaseFlow = false;
-        content.purchaseFlowInitiatedBy = null;
-        content.purchaseFlowInitiatedAt = null;
-        content.purchaseFlowExpiresAt = null;
-        await contentRepository.save(content);
-        
-        logger.info(`🔄 Purchase flow expired for content ${id}, reset to available`);
-      } else {
-        // Content is in active purchase flow
-        const timeUntilExpiry = content.purchaseFlowExpiresAt ? 
-          Math.ceil((content.purchaseFlowExpiresAt.getTime() - now.getTime()) / 1000 / 60) : 5;
-        
-        res.json({
-          success: true,
-          data: {
-            available: false,
-            inPurchaseFlow: true,
-            purchaseState: 'in_purchase_flow',
-            message: 'This content is being purchased by another user',
-            estimatedWaitTime: `${timeUntilExpiry} minutes`,
-            canRetry: true
-          }
-        });
-        return;
-      }
+      // Purchase flow expiry logic removed - no longer needed
+      // Content is in active purchase flow
+      const timeUntilExpiry = 5; // Default 5 minutes
+          
+      res.json({
+        success: true,
+        data: {
+          available: false,
+          inPurchaseFlow: true,
+          purchaseState: 'in_purchase_flow',
+          message: 'This content is being purchased by another user',
+          estimatedWaitTime: `${timeUntilExpiry} minutes`,
+          canRetry: true
+        }
+      });
+      return;
     }
 
     // Content is available, reserve it for this user
     const PURCHASE_FLOW_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-    const expiresAt = new Date(Date.now() + PURCHASE_FLOW_TIMEOUT);
     
     content.inPurchaseFlow = true;
     content.purchaseFlowInitiatedBy = walletAddress;
     content.purchaseFlowInitiatedAt = new Date();
-    content.purchaseFlowExpiresAt = expiresAt;
     
     await contentRepository.save(content);
     
-    logger.info(`🔒 Content ${id} reserved for purchase by ${walletAddress} until ${expiresAt}`);
+    logger.info(`🔒 Content ${id} reserved for purchase by ${walletAddress}`);
 
     res.json({
       success: true,
@@ -4808,7 +4873,7 @@ router.post('/content/:id/check-availability', async (req: Request, res: Respons
         inPurchaseFlow: false,
         purchaseState: 'reserved',
         message: 'Content reserved for purchase',
-        expiresAt: expiresAt.toISOString(),
+        expiresAt: new Date(Date.now() + PURCHASE_FLOW_TIMEOUT).toISOString(),
         timeoutMinutes: 5
       }
     });
@@ -4859,7 +4924,6 @@ router.post('/content/:id/release-purchase-flow', async (req: Request, res: Resp
       content.inPurchaseFlow = false;
       content.purchaseFlowInitiatedBy = null;
       content.purchaseFlowInitiatedAt = null;
-      content.purchaseFlowExpiresAt = null;
       
       await contentRepository.save(content);
       

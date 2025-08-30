@@ -1145,7 +1145,8 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
       approvalStatus: 'pending', // Awaiting user approval in mining interface
       generationMetadata: content_data.generation_metadata || {},
       postType: content_data.post_type || 'thread', // Store the post type (shitpost, longpost, or thread)
-      source: source || 'mining_interface' // Store the source of the request
+      source: source || 'mining_interface', // Store the source of the request
+      imagePrompt: content_data.imagePrompt || null // Store the captured image prompt
     });
 
     const savedContent = await contentRepository.save(marketplaceContent);

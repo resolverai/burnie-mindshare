@@ -46,6 +46,11 @@ interface ContentItem {
   post_type?: string
   approved_at?: string
   bidding_enabled_at?: string
+  // Text-only regeneration support
+  imagePrompt?: string
+  updatedTweet?: string
+  updatedThread?: string[]
+  isAvailable?: boolean
 }
 
 interface PurchaseContentModalProps {
@@ -73,23 +78,196 @@ export default function PurchaseContentModal({
   const router = useRouter()
   
   // Helper function to get the current content to display
-  // Prioritizes generated content over original content prop to avoid showing old content
+  // Prioritizes content with updated text over original content
   const getCurrentContent = (): ContentItem | null => {
-    // If we have generated content and it's different from the original content, use generated content
-    if (hasGeneratedContent && generatedContent && generatedContent.id !== originalContent?.id) {
-      console.log('🔍 getCurrentContent: Using generated content', { 
-        generatedContentId: generatedContent.id, 
-        originalContentId: originalContent?.id 
-      })
+    // First priority: Check if we have content with updated text (text-only regeneration)
+    if (localContent && (localContent.updatedTweet || localContent.updatedThread)) {
+      return localContent
+    }
+    
+    // Second priority: Check if generated content has updated text (text-only regeneration)
+    if (hasGeneratedContent && generatedContent && (generatedContent.updatedTweet || generatedContent.updatedThread)) {
       return generatedContent
     }
     
-    // Otherwise use local content (which should be the most current)
-    console.log('🔍 getCurrentContent: Using local content', { 
-      localContentId: localContent?.id, 
-      originalContentId: originalContent?.id 
-    })
+    // Third priority: Check if we have generated content (full regeneration)
+    if (hasGeneratedContent && generatedContent) {
+      return generatedContent
+    }
+    
+    // Fourth priority: Use local content (which should be the most current)
     return localContent
+  }
+  
+  // Poll for content update after text-only generation completion
+  const pollForContentUpdate = async (execId: string) => {
+    const currentContent = getCurrentContent();
+    if (!currentContent) return;
+    
+    console.log('🔄 Polling for content update for ID:', currentContent.id);
+    
+    // Poll every 1 second for up to 30 seconds
+    const maxAttempts = 30;
+    let attempts = 0;
+    
+    const pollInterval = setInterval(async () => {
+      attempts++;
+      console.log(`🔄 Content update poll attempt ${attempts}/${maxAttempts}`);
+      
+      try {
+        const response = await fetch(`/api/marketplace/content/${currentContent.id}`);
+        if (response.ok) {
+          const result = await response.json();
+          
+          if (result.success && result.data?.content) {
+            const freshContent = result.data.content;
+            console.log('📡 Fresh content polled:', {
+              id: freshContent.id,
+              updatedTweet: freshContent.updatedTweet,
+              updatedThread: freshContent.updatedThread,
+              hasUpdates: !!(freshContent.updatedTweet || freshContent.updatedThread)
+            });
+            
+            // Check if content has been updated
+            if (freshContent.updatedTweet || freshContent.updatedThread) {
+              clearInterval(pollInterval);
+              console.log('✅ Content update detected! Updating frontend state...');
+              
+              // Update local content with the new data
+              // For text-only generation, preserve existing image and only update text fields
+              const typedContent: ContentItem = {
+                ...freshContent, // Start with fresh content as base
+                // Only update the text fields
+                updatedTweet: freshContent.updatedTweet || undefined,
+                updatedThread: freshContent.updatedThread || undefined,
+                // Preserve existing image fields from local content
+                content_images: localContent?.content_images || freshContent.content_images,
+                watermark_image: localContent?.watermark_image || freshContent.watermark_image,
+                // Update other fields from fresh content
+                isAvailable: freshContent.isAvailable || freshContent.is_available || localContent?.isAvailable
+              };
+              
+              console.log('🔍 Typed content before state update:', typedContent);
+              console.log('🔍 Image preservation check:', {
+                localContentImages: localContent?.content_images,
+                localContentWatermark: localContent?.watermark_image,
+                freshContentImages: freshContent.content_images,
+                freshContentWatermark: freshContent.watermark_image,
+                finalImages: typedContent.content_images,
+                finalWatermark: typedContent.watermark_image
+              });
+              
+              setLocalContent(typedContent);
+              setGeneratedContent(typedContent);
+              setHasGeneratedContent(true);
+              
+              // Force a re-render by updating state
+              setForceUpdate(prev => prev + 1);
+              setContentUpdateTrigger(prev => prev + 1);
+              
+              // Stop shimmer and show success message
+              setIsGeneratingContent(false);
+              setGenerationStatus('✅ Text-only regeneration completed! Content updated successfully.');
+              
+              console.log('✅ Content update polling completed successfully');
+              
+              // Debug: Log state after update
+              console.log('🔍 State update completed:', {
+                localContentUpdatedTweet: typedContent.updatedTweet?.substring(0, 50) + '...',
+                localContentUpdatedThread: typedContent.updatedThread?.length || 0,
+                hasGeneratedContent: true,
+                contentUpdateTrigger: contentUpdateTrigger + 1
+              });
+              
+              return;
+            }
+          }
+        }
+        
+        // If we've reached max attempts, give up
+        if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+          console.warn('⚠️ Content update polling timed out after 30 seconds');
+          setGenerationStatus('⚠️ Text-only generation completed but content update not detected');
+          setIsGeneratingContent(false);
+        }
+        
+      } catch (error) {
+        console.error('❌ Error polling for content update:', error);
+        attempts++;
+        
+        if (attempts >= maxAttempts) {
+          clearInterval(pollInterval);
+          setGenerationStatus('❌ Error checking content update');
+          setIsGeneratingContent(false);
+        }
+      }
+    }, 1000); // Poll every 1 second
+  };
+
+  // Helper function to get the display content (original vs updated)
+  const getDisplayContent = (): { text: string; thread: string[] } => {
+    const currentContent = getCurrentContent()
+    if (!currentContent) return { text: '', thread: [] }
+    
+    // SIMPLIFIED LOGIC: If we have updated content, always show it
+    if (currentContent.updatedTweet || currentContent.updatedThread) {
+      const result = {
+        text: currentContent.updatedTweet || currentContent.content_text,
+        thread: currentContent.updatedThread || currentContent.tweet_thread || []
+      };
+      console.log('🔍 UPDATED CONTENT DISPLAYED:', {
+        text: result.text?.substring(0, 100) + '...',
+        threadLength: result.thread?.length || 0,
+        threadData: result.thread,
+        hasUpdatedTweet: !!currentContent.updatedTweet,
+        hasUpdatedThread: !!currentContent.updatedThread
+      });
+      return result;
+    }
+    
+    // Otherwise show original content
+    const result = {
+      text: currentContent.content_text,
+      thread: currentContent.tweet_thread || []
+    };
+    return result;
+  }
+  
+  // Enhanced version that fetches fresh data if needed
+  const getDisplayContentFresh = async (): Promise<{ text: string; thread: string[] }> => {
+    const currentContent = getCurrentContent()
+    if (!currentContent) return { text: '', thread: [] }
+    
+    // If we don't have updated content in state, try to fetch it fresh
+    if (!currentContent.updatedTweet && !currentContent.updatedThread) {
+      try {
+        console.log('🔄 Fetching fresh content for display...');
+        const response = await fetch(`/api/marketplace/content/${currentContent.id}`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data?.content) {
+            const freshContent = result.data.content;
+            console.log('🔄 Fresh content fetched:', freshContent);
+            
+            // If fresh content has updates, use it
+            if (freshContent.updatedTweet || freshContent.updatedThread) {
+              const result = {
+                text: freshContent.updatedTweet || currentContent.content_text,
+                thread: freshContent.updatedThread || currentContent.tweet_thread || []
+              };
+              console.log('🔍 getDisplayContentFresh - FRESH UPDATED CONTENT result:', result);
+              return result;
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to fetch fresh content:', error);
+      }
+    }
+    
+    // Fall back to regular getDisplayContent
+    return getDisplayContent();
   }
   
   // Helper function to check if URL is a presigned S3 URL
@@ -108,43 +286,91 @@ export default function PurchaseContentModal({
   
   // Yapper interface content generation functions
   const generateContentFromYapper = async () => {
+    return generateContentFromYapperInternal(false)
+  }
+  
+  const generateTextOnlyContentFromYapper = async () => {
+    return generateContentFromYapperInternal(true)
+  }
+  
+  const generateContentFromYapperInternal = async (textOnly: boolean = false) => {
     const currentContent = getCurrentContent()
     if (!selectedYapper || !currentContent) return
     
     try {
       setIsGeneratingContent(true)
+      setIsTextOnlyGeneration(textOnly)
       setGenerationStatus('Starting content generation...')
       setGenerationProgress(0)
       
+      // If text-only mode is requested, check if it's enabled on the backend
+      let actualTextOnly = textOnly;
+      if (textOnly) {
+        try {
+          const modeResponse = await fetch('/api/text-only-regeneration/mode-status');
+          if (modeResponse.ok) {
+            const modeData = await modeResponse.json();
+            if (!modeData.textOnlyModeEnabled) {
+              console.log('🔄 Text-only mode disabled on backend, falling back to full regeneration');
+              actualTextOnly = false;
+              setIsTextOnlyGeneration(false);
+              setGenerationStatus('Text-only mode disabled, using full regeneration instead...');
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Could not check text-only mode status, falling back to full regeneration:', error);
+          actualTextOnly = false;
+          setIsTextOnlyGeneration(false);
+        }
+      }
+      
       // Call TypeScript backend to start content generation
-      const response = await fetch('/api/yapper-interface/generate-content', {
+      const endpoint = actualTextOnly ? '/api/text-only-regeneration/regenerate-text' : '/api/yapper-interface/generate-content'
+      
+      // Update status message based on actual mode
+      if (textOnly && !actualTextOnly) {
+        setGenerationStatus('Starting full regeneration (text-only mode disabled)...');
+      } else if (actualTextOnly) {
+        setGenerationStatus('Starting text-only regeneration...');
+      } else {
+        setGenerationStatus('Starting full content generation...');
+      }
+      
+      const requestBody = actualTextOnly ? {
+        content_id: currentContent.id,
+        wallet_address: address,
+        selected_yapper_handle: selectedYapper,
+        post_type: currentContent.post_type || 'thread'
+      } : {
+        wallet_address: address,
+        campaigns: [{
+          campaign_id: typeof currentContent.campaign.id === 'string' ? parseInt(currentContent.campaign.id) : currentContent.campaign.id,
+          agent_id: 1, // Default agent
+          campaign_context: {
+            // Provide some basic context for the campaign
+            campaign_title: currentContent.campaign.title || 'Unknown Campaign',
+            platform_source: currentContent.campaign.platform_source || 'Unknown Platform',
+            project_name: currentContent.campaign.project_name || 'Unknown Project',
+            reward_token: currentContent.campaign.reward_token || 'Unknown Token',
+            post_type: currentContent.post_type || 'thread'
+          },
+          post_type: currentContent.post_type || 'thread',
+          include_brand_logo: true,
+          source: 'yapper_interface',
+          selected_yapper_handle: selectedYapper,
+          price: getDisplayPrice(currentContent)
+        }],
+        user_preferences: {},
+        user_api_keys: {}, // Empty for yapper interface - system will use system keys
+        source: 'yapper_interface'
+      }
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          wallet_address: address,
-          campaigns: [{
-            campaign_id: typeof currentContent.campaign.id === 'string' ? parseInt(currentContent.campaign.id) : currentContent.campaign.id,
-            agent_id: 1, // Default agent
-            campaign_context: {
-              // Provide some basic context for the campaign
-              campaign_title: currentContent.campaign.title || 'Unknown Campaign',
-              platform_source: currentContent.campaign.platform_source || 'Unknown Platform',
-              project_name: currentContent.campaign.project_name || 'Unknown Project',
-              reward_token: currentContent.campaign.reward_token || 'Unknown Token',
-              post_type: currentContent.post_type || 'thread'
-            },
-            post_type: currentContent.post_type || 'thread',
-            include_brand_logo: true,
-            source: 'yapper_interface',
-            selected_yapper_handle: selectedYapper,
-            price: getDisplayPrice(currentContent)
-          }],
-          user_preferences: {},
-          user_api_keys: {}, // Empty for yapper interface - system will use system keys
-          source: 'yapper_interface'
-        })
+        body: JSON.stringify(requestBody)
       })
       
       if (!response.ok) {
@@ -157,24 +383,86 @@ export default function PurchaseContentModal({
       setGenerationProgress(10)
       
       // Start polling for execution status
-      startExecutionPolling(result.execution_id)
+      startExecutionPolling(result.execution_id, actualTextOnly)
       
     } catch (error) {
       console.error('Error starting content generation:', error)
       setGenerationStatus('Failed to start content generation')
       setIsGeneratingContent(false)
+      setIsTextOnlyGeneration(false)
     }
   }
-  
-  const startExecutionPolling = async (execId: string) => {
+
+  const refreshContentAfterTextOnlyGeneration = async () => {
+    try {
+      const currentContent = getCurrentContent();
+      if (!currentContent) return;
+      
+      console.log('🔄 Refreshing content for ID:', currentContent.id);
+      
+      // Add a small delay to ensure database transaction is committed
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Fetch the updated content from the backend
+      const response = await fetch(`/api/marketplace/content/${currentContent.id}`);
+      if (response.ok) {
+        const result = await response.json();
+        console.log('📡 API response:', result);
+        
+        if (result.success && result.data?.content) {
+          const updatedContent = result.data.content;
+          console.log('📝 Updated content received:', updatedContent);
+          console.log('📝 updatedTweet:', updatedContent.updatedTweet);
+          console.log('📝 updatedThread:', updatedContent.updatedThread);
+          console.log('🔍 Full API response structure:', JSON.stringify(result, null, 2));
+          console.log('🔍 Content object keys:', Object.keys(updatedContent));
+          console.log('🔍 Content object values:', Object.values(updatedContent));
+          
+          // Update local content with the new data
+          // Ensure the content matches our ContentItem interface
+          const typedContent: ContentItem = {
+            ...updatedContent,
+            // Explicitly map fields to ensure compatibility
+            updatedTweet: updatedContent.updatedTweet || undefined,
+            updatedThread: updatedContent.updatedThread || undefined,
+            isAvailable: updatedContent.isAvailable || updatedContent.is_available || undefined
+          };
+          
+          console.log('🔍 Typed content before state update:', typedContent);
+          
+          setLocalContent(typedContent);
+          setGeneratedContent(typedContent); // Use the properly typed content
+          setHasGeneratedContent(true);
+          
+          // Force a re-render by updating state
+          setForceUpdate(prev => prev + 1);
+          setContentUpdateTrigger(prev => prev + 1);
+          
+          // Stop shimmer and show success message
+          setIsGeneratingContent(false);
+          setGenerationStatus('✅ Text-only regeneration completed! Content updated successfully.');
+          
+          console.log('✅ Content refreshed after text-only generation:', updatedContent);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error refreshing content after text-only generation:', error);
+      setGenerationStatus('✅ Text-only generation completed! (Content refresh failed)');
+      setIsGeneratingContent(false);
+    }
+  };
+
+  const startExecutionPolling = async (execId: string, isTextOnly: boolean = false) => {
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`/api/yapper-interface/status/${execId}`)
+        const endpoint = isTextOnly ? `/api/text-only-regeneration/status/${execId}` : `/api/yapper-interface/status/${execId}`
+        const response = await fetch(endpoint)
         
         if (!response.ok) {
           clearInterval(pollInterval)
           setGenerationStatus('Failed to get execution status')
           setIsGeneratingContent(false)
+          setIsTextOnlyGeneration(false)
           return
         }
         
@@ -184,17 +472,25 @@ export default function PurchaseContentModal({
         
         if (status.status === 'completed') {
           clearInterval(pollInterval)
-          // Keep shimmer active during approval process
-          setGenerationStatus('Content generation completed! Starting approval process...')
           
-          // Store execution ID for the next steps
-          setExecutionId(execId)
-          
-          // Start approval process (shimmer continues until approval is complete)
-          await startApprovalProcess(execId)
+          if (isTextOnly) {
+            // For text-only generation, poll until content is actually updated
+            setGenerationStatus('Text-only generation completed! Waiting for content update...')
+            await pollForContentUpdate(execId);
+          } else {
+            // For full generation, keep shimmer active during approval process
+            setGenerationStatus('Content generation completed! Starting approval process...')
+            
+            // Store execution ID for the next steps
+            setExecutionId(execId)
+            
+            // Start approval process (shimmer continues until approval is complete)
+            await startApprovalProcess(execId)
+          }
         } else if (status.status === 'failed') {
           clearInterval(pollInterval)
           setIsGeneratingContent(false)
+          setIsTextOnlyGeneration(false)
           setGenerationStatus(`Generation failed: ${status.error || 'Unknown error'}`)
         }
         
@@ -203,6 +499,7 @@ export default function PurchaseContentModal({
         clearInterval(pollInterval)
         setGenerationStatus('Error checking status')
         setIsGeneratingContent(false)
+        setIsTextOnlyGeneration(false)
       }
     }, 2000) // Poll every 2 seconds
   }
@@ -331,6 +628,7 @@ export default function PurchaseContentModal({
               // Mark that content has been generated and hide shimmer
               setHasGeneratedContent(true)
               setIsGeneratingContent(false)
+              setIsTextOnlyGeneration(false)
             } else {
               throw new Error('Failed to refresh URLs')
             }
@@ -347,6 +645,7 @@ export default function PurchaseContentModal({
             setGenerationStatus('✅ Content replaced! You can now preview and purchase the generated content.')
             setHasGeneratedContent(true)
             setIsGeneratingContent(false)
+            setIsTextOnlyGeneration(false)
           }
         } else {
           throw new Error(`Failed to fetch content: ${contentResponse.status} ${contentResponse.statusText}`)
@@ -355,6 +654,7 @@ export default function PurchaseContentModal({
         console.error('Error fetching generated content:', error)
         setGenerationStatus('✅ Content generated! You can now preview and purchase.')
         setIsGeneratingContent(false) // Hide shimmer even on error
+        setIsTextOnlyGeneration(false)
       }
       
     } catch (error) {
@@ -394,11 +694,15 @@ export default function PurchaseContentModal({
   
   // Yapper interface content generation state
   const [isGeneratingContent, setIsGeneratingContent] = useState(false)
+  const [isTextOnlyGeneration, setIsTextOnlyGeneration] = useState(false)
   const [hasGeneratedContent, setHasGeneratedContent] = useState(false) // Track if content has been generated
   const [executionId, setExecutionId] = useState<string | null>(null)
   const [generationProgress, setGenerationProgress] = useState(0)
   const [generationStatus, setGenerationStatus] = useState<string>('')
   const [generatedContent, setGeneratedContent] = useState<ContentItem | null>(null)
+  const [forceUpdate, setForceUpdate] = useState(0)
+  const [contentUpdateTrigger, setContentUpdateTrigger] = useState(0)
+  const [textOnlyModeEnabled, setTextOnlyModeEnabled] = useState<boolean | null>(null)
   
   // Store original content for fallback
   const [originalContent, setOriginalContent] = useState<ContentItem | null>(content)
@@ -423,24 +727,49 @@ export default function PurchaseContentModal({
       generatedContentId: generatedContent?.id
     })
     
-    // If we have generated content and it's different from the incoming content prop,
-    // prioritize the generated content to avoid showing old content
-    if (hasGeneratedContent && generatedContent && content?.id !== generatedContent.id) {
-      console.log('🔄 Prioritizing generated content over content prop to avoid showing old content')
-      // Don't overwrite generated content with incoming content prop
-      return
+    // Only update local content if we don't have generated content
+    // This prevents overwriting generated content (both text-only and full regeneration) with old content from props
+    if (!hasGeneratedContent || !generatedContent) {
+      console.log('🔄 Updating local content from prop (no generated content)')
+      setLocalContent(content)
+      setOriginalContent(content)
+    } else {
+      console.log('🛡️ Preserving generated content (not overwriting with prop)')
     }
     
-    // Only update if we don't have generated content or if this is the same content
-    setLocalContent(content)
-    setOriginalContent(content)
+    // If this is the same content but with updated fields (text-only regeneration),
+    // we should preserve the generated content state
+    if (hasGeneratedContent && generatedContent && content?.id === generatedContent.id) {
+      // Check if the new content has updated fields
+      if (content?.updatedTweet || content?.updatedThread) {
+        console.log('🔄 Content updated with new text, updating generated content state')
+        setGeneratedContent(content)
+        setLocalContent(content)
+        // Force re-render to update UI
+        setContentUpdateTrigger(prev => prev + 1)
+      }
+    }
     
-    // Reset generation state when new content is loaded (but preserve if we're in purchase flow)
+    // IMPORTANT: If we have local content with updates, preserve the generation state
+    // This prevents the generation state from being reset when content prop changes
+    if (localContent && (localContent.updatedTweet || localContent.updatedThread)) {
+      console.log('🛡️ Preserving generation state - local content has updates')
+      setHasGeneratedContent(true)
+      setGeneratedContent(localContent)
+    }
+    
+    // Reset generation state when new content is loaded (but preserve if we're in purchase flow OR if we have generated content)
     if (!isPurchased && !showTweetManagement && !purchasedContentDetails) {
-      console.log('🔄 Resetting generation state for new content')
-      setHasGeneratedContent(false)
-      setGeneratedContent(null)
-      setGenerationStatus('')
+      // Check if we have generated content - if so, don't reset generation state
+      if (hasGeneratedContent && generatedContent) {
+        console.log('🛡️ Preserving generation state - we have generated content')
+        // Don't reset - we want to keep the generation state to show generated content
+      } else {
+        console.log('🔄 Resetting generation state for new content (no generated content)')
+        setHasGeneratedContent(false)
+        setGeneratedContent(null)
+        setGenerationStatus('')
+      }
     } else {
       console.log('🛡️ Preserving generation state - purchase in progress or completed')
     }
@@ -457,12 +786,62 @@ export default function PurchaseContentModal({
     }
   }, [content, isPurchased, showTweetManagement, purchasedContentDetails, hasGeneratedContent, generatedContent])
   
+  // Check text-only mode status when component loads
+  useEffect(() => {
+    const checkTextOnlyMode = async () => {
+      try {
+        const modeResponse = await fetch('/api/text-only-regeneration/mode-status');
+        if (modeResponse.ok) {
+          const modeData = await modeResponse.json();
+          setTextOnlyModeEnabled(modeData.textOnlyModeEnabled);
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not check text-only mode status:', error);
+        setTextOnlyModeEnabled(false); // Default to full regeneration
+      }
+    };
+    
+    checkTextOnlyMode();
+  }, []);
+  
   // Reset generation state when user changes voice tone or yapper
   useEffect(() => {
     setHasGeneratedContent(false)
     setGeneratedContent(null)
     setGenerationStatus('')
+    setIsTextOnlyGeneration(false)
   }, [selectedVoiceTone, selectedYapper])
+  
+  // Note: Removed auto-refresh useEffects to prevent flickering and unnecessary API calls
+  // Content refresh now only happens when explicitly triggered by user actions or generation completion
+  
+  // Debug: Log content state changes (only when updates occur)
+  useEffect(() => {
+    if (localContent?.updatedTweet || localContent?.updatedThread || generatedContent?.updatedTweet || generatedContent?.updatedThread) {
+      console.log('🔍 CONTENT UPDATED:', {
+        hasUpdatedTweet: !!(localContent?.updatedTweet || generatedContent?.updatedTweet),
+        hasUpdatedThread: !!(localContent?.updatedThread || generatedContent?.updatedThread),
+        updatedTweetPreview: (localContent?.updatedTweet || generatedContent?.updatedTweet)?.substring(0, 50) + '...'
+      });
+    }
+  }, [localContent?.updatedTweet, localContent?.updatedThread, generatedContent?.updatedTweet, generatedContent?.updatedThread])
+  
+  // Debug: Log when hasGeneratedContent changes
+  useEffect(() => {
+    console.log('🔍 hasGeneratedContent changed:', hasGeneratedContent);
+  }, [hasGeneratedContent])
+  
+  // Debug: Log when generatedContent changes
+  useEffect(() => {
+    if (generatedContent) {
+      console.log('🔍 generatedContent changed:', {
+        id: generatedContent.id,
+        content_text: generatedContent.content_text?.substring(0, 50) + '...',
+        hasImages: generatedContent.content_images && generatedContent.content_images.length > 0,
+        imageCount: generatedContent.content_images?.length || 0
+      });
+    }
+  }, [generatedContent])
   
   // Handle purchase with content management
   const handlePurchaseWithContentManagement = async (contentToPurchase: ContentItem, price: number, currency: 'ROAST' | 'USDC', transactionHash?: string) => {
@@ -815,16 +1194,16 @@ export default function PurchaseContentModal({
     const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
     
     // Check if content has markdown syntax
-    const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
+          const hasMarkdownSyntax = getDisplayContent().text?.includes('##') || getDisplayContent().text?.includes('**')
     
     // Force markdown if we detect markdown syntax
     const forceMarkdown = hasMarkdownSyntax
     
     let tweetText = ''
     if (shouldUseMarkdown || forceMarkdown) {
-      tweetText = markdownToPlainText(currentContent.content_text)
+              tweetText = markdownToPlainText(getDisplayContent().text)
     } else {
-      const formatted = formatTwitterContentForManagement(currentContent.content_text)
+              const formatted = formatTwitterContentForManagement(getDisplayContent().text)
       tweetText = formatted.text || ''
     }
     
@@ -832,7 +1211,7 @@ export default function PurchaseContentModal({
       ? currentContent.content_images[0]
       : ''
     
-    const processedThread = currentContent.tweet_thread ? currentContent.tweet_thread.map(tweet => {
+    const processedThread = getDisplayContent().thread ? getDisplayContent().thread.map(tweet => {
       return {
         text: tweet,
         imageUrl: null
@@ -923,7 +1302,7 @@ export default function PurchaseContentModal({
     try {
       // Check if this is markdown content (longpost)
       const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
-      const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
+      const hasMarkdownSyntax = getDisplayContent().text?.includes('##') || getDisplayContent().text?.includes('**')
       const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
       
       let tweetText: string
@@ -931,10 +1310,10 @@ export default function PurchaseContentModal({
       
       if (forceMarkdown) {
         // For longpost content, convert markdown to plain text for Twitter
-        tweetText = markdownToPlainText(currentContent.content_text)
+        tweetText = markdownToPlainText(getDisplayContent().text)
       } else {
         // For regular content, use existing formatting
-        const formatted = formatTwitterContentForManagement(currentContent.content_text)
+        const formatted = formatTwitterContentForManagement(getDisplayContent().text)
         tweetText = formatted.text
         extractedImageUrl = formatted.imageUrl
       }
@@ -945,7 +1324,7 @@ export default function PurchaseContentModal({
           : extractedImageUrl
 
       // Prepare tweet data - also convert thread items if they contain markdown
-      const processedThread = currentContent.tweet_thread ? currentContent.tweet_thread.map(tweet => {
+      const processedThread = getDisplayContent().thread ? getDisplayContent().thread.map(tweet => {
         // Check if thread item contains markdown
         if (tweet.includes('##') || tweet.includes('**')) {
           return markdownToPlainText(tweet)
@@ -1080,9 +1459,101 @@ export default function PurchaseContentModal({
     }
 
     // If we reach here, token is valid and we can proceed with generation
-    console.log('🚀 Proceeding with content generation...')
-    // TODO: Add actual generation logic here
-    console.log('Generation would start here! (Token is valid and ready)')
+    console.log('🚀 Proceeding with content generation using My Voice...')
+    
+    // Use the same generation logic as yapper flow, but with user's Twitter handle
+    const currentContent = getCurrentContent()
+    if (!currentContent || !twitter.profile?.username) {
+      console.error('❌ Missing content or Twitter username')
+      return
+    }
+    
+    try {
+      setIsGeneratingContent(true)
+      setIsTextOnlyGeneration(false) // Default to full generation for My Voice
+      setGenerationStatus('Starting content generation in your voice...')
+      setGenerationProgress(0)
+      
+      // Check if text-only mode is enabled on the backend
+      let actualTextOnly = false;
+      try {
+        const modeResponse = await fetch('/api/text-only-regeneration/mode-status');
+        if (modeResponse.ok) {
+          const modeData = await modeResponse.json();
+          actualTextOnly = modeData.textOnlyModeEnabled;
+          setIsTextOnlyGeneration(actualTextOnly);
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not check text-only mode status, using full regeneration:', error);
+        actualTextOnly = false;
+        setIsTextOnlyGeneration(false);
+      }
+      
+      // Call TypeScript backend to start content generation
+      const endpoint = actualTextOnly ? '/api/text-only-regeneration/regenerate-text' : '/api/yapper-interface/generate-content'
+      
+      // Update status message based on actual mode
+      if (actualTextOnly) {
+        setGenerationStatus('Starting text-only regeneration in your voice...');
+      } else {
+        setGenerationStatus('Starting full content generation in your voice...');
+      }
+      
+      const requestBody = actualTextOnly ? {
+        content_id: currentContent.id,
+        wallet_address: address,
+        selected_yapper_handle: twitter.profile.username, // Use user's Twitter handle
+        post_type: currentContent.post_type || 'thread'
+      } : {
+        wallet_address: address,
+        campaigns: [{
+          campaign_id: typeof currentContent.campaign.id === 'string' ? parseInt(currentContent.campaign.id) : currentContent.campaign.id,
+          agent_id: 1, // Default agent
+          campaign_context: {
+            // Provide some basic context for the campaign
+            campaign_title: currentContent.campaign.title || 'Unknown Campaign',
+            platform_source: currentContent.campaign.platform_source || 'Unknown Platform',
+            project_name: currentContent.campaign.project_name || 'Unknown Project',
+            reward_token: currentContent.campaign.reward_token || 'Unknown Token',
+            post_type: currentContent.post_type || 'thread'
+          },
+          post_type: currentContent.post_type || 'thread',
+          include_brand_logo: true,
+          source: 'yapper_interface',
+          selected_yapper_handle: twitter.profile.username, // Use user's Twitter handle
+          price: getDisplayPrice(currentContent)
+        }],
+        user_preferences: {},
+        user_api_keys: {}, // Empty for yapper interface - system will use system keys
+        source: 'yapper_interface'
+      }
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to start content generation')
+      }
+      
+      const result = await response.json()
+      setExecutionId(result.execution_id)
+      setGenerationStatus('Content generation started. Polling for updates...')
+      setGenerationProgress(10)
+      
+      // Start polling for execution status
+      startExecutionPolling(result.execution_id, actualTextOnly)
+      
+    } catch (error) {
+      console.error('Error starting content generation:', error)
+      setGenerationStatus('Failed to start content generation')
+      setIsGeneratingContent(false)
+      setIsTextOnlyGeneration(false)
+    }
   }
 
   // Generate consistent random leaderboard position change for this content item
@@ -1498,15 +1969,15 @@ export default function PurchaseContentModal({
     const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
     
     // Check if content has markdown syntax
-    const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
+    const hasMarkdownSyntax = getDisplayContent().text?.includes('##') || getDisplayContent().text?.includes('**')
     
     // Force markdown if we detect markdown syntax
     const forceMarkdown = hasMarkdownSyntax
     
     // For longposts, use raw content; for others, use parsed content
     const { text, imageUrl: extractedImageUrl } = (shouldUseMarkdown || forceMarkdown)
-      ? { text: currentContent.content_text, imageUrl: null }
-      : formatTwitterContent(currentContent.content_text)
+              ? { text: getDisplayContent().text, imageUrl: null }
+        : formatTwitterContent(getDisplayContent().text)
     
     // Use watermarked image for preview, original for purchased content
     const imageUrl = isPurchased 
@@ -1532,17 +2003,65 @@ export default function PurchaseContentModal({
     return formatPlainText(text)
   }
 
-  // Get parsed content data
-  const contentData = getContentData()
+  // Get parsed content data - force recalculation when content changes
+  const contentData = (() => {
+    // This will recalculate every time contentUpdateTrigger changes
+    const _ = contentUpdateTrigger; // Force recalculation
+    
+    const currentContent = getCurrentContent()
+    if (!currentContent) return { text: '', hashtags: [], characterCount: 0, imageUrl: '', shouldUseMarkdown: false }
+    
+    // Debug: Log the actual content state being used
+    console.log('🔍 contentData - currentContent state:', {
+      id: currentContent.id,
+      content_text: currentContent.content_text?.substring(0, 50) + '...',
+      updatedTweet: currentContent.updatedTweet?.substring(0, 50) + '...',
+      updatedThread: currentContent.updatedThread?.length || 0,
+      hasUpdatedTweet: !!currentContent.updatedTweet,
+      hasUpdatedThread: !!currentContent.updatedThread
+    });
+    
+    const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
+    
+    // Check if content has markdown syntax
+    const hasMarkdownSyntax = getDisplayContent().text?.includes('##') || getDisplayContent().text?.includes('**')
+    
+    // Force markdown if we detect markdown syntax
+    const forceMarkdown = hasMarkdownSyntax
+    
+    // For longposts, use raw content; for others, use parsed content
+    const { text, imageUrl: extractedImageUrl } = (shouldUseMarkdown || forceMarkdown)
+              ? { text: getDisplayContent().text, imageUrl: null }
+        : formatTwitterContent(getDisplayContent().text)
+    
+    // Use watermarked image for preview, original for purchased content
+    const imageUrl = isPurchased 
+      ? (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
+      : (currentContent.watermark_image || (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl))
+    
+    const hashtags = extractHashtags(text)
+    
+    const result = {
+      text: text || '',
+      hashtags,
+      characterCount: text?.length || 0,
+      imageUrl,
+      shouldUseMarkdown: Boolean(shouldUseMarkdown || forceMarkdown)
+    }
+    
+    // Debug: Log when contentData is recalculated
+    console.log('🔍 contentData recalculated:', {
+      trigger: contentUpdateTrigger,
+      text: result.text?.substring(0, 100) + '...',
+      hasUpdatedTweet: !!currentContent.updatedTweet,
+      hasUpdatedThread: !!currentContent.updatedThread
+    });
+    
+    return result
+  })()
 
   // Debug logging for content parsing (similar to mining interface)
   const currentContent = getCurrentContent()
-  console.log('🔍 PurchaseModal: Post type:', currentContent?.post_type)
-  console.log('🔍 PurchaseModal: Should use markdown:', contentData.shouldUseMarkdown)
-  console.log('🔍 PurchaseModal: Has markdown syntax:', currentContent?.content_text?.includes('##') || currentContent?.content_text?.includes('**'))
-  console.log('🔍 PurchaseModal: Raw content length:', currentContent?.content_text?.length)
-  console.log('🔍 PurchaseModal: Parsed text length:', contentData.text?.length)
-  console.log('🖼️ PurchaseModal: Image URL:', contentData.imageUrl)
 
   // Calculate USDC price
           const usdcPrice = roastPrice && currentContent ? (getDisplayPrice(currentContent) * roastPrice).toFixed(2) : '0.00'
@@ -1694,7 +2213,7 @@ export default function PurchaseContentModal({
                 {/* Continuous Thread Line - Only show for threads, not longposts */}
                 {(() => {
                   const currentContent = getCurrentContent()
-                  return currentContent?.tweet_thread && currentContent.tweet_thread.length > 1 && !contentData.shouldUseMarkdown
+                  return getDisplayContent().thread && getDisplayContent().thread.length > 0 && !contentData.shouldUseMarkdown
                 })() && (
                   <div className="absolute left-5 top-10 bottom-0 w-0.5 bg-gray-600 z-0"></div>
                 )}
@@ -1732,7 +2251,7 @@ export default function PurchaseContentModal({
                       {contentData.shouldUseMarkdown ? (
                         <>
                           {/* Longpost Image at top */}
-                          {isGeneratingContent ? (
+                          {isGeneratingContent && !isTextOnlyGeneration ? (
                             <ImageShimmer />
                           ) : (
                             contentData.imageUrl ? (
@@ -1761,6 +2280,7 @@ export default function PurchaseContentModal({
                                 color: 'white'
                               }}
                             >
+
                               {formatContentText(contentData.text, contentData.shouldUseMarkdown)}
                             </div>
                             )}
@@ -1773,12 +2293,15 @@ export default function PurchaseContentModal({
                             {isGeneratingContent ? (
                               <TextShimmer />
                             ) : (
-                              formatContentText(contentData.text, contentData.shouldUseMarkdown)
+                              <>
+
+                                {formatContentText(contentData.text, contentData.shouldUseMarkdown)}
+                              </>
                             )}
                           </div>
                           
                           {/* Tweet Images for regular content */}
-                          {isGeneratingContent ? (
+                          {isGeneratingContent && !isTextOnlyGeneration ? (
                             <ImageShimmer />
                           ) : (
                             contentData.imageUrl ? (
@@ -1806,8 +2329,15 @@ export default function PurchaseContentModal({
                 {/* Thread Replies - Only show for threads, not longposts */}
                 {(() => {
                   const currentContent = getCurrentContent()
-                  if (currentContent?.tweet_thread && currentContent.tweet_thread.length > 1 && !contentData.shouldUseMarkdown) {
-                    return currentContent.tweet_thread.slice(1).map((tweet, index) => (
+                  const threadData = getDisplayContent().thread
+                  console.log('🔍 Thread display debug:', {
+                    hasThread: !!threadData,
+                    threadLength: threadData?.length || 0,
+                    threadData: threadData,
+                    shouldUseMarkdown: contentData.shouldUseMarkdown
+                  })
+                  if (threadData && threadData.length > 0 && !contentData.shouldUseMarkdown) {
+                    return threadData.map((tweet, index) => (
                       <div key={index} className="relative pb-3">
                         <div className="flex gap-3 pr-2">
                           <div className="relative flex-shrink-0">
@@ -1990,6 +2520,8 @@ export default function PurchaseContentModal({
                         {/* Generate Content Button - Removed since main action button now handles this */}
                         
                         {/* Generation Status - Removed for cleaner UI experience */}
+                        
+                        
                       </div>
                     )}
 
@@ -2037,7 +2569,7 @@ export default function PurchaseContentModal({
                               </div>
                             </div>
 
-                            {/* Fee row + Generate button */}
+                            {/* Fee row */}
                             <div className="flex items-center justify-between p-2 xs:p-2 md:p-2 bg-[#220808]/50 rounded-lg">
                               <span className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Extra fee per tweet</span>
                               <div className="text-right text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">
@@ -2045,16 +2577,6 @@ export default function PurchaseContentModal({
                                 <span className="text-green-400 ml-2 font-semibold">FREE</span>
                               </div>
                             </div>
-                            
-                            <button 
-                              onClick={handleGenerate}
-                              className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-lg py-2 xs:py-2.5 md:py-2.5 cursor-pointer hover:bg-[#FD7A10]/10 transition-colors text-[6px] xs:text-[12px] md:text-[16px] font-medium"
-                            >
-                              <svg className="w-3.5 xs:w-4 md:w-4 h-3.5 xs:h-4 md:h-4 mr-1.5 xs:mr-2 md:mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                              </svg>
-                              Generate
-                            </button>
                           </div>
                         )}
                       </div>
@@ -2138,9 +2660,48 @@ export default function PurchaseContentModal({
                             {isLoading ? 'Processing...' : 'Buy Tweet'}
                           </button>
                         ) : (
-                          // Content not generated yet - show Generate button with spinner
+                          // Content not generated yet - show single Generate button based on mode
+                          <div className="flex flex-col gap-3">
+                            <button
+                              onClick={textOnlyModeEnabled ? generateTextOnlyContentFromYapper : generateContentFromYapper}
+                              disabled={isGeneratingContent || !address || textOnlyModeEnabled === null}
+                              className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                              {textOnlyModeEnabled === null && (
+                                <svg className="animate-spin h-5 w-5 text-white mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                              )}
+                              {isGeneratingContent ? (
+                                <>
+                                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  <span>Generating...</span>
+                                </>
+                              ) : (
+                                `Generate Content using @${selectedYapper}`
+                              )}
+                            </button>
+                          </div>
+                        )
+                      ) : selectedVoiceTone === "mystyle" && twitter.isConnected ? (
+                        // My Voice interface - show different buttons based on generation state
+                        hasGeneratedContent ? (
+                          // Content has been generated - show Buy Tweet button
                           <button
-                            onClick={generateContentFromYapper}
+                            onClick={handlePurchase}
+                            disabled={isLoading}
+                            className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isLoading ? 'Processing...' : 'Buy Tweet'}
+                          </button>
+                        ) : (
+                          // Content not generated yet - show Generate button
+                          <button
+                            onClick={handleGenerate}
                             disabled={isGeneratingContent || !address}
                             className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                           >
@@ -2153,7 +2714,7 @@ export default function PurchaseContentModal({
                                 <span>Generating...</span>
                               </>
                             ) : (
-                              `Generate Content from @${selectedYapper}`
+                              `Generate Content using @${twitter.profile?.username || 'handle'}`
                             )}
                           </button>
                         )
@@ -2416,7 +2977,7 @@ export default function PurchaseContentModal({
                               
                               // Check if this is markdown content (longpost)
                               const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
-                              const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
+                              const hasMarkdownSyntax = getDisplayContent().text?.includes('##') || getDisplayContent().text?.includes('**')
                               const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
                               
                               let tweetText: string
@@ -2424,10 +2985,10 @@ export default function PurchaseContentModal({
                               
                               if (forceMarkdown) {
                                 // For longpost content, convert markdown to plain text for copying/posting
-                                tweetText = markdownToPlainText(currentContent.content_text)
+                                tweetText = markdownToPlainText(getDisplayContent().text)
                               } else {
                                 // For regular content, use existing formatting
-                                const formatted = formatTwitterContentForManagement(currentContent.content_text)
+                                const formatted = formatTwitterContentForManagement(getDisplayContent().text)
                                 tweetText = formatted.text
                                 extractedImageUrl = formatted.imageUrl
                               }
@@ -2438,7 +2999,7 @@ export default function PurchaseContentModal({
                                 : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
 
                               // Prepare tweets for copy - also process thread items if they contain markdown
-                              const processedThreadItems = currentContent?.tweet_thread ? currentContent.tweet_thread.map(tweet => {
+                              const processedThreadItems = getDisplayContent().thread ? getDisplayContent().thread.map(tweet => {
                                 // Check if thread item contains markdown
                                 if (tweet.includes('##') || tweet.includes('**')) {
                                   return markdownToPlainText(tweet)
@@ -2776,7 +3337,7 @@ export default function PurchaseContentModal({
                           
                           // Check if this is markdown content (longpost)
                           const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
-                          const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
+                          const hasMarkdownSyntax = getDisplayContent().text?.includes('##') || getDisplayContent().text?.includes('**')
                           const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
                           
                           let tweetText: string
@@ -2784,10 +3345,10 @@ export default function PurchaseContentModal({
                           
                           if (forceMarkdown) {
                             // For longpost content, convert markdown to plain text for copying/posting
-                            tweetText = markdownToPlainText(currentContent.content_text)
+                            tweetText = markdownToPlainText(getDisplayContent().text)
                           } else {
                             // For regular content, use existing formatting
-                            const formatted = formatTwitterContentForManagement(currentContent.content_text)
+                            const formatted = formatTwitterContentForManagement(getDisplayContent().text)
                             tweetText = formatted.text
                             extractedImageUrl = formatted.imageUrl
                           }
@@ -2798,7 +3359,7 @@ export default function PurchaseContentModal({
                             : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
 
                           // Prepare tweets for copy - also process thread items if they contain markdown
-                          const processedThreadItems = currentContent?.tweet_thread ? currentContent.tweet_thread.map(tweet => {
+                          const processedThreadItems = getDisplayContent().thread ? getDisplayContent().thread.map(tweet => {
                             // Check if thread item contains markdown
                             if (tweet.includes('##') || tweet.includes('**')) {
                               return markdownToPlainText(tweet)
@@ -3103,7 +3664,7 @@ export default function PurchaseContentModal({
                                 </div>
                               </div>
 
-                              {/* Fee row + Generate button */}
+                              {/* Fee row */}
                               <div className="flex items-center justify-between p-2 xs:p-2 md:p-2 bg-[#220808]/50 rounded-lg">
                                 <span className="text-white/60 text-[8px] xs:text-[12px] md:text-[16px]">Extra fee per tweet</span>
                                 <div className="text-right text-white/60 text-[6px] xs:text-[12px] md:text-[16px]">
@@ -3111,17 +3672,7 @@ export default function PurchaseContentModal({
                                   <span className="text-green-400 ml-2 font-semibold">FREE</span>
                                 </div>
                               </div>
-                              
-                                <button 
-                                  onClick={handleGenerate}
-                                className="w-full text-[#FD7A10] border border-[#FD7A10] rounded-lg py-2 xs:py-2.5 md:py-2.5 cursor-pointer hover:bg-[#FD7A10]/10 transition-colors text-[6px] xs:text-[12px] md:text-[16px] font-medium"
-                                >
-                                <svg className="w-3.5 xs:w-4 md:w-4 h-3.5 xs:h-4 md:h-4 mr-1.5 xs:mr-2 md:mr-2 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                  </svg>
-                                  Generate
-                                </button>
-                      </div>
+                            </div>
                           )}
                         </>
                       )}
@@ -3233,13 +3784,24 @@ export default function PurchaseContentModal({
                         if (hasGeneratedContent) {
                           handlePurchase(); // Purchase generated content
                         } else {
-                          generateContentFromYapper(); // Generate content
+                          // Use mode-based function selection
+                          if (textOnlyModeEnabled) {
+                            generateTextOnlyContentFromYapper(); // Generate text-only content
+                          } else {
+                            generateContentFromYapper(); // Generate full content
+                          }
+                        }
+                      } else if (selectedVoiceTone === "mystyle" && twitter.isConnected) {
+                        if (hasGeneratedContent) {
+                          handlePurchase(); // Purchase generated content
+                        } else {
+                          handleGenerate(); // Generate content in user's voice
                         }
                       } else {
                         handlePurchase(); // Purchase existing content
                       }
                     }}
-                    disabled={isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)}
+                    disabled={isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent) || (selectedVoiceTone === "mystyle" && isGeneratingContent)}
                     className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 ${
                       isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)
                         ? 'bg-[#FD7A10] cursor-not-allowed' 
@@ -3252,7 +3814,7 @@ export default function PurchaseContentModal({
                         : 'bg-[#FD7A10] glow-orange-button hover:bg-[#e86d0f]'
                     } text-white flex items-center justify-center gap-2`}
                   >
-                    {isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent) ? (
+                    {isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent) || (selectedVoiceTone === "mystyle" && isGeneratingContent) ? (
                       <>
                         <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -3267,7 +3829,9 @@ export default function PurchaseContentModal({
                     ) : !hasAccess ? (
                       'Get Marketplace Access'
                     ) : selectedVoiceTone === "custom" && selectedYapper !== "" ? (
-                      hasGeneratedContent ? 'Buy Tweet' : `Generate Content from @${selectedYapper}`
+                      hasGeneratedContent ? 'Buy Tweet' : `Generate Content using @${selectedYapper}`
+                    ) : selectedVoiceTone === "mystyle" && twitter.isConnected ? (
+                      hasGeneratedContent ? 'Buy Tweet' : `Generate Content using @${twitter.profile?.username}`
                     ) : (
                       'Buy Tweet'
                     )}
@@ -3276,14 +3840,7 @@ export default function PurchaseContentModal({
               </ConnectButton.Custom>
                 </div>
                   </>
-                ) : (() => {
-                  console.log('🔍 Conditional rendering check:', { 
-                    showTweetManagement, 
-                    isPurchased, 
-                    hasPurchasedContentDetails: !!purchasedContentDetails 
-                  });
-                  return showTweetManagement;
-                })() ? (
+                ) : showTweetManagement ? (
               /* Tweet Management State */
               <div className="flex flex-col gap-4 h-full">
                 {/* Header with back button and close button */}
@@ -3547,7 +4104,7 @@ export default function PurchaseContentModal({
                       
                       // Check if this is markdown content (longpost)
                       const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
-                      const hasMarkdownSyntax = currentContent.content_text?.includes('##') || currentContent.content_text?.includes('**')
+                      const hasMarkdownSyntax = getDisplayContent().text?.includes('##') || getDisplayContent().text?.includes('**')
                       const forceMarkdown = Boolean(shouldUseMarkdown || hasMarkdownSyntax)
                       
                       let tweetText: string
@@ -3555,10 +4112,10 @@ export default function PurchaseContentModal({
                       
                       if (forceMarkdown) {
                         // For longpost content, convert markdown to plain text for copying/posting
-                        tweetText = markdownToPlainText(currentContent.content_text)
+                        tweetText = markdownToPlainText(getDisplayContent().text)
                       } else {
                         // For regular content, use existing formatting
-                        const formatted = formatTwitterContentForManagement(currentContent.content_text)
+                        const formatted = formatTwitterContentForManagement(getDisplayContent().text)
                         tweetText = formatted.text
                         extractedImageUrl = formatted.imageUrl
                       }
@@ -3569,7 +4126,7 @@ export default function PurchaseContentModal({
                         : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
 
                       // Prepare tweets for copy - also process thread items if they contain markdown
-                      const processedThreadItems = currentContent?.tweet_thread ? currentContent.tweet_thread.map(tweet => {
+                      const processedThreadItems = getDisplayContent().thread ? getDisplayContent().thread.map(tweet => {
                         // Check if thread item contains markdown
                         if (tweet.includes('##') || tweet.includes('**')) {
                           return markdownToPlainText(tweet)

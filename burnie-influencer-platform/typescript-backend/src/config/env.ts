@@ -102,6 +102,11 @@ const envSchema = Joi.object({
   // Yapper Interface Configuration
   YAPPER_INTERFACE_EXTRA_PRICE: Joi.number().min(0).default(0), // Extra ROAST amount for yapper interface content
   YAPPER_INTERFACE_CREATOR_WALLET: Joi.string().required(), // Wallet address for yapper interface content creation
+  
+  // Text-Only Regeneration Configuration
+  YAPPER_TEXT_ONLY_MODE: Joi.string().valid('true', 'false').default('false'), // Toggle between text-only and full regeneration
+  TEXT_ONLY_REGENERATION_COST: Joi.number().min(0).default(50), // Cost for text-only regeneration in ROAST
+  
   YAP_MARKET_API_URL: Joi.string().uri().default('https://api.yap.market'),
   
   // Content Scoring
@@ -118,6 +123,12 @@ const { error, value: envVars } = envSchema.validate(process.env);
 if (error) {
   throw new Error(`Config validation error: ${error.message}`);
 }
+
+// Debug logging for environment variables
+console.log('🔍 Environment variable debug:');
+console.log('  - YAPPER_TEXT_ONLY_MODE raw:', process.env.YAPPER_TEXT_ONLY_MODE);
+console.log('  - YAPPER_TEXT_ONLY_MODE parsed:', envVars.YAPPER_TEXT_ONLY_MODE);
+console.log('  - YAPPER_TEXT_ONLY_MODE type:', typeof envVars.YAPPER_TEXT_ONLY_MODE);
 
 // Export typed environment configuration
 export const env = {
@@ -254,6 +265,8 @@ export const env = {
   yapperInterface: {
     extraPrice: envVars.YAPPER_INTERFACE_EXTRA_PRICE,
     creatorWallet: envVars.YAPPER_INTERFACE_CREATOR_WALLET,
+    textOnlyMode: envVars.YAPPER_TEXT_ONLY_MODE,
+    textOnlyRegenerationCost: envVars.TEXT_ONLY_REGENERATION_COST,
   },
 
   // Content Scoring

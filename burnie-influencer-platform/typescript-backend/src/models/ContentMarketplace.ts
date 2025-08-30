@@ -98,8 +98,15 @@ export class ContentMarketplace {
   @Column({ name: 'purchase_flow_initiated_at', type: 'timestamp', nullable: true })
   purchaseFlowInitiatedAt!: Date | null
 
-  @Column({ name: 'purchase_flow_expires_at', type: 'timestamp', nullable: true })
-  purchaseFlowExpiresAt!: Date | null
+  // Text-Only Regeneration Support
+  @Column({ name: 'image_prompt', type: 'text', nullable: true })
+  imagePrompt!: string | null // Store the prompt that generated the original image
+
+  @Column({ name: 'updated_tweet', type: 'text', nullable: true })
+  updatedTweet!: string | null // Store the regenerated main tweet text
+
+  @Column({ name: 'updated_thread', type: 'jsonb', nullable: true })
+  updatedThread!: string[] | null // Store the regenerated thread items (similar to tweetThread)
 
   // Relations
   @ManyToOne(() => User, user => user.id)

@@ -46,6 +46,11 @@ interface TweetPreviewModalProps {
         transaction_hash?: string;
         treasury_transaction_hash?: string;
         acquisition_type: 'bid' | 'purchase';
+        // Text-only regeneration support
+        isAvailable?: boolean;
+        imagePrompt?: string;
+        updatedTweet?: string;
+        updatedThread?: string[];
     } | null;
     startPurchased?: boolean;
 }
@@ -80,6 +85,25 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
     const getInitialLetter = () => {
         const name = getDisplayName();
         return name.charAt(0).toUpperCase();
+    };
+
+    // Content priority helper function
+    const getDisplayContent = () => {
+        if (!contentData) return { text: '', thread: [] };
+        
+        // Always prioritize updated content if it exists (regardless of availability status)
+        if (contentData.updatedTweet || contentData.updatedThread) {
+            return {
+                text: contentData.updatedTweet || contentData.content_text,
+                thread: contentData.updatedThread || contentData.tweet_thread || []
+            };
+        }
+        
+        // Fallback to original content
+        return {
+            text: contentData.content_text,
+            thread: contentData.tweet_thread || []
+        };
     };
 
     // Content parsing functions
@@ -151,8 +175,21 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
     useEffect(() => {
         if (isOpen) {
             setIsPurchased(true);
+            
+            // Debug: Log content data when modal opens
+            if (contentData) {
+                console.log('🔍 TweetPreviewModal opened with content:', {
+                    id: contentData.id,
+                    hasUpdatedTweet: !!contentData.updatedTweet,
+                    hasUpdatedThread: !!contentData.updatedThread,
+                    originalText: contentData.content_text?.substring(0, 50) + '...',
+                    updatedText: contentData.updatedTweet?.substring(0, 50) + '...',
+                    displayContent: getDisplayContent(),
+                    isAvailable: contentData.isAvailable
+                });
+            }
         }
-    }, [isOpen]);
+    }, [isOpen, contentData]);
 
     // Helper function to detect mobile devices
     const isMobileDevice = () => {
@@ -237,17 +274,20 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
             setIsPostingToTwitter(true);
             setTwitterPostingResult(null);
             
+            // Get display content based on priority
+            const displayContent = getDisplayContent();
+            
             // For longpost content, convert markdown to plain text for Twitter
-            let tweetText = contentData.content_text;
+            let tweetText = displayContent.text;
             if (isMarkdownContent(contentData.post_type) || 
-                contentData.content_text?.includes('##') || 
-                contentData.content_text?.includes('**')) {
-                tweetText = markdownToPlainText(contentData.content_text);
+                displayContent.text?.includes('##') || 
+                displayContent.text?.includes('**')) {
+                tweetText = markdownToPlainText(displayContent.text);
             }
             
             // Prepare the payload - match backend expected format
             // Process thread items for markdown if needed
-            const processedThread = contentData.tweet_thread ? contentData.tweet_thread.map(tweet => {
+            const processedThread = displayContent.thread ? displayContent.thread.map(tweet => {
                 // Check if thread item contains markdown
                 if (tweet.includes('##') || tweet.includes('**')) {
                     return markdownToPlainText(tweet);
@@ -338,7 +378,8 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
     };
 
     // Parse content for display
-    const { text: tweetText, imageUrl: extractedImageUrl } = contentData ? formatTwitterContent(contentData.content_text) : { text: '', imageUrl: null };
+    const displayContent = getDisplayContent();
+    const { text: tweetText, imageUrl: extractedImageUrl } = contentData ? formatTwitterContent(displayContent.text) : { text: '', imageUrl: null };
     const displayImage = contentData?.content_images && contentData.content_images.length > 0 
         ? contentData.content_images[0] 
         : extractedImageUrl;
@@ -353,7 +394,7 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
             title: 'Tweet 1 (Image)', 
             image: displayImage 
         }] : []),
-        ...(contentData?.tweet_thread ? contentData.tweet_thread.map((tweet, idx) => ({ 
+        ...(displayContent.thread ? displayContent.thread.map((tweet, idx) => ({ 
             title: `Tweet ${idx + 2}`, 
             text: tweet 
         })) : [])
@@ -403,7 +444,7 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                             {/* Single Tweet Container with Thread Structure */}
                             <div className="relative">
                                 {/* Continuous Thread Line */}
-                                {contentData?.tweet_thread && contentData.tweet_thread.length > 0 && (
+                                {displayContent.thread && displayContent.thread.length > 0 && (
                                     <div className="absolute left-5 top-10 bottom-0 w-0.5 bg-gray-600 z-0"></div>
                                 )}
 
@@ -461,7 +502,7 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                 </div>
 
                                 {/* Thread Tweets */}
-                                {contentData?.tweet_thread && contentData.tweet_thread.map((tweet, idx) => (
+                                {displayContent.thread && displayContent.thread.map((tweet, idx) => (
                                     <div key={idx} className="relative pb-3">
                                         <div className="flex gap-3 pr-2">
                                             <div className="relative flex-shrink-0">

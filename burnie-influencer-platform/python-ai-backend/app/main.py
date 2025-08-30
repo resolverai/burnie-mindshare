@@ -496,6 +496,83 @@ async def get_active_sessions():
         logger.error(f"❌ Error getting active sessions: {e}")
         raise HTTPException(status_code=500, detail="Failed to get active sessions")
 
+# Text-only regeneration endpoint
+@app.post("/api/mining/text-only-regeneration", response_model=dict)
+async def start_text_only_regeneration(request: dict, background_tasks: BackgroundTasks):
+    """Start text-only regeneration using existing image and content context"""
+    try:
+        logger.info(f"🎯 Starting text-only regeneration for content: {request.get('content_id')}")
+        
+        # Extract request data
+        execution_id = request.get('execution_id')
+        content_id = request.get('content_id')
+        wallet_address = request.get('wallet_address')
+        selected_yapper_handle = request.get('selected_yapper_handle')
+        post_type = request.get('post_type', 'thread')
+        image_prompt = request.get('image_prompt', '')
+        content_text = request.get('content_text', '')
+        tweet_thread = request.get('tweet_thread', [])
+        source = request.get('source', 'yapper_interface_text_only')
+        
+        if not all([execution_id, content_id, wallet_address, selected_yapper_handle]):
+            raise HTTPException(status_code=400, detail="Missing required fields: execution_id, content_id, wallet_address, selected_yapper_handle")
+        
+        # Look up user by wallet address
+        from app.database.repositories.user_repository import UserRepository
+        user_repo = UserRepository()
+        
+        user = user_repo.get_user_by_wallet_address(wallet_address)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user_id = user.get('id')
+        logger.info(f"🔍 Found user ID: {user_id} for wallet: {wallet_address}")
+        
+        # Create mining session for text-only regeneration
+        mining_session = MiningSession(
+            session_id=execution_id,
+            user_id=user_id,
+            campaign_id=0,  # Will be set from content lookup
+            agent_id=1,  # Default agent for text-only
+            campaign_context={},
+            user_preferences={},
+            user_api_keys={},  # Use system keys for text-only
+            post_type=post_type,
+            include_brand_logo=False,  # No image generation needed
+            source=source
+        )
+        
+        # Start background task for text-only regeneration
+        background_tasks.add_task(
+            run_text_only_regeneration,
+            execution_id=execution_id,
+            session_id=execution_id,
+            user_id=user_id,
+            content_id=content_id,
+            selected_yapper_handle=selected_yapper_handle,
+            post_type=post_type,
+            image_prompt=image_prompt,
+            content_text=content_text,
+            tweet_thread=tweet_thread,
+            source=source
+        )
+        
+        logger.info(f"✅ Text-only regeneration started for execution: {execution_id}")
+        
+        return {
+            "execution_id": execution_id,
+            "status": "started",
+            "message": "Text-only regeneration started successfully",
+            "mode": "text_only",
+            "content_id": content_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error starting text-only regeneration: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start text-only regeneration: {str(e)}")
+
 # Background task for yapper interface content generation
 async def run_yapper_interface_generation(
     execution_id: str,
@@ -620,6 +697,130 @@ async def run_yapper_interface_generation(
         
     except Exception as e:
         logger.error(f"❌ Error in yapper interface generation for execution {execution_id}: {e}")
+
+# Background task for text-only regeneration
+async def run_text_only_regeneration(
+    execution_id: str,
+    session_id: str,
+    user_id: int,
+    content_id: int,
+    selected_yapper_handle: str,
+    post_type: str,
+    image_prompt: str,
+    content_text: str,
+    tweet_thread: list,
+    source: str = "yapper_interface_text_only"
+):
+    """Background task that runs text-only regeneration using CrewAI service"""
+    try:
+        logger.info(f"🧠 Starting text-only regeneration for execution: {execution_id}")
+        
+        # Create mining session for text-only regeneration
+        mining_session = MiningSession(
+            session_id=execution_id,
+            user_id=user_id,
+            campaign_id=0,  # Not needed for text-only
+            agent_id=1,  # Default agent
+            campaign_context={},
+            user_preferences={},
+            user_api_keys={},  # Use system keys
+            post_type=post_type,
+            include_brand_logo=False,  # No image generation
+            source=source
+        )
+        
+        # Initialize CrewAI service for text-only mode
+        crew_service = CrewAIService(
+            session_id=execution_id,
+            progress_tracker=progress_tracker,
+            websocket_manager=manager,
+            websocket_session_id=execution_id,
+            execution_id=execution_id
+        )
+        
+        # Set the mining session
+        crew_service.mining_session = mining_session
+        
+        # Set yapper-specific context
+        crew_service.selected_yapper_handle = selected_yapper_handle
+        
+        # Store image prompt and original content for text alignment
+        crew_service.stored_image_prompt = image_prompt
+        crew_service.stored_content_text = content_text
+        crew_service.stored_tweet_thread = tweet_thread
+        
+        # Use system API keys for text-only regeneration
+        from app.config.settings import settings
+        system_api_keys = {
+            'openai': settings.openai_api_key,
+            'anthropic': settings.anthropic_api_key,
+            'fal': settings.fal_api_key,
+            'google': settings.google_api_key
+        }
+        
+        logger.info(f"🔑 Using system API keys for text-only regeneration")
+        
+        # Run text-only content generation
+        result = await crew_service.generate_text_only_content(
+            mining_session,
+            user_api_keys=system_api_keys,
+            agent_id=1,
+            wallet_address="",  # Not needed for text-only
+            content_id=content_id
+        )
+        
+        logger.info(f"✅ Text-only regeneration completed for execution: {execution_id}")
+        
+        # Update execution status to completed via TypeScript backend
+        try:
+            from app.config.settings import settings
+            typescript_backend_url = settings.typescript_backend_url or "http://localhost:3001"
+            
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    f"{typescript_backend_url}/api/execution/{execution_id}/status",
+                    json={
+                        "status": "completed",
+                        "progress": 100,
+                        "message": "Text-only regeneration completed successfully"
+                    },
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Updated execution status to completed for: {execution_id}")
+                else:
+                    logger.warning(f"⚠️ Failed to update execution status: {response.status_code} - {response.text}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to update execution status: {e}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error in text-only regeneration for execution {execution_id}: {e}")
+        
+        # Update execution status to failed via TypeScript backend
+        try:
+            from app.config.settings import settings
+            typescript_backend_url = settings.typescript_backend_url or "http://localhost:3001"
+            
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    f"{typescript_backend_url}/api/execution/{execution_id}/status",
+                    json={
+                        "status": "failed",
+                        "progress": 0,
+                        "message": f"Text-only regeneration failed: {str(e)}"
+                    },
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Updated execution status to failed for: {execution_id}")
+                else:
+                    logger.warning(f"⚠️ Failed to update execution status: {response.status_code} - {response.text}")
+        except Exception as update_error:
+            logger.warning(f"⚠️ Failed to update execution status: {update_error}")
 
 # Background task for multi-campaign content generation
 async def run_multi_campaign_generation(

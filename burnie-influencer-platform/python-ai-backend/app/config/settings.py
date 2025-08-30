@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     yaps_kaito_api_url: str = Field(default="https://api.yaps.kaito.ai", env="YAPS_KAITO_API_URL")
     yap_market_api_url: str = Field(default="https://api.yap.market", env="YAP_MARKET_API_URL")
     
+    # Backend URLs
+    typescript_backend_url: str = Field(default="http://localhost:3001", env="TYPESCRIPT_BACKEND_URL")
+    
     # Security
     secret_key: str = Field(default="your-secret-key-here", env="SECRET_KEY")
     access_token_expire_minutes: int = Field(default=30, env="ACCESS_TOKEN_EXPIRE_MINUTES")

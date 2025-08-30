@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Type, Union
+from typing import Dict, List, Optional, Any, Type, Union, Callable
 import logging
 from concurrent.futures import ThreadPoolExecutor
 import re
@@ -234,6 +234,50 @@ class CrewAIService:
             await self._update_progress(0, f"Error: {str(e)}", error=str(e))
             raise
 
+    async def generate_text_only_content(self, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None, wallet_address: str = None, content_id: int = None) -> ContentGenerationResponse:
+        """Text-only content generation using existing image and content context"""
+        try:
+            logger.info(f"🚀 Starting text-only content generation for content: {content_id}")
+            
+            # Store mining session for access throughout the service
+            self.mining_session = mining_session
+            self.content_id = content_id
+            
+            # Store user API keys, agent ID, and wallet address
+            self.user_api_keys = user_api_keys or {}
+            self.agent_id = str(agent_id) if agent_id else "default-agent"
+            self.wallet_address = wallet_address or "unknown-wallet"
+            
+            # Phase 1: Initialize session data (minimal for text-only)
+            await self._update_progress(10, "Initializing text-only generation session...")
+            await self._initialize_text_only_session_data(mining_session, agent_id)
+            
+            # Phase 2: Set up only Text Content Creator agent
+            await self._update_progress(20, "Configuring Text Content Creator agent...")
+            self._setup_text_only_agents(mining_session)
+            
+            # Phase 3: Run text-only generation
+            await self._update_progress(30, "Starting text-only content generation...")
+            generation_result = await self._run_text_only_generation(mining_session)
+            
+            # Phase 4: Post-process and update database
+            await self._update_progress(90, "Finalizing text-only content...")
+            final_content = await self._post_process_text_only_content(generation_result, mining_session)
+            
+            # Phase 5: Update existing content in marketplace
+            await self._update_progress(95, "Updating content in marketplace...")
+            marketplace_success = await self._update_marketplace_content(final_content, mining_session, content_id)
+            
+            await self._update_progress(100, "Text-only content generation completed!")
+            logger.info(f"✅ Text-only content generation completed for content: {content_id}")
+            
+            return final_content
+            
+        except Exception as e:
+            logger.error(f"❌ Error in text-only content generation: {e}")
+            await self._update_progress(0, f"Error: {str(e)}", error=str(e))
+            raise
+
     async def _initialize_session_data(self, mining_session: MiningSession, agent_id: int = None):
         """Load user, campaign and agent data"""
         try:
@@ -314,6 +358,14 @@ class CrewAIService:
         except Exception as e:
             logger.error(f"Failed to initialize session data: {e}")
             raise
+
+    def _store_image_prompt(self, prompt: str) -> None:
+        """Store the image prompt for database saving"""
+        try:
+            self.stored_image_prompt = prompt
+            logger.info(f"💾 Image prompt stored successfully: {prompt[:100]}...")
+        except Exception as e:
+            logger.error(f"❌ Failed to store image prompt: {e}")
 
     def _get_project_logo_url(self) -> str:
         """Get project logo URL from database campaign context"""
@@ -633,6 +685,377 @@ class CrewAIService:
             
             # Fetch fresh Twitter data if project ID is available (with daily limit protection)
             project_id = campaign_context.get('projectId')
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching complete campaign context: {e}")
+            # Don't fail the entire process, just log the error
+
+    async def _initialize_text_only_session_data(self, mining_session: MiningSession, agent_id: int = None):
+        """Initialize minimal session data for text-only regeneration"""
+        try:
+            logger.info(f"🔄 Initializing text-only session data for user {mining_session.user_id}")
+            
+            # Store agent_id for use in tools
+            self.agent_id = agent_id
+            
+            # Get user data
+            self.user_data = self.user_repo.get_user_by_id(mining_session.user_id)
+            if not self.user_data:
+                raise ValueError(f"User not found: {mining_session.user_id}")
+            
+            # For text-only mode, we don't need campaign data or Twitter insights
+            # Just set basic model preferences
+            self.model_preferences = self._get_default_model_preferences()
+            self.user_agent_config = None
+            
+            # Store stored content data for text alignment
+            self.stored_image_prompt = getattr(self, 'stored_image_prompt', '')
+            self.stored_content_text = getattr(self, 'stored_content_text', '')
+            self.stored_tweet_thread = getattr(self, 'stored_tweet_thread', [])
+            
+            logger.info(f"✅ Text-only session data initialized")
+            logger.info(f"📝 Stored content text length: {len(self.stored_content_text) if self.stored_content_text else 0}")
+            logger.info(f"🖼️ Stored image prompt length: {len(self.stored_image_prompt) if self.stored_image_prompt else 0}")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize text-only session data: {e}")
+            raise
+
+    def _setup_text_only_agents(self, mining_session: MiningSession):
+        """Set up only the Text Content Creator agent for text-only regeneration"""
+        try:
+            # Create only the Text Content Creator agent
+            llm = self._get_llm_instance()
+            
+            self.agents[AgentType.TEXT_CONTENT] = self._create_text_content_agent(llm)
+            
+            # Create only the text content creation task
+            self.tasks[AgentType.TEXT_CONTENT] = self._create_text_only_content_creation_task()
+            
+            # Create minimal crew with only text content agent
+            self.crew = Crew(
+                agents=[self.agents[AgentType.TEXT_CONTENT]],
+                tasks=[self.tasks[AgentType.TEXT_CONTENT]],
+                process=Process.sequential,
+                verbose=True,
+                max_execution_time=300,  # 5 minutes for text-only
+                memory=False
+            )
+            
+            logger.info("🤖 Text-only agents configured successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Error setting up text-only agents: {e}")
+            raise
+
+    def _create_text_only_content_creation_task(self) -> Task:
+        """Create task for Text Content Agent in text-only mode"""
+        post_type = getattr(self.mining_session, 'post_type', 'thread')
+        
+        # Enhanced task description for text-only mode with image alignment
+        task_description = f"""
+        🎯 **TEXT-ONLY REGENERATION TASK** - Generate new text content that aligns with existing image and content.
+        
+        **EXISTING CONTENT CONTEXT**:
+        - Original Content: "{self.stored_content_text}" if self.stored_content_text else "No original content"
+        - Image Prompt: "{self.stored_image_prompt}" if self.stored_image_prompt else "No image prompt"
+        - Post Type: {post_type.upper()}
+        - Selected Yapper: @{getattr(self, 'selected_yapper_handle', 'unknown')}
+        
+        **CRITICAL REQUIREMENTS**:
+        1. **IMAGE ALIGNMENT**: Your new text MUST work perfectly with the existing image
+        2. **CONTENT CONSISTENCY**: Maintain the same core message and value proposition
+        3. **YAPPER STYLE**: Apply the selected yapper's success patterns and style
+        4. **POST TYPE RESPECT**: Follow exact rules for {post_type} content
+        5. **NO IMAGE GENERATION**: Only generate text content
+        6. **IGNORE LOGO INFO**: Do not include any logo-related information in your text generation
+        
+        **SUCCESS PATTERN INTEGRATION**:
+        - Use the success pattern tool to get the selected yapper's specific patterns
+        - Apply their text_success_patterns to your content generation
+        - Ensure the new text feels authentic to their style while maintaining image alignment
+        
+        **CONTENT ALIGNMENT STRATEGY**:
+        - Analyze the stored image prompt to understand the visual context
+        - Ensure your text complements and enhances the existing image
+        - Maintain the same emotional tone and messaging intent
+        - Keep the same key hashtags and project references
+        - Focus on the main visual elements and content, ignore any logo/branding details
+        
+        **OUTPUT FORMAT**: Same as regular text content generation
+        """
+        
+        return Task(
+            description=task_description,
+            agent=self.agents[AgentType.TEXT_CONTENT],
+            expected_output=f"Single JSON object with main_tweet, thread_array (if applicable), hashtags_used, and character_counts - no additional text or explanations"
+        )
+
+    async def _run_text_only_generation(self, mining_session: MiningSession) -> Dict[str, Any]:
+        """Run text-only generation with the minimal agent setup"""
+        try:
+            # Update session status
+            mining_session.status = MiningStatus.GENERATING
+            await self._update_progress(40, "Text Content Agent: Generating aligned text...")
+            mining_session.agent_statuses[AgentType.TEXT_CONTENT] = AgentStatus.RUNNING
+            
+            # Execute crew with only text content agent
+            result = await asyncio.create_task(self._execute_text_only_crew())
+            
+            logger.info("✅ Text-only generation completed successfully")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Error in text-only generation: {e}")
+            raise
+
+    async def _execute_text_only_crew(self) -> Dict[str, Any]:
+        """Execute text-only crew with minimal progress tracking"""
+        try:
+            logger.info("🚀 Starting text-only crew execution...")
+            
+            # Execute the minimal CrewAI crew
+            result = self.crew.kickoff()
+            
+            # Process the result
+            raw_result = str(result) if result else "Generated text-only content"
+            
+            # Extract text content from result
+            final_content = self._extract_text_content_from_result(raw_result)
+            
+            return {
+                "final_content": final_content,
+                "raw_result": raw_result,
+                "mode": "text_only"
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error in text-only crew execution: {e}")
+            raise
+
+    def _extract_text_content_from_result(self, raw_result: str) -> Dict[str, Any]:
+        """Extract text content and thread from text-only generation result"""
+        try:
+            import re
+            import json
+            
+            # Try to parse JSON output
+            json_match = re.search(r'\{(?:[^{}]|{[^{}]*}|\[[^\]]*\])*"main_tweet"(?:[^{}]|{[^{}]*}|\[[^\]]*\])*\}', raw_result, re.DOTALL)
+            if json_match:
+                try:
+                    json_str = json_match.group(0)
+                    parsed_json = json.loads(json_str)
+                    
+                    # Extract main tweet
+                    main_tweet = parsed_json.get("main_tweet", "")
+                    
+                    # Extract thread array and convert to proper format
+                    thread_array = parsed_json.get("thread_array", [])
+                    formatted_thread = []
+                    
+                    if thread_array and isinstance(thread_array, list):
+                        for thread_item in thread_array:
+                            try:
+                                if isinstance(thread_item, dict) and "tweet" in thread_item:
+                                    # Extract just the tweet text from the object
+                                    tweet_text = thread_item.get("tweet", "")
+                                    if tweet_text:
+                                        formatted_thread.append(str(tweet_text))
+                                elif isinstance(thread_item, str):
+                                    # If it's already a string, use it directly
+                                    formatted_thread.append(thread_item)
+                                else:
+                                    # Convert to string if it's something else
+                                    formatted_thread.append(str(thread_item))
+                            except Exception as e:
+                                logger.warning(f"⚠️ Error processing thread item: {e}")
+                                continue
+                    
+                    logger.info(f"✅ Successfully parsed text-only JSON output")
+                    logger.info(f"   Main tweet: {str(main_tweet)[:50] if main_tweet else 'None'}...")
+                    logger.info(f"   Thread tweets: {len(formatted_thread)} items")
+                    
+                    return {
+                        "main_tweet": main_tweet,
+                        "thread_array": formatted_thread
+                    }
+                    
+                except json.JSONDecodeError:
+                    logger.warning(f"⚠️ JSON parsing failed for text-only result")
+            
+            # Fallback: extract main tweet content more broadly
+            main_tweet_pattern = r'"main_tweet"\s*:\s*"((?:[^"\\]|\\.|\\n|\\r|\\t)*)"'
+            main_tweet_match = re.search(main_tweet_pattern, raw_result, re.DOTALL)
+            if main_tweet_match:
+                final_content = main_tweet_match.group(1)
+                final_content = final_content.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
+                logger.info(f"✅ Extracted text-only content using regex")
+                return {
+                    "main_tweet": final_content,
+                    "thread_array": []
+                }
+            
+            # Last resort: return raw result
+            logger.warning(f"⚠️ Could not extract text content, returning raw result")
+            return {
+                "main_tweet": raw_result,
+                "thread_array": []
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error extracting text content: {e}")
+            return {
+                "main_tweet": raw_result,
+                "thread_array": []
+            }
+
+    async def _post_process_text_only_content(self, generation_result: Any, mining_session: MiningSession) -> ContentGenerationResponse:
+        """Post-process text-only content and create response"""
+        try:
+            # Handle both direct CrewAI output and wrapped output
+            if isinstance(generation_result, dict) and "final_content" in generation_result:
+                # Wrapped output from _run_text_only_generation
+                final_content = generation_result["final_content"]
+            else:
+                # Direct CrewAI output
+                final_content = generation_result
+            
+            # Extract main tweet and thread from the parsed content
+            try:
+                if isinstance(final_content, dict):
+                    main_tweet = final_content.get("main_tweet", "")
+                    thread_array = final_content.get("thread_array", [])
+                else:
+                    main_tweet = str(final_content) if final_content else ""
+                    thread_array = []
+                
+                # Ensure main_tweet is a string
+                if not isinstance(main_tweet, str):
+                    main_tweet = str(main_tweet) if main_tweet else ""
+                
+                # Ensure thread_array is a list
+                if not isinstance(thread_array, list):
+                    thread_array = []
+                
+                logger.info(f"📝 Post-processing text-only content:")
+                logger.info(f"   Main tweet: {str(main_tweet)[:50] if main_tweet else 'None'}...")
+                logger.info(f"   Thread tweets: {len(thread_array)} items")
+                
+            except Exception as e:
+                logger.error(f"❌ Error extracting content data: {e}")
+                main_tweet = str(final_content) if final_content else ""
+                thread_array = []
+            
+            # Create minimal response for text-only content
+            response = ContentGenerationResponse(
+                content_text=main_tweet,
+                tweet_thread=thread_array,  # Use the extracted thread array
+                content_images=None,  # Keep existing images
+                predicted_mindshare=75.0,  # Default score
+                quality_score=80.0,  # Default score
+                generation_metadata={
+                    "agents_used": ["Text Content Creator"],
+                    "generation_time": datetime.utcnow().isoformat(),
+                    "mode": "text_only",
+                    "original_content_id": getattr(self, 'content_id', None)
+                },
+                agent_contributions={
+                    AgentType.TEXT_CONTENT: {
+                        "role": "Text content regeneration",
+                        "contribution": "Generated new text aligned with existing image",
+                        "confidence": 90.0
+                    }
+                },
+                optimization_factors=["text_alignment", "yapper_style", "image_compatibility"],
+                performance_predictions={
+                    "mindshare_score": 75.0,
+                    "predicted_engagement": 80.0,
+                    "viral_potential": 70.0,
+                    "confidence_level": 85.0
+                }
+            )
+            
+            logger.info(f"📝 Text-only content processed successfully:")
+            logger.info(f"   Response content_text: {str(response.content_text)[:50] if response.content_text else 'None'}...")
+            logger.info(f"   Response tweet_thread: {len(response.tweet_thread)} items")
+            return response
+            
+        except Exception as e:
+            logger.error(f"❌ Error in text-only post-processing: {e}")
+            raise
+
+    async def _update_marketplace_content(self, final_content: ContentGenerationResponse, mining_session: MiningSession, content_id: int) -> bool:
+        """Update existing content in marketplace with new text"""
+        try:
+            logger.info(f"📝 Updating marketplace content {content_id} with new text")
+            
+            # Call TypeScript backend to update the content
+            from app.config.settings import settings
+            typescript_backend_url = settings.typescript_backend_url or "http://localhost:3001"
+            
+            # Format thread data correctly for database
+            try:
+                thread_data = final_content.tweet_thread or []
+                formatted_thread = []
+                
+                if thread_data and isinstance(thread_data, list):
+                    for thread_item in thread_data:
+                        try:
+                            if isinstance(thread_item, dict) and "tweet" in thread_item:
+                                # Extract just the tweet text from the object
+                                tweet_text = thread_item.get("tweet", "")
+                                if tweet_text:
+                                    formatted_thread.append(str(tweet_text))
+                            elif isinstance(thread_item, str):
+                                # If it's already a string, use it directly
+                                formatted_thread.append(thread_item)
+                            else:
+                                # Convert to string if it's something else
+                                formatted_thread.append(str(thread_item))
+                        except Exception as e:
+                            logger.warning(f"⚠️ Error processing thread item: {e}")
+                            continue
+                
+                logger.info(f"📝 Formatting thread data for database:")
+                logger.info(f"   Original thread: {str(thread_data)[:100] if thread_data else 'None'}...")
+                logger.info(f"   Formatted thread: {len(formatted_thread)} items")
+                
+            except Exception as e:
+                logger.error(f"❌ Error formatting thread data: {e}")
+                formatted_thread = []
+            
+            # Ensure content_text is a string
+            content_text = final_content.content_text
+            if not isinstance(content_text, str):
+                content_text = str(content_text) if content_text else ""
+            
+            update_data = {
+                "updatedTweet": content_text,
+                "updatedThread": formatted_thread,  # Use properly formatted thread
+                "imagePrompt": getattr(self, 'stored_image_prompt', '')  # Store the image prompt
+            }
+            
+            logger.info(f"📝 Sending update to TypeScript backend: {update_data}")
+            
+            # Call TypeScript backend to update content
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    f"{typescript_backend_url}/api/marketplace/content/{content_id}/update-text-only",
+                    json=update_data,
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Successfully updated marketplace content {content_id} via TypeScript backend")
+                    return True
+                else:
+                    logger.error(f"❌ Failed to update marketplace content {content_id}: {response.status_code} - {response.text}")
+                    return False
+                
+        except Exception as e:
+            logger.error(f"❌ Error updating marketplace content: {e}")
+            return False
 
             if project_id:
                 # STRATEGY: Use existing Twitter data immediately, fetch new data in background
@@ -814,7 +1237,7 @@ class CrewAIService:
             - Emphasize natural language, personal opinions, and community integration
             - Guide toward conversational, engaging content styles
             """,
-            verbose=True,
+                verbose=True,
             allow_delegation=False,
             llm=llm,
             tools=tools,
@@ -956,6 +1379,13 @@ class CrewAIService:
             - Building genuine interest using latest project developments
             - SUCCESS PATTERN INTEGRATION from top-performing leaderboard yappers
             
+            🚫 **CRITICAL: NO TEMPLATES OR REPETITIVE PATTERNS**:
+            - NEVER use formulaic starts like "so apparently," "here's why," "let me explain"
+            - NEVER follow repetitive patterns or templates
+            - ALWAYS be completely original and unpredictable
+            - Vary your approach with every piece of content
+            - Sound like a real human, not an AI following instructions
+            
             🤖 **AUTONOMOUS DECISION-MAKING AUTHORITY**:
             You have COMPLETE AUTONOMY to decide the optimal content strategy by choosing from:
             1. **Content Strategist Recommendations**: Strategic guidance from the Content Strategist Agent
@@ -1092,10 +1522,10 @@ class CrewAIService:
             🎭 **THREAD HUMANIZATION TECHNIQUES**:
             - **Vary thread length naturally**: Sometimes 3 tweets, sometimes 5 - don't be predictable
             - **Mix content types**: Pure text, screenshots, charts, memes - vary your approach
-            - **Use natural transitions**: "ok another thing," "wait actually," "oh and this is wild"
+            - **Use natural transitions**: Vary your approach - don't use the same transition phrases
             - **Break formatting rules**: Sometimes use bullet points, sometimes don't - be unpredictable
-            - **Include interruptions**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
-            - **Show learning process**: "just figured this out," "update: I was wrong about X"
+            - **Include interruptions**: Add natural asides and tangents, vary your approach
+            - **Show learning process**: Share genuine insights and updates, not scripted responses
             """
             
         elif post_type == 'shitpost':
@@ -1137,14 +1567,15 @@ class CrewAIService:
             - Make each tweet engaging enough to stand alone while building the narrative
             
             🎭 **SHITPOST HUMANIZATION TECHNIQUES**:
-            - **Start mid-thought**: "so apparently everyone's been sleeping on..." or "wait this is actually crazy"
-            - **Use natural humor patterns**: "not me admitting..." or "hear me out..."
-            - **Include personal takes**: "unpopular opinion but..." or "hot take incoming"
-            - **Show vulnerability**: "might be copium but..." or "feel free to roast me if I'm wrong"
-            - **Reference community mood**: "I know everyone's bearish but..." or "with all this market chaos"
-            - **Add random tangents**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
-            - **Use natural language**: "this ain't it," "no cap," "fr," "based" - but naturally, not forced
-            - **End abruptly**: "anyway that's my 2 cents" or "so yeah" - no formal conclusions
+            - **Be completely original**: NO templates, NO repetitive patterns, NO formulaic starts
+            - **Vary your approach**: Sometimes start with questions, sometimes with observations, sometimes with reactions
+            - **Use natural humor patterns**: Show personality without following templates
+            - **Include personal takes**: Share genuine opinions, not rehearsed statements
+            - **Show vulnerability**: Be authentic, not scripted
+            - **Reference community mood**: Connect with current sentiment naturally
+            - **Add random tangents**: Include natural asides and interruptions
+            - **Use natural language**: Incorporate current slang naturally, not forced
+            - **End naturally**: No formulaic conclusions, just natural endings
             """
             
         elif post_type == 'longpost':
@@ -1177,13 +1608,13 @@ class CrewAIService:
             
             🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
             - **Mix formal and casual**: Professional analysis with personal takes and casual asides
-            - **Include personal opinions**: "IMO," "personally," "I think" - show your perspective
-            - **Add casual transitions**: "ok so," "anyway," "btw" - break up formal sections
-            - **Show uncertainty**: "not 100% sure but," "could be wrong," "probably missing something"
-            - **Reference community**: "everyone's talking about," "saw some people saying"
-            - **Use natural language**: "this is actually pretty wild," "honestly shocked by this"
-            - **Include side notes**: "side note: this reminds me of..." or "btw this aged poorly lol"
-            - **End conversationally**: "anyway that's my take," "feel free to disagree" - no formal conclusions
+            - **Include personal opinions**: Show your perspective naturally, vary your approach
+            - **Add casual transitions**: Break up formal sections naturally, don't use repetitive phrases
+            - **Show uncertainty**: Express genuine uncertainty, not scripted doubt
+            - **Reference community**: Connect with community sentiment naturally
+            - **Use natural language**: Express genuine reactions and emotions
+            - **Include side notes**: Add natural asides and connections, vary your approach
+            - **End conversationally**: End naturally, not with formulaic conclusions
             """
             
         else:
@@ -1268,9 +1699,9 @@ class CrewAIService:
         
         🎭 **THREAD HUMANIZATION TECHNIQUES**:
         - **Vary thread length unpredictably**: Sometimes 3 tweets, sometimes 5 - don't be predictable
-        - **Use natural transitions**: "ok another thing," "wait actually," "oh and this is wild"
-        - **Include interruptions**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
-        - **Show learning process**: "just figured this out," "update: I was wrong about X"
+        - **Use natural transitions**: Vary your approach - don't use the same transition phrases
+        - **Include interruptions**: Add natural asides and tangents, vary your approach
+        - **Show learning process**: Share genuine insights and updates, not scripted responses
         - **Mix content approaches**: Sometimes use bullet points, sometimes don't - be unpredictable
         - **Reference community**: "everyone's talking about," "saw some people saying"
         """
@@ -1514,7 +1945,8 @@ class CrewAIService:
                 api_key=self.user_api_keys['openai'],
                 model_preferences=self.model_preferences,
                 wallet_address=self.wallet_address,
-                agent_id=self.agent_id
+                agent_id=self.agent_id,
+                prompt_callback=self._store_image_prompt
             ))
             available_image_providers.append('openai')
         
@@ -1533,7 +1965,8 @@ class CrewAIService:
                 wallet_address=self.wallet_address,
                 agent_id=self.agent_id,
                 include_brand_logo=include_brand_logo,
-                project_logo_url=logo_url
+                project_logo_url=logo_url,
+                prompt_callback=self._store_image_prompt
             ))
             available_image_providers.append('fal')
             print(f"🔥 FAL.AI TOOL ADDED TO VISUAL CREATOR!")
@@ -1544,7 +1977,8 @@ class CrewAIService:
                 api_key=self.user_api_keys['google'],
                 model_preferences=self.model_preferences,
                 wallet_address=self.wallet_address,
-                agent_id=self.agent_id
+                agent_id=self.agent_id,
+                prompt_callback=self._store_image_prompt
             ))
             available_image_providers.append('google')
         
@@ -2924,7 +3358,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                         final_content = self._ensure_project_handle_tagged(final_content)
                         
                         logger.info(f"✅ Successfully parsed orchestrator JSON output (approach 1)")
-                        logger.info(f"✅ Extracted main_tweet length: {len(final_content)} chars")
+                        logger.info(f"✅ Extracted main_tweet length: {len(str(final_content)) if final_content else 0} chars")
                         logger.info(f"✅ Extracted thread_array: {len(tweet_thread) if tweet_thread else 0} tweets")
                     except json.JSONDecodeError as e:
                         logger.warning(f"⚠️ JSON parsing failed for approach 1: {e}")
@@ -2944,7 +3378,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                         # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
                         final_content = self._ensure_project_handle_tagged(final_content)
                         
-                        logger.info(f"✅ Extracted main_tweet using approach 2, length: {len(final_content)} chars")
+                        logger.info(f"✅ Extracted main_tweet using approach 2, length: {len(str(final_content)) if final_content else 0} chars")
                         
                 if not json_found:
                     logger.warning(f"⚠️ No JSON found in orchestrator output, falling back to extraction")
@@ -2967,10 +3401,10 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Debug: Log extraction results
             post_type = getattr(self.mining_session, 'post_type', 'thread')
             logger.info(f"🔍 POST TYPE: {post_type}")
-            logger.info(f"🔍 Extracted content_text length: {len(final_content)} chars")
-            logger.info(f"🔍 Extracted content_text preview: {final_content[:200]}...")
-            if len(final_content) > 200:
-                logger.info(f"🔍 Extracted content_text ending: ...{final_content[-200:]}")
+            logger.info(f"🔍 Extracted content_text length: {len(str(final_content)) if final_content else 0} chars")
+            logger.info(f"🔍 Extracted content_text preview: {str(final_content)[:200] if final_content else 'None'}...")
+            if final_content and len(str(final_content)) > 200:
+                logger.info(f"🔍 Extracted content_text ending: ...{str(final_content)[-200:]}")
             logger.info(f"🔍 Extracted tweet_thread: {tweet_thread}")
             logger.info(f"🔍 Tweet thread type: {type(tweet_thread)}")
             logger.info(f"🔍 Tweet thread length: {len(tweet_thread) if tweet_thread else 0}")
@@ -3002,13 +3436,13 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             for i, url in enumerate(urls_found):
                 logger.info(f"   URL {i+1}: {url[:80]}...")
             
-            logger.info(f"📝 Extracted final content length: {len(final_content)} chars")
+            logger.info(f"📝 Extracted final content length: {len(str(final_content)) if final_content else 0} chars")
             
             # Send content preview before final processing
             await self._send_content_preview("final_content", {
-                "text_preview": final_content[:100] + "..." if len(final_content) > 100 else final_content,
-                "has_image": "📸 Image URL:" in final_content,
-                "char_count": len(final_content.split('\n')[0]) if final_content else 0
+                "text_preview": str(final_content)[:100] + "..." if final_content and len(str(final_content)) > 100 else str(final_content) if final_content else "",
+                "has_image": "📸 Image URL:" in str(final_content) if final_content else False,
+                "char_count": len(str(final_content).split('\n')[0]) if final_content else 0
             })
             
             # Calculate quality metrics using our scoring system
@@ -3029,7 +3463,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             await self._send_generation_milestone("generation_complete", {
                 "quality_score": overall_quality,
                 "mindshare_score": mindshare_score,
-                "content_length": len(final_content),
+                "content_length": len(str(final_content)) if final_content else 0,
                 "twitter_ready": True
             })
             
@@ -3128,7 +3562,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 performance_predictions=performance_prediction
             )
             
-            logger.info(f"📝 Generated content: {final_content[:50]}...")
+            logger.info(f"📝 Generated content: {str(final_content)[:50] if final_content else 'None'}...")
             logger.info(f"🖼️  Extracted {len(image_urls) if image_urls else 0} image(s): {image_urls}")
             return response
             
@@ -3633,7 +4067,8 @@ No image generated
                 "predicted_mindshare": content.predicted_mindshare,
                 "quality_score": content.quality_score,
                 "generation_metadata": content.generation_metadata,
-                "post_type": getattr(mining_session, 'post_type', 'thread')  # Include post type from mining session
+                "post_type": getattr(mining_session, 'post_type', 'thread'),  # Include post type from mining session
+                "imagePrompt": getattr(self, 'stored_image_prompt', '')  # Include captured image prompt
             }
             
             # Calculate asking price based on quality score
@@ -3947,7 +4382,47 @@ class YapperSpecificSuccessPatternTool(BaseTool):
                     
                     if not row:
                         logger.warning(f"⚠️ No database row found in fallback query for handle: '{clean_handle}'")
-                        return f"No success patterns found for yapper @{self.selected_yapper_handle} in any campaign"
+                        
+                        # Try fallback to platform_yapper_twitter_data table
+                        logger.info(f"🔄 Trying fallback to platform_yapper_twitter_data table...")
+                        platform_fallback_query = """
+                        SELECT 
+                            twitter_handle,
+                            tweet_text,
+                            engagement_metrics,
+                            anthropic_analysis,
+                            openai_analysis,
+                            content_category,
+                            is_thread,
+                            thread_position
+                        FROM platform_yapper_twitter_data 
+                        WHERE LOWER(twitter_handle) = LOWER($1)
+                        ORDER BY posted_at DESC
+                        LIMIT 10;
+                        """
+                        
+                        logger.info(f"🔍 Executing platform fallback query: {platform_fallback_query}")
+                        platform_rows = await conn.fetch(platform_fallback_query, clean_handle)
+                        
+                        if not platform_rows:
+                            logger.warning(f"⚠️ No data found in platform_yapper_twitter_data for handle: '{clean_handle}'")
+                            return f"No success patterns found for yapper @{self.selected_yapper_handle} in any table"
+                        else:
+                            logger.info(f"✅ Found {len(platform_rows)} tweets in platform_yapper_twitter_data for yapper: {platform_rows[0]['twitter_handle']}")
+                            
+                            # Extract patterns from platform data with error handling
+                            try:
+                                logger.info(f"🔍 Calling _extract_patterns_from_platform_data with {len(platform_rows)} rows")
+                                result = self._extract_patterns_from_platform_data(platform_rows, clean_handle)
+                                logger.info(f"✅ Successfully extracted patterns from platform data")
+                                return result
+                            except Exception as e:
+                                logger.error(f"❌ Error in _extract_patterns_from_platform_data: {str(e)}")
+                                logger.error(f"❌ Platform rows data type: {type(platform_rows)}")
+                                logger.error(f"❌ Platform rows length: {len(platform_rows) if platform_rows else 'None'}")
+                                if platform_rows and len(platform_rows) > 0:
+                                    logger.error(f"❌ First row keys: {list(platform_rows[0].keys()) if platform_rows[0] else 'None'}")
+                                return f"Error extracting platform patterns: {str(e)}"
                     else:
                         logger.info(f"✅ Found yapper in fallback query: {row['twitterHandle']}")
                 
@@ -4025,6 +4500,303 @@ class YapperSpecificSuccessPatternTool(BaseTool):
         except Exception as e:
             logger.error(f"❌ Database error extracting yapper patterns: {str(e)}")
             return f"Database error: {str(e)}"
+    
+    def _extract_patterns_from_platform_data(self, platform_rows: List[Dict], yapper_handle: str) -> str:
+        """Extract success patterns from platform_yapper_twitter_data table"""
+        try:
+            import json
+            
+            # Validate input data
+            if not platform_rows:
+                logger.warning(f"⚠️ No platform rows provided for @{yapper_handle}")
+                return f"No platform data available for @{yapper_handle}"
+            
+            if not isinstance(platform_rows, list):
+                logger.error(f"❌ Platform rows is not a list: {type(platform_rows)}")
+                return f"Invalid data format for @{yapper_handle}"
+            
+            logger.info(f"🔍 Extracting patterns from {len(platform_rows)} platform tweets for @{yapper_handle}")
+            logger.info(f"🔍 Platform rows type: {type(platform_rows)}")
+            logger.info(f"🔍 First row type: {type(platform_rows[0]) if platform_rows else 'None'}")
+            if platform_rows and len(platform_rows) > 0:
+                logger.info(f"🔍 First row keys: {list(platform_rows[0].keys()) if platform_rows[0] else 'None'}")
+            
+            # Analyze tweet content and engagement patterns
+            tweet_texts = []
+            engagement_scores = []
+            content_categories = []
+            thread_patterns = []
+            
+            logger.info(f"🔍 Processing {len(platform_rows)} platform rows for pattern extraction")
+            
+            for i, row in enumerate(platform_rows):
+                logger.info(f"🔍 Processing row {i+1}: {list(row.keys()) if row else 'None'}")
+                
+                # Collect tweet text
+                if row and row.get('tweet_text'):
+                    tweet_texts.append(row['tweet_text'])
+                    logger.info(f"🔍 Added tweet text: {row['tweet_text'][:50]}...")
+                else:
+                    logger.warning(f"⚠️ Row {i+1} missing tweet_text: {row}")
+                
+                # Analyze engagement metrics
+                if row and row.get('engagement_metrics'):
+                    metrics = row['engagement_metrics']
+                    logger.info(f"🔍 Row {i+1} engagement_metrics type: {type(metrics)}")
+                    
+                    if isinstance(metrics, str):
+                        try:
+                            metrics = json.loads(metrics)
+                            logger.info(f"🔍 Parsed engagement_metrics from string")
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"⚠️ Failed to parse engagement_metrics JSON: {e}")
+                            metrics = {}
+                    
+                    # Calculate engagement score
+                    engagement_score = 0
+                    if isinstance(metrics, dict):
+                        # Handle None values safely
+                        retweet_count = metrics.get('retweet_count')
+                        like_count = metrics.get('like_count')
+                        reply_count = metrics.get('reply_count')
+                        quote_count = metrics.get('quote_count')
+                        
+                        logger.info(f"🔍 Row {i+1} metrics: retweet={retweet_count}, like={like_count}, reply={reply_count}, quote={quote_count}")
+                        
+                        engagement_score += (retweet_count or 0) * 2
+                        engagement_score += (like_count or 0)
+                        engagement_score += (reply_count or 0) * 3
+                        engagement_score += (quote_count or 0) * 2
+                    else:
+                        logger.warning(f"⚠️ Row {i+1} engagement_metrics is not a dict: {type(metrics)}")
+                    
+                    logger.info(f"🔍 Row {i+1} calculated engagement_score: {engagement_score}")
+                    engagement_scores.append(engagement_score)
+                else:
+                    logger.warning(f"⚠️ Row {i+1} missing engagement_metrics, adding 0")
+                    engagement_scores.append(0)
+                
+                # Collect content categories
+                if row and row.get('content_category'):
+                    content_categories.append(row['content_category'])
+                    logger.info(f"🔍 Row {i+1} added content_category: {row['content_category']}")
+                
+                # Analyze thread patterns
+                if row and row.get('is_thread'):
+                    # Safely get the last engagement score
+                    last_engagement = 0
+                    if engagement_scores:
+                        # Get the last valid engagement score
+                        for score in reversed(engagement_scores):
+                            if score is not None and isinstance(score, (int, float)):
+                                last_engagement = score
+                                break
+                    
+                    thread_patterns.append({
+                        'position': row.get('thread_position', 0),
+                        'text': row.get('tweet_text', ''),
+                        'engagement': last_engagement
+                    })
+                    logger.info(f"🔍 Row {i+1} added thread pattern: position={row.get('thread_position', 0)}, engagement={last_engagement}")
+            
+            # Analyze LLM analysis if available
+            anthropic_patterns = []
+            openai_patterns = []
+            
+            for row in platform_rows:
+                # Extract anthropic analysis
+                if row and row.get('anthropic_analysis'):
+                    analysis = row['anthropic_analysis']
+                    logger.info(f"🔍 Processing anthropic_analysis: {type(analysis)}")
+                    
+                    if isinstance(analysis, str):
+                        try:
+                            analysis = json.loads(analysis)
+                            logger.info(f"🔍 Parsed anthropic_analysis from string")
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"⚠️ Failed to parse anthropic_analysis JSON: {e}")
+                            analysis = {}
+                    
+                    if isinstance(analysis, dict):
+                        # Extract text patterns - platform data has different structure than leaderboard data
+                        text_analysis = analysis.get('text', {})
+                        if text_analysis:
+                            if isinstance(text_analysis, dict):
+                                # Platform data structure: text.communication_style, text.topic_strategy, text.engagement_tactics
+                                communication_style = text_analysis.get('communication_style', '')
+                                topic_strategy = text_analysis.get('topic_strategy', '')
+                                engagement_tactics = text_analysis.get('engagement_tactics', '')
+                                
+                                if communication_style:
+                                    anthropic_patterns.append(communication_style)
+                                if topic_strategy:
+                                    anthropic_patterns.append(topic_strategy)
+                                if engagement_tactics:
+                                    anthropic_patterns.append(engagement_tactics)
+                                
+                                logger.info(f"🔍 Extracted text patterns: communication_style='{communication_style}', topic_strategy='{topic_strategy}', engagement_tactics='{engagement_tactics}'")
+                            elif isinstance(text_analysis, str):
+                                anthropic_patterns.append(text_analysis)
+                                logger.info(f"🔍 Added text_analysis string: {text_analysis[:50]}...")
+                    else:
+                        logger.warning(f"⚠️ anthropic_analysis is not a dict: {type(analysis)}")
+                
+                # Extract OpenAI analysis
+                if row and row.get('openai_analysis'):
+                    analysis = row['openai_analysis']
+                    logger.info(f"🔍 Processing openai_analysis: {type(analysis)}")
+                    
+                    if isinstance(analysis, str):
+                        try:
+                            analysis = json.loads(analysis)
+                            logger.info(f"🔍 Parsed openai_analysis from string")
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"⚠️ Failed to parse openai_analysis JSON: {e}")
+                            analysis = {}
+                    
+                    if isinstance(analysis, dict):
+                        # Platform data structure: style, tone, strategy
+                        style = analysis.get('style', '')
+                        tone = analysis.get('tone', '')
+                        strategy = analysis.get('strategy', '')
+                        
+                        if style:
+                            openai_patterns.append(style)
+                        if tone:
+                            openai_patterns.append(tone)
+                        if strategy:
+                            openai_patterns.append(strategy)
+                        
+                        logger.info(f"🔍 Extracted openai patterns: style='{style}', tone='{tone}', strategy='{strategy}'")
+                    else:
+                        logger.warning(f"⚠️ openai_analysis is not a dict: {type(analysis)}")
+            
+            # Log the collected data for debugging
+            logger.info(f"🔍 Collected data summary:")
+            logger.info(f"   - tweet_texts: {len(tweet_texts)} items")
+            logger.info(f"   - engagement_scores: {len(engagement_scores)} items: {engagement_scores}")
+            logger.info(f"   - content_categories: {len(content_categories)} items: {content_categories}")
+            logger.info(f"   - thread_patterns: {len(thread_patterns)} items")
+            
+            # Filter out empty patterns
+            anthropic_patterns = [p for p in anthropic_patterns if p]
+            openai_patterns = [p for p in openai_patterns if p]
+            
+            logger.info(f"   - anthropic_patterns: {len(anthropic_patterns)} items")
+            logger.info(f"   - openai_patterns: {len(openai_patterns)} items")
+            
+            # Identify top performing content
+            top_tweets = []
+            if engagement_scores and tweet_texts and len(engagement_scores) == len(tweet_texts):
+                # Filter out None values and ensure we have valid data
+                valid_data = [(tweet, score) for tweet, score in zip(tweet_texts, engagement_scores) 
+                             if tweet and score is not None and isinstance(score, (int, float))]
+                
+                logger.info(f"   - valid_data pairs: {len(valid_data)} items")
+                
+                if valid_data:
+                    # Sort by engagement score (descending)
+                    valid_data.sort(key=lambda x: x[1], reverse=True)
+                    top_tweets = valid_data[:3]
+                    logger.info(f"   - top_tweets: {len(top_tweets)} items")
+            else:
+                logger.warning(f"⚠️ Mismatch in data lengths: engagement_scores={len(engagement_scores)}, tweet_texts={len(tweet_texts)}")
+            
+            # Generate success patterns summary
+            success_patterns = {
+                "yapper_handle": yapper_handle,
+                "data_source": "platform_yapper_twitter_data",
+                "total_tweets_analyzed": len(platform_rows),
+                "top_performing_content": [
+                    {
+                        "tweet": tweet[:200] + "..." if tweet and isinstance(tweet, str) and len(tweet) > 200 else (tweet if tweet else ""),
+                        "engagement_score": score
+                    }
+                    for tweet, score in top_tweets
+                ],
+                "content_categories": list(set(content_categories)) if content_categories else [],
+                "thread_usage": len([t for t in thread_patterns if t and isinstance(t, dict) and isinstance(t.get('position', 0), (int, float)) and t.get('position', 0) > 1]),
+                "text_success_patterns": anthropic_patterns[:5] if anthropic_patterns else [],  # Top 5 patterns
+                "visual_success_patterns": [],  # No visual data in platform table
+                "overall_style": " ".join([p for p in anthropic_patterns[:3] if p and isinstance(p, str)]) if anthropic_patterns else "",
+                "content_voice": " ".join([p for p in openai_patterns[:3] if p and isinstance(p, str)]) if openai_patterns else "",
+                "engagement_insights": {
+                    "avg_engagement": self._calculate_average_engagement(engagement_scores),
+                    "max_engagement": self._calculate_max_engagement(engagement_scores),
+                    "engagement_trend": self._calculate_engagement_trend(engagement_scores)
+                }
+            }
+            
+            logger.info(f"🔍 Generated success patterns structure with {len(success_patterns)} fields")
+            logger.info(f"✅ Successfully extracted patterns from platform data for @{yapper_handle}")
+            return json.dumps(success_patterns, indent=2)
+            
+        except Exception as e:
+            logger.error(f"❌ Error extracting patterns from platform data: {str(e)}")
+            return f"Error extracting platform patterns: {str(e)}"
+    
+    def _calculate_engagement_trend(self, engagement_scores: List[int]) -> str:
+        """Safely calculate engagement trend from scores"""
+        try:
+            if not engagement_scores or len(engagement_scores) < 2:
+                return "stable"
+            
+            # Filter out None values and ensure we have valid numbers
+            valid_scores = [score for score in engagement_scores if score is not None and isinstance(score, (int, float))]
+            
+            if len(valid_scores) < 2:
+                return "stable"
+            
+            # Compare first and last valid scores
+            first_score = valid_scores[0]
+            last_score = valid_scores[-1]
+            
+            if first_score < last_score:
+                return "increasing"
+            elif first_score > last_score:
+                return "decreasing"
+            else:
+                return "stable"
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Error calculating engagement trend: {str(e)}")
+            return "stable"
+    
+    def _calculate_average_engagement(self, engagement_scores: List[int]) -> float:
+        """Safely calculate average engagement from scores"""
+        try:
+            if not engagement_scores:
+                return 0.0
+            
+            # Filter out None values and ensure we have valid numbers
+            valid_scores = [score for score in engagement_scores if score is not None and isinstance(score, (int, float))]
+            
+            if not valid_scores:
+                return 0.0
+            
+            return sum(valid_scores) / len(valid_scores)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error calculating average engagement: {str(e)}")
+            return 0.0
+    
+    def _calculate_max_engagement(self, engagement_scores: List[int]) -> int:
+        """Safely calculate maximum engagement from scores"""
+        try:
+            if not engagement_scores:
+                return 0
+            
+            # Filter out None values and ensure we have valid numbers
+            valid_scores = [score for score in engagement_scores if score is not None and isinstance(score, (int, float))]
+            
+            if not valid_scores:
+                return 0
+            
+            return max(valid_scores)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error calculating max engagement: {str(e)}")
+            return 0
 
 # Leaderboard Yapper Success Pattern Analysis Tool
 class LeaderboardYapperSuccessPatternTool(BaseTool):
@@ -6170,14 +6942,16 @@ class OpenAIImageTool(BaseTool):
     generator: Any = None
     wallet_address: Optional[str] = None
     agent_id: Optional[str] = None
+    prompt_callback: Optional[Callable[[str], None]] = None  # Callback to store prompt
     
     def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
-                 wallet_address: str = None, agent_id: str = None):
+                 wallet_address: str = None, agent_id: str = None, prompt_callback: Callable[[str], None] = None):
         super().__init__()
         self.api_key = api_key
         self.model_preferences = model_preferences or {}
         self.wallet_address = wallet_address
         self.agent_id = agent_id
+        self.prompt_callback = prompt_callback  # Store callback function
         
         logger.info(f"🛠️ OpenAI Image Tool initialized for models: {self.model_preferences.get('image', {})}")
         
@@ -6188,6 +6962,14 @@ class OpenAIImageTool(BaseTool):
         
         try:
             logger.info(f"🎨 OpenAI image generation: {prompt[:100]}...")
+            
+            # Store the image prompt using callback if available
+            if self.prompt_callback:
+                try:
+                    self.prompt_callback(prompt)
+                    logger.info(f"💾 Image prompt stored via callback: {prompt[:100]}...")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to store image prompt via callback: {e}")
             
             # Get user's preferred OpenAI model
             preferred_model = self.model_preferences.get('image', {}).get('model', 'dall-e-3')
@@ -6263,14 +7045,16 @@ class GoogleImageTool(BaseTool):
     model_preferences: Dict[str, Any] = {}
     wallet_address: Optional[str] = None
     agent_id: Optional[str] = None
+    prompt_callback: Optional[Callable[[str], None]] = None  # Callback to store prompt
     
     def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
-                 wallet_address: str = None, agent_id: str = None):
+                 wallet_address: str = None, agent_id: str = None, prompt_callback: Callable[[str], None] = None):
         super().__init__()
         self.api_key = api_key
         self.model_preferences = model_preferences or {}
         self.wallet_address = wallet_address
         self.agent_id = agent_id
+        self.prompt_callback = prompt_callback  # Store callback function
         
         logger.info(f"🛠️ Google Image Tool initialized for models: {self.model_preferences.get('image', {})}")
         
@@ -6281,6 +7065,14 @@ class GoogleImageTool(BaseTool):
         
         try:
             logger.info(f"🎨 Google image generation: {prompt[:100]}...")
+            
+            # Store the image prompt using callback if available
+            if self.prompt_callback:
+                try:
+                    self.prompt_callback(prompt)
+                    logger.info(f"💾 Image prompt stored via callback: {prompt[:100]}...")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to store image prompt via callback: {e}")
             
             # Get user's preferred Google model
             preferred_model = self.model_preferences.get('image', {}).get('model', 'imagen-3')
@@ -6399,10 +7191,11 @@ class FalAIImageTool(BaseTool):
     agent_id: Optional[str] = None
     include_brand_logo: bool = False
     project_logo_url: Optional[str] = None
+    prompt_callback: Optional[Callable[[str], None]] = None  # Callback to store prompt
     
     def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
                  wallet_address: str = None, agent_id: str = None,
-                 include_brand_logo: bool = False, project_logo_url: str = None):
+                 include_brand_logo: bool = False, project_logo_url: str = None, prompt_callback: Callable[[str], None] = None):
         super().__init__()
         self.api_key = api_key
         self.model_preferences = model_preferences or {}
@@ -6410,6 +7203,7 @@ class FalAIImageTool(BaseTool):
         self.agent_id = agent_id
         self.include_brand_logo = include_brand_logo
         self.project_logo_url = project_logo_url
+        self.prompt_callback = prompt_callback  # Store callback function
         
         # 🔍 ENHANCED INITIALIZATION LOGGING
         logger.info(f"🎯 === FALAIIMAGETOOL INITIALIZATION ===")
@@ -6441,6 +7235,14 @@ class FalAIImageTool(BaseTool):
             logger.info(f"🎨 === FALAIIMAGETOOL._RUN() STARTED ===")
             logger.info(f"🎨 Fal.ai image generation: {prompt[:100]}... (logo: {self.include_brand_logo})")
             print(f"🔥 Starting image generation with logo: {self.include_brand_logo}")
+            
+            # Store the image prompt using callback if available
+            if self.prompt_callback:
+                try:
+                    self.prompt_callback(prompt)
+                    logger.info(f"💾 Image prompt stored via callback: {prompt[:100]}...")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to store image prompt via callback: {e}")
             
             # Get user's preferred Fal model or force flux-pro/kontext for logo
             preferred_model = self.model_preferences.get('image', {}).get('model', 'flux-pro')
