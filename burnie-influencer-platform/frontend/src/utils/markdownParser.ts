@@ -156,7 +156,7 @@ export const getPostTypeInfo = (postType: string | undefined) => {
       };
     case 'thread':
       return {
-        text: 'Thread',
+        text: 'Regular Post',
         className: 'bg-green-100 text-green-800 border-green-200'
       };
     default:

@@ -72,7 +72,11 @@ export enum PlatformSource {
   AMPLIFI_NOW = 'amplifi.now',
   ARBUS = 'arbus',
   TRENDSAGE = 'trendsage.xyz',
-  BANTR = 'bantr'
+  BANTR = 'bantr',
+  WALLCHAIN = 'wallchain',
+  GALXE = 'galxe',
+  ALPHABOT = 'alphabot',
+  INDEPENDENT = 'independent'
 }
 
 @Entity('campaigns')

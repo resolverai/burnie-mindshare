@@ -3,6 +3,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:30
 export interface FilterOptions {
   platforms: string[];
   projects: string[];
+  postTypes: string[];
 }
 
 export const fetchFilterOptions = async (): Promise<FilterOptions> => {
@@ -18,7 +19,8 @@ export const fetchFilterOptions = async (): Promise<FilterOptions> => {
     if (data.success) {
       return {
         platforms: ['all', ...data.data.platforms],
-        projects: ['all', ...data.data.projects]
+        projects: ['all', ...data.data.projects],
+        postTypes: ['all', ...(data.data.postTypes || [])]
       };
     } else {
       throw new Error(data.message || 'Failed to fetch filter options');
@@ -28,7 +30,8 @@ export const fetchFilterOptions = async (): Promise<FilterOptions> => {
     // Return fallback data if API fails
     return {
       platforms: ['all', 'cookie.fun', 'yaps.kaito.ai', 'burnie', 'openledger'],
-      projects: ['all', 'Project A', 'Project B', 'Project C']
+      projects: ['all', 'Project A', 'Project B', 'Project C'],
+      postTypes: ['all', 'thread', 'shitpost', 'longpost']
     };
   }
 };

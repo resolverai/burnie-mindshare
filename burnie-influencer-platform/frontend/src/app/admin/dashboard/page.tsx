@@ -145,6 +145,10 @@ export default function AdminDashboard() {
     { value: 'arbus', label: '🚌 Arbus' },
     { value: 'trendsage.xyz', label: '📈 Trendsage.xyz' },
     { value: 'bantr', label: '💬 Bantr' },
+    { value: 'wallchain', label: '🔗 Wallchain' },
+    { value: 'galxe', label: '🎯 Galxe' },
+    { value: 'alphabot', label: '🤖 Alphabot' },
+    { value: 'independent', label: '🆓 Independent' },
   ]
   const router = useRouter()
 

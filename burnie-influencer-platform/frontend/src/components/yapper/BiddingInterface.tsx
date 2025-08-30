@@ -84,6 +84,7 @@ export default function BiddingInterface() {
   const { price: roastPrice } = useROASTPrice()
   const [selectedPlatform, setSelectedPlatform] = useState('all')
   const [selectedProject, setSelectedProject] = useState('all')
+  const [selectedPostType, setSelectedPostType] = useState('all')
   const [sortBy, setSortBy] = useState<'bidding_enabled' | 'mindshare' | 'quality' | 'price_low' | 'price_high' | 'newest'>('bidding_enabled')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [showPurchaseModal, setShowPurchaseModal] = useState<ContentItem | null>(null)
@@ -184,6 +185,7 @@ export default function BiddingInterface() {
     search: debouncedSearchTerm,
     platform_source: selectedPlatform !== 'all' ? selectedPlatform : undefined,
     project_name: selectedProject !== 'all' ? selectedProject : undefined,
+    post_type: selectedPostType !== 'all' ? selectedPostType : undefined,
     sort_by: sortBy,
     limit: 18
   })
@@ -465,6 +467,10 @@ export default function BiddingInterface() {
     setSelectedProject(project)
   }, [])
 
+  const handlePostTypeChange = useCallback((postType: string) => {
+    setSelectedPostType(postType)
+  }, [])
+
   // Filters Component - memoized to prevent unnecessary re-renders
   const FiltersBar = useCallback(() => (
     <div className="flex flex-col gap-2.5 xs:gap-3 sm:gap-4">
@@ -472,13 +478,15 @@ export default function BiddingInterface() {
       <DynamicFilters
         selectedPlatform={selectedPlatform}
         selectedProject={selectedProject}
+        selectedPostType={selectedPostType}
         onPlatformChange={handlePlatformChange}
         onProjectChange={handleProjectChange}
+        onPostTypeChange={handlePostTypeChange}
         searchTerm={searchTerm}
         onSearchChange={handleSearchChange}
       />
     </div>
-  ), [searchTerm, selectedPlatform, selectedProject, handleSearchChange, handlePlatformChange, handleProjectChange])
+  ), [searchTerm, selectedPlatform, selectedProject, selectedPostType, handleSearchChange, handlePlatformChange, handleProjectChange, handlePostTypeChange])
 
   return (
     <div className="relative" onClick={handleOutsideClick}>

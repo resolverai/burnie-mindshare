@@ -155,6 +155,10 @@ export default function PendingSnapshotsProcessor({ onProcessingComplete }: Pend
       case 'arbus': return '🚌'
       case 'trendsage.xyz': return '📈'
       case 'bantr': return '💬'
+      case 'wallchain': return '🔗'
+      case 'galxe': return '🎯'
+      case 'alphabot': return '🤖'
+      case 'independent': return '🆓'
       default: return '📸'
     }
   }

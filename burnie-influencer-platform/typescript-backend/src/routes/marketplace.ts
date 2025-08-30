@@ -6,7 +6,7 @@ import { PaymentTransaction, TransactionType, Currency } from '../models/Payment
 import { User, UserRoleType } from '../models/User';
 import { Campaign } from '../models/Campaign';
 import { env } from '../config/env';
-import { MoreThan, LessThan } from 'typeorm';
+import { MoreThan, LessThan, In } from 'typeorm';
 import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
 import { TreasuryService } from '../services/TreasuryService';
@@ -4557,12 +4557,27 @@ router.post('/reject-content', async (req: Request, res: Response) => {
       });
     }
 
+    // Validate contentId is a valid number
+    if (isNaN(Number(contentId)) || Number(contentId) <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid contentId: must be a positive number'
+      });
+    }
+
+    // Log the rejection attempt for debugging
+    console.log('🚀 Rejection attempt:', {
+      contentId: Number(contentId),
+      walletAddress,
+      reason
+    });
+
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);
     const userRepository = AppDataSource.getRepository(User);
 
-    // Find user by wallet address to verify ownership
+    // Find user by wallet address to verify ownership (case-insensitive)
     const user = await userRepository.findOne({
-      where: { walletAddress: walletAddress }
+      where: { walletAddress: walletAddress.toLowerCase() }
     });
 
     if (!user) {
@@ -4572,20 +4587,86 @@ router.post('/reject-content', async (req: Request, res: Response) => {
       });
     }
 
-    // Find the content and verify ownership
-    const content = await contentRepository.findOne({
-      where: { 
-        id: contentId,
-        creatorId: user.id,
-        approvalStatus: 'pending'
-      }
+    // First, check if content exists at all (for debugging)
+    const contentExists = await contentRepository.findOne({
+      where: { id: Number(contentId) }
     });
 
-    if (!content) {
+    if (!contentExists) {
+      console.log('❌ Content does not exist in database:', { contentId: Number(contentId) });
       return res.status(404).json({
         success: false,
-        error: 'Pending content not found or not owned by user'
+        error: 'Content not found'
       });
+    }
+
+    // Find the content and verify ownership using the same pattern as other endpoints
+    // Allow rejection of both pending content AND approved content that is not biddable
+    const content = await contentRepository
+      .createQueryBuilder('content')
+      .where('content.id = :contentId', { contentId: Number(contentId) })
+      .andWhere('(LOWER(content.walletAddress) = LOWER(:walletAddress) OR (content.walletAddress IS NULL AND content.creatorId = :creatorId))', 
+        { walletAddress, creatorId: user.id })
+      .andWhere('content.approvalStatus IN (:...approvalStatuses)', 
+        { approvalStatuses: ['pending', 'approved'] })
+      .getOne();
+
+    if (!content) {
+      // Log detailed information for debugging
+      console.log('❌ Content exists but ownership/status check failed:', {
+        contentId: Number(contentId),
+        walletAddress,
+        userId: user.id,
+        existingContent: {
+          id: contentExists.id,
+          creatorId: contentExists.creatorId,
+          approvalStatus: contentExists.approvalStatus,
+          walletAddress: contentExists.walletAddress,
+          isBiddable: contentExists.isBiddable,
+          isAvailable: contentExists.isAvailable
+        },
+        searchCriteria: {
+          contentId: Number(contentId),
+          walletAddress: walletAddress.toLowerCase(),
+          creatorId: user.id,
+          approvalStatuses: ['pending', 'approved']
+        }
+      });
+      
+      return res.status(404).json({
+        success: false,
+        error: 'Content not found or not owned by user'
+      });
+    }
+
+    // Log content found for debugging
+    console.log('✅ Content found for rejection:', {
+      contentId: content.id,
+      creatorId: content.creatorId,
+      approvalStatus: content.approvalStatus,
+      isBiddable: content.isBiddable,
+      isAvailable: content.isAvailable,
+      walletAddress: content.walletAddress,
+      userWalletAddress: walletAddress.toLowerCase()
+    });
+
+    // Additional validation for approved content
+    if (content.approvalStatus === 'approved') {
+      // For approved content, only allow rejection if it's not biddable
+      if (content.isBiddable) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot reject approved content that is currently biddable. Please disable bidding first.'
+        });
+      }
+      
+      // For approved content, only allow rejection if it's available
+      if (!content.isAvailable) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot reject approved content that is not available'
+        });
+      }
     }
 
     // Update content to rejected

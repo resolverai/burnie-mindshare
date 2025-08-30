@@ -439,8 +439,10 @@ export default function YapperMyContent() {
         <DynamicFilters
           selectedPlatform={selectedPlatform}
           selectedProject={selectedProject}
+          selectedPostType={selectedPostType}
           onPlatformChange={setSelectedPlatform}
           onProjectChange={setSelectedProject}
+          onPostTypeChange={setSelectedPostType}
           searchTerm={searchTerm}
           onSearchChange={(e) => setSearchTerm(e.target.value)}
         />

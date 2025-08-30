@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { AppDataSource } from '../config/database';
 import { Campaign } from '../models/Campaign';
+import { ContentMarketplace } from '../models/ContentMarketplace';
 import { Repository } from 'typeorm';
 import { logger } from '../config/logger';
 
@@ -27,18 +28,31 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       .andWhere('campaign.projectName IS NOT NULL')
       .getRawMany();
 
+    // Get all unique post types from content marketplace
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const postTypeResults = await contentRepository
+      .createQueryBuilder('content')
+      .select('DISTINCT content.postType', 'postType')
+      .where('content.approvalStatus = :status', { status: 'approved' })
+      .andWhere('content.isAvailable = true')
+      .andWhere('content.postType IS NOT NULL')
+      .getRawMany();
+
     const platforms = platformResults.map(result => result.platformSource).filter(Boolean);
     const projects = projectResults.map(result => result.projectName).filter(Boolean);
+    const postTypes = postTypeResults.map(result => result.postType).filter(Boolean);
 
-    logger.info(`📊 Found ${platforms.length} unique platforms and ${projects.length} unique projects`);
+    logger.info(`📊 Found ${platforms.length} unique platforms, ${projects.length} unique projects, and ${postTypes.length} unique post types`);
     logger.info(`📊 Platforms: ${platforms.join(', ')}`);
     logger.info(`📊 Projects: ${projects.join(', ')}`);
+    logger.info(`📊 Post Types: ${postTypes.join(', ')}`);
 
     res.json({
       success: true,
       data: {
         platforms: platforms.sort(),
-        projects: projects.sort()
+        projects: projects.sort(),
+        postTypes: postTypes.sort()
       }
     });
 

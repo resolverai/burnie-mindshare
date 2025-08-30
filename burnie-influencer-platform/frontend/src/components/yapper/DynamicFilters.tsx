@@ -10,8 +10,10 @@ import { fetchFilterOptions } from '../../services/filterService'
 interface DynamicFiltersProps {
   selectedPlatform: string
   selectedProject: string
+  selectedPostType: string
   onPlatformChange: (platform: string) => void
   onProjectChange: (project: string) => void
+  onPostTypeChange: (postType: string) => void
   searchTerm?: string
   onSearchChange?: (e: React.ChangeEvent<HTMLInputElement>) => void
 
@@ -20,15 +22,19 @@ interface DynamicFiltersProps {
 export default function DynamicFilters({
   selectedPlatform,
   selectedProject,
+  selectedPostType,
   onPlatformChange,
   onProjectChange,
+  onPostTypeChange,
   searchTerm,
   onSearchChange
 }: DynamicFiltersProps) {
   const [isPlatformDropdownOpen, setIsPlatformDropdownOpen] = useState(false)
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
+  const [isPostTypeDropdownOpen, setIsPostTypeDropdownOpen] = useState(false)
   const platformDropdownRef = useRef<HTMLDivElement>(null)
   const projectDropdownRef = useRef<HTMLDivElement>(null)
+  const postTypeDropdownRef = useRef<HTMLDivElement>(null)
 
   // Fetch filter options
   const { data: filterOptions = { platforms: [], projects: [] } } = useQuery({
@@ -45,6 +51,9 @@ export default function DynamicFilters({
       }
       if (projectDropdownRef.current && !projectDropdownRef.current.contains(event.target as Node)) {
         setIsProjectDropdownOpen(false)
+      }
+      if (postTypeDropdownRef.current && !postTypeDropdownRef.current.contains(event.target as Node)) {
+        setIsPostTypeDropdownOpen(false)
       }
     }
 
@@ -74,7 +83,7 @@ export default function DynamicFilters({
   const hiddenProjects = projectsWithoutAll.slice(2)
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] items-start md:items-end gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-[auto_auto_1fr] items-start md:items-end gap-6">
       {/* Platforms Filter */}
       <div className="flex flex-col items-start gap-3">
         <div className="flex">
@@ -105,6 +114,10 @@ export default function DynamicFilters({
               />
               {platform === 'cookie.fun' ? 'Cookie.fun' : 
                platform === 'yaps.kaito.ai' ? 'Kaito.ai' : 
+               platform === 'wallchain' ? 'Wallchain' :
+               platform === 'galxe' ? 'Galxe' :
+               platform === 'alphabot' ? 'Alphabot' :
+               platform === 'independent' ? 'Independent' :
                platform}
             </button>
           ))}
@@ -146,6 +159,10 @@ export default function DynamicFilters({
                       />
                       {platform === 'cookie.fun' ? 'Cookie.fun' : 
                        platform === 'yaps.kaito.ai' ? 'Kaito.ai' : 
+                       platform === 'wallchain' ? 'Wallchain' :
+                       platform === 'galxe' ? 'Galxe' :
+                       platform === 'alphabot' ? 'Alphabot' :
+                       platform === 'independent' ? 'Independent' :
                        platform}
                     </button>
                   ))}
@@ -220,6 +237,74 @@ export default function DynamicFilters({
           </div>
         </div>
       )}
+
+      {/* Post Type Filter */}
+      <div className="flex flex-col items-start gap-3">
+        <div className="flex">
+          <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Post Type</span>
+        </div>
+        <div className="flex items-center gap-4">
+          {/* All Button */}
+          <button 
+            onClick={() => onPostTypeChange('all')}
+            className={`badge-yapper ${selectedPostType === 'all' ? '!bg-[#743636] !text-white font-semibold' : ''}`}
+          >
+            All
+          </button>
+
+          {/* Post Type Dropdown */}
+          <div className="relative" ref={postTypeDropdownRef}>
+            <button 
+              onClick={() => setIsPostTypeDropdownOpen(!isPostTypeDropdownOpen)}
+              className="badge-yapper flex items-center gap-2"
+            >
+              {selectedPostType === 'all' ? 'All Post Types' : 
+               selectedPostType === 'thread' ? 'Regular Post' :
+               selectedPostType === 'shitpost' ? 'Meme Post' :
+               selectedPostType === 'longpost' ? 'Long Post' : 'Select Type'}
+              <Image 
+                src="/arrowdown.svg" 
+                alt="Arrow down" 
+                width={12} 
+                height={12}
+                className={`transition-transform duration-200 ${isPostTypeDropdownOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {isPostTypeDropdownOpen && (
+              <div className="absolute top-full left-0 mt-2 min-w-[200px] bg-[#492222] border border-white/20 rounded-lg shadow-lg z-50">
+                <button
+                  onClick={() => {
+                    onPostTypeChange('thread')
+                    setIsPostTypeDropdownOpen(false)
+                  }}
+                  className={`w-full px-4 py-3 text-left transition-colors first:rounded-t-lg ${selectedPostType === 'thread' ? 'bg-[#743636] text-white font-semibold' : 'text-white hover:bg-white/10'}`}
+                >
+                  Regular Post
+                </button>
+                <button
+                  onClick={() => {
+                    onPostTypeChange('shitpost')
+                    setIsPostTypeDropdownOpen(false)
+                  }}
+                  className={`w-full px-4 py-3 text-left transition-colors ${selectedPostType === 'shitpost' ? 'bg-[#743636] text-white font-semibold' : 'text-white hover:bg-white/10'}`}
+                >
+                  Meme Post
+                </button>
+                <button
+                  onClick={() => {
+                    onPostTypeChange('longpost')
+                    setIsPostTypeDropdownOpen(false)
+                  }}
+                  className={`w-full px-4 py-3 text-left transition-colors last:rounded-b-lg ${selectedPostType === 'longpost' ? 'bg-[#743636] text-white font-semibold' : 'text-white hover:bg-white/10'}`}
+                >
+                  Long Post
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Search Bar */}
       {onSearchChange && (
