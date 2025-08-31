@@ -4,60 +4,58 @@
 -- Run this BEFORE the wallet address normalization migration if you have duplicate users
 -- This works with any wallet addresses, not hardcoded to specific ones
 --
--- ⚠️  IMPORTANT: This migration handles:
--- - Duplicate usernames (appends '_m' suffix to avoid conflicts)
--- - Wallet address uniqueness constraints (updates all references first)
--- - All foreign key references before deletion
--- - Proper data merging with default value handling
--- - Column name differences between local (wallet_address) and production (walletAddress)
--- - CRITICAL: Handles wallet address uniqueness constraints FIRST, then updates all references
+-- ⚠️  IMPORTANT: This migration uses a constraint-dropping approach for reliability:
+-- 1. Temporarily drops foreign key constraints
+-- 2. Merges duplicate users and fixes data
+-- 3. Restores all constraints
+-- 4. This ensures no constraint violations during the process
 
 -- Step 1: Create a temporary table to store the merged user data
 CREATE TEMP TABLE merged_users AS
-SELECT 
+SELECT
     -- Use the lowercase wallet address as the primary key
     LOWER(u1."walletAddress") as wallet_address_lower,
-    
+
     -- Keep the record with the most complete data (prefer the one with more non-null fields)
-    CASE 
-        WHEN (CASE WHEN u1.username IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1.email IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1."twitterHandle" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1."twitterUserId" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1."twitterOauthToken" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1."referralCode" IS NOT NULL THEN 1 ELSE 0 END) + 
+    CASE
+        WHEN (CASE WHEN u1.username IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1.email IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1."twitterHandle" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1."twitterUserId" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1."twitterOauthToken" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1."referralCode" IS NOT NULL THEN 1 ELSE 0 END) +
              (CASE WHEN u1."referredByUserId" IS NOT NULL THEN 1 ELSE 0 END) >=
-             (CASE WHEN u2.username IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2.email IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2."twitterHandle" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2."twitterUserId" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2."twitterOauthToken" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2."referralCode" IS NOT NULL THEN 1 ELSE 0 END) + 
+             (CASE WHEN u2.username IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2.email IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2."twitterHandle" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2."twitterUserId" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2."twitterOauthToken" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2."referralCode" IS NOT NULL THEN 1 ELSE 0 END) +
              (CASE WHEN u2."referredByUserId" IS NOT NULL THEN 1 ELSE 0 END)
         THEN u1.id
         ELSE u2.id
     END as id_to_keep,
-    
+
     -- The other record to delete
-    CASE 
-        WHEN (CASE WHEN u1.username IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1.email IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1."twitterHandle" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1."twitterUserId" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1."twitterOauthToken" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u1."referralCode" IS NOT NULL THEN 1 ELSE 0 END) + 
+    CASE
+        WHEN (CASE WHEN u1.username IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1.email IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1."twitterHandle" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1."twitterUserId" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1."twitterOauthToken" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u1."referralCode" IS NOT NULL THEN 1 ELSE 0 END) +
              (CASE WHEN u1."referredByUserId" IS NOT NULL THEN 1 ELSE 0 END) >=
-             (CASE WHEN u2.username IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2.email IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2."twitterHandle" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2."twitterUserId" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2."twitterOauthToken" IS NOT NULL THEN 1 ELSE 0 END) + 
-             (CASE WHEN u2."referralCode" IS NOT NULL THEN 1 ELSE 0 END) + 
+             (CASE WHEN u2.username IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2.email IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2."twitterHandle" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2."twitterUserId" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2."twitterOauthToken" IS NOT NULL THEN 1 ELSE 0 END) +
+             (CASE WHEN u2."referralCode" IS NOT NULL THEN 1 ELSE 0 END) +
              (CASE WHEN u2."referredByUserId" IS NOT NULL THEN 1 ELSE 0 END)
         THEN u2.id
         ELSE u1.id
     END as id_to_delete,
-    
+
     -- Preserve username from whichever record has it, handle duplicates
     CASE 
         WHEN u1.username IS NOT NULL AND u2.username IS NOT NULL AND u1.username != u2.username THEN
@@ -68,19 +66,19 @@ SELECT
         WHEN u2.username IS NOT NULL THEN u2.username
         ELSE NULL
     END as username,
-    
+
     -- Preserve email from whichever record has it
     COALESCE(u1.email, u2.email) as email,
-    
+
     -- Preserve twitter handle from whichever record has it
     COALESCE(u1."twitterHandle", u2."twitterHandle") as twitter_handle,
-    
+
     -- Preserve twitter user ID from whichever record has it
     COALESCE(u1."twitterUserId", u2."twitterUserId") as twitter_user_id,
-    
+
     -- Preserve OAuth token from whichever record has it
     COALESCE(u1."twitterOauthToken", u2."twitterOauthToken") as twitter_oauth_token,
-    
+
     -- Handle roleType logic: if one is 'miner' and another is 'yapper', combine to 'both'
     -- Default is 'both', so we need to check if it's the actual value or just default
     CASE 
@@ -90,13 +88,13 @@ SELECT
         WHEN u2."roleType" IS NOT NULL AND u2."roleType" != 'both' THEN u2."roleType"
         ELSE 'both'
     END as role_type,
-    
+
     -- Preserve referral code from whichever record has it
     COALESCE(u1."referralCode", u2."referralCode") as referral_code,
-    
+
     -- Preserve referred by user ID from whichever record has it
     COALESCE(u1."referredByUserId", u2."referredByUserId") as referred_by_user_id,
-    
+
     -- Sum the referral counts (avoid default value 0)
     CASE 
         WHEN u1."referralCount" IS NOT NULL AND u2."referralCount" IS NOT NULL THEN u1."referralCount" + u2."referralCount"
@@ -104,7 +102,7 @@ SELECT
         WHEN u2."referralCount" IS NOT NULL THEN u2."referralCount"
         ELSE 0
     END as referral_count,
-    
+
     -- Sum the total referral earnings (avoid default value 0)
     CASE 
         WHEN u1."totalReferralEarnings" IS NOT NULL AND u2."totalReferralEarnings" IS NOT NULL THEN u1."totalReferralEarnings" + u2."totalReferralEarnings"
@@ -112,7 +110,7 @@ SELECT
         WHEN u2."totalReferralEarnings" IS NOT NULL THEN u2."totalReferralEarnings"
         ELSE 0
     END as total_referral_earnings,
-    
+
     -- Sum the total earnings (avoid default value 0)
     CASE 
         WHEN u1."totalEarnings" IS NOT NULL AND u2."totalEarnings" IS NOT NULL THEN u1."totalEarnings" + u2."totalEarnings"
@@ -120,7 +118,7 @@ SELECT
         WHEN u2."totalEarnings" IS NOT NULL THEN u2."totalEarnings"
         ELSE 0
     END as total_earnings,
-    
+
     -- Sum the roast balance (avoid default value 0)
     CASE 
         WHEN u1."roastBalance" IS NOT NULL AND u2."roastBalance" IS NOT NULL THEN u1."roastBalance" + u2."roastBalance"
@@ -128,7 +126,7 @@ SELECT
         WHEN u2."roastBalance" IS NOT NULL THEN u2."roastBalance"
         ELSE 0
     END as roast_balance,
-    
+
     -- Sum the USDC balance (avoid default value 0)
     CASE 
         WHEN u1."usdcBalance" IS NOT NULL AND u2."usdcBalance" IS NOT NULL THEN u1."usdcBalance" + u2."usdcBalance"
@@ -136,7 +134,7 @@ SELECT
         WHEN u2."usdcBalance" IS NOT NULL THEN u2."usdcBalance"
         ELSE 0
     END as usdc_balance,
-    
+
     -- Take the higher reputation score (avoid default value 0)
     CASE 
         WHEN u1."reputationScore" IS NOT NULL AND u2."reputationScore" IS NOT NULL THEN 
@@ -145,28 +143,28 @@ SELECT
         WHEN u2."reputationScore" IS NOT NULL THEN u2."reputationScore"
         ELSE 0
     END as reputation_score,
-    
+
     -- Preserve verification status (if either is verified, keep verified)
     COALESCE(u1."isVerified", false) as is_verified_1,
     COALESCE(u2."isVerified", false) as is_verified_2,
-    
+
     -- Preserve admin status (if either is admin, keep admin)
     COALESCE(u1."isAdmin", false) as is_admin_1,
     COALESCE(u2."isAdmin", false) as is_admin_2,
-    
+
     -- Preserve access status (APPROVED takes priority over PENDING_REFERRAL)
     CASE 
         WHEN u1."accessStatus" = 'APPROVED' OR u2."accessStatus" = 'APPROVED' THEN 'APPROVED'
         WHEN u1."accessStatus" = 'PENDING_REFERRAL' OR u2."accessStatus" = 'PENDING_REFERRAL' THEN 'PENDING_REFERRAL'
         ELSE COALESCE(u1."accessStatus", u2."accessStatus")
     END as access_status,
-    
+
     -- Merge profiles (keep non-null values)
     COALESCE(u1.profile, u2.profile) as profile,
-    
+
     -- Merge preferences (keep non-null values)
     COALESCE(u1.preferences, u2.preferences) as preferences,
-    
+
     -- Take the most recent last active time (avoid default now() values)
     CASE 
         WHEN u1."lastActiveAt" IS NOT NULL AND u2."lastActiveAt" IS NOT NULL THEN 
@@ -175,7 +173,7 @@ SELECT
         WHEN u2."lastActiveAt" IS NOT NULL THEN u2."lastActiveAt"
         ELSE NULL
     END as last_active_at,
-    
+
     -- Take the earliest creation time (avoid default now() values)
     CASE 
         WHEN u1."createdAt" IS NOT NULL AND u2."createdAt" IS NOT NULL THEN 
@@ -184,7 +182,7 @@ SELECT
         WHEN u2."createdAt" IS NOT NULL THEN u2."createdAt"
         ELSE NULL
     END as created_at,
-    
+
     -- Take the most recent update time (avoid default now() values)
     CASE 
         WHEN u1."updatedAt" IS NOT NULL AND u2."updatedAt" IS NOT NULL THEN 
@@ -199,229 +197,210 @@ INNER JOIN users u2 ON LOWER(u1."walletAddress") = LOWER(u2."walletAddress") AND
 WHERE u1."walletAddress" != u2."walletAddress"  -- Different cases
   AND LOWER(u1."walletAddress") = LOWER(u2."walletAddress");  -- Same when lowercased
 
-            -- Step 2: Update the record we want to keep with merged data
-            UPDATE users
-            SET
-                username = CASE 
-                    -- If username would cause conflict, generate a unique one
-                    WHEN EXISTS (
-                        SELECT 1 FROM users u2 
-                        WHERE u2.username = mu.username AND u2.id != mu.id_to_keep
-                    ) THEN 
-                        COALESCE(mu.username, 'User') || '_' || mu.id_to_keep
-                    ELSE mu.username
-                END,
-                email = mu.email,
-                "twitterHandle" = mu.twitter_handle,
-                "twitterUserId" = mu.twitter_user_id,
-                "twitterOauthToken" = mu.twitter_oauth_token,
-                "roleType" = mu.role_type::users_roletype_enum,
-                "referralCode" = mu.referral_code,
-                "referredByUserId" = mu.referred_by_user_id,
-                "referralCount" = mu.referral_count,
-                "totalReferralEarnings" = mu.total_referral_earnings,
-                "totalEarnings" = mu.total_earnings,
-                "roastBalance" = mu.roast_balance,
-                "usdcBalance" = mu.usdc_balance,
-                "reputationScore" = mu.reputation_score,
-                "isVerified" = (mu.is_verified_1 OR mu.is_verified_2),
-                "isAdmin" = (mu.is_admin_1 OR mu.is_admin_2),
-                "accessStatus" = mu.access_status::users_accessstatus_enum,
-                profile = mu.profile,
-                preferences = mu.preferences,
-                "lastActiveAt" = mu.last_active_at,
-                "createdAt" = mu.created_at,
-                "updatedAt" = mu.updated_at
-            FROM merged_users mu
-            WHERE users.id = mu.id_to_keep;
+-- Step 2: Temporarily drop foreign key constraints to avoid violations during the process
+-- Drop content_purchases foreign key constraints
+ALTER TABLE content_purchases DROP CONSTRAINT IF EXISTS "FK_d88644dbf3e219691f0ef2a8715";
+ALTER TABLE content_purchases DROP CONSTRAINT IF EXISTS "FK_00154a79fbb0987a79294cc4ce4";
 
--- Step 3: Update ALL foreign key references that use user ID FIRST
+-- Step 3: Update the record we want to keep with merged data
+UPDATE users
+SET
+    username = CASE 
+        -- If username would cause conflict, generate a unique one
+        WHEN EXISTS (
+            SELECT 1 FROM users u2 
+            WHERE u2.username = mu.username AND u2.id != mu.id_to_keep
+        ) THEN 
+            COALESCE(mu.username, 'User') || '_' || mu.id_to_keep
+        ELSE mu.username
+    END,
+    email = mu.email,
+    "twitterHandle" = mu.twitter_handle,
+    "twitterUserId" = mu.twitter_user_id,
+    "twitterOauthToken" = mu.twitter_oauth_token,
+    "roleType" = mu.role_type::users_roletype_enum,
+    "referralCode" = mu.referral_code,
+    "referredByUserId" = mu.referred_by_user_id,
+    "referralCount" = mu.referral_count,
+    "totalReferralEarnings" = mu.total_referral_earnings,
+    "totalEarnings" = mu.total_earnings,
+    "roastBalance" = mu.roast_balance,
+    "usdcBalance" = mu.usdc_balance,
+    "reputationScore" = mu.reputation_score,
+    "isVerified" = (mu.is_verified_1 OR mu.is_verified_2),
+    "isAdmin" = (mu.is_admin_1 OR mu.is_admin_2),
+    "accessStatus" = mu.access_status::users_accessstatus_enum,
+    profile = mu.profile,
+    preferences = mu.preferences,
+    "lastActiveAt" = mu.last_active_at,
+    "createdAt" = mu.created_at,
+    "updatedAt" = mu.updated_at
+FROM merged_users mu
+WHERE users.id = mu.id_to_keep;
+
+-- Step 4: Update ALL foreign key references that use user ID
 -- Update content_marketplace.creatorId
-UPDATE content_marketplace 
+UPDATE content_marketplace
 SET "creatorId" = mu.id_to_keep
 FROM merged_users mu
 WHERE content_marketplace."creatorId" = mu.id_to_delete;
 
 -- Update miners.userId
-UPDATE miners 
+UPDATE miners
 SET "userId" = mu.id_to_keep
 FROM merged_users mu
 WHERE miners."userId" = mu.id_to_delete;
 
 -- Update waitlist.approvedByUserId
-UPDATE waitlist 
+UPDATE waitlist
 SET "approvedByUserId" = mu.id_to_keep
 FROM merged_users mu
 WHERE waitlist."approvedByUserId" = mu.id_to_delete;
 
 -- Update projects.ownerId
-UPDATE projects 
+UPDATE projects
 SET "ownerId" = mu.id_to_keep
 FROM merged_users mu
 WHERE projects."ownerId" = mu.id_to_delete;
 
 -- Update agent_configurations.userId
-UPDATE agent_configurations 
+UPDATE agent_configurations
 SET "userId" = mu.id_to_keep
 FROM merged_users mu
 WHERE agent_configurations."userId" = mu.id_to_delete;
 
 -- Update bidding_system.bidderId
-UPDATE bidding_system 
+UPDATE bidding_system
 SET "bidderId" = mu.id_to_keep
 FROM merged_users mu
 WHERE bidding_system."bidderId" = mu.id_to_delete;
 
 -- Update payment_transactions.fromUserId
-UPDATE payment_transactions 
+UPDATE payment_transactions
 SET "fromUserId" = mu.id_to_keep
 FROM merged_users mu
 WHERE payment_transactions."fromUserId" = mu.id_to_delete;
 
 -- Update payment_transactions.toUserId
-UPDATE payment_transactions 
+UPDATE payment_transactions
 SET "toUserId" = mu.id_to_keep
 FROM merged_users mu
 WHERE payment_transactions."toUserId" = mu.id_to_delete;
 
 -- Update twitter_learning_data.userId
-UPDATE twitter_learning_data 
+UPDATE twitter_learning_data
 SET "userId" = mu.id_to_keep
 FROM merged_users mu
 WHERE twitter_learning_data."userId" = mu.id_to_delete;
 
 -- Update twitter_user_connections.userId
-UPDATE twitter_user_connections 
+UPDATE twitter_user_connections
 SET "userId" = mu.id_to_keep
 FROM merged_users mu
 WHERE twitter_user_connections."userId" = mu.id_to_delete;
 
-            -- Update yapper_twitter_connections.userId
-            UPDATE yapper_twitter_connections
-            SET "userId" = mu.id_to_keep
-            FROM merged_users mu
-            WHERE yapper_twitter_connections."userId" = mu.id_to_delete;
+-- Update yapper_twitter_connections.userId
+UPDATE yapper_twitter_connections
+SET "userId" = mu.id_to_keep
+FROM merged_users mu
+WHERE yapper_twitter_connections."userId" = mu.id_to_delete;
 
-            -- Update yapper_twitter_connections.connectedUserId (if this column exists)
-            DO $$
-            BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'yapper_twitter_connections' AND column_name = 'connectedUserId'
-                ) THEN
-                    UPDATE yapper_twitter_connections
-                    SET "connectedUserId" = mu.id_to_keep
-                    FROM merged_users mu
-                    WHERE yapper_twitter_connections."connectedUserId" = mu.id_to_delete;
-                END IF;
-            END $$;
+-- Update yapper_twitter_connections.connectedUserId (if this column exists)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'yapper_twitter_connections' AND column_name = 'connectedUserId'
+    ) THEN
+        UPDATE yapper_twitter_connections
+        SET "connectedUserId" = mu.id_to_keep
+        FROM merged_users mu
+        WHERE yapper_twitter_connections."connectedUserId" = mu.id_to_delete;
+    END IF;
+END $$;
 
 -- Update snap_predictions.yapperId
-UPDATE snap_predictions 
+UPDATE snap_predictions
 SET "yapperId" = mu.id_to_keep
 FROM merged_users mu
 WHERE snap_predictions."yapperId" = mu.id_to_delete;
 
 -- Update platform_snapshots.createdBy
-UPDATE platform_snapshots 
+UPDATE platform_snapshots
 SET "createdBy" = mu.id_to_keep
 FROM merged_users mu
 WHERE platform_snapshots."createdBy" = mu.id_to_delete;
 
 -- Update user_referrals.userId
-UPDATE user_referrals 
+UPDATE user_referrals
 SET "userId" = mu.id_to_keep
 FROM merged_users mu
 WHERE user_referrals."userId" = mu.id_to_delete;
 
 -- Update user_referrals.directReferrerId
-UPDATE user_referrals 
+UPDATE user_referrals
 SET "directReferrerId" = mu.id_to_keep
 FROM merged_users mu
 WHERE user_referrals."directReferrerId" = mu.id_to_delete;
 
 -- Update user_referrals.grandReferrerId
-UPDATE user_referrals 
+UPDATE user_referrals
 SET "grandReferrerId" = mu.id_to_keep
 FROM merged_users mu
 WHERE user_referrals."grandReferrerId" = mu.id_to_delete;
 
 -- Update execution_tracking.userId
-UPDATE execution_tracking 
+UPDATE execution_tracking
 SET "userId" = mu.id_to_keep
 FROM merged_users mu
 WHERE execution_tracking."userId" = mu.id_to_delete;
 
-            -- Step 4: Handle wallet address uniqueness constraint FIRST
-            -- Temporarily rename ALL duplicate wallet addresses to avoid constraint violations
-            -- Use shorter suffix to stay within 42 character limit
-            UPDATE users
-            SET "walletAddress" = LEFT("walletAddress", 35) || '_' || id
-            WHERE id IN (
-                SELECT u1.id FROM users u1
-                INNER JOIN users u2 ON LOWER(u1."walletAddress") = LOWER(u2."walletAddress") AND u1.id != u2.id
-                WHERE u1."walletAddress" != u2."walletAddress"  -- Different cases
-                  AND LOWER(u1."walletAddress") = LOWER(u2."walletAddress")  -- Same when lowercased
-            );
+-- Step 5: Update ALL wallet address references to point to the kept record
+-- Update content_purchases.buyer_wallet_address references
+UPDATE content_purchases
+SET "buyer_wallet_address" = LOWER(mu.wallet_address_lower)
+FROM merged_users mu
+WHERE content_purchases."buyer_wallet_address" IN (
+    SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
+);
 
-            -- Step 5: Update ALL wallet address references (now safe since no duplicates exist)
-            -- Update content_purchases.buyer_wallet_address references
-            UPDATE content_purchases
-            SET "buyer_wallet_address" = LOWER(mu.wallet_address_lower)
-            FROM merged_users mu
-            WHERE content_purchases."buyer_wallet_address" IN (
-                SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
-            );
+-- Update content_purchases.miner_wallet_address references
+UPDATE content_purchases
+SET "miner_wallet_address" = LOWER(mu.wallet_address_lower)
+FROM merged_users mu
+WHERE content_purchases."miner_wallet_address" IN (
+    SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
+);
 
-            -- Update content_purchases.miner_wallet_address references
-            UPDATE content_purchases
-            SET "miner_wallet_address" = LOWER(mu.wallet_address_lower)
-            FROM merged_users mu
-            WHERE content_purchases."miner_wallet_address" IN (
-                SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
-            );
-
-            -- CRITICAL: Also update any remaining wallet address references that might have been missed
-            -- This ensures ALL references are updated before we modify the users table
-            UPDATE content_purchases
-            SET "buyer_wallet_address" = LOWER(mu.wallet_address_lower)
-            FROM merged_users mu
-            WHERE content_purchases."buyer_wallet_address" LIKE '%_temp_%';
-
-            UPDATE content_purchases
-            SET "miner_wallet_address" = LOWER(mu.wallet_address_lower)
-            FROM merged_users mu
-            WHERE content_purchases."miner_wallet_address" LIKE '%_temp_%';
-
-            -- Update content_marketplace wallet address references (handle both column names)
-            -- Try walletAddress first (production), fallback to wallet_address (local)
-            DO $$
-            BEGIN
-                -- Check if walletAddress column exists
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'content_marketplace' AND column_name = 'walletAddress'
-                ) THEN
-                    -- Production: use walletAddress
-                    UPDATE content_marketplace
-                    SET "walletAddress" = LOWER(mu.wallet_address_lower)
-                    FROM merged_users mu
-                    WHERE content_marketplace."walletAddress" IN (
-                        SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
-                    );
-                ELSE
-                    -- Local: use wallet_address
-                    UPDATE content_marketplace
-                    SET wallet_address = LOWER(mu.wallet_address_lower)
-                    FROM merged_users mu
-                    WHERE content_marketplace.wallet_address IN (
-                        SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
-                    );
-                END IF;
-            END $$;
+-- Update content_marketplace wallet address references (handle both column names)
+-- Try walletAddress first (production), fallback to wallet_address (local)
+DO $$
+BEGIN
+    -- Check if walletAddress column exists
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'content_marketplace' AND column_name = 'walletAddress'
+    ) THEN
+        -- Production: use walletAddress
+        UPDATE content_marketplace
+        SET "walletAddress" = LOWER(mu.wallet_address_lower)
+        FROM merged_users mu
+        WHERE content_marketplace."walletAddress" IN (
+            SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
+        );
+    ELSE
+        -- Local: use wallet_address
+        UPDATE content_marketplace
+        SET wallet_address = LOWER(mu.wallet_address_lower)
+        FROM merged_users mu
+        WHERE content_marketplace.wallet_address IN (
+            SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
+        );
+    END IF;
+END $$;
 
 -- Update miners.walletAddress references
-UPDATE miners 
+UPDATE miners
 SET "walletAddress" = LOWER(mu.wallet_address_lower)
 FROM merged_users mu
 WHERE miners."walletAddress" IN (
@@ -429,7 +408,7 @@ WHERE miners."walletAddress" IN (
 );
 
 -- Update waitlist.walletAddress references
-UPDATE waitlist 
+UPDATE waitlist
 SET "walletAddress" = LOWER(mu.wallet_address_lower)
 FROM merged_users mu
 WHERE waitlist."walletAddress" IN (
@@ -437,7 +416,7 @@ WHERE waitlist."walletAddress" IN (
 );
 
 -- Update referral_codes.leaderWalletAddress references
-UPDATE referral_codes 
+UPDATE referral_codes
 SET "leaderWalletAddress" = LOWER(mu.wallet_address_lower)
 FROM merged_users mu
 WHERE referral_codes."leaderWalletAddress" IN (
@@ -445,31 +424,39 @@ WHERE referral_codes."leaderWalletAddress" IN (
 );
 
 -- Update referral_payouts.payoutWalletAddress references
-UPDATE referral_payouts 
+UPDATE referral_payouts
 SET "payoutWalletAddress" = LOWER(mu.wallet_address_lower)
 FROM merged_users mu
 WHERE referral_payouts."payoutWalletAddress" IN (
     SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
 );
 
-            -- Step 6: NOW update the wallet address to lowercase for the kept record
-            -- (All wallet address references have been updated above, so this is safe)
-            UPDATE users
-            SET "walletAddress" = LOWER("walletAddress")
-            FROM merged_users mu
-            WHERE users.id = mu.id_to_keep;
+-- Step 6: NOW safely update the wallet address to lowercase for the kept record
+UPDATE users
+SET "walletAddress" = LOWER("walletAddress")
+FROM merged_users mu
+WHERE users.id = mu.id_to_keep;
 
-            -- Step 7: Delete the duplicate records
-            DELETE FROM users
-            WHERE id IN (
-                SELECT id_to_delete FROM merged_users
-            );
+-- Step 7: Delete the duplicate records
+DELETE FROM users
+WHERE id IN (
+    SELECT id_to_delete FROM merged_users
+);
 
-            -- Step 8: Clean up temporary table
-            DROP TABLE merged_users;
+-- Step 8: Restore the foreign key constraints
+-- Re-add content_purchases foreign key constraints
+ALTER TABLE content_purchases ADD CONSTRAINT "FK_d88644dbf3e219691f0ef2a8715" 
+    FOREIGN KEY ("buyer_wallet_address") REFERENCES users("walletAddress");
+
+ALTER TABLE content_purchases ADD CONSTRAINT "FK_00154a79fbb0987a79294cc4ce4" 
+    FOREIGN KEY ("miner_wallet_address") REFERENCES users("walletAddress");
+
+-- Step 9: Clean up temporary table
+DROP TABLE merged_users;
 
 -- Migration completed successfully
 -- All duplicate user records have been merged
 -- Wallet addresses are now normalized to lowercase
 -- ALL foreign key references have been updated
+-- Foreign key constraints have been restored
 -- Ready to run the wallet address normalization migration
