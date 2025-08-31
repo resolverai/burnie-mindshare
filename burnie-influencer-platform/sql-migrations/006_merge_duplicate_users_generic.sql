@@ -354,8 +354,9 @@ WHERE execution_tracking."userId" = mu.id_to_delete;
 
             -- Step 4: Handle wallet address uniqueness constraint FIRST
             -- Temporarily rename ALL duplicate wallet addresses to avoid constraint violations
+            -- Use shorter suffix to stay within 42 character limit
             UPDATE users
-            SET "walletAddress" = "walletAddress" || '_temp_' || id
+            SET "walletAddress" = LEFT("walletAddress", 35) || '_' || id
             WHERE id IN (
                 SELECT u1.id FROM users u1
                 INNER JOIN users u2 ON LOWER(u1."walletAddress") = LOWER(u2."walletAddress") AND u1.id != u2.id
@@ -379,6 +380,18 @@ WHERE execution_tracking."userId" = mu.id_to_delete;
             WHERE content_purchases."miner_wallet_address" IN (
                 SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
             );
+
+            -- CRITICAL: Also update any remaining wallet address references that might have been missed
+            -- This ensures ALL references are updated before we modify the users table
+            UPDATE content_purchases
+            SET "buyer_wallet_address" = LOWER(mu.wallet_address_lower)
+            FROM merged_users mu
+            WHERE content_purchases."buyer_wallet_address" LIKE '%_temp_%';
+
+            UPDATE content_purchases
+            SET "miner_wallet_address" = LOWER(mu.wallet_address_lower)
+            FROM merged_users mu
+            WHERE content_purchases."miner_wallet_address" LIKE '%_temp_%';
 
             -- Update content_marketplace wallet address references (handle both column names)
             -- Try walletAddress first (production), fallback to wallet_address (local)
