@@ -1,8 +1,7 @@
 {
   "wallet_addresses": [
     "0x2129d279fa40c41ec930f4604ab3a6a5bf30823b",
-    "0xffa78b11012ff3002caca06224f5b4c8ddc37067", 
-    "0x741267166ff2a1721f140B819B6f844F8C7D8d74"
+    "0x741267166ff2a1721f140b819b6f844f8c7d8d74"
   ],
   "content_generation": {
     "content_types": ["shitpost", "longpost", "thread"],

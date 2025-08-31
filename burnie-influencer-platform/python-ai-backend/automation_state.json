@@ -1,0 +1,27 @@
+{
+  "last_updated": "2025-09-01T01:30:14.514554",
+  "current_campaign_id": 2,
+  "current_campaign_title": "Earn BOB (Build on Bitcoin) SNAPS & climb the leaderboard for BOB (Build on Bitcoin) rewards.",
+  "completed_campaigns": [],
+  "current_campaign_progress": {
+    "content_types_completed": [
+      "shitpost",
+      "longpost",
+      "thread"
+    ],
+    "content_types_remaining": [],
+    "last_content_generated": "thread",
+    "generation_count": 6
+  },
+  "overall_stats": {
+    "campaigns_processed": 1,
+    "content_generated": 3,
+    "errors": 0,
+    "rate_limits_hit": 0,
+    "retries_attempted": 0,
+    "retries_successful": 0,
+    "content_with_images": 0,
+    "content_approved": 3
+  },
+  "resume_point": null
+}

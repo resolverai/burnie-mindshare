@@ -705,7 +705,7 @@ class AutomatedContentGenerator:
             
             # Query the content_marketplace table
             query = text("""
-                SELECT id, "contentImages", "watermarkImage", "createdAt", "walletAddress"
+                SELECT id, "contentImages", "watermarkImage", "createdAt", "wallet_address"
                 FROM content_marketplace 
                 WHERE "campaignId" = :campaign_id 
                 AND "postType" = :content_type
@@ -816,7 +816,7 @@ class AutomatedContentGenerator:
             
             # Query the content_marketplace table to check approval status
             query = text("""
-                SELECT "approvalStatus", "approvedAt", "createdAt", "walletAddress"
+                SELECT "approvalStatus", "approvedAt", "createdAt", "wallet_address"
                 FROM content_marketplace 
                 WHERE "campaignId" = :campaign_id 
                 AND "postType" = :content_type
