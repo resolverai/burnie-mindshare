@@ -61,7 +61,8 @@ SELECT
     CASE 
         WHEN u1.username IS NOT NULL AND u2.username IS NOT NULL AND u1.username != u2.username THEN
             -- If both have different usernames, append a suffix to avoid conflicts
-            u1.username || '_merged'
+            -- Use shorter suffix to avoid length issues
+            u1.username || '_m'
         WHEN u1.username IS NOT NULL THEN u1.username
         WHEN u2.username IS NOT NULL THEN u2.username
         ELSE NULL
@@ -197,33 +198,41 @@ INNER JOIN users u2 ON LOWER(u1."walletAddress") = LOWER(u2."walletAddress") AND
 WHERE u1."walletAddress" != u2."walletAddress"  -- Different cases
   AND LOWER(u1."walletAddress") = LOWER(u2."walletAddress");  -- Same when lowercased
 
--- Step 2: Update the record we want to keep with merged data
-UPDATE users 
-SET 
-    username = mu.username,
-    email = mu.email,
-    "twitterHandle" = mu.twitter_handle,
-    "twitterUserId" = mu.twitter_user_id,
-    "twitterOauthToken" = mu.twitter_oauth_token,
-    "roleType" = mu.role_type::users_roletype_enum,
-    "referralCode" = mu.referral_code,
-    "referredByUserId" = mu.referred_by_user_id,
-    "referralCount" = mu.referral_count,
-    "totalReferralEarnings" = mu.total_referral_earnings,
-    "totalEarnings" = mu.total_earnings,
-    "roastBalance" = mu.roast_balance,
-    "usdcBalance" = mu.usdc_balance,
-    "reputationScore" = mu.reputation_score,
-    "isVerified" = (mu.is_verified_1 OR mu.is_verified_2),
-    "isAdmin" = (mu.is_admin_1 OR mu.is_admin_2),
-    "accessStatus" = mu.access_status::users_accessstatus_enum,
-    profile = mu.profile,
-    preferences = mu.preferences,
-    "lastActiveAt" = mu.last_active_at,
-    "createdAt" = mu.created_at,
-    "updatedAt" = mu.updated_at
-FROM merged_users mu
-WHERE users.id = mu.id_to_keep;
+            -- Step 2: Update the record we want to keep with merged data
+            UPDATE users
+            SET
+                username = CASE 
+                    -- If username would cause conflict, generate a unique one
+                    WHEN EXISTS (
+                        SELECT 1 FROM users u2 
+                        WHERE u2.username = mu.username AND u2.id != mu.id_to_keep
+                    ) THEN 
+                        COALESCE(mu.username, 'User') || '_' || mu.id_to_keep
+                    ELSE mu.username
+                END,
+                email = mu.email,
+                "twitterHandle" = mu.twitter_handle,
+                "twitterUserId" = mu.twitter_user_id,
+                "twitterOauthToken" = mu.twitter_oauth_token,
+                "roleType" = mu.role_type::users_roletype_enum,
+                "referralCode" = mu.referral_code,
+                "referredByUserId" = mu.referred_by_user_id,
+                "referralCount" = mu.referral_count,
+                "totalReferralEarnings" = mu.total_referral_earnings,
+                "totalEarnings" = mu.total_earnings,
+                "roastBalance" = mu.roast_balance,
+                "usdcBalance" = mu.usdc_balance,
+                "reputationScore" = mu.reputation_score,
+                "isVerified" = (mu.is_verified_1 OR mu.is_verified_2),
+                "isAdmin" = (mu.is_admin_1 OR mu.is_admin_2),
+                "accessStatus" = mu.access_status::users_accessstatus_enum,
+                profile = mu.profile,
+                preferences = mu.preferences,
+                "lastActiveAt" = mu.last_active_at,
+                "createdAt" = mu.created_at,
+                "updatedAt" = mu.updated_at
+            FROM merged_users mu
+            WHERE users.id = mu.id_to_keep;
 
 -- Step 3: Update ALL foreign key references that use user ID FIRST
 -- Update content_marketplace.creatorId
@@ -286,11 +295,25 @@ SET "userId" = mu.id_to_keep
 FROM merged_users mu
 WHERE twitter_user_connections."userId" = mu.id_to_delete;
 
--- Update yapper_twitter_connections.userId
-UPDATE yapper_twitter_connections 
-SET "userId" = mu.id_to_keep
-FROM merged_users mu
-WHERE yapper_twitter_connections."userId" = mu.id_to_delete;
+            -- Update yapper_twitter_connections.userId
+            UPDATE yapper_twitter_connections
+            SET "userId" = mu.id_to_keep
+            FROM merged_users mu
+            WHERE yapper_twitter_connections."userId" = mu.id_to_delete;
+
+            -- Update yapper_twitter_connections.connectedUserId (if this column exists)
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'yapper_twitter_connections' AND column_name = 'connectedUserId'
+                ) THEN
+                    UPDATE yapper_twitter_connections
+                    SET "connectedUserId" = mu.id_to_keep
+                    FROM merged_users mu
+                    WHERE yapper_twitter_connections."connectedUserId" = mu.id_to_delete;
+                END IF;
+            END $$;
 
 -- Update snap_predictions.yapperId
 UPDATE snap_predictions 
@@ -406,8 +429,9 @@ WHERE referral_payouts."payoutWalletAddress" IN (
 
             -- Step 5: Handle wallet address uniqueness constraint
             -- First, temporarily update the duplicate wallet address to avoid constraint violation
+            -- Use shorter suffix to stay within 42 character limit
             UPDATE users
-            SET "walletAddress" = "walletAddress" || '_temp_' || id
+            SET "walletAddress" = LEFT("walletAddress", 38) || '_' || id
             FROM merged_users mu
             WHERE users.id = mu.id_to_delete;
 
