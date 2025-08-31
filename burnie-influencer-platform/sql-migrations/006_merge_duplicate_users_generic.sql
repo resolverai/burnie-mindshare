@@ -197,10 +197,33 @@ INNER JOIN users u2 ON LOWER(u1."walletAddress") = LOWER(u2."walletAddress") AND
 WHERE u1."walletAddress" != u2."walletAddress"  -- Different cases
   AND LOWER(u1."walletAddress") = LOWER(u2."walletAddress");  -- Same when lowercased
 
--- Step 2: Temporarily drop foreign key constraints to avoid violations during the process
+-- Step 2: Temporarily drop ALL necessary constraints to avoid violations during the process
 -- Drop content_purchases foreign key constraints
 ALTER TABLE content_purchases DROP CONSTRAINT IF EXISTS "FK_d88644dbf3e219691f0ef2a8715";
 ALTER TABLE content_purchases DROP CONSTRAINT IF EXISTS "FK_00154a79fbb0987a79294cc4ce4";
+
+-- Drop walletAddress unique constraint temporarily
+ALTER TABLE users DROP CONSTRAINT IF EXISTS "UQ_fc71cd6fb73f95244b23e2ef113";
+
+-- Drop other foreign key constraints that reference users table
+ALTER TABLE yapper_twitter_connections DROP CONSTRAINT IF EXISTS "FK_18bd84184813650bbae488712e4";
+ALTER TABLE yapper_twitter_connections DROP CONSTRAINT IF EXISTS "FK_connected_user_id";
+
+-- Drop any other potential constraints (using IF EXISTS to avoid errors)
+DO $$
+DECLARE
+    constraint_record RECORD;
+BEGIN
+    -- Drop all foreign key constraints that reference the users table
+    FOR constraint_record IN 
+        SELECT conname, conrelid::regclass as table_name
+        FROM pg_constraint 
+        WHERE confrelid = 'users'::regclass 
+        AND contype = 'f'
+    LOOP
+        EXECUTE 'ALTER TABLE ' || constraint_record.table_name || ' DROP CONSTRAINT IF EXISTS "' || constraint_record.conname || '"';
+    END LOOP;
+END $$;
 
 -- Step 3: Update the record we want to keep with merged data
 UPDATE users
@@ -443,13 +466,24 @@ WHERE id IN (
     SELECT id_to_delete FROM merged_users
 );
 
--- Step 8: Restore the foreign key constraints
+-- Step 8: Restore ALL the constraints
+-- Re-add walletAddress unique constraint
+ALTER TABLE users ADD CONSTRAINT "UQ_fc71cd6fb73f95244b23e2ef113" 
+    UNIQUE ("walletAddress");
+
 -- Re-add content_purchases foreign key constraints
 ALTER TABLE content_purchases ADD CONSTRAINT "FK_d88644dbf3e219691f0ef2a8715" 
     FOREIGN KEY ("buyer_wallet_address") REFERENCES users("walletAddress");
 
 ALTER TABLE content_purchases ADD CONSTRAINT "FK_00154a79fbb0987a79294cc4ce4" 
     FOREIGN KEY ("miner_wallet_address") REFERENCES users("walletAddress");
+
+-- Re-add yapper_twitter_connections foreign key constraints
+ALTER TABLE yapper_twitter_connections ADD CONSTRAINT "FK_18bd84184813650bbae488712e4" 
+    FOREIGN KEY ("userId") REFERENCES users(id);
+
+-- Note: Other constraints will be automatically recreated by the database
+-- if they were dropped by the dynamic constraint dropping code above
 
 -- Step 9: Clean up temporary table
 DROP TABLE merged_users;
