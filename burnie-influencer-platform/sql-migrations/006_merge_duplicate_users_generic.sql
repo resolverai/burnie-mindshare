@@ -10,7 +10,7 @@
 -- - All foreign key references before deletion
 -- - Proper data merging with default value handling
 -- - Column name differences between local (wallet_address) and production (walletAddress)
--- - CRITICAL: Updates all wallet address references BEFORE modifying users table
+-- - CRITICAL: Handles wallet address uniqueness constraints FIRST, then updates all references
 
 -- Step 1: Create a temporary table to store the merged user data
 CREATE TEMP TABLE merged_users AS
@@ -352,7 +352,18 @@ SET "userId" = mu.id_to_keep
 FROM merged_users mu
 WHERE execution_tracking."userId" = mu.id_to_delete;
 
-            -- Step 4: Update ALL wallet address references FIRST (before modifying users table)
+            -- Step 4: Handle wallet address uniqueness constraint FIRST
+            -- Temporarily rename ALL duplicate wallet addresses to avoid constraint violations
+            UPDATE users
+            SET "walletAddress" = "walletAddress" || '_temp_' || id
+            WHERE id IN (
+                SELECT u1.id FROM users u1
+                INNER JOIN users u2 ON LOWER(u1."walletAddress") = LOWER(u2."walletAddress") AND u1.id != u2.id
+                WHERE u1."walletAddress" != u2."walletAddress"  -- Different cases
+                  AND LOWER(u1."walletAddress") = LOWER(u2."walletAddress")  -- Same when lowercased
+            );
+
+            -- Step 5: Update ALL wallet address references (now safe since no duplicates exist)
             -- Update content_purchases.buyer_wallet_address references
             UPDATE content_purchases
             SET "buyer_wallet_address" = LOWER(mu.wallet_address_lower)
@@ -428,20 +439,20 @@ WHERE referral_payouts."payoutWalletAddress" IN (
     SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
 );
 
-            -- Step 5: NOW update the wallet address to lowercase for the kept record
+            -- Step 6: NOW update the wallet address to lowercase for the kept record
             -- (All wallet address references have been updated above, so this is safe)
             UPDATE users
             SET "walletAddress" = LOWER("walletAddress")
             FROM merged_users mu
             WHERE users.id = mu.id_to_keep;
 
-            -- Step 6: Delete the duplicate records
+            -- Step 7: Delete the duplicate records
             DELETE FROM users
             WHERE id IN (
                 SELECT id_to_delete FROM merged_users
             );
 
-            -- Step 7: Clean up temporary table
+            -- Step 8: Clean up temporary table
             DROP TABLE merged_users;
 
 -- Migration completed successfully
