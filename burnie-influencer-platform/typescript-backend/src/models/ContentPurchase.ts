@@ -10,10 +10,25 @@ export class ContentPurchase {
   @Column({ name: 'content_id' })
   contentId!: number
 
-  @Column({ name: 'buyer_wallet_address', length: 255 })
+  // Ensure wallet addresses are always lowercase
+  @Column({ 
+    name: 'buyer_wallet_address', 
+    length: 255,
+    transformer: {
+      to: (value: string) => value.toLowerCase(),
+      from: (value: string) => value
+    }
+  })
   buyerWalletAddress!: string
 
-  @Column({ name: 'miner_wallet_address', length: 255 })
+  @Column({ 
+    name: 'miner_wallet_address', 
+    length: 255,
+    transformer: {
+      to: (value: string) => value.toLowerCase(),
+      from: (value: string) => value
+    }
+  })
   minerWalletAddress!: string
 
   @Column({ type: 'decimal', precision: 20, scale: 8, name: 'purchase_price' })

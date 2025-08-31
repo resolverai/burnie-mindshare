@@ -32,7 +32,15 @@ export class ReferralPayout {
   @JoinColumn({ name: 'contentPurchaseId' })
   contentPurchase!: ContentPurchase;
 
-  @Column({ type: 'varchar', length: 42 })
+  // Ensure wallet addresses are always lowercase
+  @Column({ 
+    type: 'varchar', 
+    length: 42,
+    transformer: {
+      to: (value: string) => value.toLowerCase(),
+      from: (value: string) => value
+    }
+  })
   payoutWalletAddress!: string;
 
   @Column({

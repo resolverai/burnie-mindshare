@@ -21,7 +21,15 @@ export class ReferralCode {
   @Column({ type: 'varchar', length: 255 })
   leaderName!: string;
 
-  @Column({ type: 'varchar', length: 42 })
+  // Ensure wallet addresses are always lowercase
+  @Column({ 
+    type: 'varchar', 
+    length: 42,
+    transformer: {
+      to: (value: string) => value.toLowerCase(),
+      from: (value: string) => value
+    }
+  })
   leaderWalletAddress!: string;
 
   @Column({

@@ -1686,13 +1686,13 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
     if (search && search.toString().trim()) {
       const searchTerm = `%${search.toString().toLowerCase()}%`;
       queryBuilder = queryBuilder.andWhere(
-        '(LOWER(content.contentText) LIKE :search OR LOWER(campaign.title) LIKE :search OR LOWER(campaign.projectName) LIKE :search OR LOWER(campaign.platformSource) LIKE :search)',
+        '(LOWER(content.contentText) LIKE :search OR LOWER(campaign.title) LIKE :search OR LOWER(campaign.projectName) LIKE :search OR campaign.platformSource::text LIKE :search)',
         { search: searchTerm }
       );
     }
 
     if (platform_source && platform_source !== 'all') {
-      queryBuilder = queryBuilder.andWhere('LOWER(campaign.platformSource) = LOWER(:platformSource)', { platformSource: platform_source });
+      queryBuilder = queryBuilder.andWhere('campaign.platformSource = :platformSource', { platformSource: platform_source });
     }
 
     if (project_name && project_name !== 'all') {
@@ -1700,7 +1700,7 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
     }
 
     if (post_type && post_type !== 'all') {
-      queryBuilder = queryBuilder.andWhere('LOWER(content.postType) = LOWER(:postType)', { postType: post_type });
+      queryBuilder = queryBuilder.andWhere('content.postType = :postType', { postType: post_type });
     }
 
     // Get total count for pagination
@@ -3499,14 +3499,14 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       platformFee = baseUsdcFee + extraUsdcFee;
     }
 
-    // Extract miner wallet address (already validated above)
-    const minerWalletAddress = content.creator!.walletAddress;
+    // Extract miner wallet address (already validated above) and normalize case
+    const minerWalletAddress = content.creator!.walletAddress.toLowerCase();
 
     // Create purchase record with normalized ROAST pricing
     const purchase = purchaseRepository.create({
       contentId: parseInt(contentId),
-      buyerWalletAddress,
-      minerWalletAddress,
+      buyerWalletAddress: buyerWalletAddress.toLowerCase(), // ✅ Fix case sensitivity
+      minerWalletAddress: minerWalletAddress.toLowerCase(), // ✅ Fix case sensitivity
       purchasePrice: normalizedPurchasePriceROAST, // ALWAYS in ROAST (converted if needed)
       currency: 'ROAST', // ALWAYS 'ROAST' for consistency
       paymentCurrency: currency, // Currency actually paid by yapper (ROAST or USDC)

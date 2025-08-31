@@ -20,7 +20,14 @@ export class Miner {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ unique: true })
+  // Ensure wallet addresses are always lowercase
+  @Column({ 
+    unique: true,
+    transformer: {
+      to: (value: string) => value.toLowerCase(),
+      from: (value: string) => value
+    }
+  })
   @Index()
   walletAddress!: string;
 

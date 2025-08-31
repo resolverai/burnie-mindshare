@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { useQuery } from '@tanstack/react-query'
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline'
+import { ChevronDown } from 'lucide-react'
 import { fetchFilterOptions } from '../../services/filterService'
 
 
@@ -29,12 +30,23 @@ export default function DynamicFilters({
   searchTerm,
   onSearchChange
 }: DynamicFiltersProps) {
+  // Desktop dropdown states
   const [isPlatformDropdownOpen, setIsPlatformDropdownOpen] = useState(false)
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
   const [isPostTypeDropdownOpen, setIsPostTypeDropdownOpen] = useState(false)
+  
+  // Mobile dropdown states (separate from desktop)
+  const [isMobilePlatformDropdownOpen, setIsMobilePlatformDropdownOpen] = useState(false)
+  const [isMobilePostTypeDropdownOpen, setIsMobilePostTypeDropdownOpen] = useState(false)
+  
+  // Desktop dropdown refs
   const platformDropdownRef = useRef<HTMLDivElement>(null)
   const projectDropdownRef = useRef<HTMLDivElement>(null)
   const postTypeDropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Mobile dropdown refs (separate from desktop)
+  const mobilePlatformDropdownRef = useRef<HTMLDivElement>(null)
+  const mobilePostTypeDropdownRef = useRef<HTMLDivElement>(null)
 
   // Fetch filter options
   const { data: filterOptions = { platforms: [], projects: [] } } = useQuery({
@@ -46,6 +58,7 @@ export default function DynamicFilters({
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      // Desktop dropdowns
       if (platformDropdownRef.current && !platformDropdownRef.current.contains(event.target as Node)) {
         setIsPlatformDropdownOpen(false)
       }
@@ -54,6 +67,14 @@ export default function DynamicFilters({
       }
       if (postTypeDropdownRef.current && !postTypeDropdownRef.current.contains(event.target as Node)) {
         setIsPostTypeDropdownOpen(false)
+      }
+      
+      // Mobile dropdowns
+      if (mobilePlatformDropdownRef.current && !mobilePlatformDropdownRef.current.contains(event.target as Node)) {
+        setIsMobilePlatformDropdownOpen(false)
+      }
+      if (mobilePostTypeDropdownRef.current && !mobilePostTypeDropdownRef.current.contains(event.target as Node)) {
+        setIsMobilePostTypeDropdownOpen(false)
       }
     }
 
@@ -66,7 +87,7 @@ export default function DynamicFilters({
     'cookie.fun': '/globe.svg',
     'yaps.kaito.ai': '/globe.svg',
     'burnie': '/globe.svg',
-    'openledger': '/globe.svg',
+    'openledger': '/openledger.svg',
     'kaito': '/globe.svg'
   }
 
@@ -82,10 +103,171 @@ export default function DynamicFilters({
   const visibleProjects = projectsWithoutAll.slice(0, 2)
   const hiddenProjects = projectsWithoutAll.slice(2)
 
+  // Get display names for platforms
+  const getPlatformDisplayName = (platform: string) => {
+    switch (platform) {
+      case 'cookie.fun': return 'Cookie.fun'
+      case 'yaps.kaito.ai': return 'Kaito.ai'
+      case 'wallchain': return 'Wallchain'
+      case 'galxe': return 'Galxe'
+      case 'alphabot': return 'Alphabot'
+      case 'independent': return 'Independent'
+      default: return platform
+    }
+  }
+
+  // Get display names for post types
+  const getPostTypeDisplayName = (postType: string) => {
+    switch (postType) {
+      case 'thread': return 'Regular Post'
+      case 'shitpost': return 'Meme Post'
+      case 'longpost': return 'Long Post'
+      default: return postType
+    }
+  }
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[auto_auto_1fr] items-start md:items-end gap-6">
-      {/* Platforms Filter */}
-      <div className="flex flex-col items-start gap-3">
+    <div className="grid grid-cols-1 lg:grid-cols-[auto_auto_1fr] items-start lg:items-end gap-6">
+      {/* Mobile & Tablet: Side-by-side dropdowns */}
+      <div className="lg:hidden flex flex-col gap-6 w-full">
+        {/* Platforms and Post Type row */}
+        <div className="flex gap-4">
+          {/* Platforms Dropdown */}
+          <div className="flex-1 flex flex-col gap-3">
+            <div className="flex">
+              <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Platforms</span>
+            </div>
+            <div className="relative" ref={mobilePlatformDropdownRef}>
+              <button
+                onClick={() => setIsMobilePlatformDropdownOpen(!isMobilePlatformDropdownOpen)}
+                className="w-full flex items-center justify-between rounded-[8px] h-9 px-3 bg-[#451616] hover:bg-[#743636] transition-colors text-white text-sm"
+              >
+                <span>{selectedPlatform === 'all' ? 'All' : getPlatformDisplayName(selectedPlatform)}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${isMobilePlatformDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {isMobilePlatformDropdownOpen && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-[#451616] rounded-[12px] border border-[#743636] z-10">
+                  <button
+                    onClick={() => {
+                      onPlatformChange('all')
+                      setIsMobilePlatformDropdownOpen(false)
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[#743636] transition-colors rounded-t-[12px] ${
+                      selectedPlatform === 'all' ? 'bg-[#743636] text-white font-semibold' : 'text-white/80'
+                    }`}
+                  >
+                    All
+                  </button>
+                  {platformsWithoutAll.map((platform, index) => (
+                    <button
+                      key={platform}
+                      onClick={() => {
+                        onPlatformChange(platform)
+                        setIsMobilePlatformDropdownOpen(false)
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-[#743636] transition-colors flex items-center gap-2 ${
+                        selectedPlatform === platform ? 'bg-[#743636] text-white font-semibold' : 'text-white/80'
+                      } ${index === platformsWithoutAll.length - 1 ? 'rounded-b-[12px]' : ''}`}
+                    >
+                      <Image 
+                        src={platformIcons[platform] || '/openledger.svg'} 
+                        alt={platform} 
+                        width={16} 
+                        height={16} 
+                        className="filter brightness-0 invert" // Make icon white
+                      />
+                      {getPlatformDisplayName(platform)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Post Type Dropdown */}
+          <div className="flex-1 flex flex-col gap-3">
+            <div className="flex">
+              <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Post Type</span>
+            </div>
+            <div className="relative" ref={mobilePostTypeDropdownRef}>
+              <button
+                onClick={() => setIsMobilePostTypeDropdownOpen(!isMobilePostTypeDropdownOpen)}
+                className="w-full flex items-center justify-between rounded-[8px] h-9 px-3 bg-[#451616] hover:bg-[#743636] transition-colors text-white text-sm"
+              >
+                <span>{selectedPostType === 'all' ? 'All' : getPostTypeDisplayName(selectedPostType)}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${isMobilePostTypeDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {isMobilePostTypeDropdownOpen && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-[#451616] rounded-[12px] border border-[#743636] z-10">
+                  <button
+                    onClick={() => {
+                      onPostTypeChange('all')
+                      setIsMobilePostTypeDropdownOpen(false)
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[#743636] transition-colors rounded-t-[12px] ${
+                      selectedPostType === 'all' ? 'bg-[#743636] text-white font-semibold' : 'text-white/80'
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => {
+                      onPostTypeChange('thread')
+                      setIsMobilePostTypeDropdownOpen(false)
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[#743636] transition-colors ${
+                      selectedPostType === 'thread' ? 'bg-[#743636] text-white font-semibold' : 'text-white/80'
+                    }`}
+                  >
+                    Regular Post
+                  </button>
+                  <button
+                    onClick={() => {
+                      onPostTypeChange('shitpost')
+                      setIsMobilePostTypeDropdownOpen(false)
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[#743636] transition-colors ${
+                      selectedPostType === 'shitpost' ? 'bg-[#743636] text-white font-semibold' : 'text-white/80'
+                    }`}
+                  >
+                    Meme Post
+                  </button>
+                  <button
+                    onClick={() => {
+                      onPostTypeChange('longpost')
+                      setIsMobilePostTypeDropdownOpen(false)
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-[#743636] transition-colors rounded-b-[12px] ${
+                      selectedPostType === 'longpost' ? 'bg-[#743636] text-white font-semibold' : 'text-white/80'
+                    }`}
+                  >
+                    Long Post
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Search Bar */}
+        {onSearchChange && (
+          <div className="w-full">
+            <div className="relative w-full">
+              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-white/70" />
+              <input
+                type="text"
+                placeholder="Search by campaign, platform"
+                value={searchTerm || ''}
+                onChange={onSearchChange}
+                className="rounded-[8px] h-8 w-full bg-white/10 placeholder:text-white/30 text-white pl-10 pr-4 border border-white/20 focus:border-white/40 focus:outline-none"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Desktop: Original layout with some items outside dropdowns */}
+      <div className="hidden lg:flex flex-col items-start gap-3">
         <div className="flex">
           <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Platforms</span>
         </div>
@@ -112,13 +294,7 @@ export default function DynamicFilters({
                 height={16} 
                 className="filter brightness-0 invert" // Make icon white
               />
-              {platform === 'cookie.fun' ? 'Cookie.fun' : 
-               platform === 'yaps.kaito.ai' ? 'Kaito.ai' : 
-               platform === 'wallchain' ? 'Wallchain' :
-               platform === 'galxe' ? 'Galxe' :
-               platform === 'alphabot' ? 'Alphabot' :
-               platform === 'independent' ? 'Independent' :
-               platform}
+              {getPlatformDisplayName(platform)}
             </button>
           ))}
 
@@ -157,13 +333,7 @@ export default function DynamicFilters({
                         height={16} 
                         className="filter brightness-0 invert" // Make icon white
                       />
-                      {platform === 'cookie.fun' ? 'Cookie.fun' : 
-                       platform === 'yaps.kaito.ai' ? 'Kaito.ai' : 
-                       platform === 'wallchain' ? 'Wallchain' :
-                       platform === 'galxe' ? 'Galxe' :
-                       platform === 'alphabot' ? 'Alphabot' :
-                       platform === 'independent' ? 'Independent' :
-                       platform}
+                      {getPlatformDisplayName(platform)}
                     </button>
                   ))}
                 </div>
@@ -175,7 +345,7 @@ export default function DynamicFilters({
 
       {/* Projects Filter - Temporarily Hidden */}
       {false && (
-        <div className="flex flex-col items-start gap-3">
+        <div className="hidden lg:flex flex-col items-start gap-3">
           <div className="flex">
             <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Projects</span>
           </div>
@@ -211,7 +381,7 @@ export default function DynamicFilters({
                     src="/arrowdown.svg" 
                     alt="Arrow down" 
                     width={12} 
-                    height={12}
+                  height={12}
                     className={`transition-transform duration-200 ${isProjectDropdownOpen ? 'rotate-180' : ''}`}
                   />
                 </button>
@@ -238,8 +408,8 @@ export default function DynamicFilters({
         </div>
       )}
 
-      {/* Post Type Filter */}
-      <div className="flex flex-col items-start gap-3">
+      {/* Post Type Filter - Desktop */}
+      <div className="hidden lg:flex flex-col items-start gap-3">
         <div className="flex">
           <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Post Type</span>
         </div>
@@ -306,13 +476,13 @@ export default function DynamicFilters({
         </div>
       </div>
 
-      {/* Search Bar */}
+      {/* Search Bar - Desktop */}
       {onSearchChange && (
-        <div className="flex flex-col items-start gap-3 md:items-end">
-          <div className="flex md:hidden">
+        <div className="hidden lg:flex flex-col items-start gap-3 lg:items-end">
+          <div className="flex lg:hidden">
             <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Search</span>
           </div>
-          <div className="relative w-full md:w-72">
+          <div className="relative w-full lg:w-72">
             <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-white/70" />
             <input
               type="text"
@@ -322,7 +492,6 @@ export default function DynamicFilters({
               className="rounded-[8px] h-8 w-full bg-white/10 placeholder:text-white/30 text-white pl-10 pr-4 border border-white/20 focus:border-white/40 focus:outline-none"
             />
           </div>
-
         </div>
       )}
     </div>

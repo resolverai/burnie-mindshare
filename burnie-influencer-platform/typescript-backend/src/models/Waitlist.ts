@@ -12,7 +12,16 @@ export class Waitlist {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: 'varchar', length: 42, unique: true })
+  // Ensure wallet addresses are always lowercase
+  @Column({ 
+    type: 'varchar', 
+    length: 42, 
+    unique: true,
+    transformer: {
+      to: (value: string) => value.toLowerCase(),
+      from: (value: string) => value
+    }
+  })
   walletAddress!: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })

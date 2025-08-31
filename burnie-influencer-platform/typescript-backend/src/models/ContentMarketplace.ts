@@ -61,7 +61,17 @@ export class ContentMarketplace {
   @Column({ type: 'varchar', length: 255, nullable: true })
   agentName!: string | null; // Name of the agent used
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  // Ensure wallet addresses are always lowercase
+  @Column({ 
+    name: 'wallet_address', 
+    type: 'varchar', 
+    length: 255, 
+    nullable: true,
+    transformer: {
+      to: (value: string | null) => value ? value.toLowerCase() : value,
+      from: (value: string | null) => value
+    }
+  })
   walletAddress!: string | null; // Wallet address of the miner who created this content
 
   @Column({ type: 'varchar', length: 20, default: 'thread' })

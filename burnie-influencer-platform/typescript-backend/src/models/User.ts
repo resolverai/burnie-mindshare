@@ -30,7 +30,15 @@ export class User {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ unique: true, length: 42 })
+  // Ensure wallet addresses are always lowercase
+  @Column({ 
+    unique: true, 
+    length: 42,
+    transformer: {
+      to: (value: string) => value.toLowerCase(),
+      from: (value: string) => value
+    }
+  })
   @Index()
   walletAddress!: string;
 
