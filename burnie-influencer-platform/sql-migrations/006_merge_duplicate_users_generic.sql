@@ -5,11 +5,12 @@
 -- This works with any wallet addresses, not hardcoded to specific ones
 --
 -- ⚠️  IMPORTANT: This migration handles:
--- - Duplicate usernames (appends '_merged' suffix to avoid conflicts)
--- - Wallet address uniqueness constraints (temporarily renames duplicates)
+-- - Duplicate usernames (appends '_m' suffix to avoid conflicts)
+-- - Wallet address uniqueness constraints (updates all references first)
 -- - All foreign key references before deletion
 -- - Proper data merging with default value handling
 -- - Column name differences between local (wallet_address) and production (walletAddress)
+-- - CRITICAL: Updates all wallet address references BEFORE modifying users table
 
 -- Step 1: Create a temporary table to store the merged user data
 CREATE TEMP TABLE merged_users AS
@@ -351,22 +352,22 @@ SET "userId" = mu.id_to_keep
 FROM merged_users mu
 WHERE execution_tracking."userId" = mu.id_to_delete;
 
--- Step 4: Update all wallet address references to point to the kept record
--- Update content_purchases.buyer_wallet_address references
-UPDATE content_purchases 
-SET "buyer_wallet_address" = LOWER(mu.wallet_address_lower)
-FROM merged_users mu
-WHERE content_purchases."buyer_wallet_address" IN (
-    SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
-);
+            -- Step 4: Update ALL wallet address references FIRST (before modifying users table)
+            -- Update content_purchases.buyer_wallet_address references
+            UPDATE content_purchases
+            SET "buyer_wallet_address" = LOWER(mu.wallet_address_lower)
+            FROM merged_users mu
+            WHERE content_purchases."buyer_wallet_address" IN (
+                SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
+            );
 
--- Update content_purchases.miner_wallet_address references
-UPDATE content_purchases 
-SET "miner_wallet_address" = LOWER(mu.wallet_address_lower)
-FROM merged_users mu
-WHERE content_purchases."miner_wallet_address" IN (
-    SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
-);
+            -- Update content_purchases.miner_wallet_address references
+            UPDATE content_purchases
+            SET "miner_wallet_address" = LOWER(mu.wallet_address_lower)
+            FROM merged_users mu
+            WHERE content_purchases."miner_wallet_address" IN (
+                SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
+            );
 
             -- Update content_marketplace wallet address references (handle both column names)
             -- Try walletAddress first (production), fallback to wallet_address (local)
@@ -427,27 +428,20 @@ WHERE referral_payouts."payoutWalletAddress" IN (
     SELECT "walletAddress" FROM users WHERE id IN (mu.id_to_keep, mu.id_to_delete)
 );
 
-            -- Step 5: Handle wallet address uniqueness constraint
-            -- First, temporarily update the duplicate wallet address to avoid constraint violation
-            -- Use shorter suffix to stay within 42 character limit
-            UPDATE users
-            SET "walletAddress" = LEFT("walletAddress", 38) || '_' || id
-            FROM merged_users mu
-            WHERE users.id = mu.id_to_delete;
-
-            -- Step 6: NOW update the wallet address to lowercase for the kept record
+            -- Step 5: NOW update the wallet address to lowercase for the kept record
+            -- (All wallet address references have been updated above, so this is safe)
             UPDATE users
             SET "walletAddress" = LOWER("walletAddress")
             FROM merged_users mu
             WHERE users.id = mu.id_to_keep;
 
-            -- Step 7: Delete the duplicate records
+            -- Step 6: Delete the duplicate records
             DELETE FROM users
             WHERE id IN (
                 SELECT id_to_delete FROM merged_users
             );
 
-            -- Step 8: Clean up temporary table
+            -- Step 7: Clean up temporary table
             DROP TABLE merged_users;
 
 -- Migration completed successfully
