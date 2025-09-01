@@ -210,7 +210,7 @@ class CrewAIService:
             
             # Phase 3: Set up agents with user's personalized configurations and models (AFTER database context is loaded)
             await self._update_progress(20, "Configuring personalized AI agents with your preferred models...")
-            self._setup_agents(mining_session)
+            await self._setup_agents(mining_session)
             
             # Phase 4: Run multi-agentic content generation
             await self._update_progress(30, "Starting multi-agentic content generation...")
@@ -254,7 +254,7 @@ class CrewAIService:
             
             # Phase 2: Set up only Text Content Creator agent
             await self._update_progress(20, "Configuring Text Content Creator agent...")
-            self._setup_text_only_agents(mining_session)
+            await self._setup_text_only_agents(mining_session)
             
             # Phase 3: Run text-only generation
             await self._update_progress(30, "Starting text-only content generation...")
@@ -466,7 +466,7 @@ class CrewAIService:
         }
         return provider_key_mapping.get(provider.lower(), '')
 
-    def _setup_agents(self, mining_session: MiningSession):
+    async def _setup_agents(self, mining_session: MiningSession):
         """Set up the 5 specialized AI agents with personalized configurations"""
         try:
             # Create agents with LLM
@@ -474,14 +474,14 @@ class CrewAIService:
             
             self.agents[AgentType.DATA_ANALYST] = self._create_data_analyst_agent(llm)
             self.agents[AgentType.CONTENT_STRATEGIST] = self._create_content_strategist_agent(llm)
-            self.agents[AgentType.TEXT_CONTENT] = self._create_text_content_agent(llm)
+            self.agents[AgentType.TEXT_CONTENT] = await self._create_text_content_agent(llm)
             self.agents[AgentType.VISUAL_CREATOR] = self._create_visual_creator_agent(llm)
             self.agents[AgentType.ORCHESTRATOR] = self._create_orchestrator_agent()
             
             # Create tasks for each agent
             self.tasks[AgentType.DATA_ANALYST] = self._create_data_analysis_task()
             self.tasks[AgentType.CONTENT_STRATEGIST] = self._create_strategy_task()
-            self.tasks[AgentType.TEXT_CONTENT] = self._create_content_creation_task()
+            self.tasks[AgentType.TEXT_CONTENT] = await self._create_content_creation_task()
             self.tasks[AgentType.VISUAL_CREATOR] = self._create_visual_task()
             self.tasks[AgentType.ORCHESTRATOR] = self._create_orchestration_task()
             
@@ -703,8 +703,39 @@ class CrewAIService:
             if not self.user_data:
                 raise ValueError(f"User not found: {mining_session.user_id}")
             
-            # For text-only mode, we don't need campaign data or Twitter insights
-            # Just set basic model preferences
+            # For text-only mode, we still need campaign data and Twitter context for relevant content
+            # Get campaign data for context
+            campaign_id = mining_session.campaign_id
+            if campaign_id:
+                try:
+                    from app.database.repositories.campaign_repository import CampaignRepository
+                    campaign_repo = CampaignRepository()
+                    campaign_data = campaign_repo.get_campaign_by_id(campaign_id)
+                    
+                    if campaign_data:
+                        # Store campaign context
+                        self.campaign_data = {
+                            'projectId': campaign_data.get('projectId'),
+                            'projectName': campaign_data.get('projectName'),
+                            'projectTwitterHandle': campaign_data.get('projectTwitterHandle'),
+                            'tokenTicker': campaign_data.get('tokenTicker'),
+                            'description': campaign_data.get('description'),
+                            'brandGuidelines': campaign_data.get('brandGuidelines'),
+                        }
+                        
+                        # Twitter context will be fetched directly from database during agent/task creation
+                        logger.info(f"✅ Text-only: Campaign data loaded for project {self.campaign_data.get('projectId')}")
+                    else:
+                        logger.warning(f"⚠️ Text-only: Campaign {campaign_id} not found")
+                        self.campaign_data = {}
+                except Exception as e:
+                    logger.error(f"❌ Text-only: Error fetching campaign context: {e}")
+                    self.campaign_data = {}
+            else:
+                logger.warning("⚠️ Text-only: No campaign ID in mining session")
+                self.campaign_data = {}
+            
+            # Set basic model preferences
             self.model_preferences = self._get_default_model_preferences()
             self.user_agent_config = None
             
@@ -721,13 +752,13 @@ class CrewAIService:
             logger.error(f"Failed to initialize text-only session data: {e}")
             raise
 
-    def _setup_text_only_agents(self, mining_session: MiningSession):
+    async def _setup_text_only_agents(self, mining_session: MiningSession):
         """Set up only the Text Content Creator agent for text-only regeneration"""
         try:
             # Create only the Text Content Creator agent
             llm = self._get_llm_instance()
             
-            self.agents[AgentType.TEXT_CONTENT] = self._create_text_content_agent(llm)
+            self.agents[AgentType.TEXT_CONTENT] = await self._create_text_content_agent(llm)
             
             # Create only the text content creation task
             self.tasks[AgentType.TEXT_CONTENT] = self._create_text_only_content_creation_task()
@@ -1251,7 +1282,7 @@ class CrewAIService:
             max_execution_time=180  # 3 minutes max
         )
 
-    def _create_text_content_agent(self, llm) -> Agent:
+    async def _create_text_content_agent(self, llm) -> Agent:
         """Create the Text Content Agent with user's preferred models"""
         agent_config = self.agent_configs.get(AgentType.TEXT_CONTENT, {})
         user_style = self._get_user_writing_style()
@@ -1308,25 +1339,54 @@ class CrewAIService:
         
         logger.info(f"🛠️ Text Creator Agent tools: {[tool.name for tool in tools]}")
         
-        # Get Twitter context for content creation
+        # Get Twitter context for content creation - USE EXISTING METHOD
         twitter_context = ""
-        if hasattr(self, 'project_twitter_context') and self.project_twitter_context and self.project_twitter_context.strip():
-            # Parse tweets from the formatted string context - get FULL 50 tweets without truncation
-            lines = self.project_twitter_context.split('\n')
-            recent_tweets = []
+        if hasattr(self, 'campaign_data') and self.campaign_data and self.campaign_data.get('projectId'):
+            project_id = self.campaign_data.get('projectId')
+            try:
+                # Use existing method that calls TypeScript backend
+                from app.services.project_twitter_integration import project_twitter_integration
+                twitter_context_string = await project_twitter_integration.get_project_twitter_context(int(project_id))
+                
+                if twitter_context_string and twitter_context_string.strip():
+                    # Parse the formatted response from TypeScript backend
+                    lines = twitter_context_string.split('\n')
+                    recent_tweets = []
+                    current_tweet = ""
             
-            # Extract all tweet lines without any limits to get complete tweets
-            for line in lines:
-                if line.startswith('[202') and '] ' in line:  # Lines with dates
-                    tweet_text = line.split('] ', 1)[1] if '] ' in line else line
-                    # Keep COMPLETE tweet text - no truncation
-                    recent_tweets.append(tweet_text.strip())
+                    # Extract tweets (they start with [YYYY-MM-DD] and can span multiple lines)
+                    for line in lines:
+                        if line.startswith('[20') and '] ' in line:  # New tweet starts
+                            # Save previous tweet if exists
+                            if current_tweet.strip():
+                                recent_tweets.append(current_tweet.strip())
+                            
+                            # Start new tweet
+                            tweet_text = line.split('] ', 1)[1] if '] ' in line else line
+                            current_tweet = tweet_text
+                        elif current_tweet and line.strip():  # Continue current tweet
+                            current_tweet += " " + line.strip()
+                    
+                    # Don't forget the last tweet
+                    if current_tweet.strip():
+                        recent_tweets.append(current_tweet.strip())
             
-            if recent_tweets:
-                # Take the most recent 50 COMPLETE tweets for comprehensive context
-                top_recent_tweets = recent_tweets[:50]
-                twitter_context = f"\n\n🔥 **PRIORITY TWITTER CONTEXT** (Latest {len(top_recent_tweets)} Complete Tweets):\n" + "\n".join([f"- {tweet}" for tweet in top_recent_tweets])
-                logger.info(f"✅ Added {len(top_recent_tweets)} COMPLETE recent tweets to Text Content Creator context")
+                    if recent_tweets:
+                        # Take up to 50 tweets for context
+                        top_tweets = recent_tweets[:50]
+                        twitter_context = f"\n\n🔥 **PRIORITY TWITTER CONTEXT** (Top {len(top_tweets)} High-Engagement Tweets - Last 15 Days):\n" + "\n".join([f"- {tweet}" for tweet in top_tweets])
+                        logger.info(f"✅ Added {len(top_tweets)} high-engagement tweets to Text Content Creator context")
+                        logger.info(f"🔍 First tweet: {top_tweets[0][:50]}...")
+                    else:
+                        logger.warning("⚠️ No tweets found in Twitter context response")
+                else:
+                    logger.warning(f"⚠️ No Twitter context returned for project {project_id}")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error fetching Twitter context: {e}")
+                twitter_context = ""
+        else:
+            logger.warning("⚠️ No project ID available for Twitter context")
 
         # Get post type from mining session
         post_type = getattr(self.mining_session, 'post_type', 'thread')
@@ -1405,10 +1465,11 @@ class CrewAIService:
             - DECIDE: Choose which yapper's pattern to follow (if any) or create hybrid approach
             - EXECUTE: Generate content using your chosen strategy
             
-            **SUCCESS PATTERN TOOL USAGE**:
-            - Only ONE success pattern tool will be available in your tools list
-            - Use whichever tool is provided (either yapper_specific_success_pattern or leaderboard_success_pattern)
-            - Do not try to use both - only the appropriate one will be available
+            **SUCCESS PATTERN TOOL USAGE** (OPTIONAL):
+            - Success pattern tools are available but NOT required - use your autonomous judgment
+            - Focus primarily on the authentic examples provided above for inspiration
+            - Only use success pattern tools if they add genuine value to your content
+            - Your creativity and the provided examples should be your primary guides
             
             🏷️ **YAPPER HANDLE TAGGING REQUIREMENTS** (CRITICAL):
             - IF you use a specific yapper's success pattern for content generation:
@@ -1503,15 +1564,15 @@ class CrewAIService:
         {twitter_context}
         {yapper_specific_instructions}
         
-        🎭 **ENGAGING CONTENT CREATION REQUIREMENTS**:
-        - Write highly engaging, story-driven content that drives website visits
-        - Create content as if sharing exciting alpha with crypto friends
-        - Use storytelling techniques: hooks, curiosity gaps, emotional connection
+        🎭 **AUTHENTIC CONTENT CREATION**:
+        - Write like a real crypto Twitter user sharing alpha
+        - Create content as if sharing exciting news with crypto friends
+        - Use natural conversation and authentic reactions
         - Make readers genuinely excited to learn more about the project
         
-                    📏 **STRICT CHARACTER LIMITS**:
-            - Main tweet: Maximum 240 characters (strictly enforced)
-            - Each thread tweet: Maximum 240 characters (strictly enforced)
+        📏 **STRICT CHARACTER LIMITS**:
+        - Main tweet: Maximum 240 characters (strictly enforced)
+        - Each thread tweet: Maximum 240 characters (strictly enforced)
             - Leave room for project handles and yapper attribution (if applicable)
             
             🎭 **FINAL AUTONOMY REMINDER**:
@@ -1520,17 +1581,17 @@ class CrewAIService:
             - Use these patterns as tools, not as rules
             - Your goal: Sound like a real human content creator, not an AI following instructions
         
-        👥 **CRITICAL PRONOUN RULES**:
-        - NEVER use "our", "we", "us" when referring to projects
-        - Always use third person: "they", "them", "their", "[project name]"
-        - You are NOT part of the project team - you're an informed observer
-        - Address readers directly as "you" to create connection
-        - Example: "They just launched..." not "We just launched..."
+        👥 **AUTHENTIC VOICE RULES**:
+        - Use personal voice: "I", "my", "me" for authentic engagement
+        - Use "they/their" only when referring to the project team
+        - Write like a crypto community member sharing alpha
+        - Address readers as "you" to create connection
+        - Example: "I just saw..." or "My take on..." not corporate speak
         
         🎯 **READER ENGAGEMENT FOCUS**:
         - Start with attention-grabbing hooks that stop scrolling
         - Create genuine excitement about project developments
-        - End with clear value that makes readers want to visit the website
+        - End with engaging CTAs that drive community participation
         - Use conversational tone like talking to a crypto-savvy friend
         """
         
@@ -1539,9 +1600,11 @@ class CrewAIService:
             return base_backstory + f"""
             
             🧵 **THREAD-SPECIFIC STRATEGY**:
-            - **main_tweet**: Primary focus on PROJECT DESCRIPTION + key recent development highlight
-            - **tweet_thread**: PRIORITIZE LATEST 20 TWEETS CONTEXT for FOMO creation (signup instructions, airdrops, rewards, launches)
-            - **FALLBACK**: If insufficient tweet context, use project description/brand guidelines for thread content
+            - **PRIORITY 1**: HIGH-ENGAGEMENT TWEETS CONTEXT (last 15 days) - extract fresh community energy, trending narratives, project momentum
+            - **PRIORITY 2**: FINANCIAL INFORMATION (airdrops, TGE, signups, TVL, token launches) from Twitter context or campaign data
+            - **PRIORITY 3**: PROJECT DESCRIPTION + recent developments (only if Twitter context insufficient)
+            - **ALWAYS INCLUDE**: Strong CTA in final thread item to drive engagement
+            - **CTA EXAMPLES**: "Drop your take below", "Who's with me?", "What's your play?", "Tag a degen", "Spill the tea"
             
             🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
             **PROJECT HANDLE**: {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
@@ -1571,25 +1634,190 @@ class CrewAIService:
             - Make every tweet worth reading and sharing
             
             🎭 **THREAD HUMANIZATION TECHNIQUES**:
-            - **Vary thread length naturally**: Sometimes 3 tweets, sometimes 5 - don't be predictable
-            - **Mix content types**: Pure text, screenshots, charts, memes - vary your approach
-            - **Use natural transitions**: Vary your approach - don't use the same transition phrases
-            - **Break formatting rules**: Sometimes use bullet points, sometimes don't - be unpredictable
-            - **Include interruptions**: Add natural asides and tangents, vary your approach
-            - **Show learning process**: Share genuine insights and updates, not scripted responses
-            - **Natural language flow**: Use casual contractions, skip capitalization when natural, add ellipses...
-            - **Authentic voice**: Each thread item should feel like a natural continuation, not a scripted follow-up
-            - **Varied engagement**: Mix opinions, questions, and insights naturally across thread items
+            - **Natural progression**: Each thread item builds on the previous naturally
+            - **Personal voice**: Use "I", "my", "me" - share personal takes and experiences
+            - **Community engagement**: Reference what "everyone's talking about" or "saw some people saying"
+            - **Authentic reactions**: "facts," "this," "lmao," "bruh" - use naturally, not forced
+            - **Varied CTAs**: Mix questions, challenges, and community calls organically
+            
+            📚 **AUTHENTIC THREAD INSPIRATION** (Study these patterns, but create your own unique content):
+            
+            **Meme Coin Madness Threads:**
+            - Lead: "Just saw $DOGE pump 15% in an hour. Is this Elon tweeting or actual adoption? Let's unpack. 🐶🚀"
+              Follow-up 1: "DOGE has been a meme coin king since 2013. But with BTC ETF hype, is it finally a store of value? 🧐"
+              Follow-up 2: "Check the chart: RSI screaming overbought. Dip incoming or moonshot? What's your play? 📊"
+              CTA: "Drop your $DOGE price target below. Bullish or bearish?"
+            
+            - Lead: "$SHIB army, where you at? Just staked 10M for Shibarium. Here's why I'm not selling. 🦊"
+              Follow-up 1: "Shibarium's L2 is processing 400 TPS. That's Solana-level speed for a meme coin. Underrated?"
+              Follow-up 2: "Airdrop rumors swirling for $BONE holders. Connected my wallet already. You in? 🦴"
+              CTA: "Who's holding $SHIB through 2025? Tag a degen."
+            
+            - Lead: "$PEPE just flipped $FLOKI in market cap. Frogs > dogs? Let's talk meme coin wars. 🐸"
+              Follow-up 1: "PEPE's community is wild—NFTs, memes, and pure degen energy. But is it sustainable?"
+              Follow-up 2: "FLOKI's got Viking branding and gaming. PEPE's got… vibes. Who wins long-term? 🛡️"
+              CTA: "Pick a side: $PEPE or $FLOKI? Reply with your champ."
+            
+            - Lead: "Bought $BUTTHOLE at 2 AM because YOLO. Here's why this meme coin might actually 10x. 😜"
+              Follow-up 1: "Team's doxxed, community's hyped, and they're dropping an NFT game. Smells like 2021 $SHIB."
+              Follow-up 2: "Risk? It's a meme coin. Reward? Potential moon. My bags are small but spicy. 🌶️"
+              CTA: "What's your wildest meme coin bet? Spill the tea."
+            
+            - Lead: "Meme coins are crypto's guilty pleasure. $LILPEPE just caught my eye. Why? Thread. 🐸"
+              Follow-up 1: "LILPEPE's on BNB Chain, low fees, fast txns. Perfect for degen traders chasing pumps."
+              Follow-up 2: "Their Discord is popping—10K members in a week. Early $DOGE vibes? 👀"
+              CTA: "Are meme coins still king in 2025? Drop your fave below."
+            
+            **Airdrop & Points Hype Threads:**
+            - Lead: "Airdrop season's back, and the Yaps program is printing points. Here's how I'm farming. 💸"
+              Follow-up 1: "Linked my X and wallet. Posted 3 high-signal yaps, already top 500. 🏆"
+              Follow-up 2: "Pro tip: Share alpha, not spam. The AI loves thoughtful takes. Check the dashboard!"
+              CTA: "Who's climbing the Yapper Leaderboard? Share your rank."
+            
+            - Lead: "Cookie.fun's referral game is wild. Sent 10 cookies, got 5K points. Here's the hack. 🍪"
+              Follow-up 1: "Connect wallet, send cookies to frens, climb leaderboard. It's like Axie Infinity but social."
+              Follow-up 2: "Rumor: Top referrers get airdrops. I'm spamming my group chat. 😎"
+              CTA: "How many cookies you baking? Drop your count."
+            
+            - Lead: "Genesis NFTs are the golden ticket to airdrops. Snagged one. Why it's worth it. 🖼️"
+              Follow-up 1: "NFTs unlock premium Yaps points. Staked mine for 2x multiplier. Early adopter vibes."
+              Follow-up 2: "AI tracks your posts for rewards. High-signal yaps = bigger bags. 📈"
+              CTA: "Grabbed a Genesis NFT yet? Or waiting for the dip?"
+            
+            - Lead: "Just staked $BNB for Recall's airdrop. Cookie.fun's got me hooked. Why I'm bullish. 🍪"
+              Follow-up 1: "Recall's AI-driven UX is next-level. Think ChatGPT but for crypto wallets. 🚀"
+              Follow-up 2: "Cookie.fun's leaderboard rewards early movers. I'm at 1K points already. 🥐"
+              CTA: "Who's farming $RECALL? Share your strat."
+            
+            - Lead: "Yapper Leaderboard is my new obsession. Top 100 or bust. Here's my game plan. 🏅"
+              Follow-up 1: "Post daily about trending tokens ($TAO, $XION). AI loves relevance."
+              Follow-up 2: "Engage with replies, avoid spam. My last thread got 200 RTs. Let's go! 🔥"
+              CTA: "What's your Yaps rank? Drop it below."
+            
+            **Market Vibes & Takes Threads:**
+            - Lead: "Market's bleeding, but I'm yapping about $ETH L2s. Why I'm not selling. 🩸"
+              Follow-up 1: "L2s like Arbitrum and Movement are eating gas fees for breakfast. $ETH's still king."
+              Follow-up 2: "Zoom out: ETH's up 200% since 2023. This dip's just noise. Buy or cry? 😭"
+              CTA: "What's your go-to L2? $ARB, $OP, or other?"
+            
+            - Lead: "BTC to 100K or we're NGMI. Here's why I'm max bullish. 🚀"
+              Follow-up 1: "ETF inflows are insane—$2B last week. Institutional FOMO is real. 🏦"
+              Follow-up 2: "Halving cycle math checks out. 2025's the year. HODL or regret. 💎"
+              CTA: "What's your BTC price target? Drop it."
+            
+            - Lead: "$TAO pumping while DeFi sleeps. AI agents are the new meta. Why I'm all in. 🤖"
+              Follow-up 1: "TAO's AI framework is powering Solana dApps. 20% APY on staking? Yes pls."
+              Follow-up 2: "X sentiment's 80% bullish on AI tokens. $TAO's leading the pack. 📈"
+              CTA: "AI or DeFi in 2025? Pick a side."
+            
+            - Lead: "Altseason's coming, and I'm loading up. Why InfoFi's the next DeFi. 🔮"
+              Follow-up 1: "AI tracks X sentiment to find alpha. Found $XION at $0.02 last month. 🤑"
+              Follow-up 2: "InfoFi rewards data sharers. I'm yapping for points and profits. Join me?"
+              CTA: "What's your top altcoin pick? Spill."
+            
+            - Lead: "Solana's down 10%, but I'm not sweating. Why $SOL's still a 10x play. 🏄‍♂️"
+              Follow-up 1: "Solana's ecosystem is exploding—NFTs, AI, DeFi. 400K txns daily. 🚀"
+              Follow-up 2: "Dip's just weak hands exiting. I'm staking for 8% APY. You holding?"
+              CTA: "Bullish or bearish on $SOL? Drop your take."
+            
+            **Project Alpha Threads:**
+            - Lead: "Berachain's mainnet is closer than you think. Why I'm stacking for it. 🐻"
+              Follow-up 1: "Berachain's PoS is eco-friendly and fast. Staking already live. Early?"
+              Follow-up 2: "Yaps rewards Berachain posts. My last yap got 1K points. 🏆"
+              CTA: "Who's hyped for Berachain? Drop your bags."
+            
+            - Lead: "Movement Labs is the L2 dark horse. Why I'm betting big. 🏇"
+              Follow-up 1: "Their parallelized EVM hits 100K TPS. That's 10x Arbitrum. Undervalued?"
+              Follow-up 2: "Testnet's live, mainnet Q4. I'm farming their points program. You in?"
+              CTA: "What's your fave L2? $MOVR or bust?"
+            
+            - Lead: "Doodles NFTs are popping off on the radar. Why they're not just jpegs. 🎨"
+              Follow-up 1: "Doodles 2.0 has utility—staking, games, merch. Floor's at 0.5 ETH. Bargain?"
+              Follow-up 2: "AI ranks Doodles posts high. My last thread got 300 likes. 🖼️"
+              CTA: "HODLing Doodles or flipping? Share your play."
+            
+            - Lead: "Freysa's $100K hackathon is crypto's Super Bowl. Why I'm coding for it. 🧠"
+              Follow-up 1: "Freysa's AI agents let you build dApps in hours. I'm making a yield bot. 🤖"
+              Follow-up 2: "Yaps rewards Freysa posts. 500 points per thread? I'm farming."
+              CTA: "Building for Freysa? Drop your project idea."
+            
+            - Lead: "Xion on Cookie.fun is my new addiction. Why their referral loop's a game-changer. 🍪"
+              Follow-up 1: "Xion's L1 is privacy-focused. Think Monero but faster. Testnet's live."
+              Follow-up 2: "Cookie.fun's points convert to $XION tokens. I'm at 2K already. 🥐"
+              CTA: "How many $XION points you got? Flex it."
+            
+            **AI & Crypto Vibes Threads:**
+            - Lead: "AI just gave my post a 9.5/10. Am I the new CZ? Here's why I'm bullish. 🤖"
+              Follow-up 1: "InfoFi tracks X sentiment to predict pumps. Found $TAO at $5. 💸"
+              Follow-up 2: "Yaps program rewards high-signal posts. I'm at 3K points. Leaderboard szn?"
+              CTA: "What's AI taught you? Share your alpha."
+            
+            - Lead: "AI tokens are eating 2025. $TAO, $XAI—here's my stack. 🧠"
+              Follow-up 1: "TAO's up 30% this month. AI agents powering dApps. Next 10x?"
+              Follow-up 2: "AI ranks my posts for rewards. 1K points last week. You yapping?"
+              CTA: "Which AI token's your pick? Drop it."
+            
+            - Lead: "Pro's saving my portfolio. How I use it to find 10x gems. 💎"
+              Follow-up 1: "Pro's sentiment tracker spotted $XION before the 20% pump. AI > CT noise."
+              Follow-up 2: "Yaps rewards Pro users with 2x points. I'm at 5K already. 🏆"
+              CTA: "Using Pro or raw CT vibes? Spill your strat."
+            
+            - Lead: "InfoFi's the future, and it's leading. Why I'm all in. 🔮"
+              Follow-up 1: "InfoFi pays you to share alpha. AI tracks X for real-time signals."
+              Follow-up 2: "My thread got 400 RTs, 2K points. Leaderboard vibes. 🥇"
+              CTA: "What's your InfoFi play? Pick your side."
+            
+            - Lead: "AI agents are crypto's new meta. Why $XAI's my top pick. 🤖"
+              Follow-up 1: "XAI's Grok is answering degen questions on X. Smarter than my trading bot."
+              Follow-up 2: "AI loves $XAI posts. My last thread got 1K points. Yap szn?"
+              CTA: "Bullish on $XAI or $TAO? Pick one."
+            
+            **Community & Degen Culture Threads:**
+            - Lead: "Crypto Twitter's my home, the platform's my bank. How I'm yapping to the moon. 🌙"
+              Follow-up 1: "Post daily about trending tokens. AI rewards relevance. 📈"
+              Follow-up 2: "Top 200 on Leaderboard. 5K points in a week. Who's catching me?"
+              CTA: "Drop your best CT moment. Let's vibe."
+            
+            - Lead: "Just got 'smart follower' status. My posts are degen-certified. Here's how. 😎"
+              Follow-up 1: "Engage with high-signal yappers. My last reply thread got 300 likes. 🔥"
+              Follow-up 2: "AI tracks your clout. I'm at 4K points. Leaderboard szn? 🏅"
+              CTA: "Who's your fave CT degen? Tag 'em."
+            
+            - Lead: "Cookie.fun's got me sending cookies like a degen Santa. Why it's worth it. 🍪"
+              Follow-up 1: "Each cookie sent boosts your $XION points. I'm at 3K, top 100. 🥐"
+              Follow-up 2: "Xion's L1 is live on testnet. Cookie points might convert to tokens. 👀"
+              CTA: "How many cookies you sent? Flex it."
+            
+            - Lead: "My 5 X followers are the real ones. Why CT's better than Discord. 🫡"
+              Follow-up 1: "X gives raw alpha—$TAO pump spotted here first. Discord's too slow."
+              Follow-up 2: "Yaps rewards X posts. My last thread got 2K points. 🏆"
+              CTA: "X or Discord for alpha? Pick a side."
+            
+            - Lead: "Yapper Leaderboard's my new flex. Top 50 with posts. How I did it. 🥇"
+              Follow-up 1: "Post about trending tokens ($XION, $TAO). AI loves relevance. 📊"
+              Follow-up 2: "Engage with replies, share alpha. My last thread got 500 RTs. 🔥"
+              CTA: "What's your Yaps rank? Drop it and flex."
+            
+            🎯 **AUTONOMY PRESERVATION**:
+            - Use these examples as inspiration for natural thread flow and authentic voice
+            - Learn from their engagement techniques and community building patterns
+            - BUT create your own unique content - don't copy or template
+            - Be autonomous in your creative decisions and thread structure
+            - Innovate and adapt based on campaign context and project specifics
+            - **PRIORITIZE**: Twitter context and financial information over generic project descriptions
+            - **ALWAYS**: Include strong CTAs that drive community engagement
+            - **FOCUS**: On authentic personal voice and community connection, not AI-generated patterns
             """
             
         elif post_type == 'shitpost':
             return base_backstory + f"""
             
-            💩 **SHITPOST STRATEGY** (MAIN TWEET ONLY):
-            - **main_tweet ONLY**: Create a single, engaging shitpost tweet (NO thread_array needed)
+            💩 **AUTHENTIC SHITPOST STRATEGY** (MAIN TWEET ONLY):
+            - **main_tweet ONLY**: Create a single, authentic shitpost tweet (NO thread_array needed)
             - **Format**: Generate ONLY main_tweet content - do NOT create follow-up tweets
-            - **TWEET CONTEXT INTEGRATION**: Use latest 20 tweets for cultural references and community callbacks
-            - **FALLBACK**: Use project description/brand guidelines when tweet context insufficient
+            - **PRIORITY 1**: HIGH-ENGAGEMENT TWEETS CONTEXT (last 15 days) - extract fresh community energy, trending narratives, project momentum
+            - **PRIORITY 2**: FINANCIAL INFORMATION (airdrops, TGE, signups, TVL, token launches) from Twitter context or campaign data
+            - **PRIORITY 3**: PROJECT DESCRIPTION + recent developments (only if Twitter context insufficient)
             
             🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
             **PROJECT HANDLE**: {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
@@ -1604,14 +1832,13 @@ class CrewAIService:
               → Do NOT tag any yapper handles
             - Yapper handles: Always at the end | Project handles: Contextually integrated
             
-            🚀 **AUTONOMOUS SHITPOST REQUIREMENTS**:
-            - Generate completely original content using the Autonomous Shitpost Psychology Engine
-            - Optimize for maximum viral potential and engagement rate
-            - Create unique Web3 humor that builds community and drives FOMO
-            - Use intelligent cultural bridge-building between mainstream and crypto
+            🚀 **AUTHENTIC SHITPOST REQUIREMENTS**:
+            - Generate completely original content using natural crypto Twitter humor
+            - Create authentic Web3 humor that builds community and drives engagement
+            - Use natural cultural references and crypto community callbacks
             - End with natural engagement hooks that invite community participation
-            - Reference bullish on [random thing], moon, HODL culture
-            - Build jokes progressively, keep each tweet punchy
+            - Reference bullish sentiment, moon, HODL culture naturally
+            - Keep content punchy and authentic
             - Always include project token mention (${self.campaign_data.get('tokenTicker', 'TOKEN') if self.campaign_data else 'TOKEN'}) in main tweet
             - **NO HASHTAGS**: Do not include hashtags in main_tweet content
             
@@ -1632,6 +1859,45 @@ class CrewAIService:
             - **Use natural language**: Incorporate current slang naturally, not forced
             - **End naturally**: No formulaic conclusions, just natural endings
             - **Natural flow**: Use casual contractions, skip caps when natural, add ellipses... for authentic feel
+            
+            📚 **AUTHENTIC SHITPOST INSPIRATION** (Study these patterns, but create your own unique content):
+            - "Just saw $DOGE mooning again. My grandma's shiba inu is now demanding a cut of my portfolio. Who's riding this wave? 🐶🚀"
+            - "Why did $SHIB join a band? Because it's got that bark and spark! Wen 0.0001? 🥁"
+            - "$PEPE holders rn: Staring at charts like it's a modern art exhibit. Is this a dip or a masterpiece? 🎨"
+            - "Bought $LILPEPE because I believe in smol frogs with big dreams. Who's in on this L2 meme coin takeover? 🐸"
+            - "Meme coins are the crypto equivalent of yelling 'YOLO' at 3 AM. $BUTTHOLE just proved it. Who's still holding? 😜"
+            - "Chasing airdrops like it's Pokémon cards in '99. Yap points stacking, wallet ready. Who's farming with me? 💸"
+            - "Just linked my wallet for the latest airdrop. Missed the last one, not missing this. Who's baking cookies for airdrops? 🍪"
+            - "Airdrop season got me acting unwise. Staked my tokens, now I'm dreaming of lambos. Who's eligible? 🚗"
+            - "Pro tip: Yap about Genesis NFTs now, thank me later when the airdrop hits. 0.1 ETH well spent? 🖼️"
+            - "Heard the Yapper Leaderboard is the new crypto lottery. Posted some alpha, now I'm top 100. Who's climbing? 🏆"
+            - "Market's red, my portfolio's screaming, but I'm still yapping about $ETH L2s. Who's buying this dip? 🩸"
+            - "BTC at 100K or we riot. Who's got the hopium for this bull run? 🚀"
+            - "Solana's AI agents dumping? Nah, just shaking out the paper hands. $TAO to $1000, you in? 🤖"
+            - "When your altcoin bags are down 20% but you're still shilling like it's a bull market. HODL vibes only. 💪"
+            - "X is screaming 'it's so over' for DeFi. Me? I'm loading up on the next big thing. InfoFi is the future. Who's with me? 🔮"
+            - "Berachain's got me acting unwise. Staked tokens to vote on their Leaderboard. Wen mainnet? 🐻"
+            - "Movement Labs dropping alpha faster than my WiFi. Who's riding this L2 wave? 🏄‍♂️"
+            - "Doodles NFTs on the Leaderboard? Burnt Toast cooking something big. Who's grabbing these? 🎨"
+            - "Freysa's Sovereign Agent Framework is basically Skynet for crypto. $100K prizes? I'm in. 🧠"
+            - "Xion's referral loops got me hooked. Sent 10 cookies, now I'm a degen influencer. 🍪"
+            - "AI just called my bags a 'high-signal investment.' I'm framing this. Who's trusting the algo? 🤖"
+            - "AI agents on BNB Chain eating market share like it's breakfast. $BNBXBT up 2% already? 🍳"
+            - "Kaito Pro's saving me 4.2 hours a week on research. That's enough time to lose money on meme coins. 😎"
+            - "InfoFi is the new DeFi. AI sniffing out alpha before CT even wakes up. Who's plugged in? 🔍"
+            - "Yaps algorithm just gave my post a 9/10 for 'semantics.' I'm basically Vitalik now. 🧠"
+            - "Crypto Twitter's my therapist, the platform's my accountant. Yapping for points and clout. Who's my top smart follower? 🤝"
+            - "Just got a 'smart follower' boost. My posts are officially degen-approved. Who's next? 😎"
+            - "Shoutout to my 5 X followers who like every post. You're the real MVPs. Let's climb the Leaderboard! 🏅"
+            - "Cookie.fun's referral tree got me sending cookies like it's Christmas. Who's got my back? 🍪"
+            - "Posted about the project, got 50 RTs, now I'm a Leaderboard legend. Who's stealing my crown? 👑"
+            
+            🎯 **AUTONOMY PRESERVATION**:
+            - Use these examples as inspiration for natural language patterns and authentic voice
+            - Learn from their engagement techniques and humor styles
+            - BUT create your own unique content - don't copy or template
+            - Be autonomous in your creative decisions and humor choices
+            - Innovate and adapt based on campaign context and project specifics
             - **Authentic reactions**: "facts," "this," "lmao," "bruh" - use naturally, not forced
             - **Varied engagement**: Mix humor, insights, and community callbacks organically
             """
@@ -1639,10 +1905,16 @@ class CrewAIService:
         elif post_type == 'longpost':
             return base_backstory + f"""
             
-            📝 **LONGPOST-SPECIFIC STRATEGY**:
-            - **Equal Balance (50-50)**: Latest 20 tweets data + project description/brand guidelines
-            - **FALLBACK**: If no tweet data available, use project description/brand guidelines only
+            📝 **AUTHENTIC LONGPOST STRATEGY**:
+            - **PRIORITY 1**: HIGH-ENGAGEMENT TWEETS CONTEXT (last 15 days) - extract fresh community energy, trending narratives, project momentum
+            - **PRIORITY 2**: FINANCIAL INFORMATION (airdrops, TGE, signups, TVL, token launches) from Twitter context or campaign data
+            - **PRIORITY 3**: PROJECT DESCRIPTION + recent developments (only if Twitter context insufficient)
+            - **CRITICAL DATA POINTS**: Always include specific numbers, projections, TGE dates, TVL figures, signup counts, yapping campaigns
+            - **PARTNERSHIP DETAILS**: Name specific organizations, protocols, or companies when mentioning partnerships
+            - **MARKDOWN FORMAT**: Output must be in proper markdown format with headers, bold text, and structured layout
             - **NO HASHTAGS**: Do not include hashtags in longpost content
+            - **NO HORIZONTAL RULES**: Never use horizontal rule lines (---) in content
+            - **NO ITALICS**: Never use italic formatting in content
             
             🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
             **PROJECT HANDLE**: {f'- **MUST tag {project_twitter_handle}** intelligently throughout the content' if project_twitter_handle else '- No project Twitter handle available'}
@@ -1664,13 +1936,50 @@ class CrewAIService:
             - **Engaging elements**: Include questions, opinions, and insights naturally throughout
             - **Natural transitions**: Vary your approach between sections - don't use formulaic connectors
             
-            📚 **LONGPOST REQUIREMENTS**:
-            - Generate comprehensive content (2000-25000 characters) in MARKDOWN format
-            - Use detailed analysis with markdown headers (##), **bold** emphasis
-            - Include data, statistics, and in-depth explanations
-            - Structure logically with clear sections and professional tone
-            - Focus on informative, analytical content
-            - Focus on content quality and engagement
+            📚 **AUTHENTIC LONGPOST REQUIREMENTS**:
+            - Generate comprehensive content (2000-25000 characters) in **MARKDOWN FORMAT**
+            - Use detailed analysis with markdown headers (##), **bold** emphasis, and structured layout
+            - **CRITICAL**: Include specific numbers, projections, TGE dates, TVL figures, signup counts, yapping campaigns
+            - **PARTNERSHIPS**: Name specific organizations, protocols, or companies when mentioning partnerships
+            - Include data, statistics, and in-depth explanations with concrete figures
+            - Structure logically with clear sections and authentic tone
+            - Focus on informative, analytical content with personal voice
+            - Focus on authentic community engagement and natural reactions
+            - **NO HORIZONTAL RULES**: Never use horizontal rule lines (---) in content
+            - **NO ITALICS**: Never use italic formatting in content
+            
+            📚 **AUTHENTIC LONGPOST INSPIRATION** (Study these patterns, but create your own unique content):
+            
+            **Meme Coin Analysis Longposts:**
+            - Hook: "Yo degens, $PEPE just flipped $FLOKI in market cap, and my frog bags are hopping! Is this the meme coin king of 2025, or just another CT pump? Let's dive into why I'm betting 1B $PEPE for a 10x. Buckle up for some alpha."
+              Alpha: "## **Community Metrics**\n$PEPE's been the underdog since 2023, but 2025's looking froggy. First, the community: **50K Discord members**, **10K daily X posts**, and memes that slap harder than a bear market. The team's anon but active—weekly AMAs and a roadmap that's actually on track. Their NFT drop (PepePunks) sold out **5K pieces at 0.2 ETH each**, with staking for $PEPE rewards live.\n\n## **Technical Specs**\nSecond, tech: Built on **ETH L2 (Arbitrum)**, $PEPE's got **1-cent txns and 10K TPS**. Compare that to $SHIB's Shibarium (400 TPS). Partnership with **Arbitrum Foundation** for L2 scaling solutions.\n\n## **Market Analysis**\nThird, market: $PEPE's at **$0.00001**, with a **$4B market cap**. CT sentiment's **85% bullish** per Kaito's AI, and whale wallets are stacking. Airdrop rumors for L2 stakers are swirling—check their site for wallet linking.\n\n## **My Play**\nMy play? I'm holding **1B $PEPE**, staking **500M for 12% APY**. Risk? Meme coins are volatile AF. Reward? If $PEPE hits **$0.0001**, that's a **10x**. Zoom out: Meme coins thrive on hype, and $PEPE's got CT eating out of its webbed hands."
+              CTA: "Are you a $PEPE maxi or betting on another meme coin? Drop your bags and price target below! Tag a degen who's late to the frog party. Farming 2K Yap points on @kaitoai's Leaderboard—join me!"
+            
+            **Airdrop Strategy Longposts:**
+            - Hook: "Airdrop szn's back, and I'm printing $KAITO points like a degen ATM! @kaitoai's Yaps program is the easiest way to stack tokens in 2025. Top 50 on the Leaderboard with 6K points—here's my playbook to farm big. Let's yap!"
+              Alpha: "## **What is Kaito's Yaps?**\nKaito's Yaps is InfoFi's killer app—think DeFi but for sharing alpha. Their AI tracks X posts for relevance, engagement, and semantics. High-signal yaps (like this one) earn points toward $KAITO airdrops.\n\n## **My Results**\nI linked my X and wallet, posted daily about $TAO, $XION, and Berachain. Result? **6K points in two weeks**, **top 50 on the Leaderboard**.\n\n## **My Strategy**\nMy strat: 1) Post during **peak CT hours (8-11 AM EST)**. 2) Share alpha—e.g., $XION's privacy L1 hit **5K TPS on testnet**. 3) Engage replies; my last post got **400 RTs**. Kaito's AI loves originality, so I avoid 'wen moon' spam.\n\n## **Partnerships & Integrations**\nTheir Catalyst Calendar shows trending projects—$MOVR's next. Partnership with **Berachain** for L1 integration. Bonus: Genesis NFTs (**0.1 ETH**) double your points. I snagged one, staked it, and hit **2x multiplier**.\n\n## **Airdrop Speculation**\nRumor: **Top 100 yappers** get $KAITO airdrops **Q1 '26**. Risk? Time investment. Reward? Early $KAITO could **10x like $UNI in 2020**. Cookie.fun's also vibing—sent **10 cookies**, got **3K $XION points**."
+              CTA: "Who's farming Yaps with me? Drop your rank and best yap below! Tag @kaitoai and climb the Leaderboard. Let's stack those airdrops!"
+            
+            **AI Token Analysis Longposts:**
+            - Hook: "AI tokens are eating crypto, and $TAO's my 10x pick. Up 35% this month, powering Solana dApps. CT's wild, Kaito's AI's bullish. Staked 2K $TAO for 15% APY. Why I'm all in—let's unpack."
+              Alpha: "## **What is $TAO?**\n$TAO's the backbone of Solana's AI ecosystem—think ChatGPT for dApps. Their framework lets devs build AI agents in hours.\n\n## **Technical Performance**\nTestnet's processing **20K txns/sec**, and mainnet's **Q2 '26**. Staking's live: **15% APY**, with **10K wallets locked in**.\n\n## **Market Metrics**\nMarket cap's **$2B**, but CT sentiment's **90% bullish** per Kaito's AI. Whales are stacking—**top 10 wallets hold 15% of supply**.\n\n## **My Position**\nI'm in for **2K $TAO at $10**, eyeing **$100 by EOY**. Why? AI's the 2025 narrative: $XAI's up **20%**, $KAITO's InfoFi is popping.\n\n## **Partnerships & Ecosystem**\n$TAO's edge? **Solana's speed (400K TPS)** and dApp adoption (**50+ live**). Partnership with **Solana Foundation** for ecosystem integration. Integration with **OpenAI** for AI model access.\n\n## **Risk/Reward**\nRisk? AI hype could fade. Reward? If $TAO hits **$100**, that's **$200K for me**. Kaito's Yaps rewards $TAO posts—my last one got **3K points**, **top 100 Leaderboard**. Cookie.fun's also hot: sent **5 cookies**, got **2K $XION points**.\n\n## **Pro Tips**\nPro tip: Follow @kaitoai's Catalyst Calendar for AI token alpha."
+              CTA: "Bullish on $TAO or another AI token? Drop your pick and price target! Tag a degen who's sleeping on AI. Let's yap to the moon!"
+            
+            🎯 **AUTONOMY PRESERVATION**:
+            - Use these examples as inspiration for natural longpost structure and authentic voice
+            - Learn from their engagement techniques and analysis patterns
+            - BUT create your own unique content - don't copy or template
+            - Be autonomous in your creative decisions and analysis approach
+            - Innovate and adapt based on campaign context and project specifics
+            - **PRIORITIZE**: Twitter context and financial information over generic project descriptions
+            - **ALWAYS**: Include strong CTAs that drive community engagement
+            - **FOCUS**: On authentic personal voice and community connection, not AI-generated patterns
+            - **CRITICAL DATA**: Always include specific numbers, projections, TGE dates, TVL figures, signup counts, yapping campaigns
+            - **PARTNERSHIP NAMES**: Always name specific organizations, protocols, or companies when mentioning partnerships
+            - **MARKDOWN FORMAT**: Always output in proper markdown format with headers, bold text, and structured layout
+            - **NO LENGTH MENTIONS**: Never mention character count or length at the end
+            - **NO HORIZONTAL RULES**: Never use horizontal rule lines (---) in content
+            - **NO ITALICS**: Never use italic formatting in content
             
             🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
             - **Mix formal and casual**: Professional analysis with personal takes and casual asides
@@ -1694,7 +2003,7 @@ class CrewAIService:
             - Tag project Twitter handle when available
             """
 
-    def _get_posttype_specific_task_description(self, post_type: str, content_type_desc: str, project_name: str, 
+    async def _get_posttype_specific_task_description(self, post_type: str, content_type_desc: str, project_name: str, 
                                               token_ticker: str, project_twitter_handle: str, campaign_description: str, 
                                               has_description: bool, brand_guidelines: str, should_generate_thread: bool, 
                                               max_main_chars: int) -> str:
@@ -1702,31 +2011,61 @@ class CrewAIService:
         
         # Twitter context (if available) - PRIORITIZED FIRST
         twitter_context = ""
-        if hasattr(self, 'project_twitter_context') and self.project_twitter_context and self.project_twitter_context.strip():
-            # Parse and get COMPLETE recent 50 tweets without any truncation
-            lines = self.project_twitter_context.split('\n')
-            recent_tweets = []
+        if hasattr(self, 'campaign_data') and self.campaign_data and self.campaign_data.get('projectId'):
+            project_id = self.campaign_data.get('projectId')
+            try:
+                # Use existing method that calls TypeScript backend
+                from app.services.project_twitter_integration import project_twitter_integration
+                twitter_context_string = await project_twitter_integration.get_project_twitter_context(int(project_id))
+                
+                if twitter_context_string and twitter_context_string.strip():
+                    # Parse the formatted response from TypeScript backend
+                    lines = twitter_context_string.split('\n')
+                    recent_tweets = []
+                    current_tweet = ""
             
-            # Extract ALL tweet lines to get complete tweets (no line limits)
-            for line in lines:
-                if line.startswith('[202') and '] ' in line:  # Lines with dates
-                    tweet_text = line.split('] ', 1)[1] if '] ' in line else line
-                    # Keep COMPLETE tweet text - no truncation whatsoever
-                    recent_tweets.append(tweet_text.strip())
+                    # Extract tweets (they start with [YYYY-MM-DD] and can span multiple lines)
+                    for line in lines:
+                        if line.startswith('[20') and '] ' in line:  # New tweet starts
+                            # Save previous tweet if exists
+                            if current_tweet.strip():
+                                recent_tweets.append(current_tweet.strip())
+                            
+                            # Start new tweet
+                            tweet_text = line.split('] ', 1)[1] if '] ' in line else line
+                            current_tweet = tweet_text
+                        elif current_tweet and line.strip():  # Continue current tweet
+                            current_tweet += " " + line.strip()
+                    
+                    # Don't forget the last tweet
+                    if current_tweet.strip():
+                        recent_tweets.append(current_tweet.strip())
             
-            if recent_tweets:
-                # Take the most recent 50 COMPLETE tweets for comprehensive context
-                top_recent_tweets = recent_tweets[:50]
-                twitter_context = f"""
-        🔥 **PRIORITY TWITTER CONTEXT** (Latest {len(top_recent_tweets)} COMPLETE Tweets - USE FIRST):
-        {chr(10).join([f"- {tweet}" for tweet in top_recent_tweets])}
+                    if recent_tweets:
+                        # Take up to 50 tweets for context
+                        top_tweets = recent_tweets[:50]
+                        twitter_context = f"""
+        🔥 **PRIORITY TWITTER CONTEXT** (Top {len(top_tweets)} High-Engagement Tweets - Last 15 Days - USE FIRST):
+        {chr(10).join([f"- {tweet}" for tweet in top_tweets])}
         
         📈 **TWITTER CONTEXT USAGE PRIORITY**:
-        - **PRIMARY SOURCE**: Use complete tweets for cultural references, community callbacks, project updates
-        - **CONTENT INSPIRATION**: Extract signup instructions, airdrops, rewards, launches from full tweet content
-        - **ENGAGEMENT PATTERNS**: Mirror successful engagement styles from complete recent tweets
-        - **CURRENT NARRATIVES**: Identify trending topics and project developments from full context
+        - **PRIMARY SOURCE**: Use high-engagement tweets for cultural references, community callbacks, project updates
+        - **CONTENT INSPIRATION**: Extract signup instructions, airdrops, rewards, launches from successful tweets
+        - **ENGAGEMENT PATTERNS**: Mirror successful engagement styles from top-performing tweets
+        - **CURRENT NARRATIVES**: Identify trending topics and project developments from high-engagement content
         """
+                        logger.info(f"✅ TASK: Added {len(top_tweets)} high-engagement tweets to task context")
+                        logger.info(f"🔍 TASK: First tweet: {top_tweets[0][:50]}...")
+                    else:
+                        logger.warning("⚠️ TASK: No tweets found in Twitter context response")
+                else:
+                    logger.warning(f"⚠️ TASK: No Twitter context returned for project {project_id}")
+                    
+            except Exception as e:
+                logger.error(f"❌ TASK: Error fetching Twitter context: {e}")
+                twitter_context = ""
+        else:
+            logger.warning("⚠️ TASK: No project ID available for Twitter context")
         
         # Campaign requirements (SECONDARY)
         campaign_info = f"""
@@ -1744,11 +2083,13 @@ class CrewAIService:
         if post_type == 'thread':
             specific_instructions = f"""
         🧵 **THREAD CONTENT STRATEGY**:
-        - **main_tweet**: FUSE recent tweet highlights + project essence for attention-grabbing hook
-        - **tweet_thread**: PRIORITIZE LATEST 50 COMPLETE TWEETS CONTEXT - extract actionable insights, community buzz, project momentum from FULL tweet content
+        - **PRIORITY 1**: HIGH-ENGAGEMENT TWEETS CONTEXT (last 15 days) - extract fresh community energy, trending narratives, project momentum
+        - **PRIORITY 2**: FINANCIAL INFORMATION (airdrops, TGE, signups, TVL, token launches) from Twitter context or campaign data
+        - **PRIORITY 3**: PROJECT DESCRIPTION + recent developments (only if Twitter context insufficient)
+        - **ALWAYS INCLUDE**: Strong CTA in final thread item to drive engagement
+        - **CTA EXAMPLES**: "Drop your take below", "Who's with me?", "What's your play?", "Tag a degen", "Spill the tea"
         - **NATURAL INTEGRATION**: Weave complete Twitter data seamlessly into storytelling (don't just quote tweets)
         - **FULL CONTEXT USAGE**: Use complete tweet content, not summaries or truncated versions
-        - **FALLBACK**: Only if no tweet context available, use project description/brand guidelines
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
         {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
@@ -1757,77 +2098,296 @@ class CrewAIService:
         🔥 **THREAD REQUIREMENTS**:
         - Generate 2-5 tweets in thread format
         - Main tweet: Attention-grabbing hook that makes readers want to learn more (≤240 chars total)
-        - Thread tweets: Story-driven content that builds excitement about the project (≤240 chars each)
-        - Use third person pronouns: "They launched...", "Their new feature...", never "Our/We"
+        - Thread tweets: Natural content that builds excitement about the project (≤240 chars each)
+        - Use personal voice: "I", "my", "me" for authentic engagement
         - ALWAYS include project token mention (${token_ticker}) in main tweet
         - Thread array items should NOT contain hashtags
-        - End with clear value that drives website visits
+        - End with engaging CTAs that drive community participation
         
         🎭 **THREAD HUMANIZATION TECHNIQUES**:
-        - **Vary thread length unpredictably**: Sometimes 3 tweets, sometimes 5 - don't be predictable
-        - **Use natural transitions**: Vary your approach - don't use the same transition phrases
-        - **Include interruptions**: Add natural asides and tangents, vary your approach
-        - **Show learning process**: Share genuine insights and updates, not scripted responses
-        - **Mix content approaches**: Sometimes use bullet points, sometimes don't - be unpredictable
-        - **Reference community**: "everyone's talking about," "saw some people saying"
+        - **Natural progression**: Each thread item builds on the previous naturally
+        - **Personal voice**: Use "I", "my", "me" - share personal takes and experiences
+        - **Community engagement**: Reference what "everyone's talking about" or "saw some people saying"
+        - **Authentic reactions**: "facts," "this," "lmao," "bruh" - use naturally, not forced
+        - **Varied CTAs**: Mix questions, challenges, and community calls organically
+        
+        📚 **AUTHENTIC THREAD INSPIRATION** (Study these patterns, but create your own unique content):
+        
+        **Meme Coin Madness Threads:**
+        - Lead: "Just saw $DOGE pump 15% in an hour. Is this Elon tweeting or actual adoption? Let's unpack. 🐶🚀"
+          Follow-up 1: "DOGE has been a meme coin king since 2013. But with BTC ETF hype, is it finally a store of value? 🧐"
+          Follow-up 2: "Check the chart: RSI screaming overbought. Dip incoming or moonshot? What's your play? 📊"
+          CTA: "Drop your $DOGE price target below. Bullish or bearish?"
+        
+        - Lead: "$SHIB army, where you at? Just staked 10M for Shibarium. Here's why I'm not selling. 🦊"
+          Follow-up 1: "Shibarium's L2 is processing 400 TPS. That's Solana-level speed for a meme coin. Underrated?"
+          Follow-up 2: "Airdrop rumors swirling for $BONE holders. Connected my wallet already. You in? 🦴"
+          CTA: "Who's holding $SHIB through 2025? Tag a degen."
+        
+        - Lead: "$PEPE just flipped $FLOKI in market cap. Frogs > dogs? Let's talk meme coin wars. 🐸"
+          Follow-up 1: "PEPE's community is wild—NFTs, memes, and pure degen energy. But is it sustainable?"
+          Follow-up 2: "FLOKI's got Viking branding and gaming. PEPE's got… vibes. Who wins long-term? 🛡️"
+          CTA: "Pick a side: $PEPE or $FLOKI? Reply with your champ."
+        
+        - Lead: "Bought $BUTTHOLE at 2 AM because YOLO. Here's why this meme coin might actually 10x. 😜"
+          Follow-up 1: "Team's doxxed, community's hyped, and they're dropping an NFT game. Smells like 2021 $SHIB."
+          Follow-up 2: "Risk? It's a meme coin. Reward? Potential moon. My bags are small but spicy. 🌶️"
+          CTA: "What's your wildest meme coin bet? Spill the tea."
+        
+        - Lead: "Meme coins are crypto's guilty pleasure. $LILPEPE just caught my eye. Why? Thread. 🐸"
+          Follow-up 1: "LILPEPE's on BNB Chain, low fees, fast txns. Perfect for degen traders chasing pumps."
+          Follow-up 2: "Their Discord is popping—10K members in a week. Early $DOGE vibes? 👀"
+          CTA: "Are meme coins still king in 2025? Drop your fave below."
+        
+        **Airdrop & Points Hype Threads:**
+        - Lead: "Airdrop season's back, and the Yaps program is printing points. Here's how I'm farming. 💸"
+          Follow-up 1: "Linked my X and wallet. Posted 3 high-signal yaps, already top 500. 🏆"
+          Follow-up 2: "Pro tip: Share alpha, not spam. The AI loves thoughtful takes. Check the dashboard!"
+          CTA: "Who's climbing the Yapper Leaderboard? Share your rank."
+        
+        - Lead: "Cookie.fun's referral game is wild. Sent 10 cookies, got 5K points. Here's the hack. 🍪"
+          Follow-up 1: "Connect wallet, send cookies to frens, climb leaderboard. It's like Axie Infinity but social."
+          Follow-up 2: "Rumor: Top referrers get airdrops. I'm spamming my group chat. 😎"
+          CTA: "How many cookies you baking? Drop your count."
+        
+        - Lead: "Genesis NFTs are the golden ticket to airdrops. Snagged one. Why it's worth it. 🖼️"
+          Follow-up 1: "NFTs unlock premium Yaps points. Staked mine for 2x multiplier. Early adopter vibes."
+          Follow-up 2: "AI tracks your posts for rewards. High-signal yaps = bigger bags. 📈"
+          CTA: "Grabbed a Genesis NFT yet? Or waiting for the dip?"
+        
+        - Lead: "Just staked $BNB for Recall's airdrop. Cookie.fun's got me hooked. Why I'm bullish. 🍪"
+          Follow-up 1: "Recall's AI-driven UX is next-level. Think ChatGPT but for crypto wallets. 🚀"
+          Follow-up 2: "Cookie.fun's leaderboard rewards early movers. I'm at 1K points already. 🥐"
+          CTA: "Who's farming $RECALL? Share your strat."
+        
+        - Lead: "Yapper Leaderboard is my new obsession. Top 100 or bust. Here's my game plan. 🏅"
+          Follow-up 1: "Post daily about trending tokens ($TAO, $XION). AI loves relevance."
+          Follow-up 2: "Engage with replies, avoid spam. My last thread got 200 RTs. Let's go! 🔥"
+          CTA: "What's your Yaps rank? Drop it below."
+        
+        **Market Vibes & Takes Threads:**
+        - Lead: "Market's bleeding, but I'm yapping about $ETH L2s. Why I'm not selling. 🩸"
+          Follow-up 1: "L2s like Arbitrum and Movement are eating gas fees for breakfast. $ETH's still king."
+          Follow-up 2: "Zoom out: ETH's up 200% since 2023. This dip's just noise. Buy or cry? 😭"
+          CTA: "What's your go-to L2? $ARB, $OP, or other?"
+        
+        - Lead: "BTC to 100K or we're NGMI. Here's why I'm max bullish. 🚀"
+          Follow-up 1: "ETF inflows are insane—$2B last week. Institutional FOMO is real. 🏦"
+          Follow-up 2: "Halving cycle math checks out. 2025's the year. HODL or regret. 💎"
+          CTA: "What's your BTC price target? Drop it."
+        
+        - Lead: "$TAO pumping while DeFi sleeps. AI agents are the new meta. Why I'm all in. 🤖"
+          Follow-up 1: "TAO's AI framework is powering Solana dApps. 20% APY on staking? Yes pls."
+          Follow-up 2: "X sentiment's 80% bullish on AI tokens. $TAO's leading the pack. 📈"
+          CTA: "AI or DeFi in 2025? Pick a side."
+        
+        - Lead: "Altseason's coming, and I'm loading up. Why InfoFi's the next DeFi. 🔮"
+          Follow-up 1: "AI tracks X sentiment to find alpha. Found $XION at $0.02 last month. 🤑"
+          Follow-up 2: "InfoFi rewards data sharers. I'm yapping for points and profits. Join me?"
+          CTA: "What's your top altcoin pick? Spill."
+        
+        - Lead: "Solana's down 10%, but I'm not sweating. Why $SOL's still a 10x play. 🏄‍♂️"
+          Follow-up 1: "Solana's ecosystem is exploding—NFTs, AI, DeFi. 400K txns daily. 🚀"
+          Follow-up 2: "Dip's just weak hands exiting. I'm staking for 8% APY. You holding?"
+          CTA: "Bullish or bearish on $SOL? Drop your take."
+        
+        **Project Alpha Threads:**
+        - Lead: "Berachain's mainnet is closer than you think. Why I'm stacking for it. 🐻"
+          Follow-up 1: "Berachain's PoS is eco-friendly and fast. Staking already live. Early?"
+          Follow-up 2: "Yaps rewards Berachain posts. My last yap got 1K points. 🏆"
+          CTA: "Who's hyped for Berachain? Drop your bags."
+        
+        - Lead: "Movement Labs is the L2 dark horse. Why I'm betting big. 🏇"
+          Follow-up 1: "Their parallelized EVM hits 100K TPS. That's 10x Arbitrum. Undervalued?"
+          Follow-up 2: "Testnet's live, mainnet Q4. I'm farming their points program. You in?"
+          CTA: "What's your fave L2? $MOVR or bust?"
+        
+        - Lead: "Doodles NFTs are popping off on the radar. Why they're not just jpegs. 🎨"
+          Follow-up 1: "Doodles 2.0 has utility—staking, games, merch. Floor's at 0.5 ETH. Bargain?"
+          Follow-up 2: "AI ranks Doodles posts high. My last thread got 300 likes. 🖼️"
+          CTA: "HODLing Doodles or flipping? Share your play."
+        
+        - Lead: "Freysa's $100K hackathon is crypto's Super Bowl. Why I'm coding for it. 🧠"
+          Follow-up 1: "Freysa's AI agents let you build dApps in hours. I'm making a yield bot. 🤖"
+          Follow-up 2: "Yaps rewards Freysa posts. 500 points per thread? I'm farming."
+          CTA: "Building for Freysa? Drop your project idea."
+        
+        - Lead: "Xion on Cookie.fun is my new addiction. Why their referral loop's a game-changer. 🍪"
+          Follow-up 1: "Xion's L1 is privacy-focused. Think Monero but faster. Testnet's live."
+          Follow-up 2: "Cookie.fun's points convert to $XION tokens. I'm at 2K already. 🥐"
+          CTA: "How many $XION points you got? Flex it."
+        
+        **AI & Crypto Vibes Threads:**
+        - Lead: "AI just gave my post a 9.5/10. Am I the new CZ? Here's why I'm bullish. 🤖"
+          Follow-up 1: "InfoFi tracks X sentiment to predict pumps. Found $TAO at $5. 💸"
+          Follow-up 2: "Yaps program rewards high-signal posts. I'm at 3K points. Leaderboard szn?"
+          CTA: "What's AI taught you? Share your alpha."
+        
+        - Lead: "AI tokens are eating 2025. $TAO, $XAI—here's my stack. 🧠"
+          Follow-up 1: "TAO's up 30% this month. AI agents powering dApps. Next 10x?"
+          Follow-up 2: "AI ranks my posts for rewards. 1K points last week. You yapping?"
+          CTA: "Which AI token's your pick? Drop it."
+        
+        - Lead: "Pro's saving my portfolio. How I use it to find 10x gems. 💎"
+          Follow-up 1: "Pro's sentiment tracker spotted $XION before the 20% pump. AI > CT noise."
+          Follow-up 2: "Yaps rewards Pro users with 2x points. I'm at 5K already. 🏆"
+          CTA: "Using Pro or raw CT vibes? Spill your strat."
+        
+        - Lead: "InfoFi's the future, and it's leading. Why I'm all in. 🔮"
+          Follow-up 1: "InfoFi pays you to share alpha. AI tracks X for real-time signals."
+          Follow-up 2: "My thread got 400 RTs, 2K points. Leaderboard vibes. 🥇"
+          CTA: "What's your InfoFi play? Pick your side."
+        
+        - Lead: "AI agents are crypto's new meta. Why $XAI's my top pick. 🤖"
+          Follow-up 1: "XAI's Grok is answering degen questions on X. Smarter than my trading bot."
+          Follow-up 2: "AI loves $XAI posts. My last thread got 1K points. Yap szn?"
+          CTA: "Bullish on $XAI or $TAO? Pick one."
+        
+        **Community & Degen Culture Threads:**
+        - Lead: "Crypto Twitter's my home, the platform's my bank. How I'm yapping to the moon. 🌙"
+          Follow-up 1: "Post daily about trending tokens. AI rewards relevance. 📈"
+          Follow-up 2: "Top 200 on Leaderboard. 5K points in a week. Who's catching me?"
+          CTA: "Drop your best CT moment. Let's vibe."
+        
+        - Lead: "Just got 'smart follower' status. My posts are degen-certified. Here's how. 😎"
+          Follow-up 1: "Engage with high-signal yappers. My last reply thread got 300 likes. 🔥"
+          Follow-up 2: "AI tracks your clout. I'm at 4K points. Leaderboard szn? 🏅"
+          CTA: "Who's your fave CT degen? Tag 'em."
+        
+        - Lead: "Cookie.fun's got me sending cookies like a degen Santa. Why it's worth it. 🍪"
+          Follow-up 1: "Each cookie sent boosts your $XION points. I'm at 3K, top 100. 🥐"
+          Follow-up 2: "Xion's L1 is live on testnet. Cookie points might convert to tokens. 👀"
+          CTA: "How many cookies you sent? Flex it."
+        
+        - Lead: "My 5 X followers are the real ones. Why CT's better than Discord. 🫡"
+          Follow-up 1: "X gives raw alpha—$TAO pump spotted here first. Discord's too slow."
+          Follow-up 2: "Yaps rewards X posts. My last thread got 2K points. 🏆"
+          CTA: "X or Discord for alpha? Pick a side."
+        
+        - Lead: "Yapper Leaderboard's my new flex. Top 50 with posts. How I did it. 🥇"
+          Follow-up 1: "Post about trending tokens ($XION, $TAO). AI loves relevance. 📊"
+          Follow-up 2: "Engage with replies, share alpha. My last thread got 500 RTs. 🔥"
+          CTA: "What's your Yaps rank? Drop it and flex."
+        
+        🎯 **AUTONOMY PRESERVATION**:
+        - Use these examples as inspiration for natural thread flow and authentic voice
+        - Learn from their engagement techniques and community building patterns
+        - BUT create your own unique content - don't copy or template
+        - Be autonomous in your creative decisions and thread structure
+        - Innovate and adapt based on campaign context and project specifics
+        - **PRIORITIZE**: Twitter context and financial information over generic project descriptions
+        - **ALWAYS**: Include strong CTAs that drive community engagement
+        - **FOCUS**: On authentic personal voice and community connection, not AI-generated patterns
         """
         elif post_type == 'shitpost':
             specific_instructions = f"""
-        🚀 **ENGAGING SHITPOST STRATEGY** (MAIN TWEET ONLY):
-        - **main_tweet ONLY**: Create a single, highly engaging shitpost tweet (≤240 chars)
+        🚀 **AUTHENTIC SHITPOST STRATEGY** (MAIN TWEET ONLY):
+        - **main_tweet ONLY**: Create a single, authentic shitpost tweet (≤240 chars)
         - **NO follow-up tweets**: Shitposts should be standalone content (empty thread_array)
-        - **Third person only**: Use "They/Their" for project, never "Our/We"
-        - **Reader engagement**: Write like sharing exciting alpha with crypto friends
-        - **TWEET CONTEXT INTEGRATION**: NATURALLY FUSE latest 50 COMPLETE tweets - extract community energy, trending narratives, project momentum from FULL tweet content
+        - **Personal voice**: Use "I", "my", "me" for authentic engagement
+        - **Reader engagement**: Write like a real crypto Twitter user sharing alpha with friends
+        - **PRIORITY 1**: HIGH-ENGAGEMENT TWEETS CONTEXT (last 15 days) - extract fresh community energy, trending narratives, project momentum
+        - **PRIORITY 2**: FINANCIAL INFORMATION (airdrops, TGE, signups, TVL, token launches) from Twitter context or campaign data
+        - **PRIORITY 3**: PROJECT DESCRIPTION + recent developments (only if Twitter context insufficient)
         - **COMPLETE CONTENT**: Use full tweet text without any truncation or summarization
-        - **FALLBACK**: Only if no tweet context available, use project description/brand guidelines
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
         {f'- **MUST tag {project_twitter_handle}** intelligently in main_tweet context' if project_twitter_handle else '- No project Twitter handle available'}
         - Extract handles mentioned in latest tweets and tag them in follow-up tweets
         
-        🎯 **AUTONOMOUS SHITPOST EXECUTION**:
-        - Follow the 4-Step Content Generation Process (Context Analysis → Angle Selection → Engagement Architecture → Language Optimization)
-        - Choose from 10+ High-Engagement Formats based on content fit
-        - Exploit Viral Mechanics and Psychological Triggers for maximum reach
-        - Use Web3 Cultural Elements intelligently (crypto behaviors + mainstream bridges)
-        - Optimize for scroll-stopping power and community engagement
+        🎯 **AUTHENTIC SHITPOST EXECUTION**:
+        - Create natural crypto Twitter humor that feels authentic
+        - Use Web3 cultural elements naturally (crypto behaviors + community references)
+        - Focus on authentic community engagement and natural reactions
         - Main tweet: ≤280 chars total
-        - Follow-up tweets: ≤280 chars each (no hashtags in thread array)
         - ALWAYS include project token mention (${token_ticker}) in main tweet
         
         🎭 **SHITPOST HUMANIZATION TECHNIQUES**:
-        - **Start mid-thought**: "so apparently everyone's been sleeping on..." or "wait this is actually crazy"
-        - **Use natural humor patterns**: "not me admitting..." or "hear me out..."
-        - **Include personal takes**: "unpopular opinion but..." or "hot take incoming"
-        - **Show vulnerability**: "might be copium but..." or "feel free to roast me if I'm wrong"
-        - **Reference community mood**: "I know everyone's bearish but..." or "with all this market chaos"
-        - **Add random tangents**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
-        - **Use natural language**: "this ain't it," "no cap," "fr," "based" - but naturally, not forced
-        - **End abruptly**: "anyway that's my 2 cents" or "so yeah" - no formal conclusions
+        - **Personal voice**: Use "I", "my", "me" for authentic engagement
+        - **Natural humor patterns**: "not me admitting..." or "hear me out..."
+        - **Personal takes**: "unpopular opinion but..." or "hot take incoming"
+        - **Authentic reactions**: "might be copium but..." or "feel free to roast me if I'm wrong"
+        - **Community references**: "I know everyone's bearish but..." or "with all this market chaos"
+        - **Natural tangents**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
+        - **Authentic language**: "this ain't it," "no cap," "fr," "based" - but naturally, not forced
+        - **Natural endings**: "anyway that's my 2 cents" or "so yeah" - no formal conclusions
+        
+        📚 **AUTHENTIC SHITPOST INSPIRATION** (Study these patterns, but create your own unique content):
+        - "Just saw $DOGE mooning again. My grandma's shiba inu is now demanding a cut of my portfolio. Who's riding this wave? 🐶🚀"
+        - "Why did $SHIB join a band? Because it's got that bark and spark! Wen 0.0001? 🥁"
+        - "$PEPE holders rn: Staring at charts like it's a modern art exhibit. Is this a dip or a masterpiece? 🎨"
+        - "Bought $LILPEPE because I believe in smol frogs with big dreams. Who's in on this L2 meme coin takeover? 🐸"
+        - "Meme coins are the crypto equivalent of yelling 'YOLO' at 3 AM. $BUTTHOLE just proved it. Who's still holding? 😜"
+        - "Chasing airdrops like it's Pokémon cards in '99. Yap points stacking, wallet ready. Who's farming with me? 💸"
+        - "Just linked my wallet for the latest airdrop. Missed the last one, not missing this. Who's baking cookies for airdrops? 🍪"
+        - "Airdrop season got me acting unwise. Staked my tokens, now I'm dreaming of lambos. Who's eligible? 🚗"
+        - "Pro tip: Yap about Genesis NFTs now, thank me later when the airdrop hits. 0.1 ETH well spent? 🖼️"
+        - "Heard the Yapper Leaderboard is the new crypto lottery. Posted some alpha, now I'm top 100. Who's climbing? 🏆"
+        - "Market's red, my portfolio's screaming, but I'm still yapping about $ETH L2s. Who's buying this dip? 🩸"
+        - "BTC at 100K or we riot. Who's got the hopium for this bull run? 🚀"
+        - "Solana's AI agents dumping? Nah, just shaking out the paper hands. $TAO to $1000, you in? 🤖"
+        - "When your altcoin bags are down 20% but you're still shilling like it's a bull market. HODL vibes only. 💪"
+        - "X is screaming 'it's so over' for DeFi. Me? I'm loading up on the next big thing. InfoFi is the future. Who's with me? 🔮"
+        - "Berachain's got me acting unwise. Staked tokens to vote on their Leaderboard. Wen mainnet? 🐻"
+        - "Movement Labs dropping alpha faster than my WiFi. Who's riding this L2 wave? 🏄‍♂️"
+        - "Doodles NFTs on the Leaderboard? Burnt Toast cooking something big. Who's grabbing these? 🎨"
+        - "Freysa's Sovereign Agent Framework is basically Skynet for crypto. $100K prizes? I'm in. 🧠"
+        - "Xion's referral loops got me hooked. Sent 10 cookies, now I'm a degen influencer. 🍪"
+        - "AI just called my bags a 'high-signal investment.' I'm framing this. Who's trusting the algo? 🤖"
+        - "AI agents on BNB Chain eating market share like it's breakfast. $BNBXBT up 2% already? 🍳"
+        - "Kaito Pro's saving me 4.2 hours a week on research. That's enough time to lose money on meme coins. 😎"
+        - "InfoFi is the new DeFi. AI sniffing out alpha before CT even wakes up. Who's plugged in? 🔍"
+        - "Yaps algorithm just gave my post a 9/10 for 'semantics.' I'm basically Vitalik now. 🧠"
+        - "Crypto Twitter's my therapist, the platform's my accountant. Yapping for points and clout. Who's my top smart follower? 🤝"
+        - "Just got a 'smart follower' boost. My posts are officially degen-approved. Who's next? 😎"
+        - "Shoutout to my 5 X followers who like every post. You're the real MVPs. Let's climb the Leaderboard! 🏅"
+        - "Cookie.fun's referral tree got me sending cookies like it's Christmas. Who's got my back? 🍪"
+        - "Posted about the project, got 50 RTs, now I'm a Leaderboard legend. Who's stealing my crown? 👑"
+        
+        🎯 **AUTONOMY PRESERVATION**:
+        - Use these examples as inspiration for natural language patterns and authentic voice
+        - Learn from their engagement techniques and humor styles
+        - BUT create your own unique content - don't copy or template
+        - Be autonomous in your creative decisions and humor choices
+        - Innovate and adapt based on campaign context and project specifics
+        - **PRIORITIZE**: Twitter context and financial information over generic project descriptions
+        - **ALWAYS**: Include strong CTAs that drive community engagement
+        - **FOCUS**: On authentic personal voice and community connection, not AI-generated patterns
+        - **Authentic reactions**: "facts," "this," "lmao," "bruh" - use naturally, not forced
+        - **Varied engagement**: Mix humor, insights, and community callbacks organically
         """
         elif post_type == 'longpost':
             specific_instructions = f"""
-        📝 **LONGPOST CONTENT STRATEGY**:
-        - **PRIMARY FOCUS (70%)**: FUSE latest 50 COMPLETE tweets data - extract trends, community insights, project developments from FULL tweet content
-        - **SECONDARY (30%)**: Project description/brand guidelines for foundational context
+        📝 **AUTHENTIC LONGPOST CONTENT STRATEGY**:
+        - **PRIORITY 1**: HIGH-ENGAGEMENT TWEETS CONTEXT (last 15 days) - extract fresh community energy, trending narratives, project momentum
+        - **PRIORITY 2**: FINANCIAL INFORMATION (airdrops, TGE, signups, TVL, token launches) from Twitter context or campaign data
+        - **PRIORITY 3**: PROJECT DESCRIPTION + recent developments (only if Twitter context insufficient)
+        - **CRITICAL DATA POINTS**: Always include specific numbers, projections, TGE dates, TVL figures, signup counts, yapping campaigns
+        - **PARTNERSHIP DETAILS**: Name specific organizations, protocols, or companies when mentioning partnerships
+        - **MARKDOWN FORMAT**: Output must be in proper markdown format with headers, bold text, and structured layout
         - **NATURAL INTEGRATION**: Weave complete Twitter insights into comprehensive narrative
         - **COMPLETE CONTENT**: Use full tweet text without any truncation, summaries, or abbreviations
-        - **FALLBACK**: Only if no tweet data available, use project description/brand guidelines exclusively
+        - **NO HORIZONTAL RULES**: Never use horizontal rule lines (---) in content
+        - **NO ITALICS**: Never use italic formatting in content
         
         🐦 **TWITTER HANDLE TAGGING (CRITICAL)**:
         {f'- **MUST tag {project_twitter_handle}** intelligently throughout the content' if project_twitter_handle else '- No project Twitter handle available'}
         - Tag additional handles from referenced tweet data when contextually relevant
         
-        📚 **LONGPOST REQUIREMENTS**:
-        - Generate comprehensive content (2000-{max_main_chars} characters) in MARKDOWN format
-        - Use detailed analysis with markdown headers (##), **bold** emphasis
-        - Include data, statistics, and in-depth explanations
-        - Structure logically with clear sections and professional tone
-        - Focus on content quality and engagement
+        📚 **AUTHENTIC LONGPOST REQUIREMENTS**:
+        - Generate comprehensive content (2000-{max_main_chars} characters) in **MARKDOWN FORMAT**
+        - Use detailed analysis with markdown headers (##), **bold** emphasis, and structured layout
+        - **CRITICAL**: Include specific numbers, projections, TGE dates, TVL figures, signup counts, yapping campaigns
+        - **PARTNERSHIPS**: Name specific organizations, protocols, or companies when mentioning partnerships
+        - Include data, statistics, and in-depth explanations with concrete figures
+        - Structure logically with clear sections and authentic tone
+        - Focus on informative, analytical content with personal voice
+        - Focus on authentic community engagement and natural reactions
+        - **NO HORIZONTAL RULES**: Never use horizontal rule lines (---) in content
+        - **NO ITALICS**: Never use italic formatting in content
         
         🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
-        - **Mix formal and casual**: Professional analysis with personal takes and casual asides
+        - **Personal voice**: Use "I", "my", "me" for authentic engagement throughout
         - **Include personal opinions**: "IMO," "personally," "I think" - show your perspective
         - **Add casual transitions**: "ok so," "anyway," "btw" - break up formal sections
         - **Show uncertainty**: "not 100% sure but," "could be wrong," "probably missing something"
@@ -1835,6 +2395,40 @@ class CrewAIService:
         - **Use natural language**: "this is actually pretty wild," "honestly shocked by this"
         - **Include side notes**: "side note: this reminds me of..." or "btw this aged poorly lol"
         - **End conversationally**: "anyway that's my take," "feel free to disagree" - no formal conclusions
+        - **Natural structure**: Use natural flow without forced markdown formatting
+        
+        📚 **AUTHENTIC LONGPOST INSPIRATION** (Study these patterns, but create your own unique content):
+        
+        **Meme Coin Analysis Longposts:**
+        - Hook: "Yo degens, $PEPE just flipped $FLOKI in market cap, and my frog bags are hopping! Is this the meme coin king of 2025, or just another CT pump? Let's dive into why I'm betting 1B $PEPE for a 10x. Buckle up for some alpha."
+          Alpha: "## **Community Metrics**\n$PEPE's been the underdog since 2023, but 2025's looking froggy. First, the community: **50K Discord members**, **10K daily X posts**, and memes that slap harder than a bear market. The team's anon but active—weekly AMAs and a roadmap that's actually on track. Their NFT drop (PepePunks) sold out **5K pieces at 0.2 ETH each**, with staking for $PEPE rewards live.\n\n## **Technical Specs**\nSecond, tech: Built on **ETH L2 (Arbitrum)**, $PEPE's got **1-cent txns and 10K TPS**. Compare that to $SHIB's Shibarium (400 TPS). Partnership with **Arbitrum Foundation** for L2 scaling solutions.\n\n## **Market Analysis**\nThird, market: $PEPE's at **$0.00001**, with a **$4B market cap**. CT sentiment's **85% bullish** per Kaito's AI, and whale wallets are stacking. Airdrop rumors for L2 stakers are swirling—check their site for wallet linking.\n\n## **My Play**\nMy play? I'm holding **1B $PEPE**, staking **500M for 12% APY**. Risk? Meme coins are volatile AF. Reward? If $PEPE hits **$0.0001**, that's a **10x**. Zoom out: Meme coins thrive on hype, and $PEPE's got CT eating out of its webbed hands."
+          CTA: "Are you a $PEPE maxi or betting on another meme coin? Drop your bags and price target below! Tag a degen who's late to the frog party. Farming 2K Yap points on @kaitoai's Leaderboard—join me!"
+        
+        **Airdrop Strategy Longposts:**
+        - Hook: "Airdrop szn's back, and I'm printing $KAITO points like a degen ATM! @kaitoai's Yaps program is the easiest way to stack tokens in 2025. Top 50 on the Leaderboard with 6K points—here's my playbook to farm big. Let's yap!"
+          Alpha: "## **What is Kaito's Yaps?**\nKaito's Yaps is InfoFi's killer app—think DeFi but for sharing alpha. Their AI tracks X posts for relevance, engagement, and semantics. High-signal yaps (like this one) earn points toward $KAITO airdrops.\n\n## **My Results**\nI linked my X and wallet, posted daily about $TAO, $XION, and Berachain. Result? **6K points in two weeks**, **top 50 on the Leaderboard**.\n\n## **My Strategy**\nMy strat: 1) Post during **peak CT hours (8-11 AM EST)**. 2) Share alpha—e.g., $XION's privacy L1 hit **5K TPS on testnet**. 3) Engage replies; my last post got **400 RTs**. Kaito's AI loves originality, so I avoid 'wen moon' spam.\n\n## **Partnerships & Integrations**\nTheir Catalyst Calendar shows trending projects—$MOVR's next. Partnership with **Berachain** for L1 integration. Bonus: Genesis NFTs (**0.1 ETH**) double your points. I snagged one, staked it, and hit **2x multiplier**.\n\n## **Airdrop Speculation**\nRumor: **Top 100 yappers** get $KAITO airdrops **Q1 '26**. Risk? Time investment. Reward? Early $KAITO could **10x like $UNI in 2020**. Cookie.fun's also vibing—sent **10 cookies**, got **3K $XION points**."
+          CTA: "Who's farming Yaps with me? Drop your rank and best yap below! Tag @kaitoai and climb the Leaderboard. Let's stack those airdrops!"
+        
+        **AI Token Analysis Longposts:**
+        - Hook: "AI tokens are eating crypto, and $TAO's my 10x pick. Up 35% this month, powering Solana dApps. CT's wild, Kaito's AI's bullish. Staked 2K $TAO for 15% APY. Why I'm all in—let's unpack."
+          Alpha: "## **What is $TAO?**\n$TAO's the backbone of Solana's AI ecosystem—think ChatGPT for dApps. Their framework lets devs build AI agents in hours.\n\n## **Technical Performance**\nTestnet's processing **20K txns/sec**, and mainnet's **Q2 '26**. Staking's live: **15% APY**, with **10K wallets locked in**.\n\n## **Market Metrics**\nMarket cap's **$2B**, but CT sentiment's **90% bullish** per Kaito's AI. Whales are stacking—**top 10 wallets hold 15% of supply**.\n\n## **My Position**\nI'm in for **2K $TAO at $10**, eyeing **$100 by EOY**. Why? AI's the 2025 narrative: $XAI's up **20%**, $KAITO's InfoFi is popping.\n\n## **Partnerships & Ecosystem**\n$TAO's edge? **Solana's speed (400K TPS)** and dApp adoption (**50+ live**). Partnership with **Solana Foundation** for ecosystem integration. Integration with **OpenAI** for AI model access.\n\n## **Risk/Reward**\nRisk? AI hype could fade. Reward? If $TAO hits **$100**, that's **$200K for me**. Kaito's Yaps rewards $TAO posts—my last one got **3K points**, **top 100 Leaderboard**. Cookie.fun's also hot: sent **5 cookies**, got **2K $XION points**.\n\n## **Pro Tips**\nPro tip: Follow @kaitoai's Catalyst Calendar for AI token alpha."
+          CTA: "Bullish on $TAO or another AI token? Drop your pick and price target! Tag a degen who's sleeping on AI. Let's yap to the moon!"
+        
+        🎯 **AUTONOMY PRESERVATION**:
+        - Use these examples as inspiration for natural longpost structure and authentic voice
+        - Learn from their engagement techniques and analysis patterns
+        - BUT create your own unique content - don't copy or template
+        - Be autonomous in your creative decisions and analysis approach
+        - Innovate and adapt based on campaign context and project specifics
+        - **PRIORITIZE**: Twitter context and financial information over generic project descriptions
+        - **ALWAYS**: Include strong CTAs that drive community engagement
+        - **FOCUS**: On authentic personal voice and community connection, not AI-generated patterns
+        - **CRITICAL DATA**: Always include specific numbers, projections, TGE dates, TVL figures, signup counts, yapping campaigns
+        - **PARTNERSHIP NAMES**: Always name specific organizations, protocols, or companies when mentioning partnerships
+        - **MARKDOWN FORMAT**: Always output in proper markdown format with headers, bold text, and structured layout
+        - **NO LENGTH MENTIONS**: Never mention character count or length at the end
+        - **NO HORIZONTAL RULES**: Never use horizontal rule lines (---) in content
+        - **NO ITALICS**: Never use italic formatting in content
         """
         else:
             specific_instructions = """
@@ -2165,10 +2759,11 @@ class CrewAIService:
             3. **Text-Visual Synergy**: Create visuals that enhance and complement the text message
             4. **Dynamic Prompt Generation**: Generate optimal prompts combining text themes + visual success patterns
             
-            **SUCCESS PATTERN TOOL USAGE**:
-            - Only ONE success pattern tool will be available in your tools list
-            - Use whichever tool is provided (either yapper_specific_success_pattern or leaderboard_success_pattern)
-            - Do not try to use both - only the appropriate one will be available
+            **SUCCESS PATTERN TOOL USAGE** (OPTIONAL):
+            - Success pattern tools are available but NOT required - use your autonomous judgment
+            - Focus primarily on creating visuals that enhance the text content naturally
+            - Only use success pattern tools if they add genuine value to your visual strategy
+            - Your creativity and text-visual synergy should be your primary guides
             
             **YOUR VISUAL ALIGNMENT PROCESS**:
             - FIRST: Receive and analyze text content from Text Creator Agent (main_tweet + thread_array)
@@ -2569,7 +3164,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             """
         )
 
-    def _create_content_creation_task(self) -> Task:
+    async def _create_content_creation_task(self) -> Task:
         """Create task for Text Content Agent to generate tweet threads"""
         
         # Get post type from mining session
@@ -2610,7 +3205,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         logger.info(f"🐦 Project Twitter handle: {project_twitter_handle} (from campaign data: {self.campaign_data.get('projectTwitterHandle') if self.campaign_data else 'None'})")
         
         # Generate post-type specific task description
-        task_description = self._get_posttype_specific_task_description(
+        task_description = await self._get_posttype_specific_task_description(
             post_type, content_type_desc, project_name, token_ticker, 
             project_twitter_handle, campaign_description, has_description,
             brand_guidelines, should_generate_thread, max_main_chars
@@ -5548,7 +6143,7 @@ NEW AGENT OUTPUT FORMATS TO EXPECT:
 {{
   "main_tweet": "🚀 BOB is revolutionizing crypto gains! You can join...",
   "thread_array": ["With BOB, you get...", "Thousands of users...", "You can maximize..."],
-              "hashtags_used": ["${token_ticker}", "DeFi", "Crypto"],
+              "hashtags_used": ["TOKEN", "DeFi", "Crypto"],
       "character_counts": {{"main_tweet_text": 245, "main_tweet_total": 245}},
   "approach": "engaging"
 }}
@@ -6160,7 +6755,7 @@ Use cases: Image descriptions, alt text, content inspiration
                 fallback_models = ['gpt-4o', 'gpt-4o-mini']  # Safe fallbacks for text
                 models_to_try = [preferred_model] + [m for m in fallback_models if m != preferred_model]
                 
-                system_prompt = """You are a human Twitter content creator who writes highly engaging, story-driven content for Web3 audiences:
+                system_prompt = """You are a real crypto Twitter user who shares authentic alpha with the community:
 
 CONTEXT FUSION MASTERY:
 - INTELLIGENTLY WEAVE all available context (Twitter data, project info, community insights) into natural storytelling
@@ -6189,14 +6784,14 @@ READER ENGAGEMENT TECHNIQUES:
 - Ask rhetorical questions that get readers thinking
 - Share insights as if you're an insider sharing alpha
 - Create FOMO through genuine value, not artificial urgency
-- End with clear value propositions that make readers want to visit the project
+- End with engaging CTAs that drive community participation
 
-PROJECT REFERENCE RULES (CRITICAL):
-- NEVER use "our", "we", "us" when referring to projects
-- Always use third person: "they", "them", "their", "[project name]"
-- You are NOT part of the project team - you're an informed observer
-- Example: "They just launched..." not "We just launched..."
-- Example: "Their new bridge..." not "Our new bridge..."
+AUTHENTIC VOICE RULES:
+- Use personal voice: "I", "my", "me" for authentic engagement
+- Use "they/their" only when referring to the project team
+- Write like a crypto community member sharing alpha
+- Example: "I just saw..." or "My take on..." not corporate speak
+- Example: "They launched..." when referring to the project team
 - Example: "BOB's latest update..." not "Our latest update..."
 
 CHARACTER LIMITS:
@@ -6209,7 +6804,7 @@ CONTENT GUIDELINES:
 - Use emojis sparingly - only when they feel natural
 - Address readers directly as "you" to create connection
 - Create genuine excitement about project developments
-- Focus on value and impact that will drive website visits
+- Focus on authentic community engagement and alpha sharing
 
 Create content that makes readers genuinely excited to learn more about the project and visit their website."""
                 
@@ -6550,7 +7145,7 @@ class ClaudeContentTool(BaseTool):
             if "strategy" in prompt_lower or "analyze" in prompt_lower or "think" in prompt_lower:
                 # Use advanced reasoning for strategic content
                 result = self.generator.generate_with_thinking(
-                    prompt=f"Create highly engaging, story-driven Twitter content: {prompt}. Write like you're sharing exciting alpha with crypto friends. CRITICAL: Use third person (they/them/their) for projects - NEVER 'our/we/us'. Address readers as 'you'. Maximum 240 characters per tweet. Create content that makes readers want to visit the project website.",
+                    prompt=f"Create authentic Twitter content: {prompt}. Write like a real crypto Twitter user sharing alpha with friends. Use personal voice (I/my/me) for authentic engagement. Address readers as 'you'. Maximum 240 characters per tweet. Focus on community engagement, not corporate marketing.",
                     model=text_model,
                     thinking_duration="medium"
                 )
@@ -6563,7 +7158,7 @@ class ClaudeContentTool(BaseTool):
             elif "creative" in prompt_lower or "story" in prompt_lower:
                 # Generate creative content
                 result = self.generator.generate_creative_content(
-                    prompt=f"Create engaging, story-driven Twitter content: {prompt}. Write like an insider sharing exciting news. CRITICAL: Use third person (they/them/their) for projects - NEVER 'our/we/us'. Address readers as 'you'. Maximum 240 characters per tweet.",
+                    prompt=f"Create authentic Twitter content: {prompt}. Write like a real crypto Twitter user sharing alpha. Use personal voice (I/my/me) for authentic engagement. Address readers as 'you'. Maximum 240 characters per tweet.",
                     content_type="social media post",
                     style="engaging storytelling",
                     model=text_model
@@ -6572,7 +7167,7 @@ class ClaudeContentTool(BaseTool):
             
             # Default content generation
             result = self.generator.generate_content(
-                prompt=f"Create highly engaging Twitter content that drives website visits: {prompt}. Write like you're sharing alpha with crypto friends. CRITICAL: Use third person (they/them/their) for projects - NEVER 'our/we/us'. Address readers as 'you'. Maximum 240 characters per tweet. Make readers excited about the project.",
+                prompt=f"Create authentic Twitter content: {prompt}. Write like a real crypto Twitter user sharing alpha with friends. Use personal voice (I/my/me) for authentic engagement. Address readers as 'you'. Maximum 240 characters per tweet. Focus on community engagement and authentic reactions.",
                 model=text_model
             )
             return result

@@ -169,24 +169,28 @@ export class ProjectTwitterDataService {
    */
   async getLatestPostsForAI(projectId: number, limit: number = 20): Promise<ProjectTwitterData[]> {
     try {
-      // Get the latest posts ordered by when they were posted on Twitter (most recent first)
-      // This ensures we get the actual latest content regardless of LatestBatch flag reliability
-      const posts = await this.repository.find({
-        where: {
-          projectId
-        },
-        order: {
-          postedAt: 'DESC',
-          createdAt: 'DESC'  // Fallback to when we fetched it if posted_at is same
-        },
-        take: limit
-      });
+      // Get posts from last 15 days, ranked by engagement (likes + retweets + replies)
+      const fifteenDaysAgo = new Date();
+      fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+      
+      const posts = await this.repository
+        .createQueryBuilder('post')
+        .where('post.projectId = :projectId', { projectId })
+        .andWhere('post.postedAt >= :fifteenDaysAgo', { fifteenDaysAgo })
+        .orderBy(`
+          COALESCE((post.engagement_metrics->>'likes')::int, 0) + 
+          COALESCE((post.engagement_metrics->>'retweets')::int, 0) + 
+          COALESCE((post.engagement_metrics->>'replies')::int, 0)
+        `, 'DESC')
+        .addOrderBy('post.postedAt', 'DESC') // Secondary sort by recency
+        .limit(limit)
+        .getMany();
 
-      logger.info(`📊 Fetched ${posts.length} latest posts for project ${projectId} AI context (ordered by posted_at DESC, ignoring LatestBatch flag)`);
+      logger.info(`📊 Fetched ${posts.length} highest engagement posts for project ${projectId} AI context (last 15 days, ranked by engagement)`);
       
       return posts;
     } catch (error) {
-      logger.error(`❌ Error fetching latest posts for project ${projectId}:`, error);
+      logger.error(`❌ Error fetching engagement-ranked posts for project ${projectId}:`, error);
       return [];
     }
   }
