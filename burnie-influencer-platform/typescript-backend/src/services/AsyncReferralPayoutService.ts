@@ -282,7 +282,8 @@ export class AsyncReferralPayoutService {
   private static async executePayment(walletAddress: string, amount: number): Promise<string | null> {
     try {
       // Use TreasuryService to execute the payment
-      const result = await TreasuryService.transferROAST(walletAddress, amount);
+      const treasuryService = new TreasuryService();
+      const result = await treasuryService.distributeToMiner(walletAddress, amount);
       return result.transactionHash || null;
     } catch (error) {
       logger.error(`❌ Error executing referral payout payment:`, error);
@@ -363,13 +364,27 @@ export class AsyncReferralPayoutService {
       throw new Error('Purchase not found');
     }
 
-    return {
+    const result: {
+      status: string;
+      directReferrerPayout?: number;
+      grandReferrerPayout?: number;
+      directReferrerTxHash?: string;
+      grandReferrerTxHash?: string;
+    } = {
       status: purchase.referralPayoutStatus || 'not_applicable',
       directReferrerPayout: purchase.directReferrerPayout || 0,
-      grandReferrerPayout: purchase.grandReferrerPayout || 0,
-      directReferrerTxHash: purchase.directReferrerTxHash || undefined,
-      grandReferrerTxHash: purchase.grandReferrerTxHash || undefined
+      grandReferrerPayout: purchase.grandReferrerPayout || 0
     };
+
+    if (purchase.directReferrerTxHash) {
+      result.directReferrerTxHash = purchase.directReferrerTxHash;
+    }
+
+    if (purchase.grandReferrerTxHash) {
+      result.grandReferrerTxHash = purchase.grandReferrerTxHash;
+    }
+
+    return result;
   }
 }
 

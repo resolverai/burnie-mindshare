@@ -32,7 +32,7 @@ async function main() {
         break;
 
       case '--status':
-        const purchaseId = parseInt(args[1]);
+        const purchaseId = parseInt(args[1] || '0');
         if (!purchaseId) {
           console.error('❌ Purchase ID is required for --status command');
           process.exit(1);
@@ -41,7 +41,7 @@ async function main() {
         break;
 
       case '--process':
-        const processPurchaseId = parseInt(args[1]);
+        const processPurchaseId = parseInt(args[1] || '0');
         if (!processPurchaseId) {
           console.error('❌ Purchase ID is required for --process command');
           process.exit(1);

@@ -104,7 +104,7 @@ export class ContentPurchase {
   grandReferrerTxHash!: string | null
 
   @Column({ type: 'varchar', length: 50, default: 'pending', name: 'referral_payout_status' })
-  referralPayoutStatus!: 'pending' | 'completed' | 'failed' | 'not_applicable'
+  referralPayoutStatus!: 'pending' | 'completed' | 'failed' | 'not_applicable' | 'queued'
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date
