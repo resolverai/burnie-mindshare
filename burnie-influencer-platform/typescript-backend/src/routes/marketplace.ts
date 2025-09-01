@@ -11,7 +11,7 @@ import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
 import { TreasuryService } from '../services/TreasuryService';
 import { fetchROASTPrice } from '../services/priceService';
-import ReferralPayoutService from '../services/ReferralPayoutService';
+import AsyncReferralPayoutService from '../services/AsyncReferralPayoutService';
 import { WatermarkService } from '../services/WatermarkService';
 import { createPublicClient, http, parseUnits, formatUnits } from 'viem';
 import { base } from 'viem/chains';
@@ -3743,15 +3743,9 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
 
     logger.info(`✅ Treasury distribution completed: ${distributionResult.transactionHash}`);
 
-    // Process referral payouts after miner payout is completed
-    logger.info(`🎯 Processing referral payouts for purchase ${purchase.id}...`);
-    const referralResult = await ReferralPayoutService.processReferralPayouts(purchase.id);
-    
-    if (referralResult.success) {
-      logger.info(`✅ Referral payouts processed: Direct: ${referralResult.directReferrerPayout || 0} ROAST, Grand: ${referralResult.grandReferrerPayout || 0} ROAST`);
-    } else {
-      logger.warn(`⚠️ Referral payout processing failed: ${referralResult.message}`);
-    }
+    // Queue referral payouts for asynchronous processing (non-blocking)
+    logger.info(`🎯 Queuing referral payouts for purchase ${purchase.id}...`);
+    AsyncReferralPayoutService.queueReferralPayouts(purchase.id);
 
     res.json({
       success: true,
@@ -3763,9 +3757,8 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
         treasuryTransactionHash: distributionResult.transactionHash,
         payoutStatus: purchase.payoutStatus,
         referralPayouts: {
-          directReferrerPayout: referralResult.directReferrerPayout || 0,
-          grandReferrerPayout: referralResult.grandReferrerPayout || 0,
-          referralPayoutStatus: referralResult.success ? 'completed' : 'failed'
+          status: 'queued',
+          message: 'Referral payouts are being processed asynchronously'
         }
       }
     });
@@ -5029,6 +5022,134 @@ router.post('/content/:id/release-purchase-flow', async (req: Request, res: Resp
     res.status(500).json({
       success: false,
       message: 'Failed to release purchase flow',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/purchase/:id/process-referral-payouts
+ * @desc Manually process referral payouts for a purchase (admin endpoint)
+ */
+router.post('/purchase/:id/process-referral-payouts', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: 'Purchase ID is required'
+      });
+      return;
+    }
+
+    const result = await AsyncReferralPayoutService.processFailedReferralPayouts(parseInt(id));
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message,
+        data: {
+          purchaseId: parseInt(id),
+          directReferrerPayout: result.directReferrerPayout || 0,
+          grandReferrerPayout: result.grandReferrerPayout || 0
+        }
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: result.message
+      });
+    }
+
+  } catch (error) {
+    logger.error('Error manually processing referral payouts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process referral payouts',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route GET /api/marketplace/purchase/:id/referral-payout-status
+ * @desc Get referral payout status for a purchase
+ */
+router.get('/purchase/:id/referral-payout-status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: 'Purchase ID is required'
+      });
+      return;
+    }
+
+    const status = await AsyncReferralPayoutService.getReferralPayoutStatus(parseInt(id));
+
+    res.json({
+      success: true,
+      data: {
+        purchaseId: parseInt(id),
+        ...status
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error getting referral payout status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get referral payout status',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route GET /api/marketplace/referral-payouts/failed
+ * @desc Get all purchases with failed referral payouts (admin endpoint)
+ */
+router.get('/referral-payouts/failed', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+    
+    const failedPurchases = await purchaseRepository.find({
+      where: {
+        referralPayoutStatus: 'failed'
+      },
+      relations: ['content', 'buyer'],
+      order: {
+        createdAt: 'DESC'
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        failedPurchases: failedPurchases.map(purchase => ({
+          id: purchase.id,
+          contentId: purchase.contentId,
+          buyerWalletAddress: purchase.buyerWalletAddress,
+          purchasePrice: purchase.purchasePrice,
+          currency: purchase.currency,
+          referralPayoutStatus: purchase.referralPayoutStatus,
+          createdAt: purchase.createdAt,
+          content: purchase.content ? {
+            id: purchase.content.id,
+            title: purchase.content.campaign?.title || 'Unknown Content'
+          } : null
+        }))
+      }
+    });
+
+  } catch (error) {
+    logger.error('Error getting failed referral payouts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get failed referral payouts',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }

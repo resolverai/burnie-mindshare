@@ -18,7 +18,8 @@
     "twitter-learning": "ts-node src/jobs/twitterLearningJob.ts",
     "twitter-learning:start": "ts-node src/jobs/twitterLearningJob.ts start",
     "twitter-learning:once": "ts-node src/jobs/twitterLearningJob.ts run-once",
-    "twitter-learning:status": "ts-node src/jobs/twitterLearningJob.ts status"
+    "twitter-learning:status": "ts-node src/jobs/twitterLearningJob.ts status",
+    "manage-referral-payouts": "ts-node src/scripts/manage-referral-payouts.ts"
   },
   "keywords": [
     "roastpower",
