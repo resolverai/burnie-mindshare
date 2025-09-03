@@ -7,11 +7,20 @@ import { type AppKitNetwork } from "@reown/appkit/networks";
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
 console.log("[AppKit] projectId (first 6 chars):", projectId.slice(0, 6)); // <= should NOT be empty
+console.log("[AppKit] Full projectId length:", projectId.length);
 if (!projectId) {
   console.error("[AppKit] Missing NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID (.env.local)");
+  throw new Error("WalletConnect Project ID is required");
+}
+if (projectId.length !== 32) {
+  console.error("[AppKit] Invalid projectId length:", projectId.length, "Expected: 32");
+  throw new Error("Invalid WalletConnect Project ID format");
 }
 
 const networks: AppKitNetwork[] = [base, mainnet];
+
+console.log("[AppKit] Networks configured:", networks.map(n => n.name));
+console.log("[AppKit] Environment:", process.env.NODE_ENV);
 
 const wagmiAdapter = new WagmiAdapter({
   projectId,
@@ -20,18 +29,23 @@ const wagmiAdapter = new WagmiAdapter({
 
 export const wagmiConfig = wagmiAdapter.wagmiConfig;
 
+// Log metadata configuration for debugging
+const metadata = {
+  name: process.env.NEXT_PUBLIC_APP_NAME || "Burnie - Yapper Platform",
+  description: process.env.NEXT_PUBLIC_APP_DESCRIPTION || "AI-powered content marketplace for yappers and content creators",
+  url: process.env.NEXT_PUBLIC_FRONTEND_URL || process.env.NEXT_PUBLIC_YAPPER_TWITTER_REDIRECT_URI?.replace('/yapper-twitter-callback', '') || "http://localhost:3004",
+  icons: [
+    `${process.env.NEXT_PUBLIC_FRONTEND_URL || process.env.NEXT_PUBLIC_YAPPER_TWITTER_REDIRECT_URI?.replace('/yapper-twitter-callback', '') || "http://localhost:3004"}/favicon.svg`,
+  ],
+};
+
+console.log("[AppKit] Metadata configuration:", metadata);
+
 export const appKit = createAppKit({
   adapters: [wagmiAdapter],
   projectId,
   networks: networks as [AppKitNetwork, ...AppKitNetwork[]],
-  metadata: {
-    name: process.env.NEXT_PUBLIC_APP_NAME || "Burnie - Yapper Platform",
-    description: process.env.NEXT_PUBLIC_APP_DESCRIPTION || "AI-powered content marketplace for yappers and content creators",
-    url: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3004",
-    icons: [
-      `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3004"}/favicon.svg`,
-    ],
-  },
+  metadata,
   // Disable email, Google sign-in, and social login options
   // KEY CONFIGURATION: Disable wallet management features
   features: {
