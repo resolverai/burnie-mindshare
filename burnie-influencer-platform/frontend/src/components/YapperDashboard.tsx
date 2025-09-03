@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { useAccount, useDisconnect } from 'wagmi'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { useAccount } from 'wagmi'
 import { useROASTBalance } from '../hooks/useROASTBalance'
+import WalletDisplay from './WalletDisplay'
+import { appKit } from '@/app/reown'
 
 import { useAuth } from '../hooks/useAuth'
 import { useRouter } from 'next/navigation'
@@ -20,7 +21,7 @@ import BiddingInterface from './yapper/BiddingInterface'
 import YapperHistory from './yapper/YapperHistory'
 import YapperPortfolio from './yapper/YapperPortfolio'
 import YapperMyContent from './yapper/YapperMyContent'
-import YapperTwitterConnection from './yapper/YapperTwitterConnection'
+
 import MobileBottomNav from './MobileBottomNav'
 
 interface YapperDashboardProps {
@@ -35,14 +36,12 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false) // Default to closed
   const [isReconnectingTwitter, setIsReconnectingTwitter] = useState(false)
   const { address, isConnected } = useAccount()
-  const { disconnect } = useDisconnect()
   const { logout } = useAuth()
   const router = useRouter()
   
   // Check Twitter connection status for Yappers
   const { 
     isConnected: isTwitterConnected, 
-    isLoading: isTwitterLoading, 
     twitterUsername,
     refetch: refetchTwitterStatus 
   } = useYapperTwitterConnection(address)
@@ -172,7 +171,17 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Connect Your Wallet</h2>
           <p className="text-gray-600 mb-6">Connect your wallet to access the Burnie yapper platform</p>
-          <ConnectButton />
+          <button
+            onClick={() => {
+              console.log("[AppKit] Connect button clicked from dashboard");
+              const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search + window.location.hash : "/";
+              localStorage.setItem("wc_return_path", currentPath);
+              appKit.open();
+            }}
+            className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white px-6 py-3 rounded-lg font-medium transition-colors"
+          >
+            Connect Wallet
+          </button>
         </div>
       </div>
     )
@@ -231,16 +240,11 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
               </a>
             </div>
 
-            {/* ROAST Balance Badge */}
-            <div className="px-3 py-1 bg-white text-black rounded-full text-lg font-bold xl:flex hidden font-silkscreen">
-              🔥 {balanceLoading ? '...' : roastBalance}
-            </div>
-
-            {/* Wallet Connection */}
-            <ConnectButton 
-              showBalance={false}
-              chainStatus="none"
-              accountStatus="avatar"
+            {/* Wallet Connection with Balance */}
+            <WalletDisplay 
+              showBalance={true}
+              balance={roastBalance}
+              balanceLoading={balanceLoading}
             />
           </div>
         </div>

@@ -29,6 +29,9 @@ import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } f
 import { useInfiniteMarketplace } from '../../hooks/useInfiniteMarketplace'
 import { useUserReferralCode } from '@/hooks/useUserReferralCode'
 import { useAuth } from '@/hooks/useAuth'
+// Scroll restoration removed - using page reload instead
+import NoContentFound from '../NoContentFound'
+import { ContentRequestService } from '../../services/contentRequestService'
 
 
 // Referral Code Section Component
@@ -451,6 +454,26 @@ export default function BiddingInterface() {
     return `${Math.floor(diffInHours / 24)}d ago`
   }
 
+  // Handle content request submission
+  const handleContentRequest = async (data: {
+    projectName: string;
+    platform: string;
+    campaignLinks: string;
+  }) => {
+    try {
+      await ContentRequestService.createContentRequest({
+        ...data,
+        walletAddress: address || undefined,
+      });
+      
+      // Show success message
+      alert('Content request submitted successfully! We will review your request and create content accordingly.');
+    } catch (error) {
+      console.error('Error submitting content request:', error);
+      alert('Failed to submit content request. Please try again.');
+    }
+  }
+
 
 
   // Memoized search handler to prevent re-renders
@@ -655,11 +678,11 @@ export default function BiddingInterface() {
                 })}
               </div>
             ) : (
-          <div className="text-center py-6 xs:py-8 sm:py-12 px-3 xs:px-4">
-            <div className="text-white/70 text-sm xs:text-base sm:text-lg mb-2">No content found</div>
-            <div className="text-white/50 text-xs xs:text-sm">Try adjusting your search or filters, or check back later for new AI-generated content</div>
-          </div>
-        )}
+              <NoContentFound 
+                searchQuery={debouncedSearchTerm || `${selectedPlatform !== 'all' ? selectedPlatform : ''} ${selectedProject !== 'all' ? selectedProject : ''}`.trim() || 'your search'}
+                onRequestContent={handleContentRequest}
+              />
+            )}
 
         {/* Infinite Scroll Loading Indicator */}
         {isFetchingNextPage && (
@@ -681,7 +704,9 @@ export default function BiddingInterface() {
       <PurchaseContentModal 
         content={showPurchaseModal}
         isOpen={!!showPurchaseModal}
-        onClose={() => setShowPurchaseModal(null)}
+        onClose={() => {
+          setShowPurchaseModal(null);
+        }}
         onPurchase={handlePurchaseCallback}
         onContentUpdate={handleContentUpdate}
       />

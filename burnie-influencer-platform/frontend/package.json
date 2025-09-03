@@ -16,7 +16,8 @@
     "@radix-ui/react-progress": "^1.0.3",
     "@radix-ui/react-select": "^2.0.0",
     "@radix-ui/react-slot": "^1.0.2",
-    "@rainbow-me/rainbowkit": "^2.2.8",
+    "@reown/appkit": "^1.8.2",
+    "@reown/appkit-adapter-wagmi": "^1.8.2",
     "@tanstack/react-query": "^5.83.0",
     "@types/node": "^20.8.10",
     "@types/react": "^18.2.33",
@@ -43,8 +44,9 @@
     "tailwind-merge": "^2.3.0",
     "tailwindcss": "^3.3.5",
     "typescript": "^5.2.2",
-    "viem": "^2.33.1",
-    "wagmi": "^2.16.0"
+    "viem": "^2.37.1",
+    "wagmi": "^2.16.9",
+    "siwe": "^3.0.0"
   },
   "devDependencies": {
     "eslint": "^8.52.0",

@@ -3,9 +3,10 @@
  * Based on working implementation - handles ROAST token payments with proper wallet display
  */
 
-import { writeContract } from 'wagmi/actions';
+import { writeContract, waitForTransactionReceipt } from 'wagmi/actions';
 import { parseEther } from 'viem';
-import { config } from '../app/wagmi';
+import { wagmiConfig } from '../app/reown';
+// Scroll restoration removed - using page reload instead
 
 // ROAST token contract address on Base
 const ROAST_CONTRACT_ADDRESS = '0x06fe6D0EC562e19cFC491C187F0A02cE8D5083E4' as const;
@@ -45,7 +46,7 @@ export async function executeROASTPayment(
     });
 
     // Send transaction using the exact pattern from working implementation
-    const hash = await writeContract(config, {
+    const hash = await writeContract(wagmiConfig, {
       address: ROAST_CONTRACT_ADDRESS,
       abi: ERC20_ABI,
       functionName: 'transfer',
@@ -54,6 +55,13 @@ export async function executeROASTPayment(
 
     console.log('📤 ROAST payment transaction sent:', hash);
     console.log('🔗 Track on BaseScan:', `https://basescan.org/tx/${hash}`);
+    
+    // Wait for transaction completion to prevent AppKit modal from appearing
+    console.log('⏳ Waiting for transaction confirmation...');
+    await waitForTransactionReceipt(wagmiConfig, { hash });
+    console.log('✅ Transaction confirmed on blockchain');
+    
+    // Scroll restoration removed - using page reload instead
     
     return hash;
 
@@ -83,7 +91,7 @@ export async function prepareROASTDisplay(): Promise<boolean> {
         },
       };
 
-      await window.ethereum.request({
+      await (window.ethereum as any).request({
         method: 'wallet_watchAsset',
         params: tokenData,
       });

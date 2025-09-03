@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
 import Image from 'next/image'
 import BiddingInterface from '@/components/yapper/BiddingInterface'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
+import WalletDisplay from '@/components/WalletDisplay'
 
 import { useAuth } from '@/hooks/useAuth'
 import { useMarketplaceAccess } from '@/hooks/useMarketplaceAccess'
@@ -120,18 +120,11 @@ export default function HomePage() {
               </a>
             </div>
 
-            {/* ROAST Balance Badge - only show if fully authenticated */}
-            {mounted && isAuthenticated && (
-              <div className="px-3 py-1 bg-white text-black rounded-full text-lg font-bold xl:flex hidden font-silkscreen">
-                🔥 {balanceLoading ? '...' : roastBalance}
-              </div>
-            )}
-
-            {/* Wallet Connection */}
-            <ConnectButton 
-              showBalance={false}
-              chainStatus="none"
-              accountStatus="avatar"
+            {/* Wallet Connection with Balance */}
+            <WalletDisplay 
+              showBalance={true}
+              balance={roastBalance}
+              balanceLoading={balanceLoading}
             />
           </div>
         </div>

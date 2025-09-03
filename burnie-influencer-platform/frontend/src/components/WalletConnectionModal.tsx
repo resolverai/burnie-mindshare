@@ -1,8 +1,8 @@
 'use client'
 
 import React from 'react'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { XMarkIcon, WalletIcon } from '@heroicons/react/24/outline'
+import WalletDisplay from './WalletDisplay'
 
 interface WalletConnectionModalProps {
   isOpen: boolean
@@ -56,11 +56,7 @@ export default function WalletConnectionModal({
 
           {/* Connect Button */}
           <div className="flex justify-center">
-            <ConnectButton 
-              showBalance={false}
-              chainStatus="none"
-              accountStatus="avatar"
-            />
+            <WalletDisplay />
           </div>
         </div>
       </div>

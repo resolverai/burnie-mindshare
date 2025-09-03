@@ -1,7 +1,9 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import './appkit-styles.css'
 import { Providers } from './providers'
+import AppKitModalPrevention from '../components/AppKitModalPrevention'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -19,6 +21,7 @@ export default function RootLayout({
     <html lang="en" className="light">
       <body className={`${inter.className} yapper-background`}>
         <Providers>
+          <AppKitModalPrevention />
           {children}
         </Providers>
       </body>

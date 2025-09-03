@@ -40,6 +40,7 @@ import executionRoutes from './routes/execution';
 import yapperInterfaceRoutes from './routes/yapperInterface';
 import contentApprovalRoutes from './routes/contentApproval';
 import textOnlyRegenerationRoutes from './routes/textOnlyRegeneration';
+import contentRequestRoutes from './routes/contentRequestRoutes';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -132,6 +133,7 @@ app.use('/api/execution', executionRoutes); // Execution tracking for yapper int
 app.use('/api/yapper-interface', yapperInterfaceRoutes); // Yapper interface content generation
 app.use('/api/content-approval', contentApprovalRoutes); // Content approval and biddable marking
 app.use('/api/text-only-regeneration', textOnlyRegenerationRoutes); // Text-only content regeneration
+app.use('/api', contentRequestRoutes); // Content request management
 
 // Start server
 const startServer = async () => {

@@ -273,3 +273,5 @@ cython_debug/
 # ML Models folder - Trained machine learning models
 *.pkl
 
+sample_app/
+

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 
 // Extend Request type to include user
-interface AuthenticatedRequest extends Request {
+type AuthenticatedRequest = Request & {
   user?: {
     id: number;
     walletAddress: string;

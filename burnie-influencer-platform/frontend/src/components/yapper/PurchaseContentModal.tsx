@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { appKit } from '@/app/reown'
 import Image from 'next/image'
 import { generateRandomMindshare, formatMindshare } from '../../utils/mindshareUtils'
 
 import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
 import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance } from '../../utils/walletUtils'
 import { executeROASTPayment } from '../../services/roastPaymentService'
+import { preventModalsTemporarily } from '../../utils/appkitModalPrevention'
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, markdownToPlainText, markdownToHTML } from '../../utils/markdownParser'
 
@@ -872,6 +873,8 @@ export default function PurchaseContentModal({
       setIsPurchased(true)
       setShowTweetManagement(true)
       
+      // Scroll restoration removed - using page reload instead
+      
       // Store purchased content details for success screen
       setPurchasedContentDetails({
         id: contentToPurchase.id,
@@ -990,7 +993,7 @@ export default function PurchaseContentModal({
   
 
 
-  // Auto-close wallet modal when wallet connects - removed, using RainbowKit instead
+  // Auto-close wallet modal when wallet connects - removed, using AppKit instead
 
   // Twitter connection is now handled by global context - no local effects needed
 
@@ -1375,7 +1378,7 @@ export default function PurchaseContentModal({
   // Twitter authentication for posting - use global Twitter context
   const handleTwitterAuth = async () => {
     if (!address) {
-      console.log('🔗 No wallet connected - should open RainbowKit modal')
+      console.log('🔗 No wallet connected - should open AppKit modal')
       return
     }
 
@@ -1394,7 +1397,7 @@ export default function PurchaseContentModal({
   // Original Twitter authentication for My Voice tab
   const handleTwitterAuthVoice = async () => {
     if (!address) {
-      console.log('🔗 No wallet connected - should open RainbowKit modal')
+      console.log('🔗 No wallet connected - should open AppKit modal')
       return
     }
 
@@ -1413,7 +1416,7 @@ export default function PurchaseContentModal({
   // Generate button handler with trigger-based token refresh
   const handleGenerate = async () => {
     if (!address) {
-      console.log('🔗 No wallet connected - should open RainbowKit modal')
+      console.log('🔗 No wallet connected - should open AppKit modal')
       return
     }
 
@@ -1663,7 +1666,7 @@ export default function PurchaseContentModal({
 
     // Handle different authentication states
     if (!address) {
-      console.log('🔗 No wallet connected - should open RainbowKit modal')
+      console.log('🔗 No wallet connected - should open AppKit modal')
       return
     }
 
@@ -1902,7 +1905,9 @@ export default function PurchaseContentModal({
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
-      onClose()
+      onClose();
+      // Prevent fund management modals from showing up temporarily
+      preventModalsTemporarily(1500);
     }
   }
 
@@ -2163,7 +2168,11 @@ export default function PurchaseContentModal({
       <div className="relative w-full max-w-none lg:max-w-6xl rounded-none lg:rounded-2xl bg-transparent lg:bg-[#492222] max-h-[100vh] overflow-y-auto lg:overflow-y-hidden shadow-none lg:shadow-2xl p-0 lg:p-6 overscroll-contain touch-pan-y modal-scrollable">
         {/* Close Button */}
             <button
-              onClick={onClose}
+              onClick={() => {
+                onClose();
+                // Prevent fund management modals from showing up temporarily
+                preventModalsTemporarily(1500);
+              }}
           className="absolute right-4 top-4 z-50 hover:opacity-80 transition-opacity text-white/60 hover:text-white"
           type="button"
             >
@@ -3755,17 +3764,19 @@ export default function PurchaseContentModal({
               
 
 
-              <ConnectButton.Custom>
-                {({ openConnectModal }) => (
-                  <button
-                    onClick={() => {
+              <button
+                onClick={() => {
+                  console.log("[AppKit] Connect button clicked from purchase modal");
+                  const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search + window.location.hash : "/";
+                  localStorage.setItem("wc_return_path", currentPath);
+                  appKit.open();
                       // Handle different button actions based on state
                       if (isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)) {
                         return; // No action during loading/generation
                       }
                       
                       if (!address) {
-                        openConnectModal(); // Open RainbowKit connect modal
+                        // AppKit will handle wallet connection
                         return;
                       }
                       
@@ -3836,8 +3847,6 @@ export default function PurchaseContentModal({
                       'Buy Tweet'
                     )}
                   </button>
-                )}
-              </ConnectButton.Custom>
                 </div>
                   </>
                 ) : showTweetManagement ? (
@@ -4257,7 +4266,7 @@ export default function PurchaseContentModal({
         </div>
       )}
 
-      {/* Wallet Connection Modal - Removed, using RainbowKit instead */}
+      {/* Wallet Connection Modal - Removed, using AppKit instead */}
     </div>
   )
 } 

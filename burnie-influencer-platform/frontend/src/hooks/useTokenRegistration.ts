@@ -1,7 +1,9 @@
 import { useEffect } from 'react';
 import { useAccount } from 'wagmi';
-import { ROAST_TOKEN_FALLBACK } from '../app/wagmi';
 import { tokenMetadataService } from '../services/tokenMetadataService';
+
+// ROAST token fallback address
+const ROAST_TOKEN_FALLBACK = '0x06fe6D0EC562e19cFC491C187F0A02cE8D5083E4' as const;
 
 /**
  * Hook to automatically register ROAST token in user's wallet
@@ -21,12 +23,18 @@ export function useTokenRegistration() {
         
         // Fetch real-time token metadata
         const tokenMetadata = await tokenMetadataService.getROASTTokenMetadata();
-        const metadata = tokenMetadata || ROAST_TOKEN_FALLBACK;
+        const metadata = tokenMetadata || {
+          address: ROAST_TOKEN_FALLBACK,
+          symbol: 'ROAST',
+          decimals: 18,
+          name: 'ROAST Token',
+          image: '/roast-token.png'
+        };
         
         console.log('📋 Token metadata source:', tokenMetadata ? 'DEX API' : 'Fallback');
         
         // Check if wallet supports token registration
-        const provider = window.ethereum;
+        const provider = window.ethereum as any;
         
         // Add ROAST token to wallet's token list with real-time data
         await provider.request({
@@ -41,7 +49,7 @@ export function useTokenRegistration() {
               // Use DEX image if available, otherwise fallback to local
               image: metadata.image && !metadata.image.startsWith('/') 
                 ? metadata.image 
-                : `${window.location.origin}${metadata.image || ROAST_TOKEN_FALLBACK.image}`,
+                : `${window.location.origin}${metadata.image || '/roast-token.png'}`,
             },
           },
         });
@@ -79,11 +87,17 @@ export async function addROASTTokenToWallet(): Promise<boolean> {
     
     // Fetch real-time token metadata
     const tokenMetadata = await tokenMetadataService.getROASTTokenMetadata();
-    const metadata = tokenMetadata || ROAST_TOKEN_FALLBACK;
+    const metadata = tokenMetadata || {
+      address: ROAST_TOKEN_FALLBACK,
+      symbol: 'ROAST',
+      decimals: 18,
+      name: 'ROAST Token',
+      image: '/roast-token.png'
+    };
     
     console.log('📋 Using metadata from:', tokenMetadata ? 'DEX API' : 'Fallback');
     
-    const provider = window.ethereum;
+    const provider = window.ethereum as any;
     
     await provider.request({
       method: 'wallet_watchAsset',
@@ -97,7 +111,7 @@ export async function addROASTTokenToWallet(): Promise<boolean> {
           // Use DEX image if available, otherwise fallback to local
           image: metadata.image && !metadata.image.startsWith('/') 
             ? metadata.image 
-            : `${window.location.origin}${metadata.image || ROAST_TOKEN_FALLBACK.image}`,
+            : `${window.location.origin}${metadata.image || '/roast-token.png'}`,
         },
       },
     });
@@ -111,8 +125,4 @@ export async function addROASTTokenToWallet(): Promise<boolean> {
 }
 
 // Extend Window interface for TypeScript (compatible with existing declarations)
-declare global {
-  interface Window {
-    ethereum?: any; // Use any to avoid conflicts with other declarations
-  }
-}
+

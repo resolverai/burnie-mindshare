@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAuth } from '@/hooks/useAuth'
+import WalletDisplay from './WalletDisplay'
 import { analyticsApi } from '@/services/api'
 import { 
   FireIcon, 
@@ -50,7 +50,7 @@ export default function PublicLanding() {
               <a href="#features" className="text-gray-600 hover:text-gray-900 transition-colors">Features</a>
               <a href="#marketplace" className="text-gray-600 hover:text-gray-900 transition-colors">Marketplace</a>
               <a href="/admin" className="text-gray-600 hover:text-gray-900 transition-colors">Admin</a>
-              <ConnectButton />
+              <WalletDisplay />
             </nav>
           </div>
         </div>
@@ -100,64 +100,7 @@ export default function PublicLanding() {
 
             {/* Call to Action */}
             <div className="text-center mb-12">
-              <ConnectButton.Custom>
-                {({ account, chain, openConnectModal, mounted }) => {
-                  const ready = mounted
-                  const connected = ready && account && chain
-
-                  if (!ready) return null
-
-                  if (!connected) {
-                    return (
-                      <button
-                        onClick={openConnectModal}
-                        className="btn-primary text-lg px-8 py-4 mr-4"
-                      >
-                        🚀 Start as Yapper
-                      </button>
-                    )
-                  }
-
-                  // Wallet connected - check authentication status
-                  if (isAuthenticated) {
-                    return (
-                      <div className="text-center">
-                        <div className="text-green-600 font-medium mb-2">✅ Authenticated</div>
-                        <div className="text-gray-600 text-sm">
-                          Redirecting to your dashboard...
-                        </div>
-                      </div>
-                    )
-                  }
-
-                  if (needsSignature) {
-                    return (
-                      <div className="text-center">
-                        <button
-                          onClick={signIn}
-                          className="btn-primary text-lg px-8 py-4 mr-4"
-                        >
-                          🔐 Sign Message to Continue
-                        </button>
-                        {error && (
-                          <div className="text-red-600 text-sm mt-2">
-                            {error}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  }
-
-                  return (
-                    <div className="text-center">
-                      <div className="text-blue-600 font-medium mb-2">🔄 Setting up authentication...</div>
-                      <div className="text-gray-600 text-sm">
-                        Please wait while we prepare your session
-                      </div>
-                    </div>
-                  )
-                }}
-              </ConnectButton.Custom>
+              <WalletDisplay />
               
               <a
                 href={process.env.NEXT_PUBLIC_MINING_INTERFACE_URL || 'http://localhost:3000'}

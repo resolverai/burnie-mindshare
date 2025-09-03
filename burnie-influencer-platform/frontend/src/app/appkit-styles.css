@@ -1,0 +1,99 @@
+/* AppKit Custom Styles */
+@import url('https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&display=swap');
+
+/* AppKit Modal Customization */
+w3m-modal {
+  --w3m-z-index: 9999;
+  --w3m-accent-color: #FD7A10;
+  --w3m-background-color: #1a1a1a;
+  --w3m-overlay-background-color: rgba(0, 0, 0, 0.8);
+  --w3m-border-radius: 16px;
+  --w3m-font-family: 'Silkscreen', monospace;
+}
+
+w3m-modal-container {
+  background-color: #1a1a1a !important;
+  border: 1px solid #4A3636 !important;
+}
+
+w3m-header {
+  background-color: #2b1a1a !important;
+  border-bottom: 1px solid #4A3636 !important;
+}
+
+w3m-button {
+  background-color: #FD7A10 !important;
+  color: white !important;
+  font-family: 'Silkscreen', monospace !important;
+}
+
+w3m-wallet-button {
+  background-color: #2b1a1a !important;
+  border: 1px solid #4A3636 !important;
+  color: white !important;
+}
+
+w3m-wallet-button:hover {
+  background-color: #3a2a2a !important;
+  border-color: #5a4646 !important;
+}
+
+/* Mobile-specific improvements */
+@media (max-width: 768px) {
+  w3m-modal {
+    --w3m-border-radius: 12px;
+  }
+  
+  w3m-modal-container {
+    margin: 16px !important;
+    max-height: calc(100vh - 32px) !important;
+  }
+}
+
+/* Dark theme overrides */
+w3m-modal[data-theme="dark"] {
+  --w3m-background-color: #1a1a1a;
+  --w3m-overlay-background-color: rgba(0, 0, 0, 0.9);
+}
+
+/* Custom animations */
+@keyframes burnie-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(253, 122, 16, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(253, 122, 16, 0.6);
+  }
+}
+
+w3m-button {
+  animation: burnie-glow 2s ease-in-out infinite;
+}
+
+/* Hide post-transaction wallet management modals */
+w3m-wallet-management-modal,
+w3m-transaction-modal,
+w3m-swap-modal,
+w3m-funding-modal,
+[data-testid*="wallet-management"],
+[data-testid*="transaction-modal"],
+[data-testid*="swap-modal"],
+[data-testid*="funding-modal"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Hide any modal that appears after transaction completion */
+.wallet-management-modal,
+.transaction-completion-modal,
+.post-transaction-modal,
+.swap-interface,
+.funding-interface {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

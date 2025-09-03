@@ -1,7 +1,10 @@
 import { parseEther, parseUnits } from 'viem'
 import { writeContract, waitForTransactionReceipt, readContract } from 'wagmi/actions'
-import { config, ROAST_TOKEN_FALLBACK } from '../app/wagmi'
+import { wagmiConfig } from '../app/reown'
 import { tokenMetadataService } from '../services/tokenMetadataService'
+
+// ROAST token fallback address
+const ROAST_TOKEN_FALLBACK = '0x06fe6D0EC562e19cFC491C187F0A02cE8D5083E4' as const
 
 // ROAST Token ABI (ERC-20 interface with metadata)
 const ROAST_TOKEN_ABI = [
@@ -113,17 +116,17 @@ export async function transferROAST(
     // Get token metadata for wallet display
     console.log('📋 Getting token metadata...');
     const [decimals, name, symbol] = await Promise.all([
-      readContract(config, {
+      readContract(wagmiConfig, {
         address: contractAddress as `0x${string}`,
         abi: ROAST_TOKEN_ABI,
         functionName: 'decimals',
       }),
-      readContract(config, {
+      readContract(wagmiConfig, {
         address: contractAddress as `0x${string}`,
         abi: ROAST_TOKEN_ABI,
         functionName: 'name',
       }),
-      readContract(config, {
+      readContract(wagmiConfig, {
         address: contractAddress as `0x${string}`,
         abi: ROAST_TOKEN_ABI,
         functionName: 'symbol',
@@ -193,7 +196,13 @@ export async function transferROAST(
     
     // Try to get real-time metadata for logging
     const realtimeMetadata = await tokenMetadataService.getROASTTokenMetadata();
-    const displayData = realtimeMetadata || ROAST_TOKEN_FALLBACK;
+    const displayData = realtimeMetadata || {
+      address: ROAST_TOKEN_FALLBACK,
+      symbol: 'ROAST',
+      decimals: 18,
+      name: 'ROAST Token',
+      image: '/roast-token.png'
+    };
     
     console.log('  📋 Token Name:', displayData.name);
     console.log('  🎯 Token Symbol:', displayData.symbol);
@@ -215,7 +224,7 @@ export async function transferROAST(
     console.log('     → Market Cap:', realtimeMetadata?.marketCap ? `$${(realtimeMetadata.marketCap / 1000000).toFixed(2)}M` : 'N/A');
     console.log('  🔗 Data Source:', realtimeMetadata ? 'DEX API' : 'Static Fallback');
     
-    const hash = await writeContract(config, {
+    const hash = await writeContract(wagmiConfig, {
       address: contractAddress as `0x${string}`,
       abi: ROAST_TOKEN_ABI,
       functionName: 'transfer',
@@ -230,7 +239,7 @@ export async function transferROAST(
 
     // Wait for transaction confirmation
     console.log('⏳ Waiting for transaction confirmation...');
-    const receipt = await waitForTransactionReceipt(config, {
+    const receipt = await waitForTransactionReceipt(wagmiConfig, {
       hash,
       confirmations: 1
     })
@@ -281,7 +290,7 @@ export async function transferUSDC(
 
     // Get USDC token decimals (usually 6 for USDC)
     console.log('📏 Getting USDC token decimals...');
-    const decimals = await readContract(config, {
+    const decimals = await readContract(wagmiConfig, {
       address: BASE_USDC_CONTRACT as `0x${string}`,
       abi: USDC_TOKEN_ABI,
       functionName: 'decimals',
@@ -301,7 +310,7 @@ export async function transferUSDC(
 
     // Execute the transfer
     console.log('🚀 Executing USDC writeContract...');
-    const hash = await writeContract(config, {
+    const hash = await writeContract(wagmiConfig, {
       address: BASE_USDC_CONTRACT as `0x${string}`,
       abi: USDC_TOKEN_ABI,
       functionName: 'transfer',
@@ -312,7 +321,7 @@ export async function transferUSDC(
 
     // Wait for transaction confirmation
     console.log('⏳ Waiting for USDC transaction confirmation...');
-    const receipt = await waitForTransactionReceipt(config, {
+    const receipt = await waitForTransactionReceipt(wagmiConfig, {
       hash,
       confirmations: 1
     })
@@ -353,7 +362,7 @@ export async function getROASTBalance(address: string): Promise<number> {
       throw new Error('ROAST token contract address not configured')
     }
 
-    const balance = await readContract(config, {
+    const balance = await readContract(wagmiConfig, {
       address: contractAddress as `0x${string}`,
       abi: ROAST_TOKEN_ABI,
       functionName: 'balanceOf',
@@ -361,7 +370,7 @@ export async function getROASTBalance(address: string): Promise<number> {
     })
 
     // Get decimals to convert balance properly
-    const decimals = await readContract(config, {
+    const decimals = await readContract(wagmiConfig, {
       address: contractAddress as `0x${string}`,
       abi: ROAST_TOKEN_ABI,
       functionName: 'decimals',
@@ -380,7 +389,7 @@ export async function getROASTBalance(address: string): Promise<number> {
  */
 export async function getUSDCBalance(address: string): Promise<number> {
   try {
-    const balance = await readContract(config, {
+    const balance = await readContract(wagmiConfig, {
       address: BASE_USDC_CONTRACT as `0x${string}`,
       abi: USDC_TOKEN_ABI,
       functionName: 'balanceOf',
@@ -388,7 +397,7 @@ export async function getUSDCBalance(address: string): Promise<number> {
     })
 
     // Get decimals to convert balance properly
-    const decimals = await readContract(config, {
+    const decimals = await readContract(wagmiConfig, {
       address: BASE_USDC_CONTRACT as `0x${string}`,
       abi: USDC_TOKEN_ABI,
       functionName: 'decimals',
@@ -443,7 +452,7 @@ export async function addROASTTokenToWallet(): Promise<boolean> {
     }
 
     if (typeof window !== 'undefined' && window.ethereum) {
-      const wasAdded = await window.ethereum.request({
+      const wasAdded = await (window.ethereum as any).request({
         method: 'wallet_watchAsset',
         params: {
           type: 'ERC20',
@@ -486,7 +495,13 @@ export async function ensureROASTTokenDisplay(): Promise<boolean> {
       const tokenMetadata = await tokenMetadataService.getROASTTokenMetadata();
       
       // Use fetched metadata or fallback to static data
-      const metadata = tokenMetadata || ROAST_TOKEN_FALLBACK;
+      const metadata = tokenMetadata || {
+      address: ROAST_TOKEN_FALLBACK,
+      symbol: 'ROAST',
+      decimals: 18,
+      name: 'ROAST Token',
+      image: '/roast-token.png'
+    };
       
       console.log('📋 Using token metadata:', {
         name: metadata.name,
@@ -507,7 +522,7 @@ export async function ensureROASTTokenDisplay(): Promise<boolean> {
           // Use DEX image if available, otherwise fallback to local
           image: metadata.image && !metadata.image.startsWith('/') 
             ? metadata.image 
-            : `${window.location.origin}${metadata.image || ROAST_TOKEN_FALLBACK.image}`,
+            : `${window.location.origin}${metadata.image || '/roast-token.png'}`,
         },
       };
 
@@ -517,7 +532,7 @@ export async function ensureROASTTokenDisplay(): Promise<boolean> {
       console.log(`     Contract: ${tokenData.options.address}`);
       console.log(`     Image: ${tokenData.options.image}`);
 
-      await window.ethereum.request({
+      await (window.ethereum as any).request({
         method: 'wallet_watchAsset',
         params: tokenData,
       });
@@ -557,7 +572,7 @@ async function forceTokenRegistration(address: string, name: string, symbol: str
     
     console.log('🔄 Forcing token registration with basic data:', basicTokenData);
     
-    await window.ethereum.request({
+    await (window.ethereum as any).request({
       method: 'wallet_watchAsset',
       params: basicTokenData,
     });
@@ -588,7 +603,7 @@ async function alternativeTokenRegistration(address: string, name: string, symbo
     
     console.log('🔄 Alternative registration with minimal data:', minimalTokenData);
     
-    await window.ethereum.request({
+    await (window.ethereum as any).request({
       method: 'wallet_watchAsset',
       params: minimalTokenData,
     });
@@ -608,11 +623,11 @@ async function checkTokenInWallet(address: string): Promise<boolean> {
     if (!window.ethereum) return false;
     
     // Try to get token balance - if wallet recognizes it, this should work
-    const balance = await window.ethereum.request({
+    const balance = await (window.ethereum as any).request({
       method: 'eth_call',
       params: [{
         to: address,
-        data: '0x70a08231' + '000000000000000000000000' + (await window.ethereum.request({method: 'eth_accounts'}))[0].slice(2)
+        data: '0x70a08231' + '000000000000000000000000' + (await (window.ethereum as any).request({method: 'eth_accounts'}))[0].slice(2)
       }, 'latest']
     });
     
@@ -630,7 +645,7 @@ async function checkTokenInWallet(address: string): Promise<boolean> {
 export async function addUSDCTokenToWallet(): Promise<boolean> {
   try {
     if (typeof window !== 'undefined' && window.ethereum) {
-      const wasAdded = await window.ethereum.request({
+      const wasAdded = await (window.ethereum as any).request({
         method: 'wallet_watchAsset',
         params: {
           type: 'ERC20',

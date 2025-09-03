@@ -6,7 +6,7 @@ import { Campaign } from '../models/Campaign';
 import { PlatformSnapshot } from '../models/PlatformSnapshot';
 import { logger } from '../config/logger';
 
-interface AuthenticatedRequest extends Request {
+type AuthenticatedRequest = Request & {
   user?: {
     id: number;
     walletAddress: string;

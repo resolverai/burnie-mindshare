@@ -4,10 +4,11 @@ import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
+import { appKit } from '@/app/reown'
 // Note: We don't import useMarketplaceAccess here to avoid redirect loops
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
+import WalletDisplay from '@/components/WalletDisplay'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import Image from 'next/image'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
@@ -154,19 +155,12 @@ export default function AccessPage() {
             </a>
           </div>
 
-          {/* ROAST Balance Badge - only show if fully authenticated */}
-          {mounted && isAuthenticated && (
-            <div className="px-3 py-1 bg-white text-black rounded-full text-lg font-bold md:flex hidden font-silkscreen">
-              🔥 {balanceLoading ? '...' : roastBalance}
-            </div>
-          )}
-
-          {/* Wallet Connection */}
-          <ConnectButton 
-            showBalance={false}
-            chainStatus="none"
-            accountStatus="avatar"
-          />
+            {/* Wallet Connection with Balance */}
+            <WalletDisplay 
+              showBalance={true}
+              balance={roastBalance}
+              balanceLoading={balanceLoading}
+            />
         </div>
       </div>
     </header>
@@ -282,7 +276,17 @@ export default function AccessPage() {
             <p className="text-white/70 mt-2 mb-6 font-nt-brick">
               Connect your wallet to access the Burnie platform
             </p>
-            <ConnectButton />
+            <button
+              onClick={() => {
+                console.log("[AppKit] Connect button clicked from access page modal");
+                const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search + window.location.hash : "/";
+                localStorage.setItem("wc_return_path", currentPath);
+                appKit.open();
+              }}
+              className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white px-6 py-3 rounded-lg font-medium transition-colors"
+            >
+              Connect Wallet
+            </button>
           </div>
         </div>
       </div>

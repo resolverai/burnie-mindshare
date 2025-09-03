@@ -48,6 +48,9 @@ import { UserReferral } from '../models/UserReferral';
 import { ReferralPayout } from '../models/ReferralPayout';
 import { Waitlist } from '../models/Waitlist';
 
+// Import content request entity
+import { ContentRequest } from '../models/ContentRequest';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -103,6 +106,8 @@ export const AppDataSource = new DataSource({
     UserReferral,
     ReferralPayout,
     Waitlist,
+    // Content request entity
+    ContentRequest,
   ],
   migrations: [],
   subscribers: [],

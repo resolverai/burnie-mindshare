@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAccount, useSignMessage, useDisconnect } from 'wagmi'
+import { useRouter } from 'next/navigation'
 
 interface AuthUser {
   address: string
@@ -20,6 +21,7 @@ export function useAuth() {
   const { address, isConnected, chainId } = useAccount()
   const { signMessageAsync } = useSignMessage()
   const { disconnect } = useDisconnect()
+  const router = useRouter()
 
   const [authState, setAuthState] = useState<AuthState>({
     isAuthenticated: false,
@@ -215,6 +217,23 @@ This signature proves you own this wallet.`
         error: null
       })
       
+      // Redirect to homepage when wallet is disconnected to fix AppKit modal issues
+      setTimeout(() => {
+        if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+          console.log('🔄 Redirecting to homepage after wallet disconnect with page reload')
+          // Force a hard reload to ensure complete state reset
+          window.location.replace('/')
+        }
+      }, 500)
+      
+      // Backup redirect in case the first one fails
+      setTimeout(() => {
+        if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+          console.log('🔄 Backup redirect to homepage after wallet disconnect')
+          window.location.href = '/'
+        }
+      }, 1000)
+      
       // Clear disconnecting flag after a delay to prevent immediate reconnection
       setTimeout(() => {
         setIsDisconnecting(false)
@@ -344,6 +363,15 @@ This signature proves you own this wallet.`
       error: null
     })
 
+    // Redirect to homepage to fix AppKit modal issues
+    setTimeout(() => {
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        console.log('🔄 Redirecting to homepage after logout with page reload')
+        // Force a hard reload to ensure complete state reset
+        window.location.replace('/')
+      }
+    }, 500)
+
     // Disconnect wallet last to trigger cleanup
     disconnect()
     
@@ -351,7 +379,7 @@ This signature proves you own this wallet.`
     setTimeout(() => {
       setIsDisconnecting(false)
     }, 500)
-  }, [disconnect])
+  }, [disconnect, router])
 
   const clearError = useCallback(() => {
     setAuthState(prev => ({ ...prev, error: null }))

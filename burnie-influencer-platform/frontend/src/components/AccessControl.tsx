@@ -1,10 +1,10 @@
 import React from 'react';
 import { useAccount } from 'wagmi';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useMarketplaceAccess } from '../hooks/useMarketplaceAccess';
 import { useRouter } from 'next/navigation';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import WalletDisplay from './WalletDisplay';
 
 interface AccessControlProps {
   children: React.ReactNode;
@@ -55,7 +55,7 @@ const AccessControl: React.FC<AccessControlProps> = ({
             </p>
           </CardHeader>
           <CardContent className="flex justify-center">
-            <ConnectButton />
+            <WalletDisplay />
           </CardContent>
         </Card>
       </div>
