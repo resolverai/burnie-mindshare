@@ -163,6 +163,7 @@ class CampaignAgentPair(BaseModel):
     campaign_context: dict
     post_type: Optional[str] = "thread"  # New field: "shitpost", "longpost", or "thread"
     include_brand_logo: Optional[bool] = False  # New field: whether to include brand logo in generated images
+    post_index: Optional[int] = 1  # New field: which post this is (1, 2, 3, etc.) for multiple posts per campaign
     source: Optional[str] = "mining_interface"  # New field: "mining_interface" or "yapper_interface"
     selected_yapper_handle: Optional[str] = None  # New field: Twitter handle of selected yapper for pattern
     price: Optional[float] = None  # New field: Price in ROAST for the content
@@ -654,6 +655,7 @@ async def run_yapper_interface_generation(
                     "execution_id": execution_id,
                     "campaign_id": campaign_pair.campaign_id,
                     "agent_id": campaign_pair.agent_id,
+                    "post_index": campaign_pair.post_index,  # Include post_index for multiple posts per campaign
                     "content_text": result.content_text,
                     "tweet_thread": result.tweet_thread,
                     "content_images": result.content_images,
@@ -923,13 +925,14 @@ async def run_multi_campaign_generation(
                 campaign_content = {
                     "campaign_id": campaign_pair.campaign_id,
                     "agent_id": campaign_pair.agent_id,
+                    "post_index": campaign_pair.post_index,  # Include post_index for multiple posts per campaign
                     "content_text": result.content_text,
                     "tweet_thread": result.tweet_thread,  # Include tweet thread in WebSocket message
                     "content_images": result.content_images,  # Include images in WebSocket message
                     "quality_score": result.quality_score,
                     "predicted_mindshare": result.predicted_mindshare,
                     "generation_metadata": result.generation_metadata,
-                    "id": f"{session_id}_campaign_{campaign_pair.campaign_id}",
+                    "id": f"{session_id}_campaign_{campaign_pair.campaign_id}_post_{campaign_pair.post_index}",
                     "status": "completed"
                 }
                 

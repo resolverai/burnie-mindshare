@@ -84,6 +84,7 @@ interface CampaignSelection {
   selectedAgent: PersonalizedAgent | null;
   postType: 'shitpost' | 'longpost' | 'thread'; // New field for post type
   includeBrandLogo: boolean; // New field for brand logo inclusion
+  numberOfPosts: number; // New field for number of posts to generate
 }
 
 interface GeneratedContent {
@@ -111,6 +112,9 @@ interface ContentReviewItem {
   agent: PersonalizedAgent;
   content: GeneratedContent | null;
   status: 'idle' | 'generating' | 'reviewing' | 'approved' | 'rejected';
+  postIndex?: number; // Track which post this is (1, 2, 3, etc.)
+  postType?: 'shitpost' | 'longpost' | 'thread';
+  includeBrandLogo?: boolean;
 }
 
 interface MiningStatus {
@@ -138,6 +142,7 @@ export default function Mining() {
   // Bulk action states
   const [bulkBrandToggle, setBulkBrandToggle] = useState<boolean>(false)
   const [bulkPostType, setBulkPostType] = useState<'shitpost' | 'longpost' | 'thread'>('thread')
+  const [bulkNumberOfPosts, setBulkNumberOfPosts] = useState<number>(1)
   
   const { address } = useAccount()
 
@@ -325,20 +330,35 @@ export default function Mining() {
       setMiningStatus({ status: 'analyzing', progress: 10, currentStep: 'Starting content generation...' })
       
       // Initialize content review items for each selected campaign
-      const initialReviewItems: ContentReviewItem[] = selectedCampaigns.map(selection => ({
-        campaign: selection.campaign,
-        agent: selection.selectedAgent!,
-        content: null,
-        status: 'generating'
-      }))
+      // Create review items for each post (not just each campaign)
+      const initialReviewItems: ContentReviewItem[] = selectedCampaigns.flatMap(selection => {
+        const items = []
+        for (let i = 0; i < selection.numberOfPosts; i++) {
+          items.push({
+            campaign: selection.campaign,
+            agent: selection.selectedAgent!,
+            content: null,
+            status: 'generating',
+            postIndex: i + 1, // Track which post this is (1, 2, 3, etc.)
+            postType: selection.postType,
+            includeBrandLogo: selection.includeBrandLogo
+          })
+        }
+        return items
+      })
       setContentReviewItems(initialReviewItems)
       
       // Prepare campaigns data for the new multi-campaign API
-      const campaignsData = selectedCampaigns.map(selection => ({
+      const campaignsData = selectedCampaigns.flatMap(selection => {
+        // Create multiple campaign entries based on numberOfPosts
+        const campaignEntries = []
+        for (let i = 0; i < selection.numberOfPosts; i++) {
+          campaignEntries.push({
             campaign_id: selection.campaign.id,
             agent_id: selection.selectedAgent?.id,
             post_type: selection.postType, // Include post type for each campaign
             include_brand_logo: selection.includeBrandLogo, // Include brand logo preference
+            post_index: i + 1, // Track which post this is (1, 2, 3, etc.)
             campaign_context: {
               title: selection.campaign.title,
               description: selection.campaign.description,
@@ -353,7 +373,10 @@ export default function Mining() {
               projectLogoUrl: selection.campaign.projectLogo, // Include project logo URL
               tokenTicker: selection.campaign.tokenTicker // Include token ticker
             }
-      }))
+          })
+        }
+        return campaignEntries
+      })
       
       // Start mining session with Python AI backend
       const response = await fetch(`${process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000'}/api/mining/start`, {
@@ -429,6 +452,7 @@ export default function Mining() {
         try {
           const data = JSON.parse(event.data)
           console.log('📨 WebSocket message received:', data)
+          console.log('📨 Message type:', data.type)
 
           switch (data.type) {
             case 'progress_update':
@@ -482,6 +506,13 @@ export default function Mining() {
 
             case 'campaign_completed':
               console.log('✅ Campaign completed:', data)
+              console.log('🔍 Campaign content details:', {
+                campaign_id: data.campaign_content?.campaign_id,
+                post_index: data.campaign_content?.post_index,
+                content_text: data.campaign_content?.content_text?.substring(0, 100) + '...',
+                has_images: !!data.campaign_content?.content_images,
+                has_thread: !!data.campaign_content?.tweet_thread
+              })
               console.log('🖼️  Campaign content images:', data.campaign_content?.content_images)
               console.log('🧵 Campaign tweet thread from WebSocket:', {
                 thread: data.campaign_content?.tweet_thread,
@@ -490,17 +521,25 @@ export default function Mining() {
                 isArray: Array.isArray(data.campaign_content?.tweet_thread)
               })
               
-              // Find the campaign index by matching campaign_id
-              const campaignIndex = selectedCampaigns.findIndex(
-                selection => selection.campaign.id === data.campaign_content?.campaign_id
-              )
-              
-              if (campaignIndex >= 0) {
-                // Add the completed content to review items
-                setContentReviewItems(prev => {
+              // Add the completed content to review items using callback to get current state
+              setContentReviewItems(prev => {
+                console.log('🔍 Current contentReviewItems state:', prev.map(item => ({
+                  campaignId: item.campaign.id,
+                  postIndex: item.postIndex,
+                  status: item.status,
+                  hasContent: !!item.content
+                })))
+                
+                // Find the content review item by matching campaign_id and post_index
+                const contentIndex = prev.findIndex(
+                  item => item.campaign.id === data.campaign_content?.campaign_id && 
+                          item.postIndex === data.campaign_content?.post_index
+                )
+                
+                if (contentIndex >= 0) {
                   const newItems = [...prev]
-                  newItems[campaignIndex] = {
-                    ...newItems[campaignIndex],
+                  newItems[contentIndex] = {
+                    ...newItems[contentIndex],
                     content: {
                       id: data.campaign_content?.id || `gen_${Date.now()}`,
                       content_text: data.campaign_content?.content_text || '',
@@ -516,9 +555,14 @@ export default function Mining() {
                     },
                     status: 'reviewing'
                   }
+                  console.log(`✅ Updated content for campaign ${data.campaign_content?.campaign_id}, post ${data.campaign_content?.post_index} at index ${contentIndex}`)
                   return newItems
-                })
-              }
+                } else {
+                  console.warn(`⚠️ Could not find content review item for campaign ${data.campaign_content?.campaign_id}, post ${data.campaign_content?.post_index}`)
+                  console.log('Available items:', prev.map(item => ({ campaignId: item.campaign.id, postIndex: item.postIndex })))
+                  return prev
+                }
+              })
               break
 
             case 'completion':
@@ -599,7 +643,7 @@ export default function Mining() {
       } else {
         // Add campaign with default agent (first available) and thread post type
         const firstAgent = userAgents && userAgents.length > 0 ? userAgents[0] : null
-        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const, includeBrandLogo: false }]
+        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const, includeBrandLogo: false, numberOfPosts: 1 }]
       }
     })
   }
@@ -634,6 +678,16 @@ export default function Mining() {
     )
   }
 
+  const updateNumberOfPosts = (campaignId: number, numberOfPosts: number) => {
+    setSelectedCampaigns(prev => 
+      prev.map(selection => 
+        selection.campaign.id === campaignId 
+          ? { ...selection, numberOfPosts }
+          : selection
+      )
+    )
+  }
+
   const isCampaignSelected = (campaignId: number) => {
     return selectedCampaigns.some(selection => selection.campaign.id === campaignId)
   }
@@ -661,7 +715,8 @@ export default function Mining() {
         campaign,
         selectedAgent: firstAgent,
         postType: 'thread' as const,
-        includeBrandLogo: false // Default to false
+        includeBrandLogo: false, // Default to false
+        numberOfPosts: 1 // Default to 1 post
       }))
       setSelectedCampaigns(newSelections)
       setIsSelectAllChecked(true)
@@ -681,15 +736,21 @@ export default function Mining() {
     if (selectedCampaigns.length === 0) {
       setBulkBrandToggle(false)
       setBulkPostType('thread')
+      setBulkNumberOfPosts(1)
     } else {
       // Update bulk states to reflect current selection state
       const allHaveBrandLogo = selectedCampaigns.every(selection => selection.includeBrandLogo)
       const firstPostType = selectedCampaigns[0]?.postType || 'thread'
       const allSamePostType = selectedCampaigns.every(selection => selection.postType === firstPostType)
+      const firstNumberOfPosts = selectedCampaigns[0]?.numberOfPosts || 1
+      const allSameNumberOfPosts = selectedCampaigns.every(selection => selection.numberOfPosts === firstNumberOfPosts)
       
       setBulkBrandToggle(allHaveBrandLogo)
       if (allSamePostType) {
         setBulkPostType(firstPostType)
+      }
+      if (allSameNumberOfPosts) {
+        setBulkNumberOfPosts(firstNumberOfPosts)
       }
     }
   }, [selectedCampaigns, filteredCampaigns])
@@ -722,6 +783,21 @@ export default function Mining() {
     setSelectedCampaigns(prev => prev.map(selection => ({
       ...selection,
       postType: newPostType
+    })));
+  };
+
+  // Bulk number of posts change functionality
+  const handleBulkNumberOfPostsChange = (newNumberOfPosts: number) => {
+    if (selectedCampaigns.length === 0) return; // No effect if no campaigns selected
+    
+    setBulkNumberOfPosts(newNumberOfPosts);
+    
+    console.log(`🔄 Bulk number of posts change: ${newNumberOfPosts} for ${selectedCampaigns.length} campaigns`);
+    
+    // Update all selected campaigns with the new number of posts
+    setSelectedCampaigns(prev => prev.map(selection => ({
+      ...selection,
+      numberOfPosts: newNumberOfPosts
     })));
   };
 
@@ -1076,6 +1152,24 @@ export default function Mining() {
                       Apply to all selected campaigns
                     </span>
                   </div>
+
+                  {/* Bulk Number of Posts Input */}
+                  <div className="flex items-center space-x-3">
+                    <label className="text-white text-sm font-medium">
+                      Posts per Campaign:
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      value={bulkNumberOfPosts}
+                      onChange={(e) => handleBulkNumberOfPostsChange(parseInt(e.target.value) || 1)}
+                      className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg px-3 py-1.5 w-16 focus:ring-orange-500 focus:border-orange-500"
+                    />
+                    <span className="text-gray-400 text-xs">
+                      Apply to all selected campaigns
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
@@ -1248,6 +1342,26 @@ export default function Mining() {
                               </div>
                             )}
                           </div>
+
+                          {/* Number of Posts Input */}
+                          <div className="mt-3">
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                              Number of Posts to Generate:
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="10"
+                              value={getSelectedCampaign(campaign.id)?.numberOfPosts || 1}
+                              onChange={(e) => {
+                                updateNumberOfPosts(campaign.id, parseInt(e.target.value) || 1)
+                              }}
+                              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            />
+                            <div className="mt-1 text-xs text-gray-400">
+                              Generate multiple posts of the same type for this campaign (1-10 posts)
+                            </div>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1319,7 +1433,7 @@ export default function Mining() {
         {selectedCampaigns.length > 0 && (
           <div className="bg-gray-800/50 rounded-lg p-6 mb-8">
             <h3 className="text-lg font-semibold text-white mb-4">
-              Selected Campaigns ({selectedCampaigns.length})
+              Selected Campaigns ({selectedCampaigns.length}) - Total Posts: {selectedCampaigns.reduce((sum, selection) => sum + selection.numberOfPosts, 0)}
             </h3>
             <div className="space-y-3">
               {selectedCampaigns.map((selection) => (
@@ -1327,7 +1441,7 @@ export default function Mining() {
                   <div>
                     <div className="font-medium text-white">{selection.campaign.title}</div>
                     <div className="text-sm text-gray-400">
-                      {selection.campaign.platform_source} • {selection.campaign.campaign_type}
+                      {selection.campaign.platform_source} • {selection.campaign.campaign_type} • {selection.numberOfPosts} post{selection.numberOfPosts > 1 ? 's' : ''}
                     </div>
                   </div>
                   <div className="text-right">
@@ -1437,9 +1551,15 @@ export default function Mining() {
                 {/* Campaign and Agent Info */}
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">{reviewItem.campaign.title}</h3>
+                    <h3 className="text-lg font-semibold text-white">
+                      {reviewItem.campaign.title}
+                      {reviewItem.postIndex && reviewItem.postIndex > 1 && (
+                        <span className="ml-2 text-sm text-orange-400">(Post #{reviewItem.postIndex})</span>
+                      )}
+                    </h3>
                     <p className="text-sm text-gray-400">
                       Agent: {reviewItem.agent.name} • Platform: {reviewItem.campaign.platform_source} • Type: {reviewItem.campaign.campaign_type}
+                      {reviewItem.postType && ` • Post Type: ${reviewItem.postType}`}
                     </p>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-sm font-medium ${

@@ -2009,6 +2009,9 @@ class CrewAIService:
                                               max_main_chars: int) -> str:
         """Generate post-type specific task description"""
         
+        # Get post_index from mining session for multiple posts per campaign
+        post_index = getattr(self.mining_session, 'post_index', 1) if hasattr(self, 'mining_session') and self.mining_session else 1
+        
         # Twitter context (if available) - PRIORITIZED FIRST
         twitter_context = ""
         if hasattr(self, 'campaign_data') and self.campaign_data and self.campaign_data.get('projectId'):
@@ -2077,6 +2080,7 @@ class CrewAIService:
         - Brand Guidelines: {brand_guidelines if brand_guidelines else 'N/A'}
         - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
         - Target Audience: {self.campaign_data.get('targetAudience', 'crypto/Web3 enthusiasts') if self.campaign_data else 'crypto/Web3 enthusiasts'}
+        - Post Index: {post_index} (This is post #{post_index} for this campaign - ensure content is unique and varied from other posts)
         """
         
         # Post-type specific instructions
