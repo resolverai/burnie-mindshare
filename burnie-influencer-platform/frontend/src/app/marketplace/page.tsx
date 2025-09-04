@@ -121,7 +121,7 @@ export default function MarketplacePage() {
                 
                 {/* Copy success tooltip */}
                 {showCopySuccess && (
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-orange-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50">
                     Copied!
                   </div>
                 )}

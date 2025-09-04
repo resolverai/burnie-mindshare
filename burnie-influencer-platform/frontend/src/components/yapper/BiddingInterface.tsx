@@ -53,22 +53,24 @@ const ReferralCodeSection = () => {
   if (!isAuthenticated || !referralCode) return null
 
   return (
-    <div className="flex justify-end -mt-2 mb-1">
-      <button
-        onClick={handleReferralCodeClick}
-        className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white/70 hover:text-white/90 rounded text-[10px] font-medium transition-all duration-200 flex items-center gap-1 backdrop-blur-sm"
-        title="Click to copy your referral link"
-      >
-        <span className="text-[8px]">🔗</span>
-        <span className="text-[10px]">Ref: {referralCode.code}</span>
-      </button>
-      
-      {/* Copy success tooltip */}
-      {showCopySuccess && (
-        <div className="absolute top-16 right-0 bg-green-600 text-white text-[8px] px-1.5 py-0.5 rounded whitespace-nowrap z-50">
-          Copied!
-        </div>
-      )}
+    <div className="flex justify-end -mt-2 mb-1 relative">
+      <div className="relative">
+        <button
+          onClick={handleReferralCodeClick}
+          className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white/70 hover:text-white/90 rounded text-[10px] font-medium transition-all duration-200 flex items-center gap-1 backdrop-blur-sm"
+          title="Click to copy your referral link"
+        >
+          <span className="text-[8px]">🔗</span>
+          <span className="text-[10px]">Ref: {referralCode.code}</span>
+        </button>
+        
+        {/* Copy success tooltip */}
+        {showCopySuccess && (
+          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-orange-500 text-white text-[8px] px-1.5 py-0.5 rounded whitespace-nowrap z-[9999] shadow-lg">
+            Copied!
+          </div>
+        )}
+      </div>
     </div>
   )
 }
