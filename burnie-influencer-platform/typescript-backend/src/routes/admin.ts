@@ -7,6 +7,7 @@ import { Campaign, CampaignStatus, CampaignType, CampaignCategory, PlatformSourc
 import { User, UserRoleType } from '../models/User';
 import { Project } from '../models/Project';
 import { ContentPurchase } from '../models/ContentPurchase';
+import { ContentMarketplace } from '../models/ContentMarketplace';
 import { logger } from '../config/logger';
 import { convertROASTToUSD } from '../services/priceService';
 import { Repository } from 'typeorm';
@@ -786,6 +787,136 @@ router.post('/seed-admin', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to create admin user',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * @route GET /api/admin/content-meter
+ * @desc Get content meter data showing campaign content availability by post type
+ */
+router.get('/content-meter', verifyAdminToken, async (req: Request, res: Response) => {
+  try {
+    if (!AppDataSource.isInitialized) {
+      return res.status(503).json({
+        success: false,
+        error: 'Database not available',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const campaignRepository = AppDataSource.getRepository(Campaign);
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+
+    // Get all campaigns
+    const campaigns = await campaignRepository.find({
+      select: ['id', 'title', 'projectName'],
+      order: { title: 'ASC' }
+    });
+
+    // Get content counts for each campaign by post type
+    const campaignContentSummaries = await Promise.all(
+      campaigns.map(async (campaign) => {
+        // Count available content by post type for this campaign
+        const [availableShitpostCount, availableThreadCount, availableLongpostCount] = await Promise.all([
+          contentRepository.count({
+            where: {
+              campaignId: campaign.id,
+              isAvailable: true,
+              isBiddable: true,
+              approvalStatus: 'approved',
+              postType: 'shitpost'
+            }
+          }),
+          contentRepository.count({
+            where: {
+              campaignId: campaign.id,
+              isAvailable: true,
+              isBiddable: true,
+              approvalStatus: 'approved',
+              postType: 'thread'
+            }
+          }),
+          contentRepository.count({
+            where: {
+              campaignId: campaign.id,
+              isAvailable: true,
+              isBiddable: true,
+              approvalStatus: 'approved',
+              postType: 'longpost'
+            }
+          })
+        ]);
+
+        // Count purchased content by post type for this campaign
+        const [purchasedShitpostCount, purchasedThreadCount, purchasedLongpostCount] = await Promise.all([
+          purchaseRepository
+            .createQueryBuilder('purchase')
+            .innerJoin('purchase.content', 'content')
+            .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+            .andWhere('content.postType = :postType', { postType: 'shitpost' })
+            .getCount(),
+          purchaseRepository
+            .createQueryBuilder('purchase')
+            .innerJoin('purchase.content', 'content')
+            .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+            .andWhere('content.postType = :postType', { postType: 'thread' })
+            .getCount(),
+          purchaseRepository
+            .createQueryBuilder('purchase')
+            .innerJoin('purchase.content', 'content')
+            .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+            .andWhere('content.postType = :postType', { postType: 'longpost' })
+            .getCount()
+        ]);
+
+        const totalAvailable = availableShitpostCount + availableThreadCount + availableLongpostCount;
+        const totalPurchased = purchasedShitpostCount + purchasedThreadCount + purchasedLongpostCount;
+
+        return {
+          campaignId: campaign.id,
+          campaignTitle: campaign.title,
+          projectName: campaign.projectName || campaign.title,
+          availableCounts: {
+            shitpost: availableShitpostCount,
+            thread: availableThreadCount,
+            longpost: availableLongpostCount
+          },
+          purchasedCounts: {
+            shitpost: purchasedShitpostCount,
+            thread: purchasedThreadCount,
+            longpost: purchasedLongpostCount
+          },
+          totalAvailable,
+          totalPurchased
+        };
+      })
+    );
+
+    // Filter out campaigns with no content (available or purchased)
+    const campaignsWithContent = campaignContentSummaries.filter(
+      campaign => campaign.totalAvailable > 0 || campaign.totalPurchased > 0
+    );
+
+    logger.info(`📊 Content meter data retrieved for ${campaignsWithContent.length} campaigns with content`);
+
+    return res.json({
+      success: true,
+      data: {
+        campaigns: campaignsWithContent,
+        totalCampaigns: campaigns.length,
+        campaignsWithContent: campaignsWithContent.length
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    logger.error('❌ Failed to fetch content meter data:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch content meter data',
       timestamp: new Date().toISOString(),
     });
   }
