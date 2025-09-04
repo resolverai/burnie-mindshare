@@ -9,7 +9,7 @@ import WalletDisplay from '@/components/WalletDisplay'
 
 import { useAuth } from '@/hooks/useAuth'
 import { useMarketplaceAccess } from '@/hooks/useMarketplaceAccess'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import MobileBottomNav from '@/components/MobileBottomNav'
 
 // Force dynamic rendering
@@ -23,8 +23,10 @@ export default function HomePage() {
   const { needsSignature, signIn, isLoading: authLoading, isAuthenticated } = useAuth()
   const { checkAccessOnly } = useMarketplaceAccess()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [isProcessingReferral, setIsProcessingReferral] = useState(false)
 
   
   // Handle SSR hydration
@@ -66,15 +68,63 @@ export default function HomePage() {
           console.log('🔄 APPROVED user on homepage, redirecting to /marketplace');
           router.push('/marketplace');
         } else {
-          console.log('🔄 NOT APPROVED user on homepage, redirecting to /access');
-          router.push('/access');
+          // Check if there's a referral parameter for direct approval
+          const referralCode = searchParams?.get('ref');
+          if (referralCode) {
+            console.log('🔗 Referral code detected in URL, attempting direct approval:', referralCode);
+            setIsProcessingReferral(true);
+            // Try to directly approve the user with the referral code
+            try {
+              const response = await fetch(
+                `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/referrals/validate`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ 
+                    code: referralCode.toUpperCase(),
+                    walletAddress: address
+                  }),
+                }
+              );
+
+              const result = await response.json();
+
+              if (result.success) {
+                console.log('✅ Direct referral approval successful, redirecting to marketplace');
+                router.push('/marketplace');
+              } else {
+                // Check if it's a security-related error (already approved user)
+                if (result.message.includes('already have platform access') || 
+                    result.message.includes('already used a referral code') ||
+                    result.message.includes('already part of the referral system')) {
+                  console.log('🚫 Already approved user with referral link - silently redirecting to marketplace');
+                  // User is already approved, silently redirect to marketplace (no error message)
+                  router.push('/marketplace');
+                } else {
+                  console.log('❌ Direct referral approval failed:', result.message);
+                  setIsProcessingReferral(false);
+                  // Other errors, redirect to access page
+                  router.push(`/access?ref=${referralCode}`);
+                }
+              }
+            } catch (error) {
+              console.error('❌ Error during direct referral approval:', error);
+              setIsProcessingReferral(false);
+              router.push(`/access?ref=${referralCode}`);
+            }
+          } else {
+            console.log('🔄 No referral code, redirecting to access page');
+            router.push('/access');
+          }
         }
       }
       // If not authenticated, stay on homepage (public browsing)
     };
 
     handleHomepageRouting();
-  }, [isAuthenticated, address, authLoading, mounted, checkAccessOnly, router])
+  }, [isAuthenticated, address, authLoading, mounted, checkAccessOnly, router, searchParams])
   
 
 
@@ -86,6 +136,21 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen yapper-background">
+      {/* Referral Processing Overlay */}
+      {isProcessingReferral && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-yapper-surface border border-yapper-border rounded-lg p-8 text-center max-w-md mx-4">
+            <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <h2 className="text-xl font-bold text-white mb-2 font-nt-brick">Processing Referral</h2>
+            <p className="text-white/70 font-nt-brick">Validating your referral code and granting access...</p>
+            {searchParams?.get('ref') && (
+              <p className="text-orange-400 text-sm font-mono mt-2">
+                Code: {searchParams.get('ref')}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
       {/* Public Header - Simplified version without auth requirements */}
       <header className="z-20 w-full sticky top-0 bg-yapper-surface/95 backdrop-blur border-b border-yapper">
         <div className="relative flex items-center justify-between px-6 h-16 max-w-none mx-auto">

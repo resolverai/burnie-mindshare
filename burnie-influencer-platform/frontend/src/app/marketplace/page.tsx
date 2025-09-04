@@ -18,7 +18,7 @@ export default function MarketplacePage() {
   const { address, isConnected } = useAccount()
   const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
   const { needsSignature, signIn, isLoading: authLoading, isAuthenticated } = useAuth()
-  const { referralCode, copyToClipboard } = useUserReferralCode()
+  const { referralCode, copyReferralLink } = useUserReferralCode()
   
   // Protect this route - redirect to homepage if not authenticated
   useAuthGuard({ 
@@ -38,7 +38,7 @@ export default function MarketplacePage() {
 
   const handleReferralCodeClick = async () => {
     if (referralCode?.code) {
-      const success = await copyToClipboard(referralCode.code)
+      const success = await copyReferralLink(referralCode.code)
       if (success) {
         setShowCopySuccess(true)
         setTimeout(() => setShowCopySuccess(false), 2000)
@@ -112,7 +112,7 @@ export default function MarketplacePage() {
                 <button
                   onClick={handleReferralCodeClick}
                   className="px-3 py-1 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-full text-sm font-bold transition-all duration-200 transform hover:scale-105 xl:flex hidden items-center gap-2"
-                  title="Click to copy your referral code"
+                  title="Click to copy your referral link"
                 >
                   <span>🔗</span>
                   <span>My Referral:</span>

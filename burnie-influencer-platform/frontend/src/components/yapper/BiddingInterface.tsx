@@ -36,13 +36,13 @@ import { ContentRequestService } from '../../services/contentRequestService'
 
 // Referral Code Section Component
 const ReferralCodeSection = () => {
-  const { referralCode, copyToClipboard } = useUserReferralCode()
+  const { referralCode, copyReferralLink } = useUserReferralCode()
   const { isAuthenticated } = useAuth()
   const [showCopySuccess, setShowCopySuccess] = useState(false)
 
   const handleReferralCodeClick = async () => {
     if (referralCode?.code) {
-      const success = await copyToClipboard(referralCode.code)
+      const success = await copyReferralLink(referralCode.code)
       if (success) {
         setShowCopySuccess(true)
         setTimeout(() => setShowCopySuccess(false), 2000)
@@ -57,7 +57,7 @@ const ReferralCodeSection = () => {
       <button
         onClick={handleReferralCodeClick}
         className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white/70 hover:text-white/90 rounded text-[10px] font-medium transition-all duration-200 flex items-center gap-1 backdrop-blur-sm"
-        title="Click to copy your referral code"
+        title="Click to copy your referral link"
       >
         <span className="text-[8px]">🔗</span>
         <span className="text-[10px]">Ref: {referralCode.code}</span>

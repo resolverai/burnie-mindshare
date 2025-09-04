@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { appKit } from '@/app/reown'
 // Note: We don't import useMarketplaceAccess here to avoid redirect loops
@@ -24,6 +24,7 @@ export default function AccessPage() {
     isLoading: true
   })
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [mounted, setMounted] = useState(false)
 
   const [activeForm, setActiveForm] = useState<'referral' | 'waitlist' | null>(null)
@@ -39,6 +40,17 @@ export default function AccessPage() {
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Auto-populate referral code from URL parameter
+  useEffect(() => {
+    const referralCodeFromUrl = searchParams?.get('ref');
+    if (referralCodeFromUrl) {
+      console.log('🔗 Referral code detected in URL, auto-populating:', referralCodeFromUrl);
+      setReferralCode(referralCodeFromUrl.toUpperCase());
+      // Auto-trigger the referral form if we have a code
+      setActiveForm('referral');
+    }
+  }, [searchParams])
 
   // Function to check access status directly
   const checkAccessStatus = async () => {

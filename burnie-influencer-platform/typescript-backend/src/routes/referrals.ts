@@ -214,6 +214,7 @@ router.post('/validate', async (req: Request, res: Response): Promise<void> => {
     });
 
     if (!user) {
+      // Create new user - this is fine
       user = userRepository.create({
         walletAddress: walletAddress.toLowerCase(),
         accessStatus: UserAccessStatus.APPROVED,
@@ -223,7 +224,41 @@ router.post('/validate', async (req: Request, res: Response): Promise<void> => {
       await userRepository.save(user);
       logger.info(`👤 Created new user via referral: ${walletAddress}`);
     } else {
-      // Update existing user
+      // SECURITY CHECK: Prevent misuse by already approved users
+      if (user.accessStatus === UserAccessStatus.APPROVED) {
+        logger.warn(`🚫 APPROVED user ${walletAddress} attempted to use referral code ${code} - blocked`);
+        res.status(400).json({
+          success: false,
+          message: 'You already have platform access. Referral codes can only be used by new users.'
+        });
+        return;
+      }
+
+      // SECURITY CHECK: Prevent users who already have a referral code
+      if (user.referralCode) {
+        logger.warn(`🚫 User ${walletAddress} already has referral code ${user.referralCode} - attempted to use ${code} - blocked`);
+        res.status(400).json({
+          success: false,
+          message: 'You have already used a referral code. Each user can only use one referral code.'
+        });
+        return;
+      }
+
+      // SECURITY CHECK: Prevent users who are already in the referral system
+      const existingReferral = await userReferralRepository.findOne({
+        where: { userId: user.id }
+      });
+
+      if (existingReferral) {
+        logger.warn(`🚫 User ${walletAddress} already has referral record - attempted to use ${code} - blocked`);
+        res.status(400).json({
+          success: false,
+          message: 'You are already part of the referral system. Each user can only be referred once.'
+        });
+        return;
+      }
+
+      // Only update if user is pending access and doesn't have referral code
       user.accessStatus = UserAccessStatus.APPROVED;
       user.referralCode = code;
       await userRepository.save(user);

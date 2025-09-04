@@ -53,6 +53,22 @@ export const useUserReferralCode = () => {
     }
   };
 
+  const generateReferralLink = (code: string) => {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${baseUrl}/?ref=${code}`;
+  };
+
+  const copyReferralLink = async (code: string) => {
+    try {
+      const referralLink = generateReferralLink(code);
+      await navigator.clipboard.writeText(referralLink);
+      return true;
+    } catch (err) {
+      console.error('Failed to copy referral link to clipboard:', err);
+      return false;
+    }
+  };
+
   useEffect(() => {
     fetchReferralCode();
   }, [address, isConnected]);
@@ -62,6 +78,8 @@ export const useUserReferralCode = () => {
     isLoading,
     error,
     fetchReferralCode,
-    copyToClipboard
+    copyToClipboard,
+    generateReferralLink,
+    copyReferralLink
   };
 };
