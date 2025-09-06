@@ -674,6 +674,31 @@ export default function PurchaseContentModal({
   const [isPurchased, setIsPurchased] = useState<boolean>(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showCopyProtection, setShowCopyProtection] = useState(false)
+  const [balanceError, setBalanceError] = useState<{
+    show: boolean;
+    message: string;
+    tokenType: string;
+    currentBalance: number;
+    requiredAmount: number;
+  } | null>(null)
+
+  // Clear balance error
+  const clearBalanceError = () => {
+    setBalanceError(null)
+  }
+
+  // Clear balance error when payment method changes
+  useEffect(() => {
+    clearBalanceError()
+  }, [selectedPayment])
+
+  // Clear balance error when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      clearBalanceError()
+    }
+  }, [isOpen])
+
   const [allYappers, setAllYappers] = useState<Array<{
     id: number;
     twitter_handle: string;
@@ -1658,13 +1683,7 @@ export default function PurchaseContentModal({
       return
     }
 
-    // Check content availability before proceeding with purchase
-    const isAvailable = await checkContentAvailability();
-    if (!isAvailable) {
-      return;
-    }
-
-    // Handle different authentication states
+    // Handle different authentication states first
     if (!address) {
       console.log('🔗 No wallet connected - should open AppKit modal')
       return
@@ -1693,6 +1712,80 @@ export default function PurchaseContentModal({
       return
     }
 
+    // Calculate required amount and check balance BEFORE locking content
+    const currentContent = getCurrentContent()
+    if (!currentContent) {
+      console.error('No content available for purchase')
+      return
+    }
+    
+    const requiredAmount = getDisplayPrice(currentContent)
+    
+    // Calculate USDC equivalent
+    const usdcPrice = roastPrice ? (getDisplayPrice(currentContent) * roastPrice) : 0
+    const usdcFee = 0.03
+    const totalUSDC = usdcPrice + usdcFee
+
+    // Check balance first (before locking content)
+    try {
+      console.log(`🔍 Checking ${selectedPayment === 'roast' ? 'ROAST' : 'USDC'} balance via backend...`)
+      
+      const balanceResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/check-balance`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          walletAddress: address,
+          tokenType: selectedPayment === 'roast' ? 'roast' : 'usdc',
+          requiredAmount: selectedPayment === 'roast' ? requiredAmount : totalUSDC
+        }),
+      })
+
+      if (!balanceResponse.ok) {
+        throw new Error('Failed to check balance')
+      }
+
+      const balanceData = await balanceResponse.json()
+      
+      if (!balanceData.success) {
+        throw new Error(balanceData.error || 'Balance check failed')
+      }
+
+      // If insufficient balance, show error in modal and return (don't lock content)
+      if (!balanceData.data.hasBalance) {
+        const tokenType = selectedPayment === 'roast' ? 'ROAST' : 'USDC'
+        const required = selectedPayment === 'roast' ? Math.round(getDisplayPrice(getCurrentContent())) : totalUSDC
+        setBalanceError({
+          show: true,
+          message: `Insufficient ${tokenType} balance`,
+          tokenType: tokenType,
+          currentBalance: balanceData.data.balance,
+          requiredAmount: required
+        })
+        return
+      }
+
+      console.log(`✅ Balance check passed: ${balanceData.data.balance} ${balanceData.data.tokenType} available`)
+    } catch (error) {
+      console.error('❌ Balance check failed:', error)
+      setBalanceError({
+        show: true,
+        message: 'Failed to check wallet balance',
+        tokenType: selectedPayment === 'roast' ? 'ROAST' : 'USDC',
+        currentBalance: 0,
+        requiredAmount: selectedPayment === 'roast' ? Math.round(getDisplayPrice(getCurrentContent())) : totalUSDC
+      })
+      return
+    }
+
+    // Only now check content availability and lock it (after confirming sufficient balance)
+    const isAvailable = await checkContentAvailability()
+    if (!isAvailable) {
+      return
+    }
+
+    // Now start the actual purchase process
     setIsLoading(true)
     try {
       let success = false
@@ -1704,54 +1797,6 @@ export default function PurchaseContentModal({
         console.error('Treasury wallet address not configured')
         return
       }
-
-      // Calculate required amount
-      const currentContent = getCurrentContent()
-      if (!currentContent) {
-        throw new Error('No content available for purchase');
-      }
-      
-      const requiredAmount = getDisplayPrice(currentContent);
-      
-      // Calculate USDC equivalent
-              const usdcPrice = roastPrice ? (getDisplayPrice(currentContent) * roastPrice) : 0;
-      
-      // Add 0.03 USDC fee
-      const usdcFee = 0.03;
-      const totalUSDC = usdcPrice + usdcFee;
-
-      console.log(`🔍 Checking ${'ROAST'.toUpperCase()} balance via backend...`);
-      
-      // Backend balance check
-      const balanceResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/check-balance`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          walletAddress: address,
-          tokenType: 'roast',
-          requiredAmount: requiredAmount
-        }),
-      });
-
-      if (!balanceResponse.ok) {
-        throw new Error('Failed to check balance');
-      }
-
-      const balanceData = await balanceResponse.json();
-      
-      if (!balanceData.success) {
-        throw new Error(balanceData.error || 'Balance check failed');
-      }
-
-      // If insufficient balance, show error in modal (no wallet confirmation needed)
-      if (!balanceData.data.hasBalance) {
-        console.error(`Insufficient ${balanceData.data.tokenType} balance. You have ${balanceData.data.balance.toFixed(4)} ${balanceData.data.tokenType}, but need ${balanceData.data.requiredAmount} ${balanceData.data.tokenType}.`)
-        return;
-      }
-
-      console.log(`✅ Balance check passed: ${balanceData.data.balance} ${balanceData.data.tokenType} available`);
 
       // Execute payment directly without token registration
 
@@ -2594,6 +2639,30 @@ export default function PurchaseContentModal({
 
                   {/* Payment Options - Mobile/Tablet */}
                   <div className="mb-4">
+                    {/* Balance Error Message - Mobile */}
+                    {balanceError && balanceError.show && (
+                      <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-4">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <svg className="w-4 h-4 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-red-400 font-semibold text-sm">⚠️ Insufficient Balance</span>
+                          <button
+                            onClick={clearBalanceError}
+                            className="ml-auto text-red-400 hover:text-red-300 transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                        <p className="text-red-300 text-xs leading-relaxed">
+                          {balanceError.message}. You have <span className="font-semibold">{balanceError.tokenType === 'ROAST' ? Math.round(balanceError.currentBalance) : `$${balanceError.currentBalance.toFixed(2)}`}</span>, 
+                          but need <span className="font-semibold">{balanceError.tokenType === 'ROAST' ? balanceError.requiredAmount : `$${balanceError.requiredAmount}`}</span>.
+                        </p>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-2">
                       <div
                         onClick={() => setSelectedPayment("roast")}
@@ -3706,6 +3775,30 @@ export default function PurchaseContentModal({
 
                 {/* Payment Options */}
                 <div className="flex flex-col gap-4">
+                  {/* Balance Error Message - Desktop */}
+                  {balanceError && balanceError.show && (
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <svg className="w-4 h-4 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                        <span className="text-red-400 font-semibold text-sm">⚠️ Insufficient Balance</span>
+                        <button
+                          onClick={clearBalanceError}
+                          className="ml-auto text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      <p className="text-red-300 text-xs leading-relaxed">
+                        {balanceError.message}. You have <span className="font-semibold">{balanceError.tokenType === 'ROAST' ? Math.round(balanceError.currentBalance) : `$${balanceError.currentBalance.toFixed(2)}`}</span>, 
+                        but need <span className="font-semibold">{balanceError.tokenType === 'ROAST' ? balanceError.requiredAmount : `$${balanceError.requiredAmount}`}</span>.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div
                       onClick={() => setSelectedPayment("roast")}
