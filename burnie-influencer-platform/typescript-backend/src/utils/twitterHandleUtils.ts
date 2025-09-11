@@ -49,9 +49,18 @@ export function processTwitterHandle(handle: string): {
   const sanitized = sanitizeTwitterHandle(handle);
   const validation = validateTwitterHandle(sanitized);
   
-  return {
+  const result: {
+    sanitized: string;
+    isValid: boolean;
+    error?: string;
+  } = {
     sanitized,
-    isValid: validation.isValid,
-    error: validation.error
+    isValid: validation.isValid
   };
+  
+  if (validation.error) {
+    result.error = validation.error;
+  }
+  
+  return result;
 }
