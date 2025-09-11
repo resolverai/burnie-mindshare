@@ -49,7 +49,7 @@ export class User {
   email?: string;
 
   // Twitter Integration
-  @Column({ type: 'varchar', length: 50, nullable: true, unique: true })
+  @Column({ type: 'varchar', length: 50, nullable: true })
   twitterHandle?: string;
 
   @Column({ type: 'varchar', length: 50, nullable: true })

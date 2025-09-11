@@ -36,8 +36,7 @@ export class Waitlist {
   @Column({ 
     type: 'varchar', 
     length: 255, 
-    nullable: true,
-    unique: true
+    nullable: true
   })
   twitterHandle?: string;
 
