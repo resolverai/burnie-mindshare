@@ -3,6 +3,7 @@ import { AppDataSource } from '../config/database';
 import { logger } from '../config/logger';
 import { Waitlist, WaitlistStatus } from '../models/Waitlist';
 import { User, UserAccessStatus } from '../models/User';
+import { processTwitterHandle } from '../utils/twitterHandleUtils';
 
 const router = Router();
 
@@ -29,6 +30,17 @@ router.post('/join', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Process and validate Twitter handle
+    const { sanitized: cleanHandle, isValid, error } = processTwitterHandle(twitterHandle);
+    
+    if (!isValid) {
+      res.status(400).json({
+        success: false,
+        message: error || 'Invalid Twitter handle'
+      });
+      return;
+    }
+
     const waitlistRepository = AppDataSource.getRepository(Waitlist);
     const userRepository = AppDataSource.getRepository(User);
 
@@ -44,6 +56,52 @@ router.post('/join', async (req: Request, res: Response): Promise<void> => {
         data: {
           status: existingWaitlist.status,
           position: await getWaitlistPosition(existingWaitlist.id)
+        }
+      });
+      return;
+    }
+
+    // Check if Twitter handle is already in use in waitlist table
+    const existingTwitterHandleInWaitlist = await waitlistRepository.findOne({
+      where: { twitterHandle: cleanHandle }
+    });
+
+    if (existingTwitterHandleInWaitlist) {
+      res.status(400).json({
+        success: false,
+        message: `Twitter handle @${cleanHandle} is already in use by another waitlist entry`,
+        data: {
+          conflictingEntry: {
+            id: existingTwitterHandleInWaitlist.id,
+            walletAddress: existingTwitterHandleInWaitlist.walletAddress,
+            status: existingTwitterHandleInWaitlist.status
+          }
+        }
+      });
+      return;
+    }
+
+    // Check if Twitter handle is already in use by an existing user
+    // Check both with and without @ symbol to handle legacy data
+    const existingUserWithTwitterHandle = await userRepository.findOne({
+      where: [
+        { twitterHandle: cleanHandle },
+        { twitterHandle: `@${cleanHandle}` }
+      ]
+    });
+
+    if (existingUserWithTwitterHandle) {
+      res.status(400).json({
+        success: false,
+        message: `Twitter handle @${cleanHandle} is already in use by an existing user`,
+        data: {
+          conflictingUser: {
+            id: existingUserWithTwitterHandle.id,
+            walletAddress: existingUserWithTwitterHandle.walletAddress,
+            username: existingUserWithTwitterHandle.username,
+            accessStatus: existingUserWithTwitterHandle.accessStatus,
+            currentTwitterHandle: existingUserWithTwitterHandle.twitterHandle
+          }
         }
       });
       return;
@@ -68,7 +126,7 @@ router.post('/join', async (req: Request, res: Response): Promise<void> => {
       email,
       username,
       reason,
-      twitterHandle,
+      twitterHandle: cleanHandle, // Use cleaned handle
       discordHandle
     });
 
@@ -243,6 +301,43 @@ router.put('/admin/approve/:id', async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    // Check if Twitter handle is already in use by another approved user
+    if (waitlistEntry.twitterHandle) {
+      const existingUserWithTwitterHandle = await userRepository.findOne({
+        where: [
+          { 
+            twitterHandle: waitlistEntry.twitterHandle,
+            accessStatus: UserAccessStatus.APPROVED
+          },
+          { 
+            twitterHandle: `@${waitlistEntry.twitterHandle}`,
+            accessStatus: UserAccessStatus.APPROVED
+          }
+        ]
+      });
+
+      if (existingUserWithTwitterHandle) {
+        res.status(400).json({
+          success: false,
+          message: `Cannot approve: Twitter handle @${waitlistEntry.twitterHandle} is already in use by another approved user`,
+          data: {
+            conflictingUser: {
+              id: existingUserWithTwitterHandle.id,
+              walletAddress: existingUserWithTwitterHandle.walletAddress,
+              username: existingUserWithTwitterHandle.username,
+              currentTwitterHandle: existingUserWithTwitterHandle.twitterHandle
+            },
+            waitlistEntry: {
+              id: waitlistEntry.id,
+              walletAddress: waitlistEntry.walletAddress,
+              twitterHandle: waitlistEntry.twitterHandle
+            }
+          }
+        });
+        return;
+      }
+    }
+
     // Update waitlist entry
     waitlistEntry.status = WaitlistStatus.APPROVED;
     waitlistEntry.approvedByUserId = adminUserId;
@@ -258,6 +353,10 @@ router.put('/admin/approve/:id', async (req: Request, res: Response): Promise<vo
 
     if (user) {
       user.accessStatus = UserAccessStatus.APPROVED;
+      // Copy Twitter handle from waitlist entry to user record
+      if (waitlistEntry.twitterHandle) {
+        user.twitterHandle = waitlistEntry.twitterHandle;
+      }
       await userRepository.save(user);
     }
 

@@ -111,7 +111,13 @@ const WaitlistManagement: React.FC = () => {
         setSelectedEntry(null);
         await fetchWaitlistEntries();
       } else {
-        alert(result.message || `Failed to ${actionType} entry`);
+        // Show detailed error message for Twitter handle conflicts
+        if (result.data && result.data.conflictingUser) {
+          const errorMsg = `${result.message}\n\nConflicting User:\n- ID: ${result.data.conflictingUser.id}\n- Wallet: ${result.data.conflictingUser.walletAddress}\n- Username: ${result.data.conflictingUser.username || 'N/A'}\n- Current Twitter Handle: ${result.data.conflictingUser.currentTwitterHandle || 'N/A'}\n\nWaitlist Entry:\n- ID: ${result.data.waitlistEntry.id}\n- Wallet: ${result.data.waitlistEntry.walletAddress}\n- Twitter: @${result.data.waitlistEntry.twitterHandle}`;
+          alert(errorMsg);
+        } else {
+          alert(result.message || `Failed to ${actionType} entry`);
+        }
       }
     } catch (error) {
       console.error(`Error ${actionType}ing entry:`, error);
@@ -337,12 +343,12 @@ const WaitlistManagement: React.FC = () => {
                       </div>
                     )}
                     
-                    {entry.twitterHandle && (
-                      <div>
-                        <div className="text-sm text-gray-500">Twitter</div>
-                        <div className="text-sm">@{entry.twitterHandle}</div>
+                    <div>
+                      <div className="text-sm text-gray-500">Twitter</div>
+                      <div className="text-sm">
+                        {entry.twitterHandle ? `@${entry.twitterHandle}` : 'Not provided'}
                       </div>
-                    )}
+                    </div>
                     
                     {entry.discordHandle && (
                       <div>

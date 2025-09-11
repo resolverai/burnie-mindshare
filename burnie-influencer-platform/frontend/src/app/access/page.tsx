@@ -12,6 +12,8 @@ import WalletDisplay from '@/components/WalletDisplay'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import Image from 'next/image'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
+import TwitterHandleModal from '@/components/TwitterHandleModal'
+import ClientOnly from '@/components/ClientOnly'
 
 export default function AccessPage() {
   const { address, isConnected } = useAccount()
@@ -34,7 +36,9 @@ export default function AccessPage() {
   // Referral form state
   const [referralCode, setReferralCode] = useState('')
 
-  // Removed waitlist form state - now using one-click join
+  // Twitter handle modal state
+  const [showTwitterModal, setShowTwitterModal] = useState(false)
+  const [isJoiningWaitlist, setIsJoiningWaitlist] = useState(false)
 
   // Handle SSR hydration
   useEffect(() => {
@@ -168,11 +172,13 @@ export default function AccessPage() {
           </div>
 
             {/* Wallet Connection with Balance */}
-            <WalletDisplay 
-              showBalance={true}
-              balance={roastBalance}
-              balanceLoading={balanceLoading}
-            />
+            <ClientOnly>
+              <WalletDisplay 
+                showBalance={true}
+                balance={roastBalance}
+                balanceLoading={balanceLoading}
+              />
+            </ClientOnly>
         </div>
       </div>
     </header>
@@ -218,14 +224,19 @@ export default function AccessPage() {
     }
   }
 
-  const handleWaitlistJoin = async () => {
+  const handleWaitlistJoin = () => {
     // Prevent joining if already on waitlist
     if (accessStatus.status === 'PENDING_WAITLIST') {
       setSubmitMessage('❌ You are already on the waitlist')
       return
     }
 
-    setIsSubmitting(true)
+    // Show Twitter handle modal
+    setShowTwitterModal(true)
+  }
+
+  const handleTwitterSubmit = async (twitterHandle: string) => {
+    setIsJoiningWaitlist(true)
     setSubmitMessage('')
 
     try {
@@ -238,6 +249,7 @@ export default function AccessPage() {
           },
           body: JSON.stringify({
             walletAddress: address,
+            twitterHandle: twitterHandle,
           }),
         }
       )
@@ -246,18 +258,26 @@ export default function AccessPage() {
 
       if (result.success) {
         setSubmitMessage('✅ You have been added to the waitlist! You\'ll be able to access the platform once approved by admin.')
+        setShowTwitterModal(false)
         // Refresh access status after a delay
         setTimeout(() => {
           checkAccessStatus()
         }, 2000)
       } else {
-        setSubmitMessage(`❌ ${result.message || 'Failed to join waitlist'}`)
+        // Show specific error message for Twitter handle conflicts
+        if (result.message && result.message.includes('already in use')) {
+          setSubmitMessage(`❌ ${result.message}`)
+        } else {
+          setSubmitMessage(`❌ ${result.message || 'Failed to join waitlist'}`)
+        }
+        setShowTwitterModal(false)
       }
     } catch (error) {
       console.error('Error joining waitlist:', error)
       setSubmitMessage('❌ Error joining waitlist. Please try again.')
+      setShowTwitterModal(false)
     } finally {
-      setIsSubmitting(false)
+      setIsJoiningWaitlist(false)
     }
   }
 
@@ -450,6 +470,16 @@ export default function AccessPage() {
           )}
         </div>
       </div>
+
+      {/* Twitter Handle Modal */}
+      <ClientOnly>
+        <TwitterHandleModal
+          isOpen={showTwitterModal}
+          onClose={() => setShowTwitterModal(false)}
+          onSubmit={handleTwitterSubmit}
+          loading={isJoiningWaitlist}
+        />
+      </ClientOnly>
     </div>
   )
 }

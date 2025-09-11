@@ -356,7 +356,7 @@ const WaitlistSignup: React.FC = () => {
                 <input
                   type="text"
                   value={form.twitterHandle}
-                  onChange={(e) => handleInputChange('twitterHandle', e.target.value.replace('@', ''))}
+                  onChange={(e) => handleInputChange('twitterHandle', e.target.value.replace(/@/g, ''))}
                   className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="username"
                 />

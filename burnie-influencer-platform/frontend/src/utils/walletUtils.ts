@@ -1,5 +1,5 @@
 import { parseEther, parseUnits } from 'viem'
-import { writeContract, waitForTransactionReceipt, readContract } from 'wagmi/actions'
+import { writeContract, waitForTransactionReceipt, readContract, getChainId } from 'wagmi/actions'
 import { wagmiConfig } from '../app/reown'
 import { tokenMetadataService } from '../services/tokenMetadataService'
 
@@ -88,12 +88,19 @@ export async function transferROAST(
   recipientAddress: string
 ): Promise<TransferResult> {
   try {
+    // Validate that we're on Base network (Chain ID: 8453)
+    const currentChainId = await getChainId(wagmiConfig);
+    if (currentChainId !== 8453) {
+      throw new Error(`Transaction must be executed on Base network (Chain ID: 8453). Current chain: ${currentChainId}. Please switch to Base network in your wallet.`);
+    }
+
     const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN
 
     console.log('🔧 Transfer ROAST Debug Info:');
     console.log('📍 Contract Address:', contractAddress);
     console.log('📍 Recipient Address:', recipientAddress);
     console.log('💰 Amount:', amount);
+    console.log('🌐 Chain ID:', currentChainId);
 
     if (!contractAddress) {
       throw new Error('ROAST token contract address not configured')
@@ -277,10 +284,17 @@ export async function transferUSDC(
   recipientAddress: string
 ): Promise<TransferResult> {
   try {
+    // Validate that we're on Base network (Chain ID: 8453)
+    const currentChainId = await getChainId(wagmiConfig);
+    if (currentChainId !== 8453) {
+      throw new Error(`Transaction must be executed on Base network (Chain ID: 8453). Current chain: ${currentChainId}. Please switch to Base network in your wallet.`);
+    }
+
     console.log('🔧 Transfer USDC Debug Info:');
     console.log('📍 Contract Address:', BASE_USDC_CONTRACT);
     console.log('📍 Recipient Address:', recipientAddress);
     console.log('💰 Amount:', amount);
+    console.log('🌐 Chain ID:', currentChainId);
 
     if (!recipientAddress) {
       throw new Error('Recipient address is required')

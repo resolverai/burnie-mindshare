@@ -33,7 +33,12 @@ export class Waitlist {
   @Column({ type: 'text', nullable: true })
   reason?: string; // Why they want to join
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ 
+    type: 'varchar', 
+    length: 255, 
+    nullable: true,
+    unique: true
+  })
   twitterHandle?: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })

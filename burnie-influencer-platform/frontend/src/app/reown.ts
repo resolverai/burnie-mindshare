@@ -17,7 +17,8 @@ if (projectId.length !== 32) {
   throw new Error("Invalid WalletConnect Project ID format");
 }
 
-const networks: AppKitNetwork[] = [base, mainnet];
+// Force Base network only - remove Ethereum Mainnet to prevent gas fee issues
+const networks: AppKitNetwork[] = [base];
 
 console.log("[AppKit] Networks configured:", networks.map(n => n.name));
 console.log("[AppKit] Environment:", process.env.NODE_ENV);

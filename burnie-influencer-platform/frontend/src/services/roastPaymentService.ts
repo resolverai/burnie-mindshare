@@ -3,7 +3,7 @@
  * Based on working implementation - handles ROAST token payments with proper wallet display
  */
 
-import { writeContract, waitForTransactionReceipt } from 'wagmi/actions';
+import { writeContract, waitForTransactionReceipt, getChainId } from 'wagmi/actions';
 import { parseEther } from 'viem';
 import { wagmiConfig } from '../app/reown';
 // Scroll restoration removed - using page reload instead
@@ -34,15 +34,22 @@ export async function executeROASTPayment(
   recipientAddress: string
 ): Promise<string> {
   try {
+    // Validate that we're on Base network (Chain ID: 8453)
+    const currentChainId = await getChainId(wagmiConfig);
+    if (currentChainId !== 8453) {
+      throw new Error(`Transaction must be executed on Base network (Chain ID: 8453). Current chain: ${currentChainId}. Please switch to Base network in your wallet.`);
+    }
+
     // Convert amount to wei using parseEther (working implementation approach)
     const amountInWei = parseEther(amount.toString());
 
-    console.log('💰 Executing ROAST payment:', {
+    console.log('💰 Executing ROAST payment on Base network:', {
       amount: amount,
       amountDisplay: `${amount} ROAST`,
       to: recipientAddress,
       contract: ROAST_CONTRACT_ADDRESS,
-      amountInWei: amountInWei.toString()
+      amountInWei: amountInWei.toString(),
+      chainId: currentChainId
     });
 
     // Send transaction using the exact pattern from working implementation

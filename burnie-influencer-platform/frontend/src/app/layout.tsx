@@ -4,6 +4,8 @@ import './globals.css'
 import './appkit-styles.css'
 import { Providers } from './providers'
 import AppKitModalPrevention from '../components/AppKitModalPrevention'
+import ChainValidationBanner from '../components/ChainValidationBanner'
+import ClientOnly from '../components/ClientOnly'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -22,6 +24,9 @@ export default function RootLayout({
       <body className={`${inter.className} yapper-background`}>
         <Providers>
           <AppKitModalPrevention />
+          <ClientOnly>
+            <ChainValidationBanner />
+          </ClientOnly>
           {children}
         </Providers>
       </body>
