@@ -3,7 +3,6 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import './appkit-styles.css'
 import { Providers } from './providers'
-import AppKitModalPrevention from '../components/AppKitModalPrevention'
 import ChainValidationBanner from '../components/ChainValidationBanner'
 import ClientOnly from '../components/ClientOnly'
 
@@ -23,7 +22,6 @@ export default function RootLayout({
     <html lang="en" className="light">
       <body className={`${inter.className} yapper-background`}>
         <Providers>
-          <AppKitModalPrevention />
           <ClientOnly>
             <ChainValidationBanner />
           </ClientOnly>

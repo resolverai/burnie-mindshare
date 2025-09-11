@@ -6,10 +6,12 @@
 import { writeContract, waitForTransactionReceipt, getChainId } from 'wagmi/actions';
 import { parseEther } from 'viem';
 import { wagmiConfig } from '../app/reown';
+import { disableModalsTemporarily } from '../utils/modalManager';
 // Scroll restoration removed - using page reload instead
 
 // ROAST token contract address on Base
 const ROAST_CONTRACT_ADDRESS = '0x06fe6D0EC562e19cFC491C187F0A02cE8D5083E4' as const;
+
 
 // ERC-20 ABI for transfer function (exact format from working implementation)
 const ERC20_ABI = [
@@ -33,6 +35,9 @@ export async function executeROASTPayment(
   amount: number, 
   recipientAddress: string
 ): Promise<string> {
+  // Temporarily disable modals during transaction execution
+  const restoreModals = disableModalsTemporarily();
+  
   try {
     // Validate that we're on Base network (Chain ID: 8453)
     const currentChainId = await getChainId(wagmiConfig);
@@ -75,6 +80,9 @@ export async function executeROASTPayment(
   } catch (error) {
     console.error('❌ Failed to execute ROAST payment:', error);
     throw error;
+  } finally {
+    // Always restore modal functionality
+    restoreModals();
   }
 }
 

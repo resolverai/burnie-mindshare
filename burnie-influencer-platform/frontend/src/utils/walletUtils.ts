@@ -1,10 +1,12 @@
 import { parseEther, parseUnits } from 'viem'
 import { writeContract, waitForTransactionReceipt, readContract, getChainId } from 'wagmi/actions'
 import { wagmiConfig } from '../app/reown'
+import { disableModalsTemporarily } from './modalManager'
 import { tokenMetadataService } from '../services/tokenMetadataService'
 
 // ROAST token fallback address
 const ROAST_TOKEN_FALLBACK = '0x06fe6D0EC562e19cFC491C187F0A02cE8D5083E4' as const
+
 
 // ROAST Token ABI (ERC-20 interface with metadata)
 const ROAST_TOKEN_ABI = [
@@ -87,6 +89,9 @@ export async function transferROAST(
   amount: number,
   recipientAddress: string
 ): Promise<TransferResult> {
+  // Temporarily disable AppKit modal during transaction execution
+  const restoreModals = disableModalsTemporarily();
+  
   try {
     // Validate that we're on Base network (Chain ID: 8453)
     const currentChainId = await getChainId(wagmiConfig);
@@ -273,6 +278,9 @@ export async function transferROAST(
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     }
+  } finally {
+    // Always restore AppKit modal functionality
+    restoreModals();
   }
 }
 
@@ -283,6 +291,9 @@ export async function transferUSDC(
   amount: number,
   recipientAddress: string
 ): Promise<TransferResult> {
+  // Temporarily disable AppKit modal during transaction execution
+  const restoreModals = disableModalsTemporarily();
+  
   try {
     // Validate that we're on Base network (Chain ID: 8453)
     const currentChainId = await getChainId(wagmiConfig);
@@ -362,6 +373,9 @@ export async function transferUSDC(
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     }
+  } finally {
+    // Always restore AppKit modal functionality
+    restoreModals();
   }
 }
 

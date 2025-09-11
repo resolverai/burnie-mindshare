@@ -91,6 +91,17 @@ export const appKit = createAppKit({
   },
 });
 
+// Import centralized modal management
+import { setPurchaseFlowActive as setModalPurchaseFlowActive } from '../utils/modalManager';
+
+// Re-export for backward compatibility
+export function setPurchaseFlowActive(active: boolean) {
+  setModalPurchaseFlowActive(active);
+}
+
+// Initialize the centralized modal management system
+import '../utils/modalManager';
+
 // Event-based modal prevention for wallet management features
 appKit.subscribeEvents((event) => {
   console.log('AppKit Event:', event);
@@ -100,62 +111,13 @@ appKit.subscribeEvents((event) => {
     // Check if this is an unwanted modal view
     const currentView = (event as any).view;
     
-    // Prevent account/balance/fund management views from opening
-    if (currentView === 'Account' || 
-        currentView === 'OnRamp' || 
-        currentView === 'Swap' ||
-        currentView === 'WalletManagement' ||
-        currentView === 'FundWallet' ||
-        currentView === 'Send' ||
-        currentView === 'Activity') {
-      console.log('Preventing modal view:', currentView);
-      // Immediately close unwanted modals
-      setTimeout(() => {
-        appKit.close();
-      }, 50); // Faster response time
-    }
+    // The centralized modal manager handles all logic now
+    // This is just for logging and emergency fallback
+    console.log('Modal event detected:', currentView);
   }
 });
 
-// Override modal methods to filter unwanted views
-const originalOpen = appKit.open.bind(appKit);
-appKit.open = function(options) {
-  // Filter out unwanted modal views - use string comparison to avoid type issues
-  if (options && options.view && (
-    String(options.view).includes('OnRamp') || 
-    String(options.view).includes('Swap') || 
-    String(options.view).includes('Account') ||
-    String(options.view).includes('WalletManagement') ||
-    String(options.view).includes('FundWallet') ||
-    String(options.view).includes('Send') ||
-    String(options.view).includes('Activity')
-  )) {
-    console.log('Blocked modal view:', options.view);
-    return Promise.resolve();
-  }
-  
-  // Allow connection and other necessary views
-  return originalOpen(options);
-};
-
-// Additional state monitoring to prevent fund management modals
+// Additional state monitoring for logging
 appKit.subscribeState((state) => {
   console.log('AppKit State:', state);
-  
-  // Check if modal is open and prevent fund management views
-  if (state.open) {
-    const currentView = (state as any).view;
-    
-    // If any fund management view is detected, close immediately
-    if (currentView === 'Account' || 
-        currentView === 'OnRamp' || 
-        currentView === 'Swap' ||
-        currentView === 'WalletManagement' ||
-        currentView === 'FundWallet' ||
-        currentView === 'Send' ||
-        currentView === 'Activity') {
-      console.log('State-based prevention - closing modal view:', currentView);
-      appKit.close();
-    }
-  }
 });

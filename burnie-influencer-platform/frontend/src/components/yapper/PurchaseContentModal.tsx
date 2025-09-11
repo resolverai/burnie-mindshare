@@ -9,7 +9,6 @@ import { generateRandomMindshare, formatMindshare } from '../../utils/mindshareU
 import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
 import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance } from '../../utils/walletUtils'
 import { executeROASTPayment } from '../../services/roastPaymentService'
-import { preventModalsTemporarily } from '../../utils/appkitModalPrevention'
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, markdownToPlainText, markdownToHTML } from '../../utils/markdownParser'
 
@@ -69,6 +68,44 @@ export default function PurchaseContentModal({
   onPurchase,
   onContentUpdate
 }: PurchaseContentModalProps) {
+  // Scroll restoration effect
+  React.useEffect(() => {
+    if (isOpen) {
+      // Store current scroll position
+      const scrollY = window.scrollY;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
+    } else {
+      // Restore scroll position
+      const scrollY = document.body.style.top;
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      if (scrollY) {
+        window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      }
+    }
+    
+    // Cleanup function
+    return () => {
+      if (!isOpen) {
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.width = '';
+      }
+    };
+  }, [isOpen]);
+
+  // Cleanup effect to ensure scroll is restored on unmount
+  React.useEffect(() => {
+    return () => {
+      // Force restore scroll when component unmounts
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+    };
+  }, []);
   
   const { address } = useAccount()
   const { price: roastPrice } = useROASTPrice()
@@ -1683,14 +1720,27 @@ export default function PurchaseContentModal({
       return
     }
 
+    // CRITICAL: Set global purchase flow state IMMEDIATELY to prevent ALL AppKit modals
+    // This must happen before any async operations to prevent modal from appearing
+    const { setPurchaseFlowActive } = await import('../../app/reown');
+    setPurchaseFlowActive(true);
+    
+    // Use centralized modal management for additional protection
+    const { disableModalsTemporarily } = await import('../../utils/modalManager');
+    const restoreModals = disableModalsTemporarily();
+
     // Handle different authentication states first
     if (!address) {
       console.log('🔗 No wallet connected - should open AppKit modal')
+      // Restore AppKit modal before opening it
+      restoreModals();
       return
     }
 
     if (!isAuthenticated) {
       console.log('🔐 Wallet connected but not authenticated - need signature')
+      // Restore AppKit modal before opening it
+      restoreModals();
       try {
         const authResult = await signIn()
         if (authResult) {
@@ -1880,6 +1930,9 @@ export default function PurchaseContentModal({
       }
     } finally {
       setIsLoading(false)
+      // Always restore modal functionality at the end of purchase flow
+      restoreModals();
+      setPurchaseFlowActive(false);
     }
   }
 
@@ -1950,9 +2003,14 @@ export default function PurchaseContentModal({
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
+      // Force scroll restoration before closing
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
       onClose();
       // Prevent fund management modals from showing up temporarily
-      preventModalsTemporarily(1500);
+      const { disableModalsTemporarily } = require('../../utils/modalManager');
+      disableModalsTemporarily();
     }
   }
 
@@ -2214,9 +2272,14 @@ export default function PurchaseContentModal({
         {/* Close Button */}
             <button
               onClick={() => {
+                // Force scroll restoration before closing
+                document.body.style.position = '';
+                document.body.style.top = '';
+                document.body.style.width = '';
                 onClose();
                 // Prevent fund management modals from showing up temporarily
-                preventModalsTemporarily(1500);
+                const { disableModalsTemporarily } = require('../../utils/modalManager');
+                disableModalsTemporarily();
               }}
           className="absolute right-4 top-4 z-50 hover:opacity-80 transition-opacity text-white/60 hover:text-white"
           type="button"
