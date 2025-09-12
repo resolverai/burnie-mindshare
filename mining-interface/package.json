@@ -9,8 +9,11 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "docker:build": "docker build -t roastpower-mining .",
-    "docker:run": "docker run -p 3000:3000 roastpower-mining"
+    "docker:build": "docker build -t burnieai/mining-interface:latest .",
+    "docker:build-and-push": "./build-and-push.sh",
+    "docker:login": "./dockerhub-login.sh",
+    "docker:run": "./docker-run.sh",
+    "docker:run-simple": "docker run -p 3000:3000 burnieai/mining-interface:latest"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.9.1",

@@ -41,6 +41,8 @@ import yapperInterfaceRoutes from './routes/yapperInterface';
 import contentApprovalRoutes from './routes/contentApproval';
 import textOnlyRegenerationRoutes from './routes/textOnlyRegeneration';
 import contentRequestRoutes from './routes/contentRequestRoutes';
+import hotCampaignsRoutes from './routes/hotCampaigns';
+import adminContentApprovalsRoutes from './routes/adminContentApprovals';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -134,6 +136,8 @@ app.use('/api/yapper-interface', yapperInterfaceRoutes); // Yapper interface con
 app.use('/api/content-approval', contentApprovalRoutes); // Content approval and biddable marking
 app.use('/api/text-only-regeneration', textOnlyRegenerationRoutes); // Text-only content regeneration
 app.use('/api', contentRequestRoutes); // Content request management
+app.use('/api', hotCampaignsRoutes); // Hot campaigns for miner mode
+app.use('/api', adminContentApprovalsRoutes); // Admin content approvals for miner mode
 
 // Start server
 const startServer = async () => {

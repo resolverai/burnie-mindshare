@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { 
@@ -17,6 +17,7 @@ import TweetThreadDisplay from './TweetThreadDisplay'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../utils/markdownParser'
 import { buildApiUrl } from '../utils/api-config'
 import { showToast } from '../utils/toast'
+import { automatedMiningService, MiningStatus } from '../services/automatedMiningService'
 
 interface ContentItem {
   id: number
@@ -61,6 +62,16 @@ export default function MinerMyContent() {
     currentPrice: number
     isEnabled: boolean
   } | null>(null)
+
+  // MINER mode state
+  const isMinerMode = process.env.NEXT_PUBLIC_MINER === '1'
+  const [miningStatus, setMiningStatus] = useState<MiningStatus>(automatedMiningService.getStatus())
+  const [miningReadiness, setMiningReadiness] = useState<{
+    canStart: boolean;
+    hasAgents: boolean;
+    hasNeuralKeys: boolean;
+    message: string;
+  } | null>(null)
   const [biddingAskPrice, setBiddingAskPrice] = useState('')
   const [biddingEndDate, setBiddingEndDate] = useState('')
   const [updatingContentId, setUpdatingContentId] = useState<number | null>(null)
@@ -72,6 +83,17 @@ export default function MinerMyContent() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
   const [biddingFilter, setBiddingFilter] = useState<'all' | 'enabled' | 'disabled'>('all')
   const [availabilityFilter, setAvailabilityFilter] = useState<'all' | 'available' | 'unavailable'>('all')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pagination, setPagination] = useState<{
+    currentPage: number
+    limit: number
+    totalItems: number
+    totalPages: number
+    hasNextPage: boolean
+    hasPrevPage: boolean
+    nextPage: number | null
+    prevPage: number | null
+  } | null>(null)
 
   // Content parsing functions (same as bidding interface)
   const extractImageUrl = (contentText: string): string | null => {
@@ -164,29 +186,257 @@ export default function MinerMyContent() {
     return `${Math.floor(diffInHours / 24)}d ago`
   }
 
-  // Fetch miner's content (including pending content)
-  const { data: content, isLoading } = useQuery({
-    queryKey: ['miner-content', address, availabilityFilter],
+  // Fetch miner's content (including pending content) with pagination
+  const { data: contentData, isLoading } = useQuery({
+    queryKey: ['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage],
+    queryFn: async () => {
+      if (!address) return { data: [], pagination: null }
+      
+      try {
+        const params = new URLSearchParams()
+        params.append('include_pending', 'true')
+        params.append('page', currentPage.toString())
+        params.append('limit', '20')
+        
+        // Add filter parameters
+        if (searchTerm.trim()) {
+          params.append('search', searchTerm.trim())
+        }
+        if (statusFilter !== 'all') {
+          params.append('status_filter', statusFilter)
+        }
+        if (biddingFilter !== 'all') {
+          params.append('bidding_filter', biddingFilter)
+        }
+        if (availabilityFilter !== 'all') {
+          params.append('availability_filter', availabilityFilter)
+        }
+        
+        const response = await fetch(buildApiUrl(`marketplace/my-content/miner/wallet/${address}?${params.toString()}`))
+        const result = await response.json()
+        return {
+          data: result.data || [],
+          pagination: result.pagination || null
+        }
+      } catch (error) {
+        console.error('Error fetching content:', error)
+        return { data: [], pagination: null }
+      }
+    },
+    enabled: !!address
+  })
+
+  const content = contentData?.data || []
+
+  // Fetch total metrics (all content without pagination)
+  const { data: totalMetrics } = useQuery({
+    queryKey: ['miner-content-totals', address, searchTerm, statusFilter, biddingFilter, availabilityFilter],
     queryFn: async () => {
       if (!address) return []
       
       try {
         const params = new URLSearchParams()
         params.append('include_pending', 'true')
-        if (availabilityFilter === 'available') {
-          params.append('only_available', 'true')
+        
+        // Add filter parameters to totals query
+        if (searchTerm.trim()) {
+          params.append('search', searchTerm.trim())
+        }
+        if (statusFilter !== 'all') {
+          params.append('status_filter', statusFilter)
+        }
+        if (biddingFilter !== 'all') {
+          params.append('bidding_filter', biddingFilter)
+        }
+        if (availabilityFilter !== 'all') {
+          params.append('availability_filter', availabilityFilter)
         }
         
-        const response = await fetch(buildApiUrl(`marketplace/my-content/miner/wallet/${address}?${params.toString()}`))
+        const response = await fetch(buildApiUrl(`marketplace/my-content/miner/wallet/${address}/totals?${params.toString()}`))
         const result = await response.json()
         return result.data || []
       } catch (error) {
-        console.error('Error fetching content:', error)
+        console.error('Error fetching total metrics:', error)
         return []
       }
     },
     enabled: !!address
   })
+
+  // Update pagination state when data changes
+  useEffect(() => {
+    if (contentData?.pagination) {
+      setPagination(contentData.pagination)
+    }
+  }, [contentData])
+
+  // MINER mode: Check mining readiness and setup status listener
+  useEffect(() => {
+    if (isMinerMode && address) {
+      // Check mining readiness
+      automatedMiningService.checkMiningReadiness(address).then(setMiningReadiness)
+
+      // Setup status listener
+      const handleStatusChange = (status: MiningStatus) => {
+        setMiningStatus(status)
+      }
+
+      automatedMiningService.addStatusListener(handleStatusChange)
+
+      return () => {
+        automatedMiningService.removeStatusListener(handleStatusChange)
+      }
+    }
+  }, [isMinerMode, address])
+
+  // MINER mode: Start mining automatically when ready
+  useEffect(() => {
+    if (isMinerMode && address && miningReadiness?.canStart && !miningStatus.isRunning) {
+      automatedMiningService.startMining(address).catch(error => {
+        console.error('Failed to start automated mining:', error)
+        showToast('Failed to start automated mining: ' + error.message, 'error')
+      })
+    }
+  }, [isMinerMode, address, miningReadiness, miningStatus.isRunning])
+
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  const handleNextPage = () => {
+    if (pagination?.hasNextPage) {
+      setCurrentPage(pagination.nextPage!)
+    }
+  }
+
+  const handlePrevPage = () => {
+    if (pagination?.hasPrevPage) {
+      setCurrentPage(pagination.prevPage!)
+    }
+  }
+
+  // Reset to page 1 when filters change
+  const handleFilterChange = (newFilter: any, setter: any) => {
+    setter(newFilter)
+    setCurrentPage(1)
+  }
+
+  // MINER mode: Handle start/stop mining
+  const handleStartMining = async () => {
+    if (!address) return
+
+    try {
+      await automatedMiningService.startMining(address)
+      showToast('Automated mining started successfully!', 'success')
+    } catch (error) {
+      console.error('Failed to start mining:', error)
+      showToast('Failed to start mining: ' + (error as Error).message, 'error')
+    }
+  }
+
+  const handleStopMining = () => {
+    automatedMiningService.stopMining()
+    showToast('Automated mining stopped', 'info')
+  }
+
+  // Pagination component
+  const PaginationComponent = () => {
+    if (!pagination || pagination.totalPages <= 1) return null
+
+    const { currentPage, totalPages, hasNextPage, hasPrevPage } = pagination
+
+    // Generate page numbers to show
+    const getPageNumbers = () => {
+      const pages = []
+      const maxVisible = 5
+      
+      if (totalPages <= maxVisible) {
+        for (let i = 1; i <= totalPages; i++) {
+          pages.push(i)
+        }
+      } else {
+        const start = Math.max(1, currentPage - 2)
+        const end = Math.min(totalPages, start + maxVisible - 1)
+        
+        if (start > 1) {
+          pages.push(1)
+          if (start > 2) pages.push('...')
+        }
+        
+        for (let i = start; i <= end; i++) {
+          pages.push(i)
+        }
+        
+        if (end < totalPages) {
+          if (end < totalPages - 1) pages.push('...')
+          pages.push(totalPages)
+        }
+      }
+      
+      return pages
+    }
+
+    return (
+      <div className="flex items-center justify-between bg-gray-800/30 rounded-lg p-4 border border-gray-700">
+        <div className="flex items-center space-x-2">
+          <span className="text-sm text-gray-400">
+            Page {currentPage} of {totalPages}
+          </span>
+          <span className="text-sm text-gray-500">•</span>
+          <span className="text-sm text-gray-400">
+            {pagination.totalItems} total items
+          </span>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          {/* Previous button */}
+          <button
+            onClick={handlePrevPage}
+            disabled={!hasPrevPage}
+            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center space-x-1"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            <span>Previous</span>
+          </button>
+
+          {/* Page numbers */}
+          <div className="flex items-center space-x-1">
+            {getPageNumbers().map((page, index) => (
+              <button
+                key={index}
+                onClick={() => typeof page === 'number' ? handlePageChange(page) : undefined}
+                disabled={typeof page !== 'number'}
+                className={`px-3 py-2 rounded-lg transition-colors ${
+                  page === currentPage
+                    ? 'bg-orange-600 text-white'
+                    : typeof page === 'number'
+                    ? 'bg-gray-700 hover:bg-gray-600 text-white'
+                    : 'bg-gray-800 text-gray-500 cursor-default'
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+          </div>
+
+          {/* Next button */}
+          <button
+            onClick={handleNextPage}
+            disabled={!hasNextPage}
+            className="px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center space-x-1"
+          >
+            <span>Next</span>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const biddingMutation = useMutation({
     mutationFn: async ({ contentId, is_biddable, biddingEndDate, biddingAskPrice }: {
@@ -238,21 +488,25 @@ export default function MinerMyContent() {
       await queryClient.cancelQueries({ queryKey: ['miner-content'] })
       
       // Snapshot the previous value
-      const previousContent = queryClient.getQueryData(['miner-content', address, availabilityFilter])
+      const previousContent = queryClient.getQueryData(['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage])
       
       // Optimistically update the UI
-      queryClient.setQueryData(['miner-content', address, availabilityFilter], (old: any) => {
-        if (!old) return old
-        return old.map((item: ContentItem) => 
-          item.id === contentId 
-            ? { 
-                ...item, 
-                is_biddable,
-                bidding_ask_price: is_biddable ? biddingAskPrice : null,
-                bidding_enabled_at: is_biddable ? new Date().toISOString() : null
-              }
-            : item
-        )
+      queryClient.setQueryData(['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage], (old: any) => {
+        if (!old || !old.data || !Array.isArray(old.data)) return old
+        
+        return {
+          ...old,
+          data: old.data.map((item: ContentItem) => 
+            item.id === contentId 
+              ? { 
+                  ...item, 
+                  is_biddable,
+                  bidding_ask_price: is_biddable ? biddingAskPrice : null,
+                  bidding_enabled_at: is_biddable ? new Date().toISOString() : null
+                }
+              : item
+          )
+        }
       })
       
       console.log(`✨ Optimistic update completed for content ${contentId}`)
@@ -262,7 +516,7 @@ export default function MinerMyContent() {
       console.log(`❌ Bidding update failed for content ${variables.contentId}:`, err.message)
       // Revert optimistic update on error
       if (context?.previousContent) {
-        queryClient.setQueryData(['miner-content', address, availabilityFilter], context.previousContent)
+        queryClient.setQueryData(['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage], context.previousContent)
         console.log(`🔄 Reverted optimistic update for content ${variables.contentId}`)
       }
       console.error('❌ Bidding update failed:', err)
@@ -274,6 +528,7 @@ export default function MinerMyContent() {
       console.log(`🏁 Bidding mutation settled, clearing loading state`)
       // Always refetch after mutation settles
       queryClient.invalidateQueries({ queryKey: ['miner-content'] })
+      queryClient.invalidateQueries({ queryKey: ['miner-content-totals'] })
       setUpdatingContentId(null) // Clear updating state after mutation settles
     },
     onSuccess: (data, variables) => {
@@ -358,6 +613,7 @@ export default function MinerMyContent() {
     onSuccess: (data) => {
       console.log('✅ Content approved successfully:', data)
       queryClient.invalidateQueries({ queryKey: ['miner-content'] })
+      queryClient.invalidateQueries({ queryKey: ['miner-content-totals'] })
     },
     onError: (error) => {
       console.error('❌ Failed to approve content:', error)
@@ -404,6 +660,7 @@ export default function MinerMyContent() {
     onSuccess: (data, variables) => {
       console.log('✅ Content rejected successfully:', { data, contentId: variables })
       queryClient.invalidateQueries({ queryKey: ['miner-content'] })
+      queryClient.invalidateQueries({ queryKey: ['miner-content-totals'] })
       showToast('Content rejected successfully!', 'success')
     },
     onError: (error, variables) => {
@@ -434,41 +691,8 @@ export default function MinerMyContent() {
     }
   }
 
-  // Filter content based on search term, status, and bidding
-  const filteredContent = content?.filter((item: ContentItem) => {
-    // Status filter
-    const statusMatch = statusFilter === 'all' || 
-      (statusFilter === 'pending' && item.status === 'pending') ||
-      (statusFilter === 'approved' && (item.status === 'approved' || !item.status)) || // Backward compatibility
-      (statusFilter === 'rejected' && item.status === 'rejected')
-    
-    if (!statusMatch) return false
-    
-    // Bidding filter
-    const biddingMatch = biddingFilter === 'all' ||
-      (biddingFilter === 'enabled' && item.is_biddable) ||
-      (biddingFilter === 'disabled' && !item.is_biddable)
-    
-    if (!biddingMatch) return false
-
-    // Availability filter
-    const availabilityMatch = availabilityFilter === 'all' ||
-      (availabilityFilter === 'available' && item.is_available) ||
-      (availabilityFilter === 'unavailable' && !item.is_available)
-    
-    if (!availabilityMatch) return false
-    
-    // Search filter
-    if (!searchTerm) return true
-    
-    const searchLower = searchTerm.toLowerCase()
-    const textMatch = item.content_text?.toLowerCase().includes(searchLower)
-    const campaignMatch = item.campaign?.title?.toLowerCase().includes(searchLower)
-    const agentMatch = item.agent_name?.toLowerCase().includes(searchLower)
-    const threadMatch = item.tweet_thread?.some(tweet => tweet.toLowerCase().includes(searchLower))
-    
-    return textMatch || campaignMatch || agentMatch || threadMatch
-  }) || []
+  // Content is already filtered on the backend, no need for frontend filtering
+  const filteredContent = content || []
 
   return (
     <div className="h-full overflow-y-auto bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
@@ -477,8 +701,72 @@ export default function MinerMyContent() {
         <div className="space-y-4">
           <div>
             <h1 className="text-3xl font-bold text-white">My Content</h1>
-            <p className="text-gray-400">Manage your content, approve pending items, and configure bidding settings</p>
+            <p className="text-gray-400">
+              {isMinerMode 
+                ? 'View your automated content generation and mining status'
+                : 'Manage your content, approve pending items, and configure bidding settings'
+              }
+            </p>
           </div>
+
+          {/* MINER Mode: Start/Stop Mining Controls */}
+          {isMinerMode && (
+            <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <div className={`w-3 h-3 rounded-full ${miningStatus.isRunning ? 'bg-green-400' : 'bg-gray-400'}`}></div>
+                    <span className="text-sm font-medium text-white">
+                      {miningStatus.isRunning ? 'Mining Active' : 'Mining Stopped'}
+                    </span>
+                  </div>
+                  {miningStatus.currentCampaign && (
+                    <div className="text-sm text-gray-300">
+                      Processing: <span className="text-orange-400">{miningStatus.currentCampaign.campaignName}</span>
+                      <span className="text-gray-500"> ({miningStatus.currentCampaign.postType})</span>
+                    </div>
+                  )}
+                  <div className="text-sm text-gray-400">
+                    Generated: <span className="text-green-400">{miningStatus.totalGenerated}</span>
+                  </div>
+                  {miningStatus.lastGeneration && (
+                    <div className="text-sm text-gray-400">
+                      Last: {miningStatus.lastGeneration.toLocaleTimeString()}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center space-x-3">
+                  {miningReadiness && !miningReadiness.canStart && (
+                    <div className="text-sm text-yellow-400">
+                      {miningReadiness.message}
+                    </div>
+                  )}
+                  {miningStatus.isRunning ? (
+                    <button
+                      onClick={handleStopMining}
+                      className="px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-colors flex items-center space-x-2"
+                    >
+                      <XMarkIcon className="h-4 w-4" />
+                      <span>Stop Mining</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleStartMining}
+                      disabled={!miningReadiness?.canStart}
+                      className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
+                        miningReadiness?.canStart
+                          ? 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30'
+                          : 'bg-gray-500/20 text-gray-400 border border-gray-500/30 cursor-not-allowed'
+                      }`}
+                    >
+                      <CheckIcon className="h-4 w-4" />
+                      <span>Start Mining</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* Search and Filter Controls */}
           <div className="flex flex-col lg:flex-row gap-4">
@@ -504,7 +792,7 @@ export default function MinerMyContent() {
               <div className="relative sm:w-48">
                 <select
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as 'all' | 'pending' | 'approved' | 'rejected')}
+                  onChange={(e) => handleFilterChange(e.target.value as 'all' | 'pending' | 'approved' | 'rejected', setStatusFilter)}
                   className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
                 >
                   <option value="all">All Status</option>
@@ -523,7 +811,7 @@ export default function MinerMyContent() {
               <div className="relative sm:w-48">
                 <select
                   value={biddingFilter}
-                  onChange={(e) => setBiddingFilter(e.target.value as 'all' | 'enabled' | 'disabled')}
+                  onChange={(e) => handleFilterChange(e.target.value as 'all' | 'enabled' | 'disabled', setBiddingFilter)}
                   className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
                 >
                   <option value="all">All Bidding</option>
@@ -541,7 +829,7 @@ export default function MinerMyContent() {
               <div className="relative sm:w-48">
                 <select
                   value={availabilityFilter}
-                  onChange={(e) => setAvailabilityFilter(e.target.value as 'all' | 'available' | 'unavailable')}
+                  onChange={(e) => handleFilterChange(e.target.value as 'all' | 'available' | 'unavailable', setAvailabilityFilter)}
                   className="w-full bg-gray-800/50 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer"
                 >
                   <option value="all">All Availability</option>
@@ -559,55 +847,58 @@ export default function MinerMyContent() {
         </div>
 
         {/* Content Stats */}
-        {content && content.length > 0 && (
+        {totalMetrics && totalMetrics.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
             <div className="bg-gray-800/30 rounded-lg p-4 border border-gray-700">
               <div className="text-2xl font-bold text-white">
-                {content.length}
+                {totalMetrics.length}
               </div>
               <div className="text-sm text-gray-400">Total Content</div>
             </div>
             <div className="bg-yellow-900/20 rounded-lg p-4 border border-yellow-600/30">
               <div className="text-2xl font-bold text-yellow-400">
-                {content.filter(item => item.status === 'pending').length}
+                {totalMetrics.filter(item => item.status === 'pending').length}
               </div>
               <div className="text-sm text-yellow-300">Pending Review</div>
             </div>
             <div className="bg-green-900/20 rounded-lg p-4 border border-green-600/30">
               <div className="text-2xl font-bold text-green-400">
-                {content.filter(item => item.status === 'approved' || !item.status).length}
+                {totalMetrics.filter(item => item.status === 'approved' || !item.status).length}
               </div>
               <div className="text-sm text-green-300">Approved</div>
               <div className="text-xs text-green-400 mt-1">
-                {content.filter(item => (item.status === 'approved' || !item.status) && item.is_available).length} available
+                {totalMetrics.filter(item => (item.status === 'approved' || !item.status) && item.is_available).length} available
               </div>
             </div>
             <div className="bg-red-900/20 rounded-lg p-4 border border-red-600/30">
               <div className="text-2xl font-bold text-red-400">
-                {content.filter(item => item.status === 'rejected').length}
+                {totalMetrics.filter(item => item.status === 'rejected').length}
               </div>
               <div className="text-sm text-red-300">Rejected</div>
             </div>
             <div className="bg-blue-900/20 rounded-lg p-4 border border-blue-600/30">
               <div className="text-2xl font-bold text-blue-400">
-                {content.filter(item => item.is_biddable).length}
+                {totalMetrics.filter(item => item.is_biddable).length}
               </div>
               <div className="text-sm text-blue-300">Bidding Enabled</div>
             </div>
             <div className="bg-purple-900/20 rounded-lg p-4 border border-purple-600/30">
               <div className="text-2xl font-bold text-purple-400">
-                {content.filter(item => !item.is_biddable).length}
+                {totalMetrics.filter(item => !item.is_biddable).length}
               </div>
               <div className="text-sm text-purple-300">Bidding Disabled</div>
             </div>
             <div className="bg-emerald-900/20 rounded-lg p-4 border border-emerald-600/30">
               <div className="text-2xl font-bold text-emerald-400">
-                {content.filter(item => item.is_available).length}
+                {totalMetrics.filter(item => item.is_available).length}
               </div>
               <div className="text-sm text-emerald-300">Available</div>
             </div>
           </div>
         )}
+
+        {/* Top Pagination */}
+        <PaginationComponent />
 
         {/* Content Display */}
         {isLoading ? (
@@ -752,7 +1043,7 @@ export default function MinerMyContent() {
                               <img 
                                 src={imageUrl} 
                                 alt="Content image" 
-                                className="w-full h-auto object-contain"
+                                className="w-full h-auto"
                                 onError={(e) => {
                                   const target = e.target as HTMLImageElement
                                   target.style.display = 'none'
@@ -781,34 +1072,30 @@ export default function MinerMyContent() {
                         </div>
                       )}
                       
-                      {/* Image URL display for mining interface */}
-                        {imageUrl && (
-                        <div className="mt-4 text-xs text-gray-400 bg-gray-800 p-2 rounded font-mono break-all">
-                                  <strong>Image URL:</strong> {imageUrl}
-                          </div>
-                        )}
                     </div>
 
-                    {/* Performance Metrics */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-blue-900/30 rounded-lg p-3 border border-blue-500/30">
-                        <div className="flex items-center space-x-2">
-                          <EyeIcon className="h-4 w-4 text-blue-400" />
-                          <span className="text-sm text-gray-300">Predicted Mindshare</span>
+                    {/* Performance Metrics - Hidden for now, may be required in future */}
+                    {false && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-blue-900/30 rounded-lg p-3 border border-blue-500/30">
+                          <div className="flex items-center space-x-2">
+                            <EyeIcon className="h-4 w-4 text-blue-400" />
+                            <span className="text-sm text-gray-300">Predicted Mindshare</span>
+                          </div>
+                          <p className="text-lg font-bold text-blue-400">{item.predicted_mindshare.toFixed(1)}%</p>
                         </div>
-                        <p className="text-lg font-bold text-blue-400">{item.predicted_mindshare.toFixed(1)}%</p>
-                      </div>
-                      <div className="bg-yellow-900/30 rounded-lg p-3 border border-yellow-500/30">
-                        <div className="flex items-center space-x-2">
-                          <StarIcon className="h-4 w-4 text-yellow-400" />
-                          <span className="text-sm text-gray-300">Quality Score</span>
+                        <div className="bg-yellow-900/30 rounded-lg p-3 border border-yellow-500/30">
+                          <div className="flex items-center space-x-2">
+                            <StarIcon className="h-4 w-4 text-yellow-400" />
+                            <span className="text-sm text-gray-300">Quality Score</span>
+                          </div>
+                          <p className="text-lg font-bold text-yellow-400">{item.quality_score.toFixed(1)}/100</p>
                         </div>
-                        <p className="text-lg font-bold text-yellow-400">{item.quality_score.toFixed(1)}/100</p>
                       </div>
-                    </div>
+                    )}
 
                     {/* Approve/Reject Section for Pending Content */}
-                    {item.status === 'pending' && (
+                    {item.status === 'pending' && !isMinerMode && (
                       <div className="bg-yellow-900/20 rounded-lg p-4 border border-yellow-600/50">
                         <h4 className="text-sm font-semibold text-yellow-400 mb-4">Content Review Required</h4>
                         <div className="flex space-x-4">
@@ -838,8 +1125,18 @@ export default function MinerMyContent() {
                       </div>
                     )}
 
-                    {/* Bidding Management Section - Only show for approved content */}
-                    {(item.status === 'approved' || !item.status) && (
+                    {/* MINER Mode: Show pending status message */}
+                    {item.status === 'pending' && isMinerMode && (
+                      <div className="bg-yellow-900/20 rounded-lg p-4 border border-yellow-600/50">
+                        <h4 className="text-sm font-semibold text-yellow-400 mb-2">Content Pending Review</h4>
+                        <p className="text-sm text-yellow-300">
+                          This content is waiting for admin approval. Admins will review and approve/reject your content automatically.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Bidding Management Section - Only show for approved content and not in MINER mode */}
+                    {(item.status === 'approved' || !item.status) && !isMinerMode && (
                       <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-600">
                         <div className="flex items-center justify-between mb-4">
                           <h4 className="text-sm font-semibold text-orange-400">Bidding Management</h4>
@@ -934,6 +1231,28 @@ export default function MinerMyContent() {
                       )}
                     </div>
                     )}
+
+                    {/* MINER Mode: Show bidding status for approved content */}
+                    {(item.status === 'approved' || !item.status) && isMinerMode && (
+                      <div className="bg-gray-900/50 rounded-lg p-4 border border-gray-600">
+                        <h4 className="text-sm font-semibold text-orange-400 mb-2">Bidding Status</h4>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <span className={`text-sm px-2 py-1 rounded-full ${
+                              item.is_biddable 
+                                ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                                : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+                            }`}>
+                              {item.is_biddable ? 'Bidding Enabled' : 'Bidding Disabled'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400">
+                            Bidding is managed by admins
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                   </div>
                 </div>
               )
@@ -962,6 +1281,9 @@ export default function MinerMyContent() {
             </div>
           </div>
         )}
+
+        {/* Bottom Pagination */}
+        <PaginationComponent />
 
         {/* Bidding Settings Modal */}
         {showBiddingModal && (

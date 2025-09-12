@@ -33,6 +33,10 @@ const envSchema = Joi.object({
   // CORS Configuration - MUST be explicitly set in environment
   ALLOWED_ORIGINS: Joi.string().required(),
 
+  // MINER Mode Configuration
+  MINER: Joi.number().valid(0, 1).default(0),
+  ADMIN_WALLET_ADDRESSES: Joi.string().allow('').default(''),
+
   // Blockchain - MVP Base Network Only
   BASE_RPC_URL: Joi.string().uri().default('https://mainnet.base.org'),
   BASE_PRIVATE_KEY: Joi.string().default('0x0000000000000000000000000000000000000000000000000000000000000000'),
@@ -167,6 +171,12 @@ export const env = {
   // CORS
   cors: {
     allowedOrigins: envVars.ALLOWED_ORIGINS.split(',').map((origin: string) => origin.trim()),
+  },
+
+  // MINER Mode Configuration
+  miner: {
+    enabled: envVars.MINER === 1,
+    adminWalletAddresses: envVars.ADMIN_WALLET_ADDRESSES ? envVars.ADMIN_WALLET_ADDRESSES.split(',').map((addr: string) => addr.trim()) : [],
   },
 
   // Blockchain - MVP Base Network Only

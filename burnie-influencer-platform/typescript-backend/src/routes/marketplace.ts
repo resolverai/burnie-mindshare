@@ -1476,15 +1476,19 @@ router.post('/reject', async (req, res) => {
 });
 
 /**
- * @route GET /api/marketplace/my-content/miner/wallet/:walletAddress
- * @desc Get miner's content for My Content section by wallet address
+ * @route GET /api/marketplace/my-content/miner/wallet/:walletAddress/totals
+ * @desc Get miner's content totals for metrics (no pagination)
  * @query include_pending - if 'true', includes all content statuses, otherwise only approved
  * @query only_available - if 'true', only returns content where isAvailable = true
+ * @query search - search term for content text, campaign title, agent name
+ * @query status_filter - filter by status: 'pending', 'approved', 'rejected'
+ * @query bidding_filter - filter by bidding: 'enabled', 'disabled'
+ * @query availability_filter - filter by availability: 'available', 'unavailable'
  */
-router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: Response) => {
+router.get('/my-content/miner/wallet/:walletAddress/totals', async (req: Request, res: Response) => {
   try {
     const { walletAddress } = req.params;
-    const { include_pending, only_available } = req.query;
+    const { include_pending, only_available, search, status_filter, bidding_filter, availability_filter } = req.query;
     
     if (!walletAddress) {
       return res.status(400).json({
@@ -1525,9 +1529,194 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
     if (only_available === 'true') {
       queryBuilder = queryBuilder.andWhere('content.isAvailable = :isAvailable', { isAvailable: true });
     }
+
+    // Apply search filter
+    if (search && search.toString().trim()) {
+      const searchTerm = search.toString().trim();
+      queryBuilder = queryBuilder.andWhere(
+        '(content.contentText ILIKE :search OR campaign.title ILIKE :search OR content.agentName ILIKE :search)',
+        { search: `%${searchTerm}%` }
+      );
+    }
+
+    // Apply status filter
+    if (status_filter && status_filter !== 'all') {
+      queryBuilder = queryBuilder.andWhere('content.approvalStatus = :status', { status: status_filter });
+    }
+
+    // Apply bidding filter
+    if (bidding_filter && bidding_filter !== 'all') {
+      if (bidding_filter === 'enabled') {
+        queryBuilder = queryBuilder.andWhere('content.isBiddable = :isBiddable', { isBiddable: true });
+      } else if (bidding_filter === 'disabled') {
+        queryBuilder = queryBuilder.andWhere('content.isBiddable = :isBiddable', { isBiddable: false });
+      }
+    }
+
+    // Apply availability filter
+    if (availability_filter && availability_filter !== 'all') {
+      if (availability_filter === 'available') {
+        queryBuilder = queryBuilder.andWhere('content.isAvailable = :isAvailable', { isAvailable: true });
+      } else if (availability_filter === 'unavailable') {
+        queryBuilder = queryBuilder.andWhere('content.isAvailable = :isAvailable', { isAvailable: false });
+      }
+    }
+    
+    // Get all content without pagination for totals
+    const contents = await queryBuilder
+      .orderBy('content.createdAt', 'DESC')
+      .getMany();
+
+    // Refresh expired pre-signed URLs in miner content
+    const refreshedContents = await Promise.all(
+      contents.map(content => refreshExpiredUrls(content))
+    );
+
+    const formattedContents = refreshedContents.map(content => ({
+      id: content.id,
+      content_text: content.contentText,
+      tweet_thread: content.tweetThread || null,
+      content_images: content.contentImages,
+      watermark_image: content.watermarkImage || null,
+      predicted_mindshare: Number(content.predictedMindshare),
+      quality_score: Number(content.qualityScore),
+      asking_price: Number(content.askingPrice),
+      post_type: content.postType || 'thread',
+      status: content.approvalStatus,
+      is_available: content.isAvailable,
+      creator: {
+        username: content.creator?.username || 'Anonymous',
+        reputation_score: content.creator?.reputationScore || 0
+      },
+      campaign: {
+        title: content.campaign?.title || 'Unknown Campaign',
+        platform_source: content.campaign?.platformSource || 'unknown',
+        reward_token: content.campaign?.rewardToken || 'ROAST'
+      },
+      agent_name: content.agentName,
+      created_at: content.createdAt.toISOString(),
+      approved_at: content.approvedAt?.toISOString() || null,
+      is_biddable: content.isBiddable,
+      bidding_end_date: content.biddingEndDate?.toISOString() || null,
+      bidding_ask_price: content.biddingAskPrice ? Number(content.biddingAskPrice) : null,
+      bidding_enabled_at: content.biddingEnabledAt?.toISOString() || null
+    }));
+
+    return res.json({
+      success: true,
+      data: formattedContents
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching miner content totals:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch miner content totals'
+    });
+  }
+});
+
+/**
+ * @route GET /api/marketplace/my-content/miner/wallet/:walletAddress
+ * @desc Get miner's content for My Content section by wallet address with pagination
+ * @query include_pending - if 'true', includes all content statuses, otherwise only approved
+ * @query only_available - if 'true', only returns content where isAvailable = true
+ * @query page - page number (default: 1)
+ * @query limit - items per page (default: 20)
+ * @query search - search term for content text, campaign title, agent name
+ * @query status_filter - filter by status: 'pending', 'approved', 'rejected'
+ * @query bidding_filter - filter by bidding: 'enabled', 'disabled'
+ * @query availability_filter - filter by availability: 'available', 'unavailable'
+ */
+router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.params;
+    const { include_pending, only_available, page = 1, limit = 20, search, status_filter, bidding_filter, availability_filter } = req.query;
+    
+    if (!walletAddress) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid wallet address'
+      });
+    }
+
+    // First, try to find the user by wallet address to get the creatorId
+    const userRepository = AppDataSource.getRepository(User);
+    const user = await userRepository.findOne({
+      where: { walletAddress: walletAddress }
+    });
+
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    
+    let queryBuilder = contentRepository
+      .createQueryBuilder('content')
+      .leftJoinAndSelect('content.creator', 'creator')
+      .leftJoinAndSelect('content.campaign', 'campaign');
+
+    if (user) {
+      // If user exists, use the original logic (walletAddress OR creatorId)
+      queryBuilder = queryBuilder.where('(LOWER(content.walletAddress) = LOWER(:walletAddress) OR (content.walletAddress IS NULL AND content.creatorId = :creatorId))', 
+        { walletAddress, creatorId: user.id });
+    } else {
+      // If user doesn't exist (pure mining interface user), only look by walletAddress
+      queryBuilder = queryBuilder.where('LOWER(content.walletAddress) = LOWER(:walletAddress)', 
+        { walletAddress });
+    }
+    
+    // Only filter by approval status if include_pending is not true
+    if (include_pending !== 'true') {
+      queryBuilder = queryBuilder.andWhere('content.approvalStatus = :status', { status: 'approved' });
+    }
+    
+    // Filter by availability if only_available is true
+    if (only_available === 'true') {
+      queryBuilder = queryBuilder.andWhere('content.isAvailable = :isAvailable', { isAvailable: true });
+    }
+
+    // Apply search filter
+    if (search && search.toString().trim()) {
+      const searchTerm = search.toString().trim();
+      queryBuilder = queryBuilder.andWhere(
+        '(content.contentText ILIKE :search OR campaign.title ILIKE :search OR content.agentName ILIKE :search)',
+        { search: `%${searchTerm}%` }
+      );
+    }
+
+    // Apply status filter
+    if (status_filter && status_filter !== 'all') {
+      queryBuilder = queryBuilder.andWhere('content.approvalStatus = :status', { status: status_filter });
+    }
+
+    // Apply bidding filter
+    if (bidding_filter && bidding_filter !== 'all') {
+      if (bidding_filter === 'enabled') {
+        queryBuilder = queryBuilder.andWhere('content.isBiddable = :isBiddable', { isBiddable: true });
+      } else if (bidding_filter === 'disabled') {
+        queryBuilder = queryBuilder.andWhere('content.isBiddable = :isBiddable', { isBiddable: false });
+      }
+    }
+
+    // Apply availability filter
+    if (availability_filter && availability_filter !== 'all') {
+      if (availability_filter === 'available') {
+        queryBuilder = queryBuilder.andWhere('content.isAvailable = :isAvailable', { isAvailable: true });
+      } else if (availability_filter === 'unavailable') {
+        queryBuilder = queryBuilder.andWhere('content.isAvailable = :isAvailable', { isAvailable: false });
+      }
+    }
+    
+    // Get total count for pagination
+    const totalCount = await queryBuilder.getCount();
+    
+    // Apply pagination
+    const pageNum = parseInt(page as string) || 1;
+    const limitNum = parseInt(limit as string) || 20;
+    const offset = (pageNum - 1) * limitNum;
     
     const contents = await queryBuilder
       .orderBy('content.createdAt', 'DESC')
+      .skip(offset)
+      .take(limitNum)
       .getMany();
 
     // Refresh expired pre-signed URLs in miner content
@@ -1565,9 +1754,24 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       bidding_enabled_at: content.biddingEnabledAt?.toISOString() || null
     }));
 
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalCount / limitNum);
+    const hasNextPage = pageNum < totalPages;
+    const hasPrevPage = pageNum > 1;
+
     return res.json({
       success: true,
-      data: formattedContents
+      data: formattedContents,
+      pagination: {
+        currentPage: pageNum,
+        limit: limitNum,
+        totalItems: totalCount,
+        totalPages: totalPages,
+        hasNextPage: hasNextPage,
+        hasPrevPage: hasPrevPage,
+        nextPage: hasNextPage ? pageNum + 1 : null,
+        prevPage: hasPrevPage ? pageNum - 1 : null
+      }
     });
 
   } catch (error) {

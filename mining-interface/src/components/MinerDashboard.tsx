@@ -39,6 +39,9 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
   const [showNeuralKeys, setShowNeuralKeys] = useState(false)
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true)
 
+  // Check if we're in MINER mode
+  const isMinerMode = process.env.NEXT_PUBLIC_MINER === '1'
+
   // Fetch user agents from centralized Burnie database (always call hooks)
   const { data: userAgents, isLoading: agentsLoading } = useQuery({
     queryKey: ['user-agents', address],
@@ -82,7 +85,8 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
     )
   }
 
-  const navigationItems = [
+  // Filter navigation items based on MINER mode
+  const baseNavigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: HomeIcon, iconSolid: HomeIcon, route: '/dashboard' },
     { id: 'agents', label: 'Agents', icon: CpuChipIcon, iconSolid: CpuChipIcon, route: '/agents' },
     { id: 'mining', label: 'Mining', icon: MegaphoneIcon, iconSolid: MegaphoneIcon, route: '/mining' },
@@ -91,6 +95,10 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
     { id: 'teams', label: 'Teams', icon: UserGroupIcon, iconSolid: UserGroupIcon, route: '/teams' }
   ]
 
+  const navigationItems = isMinerMode 
+    ? baseNavigationItems.filter(item => item.id !== 'mining') // Hide Mining screen for miners
+    : baseNavigationItems
+
   const renderContent = () => {
     switch (activeSection) {
       case 'dashboard': 
@@ -98,6 +106,11 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
       case 'agents': 
         return <Agents />
       case 'mining': 
+        // Redirect miners away from mining screen
+        if (isMinerMode) {
+          router.push('/my-content')
+          return <MinerMyContent />
+        }
         return <Mining />
       case 'mycontent': 
         return <MinerMyContent />
@@ -215,10 +228,11 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
                 <h2 className="text-2xl font-bold text-white capitalize">{activeSection.replace('-', ' ')}</h2>
                 <p className="text-sm text-gray-400">
                   {activeSection === 'dashboard' && 'Analytics and performance overview'}
-                  {activeSection === 'agents' && 'Manage your AI agents'}
+                  {activeSection === 'agents' && (isMinerMode ? 'Configure your AI agents and neural keys for automated mining' : 'Manage your AI agents')}
                   {activeSection === 'mining' && 'Select campaigns and start content mining'}
                   {activeSection === 'campaigns' && 'View available campaigns'}
                   {activeSection === 'portfolio' && 'Track your ROAST earnings'}
+                  {activeSection === 'mycontent' && (isMinerMode ? 'View your automated content generation and mining status' : 'Manage your content, approve pending items, and configure bidding settings')}
                 </p>
               </div>
               <div className="flex items-center space-x-4">
@@ -227,6 +241,12 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
                   <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                   <span>BASE NETWORK</span>
                 </div>
+                {isMinerMode && (
+                  <div className="flex items-center space-x-2 px-3 py-2 bg-orange-500/20 text-orange-400 rounded-lg text-xs font-medium border border-orange-500/30">
+                    <div className="w-2 h-2 bg-orange-400 rounded-full"></div>
+                    <span>MINER MODE</span>
+                  </div>
+                )}
                 <div className="flex items-center space-x-2 px-3 py-2 bg-blue-500/20 text-blue-400 rounded-lg text-xs font-medium border border-blue-500/30">
                   <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
                   <span>AGENTS: {userAgents?.length || 0}</span>
