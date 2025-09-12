@@ -114,6 +114,8 @@ class AutomatedMiningService {
     campaignName: string,
     projectName: string
   ): Promise<boolean> {
+    let executionId: string | null = null;
+    
     try {
       // Check if miner has already generated 5 posts for this post_type
       const contentResponse = await fetch(
@@ -160,7 +162,7 @@ class AutomatedMiningService {
         return false;
       }
 
-      const executionId = executionCheckData.executionId;
+      executionId = executionCheckData.executionId;
       console.log(`Execution reserved: ${executionId} for ${campaignId} (${postType})`);
 
       // Get agent configuration for the miner
