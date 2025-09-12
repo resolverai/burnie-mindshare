@@ -299,6 +299,34 @@ export default function MinerMyContent() {
     }
   }, [isMinerMode, address, miningReadiness, miningStatus.isRunning])
 
+  // MINER mode: Periodic checks to refresh hot campaigns and prevent over-generation
+  useEffect(() => {
+    if (isMinerMode && address && miningStatus.isRunning) {
+      const intervalId = setInterval(() => {
+        // Refresh content data to get latest generation status
+        queryClient.invalidateQueries({
+          queryKey: ['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage]
+        })
+        queryClient.invalidateQueries({
+          queryKey: ['miner-content-totals', address, searchTerm, statusFilter, biddingFilter, availabilityFilter]
+        })
+        
+        // Check mining readiness again to ensure conditions are still met
+        automatedMiningService.checkMiningReadiness(address).then(newReadiness => {
+          if (!newReadiness.canStart && miningStatus.isRunning) {
+            console.log('Mining readiness lost, stopping automated mining')
+            automatedMiningService.stopMining()
+            showToast('Automated mining stopped: requirements no longer met', 'warning')
+          }
+        }).catch(error => {
+          console.error('Error checking mining readiness:', error)
+        })
+      }, 60000) // Check every 60 seconds
+
+      return () => clearInterval(intervalId)
+    }
+  }, [isMinerMode, address, miningStatus.isRunning, queryClient, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage])
+
   // Pagination handlers
   const handlePageChange = (page: number) => {
     setCurrentPage(page)

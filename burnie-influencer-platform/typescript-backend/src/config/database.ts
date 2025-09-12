@@ -53,6 +53,7 @@ import { ContentRequest } from '../models/ContentRequest';
 
 // Import admin content approval entity
 import { AdminContentApproval } from '../models/AdminContentApproval';
+import { DedicatedMinerExecution } from '../models/DedicatedMinerExecution';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -113,6 +114,8 @@ export const AppDataSource = new DataSource({
     ContentRequest,
     // Admin content approval entity
     AdminContentApproval,
+    // Dedicated miner execution tracking entity
+    DedicatedMinerExecution,
   ],
   migrations: [],
   subscribers: [],

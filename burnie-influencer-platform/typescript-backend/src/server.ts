@@ -43,6 +43,7 @@ import textOnlyRegenerationRoutes from './routes/textOnlyRegeneration';
 import contentRequestRoutes from './routes/contentRequestRoutes';
 import hotCampaignsRoutes from './routes/hotCampaigns';
 import adminContentApprovalsRoutes from './routes/adminContentApprovals';
+import dedicatedMinerExecutionsRoutes from './routes/dedicatedMinerExecutions';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -138,6 +139,7 @@ app.use('/api/text-only-regeneration', textOnlyRegenerationRoutes); // Text-only
 app.use('/api', contentRequestRoutes); // Content request management
 app.use('/api', hotCampaignsRoutes); // Hot campaigns for miner mode
 app.use('/api', adminContentApprovalsRoutes); // Admin content approvals for miner mode
+app.use('/api', dedicatedMinerExecutionsRoutes); // Dedicated miner execution tracking
 
 // Start server
 const startServer = async () => {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { AppDataSource } from '../config/database';
 import { Campaign } from '../models/Campaign';
 import { ContentMarketplace } from '../models/ContentMarketplace';
+import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
 
 const router = Router();
@@ -9,68 +10,107 @@ const router = Router();
 interface HotCampaignPostType {
   campaignId: string;
   campaignName: string;
+  projectName: string;
   postType: string;
   availableCount: number;
   purchaseCount: number;
   ratio: number;
+  totalCampaignPurchases: number;
 }
 
-// GET /api/hot-campaigns - Get campaigns that are "hot" (purchase/available > 1 or available=0 with purchases)
+// GET /api/hot-campaigns - Get top 10 campaigns by purchase volume, then identify hot post_types
 router.get('/hot-campaigns', async (req, res) => {
   try {
-    logger.info('🔥 Fetching hot campaigns...');
+    logger.info('🔥 Fetching hot campaigns with enhanced logic...');
 
-    // Get all campaigns
     const campaignRepository = AppDataSource.getRepository(Campaign);
-    const campaigns = await campaignRepository.find({
-      where: { isActive: true },
-      relations: ['project']
-    });
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
 
-    if (campaigns.length === 0) {
-      logger.info('📋 No active campaigns found');
+    // Step 1: Get campaigns with end_date >= current_date
+    const activeCampaigns = await campaignRepository
+      .createQueryBuilder('campaign')
+      .where('campaign.endDate >= :currentDate', { currentDate: new Date() })
+      .andWhere('campaign.isActive = :isActive', { isActive: true })
+      .select(['campaign.id', 'campaign.title', 'campaign.projectName', 'campaign.endDate'])
+      .getMany();
+
+    if (activeCampaigns.length === 0) {
+      logger.info('📋 No active campaigns with valid end dates found');
       return res.json({ 
         success: true, 
         data: [], 
-        message: 'No active campaigns found' 
+        message: 'No active campaigns with valid end dates found' 
       });
     }
 
-    const hotCampaigns: HotCampaignPostType[] = [];
+    logger.info(`📋 Found ${activeCampaigns.length} active campaigns with valid end dates`);
 
-    // For each campaign, check all post types
-    for (const campaign of campaigns) {
-      // Define the post types to check
-      const postTypes = ['thread', 'shitpost', 'longpost'];
-      
+    // Step 2: Get top 10 campaigns by total purchase count
+    const campaignPurchaseCounts = await Promise.all(
+      activeCampaigns.map(async (campaign) => {
+        const totalPurchases = await purchaseRepository
+          .createQueryBuilder('purchase')
+          .innerJoin('purchase.content', 'content')
+          .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+          .getCount();
+
+        return {
+          campaign,
+          totalPurchases
+        };
+      })
+    );
+
+    // Sort by purchase count (descending) and take top 10
+    const top10Campaigns = campaignPurchaseCounts
+      .filter(item => item.totalPurchases > 0) // Only campaigns with purchases
+      .sort((a, b) => b.totalPurchases - a.totalPurchases)
+      .slice(0, 10);
+
+    logger.info(`🔥 Top 10 campaigns by purchase volume: ${top10Campaigns.map(c => `${c.campaign.title} (${c.totalPurchases} purchases)`).join(', ')}`);
+
+    if (top10Campaigns.length === 0) {
+      logger.info('📋 No campaigns with purchases found');
+      return res.json({ 
+        success: true, 
+        data: [], 
+        message: 'No campaigns with purchases found' 
+      });
+    }
+
+    // Step 3: For each top 10 campaign, check post_types for hot criteria
+    const hotCampaigns: HotCampaignPostType[] = [];
+    const postTypes = ['thread', 'shitpost', 'longpost'];
+
+    for (const { campaign, totalPurchases } of top10Campaigns) {
       for (const postType of postTypes) {
-        // Get content counts for this campaign and post_type
-        const contentRepository = AppDataSource.getRepository(ContentMarketplace);
-        
+        // Use Content Meter logic: Available = isAvailable=true, isBiddable=true, approvalStatus='approved'
         const availableCount = await contentRepository
           .createQueryBuilder('content')
           .where('content.campaignId = :campaignId', { campaignId: campaign.id })
           .andWhere('content.postType = :postType', { postType })
+          .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
+          .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
           .andWhere('content.approvalStatus = :status', { status: 'approved' })
-          .andWhere('content.isBiddable = :biddingEnabled', { biddingEnabled: false })
           .getCount();
 
-        const purchaseCount = await contentRepository
-          .createQueryBuilder('content')
+        // Use Content Meter logic: Purchased = real purchases from content_purchases table
+        const purchaseCount = await purchaseRepository
+          .createQueryBuilder('purchase')
+          .innerJoin('purchase.content', 'content')
           .where('content.campaignId = :campaignId', { campaignId: campaign.id })
           .andWhere('content.postType = :postType', { postType })
-          .andWhere('content.approvalStatus = :status', { status: 'approved' })
-          .andWhere('content.isBiddable = :biddingEnabled', { biddingEnabled: true })
           .getCount();
 
-        // Check if this post_type is "hot"
+        // Check if this post_type is "hot" using the criteria
         let isHot = false;
         let ratio = 0;
 
         if (availableCount === 0 && purchaseCount > 0) {
           // Available is 0 but purchases > 0
           isHot = true;
-          ratio = Infinity; // or a very high number
+          ratio = Infinity;
         } else if (availableCount > 0) {
           ratio = purchaseCount / availableCount;
           if (ratio > 1) {
@@ -82,23 +122,25 @@ router.get('/hot-campaigns', async (req, res) => {
           hotCampaigns.push({
             campaignId: campaign.id.toString(),
             campaignName: campaign.title,
+            projectName: campaign.projectName || campaign.title,
             postType,
             availableCount,
             purchaseCount,
-            ratio: ratio === Infinity ? 999999 : ratio
+            ratio: ratio === Infinity ? 999999 : ratio,
+            totalCampaignPurchases: totalPurchases
           });
 
-          logger.info(`🔥 Hot campaign found: ${campaign.title} (${postType}) - Ratio: ${ratio.toFixed(2)}, Available: ${availableCount}, Purchased: ${purchaseCount}`);
+          logger.info(`🔥 Hot post_type found: ${campaign.title} (${postType}) - Ratio: ${ratio.toFixed(2)}, Available: ${availableCount}, Purchased: ${purchaseCount}`);
         }
       }
     }
 
-    logger.info(`🔥 Found ${hotCampaigns.length} hot campaign post_types`);
+    logger.info(`🔥 Found ${hotCampaigns.length} hot campaign post_types from top 10 campaigns`);
 
     return res.json({
       success: true,
       data: hotCampaigns,
-      message: `Found ${hotCampaigns.length} hot campaign post_types`
+      message: `Found ${hotCampaigns.length} hot campaign post_types from top 10 campaigns by purchase volume`
     });
 
   } catch (error) {

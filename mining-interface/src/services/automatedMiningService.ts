@@ -3,10 +3,12 @@ import { buildApiUrl } from '../utils/api-config';
 export interface HotCampaign {
   campaignId: string;
   campaignName: string;
+  projectName: string;
   postType: string;
   availableCount: number;
   purchaseCount: number;
   ratio: number;
+  totalCampaignPurchases: number;
 }
 
 export interface MiningStatus {
@@ -104,11 +106,13 @@ class AutomatedMiningService {
     }
   }
 
-  // Generate content for a specific campaign and post type
+  // Generate content for a specific campaign and post type using execution tracking
   async generateContentForCampaign(
     walletAddress: string,
     campaignId: string,
-    postType: string
+    postType: string,
+    campaignName: string,
+    projectName: string
   ): Promise<boolean> {
     try {
       // Check if miner has already generated 5 posts for this post_type
@@ -131,30 +135,170 @@ class AutomatedMiningService {
         }
       }
 
-      // Use the existing mining endpoint to generate content
-      const miningResponse = await fetch(buildApiUrl('mining/start'), {
+      // Check execution availability and reserve slot
+      const executionCheckResponse = await fetch(buildApiUrl('executions/check-and-reserve'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          campaignId,
-          postType,
-          walletAddress
-        }),
+          minerWalletAddress: walletAddress,
+          campaignId: parseInt(campaignId),
+          postType: postType
+        })
       });
 
-      if (!miningResponse.ok) {
-        throw new Error('Failed to generate content');
+      if (!executionCheckResponse.ok) {
+        console.error(`Failed to check execution availability for ${campaignId} (${postType})`);
+        return false;
       }
 
-      this.totalGenerated++;
-      this.lastGeneration = new Date();
-      this.notifyListeners();
+      const executionCheckData = await executionCheckResponse.json();
+      
+      if (!executionCheckData.canGenerate) {
+        console.log(`Cannot generate for ${campaignId} (${postType}): ${executionCheckData.reason}`);
+        return false;
+      }
 
-      return true;
+      const executionId = executionCheckData.executionId;
+      console.log(`Execution reserved: ${executionId} for ${campaignId} (${postType})`);
+
+      // Get agent configuration for the miner
+      const agentResponse = await fetch(
+        buildApiUrl(`agents/user/${walletAddress}`)
+      );
+      
+      if (!agentResponse.ok) {
+        console.error('Failed to fetch agent configuration');
+        return false;
+      }
+
+      const agentData = await agentResponse.json();
+      const agents = agentData.data || [];
+      
+      if (agents.length === 0) {
+        console.error('No agents found for miner');
+        return false;
+      }
+
+      // Use the first available agent
+      const selectedAgent = agents[0];
+
+      // Get neural keys from localStorage
+      const neuralKeys = localStorage.getItem(`burnie_api_keys_${walletAddress}`);
+      if (!neuralKeys) {
+        console.error('No neural keys found for miner');
+        return false;
+      }
+
+      const apiKeys = JSON.parse(neuralKeys);
+
+      // Prepare campaigns data in the same format as Mining screen
+      const campaignsData = [{
+        campaign_id: parseInt(campaignId),
+        agent_id: selectedAgent.id,
+        post_type: postType,
+        include_brand_logo: true, // Default to true for automated generation
+        post_index: 1,
+        campaign_context: {
+          title: campaignName,
+          description: `${campaignName} content generation`,
+          category: 'automated',
+          campaign_type: 'automated',
+          topic: campaignName,
+          guidelines: `Generate engaging ${postType} content for ${campaignName}`,
+          winner_reward: 'ROAST',
+          platform_source: 'automated',
+          projectId: null,
+          projectName: projectName,
+          projectLogoUrl: null,
+          tokenTicker: 'ROAST'
+        }
+      }];
+
+      // Use the same mining endpoint as the Mining screen
+      const miningResponse = await fetch(`${process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000'}/api/mining/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          wallet_address: walletAddress,
+          campaigns: campaignsData,
+          user_preferences: {
+            preferred_tone: "engaging",
+            preferred_length: 250,
+            hashtag_preference: 3,
+            emoji_usage: "moderate"
+          },
+          user_api_keys: Object.fromEntries(
+            Object.entries({
+              openai: apiKeys?.openai,
+              anthropic: apiKeys?.anthropic,
+              google: apiKeys?.google,
+              replicate: apiKeys?.replicate,
+              elevenlabs: apiKeys?.elevenlabs,
+              stability: apiKeys?.stability,
+              fal: apiKeys?.fal
+            }).filter(([key, value]) => value && value.trim() !== '')
+          )
+        })
+      });
+
+      if (miningResponse.ok) {
+        const result = await miningResponse.json();
+        console.log(`Content generated successfully for ${campaignId} (${postType}):`, result);
+        
+        // Mark execution as completed
+        await fetch(buildApiUrl(`executions/${executionId}/complete`), {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        this.totalGenerated++;
+        this.lastGeneration = new Date();
+        this.notifyListeners();
+        
+        return true;
+      } else {
+        const errorText = await miningResponse.text();
+        console.error(`Failed to generate content for ${campaignId} (${postType}):`, errorText);
+        
+        // Mark execution as failed
+        await fetch(buildApiUrl(`executions/${executionId}/failed`), {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            errorMessage: `Content generation failed: ${errorText}`
+          })
+        });
+        
+        return false;
+      }
     } catch (error) {
-      console.error('Error generating content:', error);
+      console.error(`Error generating content for ${campaignId} (${postType}):`, error);
+      
+      // Mark execution as failed if we have an executionId
+      if (executionId) {
+        try {
+          await fetch(buildApiUrl(`executions/${executionId}/failed`), {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              errorMessage: `Content generation error: ${error instanceof Error ? error.message : 'Unknown error'}`
+            })
+          });
+        } catch (markFailedError) {
+          console.error('Failed to mark execution as failed:', markFailedError);
+        }
+      }
+      
       return false;
     }
   }
@@ -193,7 +337,9 @@ class AutomatedMiningService {
           const generated = await this.generateContentForCampaign(
             walletAddress,
             campaign.campaignId,
-            campaign.postType
+            campaign.postType,
+            campaign.campaignName,
+            campaign.projectName
           );
 
           if (generated) {
