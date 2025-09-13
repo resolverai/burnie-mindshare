@@ -1274,14 +1274,32 @@ async def run_dedicated_miner_generation(
         # Set the source for tracking
         crew_service.source = "dedicated_miner"
         
-        # Generate content using the crew AI service
-        result = await crew_service.generate_content_for_campaigns(
-            user_id=user_id,
-            campaigns=campaigns,
-            user_preferences=user_preferences,
-            user_api_keys=user_api_keys,
-            wallet_address=wallet_address
-        )
+        # Process campaigns one by one (same pattern as yapper interface and regular mining)
+        for campaign_pair in campaigns:
+            # Create mining session for this campaign
+            mining_session = MiningSession(
+                session_id=execution_id,  # Use execution_id as session_id
+                user_id=user_id,
+                campaign_id=campaign_pair.campaign_id,
+                agent_id=campaign_pair.agent_id,
+                campaign_context=campaign_pair.campaign_context,
+                user_preferences=user_preferences,
+                user_api_keys=user_api_keys,
+                post_type=campaign_pair.post_type,
+                include_brand_logo=campaign_pair.include_brand_logo,
+                source="dedicated_miner"
+            )
+            
+            # Set the mining session so it can access campaign context
+            crew_service.mining_session = mining_session
+            
+            # Generate content for this campaign
+            result = await crew_service.generate_content(
+                mining_session,
+                user_api_keys=user_api_keys,
+                agent_id=campaign_pair.agent_id,
+                wallet_address=wallet_address
+            )
         
         logger.info(f"✅ Dedicated miner generation completed: {execution_id}")
         
