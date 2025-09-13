@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { ILike } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { DedicatedMinerExecution } from '../models/DedicatedMinerExecution';
 import { ContentMarketplace } from '../models/ContentMarketplace';
@@ -36,10 +37,10 @@ router.post('/executions/check-and-reserve', async (req, res) => {
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);
     const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
 
-    // Check if miner already has an active generation
+    // Check if miner already has an active generation (use case-insensitive comparison)
     const existingMinerExecution = await executionRepository.findOne({
       where: {
-        minerWalletAddress,
+        minerWalletAddress: ILike(minerWalletAddress.toLowerCase()),
         status: 'generating'
       }
     });
@@ -117,9 +118,9 @@ router.post('/executions/check-and-reserve', async (req, res) => {
       });
     }
 
-    // Reserve execution slot
+    // Reserve execution slot (store wallet address in lowercase)
     const execution = executionRepository.create({
-      minerWalletAddress,
+      minerWalletAddress: minerWalletAddress.toLowerCase(),
       campaignId: parseInt(campaignId),
       postType,
       status: 'generating',
@@ -262,7 +263,7 @@ router.get('/executions/miner/:walletAddress/status', async (req, res) => {
 
     const executionRepository = AppDataSource.getRepository(DedicatedMinerExecution);
     const executions = await executionRepository.find({
-      where: { minerWalletAddress: walletAddress },
+      where: { minerWalletAddress: ILike(walletAddress.toLowerCase()) },
       order: { createdAt: 'DESC' },
       take: 10 // Get last 10 executions
     });
@@ -296,6 +297,42 @@ router.get('/executions/miner/:walletAddress/status', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch execution status',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * GET /api/executions/miner/:walletAddress/total-completed
+ * Get total count of completed executions for a miner
+ */
+router.get('/executions/miner/:walletAddress/total-completed', async (req, res) => {
+  try {
+    const { walletAddress } = req.params;
+
+    const executionRepository = AppDataSource.getRepository(DedicatedMinerExecution);
+    
+    // Count completed executions for this miner (use case-insensitive comparison)
+    const totalCompleted = await executionRepository.count({
+      where: { 
+        minerWalletAddress: ILike(walletAddress.toLowerCase()),
+        status: 'completed'
+      }
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        walletAddress,
+        totalCompleted
+      }
+    });
+
+  } catch (error) {
+    logger.error('❌ Error fetching miner total completed count:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch total completed count',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }

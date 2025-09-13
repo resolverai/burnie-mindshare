@@ -107,6 +107,21 @@ class AutomatedMiningService {
     }
   }
 
+  // Fetch total completed executions from database
+  async getTotalCompleted(walletAddress: string): Promise<number> {
+    try {
+      const response = await fetch(buildApiUrl(`executions/miner/${walletAddress}/total-completed`));
+      if (!response.ok) {
+        throw new Error('Failed to fetch total completed count');
+      }
+      const data = await response.json();
+      return data.data?.totalCompleted || 0;
+    } catch (error) {
+      console.error('Error fetching total completed count:', error);
+      return 0; // Return 0 on error to avoid breaking the UI
+    }
+  }
+
   // Generate content for a specific campaign and post type using execution tracking
   async generateContentForCampaign(
     walletAddress: string,
@@ -318,16 +333,28 @@ class AutomatedMiningService {
         const recentExecutions = statusData.data.recentExecutions || [];
         
         // Check if any executions have completed since last check
-        const completedExecutions = recentExecutions.filter((exec: any) => 
-          exec.status === 'completed' && 
-          exec.completedAt && 
-          new Date(exec.completedAt) > this.lastGeneration
-        );
-        
-        if (completedExecutions.length > 0) {
-          console.log(`Found ${completedExecutions.length} completed executions, updating counter`);
-          this.totalGenerated += completedExecutions.length;
-          this.notifyListeners();
+        // Instead of incrementing locally, fetch the actual total from database
+        try {
+          const actualTotal = await this.getTotalCompleted(walletAddress);
+          if (actualTotal !== this.totalGenerated) {
+            console.log(`Total generated count updated from ${this.totalGenerated} to ${actualTotal}`);
+            this.totalGenerated = actualTotal;
+            this.notifyListeners();
+          }
+        } catch (error) {
+          console.error('Failed to fetch updated total count:', error);
+          // Fallback to local increment logic if API fails
+          const completedExecutions = recentExecutions.filter((exec: any) => 
+            exec.status === 'completed' && 
+            exec.completedAt && 
+            new Date(exec.completedAt) > this.lastGeneration
+          );
+          
+          if (completedExecutions.length > 0) {
+            console.log(`Found ${completedExecutions.length} completed executions, updating counter`);
+            this.totalGenerated += completedExecutions.length;
+            this.notifyListeners();
+          }
         }
       }
     } catch (error) {
@@ -349,6 +376,16 @@ class AutomatedMiningService {
     }
 
     this.isRunning = true;
+    
+    // Fetch the actual total from database instead of using local counter
+    try {
+      this.totalGenerated = await this.getTotalCompleted(walletAddress);
+      console.log(`Initialized total generated count from database: ${this.totalGenerated}`);
+    } catch (error) {
+      console.error('Failed to fetch initial total count:', error);
+      this.totalGenerated = 0; // Fallback to 0
+    }
+    
     this.notifyListeners();
 
     // Start periodic execution completion checking

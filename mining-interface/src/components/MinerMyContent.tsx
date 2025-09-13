@@ -302,7 +302,7 @@ export default function MinerMyContent() {
 
   // MINER mode: Periodic checks to refresh hot campaigns and prevent over-generation
   useEffect(() => {
-    if (isMinerMode && address && miningStatus.isRunning) {
+    if (isMinerMode && address && miningStatus.isRunning && !manuallyStopped) {
       const intervalId = setInterval(() => {
         // Only refresh content data if not currently generating to avoid confusion
         if (!miningStatus.currentCampaign) {
@@ -314,21 +314,23 @@ export default function MinerMyContent() {
           })
         }
         
-        // Check mining readiness again to ensure conditions are still met
-        automatedMiningService.checkMiningReadiness(address).then(newReadiness => {
-          if (!newReadiness.canStart && miningStatus.isRunning) {
-            console.log('Mining readiness lost, stopping automated mining')
-            automatedMiningService.stopMining()
-            showToast('Automated mining stopped: requirements no longer met', 'warning')
-          }
-        }).catch(error => {
-          console.error('Error checking mining readiness:', error)
-        })
+        // Check mining readiness again to ensure conditions are still met (only if not manually stopped)
+        if (!manuallyStopped) {
+          automatedMiningService.checkMiningReadiness(address).then(newReadiness => {
+            if (!newReadiness.canStart && miningStatus.isRunning) {
+              console.log('Mining readiness lost, stopping automated mining')
+              automatedMiningService.stopMining()
+              showToast('Automated mining stopped: requirements no longer met', 'warning')
+            }
+          }).catch(error => {
+            console.error('Error checking mining readiness:', error)
+          })
+        }
       }, 120000) // Check every 2 minutes to reduce frequency
 
       return () => clearInterval(intervalId)
     }
-  }, [isMinerMode, address, miningStatus.isRunning, miningStatus.currentCampaign, queryClient, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage])
+  }, [isMinerMode, address, miningStatus.isRunning, miningStatus.currentCampaign, manuallyStopped, queryClient, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage])
 
   // Pagination handlers
   const handlePageChange = (page: number) => {
