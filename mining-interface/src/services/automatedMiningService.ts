@@ -21,6 +21,7 @@ export interface MiningStatus {
 class AutomatedMiningService {
   private isRunning = false;
   private intervalId: NodeJS.Timeout | null = null;
+  private completionCheckId: NodeJS.Timeout | null = null;
   private currentCampaign: HotCampaign | null = null;
   private totalGenerated = 0;
   private lastGeneration: Date | null = null;
@@ -227,6 +228,8 @@ class AutomatedMiningService {
         body: JSON.stringify({
           wallet_address: walletAddress,
           campaigns: campaignsData,
+          execution_id: executionId, // Pass the execution ID to Python AI backend
+          source: "dedicated_miner", // Identify this as a dedicated miner request
           user_preferences: {
             preferred_tone: "engaging",
             preferred_length: 250,
@@ -249,25 +252,20 @@ class AutomatedMiningService {
 
       if (miningResponse.ok) {
         const result = await miningResponse.json();
-        console.log(`Content generated successfully for ${campaignId} (${postType}):`, result);
+        console.log(`Mining process started successfully for ${campaignId} (${postType}):`, result);
+        console.log(`Session ID: ${result.session_id}, Status: ${result.status}`);
         
-        // Mark execution as completed
-        const completeResponse = await fetch(buildApiUrl(`executions/${executionId}/complete`), {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
+        // NOTE: Do NOT mark execution as completed here!
+        // The Python AI backend will continue processing in the background.
+        // The execution should remain in 'generating' status until the actual
+        // content generation completes or fails in the CrewAI service.
         
-        if (completeResponse.ok) {
-          // Only increment counter after execution is properly marked as completed
-          this.totalGenerated++;
-          this.lastGeneration = new Date();
-          this.notifyListeners();
-          console.log(`Execution ${executionId} marked as completed successfully`);
-        } else {
-          console.error(`Failed to mark execution ${executionId} as completed`);
-        }
+        // Update last generation attempt time (not completion time)
+        this.lastGeneration = new Date();
+        this.notifyListeners();
+        
+        console.log(`Execution ${executionId} remains in 'generating' status - awaiting completion from Python AI backend`);
+        console.log(`Total generated count will be updated when Python AI backend completes the actual content generation`);
         
         return true;
       } else {
@@ -311,6 +309,32 @@ class AutomatedMiningService {
     }
   }
 
+  // Check for completed executions and update counters
+  private async checkExecutionCompletions(walletAddress: string): Promise<void> {
+    try {
+      const statusResponse = await fetch(buildApiUrl(`executions/miner/${walletAddress}/status`));
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json();
+        const recentExecutions = statusData.data.recentExecutions || [];
+        
+        // Check if any executions have completed since last check
+        const completedExecutions = recentExecutions.filter((exec: any) => 
+          exec.status === 'completed' && 
+          exec.completedAt && 
+          new Date(exec.completedAt) > this.lastGeneration
+        );
+        
+        if (completedExecutions.length > 0) {
+          console.log(`Found ${completedExecutions.length} completed executions, updating counter`);
+          this.totalGenerated += completedExecutions.length;
+          this.notifyListeners();
+        }
+      }
+    } catch (error) {
+      console.error('Error checking execution completions:', error);
+    }
+  }
+
   // Start automated mining
   async startMining(walletAddress: string): Promise<void> {
     if (this.isRunning) {
@@ -326,6 +350,11 @@ class AutomatedMiningService {
 
     this.isRunning = true;
     this.notifyListeners();
+
+    // Start periodic execution completion checking
+    this.completionCheckId = setInterval(() => {
+      this.checkExecutionCompletions(walletAddress);
+    }, 30000); // Check every 30 seconds for completed executions
 
     // Start the mining loop with proper sequential execution
     this.intervalId = setInterval(async () => {
@@ -386,6 +415,11 @@ class AutomatedMiningService {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
+    }
+
+    if (this.completionCheckId) {
+      clearInterval(this.completionCheckId);
+      this.completionCheckId = null;
     }
 
     this.isRunning = false;

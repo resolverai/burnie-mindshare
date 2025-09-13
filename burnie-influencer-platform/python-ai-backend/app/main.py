@@ -303,8 +303,9 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
         else:
             raise HTTPException(status_code=400, detail="Either campaigns list or single campaign_id and agent_id are required")
         
-        # Check if this is a yapper interface request
+        # Check if this is a yapper interface or dedicated miner request
         is_yapper_interface = request.source == "yapper_interface"
+        is_dedicated_miner = request.source == "dedicated_miner"
         
         if is_yapper_interface:
             # For yapper interface, skip API key validation - will use system keys
@@ -313,8 +314,36 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
             available_all_keys = ['system_keys']
             generation_mode = "full_multimodal"
             generation_message = f"Yapper interface content generation initiated for {len(campaigns_to_process)} campaign(s). Using system API keys."
+        elif is_dedicated_miner:
+            # For dedicated miner, validate API keys
+            if not request.user_api_keys:
+                raise HTTPException(status_code=400, detail="API keys are required for dedicated miner. Please configure your neural keys.")
+            
+            # Count available API keys and categorize them
+            text_providers = ['openai', 'anthropic']
+            visual_providers = ['openai', 'google', 'fal', 'replicate', 'stability']
+            
+            available_text_keys = [k for k in text_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
+            available_visual_keys = [k for k in visual_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
+            available_all_keys = [k for k, v in request.user_api_keys.items() if v and v.strip()]
+            
+            # Text generation is mandatory
+            if not available_text_keys:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Text generation API key is required for dedicated miner. Please configure OpenAI or Anthropic API key in Neural Keys."
+                )
+            
+            # Determine generation capabilities
+            generation_message = f"Dedicated miner generation initiated for {len(campaigns_to_process)} campaign(s). "
+            if available_visual_keys:
+                generation_message += f"Text generation enabled with {available_text_keys[0].upper()}. Visual content generation available with {len(available_visual_keys)} provider(s)."
+                generation_mode = "full_multimodal"
+            else:
+                generation_message += f"Text generation enabled with {available_text_keys[0].upper()}. Visual content will be skipped (no visual API keys available)."
+                generation_mode = "text_only"
         else:
-            # For mining interface, validate API keys
+            # For regular mining interface, validate API keys
             if not request.user_api_keys:
                 raise HTTPException(status_code=400, detail="API keys are required. Please configure at least your text generation API key in Neural Keys.")
             
@@ -388,8 +417,20 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
                     "generation_mode": generation_mode
                 }
             }
+        elif is_dedicated_miner:
+            # Start background task for dedicated miner with execution tracking
+            background_tasks.add_task(
+                run_dedicated_miner_generation,
+                request.execution_id,  # Pass the execution ID for tracking
+                session_id,
+                user_id,
+                campaigns_to_process,
+                request.user_preferences or {},
+                request.user_api_keys,
+                request.wallet_address
+            )
         else:
-            # For mining interface, use existing flow
+            # For regular mining interface, use existing flow
             background_tasks.add_task(
                 run_multi_campaign_generation,
                 session_id,
@@ -1203,6 +1244,84 @@ async def get_project_twitter_context(project_id: int):
                 "context": ""
             }
         )
+
+async def run_dedicated_miner_generation(
+    execution_id: str,
+    session_id: str, 
+    user_id: int, 
+    campaigns: List[CampaignAgentPair], 
+    user_preferences: dict, 
+    user_api_keys: Dict[str, str],
+    wallet_address: str
+):
+    """Background task for dedicated miner content generation with execution tracking"""
+    try:
+        logger.info(f"🔧 Starting dedicated miner generation: {execution_id} for user {wallet_address}")
+        
+        # Import the crew AI service
+        from app.services.crew_ai_service import CrewAIService
+        
+        # Create crew AI service instance
+        crew_service = CrewAIService()
+        
+        # Set the execution ID for tracking
+        crew_service.execution_id = execution_id
+        crew_service.source = "dedicated_miner"
+        
+        # Generate content using the crew AI service
+        result = await crew_service.generate_content_for_campaigns(
+            user_id=user_id,
+            campaigns=campaigns,
+            user_preferences=user_preferences,
+            user_api_keys=user_api_keys,
+            wallet_address=wallet_address
+        )
+        
+        logger.info(f"✅ Dedicated miner generation completed: {execution_id}")
+        
+        # Update execution status to completed via TypeScript backend
+        try:
+            from app.config.settings import settings
+            typescript_backend_url = settings.typescript_backend_url or "http://localhost:3001"
+            
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    f"{typescript_backend_url}/api/executions/{execution_id}/complete",
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Updated dedicated miner execution status to completed: {execution_id}")
+                else:
+                    logger.warning(f"⚠️ Failed to update dedicated miner execution status: {response.status_code} - {response.text}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to update dedicated miner execution status: {e}")
+            
+    except Exception as e:
+        logger.error(f"❌ Dedicated miner generation failed: {execution_id} - {e}")
+        
+        # Update execution status to failed via TypeScript backend
+        try:
+            from app.config.settings import settings
+            typescript_backend_url = settings.typescript_backend_url or "http://localhost:3001"
+            
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    f"{typescript_backend_url}/api/executions/{execution_id}/failed",
+                    json={
+                        "errorMessage": f"Dedicated miner generation failed: {str(e)}"
+                    },
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"✅ Updated dedicated miner execution status to failed: {execution_id}")
+                else:
+                    logger.warning(f"⚠️ Failed to update dedicated miner execution status: {response.status_code} - {response.text}")
+        except Exception as update_error:
+            logger.warning(f"⚠️ Failed to update dedicated miner execution status: {update_error}")
 
 if __name__ == "__main__":
     uvicorn.run(
