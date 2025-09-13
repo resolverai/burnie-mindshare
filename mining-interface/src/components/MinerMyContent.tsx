@@ -303,13 +303,15 @@ export default function MinerMyContent() {
   useEffect(() => {
     if (isMinerMode && address && miningStatus.isRunning) {
       const intervalId = setInterval(() => {
-        // Refresh content data to get latest generation status
-        queryClient.invalidateQueries({
-          queryKey: ['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage]
-        })
-        queryClient.invalidateQueries({
-          queryKey: ['miner-content-totals', address, searchTerm, statusFilter, biddingFilter, availabilityFilter]
-        })
+        // Only refresh content data if not currently generating to avoid confusion
+        if (!miningStatus.currentCampaign) {
+          queryClient.invalidateQueries({
+            queryKey: ['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage]
+          })
+          queryClient.invalidateQueries({
+            queryKey: ['miner-content-totals', address, searchTerm, statusFilter, biddingFilter, availabilityFilter]
+          })
+        }
         
         // Check mining readiness again to ensure conditions are still met
         automatedMiningService.checkMiningReadiness(address).then(newReadiness => {
@@ -321,11 +323,11 @@ export default function MinerMyContent() {
         }).catch(error => {
           console.error('Error checking mining readiness:', error)
         })
-      }, 60000) // Check every 60 seconds
+      }, 120000) // Check every 2 minutes to reduce frequency
 
       return () => clearInterval(intervalId)
     }
-  }, [isMinerMode, address, miningStatus.isRunning, queryClient, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage])
+  }, [isMinerMode, address, miningStatus.isRunning, miningStatus.currentCampaign, queryClient, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage])
 
   // Pagination handlers
   const handlePageChange = (page: number) => {

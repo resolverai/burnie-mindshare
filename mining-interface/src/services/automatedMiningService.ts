@@ -252,16 +252,22 @@ class AutomatedMiningService {
         console.log(`Content generated successfully for ${campaignId} (${postType}):`, result);
         
         // Mark execution as completed
-        await fetch(buildApiUrl(`executions/${executionId}/complete`), {
+        const completeResponse = await fetch(buildApiUrl(`executions/${executionId}/complete`), {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
           }
         });
         
-        this.totalGenerated++;
-        this.lastGeneration = new Date();
-        this.notifyListeners();
+        if (completeResponse.ok) {
+          // Only increment counter after execution is properly marked as completed
+          this.totalGenerated++;
+          this.lastGeneration = new Date();
+          this.notifyListeners();
+          console.log(`Execution ${executionId} marked as completed successfully`);
+        } else {
+          console.error(`Failed to mark execution ${executionId} as completed`);
+        }
         
         return true;
       } else {
@@ -321,9 +327,19 @@ class AutomatedMiningService {
     this.isRunning = true;
     this.notifyListeners();
 
-    // Start the mining loop
+    // Start the mining loop with proper sequential execution
     this.intervalId = setInterval(async () => {
       try {
+        // Check if miner already has an active generation
+        const statusResponse = await fetch(buildApiUrl(`executions/miner/${walletAddress}/status`));
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          if (statusData.data.activeExecution) {
+            console.log(`Miner already has active generation: ${statusData.data.activeExecution.id}`);
+            return; // Skip this cycle if miner is already generating
+          }
+        }
+
         const hotCampaigns = await this.getHotCampaigns();
         
         if (hotCampaigns.length === 0) {
@@ -331,24 +347,27 @@ class AutomatedMiningService {
           return;
         }
 
-        // Process campaigns sequentially
-        for (const campaign of hotCampaigns) {
-          this.currentCampaign = campaign;
-          this.notifyListeners();
+        // Process only ONE campaign per cycle to ensure sequential execution
+        const campaign = hotCampaigns[0]; // Take the first (highest priority) campaign
+        this.currentCampaign = campaign;
+        this.notifyListeners();
 
-          const generated = await this.generateContentForCampaign(
-            walletAddress,
-            campaign.campaignId,
-            campaign.postType,
-            campaign.campaignName,
-            campaign.projectName
-          );
+        console.log(`Attempting to generate content for ${campaign.campaignName} (${campaign.postType})`);
+        
+        const generated = await this.generateContentForCampaign(
+          walletAddress,
+          campaign.campaignId,
+          campaign.postType,
+          campaign.campaignName,
+          campaign.projectName
+        );
 
-          if (generated) {
-            console.log(`Generated content for ${campaign.campaignName} (${campaign.postType})`);
-            // Wait a bit before next generation
-            await new Promise(resolve => setTimeout(resolve, 5000));
-          }
+        if (generated) {
+          console.log(`Successfully generated content for ${campaign.campaignName} (${campaign.postType})`);
+          // Wait longer before next cycle to ensure content is processed
+          await new Promise(resolve => setTimeout(resolve, 10000));
+        } else {
+          console.log(`Failed to generate content for ${campaign.campaignName} (${campaign.postType})`);
         }
 
         this.currentCampaign = null;
@@ -356,8 +375,10 @@ class AutomatedMiningService {
 
       } catch (error) {
         console.error('Error in mining loop:', error);
+        this.currentCampaign = null;
+        this.notifyListeners();
       }
-    }, 30000); // Check every 30 seconds
+    }, 60000); // Check every 60 seconds to give more time between generations
   }
 
   // Stop automated mining
