@@ -84,6 +84,7 @@ export default function MinerMyContent() {
   const [biddingFilter, setBiddingFilter] = useState<'all' | 'enabled' | 'disabled'>('all')
   const [availabilityFilter, setAvailabilityFilter] = useState<'all' | 'available' | 'unavailable'>('all')
   const [currentPage, setCurrentPage] = useState(1)
+  const [manuallyStopped, setManuallyStopped] = useState(false) // Track if user manually stopped mining
   const [pagination, setPagination] = useState<{
     currentPage: number
     limit: number
@@ -289,15 +290,15 @@ export default function MinerMyContent() {
     }
   }, [isMinerMode, address])
 
-  // MINER mode: Start mining automatically when ready
+  // MINER mode: Start mining automatically when ready (only if not manually stopped)
   useEffect(() => {
-    if (isMinerMode && address && miningReadiness?.canStart && !miningStatus.isRunning) {
+    if (isMinerMode && address && miningReadiness?.canStart && !miningStatus.isRunning && !manuallyStopped) {
       automatedMiningService.startMining(address).catch(error => {
         console.error('Failed to start automated mining:', error)
         showToast('Failed to start automated mining: ' + error.message, 'error')
       })
     }
-  }, [isMinerMode, address, miningReadiness, miningStatus.isRunning])
+  }, [isMinerMode, address, miningReadiness, miningStatus.isRunning, manuallyStopped])
 
   // MINER mode: Periodic checks to refresh hot campaigns and prevent over-generation
   useEffect(() => {
@@ -357,6 +358,7 @@ export default function MinerMyContent() {
     if (!address) return
 
     try {
+      setManuallyStopped(false) // Reset the manually stopped flag
       await automatedMiningService.startMining(address)
       showToast('Automated mining started successfully!', 'success')
     } catch (error) {
@@ -367,6 +369,7 @@ export default function MinerMyContent() {
 
   const handleStopMining = () => {
     automatedMiningService.stopMining()
+    setManuallyStopped(true) // Mark as manually stopped to prevent auto-restart
     showToast('Automated mining stopped', 'info')
   }
 

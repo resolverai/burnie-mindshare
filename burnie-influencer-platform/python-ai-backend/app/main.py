@@ -422,7 +422,7 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
             background_tasks.add_task(
                 run_dedicated_miner_generation,
                 request.execution_id,  # Pass the execution ID for tracking
-                session_id,
+                request.execution_id,  # Use execution_id as session_id for dedicated miners
                 user_id,
                 campaigns_to_process,
                 request.user_preferences or {},
@@ -1261,11 +1261,17 @@ async def run_dedicated_miner_generation(
         # Import the crew AI service
         from app.services.crew_ai_service import CrewAIService
         
-        # Create crew AI service instance
-        crew_service = CrewAIService()
+        # Create crew AI service instance with required parameters
+        # For dedicated miners, use execution_id as session_id since no WebSockets needed
+        crew_service = CrewAIService(
+            session_id=execution_id,  # Use execution_id from dedicated_miner_executions table
+            progress_tracker=progress_tracker,
+            websocket_manager=manager,
+            websocket_session_id=execution_id,  # Use execution_id for consistency
+            execution_id=execution_id
+        )
         
-        # Set the execution ID for tracking
-        crew_service.execution_id = execution_id
+        # Set the source for tracking
         crew_service.source = "dedicated_miner"
         
         # Generate content using the crew AI service
