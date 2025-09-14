@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useAccount } from 'wagmi'
+import { useAccount, useBalance } from 'wagmi'
 import Image from 'next/image'
 import { 
   MagnifyingGlassIcon,
@@ -32,6 +32,7 @@ import { useAuth } from '@/hooks/useAuth'
 // Scroll restoration removed - using page reload instead
 import NoContentFound from '../NoContentFound'
 import { ContentRequestService } from '../../services/contentRequestService'
+import useMixpanel from '../../hooks/useMixpanel'
 
 
 // Referral Code Section Component
@@ -39,6 +40,13 @@ const ReferralCodeSection = () => {
   const { referralCode, copyReferralLink } = useUserReferralCode()
   const { isAuthenticated } = useAuth()
   const [showCopySuccess, setShowCopySuccess] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const mixpanel = useMixpanel()
+
+  // Handle SSR hydration
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const handleReferralCodeClick = async () => {
     if (referralCode?.code) {
@@ -46,8 +54,21 @@ const ReferralCodeSection = () => {
       if (success) {
         setShowCopySuccess(true)
         setTimeout(() => setShowCopySuccess(false), 2000)
+        
+        // Track referral code copy
+        mixpanel.referralCodeCopied({
+          referralCode: referralCode.code,
+          copySource: 'referralSection',
+          copySuccess: true,
+          deviceType: window.innerWidth < 768 ? 'mobile' : 'desktop'
+        })
       }
     }
+  }
+
+  // Prevent hydration mismatch by not rendering until mounted
+  if (!mounted) {
+    return <div></div>
   }
 
   if (!isAuthenticated || !referralCode) return null
@@ -87,6 +108,25 @@ export default function BiddingInterface() {
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
   const { price: roastPrice } = useROASTPrice()
+  const mixpanel = useMixpanel()
+  // Get ROAST balance (raw numeric value)
+  const ROAST_TOKEN_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN as `0x${string}`
+  const { data: roastBalance } = useBalance({
+    address: address,
+    token: ROAST_TOKEN_ADDRESS,
+    query: {
+      enabled: !!address && !!ROAST_TOKEN_ADDRESS,
+    },
+  })
+  
+  // Get USDC balance
+  const { data: usdcBalance } = useBalance({
+    address: address,
+    token: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
+    query: {
+      enabled: !!address,
+    },
+  })
   const [selectedPlatform, setSelectedPlatform] = useState('all')
   const [selectedProject, setSelectedProject] = useState('all')
   const [selectedPostType, setSelectedPostType] = useState('all')
@@ -197,6 +237,8 @@ export default function BiddingInterface() {
 
 
 
+  // Page view tracking moved to individual page components to avoid duplicates
+
   // Debug carousel data
   useEffect(() => {
     if (carouselSlides.length > 0) {
@@ -207,11 +249,27 @@ export default function BiddingInterface() {
   // Debounced search - only search after user stops typing for 500ms
   useEffect(() => {
     const timer = setTimeout(() => {
+      if (debouncedSearchTerm !== searchTerm && searchTerm !== '') {
+        // Determine if this is homepage (unauthenticated) or marketplace (authenticated)
+        const isHomepage = window.location.pathname === '/'
+        const marketplaceType = isHomepage ? 'unauthenticated' : 'authenticated'
+        const screenName = isHomepage ? 'Homepage' : 'Marketplace'
+        
+        // Track search performed
+        mixpanel.contentSearchPerformed({
+          searchQuery: searchTerm,
+          resultsCount: content?.length || 0,
+          searchTime: 500, // Debounce time
+          screenName: screenName,
+          marketplaceType: marketplaceType,
+          userAuthenticated: !!address
+        })
+      }
       setDebouncedSearchTerm(searchTerm)
     }, 500)
 
     return () => clearTimeout(timer)
-  }, [searchTerm])
+  }, [searchTerm, debouncedSearchTerm, content, mixpanel, address])
 
 
   
@@ -330,6 +388,38 @@ export default function BiddingInterface() {
   };
 
   const handleCardClick = (item: ContentItem) => {
+    // Determine if this is homepage (unauthenticated) or marketplace (authenticated)
+    const isHomepage = window.location.pathname === '/'
+    const marketplaceType = isHomepage ? 'unauthenticated' : 'authenticated'
+    const screenName = isHomepage ? 'Homepage' : 'Marketplace'
+    
+    // Debug logging for mobile event tracking
+    console.log('🎯 Mobile contentItemClicked event:', {
+      contentId: item.id,
+      contentType: item.post_type === 'visual' ? 'visual' : 'text',
+      screenName: screenName,
+      marketplaceType: marketplaceType,
+      deviceType: window.innerWidth < 768 ? 'mobile' : 'desktop'
+    });
+    
+    // Track combined content item clicked event (replaces contentItemViewed + purchaseModalOpened)
+    mixpanel.contentItemClicked({
+      contentId: item.id,
+      contentType: item.post_type === 'visual' ? 'visual' : 'text',
+      campaignId: item.campaign.id,
+      contentPrice: item.asking_price,
+      contentMindshare: item.predicted_mindshare,
+      contentQuality: item.quality_score,
+      campaignTitle: item.campaign.title,
+      platformSource: (item.campaign as any).platform_source || '',
+      projectName: (item.campaign as any).project_name || '',
+      screenName: screenName,
+      marketplaceType: marketplaceType,
+      userROASTBalance: Math.floor(parseFloat(roastBalance?.formatted || '0')),
+      userUSDCBalance: Math.floor(parseFloat(usdcBalance?.formatted || '0')),
+      userAuthenticated: !!address
+    });
+    
     // Open PurchaseContentModal instead of expanding card
     setShowPurchaseModal(item);
   };
@@ -485,16 +575,67 @@ export default function BiddingInterface() {
 
   // Memoized platform change handler
   const handlePlatformChange = useCallback((platform: string) => {
+    const previousValue = selectedPlatform
     setSelectedPlatform(platform)
-  }, [])
+    
+    // Determine if this is homepage (unauthenticated) or marketplace (authenticated)
+    const isHomepage = window.location.pathname === '/'
+    const marketplaceType = isHomepage ? 'unauthenticated' : 'authenticated'
+    const screenName = isHomepage ? 'Homepage' : 'Marketplace'
+    
+    // Track filter applied
+    mixpanel.contentFilterApplied({
+      filterType: 'platform',
+      filterValue: platform,
+      resultsCount: content?.length || 0,
+      previousFilterValue: previousValue,
+      screenName: screenName,
+      marketplaceType: marketplaceType,
+      userAuthenticated: !!address
+    })
+  }, [selectedPlatform, content, mixpanel, address])
 
   const handleProjectChange = useCallback((project: string) => {
+    const previousValue = selectedProject
     setSelectedProject(project)
-  }, [])
+    
+    // Determine if this is homepage (unauthenticated) or marketplace (authenticated)
+    const isHomepage = window.location.pathname === '/'
+    const marketplaceType = isHomepage ? 'unauthenticated' : 'authenticated'
+    const screenName = isHomepage ? 'Homepage' : 'Marketplace'
+    
+    // Track filter applied
+    mixpanel.contentFilterApplied({
+      filterType: 'project',
+      filterValue: project,
+      resultsCount: content?.length || 0,
+      previousFilterValue: previousValue,
+      screenName: screenName,
+      marketplaceType: marketplaceType,
+      userAuthenticated: !!address
+    })
+  }, [selectedProject, content, mixpanel, address])
 
   const handlePostTypeChange = useCallback((postType: string) => {
+    const previousValue = selectedPostType
     setSelectedPostType(postType)
-  }, [])
+    
+    // Determine if this is homepage (unauthenticated) or marketplace (authenticated)
+    const isHomepage = window.location.pathname === '/'
+    const marketplaceType = isHomepage ? 'unauthenticated' : 'authenticated'
+    const screenName = isHomepage ? 'Homepage' : 'Marketplace'
+    
+    // Track filter applied
+    mixpanel.contentFilterApplied({
+      filterType: 'postType',
+      filterValue: postType,
+      resultsCount: content?.length || 0,
+      previousFilterValue: previousValue,
+      screenName: screenName,
+      marketplaceType: marketplaceType,
+      userAuthenticated: !!address
+    })
+  }, [selectedPostType, content, mixpanel, address])
 
   // Filters Component - memoized to prevent unnecessary re-renders
   const FiltersBar = useCallback(() => (
@@ -665,7 +806,7 @@ export default function BiddingInterface() {
                               <div className="flex flex-col sm:flex-row items-center justify-between sm:justify-between md:justify-start lg:justify-between rounded-md xs:rounded-lg sm:rounded-[10px] md:rounded-[12px] bg-white/10 backdrop-blur-md px-2 xs:px-2.5 sm:px-4 md:px-4 lg:px-5 py-2.5 xs:py-3 sm:py-3 md:py-2.5 lg:py-3 shadow-[0_6px_20px_rgba(0,0,0,0.25)] md:shadow-[0_10px_30px_rgba(0,0,0,0.25)] gap-2 xs:gap-2.5 sm:gap-3 md:gap-20 lg:gap-3 max-w-[85vw] xs:max-w-[70vw] sm:max-w-[85vw] md:max-w-[90vw] lg:max-w-[85vw] xl:max-w-full">
                                 <PriceDisplay roastAmount={item.asking_price} />
                                 <button
-                                  onClick={() => setShowPurchaseModal(item)}
+                                  onClick={() => handleCardClick(item)}
                                   className="btn-yapper-primary h-9 xs:h-10 sm:h-10 md:h-10 lg:h-12 px-2.5 xs:px-3 sm:px-5 md:px-4 lg:px-5 glow-button-orange w-full sm:w-auto min-w-[70px] xs:min-w-[80px] sm:min-w-[100px] md:min-w-[80px] lg:min-w-[100px] xl:min-w-[100px] text-xs xs:text-xs sm:text-sm md:text-xs lg:text-base font-medium flex-shrink-0 shadow-lg touch-manipulation"
                                 >
                                   Preview

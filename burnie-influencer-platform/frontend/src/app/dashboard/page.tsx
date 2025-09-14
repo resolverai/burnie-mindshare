@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import YapperDashboard from '@/components/YapperDashboard'
 import { useAuthGuard } from '@/hooks/useAuthGuard'
+import useMixpanel from '../../hooks/useMixpanel'
 
 // Force dynamic rendering for wallet functionality
 export const dynamic = 'force-dynamic'
@@ -15,6 +16,16 @@ export default function DashboardPage() {
     redirectTo: '/', 
     requiresAuth: true 
   })
+  const mixpanel = useMixpanel()
+
+  // Track analytics dashboard viewed when page loads
+  useEffect(() => {
+    if (isAuthenticated) {
+      mixpanel.analyticsDashboardViewed({
+        screenName: 'AnalyticsDashboard'
+      })
+    }
+  }, [isAuthenticated, mixpanel])
 
   // Show loading while checking authentication
   if (isLoading) {

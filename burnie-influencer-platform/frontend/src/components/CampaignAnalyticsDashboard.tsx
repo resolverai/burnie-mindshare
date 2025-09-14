@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { format, subDays, startOfDay } from 'date-fns'
+import useMixpanel from '../hooks/useMixpanel'
 
 // Types for analytics data
 interface DailyMetrics {
@@ -85,6 +86,14 @@ export default function CampaignAnalyticsDashboard({
   const [selectedTimeRange, setSelectedTimeRange] = useState<'7d' | '30d' | 'all'>('7d')
   const [selectedTab, setSelectedTab] = useState<'overview' | 'leaderboard' | 'engagement' | 'roi'>('overview')
   const [isLoading, setIsLoading] = useState(false)
+  const mixpanel = useMixpanel()
+
+  // Track analytics dashboard view when component mounts
+  useEffect(() => {
+    mixpanel.analyticsDashboardViewed({
+      screenName: 'AnalyticsDashboard'
+    })
+  }, [mixpanel]) // Include mixpanel in dependencies
 
   // Calculate time-filtered metrics
   const getFilteredMetrics = () => {

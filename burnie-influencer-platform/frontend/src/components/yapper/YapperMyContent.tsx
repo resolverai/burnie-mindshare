@@ -19,6 +19,7 @@ import TweetPreviewModal from './TweetPreviewModal'
 import DynamicFilters from './DynamicFilters'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
 import { useInfiniteMyContent } from '../../hooks/useInfiniteMyContent'
+import useMixpanel from '../../hooks/useMixpanel'
 
 interface ContentItem {
   id: number
@@ -65,6 +66,7 @@ interface ContentItem {
 
 export default function YapperMyContent() {
   const { address } = useAccount()
+  const mixpanel = useMixpanel()
   
   // Helper function to get display content based on priority algorithm
   const getDisplayContent = (content: ContentItem) => {
@@ -94,15 +96,6 @@ export default function YapperMyContent() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedContent, setSelectedContent] = useState<ContentItem | null>(null)
 
-  // Debounced search - only search after user stops typing for 500ms
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm)
-    }, 500)
-
-    return () => clearTimeout(timer)
-  }, [searchTerm])
-
   // Infinite query for my content
   const {
     data,
@@ -122,6 +115,57 @@ export default function YapperMyContent() {
 
   // Flatten all pages into a single array
   const allContent = data?.pages.flatMap((page: any) => page.data) || []
+
+  // Debounced search - only search after user stops typing for 500ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm)
+      
+      // Track search performed when debounced search term changes
+      if (searchTerm && searchTerm.trim()) {
+        mixpanel.myContentSearchPerformed({
+          searchQuery: searchTerm,
+          resultsCount: allContent.length,
+          searchTime: 500, // Debounce time
+          screenName: 'YapperMyContent'
+        })
+      }
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [searchTerm, allContent.length, mixpanel])
+
+  // Filter change handlers with tracking
+  const handlePlatformChange = (platform: string) => {
+    setSelectedPlatform(platform)
+    mixpanel.myContentFilterApplied({
+      filterType: 'platform',
+      filterValue: platform,
+      resultsCount: allContent.length,
+      screenName: 'YapperMyContent'
+    })
+  }
+
+  const handleProjectChange = (project: string) => {
+    setSelectedProject(project)
+    mixpanel.myContentFilterApplied({
+      filterType: 'project',
+      filterValue: project,
+      resultsCount: allContent.length,
+      screenName: 'YapperMyContent'
+    })
+  }
+
+  const handlePostTypeChange = (postType: string) => {
+    setSelectedPostType(postType)
+    mixpanel.myContentFilterApplied({
+      filterType: 'postType',
+      filterValue: postType,
+      resultsCount: allContent.length,
+      screenName: 'YapperMyContent'
+    })
+  }
+
 
   // Intersection Observer for infinite scroll
   const lastElementRef = useRef<HTMLDivElement>(null)
@@ -236,7 +280,7 @@ export default function YapperMyContent() {
            window.innerWidth <= 768
   }
 
-  const downloadImage = async (imageUrl: string, filename: string = 'ai-generated-image.png') => {
+  const downloadImage = async (imageUrl: string, filename: string = 'ai-generated-image.png', contentItem?: ContentItem) => {
     try {
       let downloadUrl = imageUrl
       
@@ -269,6 +313,17 @@ export default function YapperMyContent() {
         document.body.removeChild(link)
         
         console.log('✅ Mobile image download initiated')
+        
+        // Track content download
+        if (contentItem) {
+          mixpanel.contentDownloaded({
+            contentId: contentItem.id,
+            contentType: contentItem.post_type === 'visual' ? 'visual' : 'text',
+            downloadFormat: 'image',
+            campaignId: contentItem.id, // Using content ID since campaign doesn't have ID
+            screenName: 'YapperMyContent'
+          })
+        }
         return
       }
       
@@ -289,6 +344,17 @@ export default function YapperMyContent() {
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
       console.log('✅ Desktop image download initiated')
+      
+      // Track content download
+      if (contentItem) {
+        mixpanel.contentDownloaded({
+          contentId: contentItem.id,
+          contentType: contentItem.post_type === 'visual' ? 'visual' : 'text',
+          downloadFormat: 'image',
+          campaignId: contentItem.id, // Using content ID since campaign doesn't have ID
+          screenName: 'YapperMyContent'
+        })
+      }
     } catch (error) {
       console.error('❌ Failed to download image:', error)
       console.log('🔄 Falling back to opening image in new tab')
@@ -440,9 +506,9 @@ export default function YapperMyContent() {
           selectedPlatform={selectedPlatform}
           selectedProject={selectedProject}
           selectedPostType={selectedPostType}
-          onPlatformChange={setSelectedPlatform}
-          onProjectChange={setSelectedProject}
-          onPostTypeChange={setSelectedPostType}
+          onPlatformChange={handlePlatformChange}
+          onProjectChange={handleProjectChange}
+          onPostTypeChange={handlePostTypeChange}
           searchTerm={searchTerm}
           onSearchChange={(e) => setSearchTerm(e.target.value)}
         />
@@ -492,6 +558,17 @@ export default function YapperMyContent() {
                 key={item.id} 
                 className="group relative rounded-[28px] overflow-hidden bg-[--color-surface] cursor-pointer"
                 onClick={() => {
+                  // Track content preview opened
+                  mixpanel.contentPreviewOpened({
+                    contentId: item.id,
+                    contentType: item.post_type === 'visual' ? 'visual' : 'text',
+                    campaignId: item.id, // Using content ID since campaign doesn't have ID
+                    acquisitionType: item.acquisition_type || 'purchase',
+                    purchasePrice: item.asking_price,
+                    currency: item.payment_details?.payment_currency === 'USDC' ? 'USDC' : 'ROAST',
+                    screenName: 'YapperMyContent'
+                  })
+                  
                   setSelectedContent(item)
                   setIsModalOpen(true)
                 }}
@@ -540,6 +617,18 @@ export default function YapperMyContent() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation() // Prevent card click from triggering
+                                
+                                // Track content preview opened
+                                mixpanel.contentPreviewOpened({
+                                  contentId: item.id,
+                                  contentType: item.post_type === 'visual' ? 'visual' : 'text',
+                                  campaignId: item.id, // Using content ID since campaign doesn't have ID
+                                  acquisitionType: item.acquisition_type || 'purchase',
+                                  purchasePrice: item.asking_price,
+                                  currency: item.payment_details?.payment_currency === 'USDC' ? 'USDC' : 'ROAST',
+                                  screenName: 'YapperMyContent'
+                                })
+                                
                                 setSelectedContent(item)
                                 setIsModalOpen(true)
                               }}

@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useAccount, useDisconnect } from 'wagmi'
 import { appKit } from '@/app/reown'
 import toast from 'react-hot-toast'
+import useMixpanel from '../hooks/useMixpanel'
 
 interface WalletDisplayProps {
   className?: string
@@ -20,8 +21,15 @@ export default function WalletDisplay({
 }: WalletDisplayProps) {
   const { address, isConnected, isConnecting } = useAccount()
   const { disconnect, isPending: isDisconnecting } = useDisconnect()
+  const mixpanel = useMixpanel()
   const [showDropdown, setShowDropdown] = useState(false)
+  const [mounted, setMounted] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Handle SSR hydration
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Handle click outside dropdown
   useEffect(() => {
@@ -42,6 +50,16 @@ export default function WalletDisplay({
 
   const handleConnect = () => {
     console.log("[AppKit] Connect button clicked")
+    
+    // Track wallet connect event
+    console.log('🎯 Wallet connect clicked from header bar')
+    mixpanel.walletConnectClicked({
+      connectSource: 'headerBar',
+      currentPage: typeof window !== 'undefined' ? window.location.pathname : '/',
+      deviceType: typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile' : 'desktop',
+      screenName: 'HeaderBar'
+    })
+    
     const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search + window.location.hash : "/"
     localStorage.setItem("wc_return_path", currentPath)
     appKit.open()
@@ -49,6 +67,15 @@ export default function WalletDisplay({
 
   const handleDisconnect = async () => {
     try {
+      // Track wallet disconnect event
+      console.log('🎯 Wallet disconnect clicked from header bar')
+      mixpanel.walletDisconnected({
+        disconnectSource: 'headerBar',
+        currentPage: typeof window !== 'undefined' ? window.location.pathname : '/',
+        deviceType: typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile' : 'desktop',
+        screenName: 'HeaderBar'
+      })
+      
       // Start redirect immediately, don't wait for disconnect to complete
       if (typeof window !== 'undefined' && window.location.pathname !== '/') {
         console.log('🔄 Immediate redirect to homepage after wallet disconnect')
@@ -93,6 +120,15 @@ export default function WalletDisplay({
         toast.error("Failed to copy address")
       }
     }
+  }
+
+  // Prevent hydration mismatch by not rendering until mounted
+  if (!mounted) {
+    return (
+      <div className={`bg-[#FD7A10] text-white px-4 py-2 rounded-lg font-medium ${className}`}>
+        Connect Wallet
+      </div>
+    )
   }
 
   if (!isConnected) {

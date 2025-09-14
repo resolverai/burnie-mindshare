@@ -10,6 +10,7 @@ import { appKit } from '@/app/reown'
 import { useAuth } from '../hooks/useAuth'
 import { useRouter } from 'next/navigation'
 import { useYapperTwitterConnection } from '../hooks/useYapperTwitterConnection'
+import useMixpanel from '../hooks/useMixpanel'
 import { 
   WalletIcon
 } from '@heroicons/react/24/outline'
@@ -38,6 +39,7 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
   const { address, isConnected } = useAccount()
   const { logout } = useAuth()
   const router = useRouter()
+  const mixpanel = useMixpanel()
   
   // Check Twitter connection status for Yappers
   const { 
@@ -48,6 +50,15 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
 
   // Handle manual logout
   const handleLogout = () => {
+    // Track wallet disconnect event from sidebar
+    console.log('🎯 Wallet disconnect clicked from sidebar')
+    mixpanel.walletDisconnected({
+      disconnectSource: 'sidebar',
+      currentPage: typeof window !== 'undefined' ? window.location.pathname : '/',
+      deviceType: typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile' : 'desktop',
+      screenName: 'Sidebar'
+    })
+    
     logout() // This will also disconnect the wallet
     router.push('/')
   }
@@ -174,6 +185,16 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
           <button
             onClick={() => {
               console.log("[AppKit] Connect button clicked from dashboard");
+              
+              // Track wallet connect event from dashboard
+              console.log('🎯 Wallet connect clicked from dashboard')
+              mixpanel.walletConnectClicked({
+                connectSource: 'dashboard',
+                currentPage: typeof window !== 'undefined' ? window.location.pathname : '/',
+                deviceType: typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile' : 'desktop',
+                screenName: 'Dashboard'
+              })
+              
               const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search + window.location.hash : "/";
               localStorage.setItem("wc_return_path", currentPath);
               appKit.open();

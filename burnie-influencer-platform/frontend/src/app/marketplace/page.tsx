@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useAuthGuard } from '@/hooks/useAuthGuard'
 import { useUserReferralCode } from '@/hooks/useUserReferralCode'
 import MobileBottomNav from '@/components/MobileBottomNav'
+import useMixpanel from '@/hooks/useMixpanel'
 
 export default function MarketplacePage() {
   console.log('🏪 Marketplace page loaded - authentication required')
@@ -19,6 +20,7 @@ export default function MarketplacePage() {
   const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
   const { needsSignature, signIn, isLoading: authLoading, isAuthenticated } = useAuth()
   const { referralCode, copyReferralLink } = useUserReferralCode()
+  const mixpanel = useMixpanel()
   
   // Protect this route - redirect to homepage if not authenticated
   useAuthGuard({ 
@@ -33,6 +35,16 @@ export default function MarketplacePage() {
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Track marketplace view when page loads
+  useEffect(() => {
+    if (mounted && isAuthenticated) {
+      mixpanel.marketplaceViewed({
+        screenName: 'Marketplace',
+        userAuthenticated: true
+      })
+    }
+  }, [mounted, isAuthenticated, mixpanel])
   
 
 

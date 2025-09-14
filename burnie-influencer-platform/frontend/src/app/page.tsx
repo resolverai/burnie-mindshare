@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useMarketplaceAccess } from '@/hooks/useMarketplaceAccess'
 import { useRouter, useSearchParams } from 'next/navigation'
 import MobileBottomNav from '@/components/MobileBottomNav'
+import useMixpanel from '@/hooks/useMixpanel'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -27,12 +28,23 @@ export default function HomePage() {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [isProcessingReferral, setIsProcessingReferral] = useState(false)
+  const mixpanel = useMixpanel()
 
   
   // Handle SSR hydration
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Track homepage view when page loads
+  useEffect(() => {
+    if (mounted) {
+      mixpanel.marketplaceViewed({
+        screenName: 'Homepage',
+        userAuthenticated: !!address
+      })
+    }
+  }, [mounted, mixpanel, address])
 
   // Smart auto-trigger signature when wallet connects on homepage
   useEffect(() => {

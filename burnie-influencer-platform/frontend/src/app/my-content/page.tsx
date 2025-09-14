@@ -6,12 +6,23 @@ import { useEffect } from 'react'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import YapperDashboard from '@/components/YapperDashboard'
 import { useAuthGuard } from '@/hooks/useAuthGuard'
+import useMixpanel from '../../hooks/useMixpanel'
 
 export default function MyContentPage() {
   const { isAuthenticated, isLoading } = useAuthGuard({ 
     redirectTo: '/', 
     requiresAuth: true 
   })
+  const mixpanel = useMixpanel()
+
+  // Track my content viewed when page loads
+  useEffect(() => {
+    if (isAuthenticated) {
+      mixpanel.myContentViewed({
+        screenName: 'YapperMyContent'
+      })
+    }
+  }, [isAuthenticated, mixpanel])
 
   // Show loading while checking authentication
   if (isLoading) {
@@ -33,6 +44,8 @@ export default function MyContentPage() {
 
   // Render my content if authenticated
   return (
-    <YapperDashboard activeSection="mycontent" />
+    <>
+      <YapperDashboard activeSection="mycontent" />
+    </>
   )
 } 

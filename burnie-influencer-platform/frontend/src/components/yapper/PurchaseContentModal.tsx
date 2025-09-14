@@ -17,6 +17,7 @@ import { useMarketplaceAccess } from '../../hooks/useMarketplaceAccess'
 import { useAuth } from '../../hooks/useAuth'
 import { useTwitterPosting } from '../../hooks/useTwitterPosting'
 import { useRouter } from 'next/navigation'
+import useMixpanel from '../../hooks/useMixpanel'
 
 interface ContentItem {
   id: number
@@ -68,6 +69,9 @@ export default function PurchaseContentModal({
   onPurchase,
   onContentUpdate
 }: PurchaseContentModalProps) {
+  const mixpanel = useMixpanel()
+  
+  
   // Scroll restoration effect
   React.useEffect(() => {
     if (isOpen) {
@@ -114,6 +118,35 @@ export default function PurchaseContentModal({
   const { isAuthenticated, signIn } = useAuth()
   const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting()
   const router = useRouter()
+
+  // Track purchase modal opened
+  // Note: purchaseModalOpened tracking removed - now handled by contentItemClicked in BiddingInterface
+
+  // Track purchase cancellation when modal is closed
+  const handleModalClose = () => {
+    // Track purchase cancellation if we have content and user hasn't completed purchase
+    if (content && !purchasedContentDetails && !isPurchased) {
+      const startTime = Date.now() // We could track this from when modal opened
+      const timeInFlow = Date.now() - startTime // This is approximate
+      
+      mixpanel.purchaseCancelled({
+        contentId: content.id,
+        cancellationStage: 'modal_closed',
+        timeInFlow: timeInFlow,
+        selectedCurrency: selectedPayment === 'roast' ? 'ROAST' : 'USDC',
+        screenName: 'PurchaseContentModal'
+      })
+    }
+    
+    // Force scroll restoration before closing
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.width = '';
+    onClose();
+    // Prevent fund management modals from showing up temporarily
+    const { disableModalsTemporarily } = require('../../utils/modalManager');
+    disableModalsTemporarily();
+  }
   
   // Helper function to get the current content to display
   // Prioritizes content with updated text over original content
@@ -667,6 +700,29 @@ export default function PurchaseContentModal({
               setHasGeneratedContent(true)
               setIsGeneratingContent(false)
               setIsTextOnlyGeneration(false)
+
+              // Track content generation based on voice tone
+              if (selectedVoiceTone === "custom" && selectedYapper) {
+                // Choose Yapper flow
+                mixpanel.chooseYapperContentGenerated({
+                  contentId: newContent.id,
+                  contentType: newContent.post_type === 'visual' ? 'visual' : 'text',
+                  campaignId: newContent.campaign.id,
+                  generationTime: Date.now(),
+                  generatedContentLength: newContent.content_text?.length || 0,
+                  screenName: 'PurchaseContentModal'
+                })
+              } else if (selectedVoiceTone === "mystyle" && twitter.isConnected) {
+                // My Voice flow
+                mixpanel.myVoiceContentGenerated({
+                  contentId: newContent.id,
+                  contentType: newContent.post_type === 'visual' ? 'visual' : 'text',
+                  campaignId: newContent.campaign.id,
+                  generationTime: Date.now(),
+                  generatedContentLength: newContent.content_text?.length || 0,
+                  screenName: 'PurchaseContentModal'
+                })
+              }
             } else {
               throw new Error('Failed to refresh URLs')
             }
@@ -684,6 +740,29 @@ export default function PurchaseContentModal({
             setHasGeneratedContent(true)
             setIsGeneratingContent(false)
             setIsTextOnlyGeneration(false)
+
+            // Track content generation based on voice tone
+            if (selectedVoiceTone === "custom" && selectedYapper) {
+              // Choose Yapper flow
+              mixpanel.chooseYapperContentGenerated({
+                contentId: newContent.id,
+                contentType: newContent.post_type === 'visual' ? 'visual' : 'text',
+                campaignId: newContent.campaign.id,
+                generationTime: Date.now(),
+                generatedContentLength: newContent.content_text?.length || 0,
+                screenName: 'PurchaseContentModal'
+              })
+            } else if (selectedVoiceTone === "mystyle" && twitter.isConnected) {
+              // My Voice flow
+              mixpanel.myVoiceContentGenerated({
+                contentId: newContent.id,
+                contentType: newContent.post_type === 'visual' ? 'visual' : 'text',
+                campaignId: newContent.campaign.id,
+                generationTime: Date.now(),
+                generatedContentLength: newContent.content_text?.length || 0,
+                screenName: 'PurchaseContentModal'
+              })
+            }
           }
         } else {
           throw new Error(`Failed to fetch content: ${contentResponse.status} ${contentResponse.statusText}`)
@@ -704,7 +783,7 @@ export default function PurchaseContentModal({
     }
   }
   
-  const [selectedVoiceTone, setSelectedVoiceTone] = useState("auto")
+  const [selectedVoiceTone, setSelectedVoiceTone] = useState<"auto" | "custom" | "mystyle">("auto")
   const [selectedTone, setSelectedTone] = useState("Select tone")
   const [selectedPayment, setSelectedPayment] = useState("roast")
   const [toneOpen, setToneOpen] = useState<boolean>(false)
@@ -934,6 +1013,20 @@ export default function PurchaseContentModal({
       console.log('🎉 Setting purchase success state...')
       setIsPurchased(true)
       setShowTweetManagement(true)
+      
+      // Track purchase completion
+      mixpanel.purchaseCompleted({
+        contentId: contentToPurchase.id,
+        contentType: contentToPurchase.post_type === 'visual' ? 'visual' : 'text',
+        purchasePrice: price,
+        selectedCurrency: currency,
+        campaignId: contentToPurchase.campaign.id,
+        transactionHash: transactionHash || '',
+        purchaseTime: Date.now(),
+        userTotalPurchases: 1, // This would need to be tracked from user data
+        userTotalSpent: price,
+        screenName: 'PurchaseContentModal'
+      })
       
       // Scroll restoration removed - using page reload instead
       
@@ -1417,6 +1510,16 @@ export default function PurchaseContentModal({
       const result = await response.json()
 
       if (result.success) {
+        // Track successful tweet posting
+        console.log('🎯 Tweet posted successfully from PurchaseContentModal')
+        mixpanel.tweetPosted({
+          contentId: currentContent.id,
+          contentType: currentContent.post_type === 'visual' ? 'visual' : 'text',
+          postingMethod: 'direct',
+          tweetUrl: `https://twitter.com/i/web/status/${result.mainTweetId}`,
+          screenName: 'PurchaseContentModal'
+        })
+        
         // Show success message within modal
         setTwitterPostingResult({
           success: true,
@@ -1428,6 +1531,16 @@ export default function PurchaseContentModal({
       }
     } catch (error) {
       console.error('Error posting to Twitter:', error)
+      
+      // Track failed tweet posting
+      console.log('🎯 Tweet post failed from PurchaseContentModal')
+      mixpanel.tweetPostFailed({
+        contentId: currentContent.id,
+        postingMethod: 'direct',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        screenName: 'PurchaseContentModal'
+      })
+      
       setTwitterPostingResult({
         success: false,
         message: 'Failed to post to Twitter. Please try again or use manual posting.'
@@ -1739,6 +1852,17 @@ export default function PurchaseContentModal({
 
     if (!isAuthenticated) {
       console.log('🔐 Wallet connected but not authenticated - need signature')
+      
+      // Track authentication required event
+      mixpanel.errorOccurred({
+        errorType: 'authentication_required',
+        errorMessage: 'User attempted purchase without authentication',
+        errorPage: window.location.pathname,
+        userAuthenticated: false,
+        errorSeverity: 'low',
+        deviceType: window.innerWidth < 768 ? 'mobile' : 'desktop'
+      })
+      
       // Restore AppKit modal before opening it
       restoreModals();
       try {
@@ -1775,6 +1899,21 @@ export default function PurchaseContentModal({
     const usdcPrice = roastPrice ? (getDisplayPrice(currentContent) * roastPrice) : 0
     const usdcFee = 0.03
     const totalUSDC = usdcPrice + usdcFee
+
+    // Track purchase initiation
+    const currentContentForTracking = content || purchasedContentDetails
+    if (currentContentForTracking && 'post_type' in currentContentForTracking && 'campaign' in currentContentForTracking) {
+      mixpanel.purchaseInitiated({
+        contentId: currentContentForTracking.id,
+        contentType: currentContentForTracking.post_type === 'visual' ? 'visual' : 'text',
+        selectedCurrency: selectedPayment === 'roast' ? 'ROAST' : 'USDC',
+        purchasePrice: selectedPayment === 'roast' ? roastPrice : usdcPrice,
+        campaignId: currentContentForTracking.campaign.id,
+        userBalance: 0, // Will be updated with actual balance
+        purchaseMethod: 'wallet_connection',
+        screenName: 'PurchaseContentModal'
+      })
+    }
 
     // Check balance first (before locking content)
     try {
@@ -1924,6 +2063,18 @@ export default function PurchaseContentModal({
       console.error('Purchase failed:', error)
       console.error('Purchase failed. Please try again.')
       
+      // Track purchase failure
+      if (localContent) {
+        mixpanel.purchaseFailed({
+          contentId: localContent.id,
+          failureReason: 'transaction_failed',
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          selectedCurrency: selectedPayment === 'roast' ? 'ROAST' : 'USDC',
+          retryAttempted: false,
+          screenName: 'PurchaseContentModal'
+        })
+      }
+      
       // Release purchase flow if purchase fails
       if (localContent && address) {
         await releasePurchaseFlow();
@@ -2003,14 +2154,7 @@ export default function PurchaseContentModal({
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
-      // Force scroll restoration before closing
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.width = '';
-      onClose();
-      // Prevent fund management modals from showing up temporarily
-      const { disableModalsTemporarily } = require('../../utils/modalManager');
-      disableModalsTemporarily();
+      handleModalClose();
     }
   }
 
@@ -2271,16 +2415,7 @@ export default function PurchaseContentModal({
       <div className="relative w-full max-w-none lg:max-w-6xl rounded-none lg:rounded-2xl bg-transparent lg:bg-[#492222] max-h-[100vh] overflow-y-auto lg:overflow-y-hidden shadow-none lg:shadow-2xl p-0 lg:p-6 overscroll-contain touch-pan-y modal-scrollable">
         {/* Close Button */}
             <button
-              onClick={() => {
-                // Force scroll restoration before closing
-                document.body.style.position = '';
-                document.body.style.top = '';
-                document.body.style.width = '';
-                onClose();
-                // Prevent fund management modals from showing up temporarily
-                const { disableModalsTemporarily } = require('../../utils/modalManager');
-                disableModalsTemporarily();
-              }}
+              onClick={handleModalClose}
           className="absolute right-4 top-4 z-50 hover:opacity-80 transition-opacity text-white/60 hover:text-white"
           type="button"
             >
@@ -2524,7 +2659,19 @@ export default function PurchaseContentModal({
                     
                     <div className="grid grid-cols-3 bg-[#220808B2] rounded-full p-1 gap-1">
                       <button
-                        onClick={() => setSelectedVoiceTone("auto")}
+                        onClick={() => {
+                          setSelectedVoiceTone("auto")
+                          // Track voice tone selection for mobile
+                          if (content) {
+                            console.log('🎯 Mobile voice tone selected: auto')
+                            mixpanel.voiceToneSelected({
+                              contentId: content.id,
+                              selectedTone: 'auto' as 'auto' | 'custom' | 'mystyle',
+                              previousTone: selectedVoiceTone,
+                              screenName: 'PurchaseContentModal'
+                            })
+                          }
+                        }}
                         className={`py-2 xs:py-2.5 md:py-3 px-2 xs:px-3 md:px-4 rounded-full text-[10px] xs:text-[8px] sm:text-[12px] md:text-[16px] font-bold transition-all duration-200 text-center ${
                           selectedVoiceTone === "auto"
                             ? "bg-white text-black shadow-lg"
@@ -2534,7 +2681,19 @@ export default function PurchaseContentModal({
                         Automated
                       </button>
                       <button
-                        onClick={() => setSelectedVoiceTone("custom")}
+                        onClick={() => {
+                          setSelectedVoiceTone("custom")
+                          // Track voice tone selection for mobile
+                          if (content) {
+                            console.log('🎯 Mobile voice tone selected: custom')
+                            mixpanel.voiceToneSelected({
+                              contentId: content.id,
+                              selectedTone: 'custom' as 'auto' | 'custom' | 'mystyle',
+                              previousTone: selectedVoiceTone,
+                              screenName: 'PurchaseContentModal'
+                            })
+                          }
+                        }}
                         className={`py-2 xs:py-2.5 md:py-3 px-2 xs:px-3 md:px-4 rounded-full text-[10px] xs:text-[8px] sm:text-[12px] md:text-[16px] font-bold transition-all duration-200 text-center ${
                           selectedVoiceTone === "custom"
                             ? "bg-white text-black shadow-lg"
@@ -2544,7 +2703,19 @@ export default function PurchaseContentModal({
                         Choose Yapper
                       </button>
                       <button
-                        onClick={() => setSelectedVoiceTone("mystyle")}
+                        onClick={() => {
+                          setSelectedVoiceTone("mystyle")
+                          // Track voice tone selection for mobile
+                          if (content) {
+                            console.log('🎯 Mobile voice tone selected: mystyle')
+                            mixpanel.voiceToneSelected({
+                              contentId: content.id,
+                              selectedTone: 'mystyle' as 'auto' | 'custom' | 'mystyle',
+                              previousTone: selectedVoiceTone,
+                              screenName: 'PurchaseContentModal'
+                            })
+                          }
+                        }}
                         className={`py-2 xs:py-2.5 md:py-3 px-2 xs:px-3 md:px-4 rounded-full text-[10px] xs:text-[8px] sm:text-[12px] md:text-[16px] font-bold transition-all duration-200 text-center ${
                           selectedVoiceTone === "mystyle"
                             ? "bg-white text-black shadow-lg"
@@ -2727,8 +2898,23 @@ export default function PurchaseContentModal({
                     )}
 
                     <div className="grid grid-cols-2 gap-2">
-                      <div
-                        onClick={() => setSelectedPayment("roast")}
+                      <div 
+                        onClick={() => {
+                          if (selectedPayment !== "roast") {
+                            // Track currency toggle
+                            if (content) {
+                              mixpanel.currencyToggleClicked({
+                                contentId: content.id,
+                                selectedCurrency: 'ROAST',
+                                roastPrice: roastPrice,
+                                usdcPrice: roastPrice ? (getDisplayPrice(content) * roastPrice) : 0,
+                                conversionRate: roastPrice || 0,
+                                screenName: 'PurchaseContentModal'
+                              })
+                            }
+                          }
+                          setSelectedPayment("roast")
+                        }}
                         className={`p-3 rounded-lg cursor-pointer transition-colors bg-[#12141866] border-2 ${
                           selectedPayment === "roast" ? 'border-[#FD7A10]' : 'border-transparent'
                         }`}>
@@ -2746,8 +2932,23 @@ export default function PurchaseContentModal({
                         <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Platform Token</div>
                       </div>
 
-                      <div
-                        onClick={() => setSelectedPayment("usdc")}
+                      <div 
+                        onClick={() => {
+                          if (selectedPayment !== "usdc") {
+                            // Track currency toggle
+                            if (content) {
+                              mixpanel.currencyToggleClicked({
+                                contentId: content.id,
+                                selectedCurrency: 'USDC',
+                                roastPrice: roastPrice,
+                                usdcPrice: roastPrice ? (getDisplayPrice(content) * roastPrice) : 0,
+                                conversionRate: roastPrice || 0,
+                                screenName: 'PurchaseContentModal'
+                              })
+                            }
+                          }
+                          setSelectedPayment("usdc")
+                        }}
                         className={`p-3 rounded-lg cursor-pointer transition-colors bg-[#12141866] border-2 ${
                           selectedPayment === "usdc" ? 'border-[#FD7A10]' : 'border-transparent'
                         }`}>
@@ -3932,6 +4133,16 @@ export default function PurchaseContentModal({
                       }
                       
                       if (!address) {
+                        // Track wallet connect event from purchase modal
+                        console.log('🎯 Wallet connect clicked from purchase modal')
+                        mixpanel.walletConnectClicked({
+                          connectSource: 'purchaseModal',
+                          currentPage: typeof window !== 'undefined' ? window.location.pathname : '/',
+                          deviceType: typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile' : 'desktop',
+                          screenName: 'PurchaseContentModal',
+                          contentId: content?.id || 0
+                        })
+                        
                         // AppKit will handle wallet connection
                         return;
                       }

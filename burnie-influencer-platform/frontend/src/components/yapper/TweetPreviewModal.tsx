@@ -6,6 +6,7 @@ import { useAccount } from 'wagmi';
 import { useTwitter } from '../../contexts/TwitterContext';
 import { useTwitterPosting } from '../../hooks/useTwitterPosting';
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, markdownToPlainText, markdownToHTML } from '../../utils/markdownParser';
+import useMixpanel from '../../hooks/useMixpanel';
 
 interface TweetPreviewModalProps {
     isOpen: boolean;
@@ -59,10 +60,26 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
     const { address } = useAccount();
     const { twitter, isTwitterReady, connect, disconnect } = useTwitter();
     const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting();
+    const mixpanel = useMixpanel();
     const [selectedVoiceTone, setSelectedVoiceTone] = useState("auto");
     const [selectedTone, setSelectedTone] = useState("Select tone");
     const [toneOpen, setToneOpen] = useState<boolean>(false);
     const [isPurchased, setIsPurchased] = useState<boolean>(startPurchased ?? true);
+
+    // Track tweet preview opened when modal opens
+    useEffect(() => {
+        if (isOpen && contentData) {
+            mixpanel.tweetPreviewOpened({
+                contentId: contentData.id,
+                contentType: contentData.post_type === 'visual' ? 'visual' : 'text',
+                previewSource: 'myContent', // This would need to be passed as prop
+                contentPrice: contentData.asking_price,
+                acquisitionType: contentData.acquisition_type,
+                currency: contentData.payment_details?.payment_currency === 'USDC' ? 'USDC' : 'ROAST',
+                screenName: 'TweetPreviewModal'
+            });
+        }
+    }, [isOpen, contentData, mixpanel]);
 
     // Twitter posting state
     const [postingMethod, setPostingMethod] = useState<'twitter' | 'manual'>('twitter');
@@ -321,12 +338,54 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                     message: 'Thread posted successfully!',
                     tweetUrl: `https://twitter.com/i/web/status/${result.mainTweetId}`
                 });
+                
+                // Track successful tweet posting
+                console.log('🎯 Tracking tweetPosted event:', {
+                    contentId: contentData?.id || 0,
+                    contentType: contentData?.post_type === 'visual' ? 'visual' : 'text',
+                    tweetUrl: `https://twitter.com/i/web/status/${result.mainTweetId}`,
+                    postTime: Date.now(),
+                    tweetLength: tweetText.length,
+                    hasImage: !!displayImage,
+                    hasThread: processedThread.length > 0,
+                    screenName: 'TweetPreviewModal'
+                });
+                
+                mixpanel.tweetPosted({
+                    contentId: contentData?.id || 0,
+                    contentType: contentData?.post_type === 'visual' ? 'visual' : 'text',
+                    tweetUrl: `https://twitter.com/i/web/status/${result.mainTweetId}`,
+                    postTime: Date.now(),
+                    tweetLength: tweetText.length,
+                    hasImage: !!displayImage,
+                    hasThread: processedThread.length > 0,
+                    screenName: 'TweetPreviewModal'
+                });
+                
                 refreshTwitterStatus();
             } else {
                 throw new Error(result.error || 'Failed to post to Twitter');
             }
         } catch (error) {
             console.error('Error posting to Twitter:', error);
+            
+            // Track failed tweet posting
+            console.log('🎯 Tracking tweetPostFailed event:', {
+                contentId: contentData?.id || 0,
+                failureReason: 'api_error',
+                errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                retryAttempted: false,
+                screenName: 'TweetPreviewModal'
+            });
+            
+            mixpanel.tweetPostFailed({
+                contentId: contentData?.id || 0,
+                failureReason: 'api_error',
+                errorMessage: error instanceof Error ? error.message : 'Unknown error',
+                retryAttempted: false,
+                screenName: 'TweetPreviewModal'
+            });
+            
             setTwitterPostingResult({
                 success: false,
                 message: 'Failed to post to Twitter. Please try again or use manual posting.'
@@ -346,9 +405,29 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
             return;
         }
 
+        // Track Twitter connect clicked
+        if (contentData) {
+            mixpanel.twitterConnectClicked({
+                contentId: contentData.id,
+                connectSource: 'tweetPreviewModal',
+                screenName: 'TweetPreviewModal'
+            });
+        }
+
         try {
             if (connect) {
                 await connect();
+                
+                // Track successful Twitter connection
+                if (twitter.profile?.username) {
+                    mixpanel.twitterConnected({
+                        twitterUsername: twitter.profile.username,
+                        connectTime: Date.now(),
+                        connectSource: 'tweetPreviewModal',
+                        screenName: 'TweetPreviewModal'
+                    });
+                }
+                
                 // Refresh Twitter posting status after successful auth
                 setTimeout(() => {
                     refreshTwitterStatus();
@@ -585,7 +664,27 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                     name="posting-method"
                                     value="twitter"
                                     checked={postingMethod === 'twitter'}
-                                    onChange={(e) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
+                                    onChange={(e) => {
+                                        const newMethod = e.target.value as 'twitter' | 'manual'
+                                        setPostingMethod(newMethod)
+                                        
+                                        // Track posting method toggle
+                                        if (contentData) {
+                                            console.log('🎯 Tracking postingMethodToggled event (twitter):', {
+                                                contentId: contentData.id,
+                                                selectedMethod: newMethod,
+                                                previousMethod: postingMethod,
+                                                screenName: 'TweetPreviewModal'
+                                            });
+                                            
+                                            mixpanel.postingMethodToggled({
+                                                contentId: contentData.id,
+                                                selectedMethod: newMethod,
+                                                previousMethod: postingMethod,
+                                                screenName: 'TweetPreviewModal'
+                                            })
+                                        }
+                                    }}
                                     className="sr-only"
                                 />
                                 <label htmlFor="post-twitter" className="flex items-center gap-2 cursor-pointer">
@@ -608,7 +707,27 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                     name="posting-method"
                                     value="manual"
                                     checked={postingMethod === 'manual'}
-                                    onChange={(e) => setPostingMethod(e.target.value as 'twitter' | 'manual')}
+                                    onChange={(e) => {
+                                        const newMethod = e.target.value as 'twitter' | 'manual'
+                                        setPostingMethod(newMethod)
+                                        
+                                        // Track posting method toggle
+                                        if (contentData) {
+                                            console.log('🎯 Tracking postingMethodToggled event (manual):', {
+                                                contentId: contentData.id,
+                                                selectedMethod: newMethod,
+                                                previousMethod: postingMethod,
+                                                screenName: 'TweetPreviewModal'
+                                            });
+                                            
+                                            mixpanel.postingMethodToggled({
+                                                contentId: contentData.id,
+                                                selectedMethod: newMethod,
+                                                previousMethod: postingMethod,
+                                                screenName: 'TweetPreviewModal'
+                                            })
+                                        }
+                                    }}
                                     className="sr-only"
                                 />
                                 <label htmlFor="post-manual" className="flex items-center gap-2 cursor-pointer">
@@ -758,6 +877,16 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                             onClick={() => {
                                                 if (section.text) {
                                                     navigator.clipboard?.writeText(section.text);
+                                                    
+                                                    // Track tweet content copied
+                                                    if (contentData) {
+                                                        mixpanel.tweetContentCopied({
+                                                            contentId: contentData.id,
+                                                            contentType: contentData.post_type === 'visual' ? 'visual' : 'text',
+                                                            copyFormat: 'text_only',
+                                                            screenName: 'TweetPreviewModal'
+                                                        });
+                                                    }
                                                 } else if (section.image) {
                                                     downloadImage(String(section.image), `tweet-image-${idx + 1}.png`);
                                                 }
