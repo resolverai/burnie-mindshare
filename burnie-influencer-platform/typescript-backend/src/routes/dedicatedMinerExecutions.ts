@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ILike } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { DedicatedMinerExecution } from '../models/DedicatedMinerExecution';
+import { ApprovedMiner } from '../models/ApprovedMiner';
 import { ContentMarketplace } from '../models/ContentMarketplace';
 import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
@@ -31,7 +32,25 @@ router.post('/executions/check-and-reserve', async (req, res) => {
       });
     }
 
-    logger.info(`🔍 Checking execution availability for miner ${minerWalletAddress}, campaign ${campaignId}, postType ${postType}`);
+    // Check if miner is approved for automated mining
+    const approvedMinerRepository = AppDataSource.getRepository(ApprovedMiner);
+    const normalizedWalletAddress = minerWalletAddress.toLowerCase().trim();
+    
+    const approvedMiner = await approvedMinerRepository.findOne({
+      where: { walletAddress: ILike(normalizedWalletAddress) }
+    });
+
+    if (!approvedMiner) {
+      logger.warn(`❌ Unapproved miner attempted to reserve execution: ${normalizedWalletAddress}`);
+      return res.status(403).json({
+        success: false,
+        message: 'You are not approved for automated mining. Contact an admin to request approval for automated content generation.',
+        error: 'MINER_NOT_APPROVED',
+        requiresApproval: true
+      });
+    }
+
+    logger.info(`🔍 Checking execution availability for approved miner ${minerWalletAddress}, campaign ${campaignId}, postType ${postType}`);
 
     const executionRepository = AppDataSource.getRepository(DedicatedMinerExecution);
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);

@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import { ILike } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { Campaign } from '../models/Campaign';
 import { ContentMarketplace } from '../models/ContentMarketplace';
 import { ContentPurchase } from '../models/ContentPurchase';
+import { ApprovedMiner } from '../models/ApprovedMiner';
 import { logger } from '../config/logger';
 
 const router = Router();
@@ -22,6 +24,31 @@ interface HotCampaignPostType {
 router.get('/hot-campaigns', async (req, res) => {
   try {
     logger.info('🔥 Fetching hot campaigns with enhanced logic...');
+
+    // Check if wallet address is provided (for dedicated miners)
+    const walletAddress = req.query.walletAddress as string;
+    
+    if (walletAddress) {
+      // Check if miner is approved for automated mining
+      const approvedMinerRepository = AppDataSource.getRepository(ApprovedMiner);
+      const normalizedWalletAddress = walletAddress.toLowerCase().trim();
+      
+      const approvedMiner = await approvedMinerRepository.findOne({
+        where: { walletAddress: ILike(normalizedWalletAddress) }
+      });
+
+      if (!approvedMiner) {
+        logger.warn(`❌ Unapproved miner attempted to fetch hot campaigns: ${normalizedWalletAddress}`);
+        return res.status(403).json({
+          success: false,
+          message: 'You are not approved for automated mining. Contact an admin to request approval for automated content generation.',
+          error: 'MINER_NOT_APPROVED',
+          requiresApproval: true
+        });
+      }
+      
+      logger.info(`✅ Approved miner fetching hot campaigns: ${normalizedWalletAddress}`);
+    }
 
     const campaignRepository = AppDataSource.getRepository(Campaign);
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);

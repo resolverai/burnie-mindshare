@@ -30,12 +30,41 @@ class AutomatedMiningService {
   // Check if user has agents and neural keys configured
   async checkMiningReadiness(walletAddress: string): Promise<{
     canStart: boolean;
+    isApproved: boolean;
     hasAgents: boolean;
     hasNeuralKeys: boolean;
     message: string;
   }> {
     try {
-      // Check if user has agents
+      // FIRST CHECK: Is miner approved for automated mining?
+      const approvalResponse = await fetch(
+        buildApiUrl(`miner-approval/${walletAddress}`)
+      );
+      
+      if (!approvalResponse.ok) {
+        return {
+          canStart: false,
+          isApproved: false,
+          hasAgents: false,
+          hasNeuralKeys: false,
+          message: 'Failed to check miner approval status'
+        };
+      }
+
+      const approvalData = await approvalResponse.json();
+      const isApproved = approvalData.data?.isApproved || false;
+
+      if (!isApproved) {
+        return {
+          canStart: false,
+          isApproved: false,
+          hasAgents: false,
+          hasNeuralKeys: false,
+          message: 'You are not approved for automated mining. Contact admin for approval.'
+        };
+      }
+
+      // SECOND CHECK: Does user have agents?
       const agentsResponse = await fetch(
         buildApiUrl(`agents/user/${walletAddress}`)
       );
@@ -43,6 +72,7 @@ class AutomatedMiningService {
       if (!agentsResponse.ok) {
         return {
           canStart: false,
+          isApproved: true,
           hasAgents: false,
           hasNeuralKeys: false,
           message: 'Failed to check agents'
@@ -52,7 +82,7 @@ class AutomatedMiningService {
       const agentsData = await agentsResponse.json();
       const hasAgents = agentsData.data && agentsData.data.length > 0;
 
-      // Check if user has neural keys configured
+      // THIRD CHECK: Does user have neural keys configured?
       const apiKeys = localStorage.getItem(`burnie_api_keys_${walletAddress}`);
       let hasNeuralKeys = false;
       
@@ -69,33 +99,51 @@ class AutomatedMiningService {
         }
       }
 
-      const canStart = hasAgents && hasNeuralKeys;
+      const canStart = isApproved && hasAgents && hasNeuralKeys;
+
+      // Generate appropriate message based on what's missing
+      let message = '';
+      if (canStart) {
+        message = 'Ready to start automated mining';
+      } else {
+        const missing = [];
+        if (!hasAgents) missing.push('Agents');
+        if (!hasNeuralKeys) missing.push('Neural Keys');
+        message = `Missing: ${missing.join(' and ')}`;
+      }
 
       return {
         canStart,
+        isApproved,
         hasAgents,
         hasNeuralKeys,
-        message: canStart 
-          ? 'Ready to start automated mining'
-          : `Missing: ${!hasAgents ? 'Agents' : ''} ${!hasAgents && !hasNeuralKeys ? 'and' : ''} ${!hasNeuralKeys ? 'Neural Keys' : ''}`
+        message
       };
 
     } catch (error) {
       console.error('Error checking mining readiness:', error);
       return {
         canStart: false,
+        isApproved: false,
         hasAgents: false,
         hasNeuralKeys: false,
-        message: 'Error checking readiness'
+        message: 'Error checking mining readiness'
       };
     }
   }
 
   // Get hot campaigns from backend
-  async getHotCampaigns(): Promise<HotCampaign[]> {
+  async getHotCampaigns(walletAddress: string): Promise<HotCampaign[]> {
     try {
-      const response = await fetch(buildApiUrl('hot-campaigns'));
+      const response = await fetch(buildApiUrl(`hot-campaigns?walletAddress=${encodeURIComponent(walletAddress)}`));
       if (!response.ok) {
+        const errorData = await response.json();
+        
+        // Check if this is an approval error
+        if (response.status === 403 && errorData.error === 'MINER_NOT_APPROVED') {
+          throw new Error(errorData.message);
+        }
+        
         throw new Error('Failed to fetch hot campaigns');
       }
 
@@ -103,7 +151,7 @@ class AutomatedMiningService {
       return data.data || [];
     } catch (error) {
       console.error('Error fetching hot campaigns:', error);
-      return [];
+      throw error; // Re-throw to allow proper error handling
     }
   }
 
@@ -406,11 +454,23 @@ class AutomatedMiningService {
           }
         }
 
-        const hotCampaigns = await this.getHotCampaigns();
-        
-        if (hotCampaigns.length === 0) {
-          console.log('No hot campaigns available');
-          return;
+        let hotCampaigns;
+        try {
+          hotCampaigns = await this.getHotCampaigns(walletAddress);
+          
+          if (hotCampaigns.length === 0) {
+            console.log('No hot campaigns available');
+            return;
+          }
+        } catch (error) {
+          // Handle approval errors specifically
+          if (error instanceof Error && error.message.includes('not approved for automated mining')) {
+            console.error('❌ Miner not approved:', error.message);
+            this.stopMining(); // Stop automated mining
+            this.notifyListeners(); // Notify UI to show approval message
+            return;
+          }
+          throw error; // Re-throw other errors
         }
 
         // Process only ONE campaign per cycle to ensure sequential execution

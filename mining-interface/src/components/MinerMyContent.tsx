@@ -68,6 +68,7 @@ export default function MinerMyContent() {
   const [miningStatus, setMiningStatus] = useState<MiningStatus>(automatedMiningService.getStatus())
   const [miningReadiness, setMiningReadiness] = useState<{
     canStart: boolean;
+    isApproved: boolean;
     hasAgents: boolean;
     hasNeuralKeys: boolean;
     message: string;
@@ -772,7 +773,13 @@ export default function MinerMyContent() {
                 </div>
                 <div className="flex items-center space-x-3">
                   {miningReadiness && !miningReadiness.canStart && (
-                    <div className="text-sm text-yellow-400">
+                    <div className={`text-sm ${
+                      !miningReadiness.isApproved 
+                        ? 'text-red-400' 
+                        : miningReadiness.message.includes('Missing') 
+                          ? 'text-yellow-400' 
+                          : 'text-gray-400'
+                    }`}>
                       {miningReadiness.message}
                     </div>
                   )}
@@ -798,6 +805,40 @@ export default function MinerMyContent() {
                       <span>Start Mining</span>
                     </button>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MINER Mode: Approval Status Banner */}
+          {isMinerMode && miningReadiness && !miningReadiness.isApproved && (
+            <div className="bg-gradient-to-r from-red-500/10 to-red-600/10 border border-red-500/20 rounded-lg p-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-red-500/20 rounded-full">
+                  <XMarkIcon className="h-5 w-5 text-red-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-red-400 mb-1">Mining Access Not Approved</h3>
+                  <p className="text-sm text-red-300">
+                    You are not approved for automated mining. Contact an admin to request approval for automated content generation.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MINER Mode: Approved Status Banner */}
+          {isMinerMode && miningReadiness && miningReadiness.isApproved && miningReadiness.canStart && (
+            <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-lg p-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-green-500/20 rounded-full">
+                  <CheckIcon className="h-5 w-5 text-green-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold text-green-400 mb-1">Mining Access Approved</h3>
+                  <p className="text-sm text-green-300">
+                    You are approved for automated mining. Your content will be automatically generated based on hot campaigns.
+                  </p>
                 </div>
               </div>
             </div>
