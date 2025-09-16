@@ -1,6 +1,6 @@
 import * as cron from 'node-cron';
 import { AppDataSource } from '../config/database';
-import { PopularTwitterHandles } from '../models/PopularTwitterHandles';
+import { TwitterHandleMetadata } from '../models/TwitterHandleMetadata';
 import { logger } from '../config/logger';
 
 export class PopularTwitterHandlesCronService {
@@ -61,7 +61,7 @@ export class PopularTwitterHandlesCronService {
    */
   private async processPendingHandles(): Promise<void> {
     try {
-      const repository = AppDataSource.getRepository(PopularTwitterHandles);
+      const repository = AppDataSource.getRepository(TwitterHandleMetadata);
       
       // Get pending handles (newly added or failed with retries available)
       const pendingHandles = await repository.find({
@@ -71,7 +71,7 @@ export class PopularTwitterHandlesCronService {
         ],
         order: {
           priority: 'DESC',
-          createdAt: 'ASC'
+          created_at: 'ASC'
         },
         take: 10 // Process up to 10 handles per cycle
       });
@@ -117,7 +117,7 @@ export class PopularTwitterHandlesCronService {
   /**
    * Fetch Twitter data for a specific handle
    */
-  private async fetchTwitterDataForHandle(handle: PopularTwitterHandles): Promise<void> {
+  private async fetchTwitterDataForHandle(handle: TwitterHandleMetadata): Promise<void> {
     try {
       logger.info(`🐦 Fetching Twitter data for @${handle.twitter_handle} (ID: ${handle.id})`);
 
@@ -138,7 +138,7 @@ export class PopularTwitterHandlesCronService {
         throw new Error(`Python backend error: ${response.status} ${response.statusText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as any;
 
       if (result.success && result.results && result.results.length > 0) {
         const handleResult = result.results[0];
@@ -153,9 +153,8 @@ export class PopularTwitterHandlesCronService {
         handle.last_fetch_at = new Date();
         handle.fetch_count = (handle.fetch_count || 0) + 1;
         handle.status = 'active';
-        handle.error_message = null;
 
-        await AppDataSource.getRepository(PopularTwitterHandles).save(handle);
+        await AppDataSource.getRepository(TwitterHandleMetadata).save(handle);
 
         logger.info(`✅ Successfully updated @${handle.twitter_handle}: ${handleResult.tweets_count} tweets, ${handleResult.images_count} images`);
 
