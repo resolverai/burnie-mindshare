@@ -7,6 +7,7 @@ export interface ApiKeyConfig {
   openai?: string;
   anthropic?: string;
   google?: string;
+  xai?: string;
   replicate?: string;
   elevenlabs?: string;
   stability?: string;
@@ -79,6 +80,8 @@ export function getApiKey(walletAddress: string, provider: string): string | nul
       return config.anthropic || null;
     case 'google':
       return config.google || null;
+    case 'xai':
+      return config.xai || null;
     case 'replicate':
       return config.replicate || null;
     case 'elevenlabs':
@@ -135,9 +138,71 @@ export function getAvailableProviders(walletAddress: string): string[] {
   if (config.openai) providers.push('openai');
   if (config.anthropic) providers.push('anthropic');
   if (config.google) providers.push('google');
+  if (config.xai) providers.push('xai');
   if (config.replicate) providers.push('replicate');
   if (config.elevenlabs) providers.push('elevenlabs');
   if (config.stability) providers.push('stability');
+  if (config.fal) providers.push('fal');
   
   return providers;
+}
+
+/**
+ * Validate API keys for agent model preferences
+ */
+export function validateAgentApiKeys(walletAddress: string, modelPreferences: ContentTypeModelPreferences): {
+  isValid: boolean;
+  missingKeys: string[];
+  warnings: string[];
+} {
+  const config = getApiKeys(walletAddress);
+  if (!config) {
+    return {
+      isValid: false,
+      missingKeys: ['All API keys'],
+      warnings: []
+    };
+  }
+  
+  const providerKeyMap = {
+    'openai': 'openai',
+    'anthropic': 'anthropic',
+    'google': 'google',
+    'xai': 'xai',
+    'replicate': 'replicate',
+    'elevenlabs': 'elevenlabs',
+    'stability': 'stability',
+    'fal': 'fal'
+  };
+  
+  const requiredProviders = [
+    { provider: modelPreferences.text?.provider, type: 'Text', required: true },
+    { provider: modelPreferences.image?.provider, type: 'Image', required: false },
+    { provider: modelPreferences.video?.provider, type: 'Video', required: false },
+    { provider: modelPreferences.audio?.provider, type: 'Audio', required: false }
+  ];
+  
+  const missingKeys: string[] = [];
+  const warnings: string[] = [];
+  
+  for (const { provider, type, required } of requiredProviders) {
+    if (!provider) continue;
+    
+    const keyName = providerKeyMap[provider as keyof typeof providerKeyMap];
+    const hasKey = keyName && config[keyName as keyof ApiKeyConfig] && config[keyName as keyof ApiKeyConfig]?.trim();
+    
+    if (!hasKey) {
+      if (required) {
+        missingKeys.push(`${type} (${provider})`);
+      } else {
+        warnings.push(`${type} (${provider}) - will skip ${type} generation`);
+      }
+    }
+  }
+  
+  return {
+    isValid: missingKeys.length === 0,
+    missingKeys,
+    warnings
+  };
 } 

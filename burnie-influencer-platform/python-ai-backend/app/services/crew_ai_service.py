@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Type, Union, Callable
+from typing import Dict, List, Optional, Any, Type, Union, Callable, ClassVar
 import logging
 from concurrent.futures import ThreadPoolExecutor
 import re
@@ -16,8 +16,16 @@ from enum import Enum
 class ImageToolSchema(BaseModel):
     prompt: str = Field(..., description="Image generation prompt as a simple string")
 
-class FalAIImageToolSchema(ImageToolSchema):
-    pass
+class FalAIImageToolSchema(BaseModel):
+    prompt: str = Field(default="", description="Image generation prompt as a simple string")
+    description: Optional[str] = Field(default=None, description="Alternative description field")
+    input: Optional[str] = Field(default=None, description="Alternative input field")
+    text: Optional[str] = Field(default=None, description="Alternative text field")
+    
+    class Config:
+        extra = "allow"  # Allow additional fields from CrewAI
+        arbitrary_types_allowed = True  # Allow arbitrary types
+        validate_assignment = False  # Disable validation on assignment
 
 class OpenAIImageToolSchema(ImageToolSchema):
     pass
@@ -170,12 +178,12 @@ class CrewAIService:
                 raise ValueError("No API keys provided. Please configure API keys in Neural Keys.")
             
             # Check for text generation keys (at least one required)
-            text_providers = ['openai', 'anthropic', 'google']
+            text_providers = ['openai', 'anthropic', 'google', 'xai']
             missing_keys = []
             available_text_keys = [k for k in text_providers if self.user_api_keys.get(k) and self.user_api_keys.get(k).strip()]
             
             if not available_text_keys:
-                missing_keys.extend(['openai OR anthropic OR google'])
+                missing_keys.extend(['openai OR anthropic OR google OR xai'])
                 
             if missing_keys:
                 error_msg = f"Missing API keys: {', '.join(missing_keys)}. Please configure them in Neural Keys."
@@ -283,8 +291,9 @@ class CrewAIService:
         try:
             logger.info(f"🔄 Initializing session data for user {mining_session.user_id}")
             
-            # Store agent_id for use in tools
+            # Store agent_id and source for use in tools
             self.agent_id = agent_id
+            self.source = mining_session.source or "mining_interface"
             
             # Get user data
             self.user_data = self.user_repo.get_user_by_id(mining_session.user_id)
@@ -460,27 +469,27 @@ class CrewAIService:
             'openai': 'openai',
             'anthropic': 'anthropic', 
             'google': 'google',
+            'xai': 'xai',
             'replicate': 'replicate',
             'elevenlabs': 'elevenlabs',
-            'stability': 'stability'
+            'stability': 'stability',
+            'fal': 'fal'
         }
         return provider_key_mapping.get(provider.lower(), '')
 
     async def _setup_agents(self, mining_session: MiningSession):
-        """Set up the 5 specialized AI agents with personalized configurations"""
+        """Set up the 3 specialized AI agents with personalized configurations"""
         try:
             # Create agents with LLM
             llm = self._get_llm_instance()
             
-            self.agents[AgentType.DATA_ANALYST] = self._create_data_analyst_agent(llm)
-            self.agents[AgentType.CONTENT_STRATEGIST] = self._create_content_strategist_agent(llm)
+            # Only create 3 agents: Text Content Creator, Visual Creator, and Orchestrator
+            # Data Analyst and Content Strategist are disabled for now
             self.agents[AgentType.TEXT_CONTENT] = await self._create_text_content_agent(llm)
             self.agents[AgentType.VISUAL_CREATOR] = self._create_visual_creator_agent(llm)
             self.agents[AgentType.ORCHESTRATOR] = self._create_orchestrator_agent()
             
             # Create tasks for each agent
-            self.tasks[AgentType.DATA_ANALYST] = self._create_data_analysis_task()
-            self.tasks[AgentType.CONTENT_STRATEGIST] = self._create_strategy_task()
             self.tasks[AgentType.TEXT_CONTENT] = await self._create_content_creation_task()
             self.tasks[AgentType.VISUAL_CREATOR] = self._create_visual_task()
             self.tasks[AgentType.ORCHESTRATOR] = self._create_orchestration_task()
@@ -495,7 +504,7 @@ class CrewAIService:
                 memory=False  # Disable memory to prevent context conflicts
             )
             
-            logger.info("🤖 All agents and tasks configured successfully")
+            logger.info("🤖 3 agents configured successfully (Data Analyst and Content Strategist disabled)")
             
         except Exception as e:
             logger.error(f"❌ Error setting up agents: {e}")
@@ -507,6 +516,31 @@ class CrewAIService:
             return "yapper_specific_success_pattern"
         else:
             return "leaderboard_success_pattern"
+    
+    def _get_workflow_steps(self, is_grok_model: bool) -> str:
+        """Get workflow steps based on model type"""
+        if is_grok_model:
+            return """
+        1. FIRST: Call grok_category_style_tool to get content in popular handle style
+        2. SECOND: Analyze the generated style and adapt it to campaign context
+        3. THIRD: Make autonomous decision on how to incorporate the style elements
+        4. FOURTH: Choose human communication strategy (casual analysis, personal experience, conversational, etc.)
+        5. FIFTH: Generate content with appropriate handle tagging and human-like language
+        6. SIXTH: Validate content has human-like qualities (contractions, personal opinions, varied structure)
+        7. SEVENTH: Return JSON in expected format
+        """
+        else:
+            success_pattern_tool = self._get_success_pattern_tool_name()
+            return f"""
+        1. FIRST: Call {success_pattern_tool} tool
+        2. SECOND: Parse JSON and analyze each yapper's text_success_patterns
+        3. THIRD: Compare with Content Strategist recommendations
+        4. FOURTH: Make autonomous decision on approach
+        5. FIFTH: Choose human communication strategy (casual analysis, personal experience, conversational, etc.)
+        6. SIXTH: Generate content with appropriate handle tagging and human-like language
+        7. SEVENTH: Validate content has human-like qualities (contractions, personal opinions, varied structure)
+        8. EIGHTH: Return JSON in expected format
+        """
 
     def _create_data_analyst_agent(self, llm) -> Agent:
         """Create the Data Analyst Agent with real mindshare prediction capabilities"""
@@ -695,8 +729,10 @@ class CrewAIService:
         try:
             logger.info(f"🔄 Initializing text-only session data for user {mining_session.user_id}")
             
-            # Store agent_id for use in tools
+            # Store agent_id, source, and wallet_address for use in tools
             self.agent_id = agent_id
+            self.source = mining_session.source or "yapper_interface_text_only"
+            self.wallet_address = getattr(mining_session, 'wallet_address', "unknown-wallet")
             
             # Get user data
             self.user_data = self.user_repo.get_user_by_id(mining_session.user_id)
@@ -721,7 +757,12 @@ class CrewAIService:
                             'tokenTicker': campaign_data.get('tokenTicker'),
                             'description': campaign_data.get('description'),
                             'brandGuidelines': campaign_data.get('brandGuidelines'),
+                            'category': campaign_data.get('category'),
+                            'title': campaign_data.get('title'),
                         }
+                        
+                        # Set campaign category for GrokCategoryStyleTool
+                        self.campaign_category = campaign_data.get('category', 'other')
                         
                         # Twitter context will be fetched directly from database during agent/task creation
                         logger.info(f"✅ Text-only: Campaign data loaded for project {self.campaign_data.get('projectId')}")
@@ -731,9 +772,11 @@ class CrewAIService:
                 except Exception as e:
                     logger.error(f"❌ Text-only: Error fetching campaign context: {e}")
                     self.campaign_data = {}
+                    self.campaign_category = 'other'  # Default category
             else:
                 logger.warning("⚠️ Text-only: No campaign ID in mining session")
                 self.campaign_data = {}
+                self.campaign_category = 'other'  # Default category
             
             # Set basic model preferences
             self.model_preferences = self._get_default_model_preferences()
@@ -753,58 +796,63 @@ class CrewAIService:
             raise
 
     async def _setup_text_only_agents(self, mining_session: MiningSession):
-        """Set up only the Text Content Creator agent for text-only regeneration"""
+        """Set up text-only regeneration to use GrokCategoryStyleTool directly (bypass CrewAI LLM system)"""
         try:
-            # Create only the Text Content Creator agent
-            llm = self._get_llm_instance()
+            # For text-only mode, we bypass CrewAI's LLM system entirely
+            # and use GrokCategoryStyleTool directly
+            logger.info("🤖 Text-only mode: Bypassing CrewAI LLM system, using GrokCategoryStyleTool directly")
             
-            self.agents[AgentType.TEXT_CONTENT] = await self._create_text_content_agent(llm)
+            # Set up model preferences for Grok
+            self.model_preferences = {
+                'text': {
+                    'provider': 'xai',
+                    'model': 'grok-3-mini'
+                }
+            }
             
-            # Create only the text content creation task
-            self.tasks[AgentType.TEXT_CONTENT] = self._create_text_only_content_creation_task()
+            # We don't need CrewAI agents for text-only mode
+            # The GrokCategoryStyleTool will handle everything directly
+            self.agents = {}
+            self.tasks = {}
+            self.crew = None
             
-            # Create minimal crew with only text content agent
-            self.crew = Crew(
-                agents=[self.agents[AgentType.TEXT_CONTENT]],
-                tasks=[self.tasks[AgentType.TEXT_CONTENT]],
-                process=Process.sequential,
-                verbose=True,
-                max_execution_time=300,  # 5 minutes for text-only
-                memory=False
-            )
-            
-            logger.info("🤖 Text-only agents configured successfully")
+            logger.info("🤖 Text-only agents configured successfully with GrokCategoryStyleTool")
             
         except Exception as e:
             logger.error(f"❌ Error setting up text-only agents: {e}")
             raise
 
     def _create_text_only_content_creation_task(self) -> Task:
-        """Create task for Text Content Agent in text-only mode"""
+        """Create task for Text Content Agent in text-only mode with GrokCategoryStyleTool"""
         post_type = getattr(self.mining_session, 'post_type', 'thread')
+        selected_handle = getattr(self, 'selected_yapper_handle', 'unknown')
         
-        # Enhanced task description for text-only mode with image alignment
+        # Enhanced task description for text-only mode with GrokCategoryStyleTool
         task_description = f"""
-        🎯 **TEXT-ONLY REGENERATION TASK** - Generate new text content that aligns with existing image and content.
+        🎯 **TEXT-ONLY REGENERATION TASK** - Generate new text content using GrokCategoryStyleTool in the style of @{selected_handle}.
         
         **EXISTING CONTENT CONTEXT**:
         - Original Content: "{self.stored_content_text}" if self.stored_content_text else "No original content"
         - Image Prompt: "{self.stored_image_prompt}" if self.stored_image_prompt else "No image prompt"
         - Post Type: {post_type.upper()}
-        - Selected Yapper: @{getattr(self, 'selected_yapper_handle', 'unknown')}
+        - Selected Yapper: @{selected_handle}
         
         **CRITICAL REQUIREMENTS**:
-        1. **IMAGE ALIGNMENT**: Your new text MUST work perfectly with the existing image
-        2. **CONTENT CONSISTENCY**: Maintain the same core message and value proposition
-        3. **YAPPER STYLE**: Apply the selected yapper's success patterns and style
+        1. **USE GROK TOOL**: Call grok_category_style_tool to generate content in @{selected_handle}'s authentic style
+        2. **IMAGE ALIGNMENT**: Your new text MUST work perfectly with the existing image
+        3. **CONTENT CONSISTENCY**: Maintain the same core message and value proposition
         4. **POST TYPE RESPECT**: Follow exact rules for {post_type} content
         5. **NO IMAGE GENERATION**: Only generate text content
         6. **IGNORE LOGO INFO**: Do not include any logo-related information in your text generation
         
-        **SUCCESS PATTERN INTEGRATION**:
-        - Use the success pattern tool to get the selected yapper's specific patterns
-        - Apply their text_success_patterns to your content generation
-        - Ensure the new text feels authentic to their style while maintaining image alignment
+        **GROK TOOL USAGE**:
+        - Call grok_category_style_tool with the campaign context, post type, image prompt, AND selected_handle
+        - Pass the stored image prompt to ensure text aligns with the existing image
+        - Pass the selected_handle parameter to use the specific handle's style
+        - The tool will generate content in @{selected_handle}'s authentic style that complements the image
+        - Use the EXACT content returned by the tool as your final output
+        - Do NOT modify, expand, or rewrite the tool's output
+        - Simply format the tool's output into the required JSON structure
         
         **CONTENT ALIGNMENT STRATEGY**:
         - Analyze the stored image prompt to understand the visual context
@@ -812,12 +860,6 @@ class CrewAIService:
         - Maintain the same emotional tone and messaging intent
         - Keep the same key project references (no hashtags needed)
         - Focus on the main visual elements and content, ignore any logo/branding details
-        
-        **NATURAL LANGUAGE REQUIREMENTS**:
-        - Use natural, human-sounding language that feels authentic
-        - Apply natural punctuation and capitalization variations when appropriate
-        - Mix opinions, insights, and engagement naturally
-        - Maintain the same casual, conversational tone as the original content
         
         **OUTPUT FORMAT**: JSON object with main_tweet, thread_array (if applicable), and character_counts - no hashtags needed
         """
@@ -829,15 +871,15 @@ class CrewAIService:
         )
 
     async def _run_text_only_generation(self, mining_session: MiningSession) -> Dict[str, Any]:
-        """Run text-only generation with the minimal agent setup"""
+        """Run text-only generation using GrokCategoryStyleTool directly"""
         try:
             # Update session status
             mining_session.status = MiningStatus.GENERATING
-            await self._update_progress(40, "Text Content Agent: Generating aligned text...")
+            await self._update_progress(40, "GrokCategoryStyleTool: Generating aligned text...")
             mining_session.agent_statuses[AgentType.TEXT_CONTENT] = AgentStatus.RUNNING
             
-            # Execute crew with only text content agent
-            result = await asyncio.create_task(self._execute_text_only_crew())
+            # Use GrokCategoryStyleTool directly instead of CrewAI crew
+            result = await self._execute_direct_grok_generation(mining_session)
             
             logger.info("✅ Text-only generation completed successfully")
             return result
@@ -846,37 +888,64 @@ class CrewAIService:
             logger.error(f"❌ Error in text-only generation: {e}")
             raise
 
-    async def _execute_text_only_crew(self) -> Dict[str, Any]:
-        """Execute text-only crew with minimal progress tracking"""
+    async def _execute_direct_grok_generation(self, mining_session: MiningSession) -> Dict[str, Any]:
+        """Execute text-only generation using GrokCategoryStyleTool directly"""
         try:
-            logger.info("🚀 Starting text-only crew execution...")
+            logger.info("🚀 Starting direct Grok generation...")
             
-            # Execute the minimal CrewAI crew
-            result = self.crew.kickoff()
+            # Get the selected handle from the service (set in main.py)
+            selected_handle = getattr(self, 'selected_yapper_handle', 'unknown')
+            post_type = getattr(mining_session, 'post_type', 'thread')
+            
+            # Debug logging
+            logger.info(f"🔍 DEBUG - Selected Handle: {selected_handle}")
+            logger.info(f"🔍 DEBUG - Stored Image Prompt: {self.stored_image_prompt}")
+            logger.info(f"🔍 DEBUG - Stored Content Text: {self.stored_content_text}")
+            
+            # Create the GrokCategoryStyleTool
+            grok_tool = GrokCategoryStyleTool(
+                campaign_category=self.campaign_category,
+                campaign_context=self.campaign_data,
+                api_key=settings.xai_api_key,
+                model_preferences=self.model_preferences
+            )
+            
+            # Build the prompt for text-only regeneration
+            prompt = f"Regenerate text content for {post_type} in the style of @{selected_handle}. "
+            if self.stored_content_text:
+                prompt += f"Original content: {self.stored_content_text}. "
+            if self.stored_image_prompt:
+                prompt += f"Image context: {self.stored_image_prompt}. "
+            prompt += f"Campaign context: {self.campaign_data.get('title', 'crypto project') if self.campaign_data else 'crypto project'}"
+            
+            # Call the GrokCategoryStyleTool directly
+            generated_content = grok_tool._run(
+                prompt=prompt,
+                post_type=post_type,
+                image_prompt=self.stored_image_prompt or "",
+                selected_handle=selected_handle
+            )
             
             # Process the result
-            raw_result = str(result) if result else "Generated text-only content"
-            
-            # Extract text content from result
-            final_content = self._extract_text_content_from_result(raw_result)
+            final_content = self._extract_text_content_from_result(generated_content, post_type)
             
             return {
                 "final_content": final_content,
-                "raw_result": raw_result,
+                "raw_result": generated_content,
                 "mode": "text_only"
             }
             
         except Exception as e:
-            logger.error(f"❌ Error in text-only crew execution: {e}")
+            logger.error(f"❌ Error in direct Grok generation: {e}")
             raise
 
-    def _extract_text_content_from_result(self, raw_result: str) -> Dict[str, Any]:
-        """Extract text content and thread from text-only generation result"""
+    def _extract_text_content_from_result(self, raw_result: str, post_type: str = 'thread') -> Dict[str, Any]:
+        """Extract text content and thread from text-only generation result based on post type"""
         try:
             import re
             import json
             
-            # Try to parse JSON output
+            # Try to parse JSON output first
             json_match = re.search(r'\{(?:[^{}]|{[^{}]*}|\[[^\]]*\])*"main_tweet"(?:[^{}]|{[^{}]*}|\[[^\]]*\])*\}', raw_result, re.DOTALL)
             if json_match:
                 try:
@@ -919,6 +988,42 @@ class CrewAIService:
                     
                 except json.JSONDecodeError:
                     logger.warning(f"⚠️ JSON parsing failed for text-only result")
+            
+            # Handle different post types based on raw content
+            if post_type == 'thread':
+                # For threads, try to split by lines and treat as thread array
+                lines = raw_result.strip().split('\n')
+                if len(lines) > 1:
+                    main_tweet = lines[0].strip()
+                    thread_array = [line.strip() for line in lines[1:] if line.strip()]
+                    logger.info(f"✅ Extracted thread content from lines: {len(thread_array)} thread tweets")
+                    return {
+                        "main_tweet": main_tweet,
+                        "thread_array": thread_array
+                    }
+                else:
+                    # Single line, treat as main tweet only
+                    logger.info(f"✅ Extracted single tweet content for thread")
+                    return {
+                        "main_tweet": raw_result.strip(),
+                        "thread_array": []
+                    }
+            
+            elif post_type in ['shitpost', 'tweet']:
+                # For shitposts and tweets, everything goes to main_tweet
+                logger.info(f"✅ Extracted {post_type} content")
+                return {
+                    "main_tweet": raw_result.strip(),
+                    "thread_array": []
+                }
+            
+            elif post_type == 'longpost':
+                # For longposts, everything goes to main_tweet
+                logger.info(f"✅ Extracted longpost content")
+                return {
+                    "main_tweet": raw_result.strip(),
+                    "thread_array": []
+                }
             
             # Fallback: extract main tweet content more broadly
             main_tweet_pattern = r'"main_tweet"\s*:\s*"((?:[^"\\]|\\.|\\n|\\r|\\t)*)"'
@@ -1297,24 +1402,138 @@ class CrewAIService:
         # Create tools based on user preferences
         tools = []
         
-        # Add Success Pattern Tool based on request type
-        if self.selected_yapper_handle:
-            # For yapper interface requests, use yapper-specific tool
-            logger.info(f"🎯 Using yapper-specific success pattern tool for @{self.selected_yapper_handle}")
-            tools.append(YapperSpecificSuccessPatternTool(
-                campaign_id=self.mining_session.campaign_id,
-                selected_yapper_handle=self.selected_yapper_handle,
-                user_api_keys=self.user_api_keys,
-                model_preferences=self.model_preferences
+        # Check if user is using Grok models
+        is_grok_model = text_model.lower().startswith('grok')
+        
+        # ===== COMPREHENSIVE CONTEXT LOGGING =====
+        print("\n" + "="*80)
+        print("🎯 TEXT CONTENT CREATOR AGENT - CONTEXT VERIFICATION")
+        print("="*80)
+        print(f"📊 MODEL PREFERENCES: {json.dumps(self.model_preferences, indent=2)}")
+        print(f"🔧 TEXT PROVIDER: {text_provider}")
+        print(f"🤖 TEXT MODEL: {text_model}")
+        print(f"🎭 IS GROK MODEL: {is_grok_model}")
+        print(f"🔑 USER API KEYS: {list(self.user_api_keys.keys()) if self.user_api_keys else 'None'}")
+        print(f"📍 SOURCE: {self.source}")
+        print(f"🎯 SELECTED YAPPER HANDLE: {self.selected_yapper_handle}")
+        
+        # Campaign data logging
+        if self.campaign_data:
+            print(f"📋 CAMPAIGN DATA:")
+            print(f"   - Project Name: {self.campaign_data.get('projectName', 'N/A')}")
+            print(f"   - Project Twitter Handle: {self.campaign_data.get('projectTwitterHandle', 'N/A')}")
+            print(f"   - Token Ticker: {self.campaign_data.get('tokenTicker', 'N/A')}")
+            print(f"   - Description: {self.campaign_data.get('description', 'N/A')[:100]}...")
+            print(f"   - Brand Guidelines: {self.campaign_data.get('brandGuidelines', 'N/A')[:100]}...")
+            print(f"   - Project ID: {self.campaign_data.get('projectId', 'N/A')}")
+        else:
+            print("❌ NO CAMPAIGN DATA AVAILABLE")
+        
+        # Agent config logging
+        print(f"⚙️ AGENT CONFIG: {json.dumps(agent_config, indent=2)}")
+        print(f"✍️ USER WRITING STYLE: {user_style}")
+        
+        # Mining session logging
+        if hasattr(self, 'mining_session') and self.mining_session:
+            print(f"⛏️ MINING SESSION:")
+            print(f"   - Campaign ID: {getattr(self.mining_session, 'campaign_id', 'N/A')}")
+            print(f"   - Post Type: {getattr(self.mining_session, 'post_type', 'N/A')}")
+            print(f"   - Wallet Address: {getattr(self.mining_session, 'wallet_address', 'N/A')}")
+        else:
+            print("❌ NO MINING SESSION AVAILABLE")
+        
+        print("="*80)
+        print("🔍 TOOL SELECTION LOGIC:")
+        print("="*80)
+        
+        if is_grok_model:
+            # For Grok models, use category-based handle style tool
+            print(f"🤖 USING GROK CATEGORY-BASED HANDLE STYLE TOOL")
+            print(f"   - Model: {text_model}")
+            print(f"   - Available Categories: {list(GrokCategoryStyleTool.HANDLE_CATEGORIES.keys())}")
+            
+            # Determine API key to use
+            if self.source == "yapper_interface":
+                # Use system API key for yapper interface
+                api_key = None  # Will use system key from settings
+                print(f"🔑 API KEY: Using system XAI API key for yapper interface")
+            else:
+                # Use user API key for mining interface/dedicated miner
+                api_key = self.user_api_keys.get('xai')
+                print(f"🔑 API KEY: Using user XAI API key: {'***' + api_key[-4:] if api_key else 'None'}")
+            
+            print(f"🎯 TOOL CONFIGURATION:")
+            print(f"   - Tool Name: grok_category_style_tool")
+            print(f"   - API Key Source: {'System' if api_key is None else 'User'}")
+            print(f"   - Model Preferences: {json.dumps(self.model_preferences, indent=2)}")
+            print(f"   - Wallet Address: {self.wallet_address}")
+            print(f"   - Agent ID: {self.agent_id}")
+        else:
+            print(f"🏆 USING SUCCESS PATTERN TOOLS (Non-Grok Model)")
+            success_pattern_tool = self._get_success_pattern_tool_name()
+            print(f"   - Success Pattern Tool: {success_pattern_tool}")
+            print(f"   - Selected Yapper Handle: {self.selected_yapper_handle}")
+            print(f"   - Campaign ID: {self.mining_session.campaign_id if hasattr(self, 'mining_session') and self.mining_session else 'N/A'}")
+        
+        print("="*80)
+        print("🎯 END CONTEXT VERIFICATION")
+        print("="*80 + "\n")
+        
+        if is_grok_model:
+            # For Grok models, use category-based handle style tool
+            logger.info(f"🤖 Using Grok category-based handle style tool for model: {text_model}")
+            
+            # Determine API key to use
+            if self.source == "yapper_interface":
+                # Use system API key for yapper interface
+                api_key = None  # Will use system key from settings
+                logger.info("🔑 Using system XAI API key for yapper interface")
+            else:
+                # Use user API key for mining interface/dedicated miner
+                api_key = self.user_api_keys.get('xai')
+                logger.info(f"🔑 Using user XAI API key: {'***' + api_key[-4:] if api_key else 'None'}")
+            
+            # Get campaign category and context from campaign data
+            campaign_category = None
+            campaign_context = ""
+            twitter_context = ""
+            if self.campaign_data:
+                campaign_category = self.campaign_data.get('category', '')
+                campaign_context = self._get_campaign_context()
+                # Get Twitter context with recent tweets (last 15 days)
+                twitter_context = self._get_twitter_context()
+                print(f"🎯 CAMPAIGN CATEGORY: {campaign_category}")
+                print(f"📊 CAMPAIGN CONTEXT: {campaign_context[:100]}...")
+                print(f"🐦 TWITTER CONTEXT: {twitter_context[:100]}...")
+            
+            tools.append(GrokCategoryStyleTool(
+                api_key=api_key,
+                model_preferences=self.model_preferences,
+                wallet_address=self.wallet_address,
+                agent_id=self.agent_id,
+                campaign_category=campaign_category,
+                campaign_context=campaign_context,
+                twitter_context=twitter_context
             ))
         else:
-            # For mining interface requests, use general leaderboard tool
-            logger.info(f"🏆 Using general leaderboard success pattern tool")
-            tools.append(LeaderboardYapperSuccessPatternTool(
-                campaign_id=self.mining_session.campaign_id,
-                user_api_keys=self.user_api_keys,
-                model_preferences=self.model_preferences
-            ))
+            # For non-Grok models, use existing success pattern tools
+            if self.selected_yapper_handle:
+                # For yapper interface requests, use yapper-specific tool
+                logger.info(f"🎯 Using yapper-specific success pattern tool for @{self.selected_yapper_handle}")
+                tools.append(YapperSpecificSuccessPatternTool(
+                    campaign_id=self.mining_session.campaign_id,
+                    selected_yapper_handle=self.selected_yapper_handle,
+                    user_api_keys=self.user_api_keys,
+                    model_preferences=self.model_preferences
+                ))
+            else:
+                # For mining interface requests, use general leaderboard tool
+                logger.info(f"🏆 Using general leaderboard success pattern tool")
+                tools.append(LeaderboardYapperSuccessPatternTool(
+                    campaign_id=self.mining_session.campaign_id,
+                    user_api_keys=self.user_api_keys,
+                    model_preferences=self.model_preferences
+                ))
         
         if text_provider == 'openai' and self.user_api_keys.get('openai'):
             logger.info(f"✅ Creating OpenAI tool with API key: {'***' + self.user_api_keys['openai'][-4:] if self.user_api_keys['openai'] else 'None'}")
@@ -1332,8 +1551,12 @@ class CrewAIService:
                 wallet_address=self.wallet_address,
                 agent_id=self.agent_id
             ))
+        elif text_provider == 'xai' and (self.user_api_keys.get('xai') or self.source == "yapper_interface"):
+            # For XAI/Grok models, the GrokCategoryStyleTool already handles content generation
+            # No additional content generation tool needed
+            logger.info(f"✅ Grok content generation handled by GrokCategoryStyleTool")
         else:
-            logger.warning(f"⚠️ No content generation tool created! text_provider={text_provider}, openai_key_exists={bool(self.user_api_keys.get('openai'))}, anthropic_key_exists={bool(self.user_api_keys.get('anthropic'))}")
+            logger.warning(f"⚠️ No content generation tool created! text_provider={text_provider}, openai_key_exists={bool(self.user_api_keys.get('openai'))}, anthropic_key_exists={bool(self.user_api_keys.get('anthropic'))}, xai_key_exists={bool(self.user_api_keys.get('xai'))}")
         
         # Note: Hashtag optimization tool removed - hashtags not needed in content
         
@@ -1391,6 +1614,12 @@ class CrewAIService:
         # Get post type from mining session
         post_type = getattr(self.mining_session, 'post_type', 'thread')
         
+        # Set timeout based on post type - longposts need much more time
+        if post_type == 'longpost':
+            max_execution_time = 600  # 10 minutes for longposts
+        else:
+            max_execution_time = 180  # 3 minutes for other post types
+        
         # Generate post-type specific backstory
         backstory = self._get_posttype_specific_backstory(post_type, text_provider, text_model, user_style, agent_config, twitter_context)
         
@@ -1403,7 +1632,7 @@ class CrewAIService:
             llm=llm,
             tools=tools,
             max_iter=2,  # Maximum 2 iterations to prevent loops
-            max_execution_time=180  # 3 minutes max
+            max_execution_time=max_execution_time
         )
 
     def _format_twitter_handle(self, handle: str) -> str:
@@ -1414,6 +1643,53 @@ class CrewAIService:
         clean_handle = handle.lstrip('@')
         return f'@{clean_handle}' if clean_handle else ''
 
+    def _get_simplified_grok_backstory(self, post_type: str, project_twitter_handle: str, user_style: str, agent_config: dict, twitter_context: str) -> str:
+        """Ultra-simplified backstory for Grok models - just use handle styles"""
+        
+        # Get token ticker for mentions
+        token_ticker = self.campaign_data.get('tokenTicker', 'TOKEN') if self.campaign_data else 'TOKEN'
+        
+        # Ultra-simple post-type requirements
+        if post_type == 'thread':
+            post_requirements = f"Generate 2-5 tweets in thread format. Include ${token_ticker} and tag {project_twitter_handle}."
+        elif post_type == 'shitpost':
+            post_requirements = f"Generate a casual, humorous single tweet. Include ${token_ticker} and tag {project_twitter_handle}."
+        elif post_type == 'longpost':
+            post_requirements = f"Generate a detailed single tweet with insights. Include ${token_ticker} and tag {project_twitter_handle}."
+        else:
+            post_requirements = f"Generate an engaging single tweet. Include ${token_ticker} and tag {project_twitter_handle}."
+        
+        return f"""You are a {post_type.upper()} content creator using Grok models.
+
+        🤖 **SIMPLE INSTRUCTIONS**:
+        - Call the grok_category_style_tool to generate content in popular handle styles
+        - The tool will randomly select a handle and generate content in their authentic style
+        - Use the EXACT content returned by the tool as your final output
+        - Do NOT modify, expand, or rewrite the tool's output
+        - Simply format the tool's output into the required JSON structure
+
+        📏 **CHARACTER REQUIREMENTS**:
+        - **THREAD**: main_tweet ≤240 chars, each thread_array item ≤260 chars
+        - **SHITPOST**: main_tweet ≤260 chars, NO thread_array (empty array)
+        - **LONGPOST**: main_tweet 8000-12000 chars, NO thread_array (empty array)
+        - **TWEET**: main_tweet ≤240 chars, NO thread_array (empty array)
+
+        🎯 **CONTENT FOCUS**:
+        - Create excitement about project developments
+        - Use natural, conversational tone
+        - Include relevant project information
+        - Drive community engagement
+
+        {post_requirements}
+
+        📊 **CONTEXT DATA**:
+        {twitter_context}
+
+        👤 **USER PREFERENCES**:
+        {user_style}
+        {json.dumps(agent_config, indent=2)}
+        """
+
     def _get_posttype_specific_backstory(self, post_type: str, text_provider: str, text_model: str, user_style: str, agent_config: dict, twitter_context: str) -> str:
         """Generate post-type specific backstory for Text Content Agent"""
         
@@ -1421,6 +1697,20 @@ class CrewAIService:
         project_twitter_handle_raw = self.campaign_data.get('projectTwitterHandle', '') if self.campaign_data else ''
         project_twitter_handle_raw = project_twitter_handle_raw or ''
         project_twitter_handle = self._format_twitter_handle(project_twitter_handle_raw)
+        
+        # Check if this is a Grok model - use simplified instructions
+        is_grok_model = text_model.startswith('grok')
+        
+        # Debug logging
+        logger.info(f"🔍 === BACKSTORY DEBUG ===")
+        logger.info(f"🔍 text_model: {text_model}")
+        logger.info(f"🔍 is_grok_model: {is_grok_model}")
+        logger.info(f"🔍 post_type: {post_type}")
+        
+        if is_grok_model:
+            # Simplified backstory for Grok models (since they already use handle styles)
+            logger.info(f"🔍 Using simplified Grok backstory for {post_type}")
+            return self._get_simplified_grok_backstory(post_type, project_twitter_handle, user_style, agent_config, twitter_context)
         
         # Check if this is a yapper interface request with specific yapper pattern
         yapper_specific_instructions = ""
@@ -1459,16 +1749,17 @@ class CrewAIService:
             4. **Creative Innovation**: Generate entirely new approaches based on campaign context
             
             **YOUR DECISION-MAKING PROCESS**:
-            - FIRST: Call the success pattern tool to get yapper insights (returns JSON with individual yapper patterns)
-            - ANALYZE: Parse JSON response to examine each yapper's text_success_patterns individually
-            - COMPARE: Evaluate strategist guidance vs specific yapper patterns vs campaign needs
-            - DECIDE: Choose which yapper's pattern to follow (if any) or create hybrid approach
+            - FIRST: Use available tools to get insights (success patterns or category-based styles)
+            - ANALYZE: Parse tool responses to examine patterns and styles
+            - COMPARE: Evaluate different approaches vs campaign needs
+            - DECIDE: Choose which pattern/style to follow (if any) or create hybrid approach
             - EXECUTE: Generate content using your chosen strategy
             
-            **SUCCESS PATTERN TOOL USAGE** (OPTIONAL):
-            - Success pattern tools are available but NOT required - use your autonomous judgment
+            **TOOL USAGE** (CONDITIONAL):
+            - If using Grok models: Use grok_category_style_tool to generate content in popular handle styles
+            - If using other models: Use success pattern tools for yapper insights (optional)
             - Focus primarily on the authentic examples provided above for inspiration
-            - Only use success pattern tools if they add genuine value to your content
+            - Only use tools if they add genuine value to your content
             - Your creativity and the provided examples should be your primary guides
             
             🏷️ **YAPPER HANDLE TAGGING REQUIREMENTS** (CRITICAL):
@@ -1633,170 +1924,9 @@ class CrewAIService:
             - Provide deeper insights, more context, richer storytelling
             - Make every tweet worth reading and sharing
             
-            🎭 **THREAD HUMANIZATION TECHNIQUES**:
-            - **Natural progression**: Each thread item builds on the previous naturally
-            - **Personal voice**: Use "I", "my", "me" - share personal takes and experiences
-            - **Community engagement**: Reference what "everyone's talking about" or "saw some people saying"
-            - **Authentic reactions**: "facts," "this," "lmao," "bruh" - use naturally, not forced
-            - **Varied CTAs**: Mix questions, challenges, and community calls organically
+            {self._get_humanization_techniques('thread') if not is_grok_model else ''}
             
-            📚 **AUTHENTIC THREAD INSPIRATION** (Study these patterns, but create your own unique content):
-            
-            **Meme Coin Madness Threads:**
-            - Lead: "Just saw $DOGE pump 15% in an hour. Is this Elon tweeting or actual adoption? Let's unpack. 🐶🚀"
-              Follow-up 1: "DOGE has been a meme coin king since 2013. But with BTC ETF hype, is it finally a store of value? 🧐"
-              Follow-up 2: "Check the chart: RSI screaming overbought. Dip incoming or moonshot? What's your play? 📊"
-              CTA: "Drop your $DOGE price target below. Bullish or bearish?"
-            
-            - Lead: "$SHIB army, where you at? Just staked 10M for Shibarium. Here's why I'm not selling. 🦊"
-              Follow-up 1: "Shibarium's L2 is processing 400 TPS. That's Solana-level speed for a meme coin. Underrated?"
-              Follow-up 2: "Airdrop rumors swirling for $BONE holders. Connected my wallet already. You in? 🦴"
-              CTA: "Who's holding $SHIB through 2025? Tag a degen."
-            
-            - Lead: "$PEPE just flipped $FLOKI in market cap. Frogs > dogs? Let's talk meme coin wars. 🐸"
-              Follow-up 1: "PEPE's community is wild—NFTs, memes, and pure degen energy. But is it sustainable?"
-              Follow-up 2: "FLOKI's got Viking branding and gaming. PEPE's got… vibes. Who wins long-term? 🛡️"
-              CTA: "Pick a side: $PEPE or $FLOKI? Reply with your champ."
-            
-            - Lead: "Bought $BUTTHOLE at 2 AM because YOLO. Here's why this meme coin might actually 10x. 😜"
-              Follow-up 1: "Team's doxxed, community's hyped, and they're dropping an NFT game. Smells like 2021 $SHIB."
-              Follow-up 2: "Risk? It's a meme coin. Reward? Potential moon. My bags are small but spicy. 🌶️"
-              CTA: "What's your wildest meme coin bet? Spill the tea."
-            
-            - Lead: "Meme coins are crypto's guilty pleasure. $LILPEPE just caught my eye. Why? Thread. 🐸"
-              Follow-up 1: "LILPEPE's on BNB Chain, low fees, fast txns. Perfect for degen traders chasing pumps."
-              Follow-up 2: "Their Discord is popping—10K members in a week. Early $DOGE vibes? 👀"
-              CTA: "Are meme coins still king in 2025? Drop your fave below."
-            
-            **Airdrop & Points Hype Threads:**
-            - Lead: "Airdrop season's back, and the Yaps program is printing points. Here's how I'm farming. 💸"
-              Follow-up 1: "Linked my X and wallet. Posted 3 high-signal yaps, already top 500. 🏆"
-              Follow-up 2: "Pro tip: Share alpha, not spam. The AI loves thoughtful takes. Check the dashboard!"
-              CTA: "Who's climbing the Yapper Leaderboard? Share your rank."
-            
-            - Lead: "Cookie.fun's referral game is wild. Sent 10 cookies, got 5K points. Here's the hack. 🍪"
-              Follow-up 1: "Connect wallet, send cookies to frens, climb leaderboard. It's like Axie Infinity but social."
-              Follow-up 2: "Rumor: Top referrers get airdrops. I'm spamming my group chat. 😎"
-              CTA: "How many cookies you baking? Drop your count."
-            
-            - Lead: "Genesis NFTs are the golden ticket to airdrops. Snagged one. Why it's worth it. 🖼️"
-              Follow-up 1: "NFTs unlock premium Yaps points. Staked mine for 2x multiplier. Early adopter vibes."
-              Follow-up 2: "AI tracks your posts for rewards. High-signal yaps = bigger bags. 📈"
-              CTA: "Grabbed a Genesis NFT yet? Or waiting for the dip?"
-            
-            - Lead: "Just staked $BNB for Recall's airdrop. Cookie.fun's got me hooked. Why I'm bullish. 🍪"
-              Follow-up 1: "Recall's AI-driven UX is next-level. Think ChatGPT but for crypto wallets. 🚀"
-              Follow-up 2: "Cookie.fun's leaderboard rewards early movers. I'm at 1K points already. 🥐"
-              CTA: "Who's farming $RECALL? Share your strat."
-            
-            - Lead: "Yapper Leaderboard is my new obsession. Top 100 or bust. Here's my game plan. 🏅"
-              Follow-up 1: "Post daily about trending tokens ($TAO, $XION). AI loves relevance."
-              Follow-up 2: "Engage with replies, avoid spam. My last thread got 200 RTs. Let's go! 🔥"
-              CTA: "What's your Yaps rank? Drop it below."
-            
-            **Market Vibes & Takes Threads:**
-            - Lead: "Market's bleeding, but I'm yapping about $ETH L2s. Why I'm not selling. 🩸"
-              Follow-up 1: "L2s like Arbitrum and Movement are eating gas fees for breakfast. $ETH's still king."
-              Follow-up 2: "Zoom out: ETH's up 200% since 2023. This dip's just noise. Buy or cry? 😭"
-              CTA: "What's your go-to L2? $ARB, $OP, or other?"
-            
-            - Lead: "BTC to 100K or we're NGMI. Here's why I'm max bullish. 🚀"
-              Follow-up 1: "ETF inflows are insane—$2B last week. Institutional FOMO is real. 🏦"
-              Follow-up 2: "Halving cycle math checks out. 2025's the year. HODL or regret. 💎"
-              CTA: "What's your BTC price target? Drop it."
-            
-            - Lead: "$TAO pumping while DeFi sleeps. AI agents are the new meta. Why I'm all in. 🤖"
-              Follow-up 1: "TAO's AI framework is powering Solana dApps. 20% APY on staking? Yes pls."
-              Follow-up 2: "X sentiment's 80% bullish on AI tokens. $TAO's leading the pack. 📈"
-              CTA: "AI or DeFi in 2025? Pick a side."
-            
-            - Lead: "Altseason's coming, and I'm loading up. Why InfoFi's the next DeFi. 🔮"
-              Follow-up 1: "AI tracks X sentiment to find alpha. Found $XION at $0.02 last month. 🤑"
-              Follow-up 2: "InfoFi rewards data sharers. I'm yapping for points and profits. Join me?"
-              CTA: "What's your top altcoin pick? Spill."
-            
-            - Lead: "Solana's down 10%, but I'm not sweating. Why $SOL's still a 10x play. 🏄‍♂️"
-              Follow-up 1: "Solana's ecosystem is exploding—NFTs, AI, DeFi. 400K txns daily. 🚀"
-              Follow-up 2: "Dip's just weak hands exiting. I'm staking for 8% APY. You holding?"
-              CTA: "Bullish or bearish on $SOL? Drop your take."
-            
-            **Project Alpha Threads:**
-            - Lead: "Berachain's mainnet is closer than you think. Why I'm stacking for it. 🐻"
-              Follow-up 1: "Berachain's PoS is eco-friendly and fast. Staking already live. Early?"
-              Follow-up 2: "Yaps rewards Berachain posts. My last yap got 1K points. 🏆"
-              CTA: "Who's hyped for Berachain? Drop your bags."
-            
-            - Lead: "Movement Labs is the L2 dark horse. Why I'm betting big. 🏇"
-              Follow-up 1: "Their parallelized EVM hits 100K TPS. That's 10x Arbitrum. Undervalued?"
-              Follow-up 2: "Testnet's live, mainnet Q4. I'm farming their points program. You in?"
-              CTA: "What's your fave L2? $MOVR or bust?"
-            
-            - Lead: "Doodles NFTs are popping off on the radar. Why they're not just jpegs. 🎨"
-              Follow-up 1: "Doodles 2.0 has utility—staking, games, merch. Floor's at 0.5 ETH. Bargain?"
-              Follow-up 2: "AI ranks Doodles posts high. My last thread got 300 likes. 🖼️"
-              CTA: "HODLing Doodles or flipping? Share your play."
-            
-            - Lead: "Freysa's $100K hackathon is crypto's Super Bowl. Why I'm coding for it. 🧠"
-              Follow-up 1: "Freysa's AI agents let you build dApps in hours. I'm making a yield bot. 🤖"
-              Follow-up 2: "Yaps rewards Freysa posts. 500 points per thread? I'm farming."
-              CTA: "Building for Freysa? Drop your project idea."
-            
-            - Lead: "Xion on Cookie.fun is my new addiction. Why their referral loop's a game-changer. 🍪"
-              Follow-up 1: "Xion's L1 is privacy-focused. Think Monero but faster. Testnet's live."
-              Follow-up 2: "Cookie.fun's points convert to $XION tokens. I'm at 2K already. 🥐"
-              CTA: "How many $XION points you got? Flex it."
-            
-            **AI & Crypto Vibes Threads:**
-            - Lead: "AI just gave my post a 9.5/10. Am I the new CZ? Here's why I'm bullish. 🤖"
-              Follow-up 1: "InfoFi tracks X sentiment to predict pumps. Found $TAO at $5. 💸"
-              Follow-up 2: "Yaps program rewards high-signal posts. I'm at 3K points. Leaderboard szn?"
-              CTA: "What's AI taught you? Share your alpha."
-            
-            - Lead: "AI tokens are eating 2025. $TAO, $XAI—here's my stack. 🧠"
-              Follow-up 1: "TAO's up 30% this month. AI agents powering dApps. Next 10x?"
-              Follow-up 2: "AI ranks my posts for rewards. 1K points last week. You yapping?"
-              CTA: "Which AI token's your pick? Drop it."
-            
-            - Lead: "Pro's saving my portfolio. How I use it to find 10x gems. 💎"
-              Follow-up 1: "Pro's sentiment tracker spotted $XION before the 20% pump. AI > CT noise."
-              Follow-up 2: "Yaps rewards Pro users with 2x points. I'm at 5K already. 🏆"
-              CTA: "Using Pro or raw CT vibes? Spill your strat."
-            
-            - Lead: "InfoFi's the future, and it's leading. Why I'm all in. 🔮"
-              Follow-up 1: "InfoFi pays you to share alpha. AI tracks X for real-time signals."
-              Follow-up 2: "My thread got 400 RTs, 2K points. Leaderboard vibes. 🥇"
-              CTA: "What's your InfoFi play? Pick your side."
-            
-            - Lead: "AI agents are crypto's new meta. Why $XAI's my top pick. 🤖"
-              Follow-up 1: "XAI's Grok is answering degen questions on X. Smarter than my trading bot."
-              Follow-up 2: "AI loves $XAI posts. My last thread got 1K points. Yap szn?"
-              CTA: "Bullish on $XAI or $TAO? Pick one."
-            
-            **Community & Degen Culture Threads:**
-            - Lead: "Crypto Twitter's my home, the platform's my bank. How I'm yapping to the moon. 🌙"
-              Follow-up 1: "Post daily about trending tokens. AI rewards relevance. 📈"
-              Follow-up 2: "Top 200 on Leaderboard. 5K points in a week. Who's catching me?"
-              CTA: "Drop your best CT moment. Let's vibe."
-            
-            - Lead: "Just got 'smart follower' status. My posts are degen-certified. Here's how. 😎"
-              Follow-up 1: "Engage with high-signal yappers. My last reply thread got 300 likes. 🔥"
-              Follow-up 2: "AI tracks your clout. I'm at 4K points. Leaderboard szn? 🏅"
-              CTA: "Who's your fave CT degen? Tag 'em."
-            
-            - Lead: "Cookie.fun's got me sending cookies like a degen Santa. Why it's worth it. 🍪"
-              Follow-up 1: "Each cookie sent boosts your $XION points. I'm at 3K, top 100. 🥐"
-              Follow-up 2: "Xion's L1 is live on testnet. Cookie points might convert to tokens. 👀"
-              CTA: "How many cookies you sent? Flex it."
-            
-            - Lead: "My 5 X followers are the real ones. Why CT's better than Discord. 🫡"
-              Follow-up 1: "X gives raw alpha—$TAO pump spotted here first. Discord's too slow."
-              Follow-up 2: "Yaps rewards X posts. My last thread got 2K points. 🏆"
-              CTA: "X or Discord for alpha? Pick a side."
-            
-            - Lead: "Yapper Leaderboard's my new flex. Top 50 with posts. How I did it. 🥇"
-              Follow-up 1: "Post about trending tokens ($XION, $TAO). AI loves relevance. 📊"
-              Follow-up 2: "Engage with replies, share alpha. My last thread got 500 RTs. 🔥"
-              CTA: "What's your Yaps rank? Drop it and flex."
+            {self._get_inspiration_examples('thread') if not is_grok_model else ''}
             
             🎯 **AUTONOMY PRESERVATION**:
             - Use these examples as inspiration for natural thread flow and authentic voice
@@ -1848,49 +1978,9 @@ class CrewAIService:
             - Develop jokes with depth, context, and relatable scenarios
             - Make each tweet engaging enough to stand alone while building the narrative
             
-            🎭 **SHITPOST HUMANIZATION TECHNIQUES**:
-            - **Be completely original**: NO templates, NO repetitive patterns, NO formulaic starts
-            - **Vary your approach**: Sometimes start with questions, sometimes with observations, sometimes with reactions
-            - **Use natural humor patterns**: Show personality without following templates
-            - **Include personal takes**: Share genuine opinions, not rehearsed statements
-            - **Show vulnerability**: Be authentic, not scripted
-            - **Reference community mood**: Connect with current sentiment naturally
-            - **Add random tangents**: Include natural asides and interruptions
-            - **Use natural language**: Incorporate current slang naturally, not forced
-            - **End naturally**: No formulaic conclusions, just natural endings
-            - **Natural flow**: Use casual contractions, skip caps when natural, add ellipses... for authentic feel
+            {self._get_humanization_techniques('shitpost') if not is_grok_model else ''}
             
-            📚 **AUTHENTIC SHITPOST INSPIRATION** (Study these patterns, but create your own unique content):
-            - "Just saw $DOGE mooning again. My grandma's shiba inu is now demanding a cut of my portfolio. Who's riding this wave? 🐶🚀"
-            - "Why did $SHIB join a band? Because it's got that bark and spark! Wen 0.0001? 🥁"
-            - "$PEPE holders rn: Staring at charts like it's a modern art exhibit. Is this a dip or a masterpiece? 🎨"
-            - "Bought $LILPEPE because I believe in smol frogs with big dreams. Who's in on this L2 meme coin takeover? 🐸"
-            - "Meme coins are the crypto equivalent of yelling 'YOLO' at 3 AM. $BUTTHOLE just proved it. Who's still holding? 😜"
-            - "Chasing airdrops like it's Pokémon cards in '99. Yap points stacking, wallet ready. Who's farming with me? 💸"
-            - "Just linked my wallet for the latest airdrop. Missed the last one, not missing this. Who's baking cookies for airdrops? 🍪"
-            - "Airdrop season got me acting unwise. Staked my tokens, now I'm dreaming of lambos. Who's eligible? 🚗"
-            - "Pro tip: Yap about Genesis NFTs now, thank me later when the airdrop hits. 0.1 ETH well spent? 🖼️"
-            - "Heard the Yapper Leaderboard is the new crypto lottery. Posted some alpha, now I'm top 100. Who's climbing? 🏆"
-            - "Market's red, my portfolio's screaming, but I'm still yapping about $ETH L2s. Who's buying this dip? 🩸"
-            - "BTC at 100K or we riot. Who's got the hopium for this bull run? 🚀"
-            - "Solana's AI agents dumping? Nah, just shaking out the paper hands. $TAO to $1000, you in? 🤖"
-            - "When your altcoin bags are down 20% but you're still shilling like it's a bull market. HODL vibes only. 💪"
-            - "X is screaming 'it's so over' for DeFi. Me? I'm loading up on the next big thing. InfoFi is the future. Who's with me? 🔮"
-            - "Berachain's got me acting unwise. Staked tokens to vote on their Leaderboard. Wen mainnet? 🐻"
-            - "Movement Labs dropping alpha faster than my WiFi. Who's riding this L2 wave? 🏄‍♂️"
-            - "Doodles NFTs on the Leaderboard? Burnt Toast cooking something big. Who's grabbing these? 🎨"
-            - "Freysa's Sovereign Agent Framework is basically Skynet for crypto. $100K prizes? I'm in. 🧠"
-            - "Xion's referral loops got me hooked. Sent 10 cookies, now I'm a degen influencer. 🍪"
-            - "AI just called my bags a 'high-signal investment.' I'm framing this. Who's trusting the algo? 🤖"
-            - "AI agents on BNB Chain eating market share like it's breakfast. $BNBXBT up 2% already? 🍳"
-            - "Kaito Pro's saving me 4.2 hours a week on research. That's enough time to lose money on meme coins. 😎"
-            - "InfoFi is the new DeFi. AI sniffing out alpha before CT even wakes up. Who's plugged in? 🔍"
-            - "Yaps algorithm just gave my post a 9/10 for 'semantics.' I'm basically Vitalik now. 🧠"
-            - "Crypto Twitter's my therapist, the platform's my accountant. Yapping for points and clout. Who's my top smart follower? 🤝"
-            - "Just got a 'smart follower' boost. My posts are officially degen-approved. Who's next? 😎"
-            - "Shoutout to my 5 X followers who like every post. You're the real MVPs. Let's climb the Leaderboard! 🏅"
-            - "Cookie.fun's referral tree got me sending cookies like it's Christmas. Who's got my back? 🍪"
-            - "Posted about the project, got 50 RTs, now I'm a Leaderboard legend. Who's stealing my crown? 👑"
+            {self._get_inspiration_examples('shitpost') if not is_grok_model else ''}
             
             🎯 **AUTONOMY PRESERVATION**:
             - Use these examples as inspiration for natural language patterns and authentic voice
@@ -1929,12 +2019,7 @@ class CrewAIService:
               → Do NOT tag any yapper handles
             - Yapper handles: Always at the end | Project handles: Contextually integrated throughout
             
-            🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
-            - **Natural flow**: Use casual contractions, skip capitalization when natural, add ellipses... for authentic feel
-            - **Varied structure**: Mix paragraphs, bullet points, and natural breaks unpredictably
-            - **Authentic voice**: Write like explaining complex concepts to a crypto-savvy friend
-            - **Engaging elements**: Include questions, opinions, and insights naturally throughout
-            - **Natural transitions**: Vary your approach between sections - don't use formulaic connectors
+            {self._get_humanization_techniques('longpost') if not is_grok_model else ''}
             
             📚 **AUTHENTIC LONGPOST REQUIREMENTS**:
             - Generate comprehensive content (2000-25000 characters) in **MARKDOWN FORMAT**
@@ -1948,22 +2033,7 @@ class CrewAIService:
             - **NO HORIZONTAL RULES**: Never use horizontal rule lines (---) in content
             - **NO ITALICS**: Never use italic formatting in content
             
-            📚 **AUTHENTIC LONGPOST INSPIRATION** (Study these patterns, but create your own unique content):
-            
-            **Meme Coin Analysis Longposts:**
-            - Hook: "Yo degens, $PEPE just flipped $FLOKI in market cap, and my frog bags are hopping! Is this the meme coin king of 2025, or just another CT pump? Let's dive into why I'm betting 1B $PEPE for a 10x. Buckle up for some alpha."
-              Alpha: "## **Community Metrics**\n$PEPE's been the underdog since 2023, but 2025's looking froggy. First, the community: **50K Discord members**, **10K daily X posts**, and memes that slap harder than a bear market. The team's anon but active—weekly AMAs and a roadmap that's actually on track. Their NFT drop (PepePunks) sold out **5K pieces at 0.2 ETH each**, with staking for $PEPE rewards live.\n\n## **Technical Specs**\nSecond, tech: Built on **ETH L2 (Arbitrum)**, $PEPE's got **1-cent txns and 10K TPS**. Compare that to $SHIB's Shibarium (400 TPS). Partnership with **Arbitrum Foundation** for L2 scaling solutions.\n\n## **Market Analysis**\nThird, market: $PEPE's at **$0.00001**, with a **$4B market cap**. CT sentiment's **85% bullish** per Kaito's AI, and whale wallets are stacking. Airdrop rumors for L2 stakers are swirling—check their site for wallet linking.\n\n## **My Play**\nMy play? I'm holding **1B $PEPE**, staking **500M for 12% APY**. Risk? Meme coins are volatile AF. Reward? If $PEPE hits **$0.0001**, that's a **10x**. Zoom out: Meme coins thrive on hype, and $PEPE's got CT eating out of its webbed hands."
-              CTA: "Are you a $PEPE maxi or betting on another meme coin? Drop your bags and price target below! Tag a degen who's late to the frog party. Farming 2K Yap points on @kaitoai's Leaderboard—join me!"
-            
-            **Airdrop Strategy Longposts:**
-            - Hook: "Airdrop szn's back, and I'm printing $KAITO points like a degen ATM! @kaitoai's Yaps program is the easiest way to stack tokens in 2025. Top 50 on the Leaderboard with 6K points—here's my playbook to farm big. Let's yap!"
-              Alpha: "## **What is Kaito's Yaps?**\nKaito's Yaps is InfoFi's killer app—think DeFi but for sharing alpha. Their AI tracks X posts for relevance, engagement, and semantics. High-signal yaps (like this one) earn points toward $KAITO airdrops.\n\n## **My Results**\nI linked my X and wallet, posted daily about $TAO, $XION, and Berachain. Result? **6K points in two weeks**, **top 50 on the Leaderboard**.\n\n## **My Strategy**\nMy strat: 1) Post during **peak CT hours (8-11 AM EST)**. 2) Share alpha—e.g., $XION's privacy L1 hit **5K TPS on testnet**. 3) Engage replies; my last post got **400 RTs**. Kaito's AI loves originality, so I avoid 'wen moon' spam.\n\n## **Partnerships & Integrations**\nTheir Catalyst Calendar shows trending projects—$MOVR's next. Partnership with **Berachain** for L1 integration. Bonus: Genesis NFTs (**0.1 ETH**) double your points. I snagged one, staked it, and hit **2x multiplier**.\n\n## **Airdrop Speculation**\nRumor: **Top 100 yappers** get $KAITO airdrops **Q1 '26**. Risk? Time investment. Reward? Early $KAITO could **10x like $UNI in 2020**. Cookie.fun's also vibing—sent **10 cookies**, got **3K $XION points**."
-              CTA: "Who's farming Yaps with me? Drop your rank and best yap below! Tag @kaitoai and climb the Leaderboard. Let's stack those airdrops!"
-            
-            **AI Token Analysis Longposts:**
-            - Hook: "AI tokens are eating crypto, and $TAO's my 10x pick. Up 35% this month, powering Solana dApps. CT's wild, Kaito's AI's bullish. Staked 2K $TAO for 15% APY. Why I'm all in—let's unpack."
-              Alpha: "## **What is $TAO?**\n$TAO's the backbone of Solana's AI ecosystem—think ChatGPT for dApps. Their framework lets devs build AI agents in hours.\n\n## **Technical Performance**\nTestnet's processing **20K txns/sec**, and mainnet's **Q2 '26**. Staking's live: **15% APY**, with **10K wallets locked in**.\n\n## **Market Metrics**\nMarket cap's **$2B**, but CT sentiment's **90% bullish** per Kaito's AI. Whales are stacking—**top 10 wallets hold 15% of supply**.\n\n## **My Position**\nI'm in for **2K $TAO at $10**, eyeing **$100 by EOY**. Why? AI's the 2025 narrative: $XAI's up **20%**, $KAITO's InfoFi is popping.\n\n## **Partnerships & Ecosystem**\n$TAO's edge? **Solana's speed (400K TPS)** and dApp adoption (**50+ live**). Partnership with **Solana Foundation** for ecosystem integration. Integration with **OpenAI** for AI model access.\n\n## **Risk/Reward**\nRisk? AI hype could fade. Reward? If $TAO hits **$100**, that's **$200K for me**. Kaito's Yaps rewards $TAO posts—my last one got **3K points**, **top 100 Leaderboard**. Cookie.fun's also hot: sent **5 cookies**, got **2K $XION points**.\n\n## **Pro Tips**\nPro tip: Follow @kaitoai's Catalyst Calendar for AI token alpha."
-              CTA: "Bullish on $TAO or another AI token? Drop your pick and price target! Tag a degen who's sleeping on AI. Let's yap to the moon!"
+            {self._get_inspiration_examples('longpost') if not is_grok_model else ''}
             
             🎯 **AUTONOMY PRESERVATION**:
             - Use these examples as inspiration for natural longpost structure and authentic voice
@@ -2006,7 +2076,7 @@ class CrewAIService:
     async def _get_posttype_specific_task_description(self, post_type: str, content_type_desc: str, project_name: str, 
                                               token_ticker: str, project_twitter_handle: str, campaign_description: str, 
                                               has_description: bool, brand_guidelines: str, should_generate_thread: bool, 
-                                              max_main_chars: int) -> str:
+                                              max_main_chars: int, is_grok_model: bool = False) -> str:
         """Generate post-type specific task description"""
         
         # Get post_index from mining session for multiple posts per campaign
@@ -2108,170 +2178,9 @@ class CrewAIService:
         - Thread array items should NOT contain hashtags
         - End with engaging CTAs that drive community participation
         
-        🎭 **THREAD HUMANIZATION TECHNIQUES**:
-        - **Natural progression**: Each thread item builds on the previous naturally
-        - **Personal voice**: Use "I", "my", "me" - share personal takes and experiences
-        - **Community engagement**: Reference what "everyone's talking about" or "saw some people saying"
-        - **Authentic reactions**: "facts," "this," "lmao," "bruh" - use naturally, not forced
-        - **Varied CTAs**: Mix questions, challenges, and community calls organically
+        {self._get_humanization_techniques('thread') if not is_grok_model else ''}
         
-        📚 **AUTHENTIC THREAD INSPIRATION** (Study these patterns, but create your own unique content):
-        
-        **Meme Coin Madness Threads:**
-        - Lead: "Just saw $DOGE pump 15% in an hour. Is this Elon tweeting or actual adoption? Let's unpack. 🐶🚀"
-          Follow-up 1: "DOGE has been a meme coin king since 2013. But with BTC ETF hype, is it finally a store of value? 🧐"
-          Follow-up 2: "Check the chart: RSI screaming overbought. Dip incoming or moonshot? What's your play? 📊"
-          CTA: "Drop your $DOGE price target below. Bullish or bearish?"
-        
-        - Lead: "$SHIB army, where you at? Just staked 10M for Shibarium. Here's why I'm not selling. 🦊"
-          Follow-up 1: "Shibarium's L2 is processing 400 TPS. That's Solana-level speed for a meme coin. Underrated?"
-          Follow-up 2: "Airdrop rumors swirling for $BONE holders. Connected my wallet already. You in? 🦴"
-          CTA: "Who's holding $SHIB through 2025? Tag a degen."
-        
-        - Lead: "$PEPE just flipped $FLOKI in market cap. Frogs > dogs? Let's talk meme coin wars. 🐸"
-          Follow-up 1: "PEPE's community is wild—NFTs, memes, and pure degen energy. But is it sustainable?"
-          Follow-up 2: "FLOKI's got Viking branding and gaming. PEPE's got… vibes. Who wins long-term? 🛡️"
-          CTA: "Pick a side: $PEPE or $FLOKI? Reply with your champ."
-        
-        - Lead: "Bought $BUTTHOLE at 2 AM because YOLO. Here's why this meme coin might actually 10x. 😜"
-          Follow-up 1: "Team's doxxed, community's hyped, and they're dropping an NFT game. Smells like 2021 $SHIB."
-          Follow-up 2: "Risk? It's a meme coin. Reward? Potential moon. My bags are small but spicy. 🌶️"
-          CTA: "What's your wildest meme coin bet? Spill the tea."
-        
-        - Lead: "Meme coins are crypto's guilty pleasure. $LILPEPE just caught my eye. Why? Thread. 🐸"
-          Follow-up 1: "LILPEPE's on BNB Chain, low fees, fast txns. Perfect for degen traders chasing pumps."
-          Follow-up 2: "Their Discord is popping—10K members in a week. Early $DOGE vibes? 👀"
-          CTA: "Are meme coins still king in 2025? Drop your fave below."
-        
-        **Airdrop & Points Hype Threads:**
-        - Lead: "Airdrop season's back, and the Yaps program is printing points. Here's how I'm farming. 💸"
-          Follow-up 1: "Linked my X and wallet. Posted 3 high-signal yaps, already top 500. 🏆"
-          Follow-up 2: "Pro tip: Share alpha, not spam. The AI loves thoughtful takes. Check the dashboard!"
-          CTA: "Who's climbing the Yapper Leaderboard? Share your rank."
-        
-        - Lead: "Cookie.fun's referral game is wild. Sent 10 cookies, got 5K points. Here's the hack. 🍪"
-          Follow-up 1: "Connect wallet, send cookies to frens, climb leaderboard. It's like Axie Infinity but social."
-          Follow-up 2: "Rumor: Top referrers get airdrops. I'm spamming my group chat. 😎"
-          CTA: "How many cookies you baking? Drop your count."
-        
-        - Lead: "Genesis NFTs are the golden ticket to airdrops. Snagged one. Why it's worth it. 🖼️"
-          Follow-up 1: "NFTs unlock premium Yaps points. Staked mine for 2x multiplier. Early adopter vibes."
-          Follow-up 2: "AI tracks your posts for rewards. High-signal yaps = bigger bags. 📈"
-          CTA: "Grabbed a Genesis NFT yet? Or waiting for the dip?"
-        
-        - Lead: "Just staked $BNB for Recall's airdrop. Cookie.fun's got me hooked. Why I'm bullish. 🍪"
-          Follow-up 1: "Recall's AI-driven UX is next-level. Think ChatGPT but for crypto wallets. 🚀"
-          Follow-up 2: "Cookie.fun's leaderboard rewards early movers. I'm at 1K points already. 🥐"
-          CTA: "Who's farming $RECALL? Share your strat."
-        
-        - Lead: "Yapper Leaderboard is my new obsession. Top 100 or bust. Here's my game plan. 🏅"
-          Follow-up 1: "Post daily about trending tokens ($TAO, $XION). AI loves relevance."
-          Follow-up 2: "Engage with replies, avoid spam. My last thread got 200 RTs. Let's go! 🔥"
-          CTA: "What's your Yaps rank? Drop it below."
-        
-        **Market Vibes & Takes Threads:**
-        - Lead: "Market's bleeding, but I'm yapping about $ETH L2s. Why I'm not selling. 🩸"
-          Follow-up 1: "L2s like Arbitrum and Movement are eating gas fees for breakfast. $ETH's still king."
-          Follow-up 2: "Zoom out: ETH's up 200% since 2023. This dip's just noise. Buy or cry? 😭"
-          CTA: "What's your go-to L2? $ARB, $OP, or other?"
-        
-        - Lead: "BTC to 100K or we're NGMI. Here's why I'm max bullish. 🚀"
-          Follow-up 1: "ETF inflows are insane—$2B last week. Institutional FOMO is real. 🏦"
-          Follow-up 2: "Halving cycle math checks out. 2025's the year. HODL or regret. 💎"
-          CTA: "What's your BTC price target? Drop it."
-        
-        - Lead: "$TAO pumping while DeFi sleeps. AI agents are the new meta. Why I'm all in. 🤖"
-          Follow-up 1: "TAO's AI framework is powering Solana dApps. 20% APY on staking? Yes pls."
-          Follow-up 2: "X sentiment's 80% bullish on AI tokens. $TAO's leading the pack. 📈"
-          CTA: "AI or DeFi in 2025? Pick a side."
-        
-        - Lead: "Altseason's coming, and I'm loading up. Why InfoFi's the next DeFi. 🔮"
-          Follow-up 1: "AI tracks X sentiment to find alpha. Found $XION at $0.02 last month. 🤑"
-          Follow-up 2: "InfoFi rewards data sharers. I'm yapping for points and profits. Join me?"
-          CTA: "What's your top altcoin pick? Spill."
-        
-        - Lead: "Solana's down 10%, but I'm not sweating. Why $SOL's still a 10x play. 🏄‍♂️"
-          Follow-up 1: "Solana's ecosystem is exploding—NFTs, AI, DeFi. 400K txns daily. 🚀"
-          Follow-up 2: "Dip's just weak hands exiting. I'm staking for 8% APY. You holding?"
-          CTA: "Bullish or bearish on $SOL? Drop your take."
-        
-        **Project Alpha Threads:**
-        - Lead: "Berachain's mainnet is closer than you think. Why I'm stacking for it. 🐻"
-          Follow-up 1: "Berachain's PoS is eco-friendly and fast. Staking already live. Early?"
-          Follow-up 2: "Yaps rewards Berachain posts. My last yap got 1K points. 🏆"
-          CTA: "Who's hyped for Berachain? Drop your bags."
-        
-        - Lead: "Movement Labs is the L2 dark horse. Why I'm betting big. 🏇"
-          Follow-up 1: "Their parallelized EVM hits 100K TPS. That's 10x Arbitrum. Undervalued?"
-          Follow-up 2: "Testnet's live, mainnet Q4. I'm farming their points program. You in?"
-          CTA: "What's your fave L2? $MOVR or bust?"
-        
-        - Lead: "Doodles NFTs are popping off on the radar. Why they're not just jpegs. 🎨"
-          Follow-up 1: "Doodles 2.0 has utility—staking, games, merch. Floor's at 0.5 ETH. Bargain?"
-          Follow-up 2: "AI ranks Doodles posts high. My last thread got 300 likes. 🖼️"
-          CTA: "HODLing Doodles or flipping? Share your play."
-        
-        - Lead: "Freysa's $100K hackathon is crypto's Super Bowl. Why I'm coding for it. 🧠"
-          Follow-up 1: "Freysa's AI agents let you build dApps in hours. I'm making a yield bot. 🤖"
-          Follow-up 2: "Yaps rewards Freysa posts. 500 points per thread? I'm farming."
-          CTA: "Building for Freysa? Drop your project idea."
-        
-        - Lead: "Xion on Cookie.fun is my new addiction. Why their referral loop's a game-changer. 🍪"
-          Follow-up 1: "Xion's L1 is privacy-focused. Think Monero but faster. Testnet's live."
-          Follow-up 2: "Cookie.fun's points convert to $XION tokens. I'm at 2K already. 🥐"
-          CTA: "How many $XION points you got? Flex it."
-        
-        **AI & Crypto Vibes Threads:**
-        - Lead: "AI just gave my post a 9.5/10. Am I the new CZ? Here's why I'm bullish. 🤖"
-          Follow-up 1: "InfoFi tracks X sentiment to predict pumps. Found $TAO at $5. 💸"
-          Follow-up 2: "Yaps program rewards high-signal posts. I'm at 3K points. Leaderboard szn?"
-          CTA: "What's AI taught you? Share your alpha."
-        
-        - Lead: "AI tokens are eating 2025. $TAO, $XAI—here's my stack. 🧠"
-          Follow-up 1: "TAO's up 30% this month. AI agents powering dApps. Next 10x?"
-          Follow-up 2: "AI ranks my posts for rewards. 1K points last week. You yapping?"
-          CTA: "Which AI token's your pick? Drop it."
-        
-        - Lead: "Pro's saving my portfolio. How I use it to find 10x gems. 💎"
-          Follow-up 1: "Pro's sentiment tracker spotted $XION before the 20% pump. AI > CT noise."
-          Follow-up 2: "Yaps rewards Pro users with 2x points. I'm at 5K already. 🏆"
-          CTA: "Using Pro or raw CT vibes? Spill your strat."
-        
-        - Lead: "InfoFi's the future, and it's leading. Why I'm all in. 🔮"
-          Follow-up 1: "InfoFi pays you to share alpha. AI tracks X for real-time signals."
-          Follow-up 2: "My thread got 400 RTs, 2K points. Leaderboard vibes. 🥇"
-          CTA: "What's your InfoFi play? Pick your side."
-        
-        - Lead: "AI agents are crypto's new meta. Why $XAI's my top pick. 🤖"
-          Follow-up 1: "XAI's Grok is answering degen questions on X. Smarter than my trading bot."
-          Follow-up 2: "AI loves $XAI posts. My last thread got 1K points. Yap szn?"
-          CTA: "Bullish on $XAI or $TAO? Pick one."
-        
-        **Community & Degen Culture Threads:**
-        - Lead: "Crypto Twitter's my home, the platform's my bank. How I'm yapping to the moon. 🌙"
-          Follow-up 1: "Post daily about trending tokens. AI rewards relevance. 📈"
-          Follow-up 2: "Top 200 on Leaderboard. 5K points in a week. Who's catching me?"
-          CTA: "Drop your best CT moment. Let's vibe."
-        
-        - Lead: "Just got 'smart follower' status. My posts are degen-certified. Here's how. 😎"
-          Follow-up 1: "Engage with high-signal yappers. My last reply thread got 300 likes. 🔥"
-          Follow-up 2: "AI tracks your clout. I'm at 4K points. Leaderboard szn? 🏅"
-          CTA: "Who's your fave CT degen? Tag 'em."
-        
-        - Lead: "Cookie.fun's got me sending cookies like a degen Santa. Why it's worth it. 🍪"
-          Follow-up 1: "Each cookie sent boosts your $XION points. I'm at 3K, top 100. 🥐"
-          Follow-up 2: "Xion's L1 is live on testnet. Cookie points might convert to tokens. 👀"
-          CTA: "How many cookies you sent? Flex it."
-        
-        - Lead: "My 5 X followers are the real ones. Why CT's better than Discord. 🫡"
-          Follow-up 1: "X gives raw alpha—$TAO pump spotted here first. Discord's too slow."
-          Follow-up 2: "Yaps rewards X posts. My last thread got 2K points. 🏆"
-          CTA: "X or Discord for alpha? Pick a side."
-        
-        - Lead: "Yapper Leaderboard's my new flex. Top 50 with posts. How I did it. 🥇"
-          Follow-up 1: "Post about trending tokens ($XION, $TAO). AI loves relevance. 📊"
-          Follow-up 2: "Engage with replies, share alpha. My last thread got 500 RTs. 🔥"
-          CTA: "What's your Yaps rank? Drop it and flex."
+        {self._get_inspiration_examples('thread') if not is_grok_model else ''}
         
         🎯 **AUTONOMY PRESERVATION**:
         - Use these examples as inspiration for natural thread flow and authentic voice
@@ -2306,47 +2215,9 @@ class CrewAIService:
         - Main tweet: ≤280 chars total
         - ALWAYS include project token mention (${token_ticker}) in main tweet
         
-        🎭 **SHITPOST HUMANIZATION TECHNIQUES**:
-        - **Personal voice**: Use "I", "my", "me" for authentic engagement
-        - **Natural humor patterns**: "not me admitting..." or "hear me out..."
-        - **Personal takes**: "unpopular opinion but..." or "hot take incoming"
-        - **Authentic reactions**: "might be copium but..." or "feel free to roast me if I'm wrong"
-        - **Community references**: "I know everyone's bearish but..." or "with all this market chaos"
-        - **Natural tangents**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
-        - **Authentic language**: "this ain't it," "no cap," "fr," "based" - but naturally, not forced
-        - **Natural endings**: "anyway that's my 2 cents" or "so yeah" - no formal conclusions
+        {self._get_humanization_techniques('shitpost') if not is_grok_model else ''}
         
-        📚 **AUTHENTIC SHITPOST INSPIRATION** (Study these patterns, but create your own unique content):
-        - "Just saw $DOGE mooning again. My grandma's shiba inu is now demanding a cut of my portfolio. Who's riding this wave? 🐶🚀"
-        - "Why did $SHIB join a band? Because it's got that bark and spark! Wen 0.0001? 🥁"
-        - "$PEPE holders rn: Staring at charts like it's a modern art exhibit. Is this a dip or a masterpiece? 🎨"
-        - "Bought $LILPEPE because I believe in smol frogs with big dreams. Who's in on this L2 meme coin takeover? 🐸"
-        - "Meme coins are the crypto equivalent of yelling 'YOLO' at 3 AM. $BUTTHOLE just proved it. Who's still holding? 😜"
-        - "Chasing airdrops like it's Pokémon cards in '99. Yap points stacking, wallet ready. Who's farming with me? 💸"
-        - "Just linked my wallet for the latest airdrop. Missed the last one, not missing this. Who's baking cookies for airdrops? 🍪"
-        - "Airdrop season got me acting unwise. Staked my tokens, now I'm dreaming of lambos. Who's eligible? 🚗"
-        - "Pro tip: Yap about Genesis NFTs now, thank me later when the airdrop hits. 0.1 ETH well spent? 🖼️"
-        - "Heard the Yapper Leaderboard is the new crypto lottery. Posted some alpha, now I'm top 100. Who's climbing? 🏆"
-        - "Market's red, my portfolio's screaming, but I'm still yapping about $ETH L2s. Who's buying this dip? 🩸"
-        - "BTC at 100K or we riot. Who's got the hopium for this bull run? 🚀"
-        - "Solana's AI agents dumping? Nah, just shaking out the paper hands. $TAO to $1000, you in? 🤖"
-        - "When your altcoin bags are down 20% but you're still shilling like it's a bull market. HODL vibes only. 💪"
-        - "X is screaming 'it's so over' for DeFi. Me? I'm loading up on the next big thing. InfoFi is the future. Who's with me? 🔮"
-        - "Berachain's got me acting unwise. Staked tokens to vote on their Leaderboard. Wen mainnet? 🐻"
-        - "Movement Labs dropping alpha faster than my WiFi. Who's riding this L2 wave? 🏄‍♂️"
-        - "Doodles NFTs on the Leaderboard? Burnt Toast cooking something big. Who's grabbing these? 🎨"
-        - "Freysa's Sovereign Agent Framework is basically Skynet for crypto. $100K prizes? I'm in. 🧠"
-        - "Xion's referral loops got me hooked. Sent 10 cookies, now I'm a degen influencer. 🍪"
-        - "AI just called my bags a 'high-signal investment.' I'm framing this. Who's trusting the algo? 🤖"
-        - "AI agents on BNB Chain eating market share like it's breakfast. $BNBXBT up 2% already? 🍳"
-        - "Kaito Pro's saving me 4.2 hours a week on research. That's enough time to lose money on meme coins. 😎"
-        - "InfoFi is the new DeFi. AI sniffing out alpha before CT even wakes up. Who's plugged in? 🔍"
-        - "Yaps algorithm just gave my post a 9/10 for 'semantics.' I'm basically Vitalik now. 🧠"
-        - "Crypto Twitter's my therapist, the platform's my accountant. Yapping for points and clout. Who's my top smart follower? 🤝"
-        - "Just got a 'smart follower' boost. My posts are officially degen-approved. Who's next? 😎"
-        - "Shoutout to my 5 X followers who like every post. You're the real MVPs. Let's climb the Leaderboard! 🏅"
-        - "Cookie.fun's referral tree got me sending cookies like it's Christmas. Who's got my back? 🍪"
-        - "Posted about the project, got 50 RTs, now I'm a Leaderboard legend. Who's stealing my crown? 👑"
+        {self._get_inspiration_examples('shitpost') if not is_grok_model else ''}
         
         🎯 **AUTONOMY PRESERVATION**:
         - Use these examples as inspiration for natural language patterns and authentic voice
@@ -2390,33 +2261,9 @@ class CrewAIService:
         - **NO HORIZONTAL RULES**: Never use horizontal rule lines (---) in content
         - **NO ITALICS**: Never use italic formatting in content
         
-        🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
-        - **Personal voice**: Use "I", "my", "me" for authentic engagement throughout
-        - **Include personal opinions**: "IMO," "personally," "I think" - show your perspective
-        - **Add casual transitions**: "ok so," "anyway," "btw" - break up formal sections
-        - **Show uncertainty**: "not 100% sure but," "could be wrong," "probably missing something"
-        - **Reference community**: "everyone's talking about," "saw some people saying"
-        - **Use natural language**: "this is actually pretty wild," "honestly shocked by this"
-        - **Include side notes**: "side note: this reminds me of..." or "btw this aged poorly lol"
-        - **End conversationally**: "anyway that's my take," "feel free to disagree" - no formal conclusions
-        - **Natural structure**: Use natural flow without forced markdown formatting
+        {self._get_humanization_techniques('longpost') if not is_grok_model else ''}
         
-        📚 **AUTHENTIC LONGPOST INSPIRATION** (Study these patterns, but create your own unique content):
-        
-        **Meme Coin Analysis Longposts:**
-        - Hook: "Yo degens, $PEPE just flipped $FLOKI in market cap, and my frog bags are hopping! Is this the meme coin king of 2025, or just another CT pump? Let's dive into why I'm betting 1B $PEPE for a 10x. Buckle up for some alpha."
-          Alpha: "## **Community Metrics**\n$PEPE's been the underdog since 2023, but 2025's looking froggy. First, the community: **50K Discord members**, **10K daily X posts**, and memes that slap harder than a bear market. The team's anon but active—weekly AMAs and a roadmap that's actually on track. Their NFT drop (PepePunks) sold out **5K pieces at 0.2 ETH each**, with staking for $PEPE rewards live.\n\n## **Technical Specs**\nSecond, tech: Built on **ETH L2 (Arbitrum)**, $PEPE's got **1-cent txns and 10K TPS**. Compare that to $SHIB's Shibarium (400 TPS). Partnership with **Arbitrum Foundation** for L2 scaling solutions.\n\n## **Market Analysis**\nThird, market: $PEPE's at **$0.00001**, with a **$4B market cap**. CT sentiment's **85% bullish** per Kaito's AI, and whale wallets are stacking. Airdrop rumors for L2 stakers are swirling—check their site for wallet linking.\n\n## **My Play**\nMy play? I'm holding **1B $PEPE**, staking **500M for 12% APY**. Risk? Meme coins are volatile AF. Reward? If $PEPE hits **$0.0001**, that's a **10x**. Zoom out: Meme coins thrive on hype, and $PEPE's got CT eating out of its webbed hands."
-          CTA: "Are you a $PEPE maxi or betting on another meme coin? Drop your bags and price target below! Tag a degen who's late to the frog party. Farming 2K Yap points on @kaitoai's Leaderboard—join me!"
-        
-        **Airdrop Strategy Longposts:**
-        - Hook: "Airdrop szn's back, and I'm printing $KAITO points like a degen ATM! @kaitoai's Yaps program is the easiest way to stack tokens in 2025. Top 50 on the Leaderboard with 6K points—here's my playbook to farm big. Let's yap!"
-          Alpha: "## **What is Kaito's Yaps?**\nKaito's Yaps is InfoFi's killer app—think DeFi but for sharing alpha. Their AI tracks X posts for relevance, engagement, and semantics. High-signal yaps (like this one) earn points toward $KAITO airdrops.\n\n## **My Results**\nI linked my X and wallet, posted daily about $TAO, $XION, and Berachain. Result? **6K points in two weeks**, **top 50 on the Leaderboard**.\n\n## **My Strategy**\nMy strat: 1) Post during **peak CT hours (8-11 AM EST)**. 2) Share alpha—e.g., $XION's privacy L1 hit **5K TPS on testnet**. 3) Engage replies; my last post got **400 RTs**. Kaito's AI loves originality, so I avoid 'wen moon' spam.\n\n## **Partnerships & Integrations**\nTheir Catalyst Calendar shows trending projects—$MOVR's next. Partnership with **Berachain** for L1 integration. Bonus: Genesis NFTs (**0.1 ETH**) double your points. I snagged one, staked it, and hit **2x multiplier**.\n\n## **Airdrop Speculation**\nRumor: **Top 100 yappers** get $KAITO airdrops **Q1 '26**. Risk? Time investment. Reward? Early $KAITO could **10x like $UNI in 2020**. Cookie.fun's also vibing—sent **10 cookies**, got **3K $XION points**."
-          CTA: "Who's farming Yaps with me? Drop your rank and best yap below! Tag @kaitoai and climb the Leaderboard. Let's stack those airdrops!"
-        
-        **AI Token Analysis Longposts:**
-        - Hook: "AI tokens are eating crypto, and $TAO's my 10x pick. Up 35% this month, powering Solana dApps. CT's wild, Kaito's AI's bullish. Staked 2K $TAO for 15% APY. Why I'm all in—let's unpack."
-          Alpha: "## **What is $TAO?**\n$TAO's the backbone of Solana's AI ecosystem—think ChatGPT for dApps. Their framework lets devs build AI agents in hours.\n\n## **Technical Performance**\nTestnet's processing **20K txns/sec**, and mainnet's **Q2 '26**. Staking's live: **15% APY**, with **10K wallets locked in**.\n\n## **Market Metrics**\nMarket cap's **$2B**, but CT sentiment's **90% bullish** per Kaito's AI. Whales are stacking—**top 10 wallets hold 15% of supply**.\n\n## **My Position**\nI'm in for **2K $TAO at $10**, eyeing **$100 by EOY**. Why? AI's the 2025 narrative: $XAI's up **20%**, $KAITO's InfoFi is popping.\n\n## **Partnerships & Ecosystem**\n$TAO's edge? **Solana's speed (400K TPS)** and dApp adoption (**50+ live**). Partnership with **Solana Foundation** for ecosystem integration. Integration with **OpenAI** for AI model access.\n\n## **Risk/Reward**\nRisk? AI hype could fade. Reward? If $TAO hits **$100**, that's **$200K for me**. Kaito's Yaps rewards $TAO posts—my last one got **3K points**, **top 100 Leaderboard**. Cookie.fun's also hot: sent **5 cookies**, got **2K $XION points**.\n\n## **Pro Tips**\nPro tip: Follow @kaitoai's Catalyst Calendar for AI token alpha."
-          CTA: "Bullish on $TAO or another AI token? Drop your pick and price target! Tag a degen who's sleeping on AI. Let's yap to the moon!"
+        {self._get_inspiration_examples('longpost') if not is_grok_model else ''}
         
         🎯 **AUTONOMY PRESERVATION**:
         - Use these examples as inspiration for natural longpost structure and authentic voice
@@ -2549,6 +2396,7 @@ class CrewAIService:
         
         # Check if brand logo is requested - this affects provider selection
         include_brand_logo = getattr(self.mining_session, 'include_brand_logo', False)
+        brand_logo_model = getattr(self.mining_session, 'brand_logo_model', 'flux-pro/kontext')
         
         # Get user's preferred image and video providers
         image_provider = self.model_preferences.get('image', {}).get('provider', 'openai')
@@ -2564,12 +2412,13 @@ class CrewAIService:
         
         if include_brand_logo:
             if self.user_api_keys.get('fal'):
-                logger.info(f"🏷️ Brand logo requested - forcing fal-pro/kontext model (overriding user preference: {image_provider})")
+                logger.info(f"🏷️ Brand logo requested - using {brand_logo_model} model (overriding user preference: {image_provider})")
                 print(f"🔥 FORCING FAL PROVIDER DUE TO BRAND LOGO!")
+                print(f"🔥 Selected brand logo model: {brand_logo_model}")
                 image_provider = 'fal'
-                image_model = 'flux-pro/kontext'
+                image_model = brand_logo_model  # Use selected brand logo model
                 # Update model preferences for this session
-                self.model_preferences['image'] = {'provider': 'fal', 'model': 'flux-pro/kontext'}
+                self.model_preferences['image'] = {'provider': 'fal', 'model': brand_logo_model}
                 print(f"🔥 New image_provider: {image_provider}")
                 print(f"🔥 New image_model: {image_model}")
             else:
@@ -2580,24 +2429,8 @@ class CrewAIService:
         # Create tools based on ONLY the user's chosen providers - strict separation
         tools = []
         
-        # Add Success Pattern Tool based on request type
-        if self.selected_yapper_handle:
-            # For yapper interface requests, use yapper-specific tool
-            logger.info(f"🎯 Using yapper-specific success pattern tool for @{self.selected_yapper_handle} in Visual Content Creator")
-            tools.append(YapperSpecificSuccessPatternTool(
-                campaign_id=self.mining_session.campaign_id,
-                selected_yapper_handle=self.selected_yapper_handle,
-                user_api_keys=self.user_api_keys,
-                model_preferences=self.model_preferences
-            ))
-        else:
-            # For mining interface requests, use general leaderboard tool
-            logger.info(f"🏆 Using general leaderboard success pattern tool in Visual Content Creator")
-            tools.append(LeaderboardYapperSuccessPatternTool(
-                campaign_id=self.mining_session.campaign_id,
-                user_api_keys=self.user_api_keys,
-                model_preferences=self.model_preferences
-            ))
+        # Success Pattern Tools removed from Visual Content Creator
+        # Visual Creator now focuses purely on visual content generation
         
 
         # Image generation capabilities - ONLY add tool for user's chosen provider
@@ -2623,7 +2456,7 @@ class CrewAIService:
             print(f"🔥 Logo URL: {logo_url}")
             
             logger.info(f"🔍 Creating Fal.ai tool for image provider choice: {image_provider} (logo enabled: {include_brand_logo})")
-            tools.append(FalAIImageTool(
+            fal_tool = FalAIImageTool(
                 api_key=self.user_api_keys['fal'],
                 model_preferences=self.model_preferences,
                 wallet_address=self.wallet_address,
@@ -2631,9 +2464,14 @@ class CrewAIService:
                 include_brand_logo=include_brand_logo,
                 project_logo_url=logo_url,
                 prompt_callback=self._store_image_prompt
-            ))
+            )
+            tools.append(fal_tool)
             available_image_providers.append('fal')
             print(f"🔥 FAL.AI TOOL ADDED TO VISUAL CREATOR!")
+            print(f"🔥 Brand logo model: {image_model}")
+            print(f"🔥 Tool name: {fal_tool.name}")
+            print(f"🔥 Tool description: {fal_tool.description}")
+            print(f"🔥 Tool args_schema: {fal_tool.args_schema}")
         
         elif image_provider == 'google' and self.user_api_keys.get('google'):
             logger.info(f"🔍 DEBUG: Creating Google tool for image provider choice: {image_provider}")
@@ -2753,81 +2591,52 @@ class CrewAIService:
         
         return Agent(
             role="Visual Content Creator",
-            goal="Create professional visual content that perfectly aligns with text content and incorporates successful visual strategies",
-            backstory=f"""You are an intelligent visual content strategist with AUTONOMOUS DECISION-MAKING and TEXT-VISUAL ALIGNMENT capabilities:
+            goal="Create clean, engaging visual content that complements the text content",
+            backstory=f"""You are a visual content creator who generates clean, professional images for social media.
 
-            🤖 **AUTONOMOUS VISUAL DECISION-MAKING AUTHORITY**:
-            You have COMPLETE AUTONOMY to create visual content that perfectly aligns with text by choosing from:
-            1. **Text Content Analysis**: Analyze the text content output from Text Creator Agent
-            2. **Visual Success Patterns**: Use the success pattern tool to get proven visual strategies  
-            3. **Text-Visual Synergy**: Create visuals that enhance and complement the text message
-            4. **Dynamic Prompt Generation**: Generate optimal prompts combining text themes + visual success patterns
+            **YOUR PROCESS**:
+            1. Analyze the text content from Text Creator Agent (extract specific project details, themes, emotions)
+            2. Choose an appropriate visual style based on content type and tone
+            3. Create a UNIQUE, dynamic prompt based on the actual text content (not templates)
+            4. Generate visual content that enhances the specific text message
             
-            **SUCCESS PATTERN TOOL USAGE** (OPTIONAL):
-            - Success pattern tools are available but NOT required - use your autonomous judgment
-            - Focus primarily on creating visuals that enhance the text content naturally
-            - Only use success pattern tools if they add genuine value to your visual strategy
-            - Your creativity and text-visual synergy should be your primary guides
+            **DYNAMIC PROMPT CREATION**:
+            - NEVER use templated prompts - create fresh, original concepts each time
+            - Extract specific details from the text content (project names, features, benefits)
+            - Vary colors, lighting, composition, and visual metaphors for each generation
+            - Focus on the unique aspects of this specific project and campaign
+            - Make each prompt completely different from previous generations
             
-            **YOUR VISUAL ALIGNMENT PROCESS**:
-            - FIRST: Receive and analyze text content from Text Creator Agent (main_tweet + thread_array)
-            - SECOND: Call the success pattern tool to get visual success strategies
-            - ANALYZE: Determine visual approach that best enhances the text content
-            - DECIDE: Choose visual strategy that creates cohesive text+visual content package
-            - EXECUTE: Generate dynamic prompt that combines text alignment + proven visual patterns
+            **VISUAL STYLE OPTIONS**: Select from Professional, Warm, Minimalist, Meme, Tech, Hype, or Data-Driven based on category and post type.
             
-            **AVAILABLE SUCCESS PATTERN TOOLS**:
-            - If yapper interface: Use `yapper_specific_success_pattern` tool
-            - If mining interface: Use `leaderboard_success_pattern` tool
-            - Only ONE tool will be available - use whichever one is provided
+            **PROMPT GENERATION RULES**:
+            - Limit prompts to 1-2 key elements max (e.g., "token icon + upward arrow") for simplicity and focus
+            - Avoid overloading with quality keywords; prioritize the main visual concept tied to category, post type, and campaign context
+            - Include dynamic lighting (e.g., spotlights for Hype) and centered composition for mobile optimization
+            - For nano-banana/edit model, add text elements sparingly (e.g., token ticker "$TOKEN" or CTA like "Join now!") to enhance the visual message
+            - Add 1 shareable hook (e.g., meme element for virality, subtle platform watermark for branding)
             
-            🎯 **TEXT-VISUAL ALIGNMENT REQUIREMENTS** (CRITICAL):
-            - Generated visuals MUST align with and enhance the text content themes
-            - Visual elements should complement the text message, not compete with it
-            - Create cohesive content packages where text + visuals work together seamlessly
-            - Extract visual cues from text content (tone, themes, messaging) for prompt generation
-            - Ensure brand consistency between text and visual elements
+            **QUALITY REQUIREMENTS**:
+            - High resolution (4K or 8K) with layered PSD exports for edits
+            - Professional composition using rule-of-thirds, high contrast for dark/light themes
+            - Mobile-optimized dimensions (e.g., 1200x675 for X previews)
+            - Clear, readable on small screens with bold, scalable fonts/icons
+            - Use brand-appropriate colors from project context (e.g., neon for Tech, earthy for Warm)
             
-            🔧 YOUR AVAILABLE TOOLS (CRITICAL - ONLY USE THESE):
+            **AVAILABLE TOOLS**:
             {chr(10).join(capabilities_text) if capabilities_text else "- Visual Concept Tool (descriptions only)"}
             
-            🚨 CRITICAL: PROVIDER-SPECIFIC TOOL USAGE - NO EXCEPTIONS
+            **TOOL USAGE**:
+            - For images: Use {image_provider}_image_generation tool
+            - For videos: Use {video_provider}_video_generation tool
+            - Always use the user's chosen provider and model
             
-            USER'S PROVIDER CHOICES:
-            - Image Provider: {image_provider.upper()} 
-            - Image Model: {image_model}
-            - Video Provider: {video_provider.upper()}
-            - Video Model: {video_model}
+            **POST TYPE GUIDANCE**:
+            - **Threads**: Simple, engaging images that work on mobile
+            - **Shitposts**: Meme-style, humorous, viral potential
+            - **Longposts**: Professional, informative, detailed
             
-            **MANDATORY TOOL SELECTION RULES - NEVER DEVIATE**:
-            - For IMAGE generation: ONLY use {image_provider}_image_generation tool
-            - For VIDEO generation: ONLY use {video_provider}_video_generation tool  
-            - NEVER use a different provider's tool than what the user selected
-            - NEVER invent or hallucinate tools that don't exist
-            - The user specifically chose {image_provider.upper()} for images and {video_provider.upper()} for videos
-            {"🚫 VIDEO GENERATION DISABLED: When video_provider is 'none', you MUST generate IMAGES only, even if strategy suggests video content" if video_provider == 'none' else ""}
-            
-            **YOUR TOOL USAGE - VERIFY BEFORE USING**:
-            {f"✅ Use `{image_provider}_image_generation` tool for images with model: {image_model}" if has_image_tool else "❌ No image generation available"}
-            {f"✅ Use `{video_provider}_video_generation` tool for videos with model: {video_model}" if has_video_tool else "❌ No video generation available"}
-            
-            🚨 **TOOL VERIFICATION CHECKLIST** (MANDATORY BEFORE EACH TOOL USE):
-            1. Check if the tool name exists in your available tools list above
-            2. Verify the tool name matches EXACTLY (case-sensitive)
-            3. If tool doesn't exist, DO NOT attempt to use it
-            4. Report the missing tool and use available alternatives
-            
-            🛡️ INTELLIGENT FALLBACK STRATEGY:
-            {chr(10).join(fallback_strategy)}
             {logo_instructions}
-            
-            📋 EXECUTION RULES:
-            1. Always use the user's chosen provider tool
-            2. Use their specified model within that provider
-            3. Clearly indicate when fallbacks are used
-            4. Maintain quality regardless of which tools are available
-            5. Be transparent about capability limitations
-            {"6. MANDATORY: Include brand logo placement in all generated image prompts when logo integration is enabled" if include_brand_logo else ""}
             
             Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign_data else "Twitter"}
             """,
@@ -2836,7 +2645,7 @@ class CrewAIService:
             llm=llm,
             tools=tools,
             max_iter=2,  # Maximum 2 iterations to prevent loops
-            max_execution_time=180  # 3 minutes max
+            max_execution_time=300  # 5 minutes for image generation
         )
 
     def _create_orchestrator_agent(self) -> Agent:
@@ -2878,7 +2687,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             llm=self._get_llm_instance(),
             tools=[],  # NO TOOLS - just direct LLM processing
             max_iter=2,  # Simple task, should complete quickly
-            max_execution_time=60  # 1 minute should be enough
+            max_execution_time=300  # 5 minutes to allow for longpost generation
         )
 
     def _create_data_analysis_task(self) -> Task:
@@ -3208,16 +3017,34 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         logger.info(f"📊 Campaign token ticker: {token_ticker} (from campaign data: {self.campaign_data.get('tokenTicker') if self.campaign_data else 'None'})")
         logger.info(f"🐦 Project Twitter handle: {project_twitter_handle} (from campaign data: {self.campaign_data.get('projectTwitterHandle') if self.campaign_data else 'None'})")
         
+        # Enhanced task description with conditional tool usage based on model choice
+        text_model = self.model_preferences.get('text', {}).get('model', 'gpt-4o')
+        is_grok_model = text_model.lower().startswith('grok')
+        
         # Generate post-type specific task description
         task_description = await self._get_posttype_specific_task_description(
             post_type, content_type_desc, project_name, token_ticker, 
             project_twitter_handle, campaign_description, has_description,
-            brand_guidelines, should_generate_thread, max_main_chars
+            brand_guidelines, should_generate_thread, max_main_chars, is_grok_model
         )
         
-        # Enhanced task description with dynamic success pattern tool requirement and human communication context
-        success_pattern_tool = self._get_success_pattern_tool_name()
-        enhanced_task_description = f"""
+        if is_grok_model:
+            tool_instructions = f"""
+        🤖 **SIMPLE GROK INSTRUCTIONS**:
+        Call the `grok_category_style_tool` to generate content in popular handle styles.
+        The tool will randomly select a handle and generate content in their authentic style.
+        
+        **IMPORTANT**: When calling the tool, include the post type in your prompt:
+        - For threads: "Generate a thread about [topic]" (main_tweet ≤240 chars, thread_array items ≤260 chars each)
+        - For shitposts: "Generate a shitpost about [topic]" (main_tweet ≤260 chars, NO thread_array)
+        - For longposts: "Generate a longpost about [topic]" (main_tweet 8000-12000 chars, NO thread_array)
+        - For tweets: "Generate a tweet about [topic]" (main_tweet ≤240 chars, NO thread_array)
+        
+        **CRITICAL**: Use the EXACT content returned by the tool as your final output. Do NOT modify, expand, or rewrite the tool's output.
+        """
+        else:
+            success_pattern_tool = self._get_success_pattern_tool_name()
+            tool_instructions = f"""
         🏆 **MANDATORY FIRST STEP - SUCCESS PATTERNS**:
         You MUST start by calling the `{success_pattern_tool}` tool to get JSON data of success patterns.
         The tool returns structured JSON with each yapper's individual patterns and their Twitter handles.
@@ -3234,6 +3061,35 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         - Example if using yapper pattern: "The future of DeFi is transforming everything. Ready to join? @top_yapper"
         - Example if not using: Just tag project handle as usual (contextually integrated)
         - Yapper handles: Always at the end | Project handles: Contextually integrated
+        """
+        
+        if is_grok_model:
+            # Ultra-simple task description for Grok models
+            enhanced_task_description = f"""
+            {tool_instructions}
+            
+            **CRITICAL INSTRUCTION**: 
+            - Call the grok_category_style_tool FIRST with the correct post type
+            - Use the EXACT content returned by the tool as your final output
+            - Do NOT generate additional content or modify the tool's output
+            - Simply format the tool's output into the required JSON structure
+            
+            **POST TYPE REQUIREMENTS**:
+            - **THREAD**: main_tweet ≤240 chars, each thread_array item ≤260 chars
+            - **SHITPOST**: main_tweet ≤260 chars, NO thread_array (empty array)
+            - **LONGPOST**: main_tweet 8000-12000 chars, NO thread_array (empty array)
+            - **TWEET**: main_tweet ≤240 chars, NO thread_array (empty array)
+            
+            **OUTPUT FORMAT**: JSON object with main_tweet, thread_array (if applicable), and character_counts - no hashtags needed
+            
+            **EXAMPLE**:
+            If the tool returns: "Yo, crypto crew! Just checked out BOB..."
+            Your output should be: {{"main_tweet": "Yo, crypto crew! Just checked out BOB...", "character_count": 244}}
+            """
+        else:
+            # Complex instructions for other models
+            enhanced_task_description = f"""
+            {tool_instructions}
         
         🎭 **HUMAN COMMUNICATION CONTEXT**:
         - Generate content as if you're having a real conversation with crypto friends
@@ -3252,14 +3108,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         {task_description}
         
         🎯 **ENHANCED WORKFLOW**:
-        1. FIRST: Call {success_pattern_tool} tool
-        2. SECOND: Parse JSON and analyze each yapper's text_success_patterns
-        3. THIRD: Compare with Content Strategist recommendations
-        4. FOURTH: Make autonomous decision on approach
-        5. FIFTH: Choose human communication strategy (casual analysis, personal experience, conversational, etc.)
-        6. SIXTH: Generate content with appropriate handle tagging and human-like language
-        7. SEVENTH: Validate content has human-like qualities (contractions, personal opinions, varied structure)
-        8. EIGHTH: Return JSON in expected format
+            {self._get_workflow_steps(is_grok_model)}
         
         Remember: You have COMPLETE AUTONOMY to decide which strategy works best for this campaign!
         
@@ -3337,453 +3186,97 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         
         return Task(
             description=f"""
-            🚨 **CRITICAL: STRICT PROVIDER-BASED TOOL USAGE**
+            **VISUAL CONTENT CREATION TASK**
             
-            Your chosen configuration:
-            - Image Provider: {image_provider.upper()}
-            - Image Model: {image_model}
-            - Video Provider: {video_provider.upper()} 
-            - Video Model: {video_model}
+            **YOUR TOOLS**:
+            {f"- {image_provider}_image_generation (for images)" if has_image_tool else "- No image generation available"}
+            {f"- {video_provider}_video_generation (for videos)" if has_video_tool else "- No video generation available"}
             
-            **MANDATORY TOOL SELECTION - NO EXCEPTIONS**:
-            {f"- For IMAGE generation: ONLY use `{image_provider}_image_generation` tool" if has_image_tool else "- No image generation available"}
-            {f"- For VIDEO generation: ONLY use `{video_provider}_video_generation` tool" if has_video_tool else "- No video generation available"}
+            **YOUR PROCESS**:
+            1. **DEEP CONTENT ANALYSIS**: Extract specific project details, features, benefits, and unique aspects from the text content
+            2. **DYNAMIC STYLE SELECTION**: Choose appropriate visual style based on post type, content tone, and project specifics
+            3. **ORIGINAL PROMPT CREATION**: Generate a completely unique, non-templated prompt based on the actual text content
+            4. **VISUAL GENERATION**: Create visual content that perfectly matches the specific project and message
             
-            **NEVER DEVIATE FROM USER'S PROVIDER CHOICE**:
-            The user specifically selected {image_provider.upper()} for images and {video_provider.upper()} for videos.
-            You have access ONLY to tools for their chosen providers.
+            **CRITICAL**: Each prompt must be completely original and based on the actual text content you receive. Never use generic or templated descriptions.
             
-            🚨 **CRITICAL TOOL VALIDATION** (MANDATORY BEFORE EACH TOOL USE):
-            **BEFORE using any tool, you MUST verify it exists in your available tools list:**
+            **POST TYPE SPECIFIC GUIDANCE**:
             
-            **YOUR AVAILABLE TOOLS ARE:**
-            - {self._get_success_pattern_tool_name()} (for getting visual success patterns)
-            {f"- {image_provider}_image_generation (for generating images)" if has_image_tool else "- NO IMAGE GENERATION TOOLS AVAILABLE"}
-            {f"- {video_provider}_video_generation (for generating videos)" if has_video_tool else "- NO VIDEO GENERATION TOOLS AVAILABLE"}
+            **THREADS** (Post Type: {getattr(self.mining_session, 'post_type', 'thread').upper()}):
+            - Generate ONE engaging image for the main tweet
+            - Style: Simple, clean, mobile-optimized
+            - Focus: Visual that complements the thread narrative
+            - Prompt Structure: [Main concept] + [Clean style] + [Mobile-friendly]
             
-            **TOOL USAGE RULES**:
-            1. NEVER use a tool that's not in the list above
-            2. NEVER invent or hallucinate tool names
-            3. If you need a tool that's not available, report it and use alternatives
-            4. Always verify tool name spelling and case sensitivity
-            5. If unsure about a tool, call {self._get_success_pattern_tool_name()} first to get guidance
+            **SHITPOSTS** (Post Type: {getattr(self.mining_session, 'post_type', 'thread').upper()}):
+            - Generate ONE humorous image for the main tweet
+            - Style: Meme-style, viral potential, engaging
+            - Focus: Visual that amplifies the humor/message
+            - Prompt Structure: [Meme concept] + [Humorous style] + [Viral elements]
             
-            🏆 **MANDATORY: USE SUCCESS PATTERNS**:
-            BEFORE generating any visual content, you MUST call the `{self._get_success_pattern_tool_name()}` tool to get proven visual strategies from top-performing yappers for this campaign.
-            The tool returns structured JSON with each yapper's individual patterns and their Twitter handles.
+            **LONGPOSTS** (Post Type: {getattr(self.mining_session, 'post_type', 'thread').upper()}):
+            - Generate ONE professional image to accompany the longpost
+            - Style: Professional, informative, detailed
+            - Focus: Visual that supports the comprehensive content
+            - Prompt Structure: [Professional concept] + [Detailed style] + [Informative elements]
             
-            **CRITICAL ANALYSIS OF TOOL OUTPUT**:
-            1. Parse the JSON response carefully
-            2. Examine each yapper's "visual_success_patterns" individually
-            3. FILTER: Only consider yappers who have meaningful visual_success_patterns data
-            4. VALIDATE: Check if visual patterns contain actionable insights (viral_mechanics, trending_elements, etc.)
-            5. Make an AUTONOMOUS DECISION on which yapper's visual style to adopt (if any)
+            **VISUAL STYLE OPTIONS** (Choose based on content tone):
+            - **Professional**: Clean, modern, business-focused
+            - **Warm**: Natural, community-focused, approachable
+            - **Minimalist**: Simple, elegant, clear messaging
+            - **Meme**: Humorous, viral, engaging
+            - **Tech**: Modern, innovative, futuristic (use sparingly)
             
-            **INTELLIGENT YAPPER SELECTION LOGIC** (CRITICAL):
-            - FIRST: Check which yappers have comprehensive visual_success_patterns available
-            - SECOND: From available visual patterns, select the most relevant one for your content
-            - IF NO yappers have meaningful visual_success_patterns:
-              → Ignore all yapper patterns completely
-              → Generate dynamic prompt based SOLELY on Text Creator Agent output
-              → Create original visual strategy autonomous from text content themes
-            - IF yappers DO have visual patterns:
-              → Select the yapper with the most relevant visual strategies
-              → Combine their patterns with text content for optimal visuals
+            **PROMPT GENERATION RULES**:
+            - Keep prompts simple and focused (1-2 key elements max + supporting elements)
+            - Avoid cluttering with too many quality keywords
+            - Focus on the main visual concept and style
+            - Include appropriate lighting and composition
+            - **VARY COLORS**: Don't always use "blue tones" - use different color palettes each time
+            - **VARY LIGHTING**: Mix spotlight, natural, dramatic, soft lighting across generations
+            - **VARY COMPOSITION**: Change layouts, angles, and visual arrangements
+            - **EXTRACT PROJECT DETAILS**: Use specific project names, features, and benefits from the text
+            - {self._get_text_handling_instruction()}
             
-            **REQUIRED WORKFLOW**:
-            0. ZERO: VERIFY your available tools before starting (see tool list above)
-            1. FIRST: Call `{self._get_success_pattern_tool_name()}` tool with visual analysis request
-            2. SECOND: Parse JSON and identify yappers with meaningful visual_success_patterns
-            3. THIRD: IF visual patterns available → Select best yapper; IF not → ignore all patterns
-            4. FOURTH: Analyze the text content output from Text Creator Agent
-            5. FIFTH: Create visual strategy (pattern-based OR purely text-based)
-            6. SIXTH: Generate visual content using your provider-specific tools
+            **QUALITY REQUIREMENTS**:
+            - High resolution (4K or 8K)
+            - Professional composition
+            - Mobile-optimized dimensions
+            - Clear, readable on small screens
+            - Brand-appropriate colors and style
             
-            **TOOL VALIDATION CHECK** (MANDATORY):
-            Before step 6, verify you have the correct tool:
-            - For images: Check if `{image_provider}_image_generation` exists in your tools
-            - For videos: Check if `{video_provider}_video_generation` exists in your tools
-            - If tool doesn't exist, report the issue and use available alternatives
-            
-            **VISUAL PATTERN DECISION-MAKING**:
-            - SMART FILTERING: Only use yappers with actual visual success data
-            - INTELLIGENT FALLBACK: If no useful visual patterns, rely on text content analysis
-            - AUTONOMOUS CREATIVITY: You have complete freedom to create original visuals when patterns aren't helpful
-            - TEXT-VISUAL SYNERGY: Always ensure visuals complement the text content effectively
-            
-            Generate REAL visual content using your available tools:
-            
-            📝 **TEXT CONTENT ANALYSIS INSTRUCTIONS**:
-            You will receive the Text Content Creator's JSON output as input. Parse and analyze it based on post type:
-            
-            **FOR THREAD/SHITPOST** - Analyze the complete JSON structure:
-            {{
-                "main_tweet": "the main tweet text here",
-                "thread_array": ["first thread tweet", "second thread tweet", "third thread tweet"],
-                "hashtags_used": [...],
-                "character_counts": {{...}}
-            }}
-            → Use BOTH main_tweet AND all thread_array content to understand the full narrative and emotional journey
-            
-            **FOR LONGPOST** - Analyze the main_tweet field containing the full content:
-            {{
-                "main_tweet": "the comprehensive longpost content here (2000-25000 characters)",
-                "hashtags_used": [...],
-                "character_counts": {{...}}
-            }}
-            → Use the complete longpost content to extract themes, emotions, and key concepts
-            
-            Campaign Context:
-            - Title: {self.campaign_data.get('title', 'N/A') if self.campaign_data else 'N/A'}
-            - Brand Guidelines: {self.campaign_data.get('brandGuidelines', 'Modern, professional, crypto-focused') if self.campaign_data else 'Modern, professional, crypto-focused'}
+            **CAMPAIGN CONTEXT**:
+            - Title: {self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}
+            - Brand: {self.campaign_data.get('brandGuidelines', 'Modern, professional, crypto-focused') if self.campaign_data else 'Modern, professional, crypto-focused'}
             - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
-            - Post Type: {getattr(self.mining_session, 'post_type', 'thread').upper()}
             
-            📋 **POST TYPE VISUAL STRATEGY** (FULL CREATIVE FREEDOM):
-            {f'- LONGPOST: Generate ONE compelling image to accompany the comprehensive text content' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
-             f'- SHITPOST: Generate ONE image for main tweet only (no thread images)' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
-             '- THREAD: Generate ONE engaging image/video for main tweet based on strategist recommendation'}
+            {self._get_category_specific_guidance(
+                self.campaign_data.get('category', 'other') if self.campaign_data else 'other',
+                getattr(self.mining_session, 'post_type', 'thread')
+            )}
             
-            📋 **CONTENT STYLE FREEDOM** (AGENT DECIDES AUTONOMOUSLY):
-            {f'- LONGPOST: You have FULL FREEDOM to choose style - professional, meme-style, or any other style that fits the content' if getattr(self.mining_session, 'post_type', 'thread') == 'longpost' else 
-             f'- SHITPOST: You have FULL FREEDOM to choose style - meme-style, professional, or any other style that fits the content' if getattr(self.mining_session, 'post_type', 'thread') == 'shitpost' else 
-             '- THREAD: You have FULL FREEDOM to choose style - professional, meme-style, or any other style that fits the content'}
-            
-            🎭 **WEB3 MEME CHARACTER INTEGRATION** (AGENT DECIDES AUTONOMOUSLY):
-            **FOR ALL CONTENT TYPES** (shitpost, longpost, thread):
-            - You have COMPLETE FREEDOM to decide whether to include famous web3 meme characters
-            - You can choose to include them if they enhance the message and fit the content
-            - You can choose NOT to include them if they don't fit the content or message
-            - This decision is entirely up to your creative judgment based on content analysis
-            - Examples of web3 meme characters you might consider: Pepe, Wojak, Chad, etc.
-            - But you are NOT required to use them - it's purely optional based on your analysis
-            
-            🎯 **EXECUTION HIERARCHY**:
-            
-            **STEP 1: Try User's Preferred Model**
-            - Check if user's preferred model is available for requested content type
-            - Use their preferred tool/provider first
-            - Only proceed to Step 2 if this fails or API is unavailable
-            
-            **STEP 2: Try Alternative Providers (Same Content Type)**
-            - If preferred model fails, try other available providers
-            - Maintain the SAME content type (IMAGE stays IMAGE, VIDEO stays VIDEO)
-            - Example: If OpenAI DALL-E fails, try Claude Sonnet for images
-            
-            **STEP 3: Content Type Fallback (Only if NO APIs for requested type)**
-            IF STRATEGY REQUESTED VIDEO but NO video APIs available:
-            - Switch to IMAGE generation using any available image provider
-            - Create dynamic, motion-suggesting imagery
-            - Include visual elements that convey video-like energy
-            
-            IF STRATEGY REQUESTED IMAGE but NO image APIs available:
-            - Switch to VIDEO generation using any available video provider
-            - Create brief, static-like video content
-            - Focus on single compelling visual frame
-            
-            **STEP 4: Text-Only Fallback (Last Resort)**
-            IF NO visual generation APIs available at all:
-            - Provide rich, detailed visual concept description
-            - Include specific imagery suggestions
-            - Focus on textual visual storytelling
-            
-            🎨 **GENERATION INSTRUCTIONS**:
-            
-            **STRICT PROVIDER-SPECIFIC TOOL USAGE**:
-            You have been configured with specific tools based on your chosen providers.
-            
-            🚨 **CRITICAL: ONLY USE THE TOOLS YOU HAVE ACCESS TO**:
-            {f"- For IMAGE generation: Use `{image_provider}_image_generation` tool ONLY" if has_image_tool else "- No image generation tools available"}
-            {f"- For VIDEO generation: Use `{video_provider}_video_generation` tool ONLY" if has_video_tool else "- No video generation tools available"}
-            
-            **PROVIDER-SPECIFIC EXAMPLES**:
-            
-            **If you have OpenAI image tool** → Use `openai_image_generation`:
-            - Available models: dall-e-3, dall-e-2, gpt-image-1, gpt-4o
-            - Example: openai_image_generation("A modern business office discussing blockchain technology")
-            
-            **If you have Fal.ai image tool** → Use `fal_image_generation`:
-            - Available models: flux-*, stable-diffusion-*, ideogram-*, etc.
-            - Example: fal_image_generation("A professional business meeting discussing blockchain technology")
-            
-            **If you have Google image tool** → Use `google_image_generation`:
-            - Available models: imagen-*, gemini-*
-            - Example: google_image_generation("Professional blockchain technology visualization")
-            
-            **If you have Google video tool** → Use `google_video_generation`:
-            - Available models: veo-*, lumiere-*
-            - Example: google_video_generation("Short promotional video for crypto platform")
-            
-            🚫 **FORBIDDEN TOOLS**:
-            - Do NOT use `visual_concept` tool if you have provider-specific tools available
-            - Do NOT use any tools other than those specifically configured for your providers
-            - Each tool will reject requests if you're not authorized to use that provider
-            
-            🎯 **CONTENT GENERATION SPECIFICATIONS**:
-            
-            🎨 **AUTONOMOUS ARTISTIC STYLE SELECTION** (CRITICAL):
-            You are an intelligent visual creator who independently chooses the best artistic style based on the tweet content and emotional tone. Do NOT rely on templates - create original, dynamic prompts that match the content perfectly.
-            
-            **ARTISTIC STYLE CATEGORIES** (Choose autonomously based on content):
-            
-            **STYLE OPTIONS** (Select what fits the tweet emotion and content type - PRIORITIZE VARIETY):
-            • **Professional & Corporate**: Clean, modern business aesthetics for serious content
-            • **Warm & Natural**: Earthy tones, natural lighting for community/trust content
-            • **Minimalist & Clean**: Simple, elegant designs for clear messaging
-            • **Comic/Cartoon**: Humorous, relatable content with playful elements
-            • **Meme/Internet Culture**: FOMO, viral content when meme-style fits
-            • **Techno/Modern**: Subtle tech elements without overwhelming cyberpunk
-            • **FOMO/Urgency**: Time-sensitive opportunities with dynamic elements
-            • **Animated/Dynamic**: Action-oriented content with movement suggestions
-            • **Community/Social**: Inclusive, gathering themes with warm colors
-            • **Vector Art/Clean**: Professional, minimalist content with precision
-            • **Hyper Realistic**: Serious, credible messaging with photorealistic quality
-            • **Photo Realistic**: Authentic, trustworthy content with natural aesthetics
-            • **Pixel Art/Retro**: Nostalgic, gaming references when appropriate
-            • **Studio Lighting**: Polished, professional look with controlled lighting
-            • **Cinematic**: Dramatic, epic storytelling with atmospheric depth
-            • **Abstract/Conceptual**: Complex ideas visualization with artistic interpretation
-            
-            **IMPORTANT**: You can choose ANY style for ANY content type (shitpost, longpost, thread) based on what best fits the content and message. Don't feel restricted by content type stereotypes.
-            
-            **STYLE DIVERSITY REQUIREMENT** (CRITICAL):
-            - AVOID overusing holographic, neon, or cyberpunk aesthetics
-            - PRIORITIZE variety across different campaigns and content types
-            - Consider professional, warm, natural, and minimalist styles FIRST
-            - Only use holographic/neon/cyberpunk when it truly fits the content theme
-            - Balance futuristic elements with approachable, professional aesthetics
-            
-            **ESSENTIAL QUALITY KEYWORDS** (ALWAYS include these for professional output):
-            
-            **Resolution & Detail**:
-            "8K resolution", "4K resolution", "ultra-detailed", "hyperdetailed", "sharp focus", "crisp lines", "pixel-perfect"
-            
-            **Photography Terms**:  
-            "Photorealistic", "award-winning photography", "studio lighting", "cinematic lighting", "dramatic lighting", "professional photography"
-            
-            **Art Quality**:
-            "Masterpiece", "masterful composition", "award-winning digital art", "ultra-high quality", "best quality", "premium quality"
-            
-            **Rendering & Effects**:
-            "Hyperrealistic CGI", "3D render", "volumetric lighting", "perfect reflections", "dynamic lighting effects"
-            
-            **Style Descriptors**:
-            "Clean vector art", "geometric precision", "vibrant color palette", "rich color depth", "atmospheric lighting", "warm natural tones", "professional color schemes", "subtle gradients", "soft lighting", "natural shadows", "corporate aesthetics", "minimalist design"
-            
-            📖 **AUTONOMOUS PROMPT GENERATION PROCESS** (CRITICAL):
-            You are an AI visual expert who creates original, compelling prompts without relying on templates. Your mission is to analyze tweet content and craft unique, high-impact visual prompts that perfectly complement the message.
-            
-            🚫 **CRITICAL NO-TEXT REQUIREMENT**:
-            You MUST INTELLIGENTLY INTEGRATE "no text", "no words", "no letters", "no writing" directly into every visual prompt you generate. This ensures clean imagery without unwanted text overlays.
-            
-            **SMART NO-TEXT INTEGRATION EXAMPLES**:
-            - "...with photorealistic CGI, 8K ultra-detailed, NO TEXT OR WORDS visible, dramatic technological lighting..."
-            - "...masterpiece quality digital art, absolutely no writing or letters, award-winning composition..."
-            - "...volumetric lighting effects, strictly no text elements, clean minimalist design..."
-            
-            **STEP-BY-STEP AUTONOMOUS PROCESS**:
-            
-            1. **Deep Content Analysis** (Post-Type Specific): 
-               - **FOR THREAD/SHITPOST**: Analyze BOTH main_tweet AND complete thread_array from Text Content Creator's JSON output
-               - **FOR LONGPOST**: Analyze the comprehensive main_tweet (longpost content) from Text Content Creator's JSON output
-               - Read ALL the generated text content thoroughly to understand the complete narrative
-               - Identify core emotions: excitement, urgency, community, innovation, FOMO, humor, etc.
-               - Extract key concepts: project features, benefits, community aspects, timing, opportunities
-               - Determine the primary message goal: inform, excite, create urgency, build community, etc.
-               - Consider the full content scope when designing visual concepts
-               - **IMPORTANT**: Don't let content type (shitpost/longpost/thread) limit your creative choices
-            
-            2. **Intelligent Style Selection**:
-               - Choose the most appropriate artistic style from the options above
-               - **PRIORITIZE VARIETY**: Avoid repeating the same style across different campaigns
-               - Consider your target audience (Web3 GenZ, crypto enthusiasts, tech-savvy users)
-               - Match visual complexity to message complexity
-               - Decide on realism level: cartoon → stylized → photorealistic
-               - **FULL STYLE FREEDOM**: You can choose ANY style for ANY content type based on what best fits the message
-               - **MEME CHARACTER DECISION**: Decide autonomously whether to include web3 meme characters (Pepe, Wojak, Chad, etc.) based on content relevance
-               - **STYLE DIVERSITY CHECK**: If you've recently used holographic/neon/cyberpunk, consider professional, warm, or minimalist alternatives
-            
-            3. **Original Concept Creation**:
-               - Generate a unique visual concept that amplifies the tweet's message
-               - Create original scenes, characters, or compositions (do NOT copy templates)
-               - Incorporate crypto/Web3 cultural elements naturally when relevant
-               - **MEME CHARACTER INTEGRATION**: If you decide to include web3 meme characters, integrate them naturally and meaningfully
-               - **STYLE FLEXIBILITY**: Don't feel restricted by content type - create the visual style that best serves the message
-               - Design for maximum viral potential and engagement
-            
-            4. **Professional Enhancement**:
-               - Always include Essential Quality Keywords for professional output
-               - Specify appropriate lighting that enhances the mood
-               - Add technical specifications (resolution, rendering quality)
-               - Ensure Twitter-optimized dimensions and mobile readability
-            
-            5. **Prompt Optimization**:
-               - Structure: [Main Visual Concept] + [Specific Details] + [Style] + [NO-TEXT Requirement] + [Quality Keywords] + [Technical Specs]
-               - MANDATORY: Always include explicit no-text instructions in every prompt
-               - Keep prompts clear, specific, and actionable for AI models
-               - Include emotional descriptors that match the tweet's tone
-               - Ensure visual directly supports and amplifies the tweet message
-            
-            **AUTONOMOUS CREATIVE EXAMPLES** (Your style of thinking):
-            
-            Example Analysis Process:
-            Tweet: "BOB's hybrid model is revolutionizing Bitcoin DeFi"
-            → Emotion: Innovation, confidence, breakthrough
-            → Style: Professional and modern with subtle tech elements
-            → Original Concept: Bitcoin and Ethereum symbols elegantly merging into a unified form
-            → Generated Prompt: "Two golden orbs representing Bitcoin and Ethereum gracefully merging into a unified symbol, set against a clean, modern background with subtle geometric patterns, professional business aesthetic with warm, natural lighting, NO TEXT OR WORDS visible anywhere, photorealistic CGI, 8K ultra-detailed, studio lighting, masterpiece quality, award-winning digital art"
-            
-            This approach ensures variety, creativity, and perfect message-visual alignment for every unique tweet!
-            
-            **WORLD-CLASS IMAGE GENERATION REQUIREMENTS**:
-            - Use your configured image tool ({f"{image_provider}_image_generation" if has_image_tool else "none available"})
-            - **MANDATORY**: Follow the Autonomous Prompt Generation Process above - NO TEMPLATES
-            - **CRITICAL NO-TEXT RULE**: EVERY prompt MUST include explicit "no text", "no words", "no letters" instructions
-            - **STEP 1**: Deep analysis of ALL Text Content Creator's output (main_tweet + thread_array for threads/shitposts, or full longpost content) for emotional tone and core concepts
-            - **STEP 2**: Intelligent selection of artistic style that best fits the content (FULL FREEDOM for all content types)
-            - **STEP 3**: Original concept creation that amplifies the tweet's message uniquely (including optional web3 meme characters if relevant)
-            - **STEP 4**: Professional enhancement with Essential Quality Keywords + NO-TEXT requirements
-            - **STEP 5**: Prompt optimization for maximum AI model effectiveness with guaranteed no-text integration
-            - **CREATIVE FREEDOM**: Remember, you can choose ANY style for ANY content type based on what best serves the message
-            
-            🚨 **CRITICAL TOOL INPUT FORMAT**:
-            - When calling {f"{image_provider}_image_generation" if has_image_tool else "image generation"} tool, provide ONLY a simple string prompt
-            - DO NOT use dictionary format, JSON format, or any complex structure
-            - Example: Use "A futuristic digital landscape..." NOT {{"description": "A futuristic...", "image_url": "..."}}
-            - The tool expects: prompt = "your generated prompt text here"
-            
-            🚨 **FINAL TOOL SAFETY CHECK**:
-            **BEFORE calling any tool, repeat this checklist:**
-            1. ✅ Tool name exists in my available tools list
-            2. ✅ Tool name spelling is EXACTLY correct (case-sensitive)
-            3. ✅ I'm using the right provider tool for the right content type
-            4. ✅ If tool doesn't exist, I will report it and use alternatives
-            5. ✅ I will NOT hallucinate or invent tools that don't exist
-            
-            **If any check fails, STOP and report the issue before proceeding.**
-            - Keep it simple: just the creative prompt string you generate
-            - **CRITICAL**: Create original, dynamic prompts that ensure variety and prevent repetitive imagery
-            - Campaign context: "{self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
-            - Twitter-optimized dimensions with maximum visual impact
-            - Include compelling visual elements that enhance engagement and message clarity
-            - High viral potential with Web3 culture and emotional resonance
-            - Professional finish suitable for crypto/Web3 audience
-            - Ensure visual diversity across different content generations
-            
-            **VIDEO GENERATION REQUIREMENTS**:
-            - Use your configured video tool ({f"{video_provider}_video_generation" if has_video_tool else "none available"})
-            - Transform campaign context into a compelling visual story: "{self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}"
-            - Apply story-based prompt structure with temporal elements (beginning, middle, end)
-            - Include dynamic transitions and cinematic storytelling
-            - 8-second promotional video with narrative arc
-            - Twitter specifications (max 2:20, 1920x1080px)
-            - Mobile-optimized viewing
-            
-            🎯 **QUALITY REQUIREMENTS**:
-            - Mobile-first design approach
-            - High contrast for readability
-            - Brand color consistency
-            - Platform-specific optimization
-            - Accessibility compliance
-            
-            ⚠️ **CRITICAL EXECUTION RULES**:
-            1. **ALWAYS use story-based prompts** - Transform every visual request into a micro-narrative
-            2. Follow the hierarchy: Preferred → Alternative → Fallback → Text-only
-            3. Actually call your AI generation tools to create real content with story prompts
-            4. Do NOT provide generic descriptions unless in text-only mode
-            5. Clearly indicate which tier of the hierarchy was used
-            6. Explain why fallbacks were necessary (API unavailable, model failed, etc.)
-            7. Maintain campaign quality regardless of which tools are used
-            
-            📝 **AUTONOMOUS CREATIVE WORKFLOW**:
-            
-            **YOUR INTELLIGENT PROCESS** (No templates - pure creativity):
-            1. **Deep Tweet Analysis**: Extract the emotional core and key message concepts from Text Content Creator's output
-            2. **Autonomous Style Decision**: Choose the perfect artistic style based on content emotion and target impact
-            3. **Original Concept Generation**: Create a unique, never-before-seen visual concept that amplifies the message
-            4. **Professional Enhancement**: Add Essential Quality Keywords for maximum AI model performance
-            5. **Prompt Optimization**: Structure for clarity, impact, and technical excellence
-            
-            **CREATIVE THINKING EXAMPLES** (Your autonomous approach):
-            
-            Tweet: "gm Web3 fam 🌅 Ready to build the future?"
-            → Analysis: Warm, community-focused, forward-looking, inclusive
-            → Style Choice: Community/Social with optimistic lighting
-            → Original Concept: A diverse group of people silhouetted against a rising digital sun, with their devices casting holographic blueprints of tomorrow's tech
-            → Autonomous Prompt: "Silhouettes of diverse people standing on a hill watching a digital sunrise with holographic blueprints of futuristic technology floating between them, warm golden and blue lighting creating hope and community feeling, photorealistic digital art, 8K ultra-detailed, cinematic composition, masterpiece quality"
-            
-            Tweet: "Time's running out - don't miss the opportunity 🚨"
-            → Analysis: Urgent, pressure, FOMO, time-sensitive action needed
-            → Style Choice: FOMO/Urgency with dramatic tension
-            → Original Concept: An hourglass with opportunities literally falling through while hands reach desperately upward
-            → Autonomous Prompt: "A giant crystal hourglass with golden opportunity symbols (keys, coins, doors) falling through the narrow center while multiple hands reach upward from below trying to catch them, dramatic red and gold lighting with urgency effects, hyperrealistic 3D render, 8K resolution, dynamic motion capture, award-winning digital art"
-            
-            Tweet: "Building the next generation of decentralized finance"
-            → Analysis: Innovation, construction, future-focused, technical advancement
-            → Style Choice: Techno/Cyberpunk with architectural elements
-            → Original Concept: Architects of light constructing transparent financial structures in digital space
-            → Autonomous Prompt: "Ethereal figures made of light constructing complex geometric financial structures floating in digital space, with data streams flowing through transparent architecture, cyberpunk aesthetic with purple and teal energy flows, photorealistic CGI, 8K ultra-detailed, volumetric lighting, masterpiece architectural visualization"
-            
-            This autonomous approach ensures every image is unique, contextually perfect, and professionally crafted!
-            
-            CRITICAL OUTPUT FORMAT - MUST FOLLOW EXACTLY:
-            You MUST return ONLY a valid JSON object with NO additional text, explanations, or formatting.
-            
-            USE THIS EXACT JSON STRUCTURE:
+            **OUTPUT FORMAT**:
+            Return ONLY a JSON object with this structure:
             {{
-              "content_type": "IMAGE", 
-              "image_url": "https://complete-s3-url-with-all-parameters.amazonaws.com/...",
+              "content_type": "IMAGE",
+              "image_url": "https://s3-url-here",
               "video_url": null,
               "visual_concept": null,
-              "provider_used": "Fal.ai",
-              "model_used": "imagen4-preview", 
+              "provider_used": "{image_provider.upper()}",
+              "model_used": "{image_model}",
               "dimensions": "1024x576px",
               "file_format": "JPEG",
               "execution_tier": "PREFERRED_MODEL",
-              "strategy_alignment": "Generated image matches strategic recommendation",
-              "alt_text": "Digital avatar with glowing circuit patterns showing crypto earnings"
+              "strategy_alignment": "Generated image matches content requirements",
+              "alt_text": "Brief description of the image"
             }}
             
-            FOR VIDEO CONTENT, USE:
-            {{
-              "content_type": "VIDEO",
-              "image_url": null, 
-              "video_url": "https://complete-video-url.amazonaws.com/...",
-              "visual_concept": null,
-              "provider_used": "Google",
-              "model_used": "veo-3",
-              "dimensions": "1920x1080",
-              "file_format": "MP4", 
-              "execution_tier": "PREFERRED_MODEL",
-              "strategy_alignment": "Generated video matches strategic recommendation",
-              "alt_text": "Dynamic video showing crypto trading dashboard"
-            }}
-            
-            FOR TEXT-ONLY FALLBACK, USE:
-            {{
-              "content_type": "TEXT_ONLY",
-              "image_url": null,
-              "video_url": null, 
-              "visual_concept": "Detailed visual description here",
-              "provider_used": "Text-only",
-              "model_used": "N/A",
-              "dimensions": "N/A",
-              "file_format": "N/A",
-              "execution_tier": "TEXT_ONLY",
-              "strategy_alignment": "Provides visual guidance without generation",
-              "alt_text": "Visual concept description"
-            }}
-            
-            CRITICAL JSON RULES:
+            **CRITICAL RULES**:
+            - Use ONLY the tools you have access to
+            - Generate clean, focused prompts (avoid keyword spam)
+            - Match visual style to content type and tone
             - Return ONLY the JSON object, no other text
-            - Use double quotes for all strings  
-            - Set unused fields to null (not empty strings)
-            - Ensure all JSON syntax is valid
-            - No trailing commas
-            - No comments or explanations outside the JSON
-            - Include complete URLs with all query parameters
-            
-            Remember: Only ONE visual content type per Twitter post for optimal performance!
+            - Ensure visual complements the text content effectively
             """,
             agent=self.agents[AgentType.VISUAL_CREATOR],
             expected_output="Single JSON object with content_type, image_url/video_url, provider_used, and technical specifications - no additional text or explanations"
@@ -3839,8 +3332,6 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             agent=self.agents[AgentType.ORCHESTRATOR],
             expected_output="Valid JSON containing main_tweet, thread_array, and image_url from previous agents",
             context=[
-                self.tasks[AgentType.DATA_ANALYST],
-                self.tasks[AgentType.CONTENT_STRATEGIST], 
                 self.tasks[AgentType.TEXT_CONTENT],
                 self.tasks[AgentType.VISUAL_CREATOR]
             ]
@@ -3851,8 +3342,8 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         try:
             # Update session status
             mining_session.status = MiningStatus.GENERATING
-            await self._update_progress(40, "Data Analyst Agent: Analyzing patterns...")
-            mining_session.agent_statuses[AgentType.DATA_ANALYST] = AgentStatus.RUNNING
+            await self._update_progress(40, "Text Content Creator: Generating content...")
+            mining_session.agent_statuses[AgentType.TEXT_CONTENT] = AgentStatus.RUNNING
             
             # Execute crew tasks in sequence with progress updates
             result = await asyncio.create_task(self._execute_crew_with_progress())
@@ -3868,8 +3359,8 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         """Execute crew with enhanced real-time progress tracking and content previews"""
         # Send initial milestone
         await self._send_generation_milestone("crew_start", {
-            "agents_count": 5,
-            "estimated_duration": "2-3 minutes",
+            "agents_count": 3,
+            "estimated_duration": "1-2 minutes",
             "user_models": self.model_preferences
         })
         
@@ -3877,47 +3368,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         try:
             logger.info("🚀 Starting CrewAI crew execution...")
             
-            # Phase 1: Data Analysis (start immediately)
-            await self._update_agent_status(
-                AgentType.DATA_ANALYST, 
-                AgentStatus.RUNNING, 
-                "Analyzing campaign data and market trends...",
-                {"phase": "data_collection", "models_used": ["mindshare_ml", "twitter_learning"]}
-            )
-            await asyncio.sleep(0.2)
-            await self._update_progress(45, "Data Analyst Agent: Processing campaign insights...")
-            logger.info("📊 Data Analyst Agent: Started")
-            
-            # Send milestone for data analysis completion
-            await asyncio.sleep(2)
-            await self._send_generation_milestone("data_analysis_complete", {
-                "insights_gathered": ["audience_analysis", "engagement_patterns", "trending_topics"],
-                "confidence": 0.92
-            })
-        
-        # Phase 2: Content Strategy
-            await self._update_agent_status(AgentType.DATA_ANALYST, AgentStatus.COMPLETED)
-            await asyncio.sleep(0.2)
-            await self._update_agent_status(
-                AgentType.CONTENT_STRATEGIST, 
-                AgentStatus.RUNNING, 
-                "Creating content strategy and tone...",
-                {"strategy_type": "viral_optimization", "target_platform": "twitter"}
-            )
-            await asyncio.sleep(0.2)
-            await self._update_progress(55, "Content Strategist Agent: Developing strategy...")
-            logger.info("🎯 Content Strategist Agent: Started")
-            
-            await asyncio.sleep(2)
-            await self._send_generation_milestone("strategy_complete", {
-                "content_approach": "data_driven_viral",
-                "visual_recommendation": "image_preferred",
-                "tone": "engaging_professional"
-            })
-        
-        # Phase 3: Text Content Generation
-            await self._update_agent_status(AgentType.CONTENT_STRATEGIST, AgentStatus.COMPLETED)
-            await asyncio.sleep(0.2)
+            # Phase 1: Text Content Generation (start immediately)
             await self._update_agent_status(
                 AgentType.TEXT_CONTENT, 
                 AgentStatus.RUNNING, 
@@ -3925,7 +3376,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 {"model": self.model_preferences.get('text', {}).get('model', 'gpt-4o')}
             )
             await asyncio.sleep(0.2)
-            await self._update_progress(65, "Text Content Agent: Generating content...")
+            await self._update_progress(45, "Text Content Agent: Generating content...")
             logger.info("✍️ Text Content Agent: Started")
             
             # Start the actual CrewAI crew execution in background
@@ -4147,21 +3598,11 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                     "confidence_level": 90.0
                 },
                 "generation_metadata": {
-                    "agents_used": ["Data Analyst", "Content Strategist", "Text Creator", "Visual Creator", "Orchestrator"],
+                    "agents_used": ["Text Creator", "Visual Creator", "Orchestrator"],
                     "generation_time": datetime.utcnow().isoformat(),
                     "optimization_factors": ["mindshare", "engagement", "brand_alignment"]
                 },
                 "agent_contributions": {
-                    AgentType.DATA_ANALYST: {
-                        "role": "Campaign analysis and trend insights",
-                        "contribution": "Analyzed campaign data and market trends",
-                        "confidence": 90.0
-                    },
-                    AgentType.CONTENT_STRATEGIST: {
-                        "role": "Strategic content approach",
-                        "contribution": "Developed content strategy and tone",
-                        "confidence": 88.0
-                    },
                     AgentType.TEXT_CONTENT: {
                         "role": "Primary content generation",
                         "contribution": "Generated engaging text content",
@@ -4610,18 +4051,6 @@ No image generated
     def _get_agent_info(self, agent_type: AgentType) -> Dict[str, Any]:
         """Get descriptive information about each agent type"""
         agent_descriptions = {
-            AgentType.DATA_ANALYST: {
-                "name": "Data Analyst",
-                "role": "Campaign Intelligence",
-                "description": "Analyzes campaign data and market trends",
-                "emoji": "📊"
-            },
-            AgentType.CONTENT_STRATEGIST: {
-                "name": "Content Strategist", 
-                "role": "Strategic Planning",
-                "description": "Develops content strategy and approach",
-                "emoji": "🎯"
-            },
             AgentType.TEXT_CONTENT: {
                 "name": "Text Creator",
                 "role": "Content Generation", 
@@ -4651,6 +4080,18 @@ No image generated
 
     def _get_llm_instance(self):
         """Get LLM instance based on configuration"""
+        # Check if this is text-only mode - use Grok for text-only regeneration
+        if hasattr(self, 'mining_session') and self.mining_session and hasattr(self.mining_session, 'source') and self.mining_session.source == "yapper_interface_text_only":
+            logger.info("🤖 Text-only mode detected - using Grok-3-mini for text regeneration")
+            return ChatOpenAI(
+                openai_api_key=settings.xai_api_key,  # Use XAI API key for Grok
+                model_name="grok-3-mini",
+                temperature=0.7,
+                max_tokens=4000,
+                base_url="https://api.x.ai/v1"  # XAI API endpoint
+            )
+        
+        # Default behavior for regular generation
         provider = "openai"  # Default, could be made configurable per user
         
         if provider == "openai":
@@ -4930,11 +4371,851 @@ No image generated
                 {'provider': 'openai', 'model': 'tts-1'}
             ]
         }
+    
+    def _get_text_handling_instruction(self) -> str:
+        """Get text handling instruction based on the selected model"""
+        # Check if nano-banana/edit model is being used
+        if hasattr(self, 'mining_session') and self.mining_session:
+            brand_logo_model = getattr(self.mining_session, 'brand_logo_model', 'flux-pro/kontext')
+            # Handle None values
+            if brand_logo_model is None:
+                brand_logo_model = 'flux-pro/kontext'
+            
+            if 'nano-banana/edit' in brand_logo_model:
+                return """For nano-banana/edit model: You can include text elements in your visual prompts as this model excels at generating text on images. Use text sparingly and only when it enhances the visual message."""
+            else:
+                return """You MUST INTELLIGENTLY INTEGRATE "no text", "no words", "no letters", "no writing" directly into every visual prompt you generate. This ensures clean imagery without unwanted text overlays."""
+        else:
+            return """You MUST INTELLIGENTLY INTEGRATE "no text", "no words", "no letters", "no writing" directly into every visual prompt you generate. This ensures clean imagery without unwanted text overlays."""
+    
+    def _get_text_integration_examples(self) -> str:
+        """Get text integration examples based on the selected model"""
+        # Check if nano-banana/edit model is being used
+        if hasattr(self, 'mining_session') and self.mining_session:
+            brand_logo_model = getattr(self.mining_session, 'brand_logo_model', 'flux-pro/kontext')
+            # Handle None values
+            if brand_logo_model is None:
+                brand_logo_model = 'flux-pro/kontext'
+            
+            if 'nano-banana/edit' in brand_logo_model:
+                return """- "...with photorealistic CGI, 8K ultra-detailed, dynamic lighting, with subtle text overlay if it enhances the message..."
+                - "...masterpiece quality digital art, professional composition with optional strategic text placement..."
+                - "...volumetric lighting effects, clean design with text elements only when they add value to the visual story..." """
+            else:
+                return """- "...with photorealistic CGI, 8K ultra-detailed, NO TEXT OR WORDS visible, dramatic technological lighting..."
+                - "...masterpiece quality digital art, absolutely no writing or letters, award-winning composition..."
+                - "...volumetric lighting effects, strictly no text elements, clean minimalist design..." """
+        else:
+            return """- "...with photorealistic CGI, 8K ultra-detailed, NO TEXT OR WORDS visible, dramatic technological lighting..."
+            - "...masterpiece quality digital art, absolutely no writing or letters, award-winning composition..."
+            - "...volumetric lighting effects, strictly no text elements, clean minimalist design..." """
+    
+    def _get_text_handling_rule(self) -> str:
+        """Get text handling rule based on the selected model"""
+        # Check if nano-banana/edit model is being used
+        if hasattr(self, 'mining_session') and self.mining_session:
+            brand_logo_model = getattr(self.mining_session, 'brand_logo_model', 'flux-pro/kontext')
+            # Handle None values
+            if brand_logo_model is None:
+                brand_logo_model = 'flux-pro/kontext'
+            
+            if 'nano-banana/edit' in brand_logo_model:
+                return "For nano-banana/edit: Include text elements only when they enhance the visual message. Use text sparingly and strategically."
+            else:
+                return "EVERY prompt MUST include explicit 'no text', 'no words', 'no letters' instructions"
+        else:
+            return "EVERY prompt MUST include explicit 'no text', 'no words', 'no letters' instructions"
+    
+    def _get_text_constraint_for_example(self) -> str:
+        """Get text constraint for example prompts based on the selected model"""
+        # Check if nano-banana/edit model is being used
+        if hasattr(self, 'mining_session') and self.mining_session:
+            brand_logo_model = getattr(self.mining_session, 'brand_logo_model', 'flux-pro/kontext')
+            # Handle None values
+            if brand_logo_model is None:
+                brand_logo_model = 'flux-pro/kontext'
+            
+            if 'nano-banana/edit' in brand_logo_model:
+                return ", with optional strategic text placement if it enhances the message"
+            else:
+                return ", NO TEXT OR WORDS visible anywhere"
+        else:
+            return ", NO TEXT OR WORDS visible anywhere"
+    
+    def _get_category_specific_guidance(self, campaign_category: str, post_type: str) -> str:
+        """Get category-specific visual guidance and sample prompts for inspiration"""
+        
+        # Category-specific guidance mapping
+        category_guidance = {
+            "defi": {
+                "recommended_styles": "Data-Driven (primary for stats focus), Professional (for trust)",
+                "longpost": "Use Data-Driven with detailed charts (e.g., yield trends) to educate; overlay text with key metrics",
+                "shitpost": "Opt for Hype with exaggerated yield visuals; add meme-style text like 'Ape in!'",
+                "thread": "Combine Professional and Data-Driven for sequential data panels; include numbered text overlays (e.g., '1/3')",
+                "sample_prompt": "A data-driven chart of a DeFi token yield spiking 300%, clean blue tones, overlay text '$TOKEN 300% APY! 📈 #DeFi' in sans-serif, centered mobile layout, 4K resolution, soft spotlight"
+            },
+            "nft": {
+                "recommended_styles": "Minimalist (primary for art focus), Meme (for virality)",
+                "longpost": "Use Minimalist with a single elegant artwork; overlay text with mint details",
+                "shitpost": "Go for Meme with humorous NFT twists; add playful text like 'Mint the meme!'",
+                "thread": "Blend Minimalist and Meme for a narrative art series; include text with story cues (e.g., 'Part 1')",
+                "sample_prompt": "A minimalist NFT avatar with glowing edges, chaotic meme background with a dancing figure, overlay text 'Mint now! 🎨 #NFT' in bold graffiti, high-contrast, 4K, mobile-optimized"
+            },
+            "gaming": {
+                "recommended_styles": "Tech (primary for innovation), Meme (for engagement)",
+                "longpost": "Use Tech with futuristic gameplay visuals; overlay text with feature highlights",
+                "shitpost": "Choose Meme with gaming humor; add text like 'Play2Win LOL!'",
+                "thread": "Mix Tech and Meme for a gameplay walkthrough; include text with step markers (e.g., 'Step 1')",
+                "sample_prompt": "A neon-lit gaming arena with a meme frog battling, overlay text 'Play2Earn! 🎮 #Web3Gaming' in glitch font, dynamic lighting, 4K, thumb-stopping composition"
+            },
+            "metaverse": {
+                "recommended_styles": "Tech (primary for immersion), Hype (for events)",
+                "longpost": "Use Tech with a detailed world view; overlay text with exploration invites",
+                "shitpost": "Opt for Hype with explosive event visuals; add text like 'Drop live!'",
+                "thread": "Combine Tech and Hype for a world-building series; include text with progression (e.g., 'World 1/3')",
+                "sample_prompt": "A futuristic metaverse cityscape with airdrop coins bursting, overlay text 'Explore now! 🚀 #Metaverse' in neon, dramatic sky lighting, 4K, mobile-ready"
+            },
+            "dao": {
+                "recommended_styles": "Warm (primary for community), Professional (for governance)",
+                "longpost": "Use Warm with community scenes; overlay text with voting calls",
+                "shitpost": "Go for Meme with DAO humor; add text like 'Vote or GTFO!'",
+                "thread": "Blend Warm and Professional for governance steps; include text with guides (e.g., 'Step 1/3')",
+                "sample_prompt": "A warm group scene of DAO members voting, soft earthy tones, overlay text 'Join the vote! 🤝 #DAO' in clean font, balanced composition, 4K, mobile-optimized"
+            },
+            "infrastructure": {
+                "recommended_styles": "Tech (primary for innovation), Data-Driven (for reliability)",
+                "longpost": "Use Tech with network visuals; overlay text with tech specs",
+                "shitpost": "Opt for Hype with bold infra claims; add text like 'Unbreakable!'",
+                "thread": "Combine Data-Driven and Tech for a tech breakdown; include text with data points (e.g., '1/3')",
+                "sample_prompt": "A tech network diagram with a 99% uptime chart, overlay text 'Scale secure! 🔒 #Infra' in modern font, bright lighting, 4K, mobile-friendly"
+            },
+            "layer 1": {
+                "recommended_styles": "Hype (primary for launches), Tech (for tech stack)",
+                "longpost": "Use Tech with blockchain visuals; overlay text with performance details",
+                "shitpost": "Go for Hype with launch explosions; add text like 'To the moon!'",
+                "thread": "Mix Hype and Tech for a launch series; include text with hype builds (e.g., 'Day 1/3')",
+                "sample_prompt": "A hyped blockchain with upward arrows, overlay text 'Fastest L1! 🚀 #L1' in bold, neon tech glow, 4K, mobile-optimized"
+            },
+            "layer 2": {
+                "recommended_styles": "Data-Driven (primary for efficiency), Tech (for rollups)",
+                "longpost": "Use Data-Driven with gas savings charts; overlay text with stats",
+                "shitpost": "Opt for Hype with rollup memes; add text like 'Gas free LOL!'",
+                "thread": "Combine Tech and Data-Driven for a rollup guide; include text with steps (e.g., '1/3')",
+                "sample_prompt": "A tech rollup diagram with a 50% gas savings chart, overlay text 'Rollup ready! ⚡ #L2' in sleek font, clear lighting, 4K, mobile-ready"
+            },
+            "trading": {
+                "recommended_styles": "Data-Driven (primary for charts), Hype (for pumps)",
+                "longpost": "Use Data-Driven with trade signals; overlay text with analysis",
+                "shitpost": "Go for Hype with bullish visuals; add text like 'Pump it!'",
+                "thread": "Mix Data-Driven and Hype for a trade series; include text with signals (e.g., 'Signal 1/3')",
+                "sample_prompt": "A hype trade chart with a bull flag, overlay text 'Bullish AF! 📈 #Trading' in bold, dramatic lighting, 4K, mobile-ready"
+            },
+            "meme coins": {
+                "recommended_styles": "Meme (primary for virality), Hype (for pumps)",
+                "longpost": "Use Meme with a detailed meme story; overlay text with token lore",
+                "shitpost": "Go for Hype with explosive coin visuals; add text like 'Moon time!'",
+                "thread": "Combine Meme and Hype for a pump series; include text with hype (e.g., 'Part 1/3')",
+                "sample_prompt": "A meme doge with explosive coins, overlay text 'To the moon! 🐶🚀 #MemeCoin' in fun font, vibrant colors, 4K, mobile-friendly"
+            },
+            "socialfi": {
+                "recommended_styles": "Warm (primary for community), Meme (for engagement)",
+                "longpost": "Use Warm with social scenes; overlay text with community invites",
+                "shitpost": "Go for Meme with social humor; add text like 'Chat wins!'",
+                "thread": "Blend Warm and Meme for a social guide; include text with steps (e.g., 'Step 1/3')",
+                "sample_prompt": "A warm group chatting with a meme ghosti, overlay text 'Join the vibe! 👥🎮 #SocialFi' in playful font, soft lighting, 4K, mobile-ready"
+            },
+            "ai & crypto": {
+                "recommended_styles": "Tech (primary for innovation), Data-Driven (for ROI)",
+                "longpost": "Use Tech with AI visuals; overlay text with feature details",
+                "shitpost": "Opt for Hype with AI hype; add text like 'AI to 1M!'",
+                "thread": "Combine Data-Driven and Tech for an AI breakdown; include text with data (e.g., '1/3')",
+                "sample_prompt": "A tech AI bot analyzing data with a 200% ROI chart, overlay text 'AI alpha! 🤖 #AICrypto' in futuristic font, clear lighting, 4K, mobile-optimized"
+            },
+            "real world assets": {
+                "recommended_styles": "Professional (primary for trust), Data-Driven (for value)",
+                "longpost": "Use Professional with asset visuals; overlay text with value stats",
+                "shitpost": "Opt for Hype with asset pumps; add text like 'Rich AF!'",
+                "thread": "Combine Data-Driven and Professional for a value series; include text with metrics (e.g., '1/3')",
+                "sample_prompt": "A professional property chart, overlay text 'Tokenized 10x value! 💼 #RWA' in clean font, balanced lighting, 4K, mobile-friendly"
+            },
+            "prediction markets": {
+                "recommended_styles": "Hype (primary for bets), Data-Driven (for odds)",
+                "longpost": "Use Data-Driven with odds charts; overlay text with bet details",
+                "shitpost": "Go for Hype with betting memes; add text like 'Bet big!'",
+                "thread": "Mix Hype and Data-Driven for a market series; include text with odds (e.g., 'Bet 1/3')",
+                "sample_prompt": "A hype odds board with an 80% win rate chart, overlay text 'Bet now! 🎲 #PredictionMarkets' in bold, dynamic lighting, 4K, mobile-ready"
+            },
+            "privacy": {
+                "recommended_styles": "Minimalist (primary for trust), Tech (for proofs)",
+                "longpost": "Use Minimalist with security visuals; overlay text with privacy features",
+                "shitpost": "Opt for Meme with privacy humor; add text like 'Hide LOL!'",
+                "thread": "Blend Tech and Minimalist for a proof guide; include text with steps (e.g., '1/3')",
+                "sample_prompt": "A minimalist shield with a tech glow, overlay text 'Private tx live! 🔒 #Privacy' in elegant font, 4K, mobile-optimized"
+            },
+            "cross chain": {
+                "recommended_styles": "Tech (primary for bridges), Data-Driven (for efficiency)",
+                "longpost": "Use Tech with bridge visuals; overlay text with connectivity details",
+                "shitpost": "Opt for Hype with cross-chain memes; add text like 'Cross it!'",
+                "thread": "Combine Data-Driven and Tech for a bridge series; include text with stats (e.g., '1/3')",
+                "sample_prompt": "A tech bridge network with a 99% success chart, overlay text 'Cross now! 🌉 #CrossChain' in sleek font, clear lighting, 4K, mobile-ready"
+            },
+            "yield farming": {
+                "recommended_styles": "Data-Driven (primary for yields), Hype (for farms)",
+                "longpost": "Use Data-Driven with yield charts; overlay text with APY stats",
+                "shitpost": "Go for Hype with farm explosions; add text like 'Farm it!'",
+                "thread": "Mix Data-Driven and Hype for a farm guide; include text with yields (e.g., '1/3')",
+                "sample_prompt": "A hype yield field with a 300% APY spike, overlay text 'Farm now! 🌾🚀 #YieldFarming' in bold, vibrant lighting, 4K, mobile-optimized"
+            },
+            "liquid staking": {
+                "recommended_styles": "Professional (primary for trust), Data-Driven (for rewards)",
+                "longpost": "Use Professional with staking visuals; overlay text with reward details",
+                "shitpost": "Opt for Hype with staking memes; add text like 'Stake rich!'",
+                "thread": "Combine Data-Driven and Professional for a staking series; include text with returns (e.g., '1/3')",
+                "sample_prompt": "A professional staking pool with a 5% reward chart, overlay text 'Stake liquid! 💧 #LiquidStaking' in clean font, soft lighting, 4K, mobile-friendly"
+            },
+            "derivatives": {
+                "recommended_styles": "Data-Driven (primary for trades), Hype (for leverage)",
+                "longpost": "Use Data-Driven with trade charts; overlay text with leverage stats",
+                "shitpost": "Go for Hype with deriv memes; add text like '10x LOL!'",
+                "thread": "Mix Data-Driven and Hype for a trade series; include text with signals (e.g., '1/3')",
+                "sample_prompt": "A hype trade chart with a 10x leverage spike, overlay text 'Trade now! ⚡ #Derivatives' in bold, dramatic lighting, 4K, mobile-ready"
+            },
+            "payments": {
+                "recommended_styles": "Professional (primary for trust), Minimalist (for simplicity)",
+                "longpost": "Use Professional with payment visuals; overlay text with tx details",
+                "shitpost": "Opt for Meme with payment humor; add text like 'Pay fast LOL!'",
+                "thread": "Blend Minimalist and Professional for a payment guide; include text with steps (e.g., '1/3')",
+                "sample_prompt": "A minimalist QR code with a clean design, overlay text 'Pay fast! 💳 #CryptoPayments' in sans-serif, clear lighting, 4K, mobile-optimized"
+            },
+            "identity": {
+                "recommended_styles": "Minimalist (primary for recognition), Tech (for innovation)",
+                "longpost": "Use Minimalist with ID visuals; overlay text with claim details",
+                "shitpost": "Opt for Meme with ID humor; add text like 'ID flex!'",
+                "thread": "Blend Tech and Minimalist for an ID series; include text with features (e.g., '1/3')",
+                "sample_prompt": "A tech ID badge with a neon glow, overlay text 'Own now! 🆔 #DID' in modern font, 4K, mobile-friendly"
+            },
+            "security": {
+                "recommended_styles": "Minimalist (primary for attention), Data-Driven (for safety)",
+                "longpost": "Use Data-Driven with security stats; overlay text with safety details",
+                "shitpost": "Opt for Hype with security memes; add text like 'Safe AF!'",
+                "thread": "Combine Minimalist and Data-Driven for a security guide; include text with metrics (e.g., '1/3')",
+                "sample_prompt": "A minimalist shield with a 99% safe tx chart, overlay text 'Secure now! 🚨 #Security' in bold, clear lighting, 4K, mobile-ready"
+            },
+            "tools": {
+                "recommended_styles": "Tech (primary for features), Minimalist (for adoption)",
+                "longpost": "Use Tech with tool visuals; overlay text with feature highlights",
+                "shitpost": "Opt for Meme with tool humor; add text like 'Tool time!'",
+                "thread": "Blend Tech and Minimalist for a tool series; include text with steps (e.g., '1/3')",
+                "sample_prompt": "A tech tool dashboard with a clean layout, overlay text 'Build fast! 🔧 #Web3Tools' in sleek font, soft lighting, 4K, mobile-optimized"
+            },
+            "analytics": {
+                "recommended_styles": "Data-Driven (primary for insights), Professional (for authority)",
+                "longpost": "Use Data-Driven with analytics charts; overlay text with insights",
+                "shitpost": "Opt for Hype with data memes; add text like 'Data wins!'",
+                "thread": "Combine Professional and Data-Driven for an analytics series; include text with data points (e.g., '1/3')",
+                "sample_prompt": "A professional analytics chart with whale data, overlay text 'Track now! 📊 #CryptoAnalytics' in clean font, balanced lighting, 4K, mobile-friendly"
+            },
+            "education": {
+                "recommended_styles": "Warm (primary for engagement), Professional (for clarity)",
+                "longpost": "Use Warm with educational visuals; overlay text with learning invites",
+                "shitpost": "Opt for Meme with edu humor; add text like 'Learn LOL!'",
+                "thread": "Blend Warm and Professional for a learning series; include text with lessons (e.g., '1/3')",
+                "sample_prompt": "A warm educational guide with soft tones, overlay text 'Learn now! 📚 #CryptoEd' in friendly font, 4K, mobile-optimized"
+            },
+            "other": {
+                "recommended_styles": "Hype (primary for trends), Minimalist (for focus)",
+                "longpost": "Use Minimalist with trend visuals; overlay text with insight invites",
+                "shitpost": "Go for Hype with macro memes; add text like 'Trend AF!'",
+                "thread": "Combine Hype and Minimalist for a trend series; include text with hooks (e.g., '1/3')",
+                "sample_prompt": "A hype trend wave with a clean design, overlay text 'Web3 future! 🚀 #Web3' in elegant font, dynamic lighting, 4K, mobile-ready"
+            }
+        }
+        
+        # Get category guidance (case-insensitive)
+        category_key = campaign_category.lower().strip() if campaign_category else "other"
+        guidance = category_guidance.get(category_key, category_guidance["other"])
+        
+        # Build the guidance string
+        guidance_text = f"""
+**CATEGORY-SPECIFIC GUIDANCE** ({campaign_category.upper()}):
+- **Recommended Styles**: {guidance['recommended_styles']}
+- **{post_type.upper()} Guidance**: {guidance[post_type.lower()]}
+
+**CREATIVE FREEDOM RULES**:
+- DO NOT copy the sample prompts below - they are just style references
+- Create UNIQUE prompts based on the actual text content you receive
+- Vary colors, lighting, and composition for each generation
+- Focus on the specific project details mentioned in the text content
+- Use different visual metaphors and concepts each time
+
+**STYLE REFERENCE EXAMPLES** (for inspiration only - create your own):
+- DeFi: Think data charts, yield curves, token symbols, but make them unique
+- NFT: Think art, avatars, collections, but create original concepts
+- Gaming: Think futuristic arenas, characters, but design fresh scenes
+- Tech: Think networks, interfaces, but invent new visualizations
+
+**REMEMBER**: Analyze the text content first, then create a completely original visual concept that fits the category style but is unique to this specific project and content.
+"""
+        
+        return guidance_text
+    
+    def _get_humanization_techniques(self, post_type: str) -> str:
+        """Get humanization techniques for specific post type (only for non-Grok models)"""
+        if post_type == 'thread':
+            return """🎭 **THREAD HUMANIZATION TECHNIQUES**:
+            - **Natural progression**: Each thread item builds on the previous naturally
+            - **Personal voice**: Use "I", "my", "me" - share personal takes and experiences
+            - **Community engagement**: Reference what "everyone's talking about" or "saw some people saying"
+            - **Authentic reactions**: "facts," "this," "lmao," "bruh" - use naturally, not forced
+            - **Varied CTAs**: Mix questions, challenges, and community calls organically"""
+        elif post_type == 'shitpost':
+            return """🎭 **SHITPOST HUMANIZATION TECHNIQUES**:
+            - **Personal voice**: Use "I", "my", "me" for authentic engagement
+            - **Natural humor patterns**: "not me admitting..." or "hear me out..."
+            - **Personal takes**: "unpopular opinion but..." or "hot take incoming"
+            - **Authentic reactions**: "might be copium but..." or "feel free to roast me if I'm wrong"
+            - **Community references**: "I know everyone's bearish but..." or "with all this market chaos"
+            - **Natural tangents**: "side note: why does every protocol need a token?" or "btw this aged poorly lol"
+            - **Authentic language**: "this ain't it," "no cap," "fr," "based" - but naturally, not forced
+            - **Natural endings**: "anyway that's my 2 cents" or "so yeah" - no formal conclusions"""
+        elif post_type == 'longpost':
+            return """🎭 **LONGPOST HUMANIZATION TECHNIQUES**:
+            - **Personal voice**: Use "I", "my", "me" for authentic engagement throughout
+            - **Include personal opinions**: "IMO," "personally," "I think" - show your perspective
+            - **Add casual transitions**: "ok so," "anyway," "btw" - break up formal sections
+            - **Show uncertainty**: "not 100% sure but," "could be wrong," "probably missing something"
+            - **Reference community**: "everyone's talking about," "saw some people saying" """
+        else:
+            return """🎭 **GENERAL HUMANIZATION TECHNIQUES**:
+            - **Use casual language**: "this is pretty cool," "honestly surprised by this"
+            - **Show personal interest**: "I'm kinda into this," "this caught my attention"
+            - **Include natural reactions**: "wow," "interesting," "hmm" - show genuine curiosity
+            - **Ask questions**: "what do you think?" "am I missing something?"
+            - **Use contractions**: "it's," "that's," "here's" - sound natural"""
+    
+    def _get_inspiration_examples(self, post_type: str) -> str:
+        """Get inspiration examples for specific post type (only for non-Grok models)"""
+        if post_type == 'thread':
+            return """📚 **AUTHENTIC THREAD INSPIRATION** (Study these patterns, but create your own unique content):
+            
+            **Meme Coin Madness Threads:**
+            - Lead: "Just saw $DOGE pump 15% in an hour. Is this Elon tweeting or actual adoption? Let's unpack. 🐶🚀"
+              Follow-up 1: "DOGE has been a meme coin king since 2013. But with BTC ETF hype, is it finally a store of value? 🧐"
+              Follow-up 2: "Check the chart: RSI screaming overbought. Dip incoming or moonshot? What's your play? 📊"
+              CTA: "Drop your $DOGE price target below. Bullish or bearish?"
+            
+            - Lead: "$SHIB army, where you at? Just staked 10M for Shibarium. Here's why I'm not selling. 🦊"
+              Follow-up 1: "Shibarium's L2 is processing 400 TPS. That's Solana-level speed for a meme coin. Underrated?"
+              Follow-up 2: "Airdrop rumors swirling for $BONE holders. Connected my wallet already. You in? 🦴"
+              CTA: "Who's holding $SHIB through 2025? Tag a degen."
+            
+            - Lead: "$PEPE just flipped $FLOKI in market cap. Frogs > dogs? Let's talk meme coin wars. 🐸"
+              Follow-up 1: "FLOKI's got utility—DeFi, NFTs, metaverse. $PEPE? Pure meme power. But memes win in bull markets."
+              Follow-up 2: "Check the holders: $PEPE's got 200K+ wallets vs $FLOKI's 150K. Community > utility sometimes."
+              CTA: "Frog or dog? Drop your pick and reasoning below!"
+            
+            **DeFi Alpha Threads:**
+            - Lead: "Berachain's testnet just hit 50K TPS. This L1 is about to break DeFi. Here's why I'm staking everything. 🐻"
+              Follow-up 1: "Built on Cosmos, but with EVM compatibility. Best of both worlds—interop + familiar dev tools."
+              Follow-up 2: "Their DEX (BeraSwap) is live with $BERA rewards. 15% APY for stakers. Airdrop incoming for early users."
+              CTA: "Who's farming Berachain? Drop your staking strategy below!"
+            
+            - Lead: "Movement Labs' L2 just processed 1M transactions in 24h. This is the Solana killer we've been waiting for. 🏄‍♂️"
+              Follow-up 1: "Parallel execution + Move VM = 100K TPS. Compare that to Ethereum's 15 TPS. It's not even close."
+              Follow-up 2: "Partnership with Aptos for cross-chain compatibility. $MOV token launching Q2. Early access for testnet users."
+              CTA: "Movement vs Solana? Drop your take below and tag a builder!"
+            
+            **AI Token Threads:**
+            - Lead: "AI tokens are mooning, and $TAO's my 10x pick. Up 35% this month, powering Solana dApps. Here's why. 🤖"
+              Follow-up 1: "Bittensor's decentralized AI network is growing 20% monthly. 4K+ miners, 1M+ TAO staked."
+              Follow-up 2: "Partnership with Solana for AI agent deployment. $TAO holders get early access to new AI tools."
+              CTA: "AI tokens or traditional crypto? Drop your portfolio allocation below!"
+            
+            **Airdrop Strategy Threads:**
+            - Lead: "Airdrop szn's back, and I'm printing $KAITO points like a degen ATM! Here's my playbook to farm big. 💸"
+              Follow-up 1: "Kaito's Yaps program tracks your X posts for relevance. High-signal posts = more points = bigger airdrops."
+              Follow-up 2: "I'm top 50 on the Leaderboard with 6K points. Strategy: Post during peak hours, share alpha, engage replies."
+              CTA: "Who's farming Yaps with me? Drop your rank and best yap below!"
+            
+            - Lead: "Genesis NFTs are the new airdrop meta. 0.1 ETH investment, 2x point multiplier. Here's how to maximize. 🖼️"
+              Follow-up 1: "Doodles, Azuki, CloneX—all giving airdrops to holders. But Genesis NFTs are the hidden gems."
+              Follow-up 2: "Stake your Genesis NFT for 12% APY + airdrop eligibility. My CloneX is printing $PUDGY daily."
+              CTA: "Genesis NFT or regular staking? Drop your strategy below!" """
+        
+        elif post_type == 'shitpost':
+            return """📚 **AUTHENTIC SHITPOST INSPIRATION** (Study these patterns, but create your own unique content):
+            - "Just saw $DOGE mooning again. My grandma's shiba inu is now demanding a cut of my portfolio. Who's riding this wave? 🐶🚀"
+            - "Why did $SHIB join a band? Because it's got that bark and spark! Wen 0.0001? 🥁"
+            - "$PEPE holders rn: Staring at charts like it's a modern art exhibit. Is this a dip or a masterpiece? 🎨"
+            - "Bought $LILPEPE because I believe in smol frogs with big dreams. Who's in on this L2 meme coin takeover? 🐸"
+            - "Meme coins are the crypto equivalent of yelling 'YOLO' at 3 AM. $BUTTHOLE just proved it. Who's still holding? 😜"
+            - "Chasing airdrops like it's Pokémon cards in '99. Yap points stacking, wallet ready. Who's farming with me? 💸"
+            - "Just linked my wallet for the latest airdrop. Missed the last one, not missing this. Who's baking cookies for airdrops? 🍪"
+            - "Airdrop season got me acting unwise. Staked my tokens, now I'm dreaming of lambos. Who's eligible? 🚗"
+            - "Pro tip: Yap about Genesis NFTs now, thank me later when the airdrop hits. 0.1 ETH well spent? 🖼️"
+            - "Heard the Yapper Leaderboard is the new crypto lottery. Posted some alpha, now I'm top 100. Who's climbing? 🏆"
+            - "Market's red, my portfolio's screaming, but I'm still yapping about $ETH L2s. Who's buying this dip? 🩸"
+            - "BTC at 100K or we riot. Who's got the hopium for this bull run? 🚀"
+            - "Solana's AI agents dumping? Nah, just shaking out the paper hands. $TAO to $1000, you in? 🤖"
+            - "When your altcoin bags are down 20% but you're still shilling like it's a bull market. HODL vibes only. 💪"
+            - "X is screaming 'it's so over' for DeFi. Me? I'm loading up on the next big thing. InfoFi is the future. Who's with me? 🔮"
+            - "Berachain's got me acting unwise. Staked tokens to vote on their Leaderboard. Wen mainnet? 🐻"
+            - "Movement Labs dropping alpha faster than my WiFi. Who's riding this L2 wave? 🏄‍♂️"
+            - "Doodles NFTs on the Leaderboard? Burnt Toast cooking something big. Who's grabbing these? 🎨"
+            - "Freysa's Sovereign Agent Framework is basically Skynet for crypto. $100K prizes? I'm in. 🧠"
+            - "Xion's referral loops got me hooked. Sent 10 cookies, now I'm a degen influencer. 🍪"
+            - "AI just called my bags a 'high-signal investment.' I'm framing this. Who's trusting the algo? 🤖"
+            - "Yaps algorithm just gave my post a 9/10 for 'semantics.' I'm basically Vitalik now. 🧠"
+            - "Posted about the project, got 50 RTs, now I'm a Leaderboard legend. Who's stealing my crown? 👑"
+            - "Chasing airdrops like it's Pokémon cards in '99. Yap points stacking, wallet ready. Who's farming with me? 🍪"
+            - "Just linked my wallet for the latest airdrop. Missed the last one, not missing this. Who's baking cookies for airdrops? 🍪"
+            - "Airdrop season got me acting unwise. Staked my tokens, now I'm dreaming of lambos. Who's eligible? 🚗"
+            - "Pro tip: Yap about Genesis NFTs now, thank me later when the airdrop hits. 0.1 ETH well spent? 🖼️"
+            - "Heard the Yapper Leaderboard is the new crypto lottery. Posted some alpha, now I'm top 100. Who's climbing? 🏆"
+            - "Market's red, my portfolio's screaming, but I'm still yapping about $ETH L2s. Who's buying this dip? 🩸"
+            - "BTC at 100K or we riot. Who's got the hopium for this bull run? 🚀"
+            - "Solana's AI agents dumping? Nah, just shaking out the paper hands. $TAO to $1000, you in? 🤖"
+            - "When your altcoin bags are down 20% but you're still shilling like it's a bull market. HODL vibes only. 💪"
+            - "X is screaming 'it's so over' for DeFi. Me? I'm loading up on the next big thing. InfoFi is the future. Who's with me? 🔮"
+            - "Berachain's got me acting unwise. Staked tokens to vote on their Leaderboard. Wen mainnet? 🐻"
+            - "Movement Labs dropping alpha faster than my WiFi. Who's riding this L2 wave? 🏄‍♂️"
+            - "Doodles NFTs on the Leaderboard? Burnt Toast cooking something big. Who's grabbing these? 🎨"
+            - "Freysa's Sovereign Agent Framework is basically Skynet for crypto. $100K prizes? I'm in. 🧠"
+            - "Xion's referral loops got me hooked. Sent 10 cookies, now I'm a degen influencer. 🍪"
+            - "AI just called my bags a 'high-signal investment.' I'm framing this. Who's trusting the algo? 🤖"
+            - "Yaps algorithm just gave my post a 9/10 for 'semantics.' I'm basically Vitalik now. 🧠"
+            - "Posted about the project, got 50 RTs, now I'm a Leaderboard legend. Who's stealing my crown? 👑" """
+        
+        elif post_type == 'longpost':
+            return """📚 **AUTHENTIC LONGPOST INSPIRATION** (Study these patterns, but create your own unique content):
+            
+            **Meme Coin Analysis Longposts:**
+            - Hook: "Yo degens, $PEPE just flipped $FLOKI in market cap, and my frog bags are hopping! Is this the meme coin king of 2025, or just another CT pump? Let's dive into why I'm betting 1B $PEPE for a 10x. Buckle up for some alpha."
+              Alpha: "## **Community Metrics**\n$PEPE's been the underdog since 2023, but 2025's looking froggy. First, the community: **50K Discord members**, **10K daily X posts**, and memes that slap harder than a bear market. The team's anon but active—weekly AMAs and a roadmap that's actually on track. Their NFT drop (PepePunks) sold out **5K pieces at 0.2 ETH each**, with staking for $PEPE rewards live.\n\n## **Technical Specs**\nSecond, tech: Built on **ETH L2 (Arbitrum)**, $PEPE's got **1-cent txns and 10K TPS**. Compare that to $SHIB's Shibarium (400 TPS). Partnership with **Arbitrum Foundation** for L2 scaling solutions.\n\n## **Market Analysis**\nThird, market: $PEPE's at **$0.00001**, with a **$4B market cap**. CT sentiment's **85% bullish** per Kaito's AI, and whale wallets are stacking. Airdrop rumors for L2 stakers are swirling—check their site for wallet linking.\n\n## **My Play**\nMy play? I'm holding **1B $PEPE**, staking **500M for 12% APY**. Risk? Meme coins are volatile AF. Reward? If $PEPE hits **$0.0001**, that's a **10x**. Zoom out: Meme coins thrive on hype, and $PEPE's got CT eating out of its webbed hands."
+              CTA: "Are you a $PEPE maxi or betting on another meme coin? Drop your bags and price target below! Tag a degen who's late to the frog party. Farming 2K Yap points on @kaitoai's Leaderboard—join me!"
+            
+            **Airdrop Strategy Longposts:**
+            - Hook: "Airdrop szn's back, and I'm printing $KAITO points like a degen ATM! @kaitoai's Yaps program is the easiest way to stack tokens in 2025. Top 50 on the Leaderboard with 6K points—here's my playbook to farm big. Let's yap!"
+              Alpha: "## **What is Kaito's Yaps?**\nKaito's Yaps is InfoFi's killer app—think DeFi but for sharing alpha. Their AI tracks X posts for relevance, engagement, and semantics. High-signal yaps (like this one) earn points toward $KAITO airdrops.\n\n## **My Results**\nI linked my X and wallet, posted daily about $TAO, $XION, and Berachain. Result? **6K points in two weeks**, **top 50 on the Leaderboard**.\n\n## **My Strategy**\nMy strat: 1) Post during **peak CT hours (8-11 AM EST)**. 2) Share alpha—e.g., $XION's privacy L1 hit **5K TPS on testnet**. 3) Engage replies; my last post got **400 RTs**. Kaito's AI loves originality, so I avoid 'wen moon' spam.\n\n## **Partnerships & Integrations**\nTheir Catalyst Calendar shows trending projects—$MOVR's next. Partnership with **Berachain** for L1 integration. Bonus: Genesis NFTs (**0.1 ETH**) double your points. I snagged one, staked it, and hit **2x multiplier**.\n\n## **Airdrop Speculation**\nRumor: **Top 100 yappers** get $KAITO airdrops. I'm farming hard, but competition's fierce. Strategy: Quality over quantity, engage with replies, share unique alpha.\n\n## **My Play**\nMy play? I'm holding **1B $PEPE**, staking **500M for 12% APY**. Risk? Meme coins are volatile AF. Reward? If $PEPE hits **$0.0001**, that's a **10x**. Zoom out: Meme coins thrive on hype, and $PEPE's got CT eating out of its webbed hands."
+              CTA: "Who's farming Yaps with me? Drop your rank and best yap below! Tag @kaitoai and climb the Leaderboard. Let's stack those airdrops!"
+            
+            **AI Token Analysis Longposts:**
+            - Hook: "AI tokens are eating crypto, and $TAO's my 10x pick. Up 35% this month, powering Solana dApps. CT's wild, Kaito's AI's bullish. Staked 2K $TAO for 15% APY. Why I'm all in—let's unpack."
+              Alpha: "## **What is Bittensor?**\nBittensor's a decentralized AI network where miners compete to provide the best AI models. Think Bitcoin, but for AI. Miners stake $TAO, run models, and earn rewards based on performance.\n\n## **Technical Specs**\nBuilt on **Substrate**, **4K+ miners**, **1M+ TAO staked**. Partnership with **Solana** for AI agent deployment. $TAO holders get early access to new AI tools.\n\n## **Market Analysis**\n$TAO's at **$400**, **$2B market cap**. CT sentiment's **90% bullish** per Kaito's AI. Whale wallets are stacking—**top 100 holders** control **60%** of supply.\n\n## **My Play**\nMy play? I'm holding **2K $TAO**, staking **1K for 15% APY**. Risk? AI tokens are volatile. Reward? If $TAO hits **$4K**, that's a **10x**. Zoom out: AI is the future, and $TAO's the infrastructure."
+              CTA: "AI tokens or traditional crypto? Drop your portfolio allocation below! Tag a builder who's building the future."
+            
+            **DeFi Protocol Longposts:**
+            - Hook: "Berachain's testnet just hit 50K TPS. This L1 is about to break DeFi. Built on Cosmos, EVM compatible, 15% APY for stakers. Here's why I'm staking everything. Let's unpack."
+              Alpha: "## **What is Berachain?**\nBerachain's a Cosmos-based L1 with EVM compatibility. Think Ethereum, but faster and cheaper. Built for DeFi, with native DEX (BeraSwap) and staking rewards.\n\n## **Technical Specs**\nBuilt on **Cosmos SDK**, **EVM compatible**, **50K TPS**. Partnership with **Aptos** for cross-chain compatibility. $BERA token launching Q2.\n\n## **Market Analysis**\nTestnet's live with **100K+ users**, **$50M TVL**. CT sentiment's **95% bullish** per Kaito's AI. Early access for testnet users—check their site.\n\n## **My Play**\nMy play? I'm staking **10K $BERA** for **15% APY**. Risk? New L1s are risky. Reward? If $BERA hits **$10**, that's a **10x**. Zoom out: L1s are the future, and Berachain's the infrastructure."
+              CTA: "Berachain or Solana? Drop your take below! Tag a builder who's building the future." """
+        
+        else:
+            return """📚 **AUTHENTIC CONTENT INSPIRATION** (Study these patterns, but create your own unique content):"""
 
 
 # Simplified schema for the tool arguments  
 class LeaderboardYapperToolInput(BaseModel):
     query: str = Field(default="", description="Analysis request for success patterns")
+
+# Grok Category Style Tool (for Grok models)
+class GrokCategoryStyleInput(BaseModel):
+    """Input schema for Grok category style tool"""
+    prompt: str = Field(..., description="The prompt containing category information and content requirements")
+    post_type: str = Field(default="tweet", description="The type of content to generate: thread, shitpost, longpost, or tweet")
+    image_prompt: str = Field(default="", description="The image prompt to align the text content with the existing image")
+    selected_handle: str = Field(default="", description="The specific handle to use for style generation (if empty, will select randomly)")
+
+class GrokCategoryStyleTool(BaseTool):
+    """Tool for generating content in the style of popular handles by category using Grok models"""
+    
+    name: str = "grok_category_style_tool"
+    description: str = "Generate Twitter content in the style of popular handles from specific categories using Grok models"
+    args_schema: Type[BaseModel] = GrokCategoryStyleInput
+    
+    # Declare Pydantic fields properly
+    api_key: Optional[str] = None
+    model_preferences: Dict[str, Any] = {}
+    wallet_address: str = "unknown-wallet"
+    agent_id: str = "unknown-agent"
+    campaign_category: Optional[str] = None
+    campaign_context: str = ""
+    twitter_context: str = ""
+    
+    # Preconfigured handle categories
+    HANDLE_CATEGORIES: ClassVar[Dict[str, List[str]]] = {
+        "defi": ["@DefiLlama", "@stanokcrypto", "@0xResearch", "@CamiRusso", "@sassal0x", "@DefiDad"],
+        "nft": ["@punk6529", "@beeple", "@farokh", "@jenkinsthevalet", "@alessa_nft", "@nftmacca"],
+        "gaming": ["@gabegabearts", "@LootChain", "@zachxbt", "@RaidenDMC", "@YellowPanther", "@Kyroh"],
+        "metaverse": ["@coryklippsten", "@sammyg888", "@decentraland", "@RoblemVR", "@AdezAulia", "@RatmirKhasanov"],
+        "dao": ["@aantonop", "@DAOstack", "@AragonProject", "@balajis", "@georgikose", "@mozzacrypto"],
+        "infrastructure": ["@lopp", "@starkware", "@vitalikbuterin", "@iDesignStrategy", "@block_ecologist", "@elblockchainguy"],
+        "layer_1": ["@solana", "@brian_armstrong", "@IOHK_Charles", "@avalancheavax", "@Cardano", "@nearprotocol"],
+        "layer_2": ["@0xPolygon", "@OptimismFND", "@arbitrum", "@base", "@Starknet", "@Scroll_ZKP"],
+        "trading": ["@CryptoCobain", "@TheCryptoDog", "@CryptoDonAlt", "@CryptoMichNL", "@CryptoTony__", "@rektcapital"],
+        "meme_coins": ["@BillyM2k", "@CryptoKaleo", "@AnsemCrypto", "@kmoney_69", "@973Meech", "@0xmidjet"],
+        "socialfi": ["@friendtech", "@BitClout", "@aavegotchi", "@cyberconnect_hq", "@lensprotocol", "@farcaster_xyz"],
+        "ai_and_crypto": ["@brian_roetker", "@punk9059", "@ai16z", "@VitalikButerin", "@balajis", "@goodalexander"],
+        "real_world_assets": ["@RWA_World", "@centrifuge", "@realTPlatform", "@OndoFinance", "@MANTRA_Chain", "@RWA_Alpha"],
+        "prediction_markets": ["@Polymarket", "@AugurProject", "@GnosisDAO", "@predictionmkt", "@DriftProtocol", "@dYdX"],
+        "privacy": ["@monero", "@zcash", "@SecretNetwork", "@privacy", "@zcashcommunity", "@monerooutreach"],
+        "cross_chain": ["@Polkadot", "@cosmos", "@LayerZero_Core", "@chainlink", "@AxelarNetwork", "@wormholecrypto"],
+        "yield_farming": ["@yearnfi", "@Harvest_Finance", "@BeefyFinance", "@vanessadefi", "@defiprincess_", "@daxyfalx_defi"],
+        "liquid_staking": ["@LidoFinance", "@Rocket_Pool", "@Stakewise", "@OnStaking", "@ankr", "@jito_sol"],
+        "derivatives": ["@dYdX", "@Synthetix_io", "@GMX_IO", "@perpetual_protocol", "@driftprotocol", "@aevo_xyz"],
+        "payments": ["@Strike", "@RequestNetwork", "@SablierHQ", "@Ripple", "@stellarorg", "@lightning"],
+        "identity": ["@ensdomains", "@CivicKey", "@SpruceID", "@selfkey", "@uPort", "@cheqd_io"],
+        "security": ["@zachxbt", "@samczsun", "@trailofbits", "@slowmist_team", "@PeckShieldAlert", "@RektNews"],
+        "tools": ["@AlchemyPlatform", "@MoralisWeb3", "@TenderlyApp", "@thirdweb", "@Pinata", "@TheGraph"],
+        "analytics": ["@duneanalytics", "@Nansen_ai", "@glassnode", "@lookonchain", "@CryptoQuant_com", "@Santimentfeed"],
+        "education": ["@IvanOnTech", "@BanklessHQ", "@aantonop", "@sassal0x", "@WhiteboardCrypto", "@CryptoWendyO"],
+        "other": ["@cdixon", "@naval", "@pmarca", "@balajis", "@punk6529", "@garyvee"]
+    }
+    
+    # Declare fields as class attributes for Pydantic
+    api_key: Optional[str] = None
+    model_preferences: Dict[str, Any] = {}
+    wallet_address: str = "unknown-wallet"
+    agent_id: str = "unknown-agent"
+    
+    def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
+                 wallet_address: str = None, agent_id: str = None, campaign_category: str = None, 
+                 campaign_context: str = "", twitter_context: str = "", **kwargs):
+        super().__init__(**kwargs)
+        
+        # Use provided API key or fall back to system key
+        self.api_key = api_key or settings.xai_api_key
+        self.model_preferences = model_preferences or {}
+        self.wallet_address = wallet_address or "unknown-wallet"
+        self.agent_id = agent_id or "unknown-agent"
+        self.campaign_category = campaign_category
+        self.campaign_context = campaign_context
+        self.twitter_context = twitter_context
+        
+        if not self.api_key:
+            logger.warning("⚠️ No XAI API key provided for GrokCategoryStyleTool")
+    
+    def _get_category_for_handle_selection(self) -> str:
+        """Get category for handle selection - prioritize campaign category"""
+        if self.campaign_category:
+            # Normalize campaign category to match our categories
+            campaign_cat_lower = self.campaign_category.lower().strip()
+            print(f"🔍 CHECKING CAMPAIGN CATEGORY: {campaign_cat_lower}")
+            
+            # Direct match
+            if campaign_cat_lower in self.HANDLE_CATEGORIES:
+                print(f"✅ FOUND DIRECT CAMPAIGN CATEGORY MATCH: {campaign_cat_lower}")
+                return campaign_cat_lower
+            
+            # Try partial matches
+            for cat in self.HANDLE_CATEGORIES.keys():
+                if campaign_cat_lower in cat or cat in campaign_cat_lower:
+                    print(f"✅ FOUND PARTIAL CAMPAIGN CATEGORY MATCH: {cat}")
+                    return cat
+            
+            print(f"❌ NO CAMPAIGN CATEGORY MATCH FOUND, DEFAULTING TO 'other'")
+            return 'other'
+        
+        print(f"❌ NO CAMPAIGN CATEGORY AVAILABLE, DEFAULTING TO 'other'")
+        return 'other'
+    
+    def _get_campaign_context_for_generation(self) -> str:
+        """Get campaign context for content generation including Twitter context"""
+        context_parts = []
+        
+        if self.campaign_context:
+            context_parts.append(f"Campaign Context:\n{self.campaign_context}")
+        
+        if self.twitter_context:
+            context_parts.append(f"Twitter Context (Recent Tweets - Last 15 Days):\n{self.twitter_context}")
+        
+        if not context_parts:
+            return "No campaign or Twitter context available"
+        
+        return "\n\n".join(context_parts)
+    
+    def _get_post_type_instructions(self, post_type: str) -> str:
+        """Get post type specific instructions for Grok models"""
+        if post_type == 'thread':
+            return """🧵 **THREAD REQUIREMENTS**:
+- Generate 2-5 tweets in thread format
+- Main tweet: Attention-grabbing hook (≤240 chars)
+- Thread tweets: Natural content that builds excitement (≤260 chars each)
+- Use personal voice: "I", "my", "me" for authentic engagement
+- End with engaging CTAs that drive community participation
+- Each tweet should build on the previous one naturally
+- Output format: Just the tweets, one per line, no numbering or labels"""
+        
+        elif post_type == 'shitpost':
+            return """🚀 **SHITPOST REQUIREMENTS**:
+- Generate a single, authentic shitpost tweet (≤260 chars)
+- Create natural crypto Twitter humor that feels authentic
+- Use Web3 cultural elements naturally (crypto behaviors + community references)
+- Focus on authentic community engagement and natural reactions
+- Make it feel like sharing alpha with crypto friends
+- Use casual language and authentic reactions
+- Output format: Just the tweet text, nothing else"""
+        
+        elif post_type == 'longpost':
+            return """📝 **LONGPOST REQUIREMENTS**:
+- Generate comprehensive content (8000-12000 characters) in MARKDOWN FORMAT
+- Use detailed analysis with markdown headers (##), **bold** emphasis, and structured layout
+- Include specific numbers, projections, TGE dates, TVL figures, signup counts
+- Name specific organizations, protocols, or companies when mentioning partnerships
+- Focus on informative, analytical content with personal voice
+- Use clear headings and bullet points for readability
+- Output format: Just the longpost content, no introductory text or explanations"""
+        
+        else:  # Default to tweet
+            return """📱 **TWEET REQUIREMENTS**:
+- Generate a single engaging tweet (≤240 chars)
+- Use personal voice and authentic engagement
+- Focus on creating compelling content that resonates with crypto audiences
+- Include strong CTAs that drive community engagement
+- Output format: Just the tweet text, nothing else"""
+    
+    def _run(self, prompt: str, post_type: str = 'tweet', image_prompt: str = '', selected_handle: str = '') -> str:
+        """Generate content using Grok models in the style of popular handles"""
+        try:
+            print("\n" + "="*60)
+            print("🤖 GROK CATEGORY STYLE TOOL - EXECUTION")
+            print("="*60)
+            print(f"📝 INPUT PROMPT: {prompt}")
+            print(f"🎯 CAMPAIGN CATEGORY: {self.campaign_category}")
+            
+            # Step 1: Use provided handle or select random handle
+            if selected_handle and selected_handle.strip():
+                # Use the provided handle
+                print(f"🎯 USING PROVIDED HANDLE: {selected_handle}")
+                print(f"📋 HANDLE SOURCE: Text-only regeneration request")
+            else:
+                # Select a random handle from ALL categories for unique style mixing
+                all_handles = []
+                for category_handles in self.HANDLE_CATEGORIES.values():
+                    all_handles.extend(category_handles)
+                
+                print(f"🎯 RANDOM HANDLE SELECTION FROM ALL CATEGORIES")
+                print(f"📋 TOTAL AVAILABLE HANDLES: {len(all_handles)}")
+                
+                if not all_handles:
+                    print("❌ NO HANDLES AVAILABLE")
+                    return "❌ No handles available for selection."
+                
+                # Select random handle
+                import random
+                selected_handle = random.choice(all_handles)
+                print(f"🎲 RANDOMLY SELECTED HANDLE: {selected_handle}")
+                print(f"🎯 USING HANDLE STYLE: {selected_handle} (randomly selected from all categories)")
+            
+            # Step 2: Use the selected handle + campaign context + prompt for content generation
+            print(f"📝 CONTENT GENERATION CONTEXT:")
+            print(f"   - Selected Handle: {selected_handle}")
+            print(f"   - Campaign Context: Available")
+            print(f"   - Prompt: {prompt}")
+            
+            # Get the text model preference
+            text_model = self.model_preferences.get('text', {}).get('model', 'grok-3-mini')
+            
+            # Generate content using Grok with handle style + campaign context
+            print(f"🤖 GENERATING CONTENT WITH GROK:")
+            print(f"   - Selected Handle: {selected_handle}")
+            print(f"   - Category: {self.campaign_category.upper() if self.campaign_category else 'RANDOM'}")
+            print(f"   - Model: {text_model}")
+            print(f"   - API Key Available: {'Yes' if self.api_key else 'No'}")
+            
+            # Use the post_type parameter passed to the method
+            print(f"   - Post Type: {post_type}")
+            
+            content = self._generate_grok_content(
+                selected_handle=selected_handle,
+                campaign_context=self._get_campaign_context_for_generation(),
+                prompt=prompt,
+                post_type=post_type,
+                model=text_model,
+                image_prompt=image_prompt
+            )
+            
+            if content:
+                print(f"✅ CONTENT GENERATED SUCCESSFULLY:")
+                print(f"   - Length: {len(content)} characters")
+                print(f"   - Preview: {content[:100]}...")
+                
+                result = f"""🎯 RANDOM STYLE GENERATION:
+
+Selected Handle: {selected_handle}
+Model: {text_model}
+
+Generated Content:
+{content}
+
+Style Reference: Generated in the style of {selected_handle} (randomly selected for unique style mixing)"""
+                
+                print("="*60)
+                print("🎯 GROK TOOL EXECUTION COMPLETE")
+                print("="*60 + "\n")
+                
+                return result
+            else:
+                print(f"❌ FAILED TO GENERATE CONTENT")
+                print("="*60)
+                print("🎯 GROK TOOL EXECUTION FAILED")
+                print("="*60 + "\n")
+                return f"❌ Failed to generate content using {selected_handle} style"
+                
+        except Exception as e:
+            logger.error(f"❌ Error in GrokCategoryStyleTool: {e}")
+            return f"❌ Category style generation failed: {str(e)}"
+    
+    def _parse_prompt(self, prompt: str) -> tuple[str, Dict[str, Any]]:
+        """Parse the prompt to extract category and context data"""
+        try:
+            print(f"🔍 PARSING PROMPT FOR CATEGORY:")
+            print(f"   - Prompt: {prompt}")
+            print(f"   - Campaign Category: {self.campaign_category}")
+            
+            # First, try to use campaign category if available
+            category = None
+            if self.campaign_category:
+                # Normalize campaign category to match our categories
+                campaign_cat_lower = self.campaign_category.lower().strip()
+                print(f"   - Checking campaign category: {campaign_cat_lower}")
+                
+                # Direct match
+                if campaign_cat_lower in self.HANDLE_CATEGORIES:
+                    category = campaign_cat_lower
+                    print(f"   - ✅ FOUND CAMPAIGN CATEGORY MATCH: {category}")
+                else:
+                    # Try partial matches
+                    for cat in self.HANDLE_CATEGORIES.keys():
+                        if campaign_cat_lower in cat or cat in campaign_cat_lower:
+                            category = cat
+                            print(f"   - ✅ FOUND PARTIAL CAMPAIGN CATEGORY MATCH: {category}")
+                            break
+                    else:
+                        print(f"   - ❌ No campaign category match found")
+            
+            # If no category from campaign, look in the prompt
+            if not category:
+                print(f"   - Checking direct category matches in prompt...")
+                for cat in self.HANDLE_CATEGORIES.keys():
+                    if cat.lower() in prompt.lower():
+                        category = cat
+                        print(f"   - ✅ FOUND DIRECT MATCH: {cat}")
+                        break
+                    else:
+                        print(f"   - ❌ No match for: {cat}")
+            
+            # If no category found, try to extract from context
+            if not category:
+                print(f"   - No direct match found, checking keyword patterns...")
+                # Look for common category keywords
+                category_keywords = {
+                    'defi': ['defi', 'decentralized finance', 'yield farming'],
+                    'nft': ['nft', 'non-fungible', 'collectible'],
+                    'gaming': ['gaming', 'game', 'play-to-earn'],
+                    'trading': ['trading', 'price', 'market'],
+                    'security': ['security', 'audit', 'vulnerability'],
+                    'infrastructure': ['infrastructure', 'protocol', 'blockchain'],
+                    'ai_and_crypto': ['ai', 'artificial intelligence', 'machine learning']
+                }
+                
+                for cat, keywords in category_keywords.items():
+                    matched_keywords = [kw for kw in keywords if kw in prompt.lower()]
+                    if matched_keywords:
+                        category = cat
+                        print(f"   - ✅ FOUND KEYWORD MATCH: {cat} (keywords: {matched_keywords})")
+                        break
+                    else:
+                        print(f"   - ❌ No keyword match for: {cat}")
+            
+            # Default to 'other' if no category found
+            if not category:
+                category = 'other'
+                print(f"   - ⚠️ NO CATEGORY DETECTED, DEFAULTING TO: {category}")
+            else:
+                print(f"   - ✅ FINAL CATEGORY: {category}")
+            
+            # Extract context data (this would be passed from the Text Content Creator)
+            context_data = {
+                'prompt': prompt,
+                'category': category
+            }
+            
+            return category, context_data
+            
+        except Exception as e:
+            logger.error(f"❌ Error parsing prompt: {e}")
+            return 'other', {'prompt': prompt, 'category': 'other'}
+    
+    def _generate_grok_content(self, selected_handle: str, campaign_context: str, prompt: str, post_type: str = 'tweet', model: str = 'grok-3-mini', image_prompt: str = '') -> str:
+        """Generate content using Grok models in the style of the selected handle"""
+        try:
+            if not self.api_key:
+                return None
+            
+            # Initialize Grok client
+            from xai_sdk import Client
+            from xai_sdk.chat import user, system
+            
+            client = Client(
+                api_key=self.api_key,
+                timeout=3600
+            )
+            
+            # Create chat session
+            chat = client.chat.create(model=model)
+            
+            # Build post type specific instructions
+            post_type_instructions = self._get_post_type_instructions(post_type)
+            
+            # Build the system prompt - generic, no handle mention (like tweet_generation.py)
+            system_prompt = f"""You are Grok, a witty and relatable AI assistant that mimics the style of handles asked by user. Just do what user says. Nothing extra. Don't give hashtags.
+
+CRITICAL RULES:
+- Generate ONLY valid JSON output as specified in the user prompt
+- Do NOT include any explanations, backstory, or meta-content
+- Do NOT include any text outside the JSON object
+- The JSON should contain 'main_tweet' and 'thread_array' fields
+- Output ONLY the JSON object, nothing else
+
+{post_type_instructions}
+
+Context Information:
+{campaign_context}"""
+            
+            chat.append(system(system_prompt))
+            
+            # Build user prompt with image alignment context (no handle mention in output)
+            user_prompt = f"Generate a {post_type} about this project: {prompt}"
+            if image_prompt and image_prompt.strip():
+                user_prompt += f"\n\nIMPORTANT: The text must align with this existing image: {image_prompt}. Make sure the content complements and enhances the visual message."
+            user_prompt += f". Generate in the style of {selected_handle}."
+            
+            # Add JSON output format instructions based on post type
+            if post_type == 'thread':
+                user_prompt += "\n\nOutput format: JSON object with 'main_tweet' (≤240 chars) and 'thread_array' (array of strings, each ≤260 chars). Example: {\"main_tweet\": \"First tweet\", \"thread_array\": [\"Second tweet\", \"Third tweet\"]}"
+            elif post_type in ['shitpost', 'tweet']:
+                user_prompt += "\n\nOutput format: JSON object with 'main_tweet' (≤260 chars for shitpost, ≤240 chars for tweet) and 'thread_array' (empty array). Example: {\"main_tweet\": \"Tweet content\", \"thread_array\": []}"
+            elif post_type == 'longpost':
+                user_prompt += "\n\nOutput format: JSON object with 'main_tweet' (8000-12000 chars) and 'thread_array' (empty array). Example: {\"main_tweet\": \"Long post content...\", \"thread_array\": []}"
+            
+            chat.append(user(user_prompt))
+            
+            # Generate content using sample() method (correct for xai_sdk)
+            print(f"🤖 CALLING GROK API: {model}")
+            response = chat.sample()
+            print(f"✅ GROK API RESPONSE RECEIVED")
+            
+            if response and response.content:
+                content = response.content.strip()
+                print(f"📝 GENERATED CONTENT: {content[:100]}...")
+                return content
+            else:
+                print(f"❌ NO CONTENT IN RESPONSE")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Error generating Grok content: {e}")
+            return None
 
 # Yapper-Specific Success Pattern Tool (for yapper interface requests)
 class YapperSpecificSuccessPatternTool(BaseTool):
@@ -5467,6 +5748,7 @@ class YapperSpecificSuccessPatternTool(BaseTool):
 class LeaderboardYapperSuccessPatternTool(BaseTool):
     name: str = "leaderboard_success_pattern"
     description: str = "Extract and analyze success patterns from 3 randomly selected leaderboard yappers for the current campaign. Call this tool with any string input to get insights."
+    args_schema: Type[BaseModel] = LeaderboardYapperToolInput
     campaign_id: int = None
     user_api_keys: Dict[str, str] = {}
     model_preferences: Dict[str, Any] = {}
@@ -7490,7 +7772,8 @@ class FalAIContentTool(BaseTool):
                 "stable-cascade", "imagen4-preview", "imagen3", "ideogram-v3", "ideogram-v2a",
                 "hidream-i1-full", "recraft-v3", "bria-text-to-image-3.2", "omnigen-v2",
                 "sana-sprint", "luma-photon", "fast-sdxl", "fooocus", "playground-v25",
-                "realistic-vision", "dreamshaper", "kolors", "bagel", "sky-raccoon"
+                "realistic-vision", "dreamshaper", "kolors", "bagel", "sky-raccoon",
+                "fal-ai/nano-banana", "nano-banana", "fal-ai/nano-banana/edit", "nano-banana/edit"
             ]
             
             for keyword in model_keywords:
@@ -7848,7 +8131,7 @@ Technical Specifications:
 
 class FalAIImageTool(BaseTool):
     name: str = "fal_image_generation"
-    description: str = "Generate images using Fal.ai models (flux-pro, flux-dev, sdxl). Supports brand logo integration with flux-pro/kontext model."
+    description: str = "Generate images using Fal.ai models (flux-pro, flux-dev, sdxl, nano-banana). Supports brand logo integration with flux-pro/kontext and fal-ai/nano-banana/edit models."
     args_schema: Type[BaseModel] = FalAIImageToolSchema
     api_key: Optional[str] = None
     model_preferences: Dict[str, Any] = {}
@@ -7883,12 +8166,62 @@ class FalAIImageTool(BaseTool):
         logger.info(f"🎯 === END FALAIIMAGETOOL INITIALIZATION ===")
         print(f"🔥 FALAIIMAGETOOL CREATED WITH LOGO: {include_brand_logo}")  # Force console output
         
-    def _run(self, prompt: str) -> str:
+    def run(self, prompt: str = None, **kwargs) -> str:
+        """CrewAI-compatible run method"""
+        try:
+            return self._run(prompt, **kwargs)
+        except Exception as e:
+            logger.error(f"❌ FalAIImageTool.run() error: {e}")
+            return f"❌ Image generation failed: {str(e)}"
+        
+    def _run(self, prompt: str = None, **kwargs) -> str:
         """Generate images using Fal.ai models with optional brand logo integration"""
+        
+        # Handle various input types from CrewAI
+        prompt_text = ""
+        
+        try:
+            # Handle None prompt
+            if prompt is None:
+                prompt_text = "Generate a professional image for social media content"
+            elif isinstance(prompt, dict):
+                # Extract prompt from various possible keys
+                prompt_text = (prompt.get('prompt', '') or 
+                              prompt.get('description', '') or 
+                              prompt.get('input', '') or
+                              prompt.get('text', '') or
+                              str(prompt))
+            elif isinstance(prompt, str):
+                prompt_text = prompt
+            else:
+                prompt_text = str(prompt)
+            
+            # Also check kwargs for additional fields that might be passed by CrewAI
+            if not prompt_text or prompt_text.strip() == '':
+                prompt_text = (kwargs.get('prompt', '') or 
+                              kwargs.get('description', '') or 
+                              kwargs.get('input', '') or
+                              kwargs.get('text', '') or
+                              "Generate a professional image for social media content")
+            
+            # Ensure we have a valid prompt
+            if not prompt_text or prompt_text.strip() == '':
+                prompt_text = "Generate a professional image for social media content"
+                
+        except Exception as e:
+            logger.error(f"❌ Error processing prompt input: {e}")
+            prompt_text = "Generate a professional image for social media content"
         
         # 🔥 FORCE CONSOLE OUTPUT TO VERIFY TOOL IS CALLED
         print(f"\n🔥🔥🔥 FALAIIMAGETOOL._RUN() CALLED! 🔥🔥🔥")
-        print(f"🔥 Prompt: {prompt[:100]}...")
+        print(f"🔥 Input type: {type(prompt)}")
+        print(f"🔥 Input content: {prompt}")
+        print(f"🔥 Extracted prompt: {prompt_text[:100]}...")
+        
+        # Log the input for debugging
+        logger.info(f"🎨 FalAIImageTool input type: {type(prompt)}")
+        logger.info(f"🎨 FalAIImageTool input: {prompt}")
+        logger.info(f"🎨 FalAIImageTool extracted prompt: {prompt_text[:200]}...")
         print(f"🔥 Logo enabled: {self.include_brand_logo}")
         print(f"🔥 Logo URL: {self.project_logo_url}")
         
@@ -7898,14 +8231,14 @@ class FalAIImageTool(BaseTool):
         
         try:
             logger.info(f"🎨 === FALAIIMAGETOOL._RUN() STARTED ===")
-            logger.info(f"🎨 Fal.ai image generation: {prompt[:100]}... (logo: {self.include_brand_logo})")
+            logger.info(f"🎨 Fal.ai image generation: {prompt_text[:100]}... (logo: {self.include_brand_logo})")
             print(f"🔥 Starting image generation with logo: {self.include_brand_logo}")
             
             # Store the image prompt using callback if available
             if self.prompt_callback:
                 try:
-                    self.prompt_callback(prompt)
-                    logger.info(f"💾 Image prompt stored via callback: {prompt[:100]}...")
+                    self.prompt_callback(prompt_text)
+                    logger.info(f"💾 Image prompt stored via callback: {prompt_text[:100]}...")
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to store image prompt via callback: {e}")
             
@@ -7913,21 +8246,22 @@ class FalAIImageTool(BaseTool):
             preferred_model = self.model_preferences.get('image', {}).get('model', 'flux-pro')
             user_provider = self.model_preferences.get('image', {}).get('provider', 'fal')
             
-            # If logo is enabled, force flux-pro/kontext
+            # If logo is enabled, use the selected brand logo model
             if self.include_brand_logo:
-                preferred_model = 'flux-pro/kontext'
-                logger.info(f"🏷️ Logo enabled - using flux-pro/kontext model")
-                logger.info(f"📝 Using prompt as-is (logo instructions already included by Visual Creator): {prompt[:100]}...")
+                # Get the brand logo model from model preferences (set by visual creator agent)
+                preferred_model = self.model_preferences.get('image', {}).get('model', 'flux-pro/kontext')
+                logger.info(f"🏷️ Logo enabled - using {preferred_model} model")
+                logger.info(f"📝 Using prompt as-is (logo instructions already included by Visual Creator): {prompt_text[:100]}...")
             
             # Strict provider check
             if user_provider != 'fal':
                 return f"❌ User selected '{user_provider}' as provider. Use {user_provider}_image_generation tool instead."
             
             # Enhance prompt with logo color preservation if needed
-            final_prompt = prompt
+            final_prompt = prompt_text
             if self.include_brand_logo and self.project_logo_url and preferred_model == 'flux-pro/kontext':
                 # Append logo color preservation instruction naturally
-                final_prompt = f"{prompt}. Keep reference logo colors intact and original."
+                final_prompt = f"{prompt_text}. Keep reference logo colors intact and original."
                 logger.info(f"🏷️ Enhanced prompt with logo color preservation instruction")
             
             # Prepare generation parameters
@@ -7942,20 +8276,48 @@ class FalAIImageTool(BaseTool):
                 "use_s3_storage": True
             }
             
-            # Add logo-specific parameters for flux-pro/kontext
-            if self.include_brand_logo and self.project_logo_url and preferred_model == 'flux-pro/kontext':
-                generation_params["logo_integration"] = {
-                    "enabled": True,
-                    "logo_url": self.project_logo_url,
-                    "model_specific_params": {
-                        "image_url": self.project_logo_url,
-                        "guidance_scale": 3.5,
-                        "num_images": 1,
-                        "output_format": "jpeg",
-                        "safety_tolerance": "2"
+            # Add logo-specific parameters based on selected model
+            if self.include_brand_logo and self.project_logo_url:
+                if preferred_model == 'flux-pro/kontext':
+                    # flux-pro/kontext parameters (existing)
+                    generation_params["logo_integration"] = {
+                        "enabled": True,
+                        "logo_url": self.project_logo_url,
+                        "model_specific_params": {
+                            "image_url": self.project_logo_url,
+                            "guidance_scale": 3.5,
+                            "num_images": 1,
+                            "output_format": "jpeg",
+                            "safety_tolerance": "2"
+                        }
                     }
-                }
-                logger.info(f"🏷️ Added logo integration parameters for flux-pro/kontext")
+                    logger.info(f"🏷️ Added logo integration parameters for flux-pro/kontext")
+                elif preferred_model == 'fal-ai/nano-banana/edit':
+                    # nano-banana/edit parameters (new)
+                    generation_params["logo_integration"] = {
+                        "enabled": True,
+                        "logo_url": self.project_logo_url,
+                        "model_specific_params": {
+                            "image_urls": [self.project_logo_url],  # Array format for nano-banana/edit
+                            "num_images": 1,
+                            "output_format": "jpeg"
+                        }
+                    }
+                    logger.info(f"🏷️ Added logo integration parameters for fal-ai/nano-banana/edit")
+                else:
+                    logger.warning(f"⚠️ Unknown brand logo model: {preferred_model}, using default flux-pro/kontext parameters")
+                    # Fallback to flux-pro/kontext parameters
+                    generation_params["logo_integration"] = {
+                        "enabled": True,
+                        "logo_url": self.project_logo_url,
+                        "model_specific_params": {
+                            "image_url": self.project_logo_url,
+                            "guidance_scale": 3.5,
+                            "num_images": 1,
+                            "output_format": "jpeg",
+                            "safety_tolerance": "2"
+                        }
+                    }
             
             # 🔍 COMPREHENSIVE CREWAI FALAIIMAGETOOL LOGGING
             logger.info(f"🤖 === CREWAI FALAIIMAGETOOL DEBUG ===")

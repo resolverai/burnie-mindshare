@@ -32,7 +32,7 @@ import {
   CheckIcon, 
   XMarkIcon
 } from '@heroicons/react/24/solid'
-import { getApiKeys } from '@/utils/api-keys'
+import { getApiKeys, validateAgentApiKeys } from '@/utils/api-keys'
 import TweetThreadDisplay from './TweetThreadDisplay'
 
 interface Campaign {
@@ -84,6 +84,7 @@ interface CampaignSelection {
   selectedAgent: PersonalizedAgent | null;
   postType: 'shitpost' | 'longpost' | 'thread'; // New field for post type
   includeBrandLogo: boolean; // New field for brand logo inclusion
+  brandLogoModel: 'flux-pro/kontext' | 'fal-ai/nano-banana/edit' | null; // New field for brand logo model selection
   numberOfPosts: number; // New field for number of posts to generate
 }
 
@@ -254,47 +255,36 @@ export default function Mining() {
           return
         }
 
-        // CRITICAL: Validate text generation API keys (required)
+        // CRITICAL: Validate API keys for all model preferences (required)
         const agentConfig = selection.selectedAgent.config
         const modelPreferences = agentConfig?.modelPreferences
-        const textProvider = modelPreferences?.text?.provider || 'openai'
         
-        let hasTextApiKey = false
-        const providerKeyMap = {
-          'openai': 'openai',
-          'anthropic': 'anthropic',
-          'google': 'google',
-          'replicate': 'replicate',
-          'elevenlabs': 'elevenlabs',
-          'stability': 'stability'
-        }
-        
-        const requiredTextKeyName = providerKeyMap[textProvider as keyof typeof providerKeyMap]
-        if (requiredTextKeyName && apiKeys[requiredTextKeyName as keyof typeof apiKeys] && apiKeys[requiredTextKeyName as keyof typeof apiKeys]?.trim()) {
-          hasTextApiKey = true
-        }
-        
-        // If primary text provider key is missing, check if user has alternative text providers
-        if (!hasTextApiKey) {
-          // Check for alternative text providers (OpenAI or Anthropic)
-          const textProviders = ['openai', 'anthropic']
-          for (const provider of textProviders) {
-            if (apiKeys[provider as keyof typeof apiKeys] && apiKeys[provider as keyof typeof apiKeys]?.trim()) {
-              hasTextApiKey = true
-              console.log(`✅ Using alternative text provider: ${provider.toUpperCase()} (user preferred ${textProvider.toUpperCase()} but key not available)`)
-              break
-            }
-          }
-        }
-        
-        if (!hasTextApiKey) {
+        if (!modelPreferences) {
           setMiningStatus({ 
             status: 'error', 
             progress: 0, 
-            currentStep: `Text generation requires ${textProvider.toUpperCase()} API key for campaign "${selection.campaign.title}". Please configure it in Neural Keys. Text content is mandatory for Twitter posts.`,
-            error: `Missing required ${textProvider.toUpperCase()} API key for text generation`
+            currentStep: `Agent "${selection.selectedAgent.name}" has no model preferences configured. Please update the agent configuration.`,
+            error: 'Missing model preferences'
           })
           return
+        }
+        
+        // Validate API keys using helper function
+        const validation = validateAgentApiKeys(address!, modelPreferences)
+        
+        if (!validation.isValid) {
+          setMiningStatus({ 
+            status: 'error', 
+            progress: 0, 
+            currentStep: `Missing required API keys for agent "${selection.selectedAgent.name}": ${validation.missingKeys.join(', ')}. Please configure them in Neural Keys.`,
+            error: `Missing required API keys: ${validation.missingKeys.join(', ')}`
+          })
+          return
+        }
+        
+        // Log warnings for optional providers
+        if (validation.warnings.length > 0) {
+          console.log(`⚠️ Agent "${selection.selectedAgent.name}" warnings:`, validation.warnings)
         }
       }
 
@@ -358,6 +348,7 @@ export default function Mining() {
             agent_id: selection.selectedAgent?.id,
             post_type: selection.postType, // Include post type for each campaign
             include_brand_logo: selection.includeBrandLogo, // Include brand logo preference
+            brand_logo_model: selection.brandLogoModel, // Include brand logo model preference
             post_index: i + 1, // Track which post this is (1, 2, 3, etc.)
             campaign_context: {
               title: selection.campaign.title,
@@ -398,6 +389,7 @@ export default function Mining() {
               openai: apiKeys?.openai,
               anthropic: apiKeys?.anthropic,
               google: apiKeys?.google,
+              xai: apiKeys?.xai,
               replicate: apiKeys?.replicate,
               elevenlabs: apiKeys?.elevenlabs,
               stability: apiKeys?.stability,
@@ -643,7 +635,7 @@ export default function Mining() {
       } else {
         // Add campaign with default agent (first available) and thread post type
         const firstAgent = userAgents && userAgents.length > 0 ? userAgents[0] : null
-        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const, includeBrandLogo: false, numberOfPosts: 1 }]
+        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const, includeBrandLogo: false, brandLogoModel: null, numberOfPosts: 1 }]
       }
     })
   }
@@ -672,7 +664,22 @@ export default function Mining() {
     setSelectedCampaigns(prev => 
       prev.map(selection => 
         selection.campaign.id === campaignId 
-          ? { ...selection, includeBrandLogo }
+          ? { 
+              ...selection, 
+              includeBrandLogo,
+              // Set default model when enabling brand logo
+              brandLogoModel: includeBrandLogo ? (selection.brandLogoModel || 'flux-pro/kontext') : null
+            }
+          : selection
+      )
+    )
+  }
+
+  const updateBrandLogoModel = (campaignId: number, brandLogoModel: 'flux-pro/kontext' | 'fal-ai/nano-banana/edit' | null) => {
+    setSelectedCampaigns(prev => 
+      prev.map(selection => 
+        selection.campaign.id === campaignId 
+          ? { ...selection, brandLogoModel }
           : selection
       )
     )
@@ -716,6 +723,7 @@ export default function Mining() {
         selectedAgent: firstAgent,
         postType: 'thread' as const,
         includeBrandLogo: false, // Default to false
+        brandLogoModel: null, // Default to null
         numberOfPosts: 1 // Default to 1 post
       }))
       setSelectedCampaigns(newSelections)
@@ -1334,10 +1342,20 @@ export default function Mining() {
                               </span>
                             </label>
                             {getSelectedCampaign(campaign.id)?.includeBrandLogo && (
-                              <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                                <p className="text-xs text-blue-400">
-                                  ℹ️ Brand logos are currently supported with fal-pro/kontext model only. 
-                                  Visual generation will automatically use this model when logo is enabled.
+                              <div className="mt-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                                <label className="block text-sm font-medium text-blue-400 mb-2">
+                                  Select Brand Logo Model:
+                                </label>
+                                <select
+                                  value={getSelectedCampaign(campaign.id)?.brandLogoModel || 'flux-pro/kontext'}
+                                  onChange={(e) => updateBrandLogoModel(campaign.id, e.target.value as 'flux-pro/kontext' | 'fal-ai/nano-banana/edit')}
+                                  className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                                >
+                                  <option value="flux-pro/kontext">flux-pro/kontext (Recommended)</option>
+                                  <option value="fal-ai/nano-banana/edit">fal-ai/nano-banana/edit</option>
+                                </select>
+                                <p className="text-xs text-blue-300 mt-1">
+                                  Choose the model for brand logo integration
                                 </p>
                               </div>
                             )}
@@ -1465,14 +1483,26 @@ export default function Mining() {
             Content Generation Engine
           </h2>
           
-          {miningStatus.status === 'idle' ? (
+          {miningStatus.status === 'idle' || miningStatus.status === 'error' ? (
             <div className="text-center py-8">
-              <BoltIconSolid className="h-16 w-16 text-orange-400 mx-auto mb-4" />
-              <p className="text-gray-400 mb-6">
-                {selectedCampaigns.length > 0 
-                  ? `Ready to generate content for ${selectedCampaigns.length} campaign${selectedCampaigns.length > 1 ? 's' : ''}` 
-                  : 'Select campaigns and assign agents to start mining'}
-              </p>
+              {miningStatus.status === 'error' ? (
+                <>
+                  <XCircleIcon className="h-16 w-16 text-red-400 mx-auto mb-4" />
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 mb-6">
+                    <p className="text-red-400 font-medium mb-2">❌ Validation Error</p>
+                    <p className="text-red-300 text-sm">{miningStatus.currentStep}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <BoltIconSolid className="h-16 w-16 text-orange-400 mx-auto mb-4" />
+                  <p className="text-gray-400 mb-6">
+                    {selectedCampaigns.length > 0 
+                      ? `Ready to generate content for ${selectedCampaigns.length} campaign${selectedCampaigns.length > 1 ? 's' : ''}` 
+                      : 'Select campaigns and assign agents to start mining'}
+                  </p>
+                </>
+              )}
               <button
                 onClick={startMining}
                 disabled={selectedCampaigns.length === 0 || selectedCampaigns.some(selection => !selection.selectedAgent)}

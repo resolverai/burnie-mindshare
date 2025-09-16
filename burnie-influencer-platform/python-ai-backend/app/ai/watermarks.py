@@ -21,6 +21,10 @@ class BlendedTamperResistantWatermark:
             print(f"Using font: {self.font_path}")
         else:
             print("Using default font (NTBrickSans.ttf not found)")
+        
+        # Add recursion protection
+        self._recursion_depth = 0
+        self._max_recursion_depth = 10
     
     def _create_text_mask(self, image_shape: Tuple[int, int], text: str, 
                          position: Tuple[int, int], font_size: int,
@@ -64,60 +68,122 @@ class BlendedTamperResistantWatermark:
     def _adaptive_blend(self, image: np.ndarray, watermark_mask: np.ndarray,
                        intensity: float = 0.3, blend_mode: str = 'overlay') -> np.ndarray:
         """Adaptively blend watermark based on local image characteristics"""
-        result = image.copy().astype(np.float32)
-        mask_normalized = watermark_mask.astype(np.float32) / 255.0
+        # Check recursion depth
+        if self._recursion_depth >= self._max_recursion_depth:
+            print(f"Recursion depth limit reached ({self._max_recursion_depth}), using simple blend")
+            return self._simple_blend(image, watermark_mask, intensity)
         
-        # Calculate local brightness for adaptive blending
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image.copy()
+        self._recursion_depth += 1
         
-        # Normalize brightness
-        brightness = gray.astype(np.float32) / 255.0
-        
-        # Create adaptive intensity map
-        adaptive_intensity = intensity * (1.0 - np.abs(brightness - 0.5) * 2) * 0.8 + intensity * 0.2
-        
-        if len(image.shape) == 3:
-            adaptive_intensity = np.stack([adaptive_intensity] * 3, axis=2)
-            mask_normalized = np.stack([mask_normalized] * 3, axis=2)
-        
-        if blend_mode == 'texture_aware':
-            result = self._texture_aware_blend(result, mask_normalized, adaptive_intensity)
-        else:
-            # Default overlay blend
-            mask_effect = mask_normalized * adaptive_intensity
-            result = result * (1 - mask_effect) + mask_effect * 127
-        
-        return np.clip(result, 0, 255).astype(np.uint8)
+        try:
+            result = image.copy().astype(np.float32)
+            mask_normalized = watermark_mask.astype(np.float32) / 255.0
+            
+            # Calculate local brightness for adaptive blending
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image.copy()
+            
+            # Normalize brightness
+            brightness = gray.astype(np.float32) / 255.0
+            
+            # Create adaptive intensity map
+            adaptive_intensity = intensity * (1.0 - np.abs(brightness - 0.5) * 2) * 0.8 + intensity * 0.2
+            
+            if len(image.shape) == 3:
+                adaptive_intensity = np.stack([adaptive_intensity] * 3, axis=2)
+                mask_normalized = np.stack([mask_normalized] * 3, axis=2)
+            
+            if blend_mode == 'texture_aware':
+                result = self._texture_aware_blend(result, mask_normalized, adaptive_intensity)
+            else:
+                # Default overlay blend
+                mask_effect = mask_normalized * adaptive_intensity
+                result = result * (1 - mask_effect) + mask_effect * 127
+            
+            return np.clip(result, 0, 255).astype(np.uint8)
+            
+        except Exception as e:
+            print(f"Error in adaptive_blend: {e}")
+            # Fallback to simple blend
+            return self._simple_blend(image, watermark_mask, intensity)
+        finally:
+            self._recursion_depth -= 1
     
     def _texture_aware_blend(self, image: np.ndarray, mask: np.ndarray, 
                            intensity: np.ndarray) -> np.ndarray:
         """Blend watermark while preserving underlying texture"""
-        # Calculate local texture using gradient magnitude
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image.astype(np.uint8)
+        # Check recursion depth
+        if self._recursion_depth >= self._max_recursion_depth:
+            print(f"Recursion depth limit reached in texture_aware_blend, using simple blend")
+            return self._simple_blend(image, mask, intensity)
         
-        # Calculate gradients
-        grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-        grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-        texture_map = np.sqrt(grad_x**2 + grad_y**2)
-        texture_map = texture_map / (np.max(texture_map) + 1e-8)  # Normalize
+        self._recursion_depth += 1
         
-        # Reduce watermark visibility in high-texture areas
-        texture_factor = 1.0 - texture_map * 0.5
-        
-        if len(image.shape) == 3:
-            texture_factor = np.stack([texture_factor] * 3, axis=2)
-        
-        # Apply watermark with texture awareness
-        watermark_effect = mask * intensity * texture_factor
-        result = image * (1 - watermark_effect * 0.3) + watermark_effect * 127
-        
-        return result
+        try:
+            # Calculate local texture using gradient magnitude
+            if len(image.shape) == 3:
+                gray = cv2.cvtColor(image.astype(np.uint8), cv2.COLOR_BGR2GRAY)
+            else:
+                gray = image.astype(np.uint8)
+            
+            # Calculate gradients
+            grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+            grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+            texture_map = np.sqrt(grad_x**2 + grad_y**2)
+            
+            # Normalize texture map safely
+            max_texture = np.max(texture_map)
+            if max_texture > 0:
+                texture_map = texture_map / max_texture
+            else:
+                texture_map = np.zeros_like(texture_map)
+            
+            # Reduce watermark visibility in high-texture areas
+            texture_factor = 1.0 - texture_map * 0.5
+            
+            if len(image.shape) == 3:
+                texture_factor = np.stack([texture_factor] * 3, axis=2)
+            
+            # Apply watermark with texture awareness
+            watermark_effect = mask * intensity * texture_factor
+            
+            # Ensure we don't have any NaN or infinite values
+            watermark_effect = np.nan_to_num(watermark_effect, nan=0.0, posinf=1.0, neginf=0.0)
+            
+            # Apply the blend operation safely
+            result = image * (1 - watermark_effect * 0.3) + watermark_effect * 127
+            
+            # Ensure result is within valid range
+            result = np.clip(result, 0, 255)
+            
+            return result.astype(np.uint8)
+            
+        except Exception as e:
+            print(f"Error in texture_aware_blend: {e}")
+            # Fallback to simple blend
+            return self._simple_blend(image, mask, intensity)
+        finally:
+            self._recursion_depth -= 1
+    
+    def _simple_blend(self, image: np.ndarray, mask: np.ndarray, intensity: np.ndarray) -> np.ndarray:
+        """Simple fallback blend method"""
+        try:
+            result = image.copy().astype(np.float32)
+            mask_normalized = mask.astype(np.float32) / 255.0
+            
+            if len(image.shape) == 3:
+                mask_normalized = np.stack([mask_normalized] * 3, axis=2)
+            
+            # Simple overlay blend
+            mask_effect = mask_normalized * intensity
+            result = result * (1 - mask_effect) + mask_effect * 127
+            
+            return np.clip(result, 0, 255).astype(np.uint8)
+        except Exception as e:
+            print(f"Error in simple_blend: {e}")
+            return image
     
     def add_blended_watermarks(self, image: np.ndarray,
                              corner_text: str = "@burnieio",

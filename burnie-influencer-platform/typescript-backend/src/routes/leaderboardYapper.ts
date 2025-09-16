@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Repository } from 'typeorm';
 import { AppDataSource } from '../config/database';
 import { LeaderboardYapperData, PlatformSource } from '../models/LeaderboardYapperData';
+import { TwitterHandleMetadata } from '../models/TwitterHandleMetadata';
 import { Campaign } from '../models/Campaign';
 import { PlatformSnapshot } from '../models/PlatformSnapshot';
 import { logger } from '../config/logger';
@@ -168,24 +169,33 @@ router.post('/store', async (req: Request, res: Response): Promise<Response> => 
   }
 });
 
-// Get all yappers from leaderboard data (latest snapshot per yapper)
+// Get all yappers from leaderboard data (latest snapshot per yapper) + popular Twitter handles
 router.get('/all', async (req: Request, res: Response): Promise<Response> => {
   try {
     const { limit = 100 } = req.query;
 
-    const repository: Repository<LeaderboardYapperData> = AppDataSource.getRepository(LeaderboardYapperData);
+    const leaderboardRepository: Repository<LeaderboardYapperData> = AppDataSource.getRepository(LeaderboardYapperData);
+    const twitterMetadataRepository: Repository<TwitterHandleMetadata> = AppDataSource.getRepository(TwitterHandleMetadata);
 
     // Get latest snapshot for each unique yapper (by twitter handle)
-    const queryBuilder = repository.createQueryBuilder('leaderboard')
+    const leaderboardQueryBuilder = leaderboardRepository.createQueryBuilder('leaderboard')
       .leftJoinAndSelect('leaderboard.campaign', 'campaign')
       .distinctOn(['leaderboard.twitterHandle'])
       .orderBy('leaderboard.twitterHandle', 'ASC')
       .addOrderBy('leaderboard.snapshotDate', 'DESC')
       .take(parseInt(limit as string));
 
-    const leaderboardData = await queryBuilder.getMany();
+    const leaderboardData = await leaderboardQueryBuilder.getMany();
 
-    const formattedData = leaderboardData.map(entry => ({
+    // Get popular Twitter handles from metadata table (active status only)
+    const twitterHandlesData = await twitterMetadataRepository.find({
+      where: { status: 'active' },
+      order: { followers_count: 'DESC' },
+      take: parseInt(limit as string)
+    });
+
+    // Format leaderboard data
+    const formattedLeaderboardData = leaderboardData.map(entry => ({
       id: entry.id,
       twitter_handle: entry.twitterHandle,
       display_name: entry.displayName,
@@ -198,13 +208,30 @@ router.get('/all', async (req: Request, res: Response): Promise<Response> => {
       snaps_24h: entry.snaps24h,
       smart_followers: entry.smartFollowers,
       twitter_fetch_status: entry.twitterFetchStatus,
-      additional_data: entry.leaderboardData
+      additional_data: entry.leaderboardData,
+      source: 'leaderboard' // Mark as leaderboard data
     }));
+
+    // Format Twitter handles data
+    const formattedTwitterHandlesData = twitterHandlesData.map(handle => ({
+      id: `twitter_${handle.id}`, // Prefix to avoid ID conflicts
+      twitter_handle: handle.twitter_handle,
+      display_name: handle.display_name || handle.twitter_handle,
+      followers_count: handle.followers_count,
+      verified: handle.verified,
+      profile_image_url: handle.profile_image_url,
+      source: 'popular_handles' // Mark as popular handles data
+    }));
+
+    // Combine both datasets
+    const combinedData = [...formattedLeaderboardData, ...formattedTwitterHandlesData];
 
     return res.json({
       success: true,
-      total_yappers: formattedData.length,
-      yappers: formattedData
+      total_yappers: combinedData.length,
+      leaderboard_count: formattedLeaderboardData.length,
+      popular_handles_count: formattedTwitterHandlesData.length,
+      yappers: combinedData
     });
 
   } catch (error) {

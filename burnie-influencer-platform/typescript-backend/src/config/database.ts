@@ -56,6 +56,10 @@ import { AdminContentApproval } from '../models/AdminContentApproval';
 import { DedicatedMinerExecution } from '../models/DedicatedMinerExecution';
 import { ApprovedMiner } from '../models/ApprovedMiner';
 
+// Import popular twitter handles entity
+import { PopularTwitterHandles } from '../models/PopularTwitterHandles';
+import { TwitterHandleMetadata } from '../models/TwitterHandleMetadata';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -119,6 +123,9 @@ export const AppDataSource = new DataSource({
     DedicatedMinerExecution,
     // Approved miners entity
     ApprovedMiner,
+    // Popular twitter handles entity
+    PopularTwitterHandles,
+    TwitterHandleMetadata,
   ],
   migrations: [],
   subscribers: [],

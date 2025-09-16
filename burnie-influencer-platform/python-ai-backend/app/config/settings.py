@@ -41,7 +41,11 @@ class Settings(BaseSettings):
     # AI Provider API Keys
     openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
     anthropic_api_key: Optional[str] = Field(default=None, env="ANTHROPIC_API_KEY")
+    xai_api_key: Optional[str] = Field(default=None, env="XAI_API_KEY")
     fal_api_key: Optional[str] = Field(default=None, env="FAL_API_KEY")
+    
+    # Twitter API Keys
+    twitter_bearer_token: Optional[str] = Field(default=None, env="TWITTER_BEARER_TOKEN")
     
     # Default LLM Provider Configuration (pluggable)
     default_llm_provider: str = Field(default="openai", env="DEFAULT_LLM_PROVIDER")
@@ -52,7 +56,7 @@ class Settings(BaseSettings):
     # CrewAI Configuration
     crewai_model: str = Field(default="gpt-4o", env="CREWAI_MODEL")
     crewai_temperature: float = Field(default=0.7, env="CREWAI_TEMPERATURE")
-    crewai_max_tokens: int = Field(default=2000, env="CREWAI_MAX_TOKENS")
+    crewai_max_tokens: int = Field(default=15000, env="CREWAI_MAX_TOKENS")
     crewai_telemetry_opt_out: bool = Field(default=True, env="CREWAI_TELEMETRY_OPT_OUT")
     crewai_log_level: str = Field(default="INFO", env="CREWAI_LOG_LEVEL")
     

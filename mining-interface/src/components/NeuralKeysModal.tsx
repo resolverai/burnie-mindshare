@@ -17,6 +17,7 @@ export function NeuralKeysModal({ isOpen, onClose }: NeuralKeysModalProps) {
     openai: '',
     anthropic: '',
     google: '',
+    xai: '',
     replicate: '',
     elevenlabs: '',
     stability: '',
@@ -33,6 +34,7 @@ export function NeuralKeysModal({ isOpen, onClose }: NeuralKeysModalProps) {
           openai: existingKeys.openai || '',
           anthropic: existingKeys.anthropic || '',
           google: existingKeys.google || '',
+          xai: existingKeys.xai || '',
           replicate: existingKeys.replicate || '',
           elevenlabs: existingKeys.elevenlabs || '',
           stability: existingKeys.stability || '',
@@ -141,6 +143,20 @@ export function NeuralKeysModal({ isOpen, onClose }: NeuralKeysModalProps) {
                 placeholder="AIza..."
                 value={apiKeys.google || ''}
                 onChange={(e) => handleInputChange('google', e.target.value)}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+
+            {/* XAI (Grok) */}
+            <div>
+              <label className="block text-gray-300 font-medium mb-2">
+                XAI (Grok) API Key
+              </label>
+              <input
+                type="password"
+                placeholder="xai-..."
+                value={apiKeys.xai || ''}
+                onChange={(e) => handleInputChange('xai', e.target.value)}
                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             </div>

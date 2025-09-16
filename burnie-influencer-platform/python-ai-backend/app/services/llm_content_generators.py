@@ -1014,7 +1014,13 @@ class FalAIGenerator:
                 'lora': 'fal-ai/lora',
                 
                 # Easel Avatar
-                'easel-avatar': 'easel-ai/easel-avatar'
+                'easel-avatar': 'easel-ai/easel-avatar',
+                
+                # Nano Banana Models
+                'fal-ai/nano-banana': 'fal-ai/nano-banana',
+                'nano-banana': 'fal-ai/nano-banana',
+                'fal-ai/nano-banana/edit': 'fal-ai/nano-banana/edit',
+                'nano-banana/edit': 'fal-ai/nano-banana/edit'
             }
                     
             logger.info("🎨 Fal.ai Generator initialized successfully")
@@ -1124,11 +1130,11 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                 "enable_safety_checker": True
             }
             
-            # Add logo integration for flux-pro/kontext if provided
-            if logo_integration and logo_integration.get('enabled') and 'kontext' in model.lower():
+            # Add logo integration for supported models (flux-pro/kontext and nano-banana/edit)
+            if logo_integration and logo_integration.get('enabled') and ('kontext' in model.lower() or 'nano-banana/edit' in model.lower()):
                 logo_url = logo_integration.get('logo_url')
                 if logo_url:
-                    logger.info(f"🏷️ Adding logo integration for flux-pro/kontext: {logo_url}")
+                    logger.info(f"🏷️ Adding logo integration for {model}: {logo_url}")
                     
                     # 🔑 Generate presigned URL for fal.ai to access the logo
                     accessible_logo_url = logo_url
@@ -1205,16 +1211,26 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                         traceback.print_exc()
                         logger.warning(f"🔑 Falling back to original URL: {logo_url}")
                     
-                    # Add the accessible image_url parameter for flux-pro/kontext
-                    arguments["image_url"] = accessible_logo_url
-                    
-                    # Add kontext-specific parameters
+                    # Add model-specific logo parameters
                     model_params = logo_integration.get('model_specific_params', {})
-                    arguments.update({
-                        "guidance_scale": model_params.get("guidance_scale", 3.5),
-                        "output_format": model_params.get("output_format", "jpeg"),
-                        "safety_tolerance": model_params.get("safety_tolerance", "2")
-                    })
+                    
+                    if 'nano-banana/edit' in model.lower():
+                        # nano-banana/edit requires image_urls as an array
+                        arguments["image_urls"] = [accessible_logo_url]
+                        arguments.update({
+                            "num_images": model_params.get("num_images", 1),
+                            "output_format": model_params.get("output_format", "jpeg")
+                        })
+                        logger.info(f"🏷️ Using nano-banana/edit format with image_urls array")
+                    else:
+                        # flux-pro/kontext uses image_url as a single string
+                        arguments["image_url"] = accessible_logo_url
+                        arguments.update({
+                            "guidance_scale": model_params.get("guidance_scale", 3.5),
+                            "output_format": model_params.get("output_format", "jpeg"),
+                            "safety_tolerance": model_params.get("safety_tolerance", "2")
+                        })
+                        logger.info(f"🏷️ Using flux-pro/kontext format with image_url")
                     
                     logger.info(f"🏷️ Using accessible logo URL: {accessible_logo_url[:100]}...")
                     logger.info(f"🏷️ Original prompt (no enhancement): {prompt[:150]}...")

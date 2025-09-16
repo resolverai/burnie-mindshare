@@ -45,9 +45,11 @@ import hotCampaignsRoutes from './routes/hotCampaigns';
 import adminContentApprovalsRoutes from './routes/adminContentApprovals';
 import dedicatedMinerExecutionsRoutes from './routes/dedicatedMinerExecutions';
 import approvedMinersRoutes from './routes/approvedMiners';
+import twitterHandlesRoutes from './routes/twitterHandles';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
+import { PopularTwitterHandlesCronService } from './services/PopularTwitterHandlesCronService';
 import { AppDataSource } from './config/database';
 import { ContentMarketplace } from './models/ContentMarketplace';
 
@@ -142,6 +144,7 @@ app.use('/api', hotCampaignsRoutes); // Hot campaigns for miner mode
 app.use('/api', adminContentApprovalsRoutes); // Admin content approvals for miner mode
 app.use('/api', dedicatedMinerExecutionsRoutes); // Dedicated miner execution tracking
 app.use('/api', approvedMinersRoutes); // Approved miners management
+app.use('/api/admin/twitter-handles', twitterHandlesRoutes); // Twitter handles management
 
 // Start server
 const startServer = async () => {
@@ -216,6 +219,11 @@ const startServer = async () => {
     // Start Twitter queue processing cron service
     twitterQueueCronService.start();
     logger.info('🐦 Twitter queue cron service started');
+    
+    // Start popular Twitter handles cron service
+    const popularTwitterHandlesCronService = new PopularTwitterHandlesCronService();
+    popularTwitterHandlesCronService.start();
+    logger.info('🐦 Popular Twitter handles cron service started');
     
     // Start platform yapper Twitter data collection cron service
     // DISABLED: Integrated into reconnect flow instead

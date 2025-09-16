@@ -142,7 +142,7 @@ const ApprovedMinersManagement: React.FC = () => {
             <div className="flex items-center space-x-4">
               <button
                 onClick={() => router.push('/admin/dashboard')}
-                className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 transition-colors"
+                className="flex items-center space-x-2 text-gray-700 hover:text-gray-900 transition-colors bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg"
               >
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -345,7 +345,7 @@ const ApprovedMinersManagement: React.FC = () => {
                   required
                   value={newMinerAddress}
                   onChange={(e) => setNewMinerAddress(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-mono text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 font-mono text-sm text-gray-900 placeholder-gray-500"
                   placeholder="0x..."
                   maxLength={42}
                 />

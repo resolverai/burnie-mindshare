@@ -47,6 +47,7 @@ from app.routes.delta_model_training import router as delta_training_router
 from app.routes.realtime_predictions import router as realtime_predictions_router
 from app.routes.training_data_population import router as training_data_router
 from app.routes.watermark import router as watermark_router
+from app.routes.twitter_handles import router as twitter_handles_router
 
 # Setup logging
 logger = setup_logger(__name__)
@@ -96,6 +97,8 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(twitter_handles_router, prefix="/api/twitter-handles", tags=["twitter-handles"])
+
 app.include_router(admin_ml_router, prefix="/api")
 app.include_router(admin_snapshots_router, prefix="/api")
 app.include_router(twitter_api_router, prefix="/api")
@@ -112,6 +115,7 @@ app.include_router(delta_training_router)
 app.include_router(realtime_predictions_router)
 app.include_router(training_data_router)
 app.include_router(watermark_router, prefix="/api", tags=["watermark"])
+
 
 # Global progress tracker
 progress_tracker = ProgressTracker()
@@ -163,6 +167,7 @@ class CampaignAgentPair(BaseModel):
     campaign_context: dict
     post_type: Optional[str] = "thread"  # New field: "shitpost", "longpost", or "thread"
     include_brand_logo: Optional[bool] = False  # New field: whether to include brand logo in generated images
+    brand_logo_model: Optional[str] = "flux-pro/kontext"  # New field: which model to use for brand logo integration
     post_index: Optional[int] = 1  # New field: which post this is (1, 2, 3, etc.) for multiple posts per campaign
     source: Optional[str] = "mining_interface"  # New field: "mining_interface" or "yapper_interface"
     selected_yapper_handle: Optional[str] = None  # New field: Twitter handle of selected yapper for pattern
@@ -596,7 +601,8 @@ async def start_text_only_regeneration(request: dict, background_tasks: Backgrou
             image_prompt=image_prompt,
             content_text=content_text,
             tweet_thread=tweet_thread,
-            source=source
+            source=source,
+            wallet_address=wallet_address
         )
         
         logger.info(f"✅ Text-only regeneration started for execution: {execution_id}")
@@ -649,6 +655,7 @@ async def run_yapper_interface_generation(
                     user_api_keys=user_api_keys,
                     post_type=campaign_pair.post_type,
                     include_brand_logo=campaign_pair.include_brand_logo,
+                    brand_logo_model=campaign_pair.brand_logo_model,
                     source=source  # Set the source for this session
                 )
                 
@@ -752,7 +759,8 @@ async def run_text_only_regeneration(
     image_prompt: str,
     content_text: str,
     tweet_thread: list,
-    source: str = "yapper_interface_text_only"
+    source: str = "yapper_interface_text_only",
+    wallet_address: str = ""
 ):
     """Background task that runs text-only regeneration using CrewAI service"""
     try:
@@ -808,7 +816,7 @@ async def run_text_only_regeneration(
             mining_session,
             user_api_keys=system_api_keys,
             agent_id=1,
-            wallet_address="",  # Not needed for text-only
+            wallet_address=wallet_address,
             content_id=content_id
         )
         
@@ -934,7 +942,8 @@ async def run_multi_campaign_generation(
                     user_preferences=user_preferences,
                     user_api_keys=user_api_keys,
                     post_type=campaign_pair.post_type,  # Pass post_type to mining session
-                    include_brand_logo=campaign_pair.include_brand_logo  # Pass brand logo preference
+                    include_brand_logo=campaign_pair.include_brand_logo,  # Pass brand logo preference
+                    brand_logo_model=campaign_pair.brand_logo_model  # Pass brand logo model preference
                 )
                 
                 # Add to progress tracker
@@ -1287,6 +1296,7 @@ async def run_dedicated_miner_generation(
                 user_api_keys=user_api_keys,
                 post_type=campaign_pair.post_type,
                 include_brand_logo=campaign_pair.include_brand_logo,
+                brand_logo_model=campaign_pair.brand_logo_model,
                 source="dedicated_miner"
             )
             

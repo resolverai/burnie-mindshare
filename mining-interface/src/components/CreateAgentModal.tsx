@@ -10,7 +10,7 @@ import {
   AcademicCapIcon,
   ArrowPathIcon
 } from '@heroicons/react/24/outline'
-import { ContentTypeModelPreferences } from '../utils/api-keys'
+import { ContentTypeModelPreferences, hasRequiredApiKeys, getApiKey, validateAgentApiKeys } from '../utils/api-keys'
 
 const PERSONALITIES = [
   { value: 'WITTY', label: '🧠 Witty', description: 'Clever and sharp' },
@@ -85,6 +85,22 @@ const PROVIDER_OPTIONS = [
       'veo-3-large',          // High-fidelity video generation
       'lumiere'               // Video generation model
     ]
+  },
+  {
+    name: 'XAI (Grok)',
+    value: 'xai',
+    description: 'Grok models with advanced reasoning and multimodal capabilities',
+    textModels: [
+      'grok-4-latest',       // Latest Grok model
+      'grok-4-0709',         // Specific version
+      'grok-3',              // Previous generation
+      'grok-3-mini'          // Smaller, faster model
+    ],
+    imageModels: [
+      'grok-2-image-1212'    // Image generation model
+    ],
+    audioModels: [],
+    videoModels: []
   },
   { 
     name: 'Replicate', 
@@ -350,7 +366,11 @@ const PROVIDER_OPTIONS = [
       'lora',
       
       // Easel Avatar
-      'easel-avatar'
+      'easel-avatar',
+      
+      // Nano Banana Models
+      'fal-ai/nano-banana',
+      'fal-ai/nano-banana/edit'
     ],
     audioModels: [],
     videoModels: []
@@ -422,6 +442,11 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
     }
   }
 
+  const hasApiKey = (provider: string) => {
+    if (!address) return false
+    return !!getApiKey(address, provider)
+  }
+
   const handleModelPreferenceChange = (
     contentType: keyof ContentTypeModelPreferences, 
     field: 'provider' | 'model', 
@@ -444,6 +469,11 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
         }
       }
       
+      // Clear API key errors when user changes preferences
+      if (errors.apiKeys) {
+        setErrors(prev => ({ ...prev, apiKeys: '' }))
+      }
+      
       return newPrefs
     })
   }
@@ -460,6 +490,12 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
     const newErrors: Record<string, string> = {}
     if (!formData.name.trim()) newErrors.name = 'Agent name is required'
     if (!formData.personality) newErrors.personality = 'Personality is required'
+
+    // API Key validation using helper function
+    const validation = validateAgentApiKeys(address, modelPreferences)
+    if (!validation.isValid) {
+      newErrors.apiKeys = `Missing API keys for: ${validation.missingKeys.join(', ')}. Please configure them in Neural Keys.`
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors)
@@ -628,6 +664,8 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
               <p className="text-orange-400 text-sm">
                 💡 <strong>Important:</strong> Configure your API keys using the "Neural Keys" button in the header 
                 before creating your agent. Choose the best AI models for each content type below.
+                <br />
+                <span className="text-orange-300">✅ = API key configured | ❌ = API key missing</span>
               </p>
             </div>
             
@@ -645,7 +683,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
                     >
                       {PROVIDER_OPTIONS.filter(p => p.textModels.length > 0).map(provider => (
                         <option key={provider.value} value={provider.value}>
-                    {provider.name}
+                    {provider.name} {hasApiKey(provider.value) ? '✅' : '❌'}
                   </option>
                 ))}
               </select>
@@ -686,7 +724,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
                     >
                       {PROVIDER_OPTIONS.filter(p => p.imageModels.length > 0).map(provider => (
                         <option key={provider.value} value={provider.value}>
-                          {provider.name}
+                          {provider.name} {hasApiKey(provider.value) ? '✅' : '❌'}
                         </option>
                       ))}
                     </select>
@@ -721,7 +759,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
                     >
                       {PROVIDER_OPTIONS.filter(p => p.videoModels.length > 0).map(provider => (
                         <option key={provider.value} value={provider.value}>
-                          {provider.name}
+                          {provider.name} {hasApiKey(provider.value) ? '✅' : '❌'}
                         </option>
                       ))}
                     </select>
@@ -756,7 +794,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
                     >
                       {PROVIDER_OPTIONS.filter(p => p.audioModels.length > 0).map(provider => (
                         <option key={provider.value} value={provider.value}>
-                          {provider.name}
+                          {provider.name} {hasApiKey(provider.value) ? '✅' : '❌'}
                         </option>
                       ))}
                     </select>
@@ -837,6 +875,12 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
           {errors.general && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
               <p className="text-red-400 text-sm">{errors.general}</p>
+            </div>
+          )}
+          
+          {errors.apiKeys && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+              <p className="text-red-400 text-sm">{errors.apiKeys}</p>
             </div>
           )}
 

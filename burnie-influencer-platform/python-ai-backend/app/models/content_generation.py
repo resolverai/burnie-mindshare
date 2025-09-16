@@ -77,6 +77,7 @@ class MiningSession(BaseModel):
     user_api_keys: Optional[Dict[str, str]] = None  # API keys from Neural Keys interface
     post_type: Optional[str] = "thread"  # New field: "shitpost", "longpost", or "thread"
     include_brand_logo: Optional[bool] = False  # Whether to include brand logo in generated images
+    brand_logo_model: Optional[str] = "flux-pro/kontext"  # Which model to use for brand logo integration
     source: Optional[str] = "mining_interface"  # Source of the request: "mining_interface" or "yapper_interface"
     
     # Session state

@@ -1187,12 +1187,253 @@ class AnthropicProvider(LLMProvider):
         return "anthropic"
 
 
+class XAIProvider(LLMProvider):
+    """XAI Grok provider"""
+    
+    def __init__(self):
+        self.settings = get_settings()
+        
+        # Debug: Log API key information
+        logger.info(f"🔍 XAIProvider Debug: xai_api_key present: {bool(self.settings.xai_api_key)}")
+        if self.settings.xai_api_key:
+            logger.info(f"🔍 XAIProvider Debug: API key length: {len(self.settings.xai_api_key)}")
+            logger.info(f"🔍 XAIProvider Debug: API key prefix: {self.settings.xai_api_key[:10]}...")
+            logger.info(f"🔍 XAIProvider Debug: API key format valid: {self.settings.xai_api_key.startswith('xai-')}")
+        
+        if not self.settings.xai_api_key:
+            raise ValueError("XAI API key is required for XAIProvider")
+        
+        # Validate API key format
+        if not self.settings.xai_api_key.startswith('xai-'):
+            logger.error(f"❌ Invalid XAI API key format. Expected 'xai-' prefix, got: {self.settings.xai_api_key[:10]}...")
+            raise ValueError("Invalid XAI API key format. Must start with 'xai-'")
+        
+        # Initialize XAI client (using OpenAI-compatible interface)
+        self.client = AsyncOpenAI(
+            api_key=self.settings.xai_api_key,
+            base_url="https://api.x.ai/v1"
+        )
+        self.model = "grok-4-latest"  # Latest Grok model
+        
+    async def analyze_image_with_text(
+        self, 
+        image_path: str, 
+        prompt: str, 
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Analyze image using XAI Grok"""
+        try:
+            # Encode image to base64
+            image_base64, media_type = await self._encode_image(image_path)
+            
+            # Build content with context
+            content = self._build_single_image_content(prompt, image_base64, media_type, context)
+            
+            # Call XAI API
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=4000,
+                temperature=0.1,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": content
+                    }
+                ]
+            )
+            
+            # Parse response
+            result_text = response.choices[0].message.content
+            
+            # Clean the LLM response first
+            cleaned_content = clean_llm_response(result_text, "XAI")
+            
+            try:
+                result = json.loads(cleaned_content)
+                logger.info(f"✅ XAI: Successfully parsed JSON response")
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ XAI: JSON parsing failed: {str(e)}")
+                logger.error(f"❌ Raw content: {result_text[:500]}...")
+                logger.error(f"❌ Cleaned content: {cleaned_content[:500]}...")
+                result = {"raw_response": result_text, "parsed": False}
+                
+            return {
+                "success": True,
+                "provider": "xai",
+                "model": self.model,
+                "result": result,
+                "images_processed": 1,
+                "usage": {
+                    "input_tokens": response.usage.prompt_tokens,
+                    "output_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"XAI multi-image analysis failed: {str(e)}")
+            return {
+                "success": False,
+                "provider": "xai", 
+                "error": str(e),
+                "images_processed": 0
+            }
+    
+    def _build_single_image_content(
+        self, 
+        prompt: str, 
+        image_base64: str, 
+        media_type: str, 
+        context: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        """Build content for single image analysis"""
+        content = [
+            {
+                "type": "text",
+                "text": prompt
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{media_type};base64,{image_base64}"
+                }
+            }
+        ]
+        
+        if context:
+            context_text = f"\n\nContext: {json.dumps(context, indent=2)}"
+            content[0]["text"] += context_text
+            
+        return content
+    
+    async def analyze_multiple_images_with_text(
+        self, 
+        image_paths: List[str], 
+        prompt: str, 
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Analyze multiple images using XAI Grok"""
+        try:
+            # Encode all images to base64
+            image_data = []
+            for image_path in image_paths:
+                image_base64, media_type = await self._encode_image(image_path)
+                image_data.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{media_type};base64,{image_base64}"
+                    }
+                })
+            
+            # Build content with context
+            content = [
+                {
+                    "type": "text",
+                    "text": prompt
+                }
+            ] + image_data
+            
+            if context:
+                context_text = f"\n\nContext: {json.dumps(context, indent=2)}"
+                content[0]["text"] += context_text
+            
+            # Call XAI API
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=4000,
+                temperature=0.1,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": content
+                    }
+                ]
+            )
+            
+            # Parse response
+            result_text = response.choices[0].message.content
+            
+            # Clean the LLM response first
+            cleaned_content = clean_llm_response(result_text, "XAI")
+            
+            try:
+                result = json.loads(cleaned_content)
+                logger.info(f"✅ XAI: Successfully parsed JSON response for {len(image_paths)} images")
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ XAI: JSON parsing failed: {str(e)}")
+                logger.error(f"❌ Raw content: {result_text[:500]}...")
+                logger.error(f"❌ Cleaned content: {cleaned_content[:500]}...")
+                result = {"raw_response": result_text, "parsed": False}
+                
+            return {
+                "success": True,
+                "provider": "xai",
+                "model": self.model,
+                "result": result,
+                "images_processed": len(image_paths),
+                "usage": {
+                    "input_tokens": response.usage.prompt_tokens,
+                    "output_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"XAI multi-image analysis failed: {str(e)}")
+            return {
+                "success": False,
+                "provider": "xai", 
+                "error": str(e),
+                "images_processed": 0
+            }
+    
+    async def analyze_text_content(
+        self, 
+        prompt: str, 
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Analyze text content using XAI Grok"""
+        try:
+            # Build prompt with context
+            full_prompt = prompt
+            if context:
+                context_text = f"\n\nContext: {json.dumps(context, indent=2)}"
+                full_prompt += context_text
+            
+            # Call XAI API
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                max_tokens=4000,
+                temperature=0.1,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": full_prompt
+                    }
+                ]
+            )
+            
+            # Return response
+            result_text = response.choices[0].message.content
+            logger.info(f"✅ XAI: Text analysis completed")
+            
+            return result_text
+            
+        except Exception as e:
+            logger.error(f"XAI text analysis failed: {str(e)}")
+            raise e
+    
+    def get_provider_name(self) -> str:
+        return "xai"
+
+
 class LLMProviderFactory:
     """Factory for creating LLM providers"""
     
     _providers = {
         "openai": OpenAIProvider,
-        "anthropic": AnthropicProvider
+        "anthropic": AnthropicProvider,
+        "xai": XAIProvider
     }
     
     @classmethod
