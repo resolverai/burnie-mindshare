@@ -34,6 +34,10 @@ interface MyContentItem {
   }
   transaction_hash?: string
   treasury_transaction_hash?: string
+  // Text-only regeneration support
+  updatedTweet?: string
+  updatedThread?: string[]
+  imagePrompt?: string
 }
 
 interface MyContentResponse {

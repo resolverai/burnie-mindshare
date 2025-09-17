@@ -7,6 +7,8 @@ import { useTwitter } from '../../contexts/TwitterContext';
 import { useTwitterPosting } from '../../hooks/useTwitterPosting';
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, markdownToPlainText, markdownToHTML } from '../../utils/markdownParser';
 import useMixpanel from '../../hooks/useMixpanel';
+import { EditText, ThreadItemEditor } from './EditComponents';
+import useTextEditing from '../../hooks/useTextEditing';
 
 interface TweetPreviewModalProps {
     isOpen: boolean;
@@ -66,6 +68,45 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
     const [toneOpen, setToneOpen] = useState<boolean>(false);
     const [isPurchased, setIsPurchased] = useState<boolean>(startPurchased ?? true);
 
+    // Text editing state
+    const [isEditingMainTweet, setIsEditingMainTweet] = useState(false);
+    const [isEditingThread, setIsEditingThread] = useState(false);
+    const [editedMainTweet, setEditedMainTweet] = useState('');
+    const [editedThread, setEditedThread] = useState<string[]>([]);
+    const [isUpdatingPost, setIsUpdatingPost] = useState(false);
+
+    // Text editing hook
+    const { saveTextChanges, isSaving, getCharacterLimit, canEditThread } = useTextEditing({
+        contentId: contentData?.id || 0,
+        postType: contentData?.post_type || 'thread',
+        onSuccess: (updatedContent) => {
+            console.log('✅ Text updated successfully in TweetPreviewModal:', updatedContent);
+            // Update local content state if needed
+        },
+        onError: (error) => {
+            console.error('❌ Error updating text in TweetPreviewModal:', error);
+        }
+    });
+
+    // Reset editing state when content changes
+    useEffect(() => {
+        if (contentData) {
+            console.log('🔄 TweetPreviewModal: Resetting all state for new content:', contentData.id);
+            
+            // Reset all editing states when new content is loaded
+            setIsEditingMainTweet(false);
+            setIsEditingThread(false);
+            setEditedMainTweet('');
+            setEditedThread([]);
+            
+            // Reset Twitter posting states
+            setIsPostingToTwitter(false);
+            setTwitterPostingResult(null);
+            
+            console.log('✅ TweetPreviewModal: All state reset for content:', contentData.id);
+        }
+    }, [contentData?.id]); // Reset when content ID changes
+
     // Track tweet preview opened when modal opens
     useEffect(() => {
         if (isOpen && contentData) {
@@ -80,6 +121,17 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
             });
         }
     }, [isOpen, contentData, mixpanel]);
+
+    // Reset state when modal is closed
+    useEffect(() => {
+        if (!isOpen) {
+            // Reset all editing states when modal is closed
+            setIsEditingMainTweet(false);
+            setIsEditingThread(false);
+            setEditedMainTweet('');
+            setEditedThread([]);
+        }
+    }, [isOpen]);
 
     // Twitter posting state
     const [postingMethod, setPostingMethod] = useState<'twitter' | 'manual'>('twitter');
@@ -99,16 +151,144 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
         return twitter.profile?.username || contentData?.creator?.username?.toLowerCase() || 'yapper';
     };
 
+    // Local text editing handlers (no API calls)
+    const handleMainTweetLocalEdit = (newText: string) => {
+        setEditedMainTweet(newText);
+        console.log('📝 TweetPreviewModal: Main tweet edited locally:', newText.substring(0, 50) + '...');
+    };
+
+    const handleThreadLocalEdit = (newThread: string[]) => {
+        setEditedThread(newThread);
+        console.log('📝 TweetPreviewModal: Thread edited locally:', newThread.length, 'items');
+    };
+
+    // Final save to API when "Update Post" is pressed
+    const handleUpdatePost = async () => {
+        if (isUpdatingPost) return; // Prevent multiple clicks
+        
+        try {
+            setIsUpdatingPost(true);
+            console.log('💾 TweetPreviewModal: Updating post with final changes...');
+            
+            // Get current display content to ensure we have the latest values
+            const currentDisplayContent = getDisplayContent();
+            const finalMainTweet = editedMainTweet || currentDisplayContent.text;
+            const finalThread = editedThread.length > 0 ? editedThread : currentDisplayContent.thread;
+            
+            await saveTextChanges(finalMainTweet, finalThread.length > 0 ? finalThread : undefined);
+            
+            // Reset editing states
+            setIsEditingMainTweet(false);
+            setIsEditingThread(false);
+            
+            console.log('✅ TweetPreviewModal: Post updated successfully');
+        } catch (error) {
+            console.error('❌ TweetPreviewModal: Error updating post:', error);
+        } finally {
+            setIsUpdatingPost(false);
+        }
+    };
+
+    // Legacy handlers for backward compatibility
+    const handleMainTweetEdit = async (newText: string) => {
+        try {
+            await saveTextChanges(newText, editedThread.length > 0 ? editedThread : undefined);
+            setEditedMainTweet(newText);
+            setIsEditingMainTweet(false);
+        } catch (error) {
+            console.error('Error saving main tweet:', error);
+        }
+    };
+
+    const handleThreadEdit = async (newThread: string[]) => {
+        try {
+            await saveTextChanges(editedMainTweet || getTweetText(), newThread);
+            setEditedThread(newThread);
+            setIsEditingThread(false);
+        } catch (error) {
+            console.error('Error saving thread:', error);
+        }
+    };
+
+    const handleStartMainTweetEdit = () => {
+        if (contentData) {
+            setEditedMainTweet(getTweetText());
+            setIsEditingMainTweet(true);
+        }
+    };
+
+    const handleStartThreadEdit = () => {
+        if (contentData) {
+            setEditedThread(getTweetThread());
+            setIsEditingThread(true);
+        }
+    };
+
+    // Check if there are any local changes that need to be saved
+    const hasLocalChanges = () => {
+        if (!contentData) return false;
+        
+        const currentText = getTweetText();
+        const currentThread = getTweetThread();
+        
+        return editedMainTweet !== currentText || 
+               JSON.stringify(editedThread) !== JSON.stringify(currentThread);
+    };
+
+    // Helper function to get current tweet text (prioritizes edited content)
+    const getTweetText = () => {
+        if (!contentData) return '';
+        
+        // PRIORITY 1: If we have local edits, show them
+        if (editedMainTweet) {
+            return editedMainTweet;
+        }
+        
+        // PRIORITY 2: If we have updated content, show it
+        if (contentData.updatedTweet) {
+            return contentData.updatedTweet;
+        }
+        
+        // PRIORITY 3: Fallback to original content
+        return contentData.content_text || '';
+    };
+
+    // Helper function to get current thread (prioritizes edited content)
+    const getTweetThread = () => {
+        if (!contentData) return [];
+        
+        // PRIORITY 1: If we have local edits, show them
+        if (editedThread.length > 0) {
+            return editedThread;
+        }
+        
+        // PRIORITY 2: If we have updated content, show it
+        if (contentData.updatedThread) {
+            return contentData.updatedThread;
+        }
+        
+        // PRIORITY 3: Fallback to original content
+        return contentData.tweet_thread || [];
+    };
+
     const getInitialLetter = () => {
         const name = getDisplayName();
         return name.charAt(0).toUpperCase();
     };
 
-    // Content priority helper function
+    // Content priority helper function (prioritizes edited content)
     const getDisplayContent = () => {
         if (!contentData) return { text: '', thread: [] };
         
-        // Always prioritize updated content if it exists (regardless of availability status)
+        // PRIORITY 1: If we have local edits, show them
+        if (editedMainTweet || editedThread.length > 0) {
+            return {
+                text: editedMainTweet || contentData.updatedTweet || contentData.content_text,
+                thread: editedThread.length > 0 ? editedThread : (contentData.updatedThread || contentData.tweet_thread || [])
+            };
+        }
+        
+        // PRIORITY 2: If we have updated content, show it
         if (contentData.updatedTweet || contentData.updatedThread) {
             return {
                 text: contentData.updatedTweet || contentData.content_text,
@@ -116,7 +296,7 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
             };
         }
         
-        // Fallback to original content
+        // PRIORITY 3: Fallback to original content
         return {
             text: contentData.content_text,
             thread: contentData.tweet_thread || []
@@ -485,7 +665,10 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
             onClick={handleBackdropClick}
             style={{ height: '100vh', minHeight: '100vh' }}
         >
-            <div className="relative w-full max-w-[95vw] lg:max-w-6xl rounded-2xl bg-[#492222] max-h-[100vh] overflow-y-auto lg:overflow-hidden shadow-2xl p-4 lg:p-6 overscroll-contain">
+            <div 
+                key={`tweet-preview-modal-${contentData?.id || 'no-content'}`}
+                className="relative w-full max-w-[95vw] lg:max-w-6xl rounded-2xl bg-[#492222] max-h-[100vh] overflow-y-auto lg:overflow-hidden shadow-2xl p-4 lg:p-6 overscroll-contain"
+            >
                 {/* Close Button */}
                 <button
                     onClick={onClose}
@@ -561,7 +744,20 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                             </div>
 
                                             <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
-                                                {tweetText}
+                                                <EditText
+                                                    text={tweetText}
+                                                    onSave={canEditThread() ? handleMainTweetLocalEdit : handleMainTweetEdit}
+                                                    onCancel={() => setIsEditingMainTweet(false)}
+                                                    maxLength={getCharacterLimit()}
+                                                    placeholder="Enter tweet content..."
+                                                    isEditing={isEditingMainTweet}
+                                                    onStartEdit={handleStartMainTweetEdit}
+                                                    editType="main_tweet"
+                                                    contentId={contentData?.id || 0}
+                                                    postType={contentData?.post_type || 'thread'}
+                                                    localSaveOnly={canEditThread()}
+                                                    onLocalSave={canEditThread() ? handleMainTweetLocalEdit : undefined}
+                                                />
                                             </div>
 
                                             {/* Tweet Image */}
@@ -605,12 +801,93 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
-                                                    {tweet}
+                                                    <div className="flex items-start gap-2">
+                                                        <div className="flex-1">
+                                                            <EditText
+                                                                text={tweet}
+                                                                onSave={(newText) => {
+                                                                    const updatedThread = [...getTweetThread()];
+                                                                    updatedThread[idx] = newText;
+                                                                    handleThreadLocalEdit(updatedThread);
+                                                                }}
+                                                                onCancel={() => {
+                                                                    // If this is a newly added empty item, remove it from the thread
+                                                                    if (tweet === '') {
+                                                                        const updatedThread = getTweetThread().filter((_, i) => i !== idx);
+                                                                        handleThreadLocalEdit(updatedThread);
+                                                                    }
+                                                                    setIsEditingThread(false);
+                                                                }}
+                                                                maxLength={280}
+                                                                placeholder="Enter thread item..."
+                                                                isEditing={isEditingThread}
+                                                                onStartEdit={() => {
+                                                                    setEditedThread(getTweetThread());
+                                                                    setIsEditingThread(true);
+                                                                }}
+                                                                editType="thread_item"
+                                                                contentId={contentData?.id || 0}
+                                                                postType={contentData?.post_type || 'thread'}
+                                                                localSaveOnly={true}
+                                                                onLocalSave={(newText) => {
+                                                                    const updatedThread = [...getTweetThread()];
+                                                                    updatedThread[idx] = newText;
+                                                                    handleThreadLocalEdit(updatedThread);
+                                                                }}
+                                                            />
+                                                        </div>
+                                                        <button
+                                                            onClick={() => {
+                                                                const updatedThread = getTweetThread().filter((_, i) => i !== idx);
+                                                                handleThreadLocalEdit(updatedThread);
+                                                            }}
+                                                            className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                                                            aria-label="Delete thread item"
+                                                        >
+                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 ))}
+
+                                {/* Thread Management Buttons - Only show for threads */}
+                                {canEditThread() && getTweetThread().length > 0 && (
+                                    <div className="mt-4 flex justify-center gap-3">
+                                        <button
+                                            onClick={() => {
+                                                const updatedThread = [...getTweetThread(), ''];
+                                                handleThreadLocalEdit(updatedThread);
+                                                setIsEditingThread(true);
+                                            }}
+                                            className="px-2 py-1.5 lg:px-4 lg:py-2 border border-dashed border-white/20 rounded text-white/60 hover:text-white hover:border-white/40 transition-colors text-xs"
+                                        >
+                                            + Add thread item
+                                        </button>
+                                        <button
+                                            onClick={handleUpdatePost}
+                                            disabled={isUpdatingPost}
+                                            className={`px-3 py-1.5 lg:px-6 lg:py-2 rounded-lg transition-colors font-medium text-xs lg:text-sm ${
+                                                isUpdatingPost 
+                                                    ? 'bg-orange-400 text-white/80 cursor-not-allowed' 
+                                                    : 'bg-orange-500 hover:bg-orange-600 text-white'
+                                            }`}
+                                        >
+                                            {isUpdatingPost ? (
+                                                <div className="flex items-center gap-1 lg:gap-2">
+                                                    <div className="w-3 h-3 lg:w-4 lg:h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                                    <span className="text-xs lg:text-sm">Updating thread...</span>
+                                                </div>
+                                            ) : (
+                                                'Update Post'
+                                            )}
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

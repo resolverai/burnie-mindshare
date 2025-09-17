@@ -606,6 +606,125 @@ router.put('/content/:id/update-text-only', async (req: Request, res: Response):
 });
 
 /**
+ * @route PUT /api/marketplace/content/:id/edit-text
+ * @desc Update content text through user editing (post-purchase)
+ */
+router.put('/content/:id/edit-text', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { updatedTweet, updatedThread, walletAddress } = req.body;
+    
+    if (!id || isNaN(parseInt(id))) {
+      res.status(400).json({
+        error: 'Invalid content ID',
+        message: 'Valid content ID is required'
+      });
+      return;
+    }
+    
+    if (!updatedTweet) {
+      res.status(400).json({
+        error: 'Missing required fields',
+        message: 'updatedTweet is required'
+      });
+      return;
+    }
+    
+    if (!walletAddress) {
+      res.status(400).json({
+        error: 'Missing wallet address',
+        message: 'walletAddress is required for ownership verification'
+      });
+      return;
+    }
+    
+    logger.info(`📝 User editing content ${id} with wallet ${walletAddress}`);
+    
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const content = await contentRepository.findOne({
+      where: { id: parseInt(id) },
+      relations: ['creator']
+    });
+    
+    if (!content) {
+      res.status(404).json({
+        error: 'Content not found',
+        message: 'Content with this ID not found'
+      });
+      return;
+    }
+    
+    // Verify ownership - check if wallet address matches creator's wallet
+    if (content.walletAddress?.toLowerCase() !== walletAddress.toLowerCase()) {
+      res.status(403).json({
+        error: 'Access denied',
+        message: 'You can only edit content you own'
+      });
+      return;
+    }
+    
+    // Validate character limits based on post type
+    const postType = content.postType || 'thread';
+    const maxChars = postType === 'longpost' ? 25000 : 280;
+    
+    if (updatedTweet.length > maxChars) {
+      res.status(400).json({
+        error: 'Character limit exceeded',
+        message: `${postType} content cannot exceed ${maxChars} characters`
+      });
+      return;
+    }
+    
+    // Validate thread items if provided
+    if (updatedThread && Array.isArray(updatedThread)) {
+      for (const [index, threadItem] of updatedThread.entries()) {
+        if (typeof threadItem !== 'string') {
+          res.status(400).json({
+            error: 'Invalid thread item',
+            message: `Thread item ${index + 1} must be a string`
+          });
+          return;
+        }
+        
+        if (threadItem.length > 280) {
+          res.status(400).json({
+            error: 'Thread item too long',
+            message: `Thread item ${index + 1} cannot exceed 280 characters`
+          });
+          return;
+        }
+      }
+    }
+    
+    // Update the content with new text data
+    content.updatedTweet = updatedTweet;
+    content.updatedThread = updatedThread || [];
+    
+    await contentRepository.save(content);
+    
+    logger.info(`✅ Successfully updated content ${id} with user edits`);
+    
+    res.json({
+      success: true,
+      message: 'Content updated successfully',
+      content: {
+        id: content.id,
+        updatedTweet: content.updatedTweet,
+        updatedThread: content.updatedThread,
+        postType: content.postType
+      }
+    });
+    
+  } catch (error) {
+    logger.error(`❌ Error updating content ${req.params.id}:`, error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
  * @route GET /api/marketplace/content/:id
  * @desc Get specific content details with bidding information
  */

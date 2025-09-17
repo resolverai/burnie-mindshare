@@ -510,6 +510,55 @@ class MixpanelService {
   }) {
     this.track('apiError', properties);
   }
+
+  // Text Editing Events
+  tweetEditStarted(properties: {
+    contentId: number;
+    postType: string;
+    editType: 'main_tweet' | 'thread_item';
+    screenName: string;
+  }) {
+    this.track('tweetEditStarted', properties);
+  }
+
+  tweetEditSaved(properties: {
+    contentId: number;
+    postType: string;
+    editType: 'main_tweet' | 'thread_item';
+    characterCount: number;
+    maxLength: number;
+    threadLength?: number;
+    screenName: string;
+  }) {
+    this.track('tweetEditSaved', properties);
+  }
+
+  tweetEditCancelled(properties: {
+    contentId: number;
+    postType: string;
+    editType: 'main_tweet' | 'thread_item';
+    screenName: string;
+  }) {
+    this.track('tweetEditCancelled', properties);
+  }
+
+  threadItemAdded(properties: {
+    contentId: number;
+    postType: string;
+    threadLength: number;
+    screenName: string;
+  }) {
+    this.track('threadItemAdded', properties);
+  }
+
+  threadItemRemoved(properties: {
+    contentId: number;
+    postType: string;
+    threadLength: number;
+    screenName: string;
+  }) {
+    this.track('threadItemRemoved', properties);
+  }
 }
 
 // Create singleton instance
