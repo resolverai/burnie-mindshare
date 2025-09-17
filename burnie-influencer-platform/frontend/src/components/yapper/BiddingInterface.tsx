@@ -249,27 +249,32 @@ export default function BiddingInterface() {
   // Debounced search - only search after user stops typing for 500ms
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (debouncedSearchTerm !== searchTerm && searchTerm !== '') {
-        // Determine if this is homepage (unauthenticated) or marketplace (authenticated)
-        const isHomepage = window.location.pathname === '/'
-        const marketplaceType = isHomepage ? 'unauthenticated' : 'authenticated'
-        const screenName = isHomepage ? 'Homepage' : 'Marketplace'
-        
-        // Track search performed
-        mixpanel.contentSearchPerformed({
-          searchQuery: searchTerm,
-          resultsCount: content?.length || 0,
-          searchTime: 500, // Debounce time
-          screenName: screenName,
-          marketplaceType: marketplaceType,
-          userAuthenticated: !!address
-        })
-      }
       setDebouncedSearchTerm(searchTerm)
     }, 500)
 
     return () => clearTimeout(timer)
-  }, [searchTerm, debouncedSearchTerm, content, mixpanel, address])
+  }, [searchTerm])
+
+  // Track search only when debouncedSearchTerm changes (user stops typing)
+  useEffect(() => {
+    if (debouncedSearchTerm !== '' && debouncedSearchTerm !== searchTerm) {
+      // This means the user has stopped typing and the debounced value is different from current
+      // This effect will only run when the debounce completes
+      const isHomepage = window.location.pathname === '/'
+      const marketplaceType = isHomepage ? 'unauthenticated' : 'authenticated'
+      const screenName = isHomepage ? 'Homepage' : 'Marketplace'
+      
+      // Track search performed only when debounce completes
+      mixpanel.contentSearchPerformed({
+        searchQuery: debouncedSearchTerm,
+        resultsCount: content?.length || 0,
+        searchTime: 500, // Debounce time
+        screenName: screenName,
+        marketplaceType: marketplaceType,
+        userAuthenticated: !!address
+      })
+    }
+  }, [debouncedSearchTerm, content, mixpanel, address])
 
 
   
