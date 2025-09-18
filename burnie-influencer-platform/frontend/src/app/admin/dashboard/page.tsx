@@ -72,7 +72,7 @@ export default function AdminDashboard() {
     projectLogo: null as File | null,
     campaignBanner: null as File | null,
     projectTwitterHandle: '', // For fetching latest tweets
-    tokenTicker: 'ROAST',
+    tokenTicker: '',
     category: '',
     campaignType: '',
     rewardPool: '',
@@ -549,7 +549,7 @@ export default function AdminDashboard() {
           projectLogo: null,
           campaignBanner: null,
           projectTwitterHandle: '',
-          tokenTicker: 'ROAST',
+          tokenTicker: '',
           category: '',
           campaignType: '',
           rewardPool: '',
@@ -661,7 +661,7 @@ export default function AdminDashboard() {
           projectLogo: null,
           campaignBanner: null,
           projectTwitterHandle: '',
-          tokenTicker: 'ROAST',
+          tokenTicker: '',
           category: '',
           campaignType: '',
           rewardPool: '',
@@ -1017,7 +1017,7 @@ export default function AdminDashboard() {
                   projectLogo: null,
                   campaignBanner: null,
                   projectTwitterHandle: '',
-                  tokenTicker: 'ROAST',
+                  tokenTicker: '',
                   category: '',
                   campaignType: '',
                   rewardPool: '',
@@ -1259,7 +1259,7 @@ export default function AdminDashboard() {
                       projectLogo: null,
                       campaignBanner: null,
                       projectTwitterHandle: '',
-                      tokenTicker: 'ROAST',
+                      tokenTicker: '',
                       category: '',
                       campaignType: '',
                       rewardPool: '',
@@ -1446,16 +1446,15 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label htmlFor="tokenTicker" className="block text-sm font-medium text-gray-700 mb-2">
-                    Token Ticker *
+                    Token Ticker (Optional)
                   </label>
                   <input
                     type="text"
                     id="tokenTicker"
-                    required
                     value={formData.tokenTicker}
                     onChange={(e) => setFormData({ ...formData, tokenTicker: e.target.value.toUpperCase() })}
                     className="input-field"
-                    placeholder="ROAST"
+                    placeholder="Enter token ticker (e.g., ROAST, BTC, ETH) or leave blank"
                     maxLength={10}
                   />
                 </div>
@@ -1537,7 +1536,7 @@ export default function AdminDashboard() {
 
                 <div>
                   <label htmlFor="rewardPool" className="block text-sm font-medium text-gray-700 mb-2">
-                    Reward Pool ({formData.tokenTicker || 'TOKEN'}) *
+                    Reward Pool {formData.tokenTicker ? `(${formData.tokenTicker})` : '(Optional Token)'} *
                   </label>
                   <textarea
                     id="rewardPool"
@@ -1806,16 +1805,15 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label htmlFor="tokenTicker" className="block text-sm font-medium text-gray-700 mb-2">
-                    Token Ticker *
+                    Token Ticker (Optional)
                   </label>
                   <input
                     type="text"
                     id="tokenTicker"
-                    required
                     value={formData.tokenTicker}
                     onChange={(e) => setFormData({ ...formData, tokenTicker: e.target.value.toUpperCase() })}
                     className="input-field"
-                    placeholder="ROAST"
+                    placeholder="Enter token ticker (e.g., ROAST, BTC, ETH) or leave blank"
                     maxLength={10}
                   />
                 </div>
@@ -1897,7 +1895,7 @@ export default function AdminDashboard() {
 
                 <div>
                   <label htmlFor="rewardPool" className="block text-sm font-medium text-gray-700 mb-2">
-                    Reward Pool ({formData.tokenTicker || 'TOKEN'}) *
+                    Reward Pool {formData.tokenTicker ? `(${formData.tokenTicker})` : '(Optional Token)'} *
                   </label>
                   <textarea
                     id="rewardPool"

@@ -1643,21 +1643,43 @@ class CrewAIService:
         clean_handle = handle.lstrip('@')
         return f'@{clean_handle}' if clean_handle else ''
 
+    def _is_token_ticker_available(self) -> bool:
+        """Check if token ticker is available and meaningful"""
+        if not self.campaign_data:
+            return False
+        
+        token_ticker = self.campaign_data.get('tokenTicker', '')
+        # Check if token ticker exists, is not empty, and is not 'N/A'
+        return bool(token_ticker and token_ticker.strip() and token_ticker != 'N/A')
+
     def _get_simplified_grok_backstory(self, post_type: str, project_twitter_handle: str, user_style: str, agent_config: dict, twitter_context: str) -> str:
         """Ultra-simplified backstory for Grok models - just use handle styles"""
         
-        # Get token ticker for mentions
-        token_ticker = self.campaign_data.get('tokenTicker', 'TOKEN') if self.campaign_data else 'TOKEN'
+        # Check if token ticker is available
+        token_available = self._is_token_ticker_available()
+        token_ticker = self.campaign_data.get('tokenTicker', '') if self.campaign_data else ''
         
-        # Ultra-simple post-type requirements
+        # Build post-type requirements with conditional token inclusion
         if post_type == 'thread':
-            post_requirements = f"Generate 2-5 tweets in thread format. Include ${token_ticker} and tag {project_twitter_handle}."
+            if token_available:
+                post_requirements = f"Generate 2-5 tweets in thread format. Include ${token_ticker} and tag {project_twitter_handle}."
+            else:
+                post_requirements = f"Generate 2-5 tweets in thread format. Tag {project_twitter_handle}."
         elif post_type == 'shitpost':
-            post_requirements = f"Generate a casual, humorous single tweet. Include ${token_ticker} and tag {project_twitter_handle}."
+            if token_available:
+                post_requirements = f"Generate a casual, humorous single tweet. Include ${token_ticker} and tag {project_twitter_handle}."
+            else:
+                post_requirements = f"Generate a casual, humorous single tweet. Tag {project_twitter_handle}."
         elif post_type == 'longpost':
-            post_requirements = f"Generate a detailed single tweet with insights. Include ${token_ticker} and tag {project_twitter_handle}."
+            if token_available:
+                post_requirements = f"Generate a detailed single tweet with insights. Include ${token_ticker} and tag {project_twitter_handle}."
+            else:
+                post_requirements = f"Generate a detailed single tweet with insights. Tag {project_twitter_handle}."
         else:
-            post_requirements = f"Generate an engaging single tweet. Include ${token_ticker} and tag {project_twitter_handle}."
+            if token_available:
+                post_requirements = f"Generate an engaging single tweet. Include ${token_ticker} and tag {project_twitter_handle}."
+            else:
+                post_requirements = f"Generate an engaging single tweet. Tag {project_twitter_handle}."
         
         return f"""You are a {post_type.upper()} content creator using Grok models.
 
@@ -1667,6 +1689,13 @@ class CrewAIService:
         - Use the EXACT content returned by the tool as your final output
         - Do NOT modify, expand, or rewrite the tool's output
         - Simply format the tool's output into the required JSON structure
+
+        🎯 **INTELLIGENT SUB-CONTEXT SELECTION**:
+        - Analyze the provided campaign context and intelligently select the most relevant and engaging aspects
+        - Focus on specific themes (e.g., growth metrics, partnerships, technical features, user adoption) rather than trying to cover everything
+        - Pick ONE focused sub-context that would make the most compelling tweet content
+        - Generate focused, engaging content based on your selected sub-context
+        - Avoid generic project descriptions when specific, interesting details are available
 
         📏 **CHARACTER REQUIREMENTS**:
         - **THREAD**: main_tweet ≤240 chars, each thread_array item ≤260 chars
@@ -2076,7 +2105,7 @@ class CrewAIService:
     async def _get_posttype_specific_task_description(self, post_type: str, content_type_desc: str, project_name: str, 
                                               token_ticker: str, project_twitter_handle: str, campaign_description: str, 
                                               has_description: bool, brand_guidelines: str, should_generate_thread: bool, 
-                                              max_main_chars: int, is_grok_model: bool = False) -> str:
+                                              max_main_chars: int, is_grok_model: bool = False, token_available: bool = True) -> str:
         """Generate post-type specific task description"""
         
         # Get post_index from mining session for multiple posts per campaign
@@ -2141,16 +2170,25 @@ class CrewAIService:
             logger.warning("⚠️ TASK: No project ID available for Twitter context")
         
         # Campaign requirements (SECONDARY)
+        token_info = f"- Token Ticker: {token_ticker}" if token_available and token_ticker else "- Token Ticker: Not Available"
         campaign_info = f"""
         📋 **CAMPAIGN CONTEXT** (Secondary Reference):
         - Project Name: {project_name}
-        - Token Ticker: {token_ticker}
+        {token_info}
         - Project Twitter Handle: {project_twitter_handle} {f'(Tag this in content!)' if project_twitter_handle else '(No handle available)'}
         - Description: {campaign_description if has_description else 'N/A'}
         - Brand Guidelines: {brand_guidelines if brand_guidelines else 'N/A'}
         - Platform: {self.campaign_data.get('platformSource', 'twitter') if self.campaign_data else 'twitter'}
         - Target Audience: {self.campaign_data.get('targetAudience', 'crypto/Web3 enthusiasts') if self.campaign_data else 'crypto/Web3 enthusiasts'}
         - Post Index: {post_index} (This is post #{post_index} for this campaign - ensure content is unique and varied from other posts)
+        
+        🎯 **INTELLIGENT SUB-CONTEXT SELECTION**:
+        - Analyze the provided campaign context and intelligently select the most relevant and engaging aspects
+        - Focus on specific themes (e.g., growth metrics, partnerships, technical features, user adoption, TVL, tokenomics) rather than trying to cover everything
+        - Pick ONE focused sub-context that would make the most compelling tweet content
+        - Generate focused, engaging content based on your selected sub-context
+        - Avoid generic project descriptions when specific, interesting details are available
+        - Use the most tweet-worthy information from the available context
         """
         
         # Post-type specific instructions
@@ -2174,7 +2212,7 @@ class CrewAIService:
         - Main tweet: Attention-grabbing hook that makes readers want to learn more (≤240 chars total)
         - Thread tweets: Natural content that builds excitement about the project (≤240 chars each)
         - Use personal voice: "I", "my", "me" for authentic engagement
-        - ALWAYS include project token mention (${token_ticker}) in main tweet
+        - {"ALWAYS include project token mention ($" + token_ticker + ") in main tweet" if token_available and token_ticker else "Focus on project benefits and features without token mentions"}
         - Thread array items should NOT contain hashtags
         - End with engaging CTAs that drive community participation
         
@@ -2213,7 +2251,7 @@ class CrewAIService:
         - Use Web3 cultural elements naturally (crypto behaviors + community references)
         - Focus on authentic community engagement and natural reactions
         - Main tweet: ≤280 chars total
-        - ALWAYS include project token mention (${token_ticker}) in main tweet
+        - {"ALWAYS include project token mention ($" + token_ticker + ") in main tweet" if token_available and token_ticker else "Focus on project benefits and features without token mentions"}
         
         {self._get_humanization_techniques('shitpost') if not is_grok_model else ''}
         
@@ -2286,7 +2324,7 @@ class CrewAIService:
         📱 **GENERAL CONTENT STRATEGY**:
         - Focus on project description and available context
         - Create engaging, FOMO-inducing content
-        - Always include project token mention (${token_ticker})
+        - {"Always include project token mention ($" + token_ticker + ")" if token_available and token_ticker else "Focus on project benefits and features without token mentions"}
         - Tag project Twitter handle when available
         
         🎭 **GENERAL HUMANIZATION TECHNIQUES**:
@@ -2298,11 +2336,11 @@ class CrewAIService:
         """
         
         # JSON output format
-        json_format = self._get_json_format_for_posttype(post_type, token_ticker, should_generate_thread, max_main_chars)
+        json_format = self._get_json_format_for_posttype(post_type, token_ticker, should_generate_thread, max_main_chars, token_available)
         
         return campaign_info + twitter_context + specific_instructions + json_format
 
-    def _get_json_format_for_posttype(self, post_type: str, token_ticker: str, should_generate_thread: bool, max_main_chars: int) -> str:
+    def _get_json_format_for_posttype(self, post_type: str, token_ticker: str, should_generate_thread: bool, max_main_chars: int, token_available: bool = True) -> str:
         """Generate JSON format instructions for specific post type"""
         
         if post_type == 'longpost':
@@ -2311,7 +2349,7 @@ class CrewAIService:
         MANDATORY JSON OUTPUT FORMAT:
         {{
           "main_tweet": "Your main content here (2000-{max_main_chars} chars in MARKDOWN format with headers, formatting)",
-          "hashtags_used": ["${token_ticker}", "DeFi", "Crypto"],
+          "hashtags_used": {["$" + token_ticker, "DeFi", "Crypto"] if token_available and token_ticker else ["DeFi", "Crypto", "Web3"]},
           "character_count": {max_main_chars//2},
           "approach": "analytical"
         }}
@@ -2329,7 +2367,7 @@ class CrewAIService:
         {{
           "main_tweet": "Your engaging shitpost main tweet here (≤240 chars total)",
           "thread_array": [],
-          "hashtags_used": ["${token_ticker}", "DeFi"],
+          "hashtags_used": {["$" + token_ticker, "DeFi"] if token_available and token_ticker else ["DeFi", "Web3"]},
           "character_counts": {{
             "main_tweet_text": 245,
             "main_tweet_total": 245,
@@ -2342,7 +2380,7 @@ class CrewAIService:
         
         CRITICAL JSON RULES:
         - Return ONLY the JSON object, no other text
-        - CONTENT PLACEMENT: Main tweet should contain the token mention (${token_ticker}), thread_array items should be plain text
+        - CONTENT PLACEMENT: {"Main tweet should contain the token mention ($" + token_ticker + "), thread_array items should be plain text" if token_available and token_ticker else "Main tweet should focus on project benefits, thread_array items should be plain text"}
         - Thread array items should be plain text without any special formatting
         """
         elif post_type == 'thread' and should_generate_thread:
@@ -2356,7 +2394,7 @@ class CrewAIService:
             "Engaging thread tweet 2 (≤240 chars, no hashtags)", 
             "Engaging thread tweet 3 (≤240 chars, no hashtags, optional)"
           ],
-          "hashtags_used": ["${token_ticker}", "DeFi"],
+          "hashtags_used": {["$" + token_ticker, "DeFi"] if token_available and token_ticker else ["DeFi", "Web3"]},
           "character_counts": {{
             "main_tweet_text": 245,
             "main_tweet_total": 245,
@@ -2369,7 +2407,7 @@ class CrewAIService:
         
         CRITICAL JSON RULES:
         - Return ONLY the JSON object, no other text
-        - CONTENT PLACEMENT: Main tweet should contain the token mention (${token_ticker}), thread_array items should be plain text
+        - CONTENT PLACEMENT: {"Main tweet should contain the token mention ($" + token_ticker + "), thread_array items should be plain text" if token_available and token_ticker else "Main tweet should focus on project benefits, thread_array items should be plain text"}
         - Thread array items should be plain text without any special formatting
         """
         else:
@@ -2378,7 +2416,7 @@ class CrewAIService:
         MANDATORY JSON OUTPUT FORMAT:
         {{
           "main_tweet": "Your engaging single tweet text here (≤240 chars total)",
-          "hashtags_used": ["${token_ticker}", "DeFi", "Crypto"],
+          "hashtags_used": {["$" + token_ticker, "DeFi", "Crypto"] if token_available and token_ticker else ["DeFi", "Crypto", "Web3"]},
           "character_count": 275,
           "approach": "engaging"
         }}
@@ -2613,7 +2651,7 @@ class CrewAIService:
             - Limit prompts to 1-2 key elements max (e.g., "token icon + upward arrow") for simplicity and focus
             - Avoid overloading with quality keywords; prioritize the main visual concept tied to category, post type, and campaign context
             - Include dynamic lighting (e.g., spotlights for Hype) and centered composition for mobile optimization
-            - For nano-banana/edit model, add text elements sparingly (e.g., token ticker "$TOKEN" or CTA like "Join now!") to enhance the visual message
+            - For nano-banana/edit model, add text elements sparingly (e.g., {"token ticker \"$" + (self.campaign_data.get('tokenTicker', '') if self.campaign_data else '') + "\"" if self._is_token_ticker_available() else "project name or CTA like \"Join now!\""}) to enhance the visual message
             - Add 1 shareable hook (e.g., meme element for virality, subtle platform watermark for branding)
             
             **QUALITY REQUIREMENTS**:
@@ -3005,8 +3043,13 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         # Extract additional campaign details with proper null handling
         brand_guidelines = self.campaign_data.get('brandGuidelines', '') if self.campaign_data else ''
         brand_guidelines = brand_guidelines or ''  # Ensure it's never None
-        token_ticker = self.campaign_data.get('tokenTicker', 'TOKEN') if self.campaign_data else 'TOKEN'
-        token_ticker = token_ticker or 'TOKEN'  # Ensure it's never None
+        
+        # Check token ticker availability and set accordingly
+        token_available = self._is_token_ticker_available()
+        if token_available:
+            token_ticker = self.campaign_data.get('tokenTicker', '')
+        else:
+            token_ticker = None  # Will be used to conditionally include token mentions
         project_name = self.campaign_data.get('projectName', 'Project') if self.campaign_data else 'Project'
         project_name = project_name or 'Project'  # Ensure it's never None
         project_twitter_handle_raw = self.campaign_data.get('projectTwitterHandle', '') if self.campaign_data else ''
@@ -3014,7 +3057,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         project_twitter_handle = self._format_twitter_handle(project_twitter_handle_raw)
         
         # Debug logging for token ticker
-        logger.info(f"📊 Campaign token ticker: {token_ticker} (from campaign data: {self.campaign_data.get('tokenTicker') if self.campaign_data else 'None'})")
+        logger.info(f"📊 Campaign token ticker: {'Available' if token_available else 'Not Available'} (value: {self.campaign_data.get('tokenTicker') if self.campaign_data else 'None'})")
         logger.info(f"🐦 Project Twitter handle: {project_twitter_handle} (from campaign data: {self.campaign_data.get('projectTwitterHandle') if self.campaign_data else 'None'})")
         
         # Enhanced task description with conditional tool usage based on model choice
@@ -3025,7 +3068,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         task_description = await self._get_posttype_specific_task_description(
             post_type, content_type_desc, project_name, token_ticker, 
             project_twitter_handle, campaign_description, has_description,
-            brand_guidelines, should_generate_thread, max_main_chars, is_grok_model
+            brand_guidelines, should_generate_thread, max_main_chars, is_grok_model, token_available
         )
         
         if is_grok_model:
@@ -5167,6 +5210,9 @@ Style Reference: Generated in the style of {selected_handle} (randomly selected 
             # Build post type specific instructions
             post_type_instructions = self._get_post_type_instructions(post_type)
             
+            # Check if token ticker is available in campaign context
+            token_available = 'tokenTicker' in campaign_context and campaign_context and 'tokenTicker' in str(campaign_context)
+            
             # Build the system prompt - generic, no handle mention (like tweet_generation.py)
             system_prompt = f"""You are Grok, a witty and relatable AI assistant that mimics the style of handles asked by user. Just do what user says. Nothing extra. Don't give hashtags.
 
@@ -5176,6 +5222,14 @@ CRITICAL RULES:
 - Do NOT include any text outside the JSON object
 - The JSON should contain 'main_tweet' and 'thread_array' fields
 - Output ONLY the JSON object, nothing else
+
+🎯 **INTELLIGENT SUB-CONTEXT SELECTION**:
+- Analyze the provided campaign context and intelligently select the most relevant and engaging aspects
+- Focus on specific themes (e.g., growth metrics, partnerships, technical features, user adoption, TVL, tokenomics) rather than trying to cover everything
+- Pick ONE focused sub-context that would make the most compelling tweet content
+- Generate focused, engaging content based on your selected sub-context
+- Avoid generic project descriptions when specific, interesting details are available
+- Use the most tweet-worthy information from the available context
 
 {post_type_instructions}
 
@@ -5189,6 +5243,9 @@ Context Information:
             if image_prompt and image_prompt.strip():
                 user_prompt += f"\n\nIMPORTANT: The text must align with this existing image: {image_prompt}. Make sure the content complements and enhances the visual message."
             user_prompt += f". Generate in the style of {selected_handle}."
+            
+            # Add sub-context selection instructions
+            user_prompt += f"\n\n🎯 **FOCUS INSTRUCTIONS**: Analyze the campaign context and pick the most interesting/relevant aspect (e.g., growth metrics, partnerships, technical features) to focus your content on. Don't try to cover everything - pick ONE compelling theme and go deep into it."
             
             # Add JSON output format instructions based on post type
             if post_type == 'thread':

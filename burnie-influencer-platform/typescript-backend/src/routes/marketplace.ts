@@ -641,6 +641,8 @@ router.put('/content/:id/edit-text', async (req: Request, res: Response): Promis
     logger.info(`📝 User editing content ${id} with wallet ${walletAddress}`);
     
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+    
     const content = await contentRepository.findOne({
       where: { id: parseInt(id) },
       relations: ['creator']
@@ -654,11 +656,19 @@ router.put('/content/:id/edit-text', async (req: Request, res: Response): Promis
       return;
     }
     
-    // Verify ownership - check if wallet address matches creator's wallet
-    if (content.walletAddress?.toLowerCase() !== walletAddress.toLowerCase()) {
+    // Verify ownership - check if user has purchased this content
+    const purchase = await purchaseRepository.findOne({
+      where: {
+        contentId: parseInt(id),
+        buyerWalletAddress: walletAddress.toLowerCase(),
+        paymentStatus: 'completed'
+      }
+    });
+    
+    if (!purchase) {
       res.status(403).json({
         error: 'Access denied',
-        message: 'You can only edit content you own'
+        message: 'You can only edit content you have purchased'
       });
       return;
     }
