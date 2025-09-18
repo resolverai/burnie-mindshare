@@ -2651,7 +2651,7 @@ class CrewAIService:
             - Limit prompts to 1-2 key elements max (e.g., "token icon + upward arrow") for simplicity and focus
             - Avoid overloading with quality keywords; prioritize the main visual concept tied to category, post type, and campaign context
             - Include dynamic lighting (e.g., spotlights for Hype) and centered composition for mobile optimization
-            - For nano-banana/edit model, add text elements sparingly (e.g., {"token ticker \"$" + (self.campaign_data.get('tokenTicker', '') if self.campaign_data else '') + "\"" if self._is_token_ticker_available() else "project name or CTA like \"Join now!\""}) to enhance the visual message
+            - For nano-banana/edit model, add text elements sparingly (e.g., {"token ticker '$" + (self.campaign_data.get('tokenTicker', '') if self.campaign_data else '') + "'" if self._is_token_ticker_available() else "project name or CTA like 'Join now!'"}) to enhance the visual message
             - Add 1 shareable hook (e.g., meme element for virality, subtle platform watermark for branding)
             
             **QUALITY REQUIREMENTS**:
