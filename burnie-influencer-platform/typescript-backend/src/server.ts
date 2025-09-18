@@ -49,7 +49,8 @@ import twitterHandlesRoutes from './routes/twitterHandles';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
-import { PopularTwitterHandlesCronService } from './services/PopularTwitterHandlesCronService';
+// DISABLED: Commented out to prevent automatic fetching of latest tweets data
+// import { PopularTwitterHandlesCronService } from './services/PopularTwitterHandlesCronService';
 import { AppDataSource } from './config/database';
 import { ContentMarketplace } from './models/ContentMarketplace';
 
@@ -221,9 +222,10 @@ const startServer = async () => {
     logger.info('🐦 Twitter queue cron service started');
     
     // Start popular Twitter handles cron service
-    const popularTwitterHandlesCronService = new PopularTwitterHandlesCronService();
-    popularTwitterHandlesCronService.start();
-    logger.info('🐦 Popular Twitter handles cron service started');
+    // DISABLED: Commented out to prevent automatic fetching of latest tweets data
+    // const popularTwitterHandlesCronService = new PopularTwitterHandlesCronService();
+    // popularTwitterHandlesCronService.start();
+    // logger.info('🐦 Popular Twitter handles cron service started');
     
     // Start platform yapper Twitter data collection cron service
     // DISABLED: Integrated into reconnect flow instead
