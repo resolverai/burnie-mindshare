@@ -367,7 +367,7 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       projectName: projectName || undefined,
       projectLogo: projectLogo || undefined,
       campaignBanner: campaignBanner || undefined,
-      tokenTicker: tokenTicker || 'ROAST',
+      tokenTicker: tokenTicker || '',
       category: category as CampaignCategory,
       campaignType: campaignType as CampaignType,
       brandGuidelines: guidelines || undefined,
@@ -382,7 +382,7 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       creatorId: defaultUser.id, // Use the default user ID
       isActive: true,
       platformSource: (platformSource as PlatformSource) || PlatformSource.BURNIE,
-      rewardToken: tokenTicker || 'ROAST',
+      rewardToken: tokenTicker || '',
       targetAudience: 'General',
       predictedMindshare: 80, // Default mindshare score
       currentSubmissions: 0
@@ -488,7 +488,7 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       projectLogo: projectLogo || undefined,
       campaignBanner: campaignBanner || undefined,
       projectTwitterHandle: projectTwitterHandle || undefined,
-      tokenTicker: tokenTicker || 'ROAST',
+      tokenTicker: tokenTicker || '',
       category: category as CampaignCategory,
       campaignType: campaignType as CampaignType,
       brandGuidelines: guidelines || undefined,
@@ -498,7 +498,7 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       endDate: new Date(endDate),
       projectId: projectId || undefined,
       platformSource: (platformSource as PlatformSource) || PlatformSource.BURNIE,
-      rewardToken: tokenTicker || 'ROAST',
+      rewardToken: tokenTicker || '',
     };
 
     // Update the campaign

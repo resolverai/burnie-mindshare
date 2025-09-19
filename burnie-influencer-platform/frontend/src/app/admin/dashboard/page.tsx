@@ -404,7 +404,7 @@ export default function AdminDashboard() {
       projectLogo: null,
       campaignBanner: null,
       projectTwitterHandle: (campaign as any).projectTwitterHandle || '', // Add Twitter handle support
-      tokenTicker: campaign.tokenTicker || 'ROAST',
+      tokenTicker: campaign.tokenTicker || '',
       category: campaign.category,
       campaignType: campaign.campaignType,
       rewardPool: campaign.rewardPool?.toString() || '',

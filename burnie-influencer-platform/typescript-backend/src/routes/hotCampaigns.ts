@@ -18,6 +18,7 @@ interface HotCampaignPostType {
   purchaseCount: number;
   ratio: number;
   totalCampaignPurchases: number;
+  tokenTicker?: string; // Add token ticker field
 }
 
 // GET /api/hot-campaigns - Get top 10 campaigns by purchase volume, then identify hot post_types
@@ -154,7 +155,8 @@ router.get('/hot-campaigns', async (req, res) => {
             availableCount,
             purchaseCount,
             ratio: ratio === Infinity ? 999999 : ratio,
-            totalCampaignPurchases: totalPurchases
+            totalCampaignPurchases: totalPurchases,
+            tokenTicker: campaign.tokenTicker || '' // Include token ticker from database
           });
 
           logger.info(`🔥 Hot post_type found: ${campaign.title} (${postType}) - Ratio: ${ratio.toFixed(2)}, Available: ${availableCount}, Purchased: ${purchaseCount}`);

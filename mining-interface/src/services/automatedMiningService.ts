@@ -9,6 +9,7 @@ export interface HotCampaign {
   purchaseCount: number;
   ratio: number;
   totalCampaignPurchases: number;
+  tokenTicker?: string; // Add token ticker field
 }
 
 export interface MiningStatus {
@@ -176,7 +177,8 @@ class AutomatedMiningService {
     campaignId: string,
     postType: string,
     campaignName: string,
-    projectName: string
+    projectName: string,
+    campaign: HotCampaign
   ): Promise<boolean> {
     let executionId: string | null = null;
     
@@ -278,7 +280,7 @@ class AutomatedMiningService {
           projectId: null,
           projectName: projectName,
           projectLogoUrl: null,
-          tokenTicker: 'ROAST'
+          tokenTicker: campaign.tokenTicker || '' // Use token ticker from campaign data
         }
       }];
 
@@ -485,7 +487,8 @@ class AutomatedMiningService {
           campaign.campaignId,
           campaign.postType,
           campaign.campaignName,
-          campaign.projectName
+          campaign.projectName,
+          campaign
         );
 
         if (generated) {
