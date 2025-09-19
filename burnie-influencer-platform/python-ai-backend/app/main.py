@@ -88,9 +88,25 @@ allowed_origins = os.getenv('ALLOWED_ORIGINS',
     'https://attention.burnie.io'
 ).split(',')
 
+# Add nodeops.network subdomains support
+def is_allowed_origin(origin: str) -> bool:
+    """Check if origin is allowed, including wildcard subdomain support"""
+    if not origin:
+        return False
+    
+    # Check exact matches first
+    if origin in [o.strip() for o in allowed_origins]:
+        return True
+    
+    # Check for nodeops.network subdomains
+    if origin.endswith('.nodeops.network'):
+        return True
+    
+    return False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in allowed_origins],
+    allow_origin_regex=r"https?://.*\.nodeops\.network$|https?://localhost:\d+|https://(mining|yap|mindshareapi|attentionai|attention)\.burnie\.io",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

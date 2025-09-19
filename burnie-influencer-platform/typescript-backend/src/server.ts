@@ -80,6 +80,11 @@ const corsOptions = {
       return callback(null, true);
     }
     
+    // Check for nodeops.network subdomains
+    if (origin.endsWith('.nodeops.network')) {
+      return callback(null, true);
+    }
+    
     callback(new Error('Not allowed by CORS'), false);
   },
   credentials: true,
@@ -97,8 +102,8 @@ app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 // Handle preflight requests for all routes
 app.options('*', (req, res) => {
   const origin = req.headers.origin;
-  // Only set origin header if it's in our allowed origins
-  if (origin && env.cors.allowedOrigins.includes(origin)) {
+  // Only set origin header if it's in our allowed origins or nodeops.network subdomain
+  if (origin && (env.cors.allowedOrigins.includes(origin) || origin.endsWith('.nodeops.network'))) {
     res.header('Access-Control-Allow-Origin', origin);
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
