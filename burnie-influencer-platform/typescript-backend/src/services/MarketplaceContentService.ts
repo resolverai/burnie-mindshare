@@ -169,13 +169,15 @@ export class MarketplaceContentService {
   }
 
   /**
-   * Apply sorting to the query - using a variety-based approach for better campaign distribution
+   * Apply sorting to the query - prioritizing regenerated content and using variety-based approach
    */
   private applySorting(query: any, sortBy: string): any {
-    // Create variety by interleaving content from different campaigns
-    // This prevents all content from one campaign from being grouped together
+    // Prioritize content that has been updated through text-only regeneration
+    // This ensures regenerated content appears first in the marketplace
     return query
-      .orderBy('content.qualityScore', 'DESC')  // Show best content first across all campaigns
+      .addSelect('CASE WHEN content.updatedTweet IS NOT NULL THEN 0 ELSE 1 END', 'regeneration_priority')
+      .orderBy('regeneration_priority', 'ASC')  // Regenerated content first
+      .addOrderBy('content.qualityScore', 'DESC')  // Then by quality score (best content first)
       .addOrderBy('content.createdAt', 'DESC')  // Then by creation date (newer first)
       .addOrderBy('content.campaignId', 'ASC')  // Finally by campaign ID for consistent ordering
       .addOrderBy('content.id', 'ASC');  // And by ID for final consistency

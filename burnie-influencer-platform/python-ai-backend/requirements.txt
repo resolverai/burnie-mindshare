@@ -47,3 +47,4 @@ eventlet
 pydantic-settings
 fal-client
 xai-sdk
+aiohttp
