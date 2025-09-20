@@ -104,11 +104,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
     const contentRepository: Repository<ContentMarketplace> = AppDataSource.getRepository(ContentMarketplace);
 
-    // Step 1: Get all active campaigns sorted in ascending order by ID
+    // Step 1: Get all active campaigns with future end dates, sorted in descending order by ID
+    const currentDate = new Date();
     const allActiveCampaigns = await campaignRepository
       .createQueryBuilder('campaign')
       .where('campaign.isActive = :isActive', { isActive: true })
-      .orderBy('campaign.id', 'ASC') // Ascending order by ID
+      .andWhere('campaign.endDate > :currentDate', { currentDate })
+      .orderBy('campaign.id', 'DESC') // Descending order by ID (newest first)
       .getMany();
 
     // Step 2: Filter campaigns that have at least one content which is approved, biddable and available
@@ -146,32 +148,42 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
             for (const campaign of campaigns) {
           try {
-            // Get top 2 quality content pieces for this campaign (approved, biddable, available)
-            const topQualityContent = await contentRepository
+            // Apply 15-day shelf life filter for gallery images
+            const fifteenDaysAgo = new Date();
+            fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+
+            // Get latest content pieces for this campaign with post type priority
+            // Priority: shitpost > thread > others, sorted by creation date (newest first)
+            const latestContent = await contentRepository
               .createQueryBuilder('content')
               .where('content.campaignId = :campaignId', { campaignId: campaign.id })
               .andWhere('content.approvalStatus = :approvalStatus', { approvalStatus: 'approved' })
               .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
               .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
               .andWhere('content.contentImages IS NOT NULL')
-              .andWhere('content.qualityScore IS NOT NULL')
-              .orderBy('content.qualityScore', 'DESC')
+              .andWhere('content.biddingEnabledAt >= :fifteenDaysAgo', { fifteenDaysAgo })
+              .orderBy(
+                'CASE WHEN content.postType = \'shitpost\' THEN 1 WHEN content.postType = \'thread\' THEN 2 ELSE 3 END',
+                'ASC'
+              )
+              .addOrderBy('content.createdAt', 'DESC')
               .limit(2)
               .getMany();
 
-            // Get total content count (approved, biddable and available) for this campaign
+            // Get total content count (approved, biddable and available) for this campaign with 15-day filter
             const totalContentCount = await contentRepository
               .createQueryBuilder('content')
               .where('content.campaignId = :campaignId', { campaignId: campaign.id })
               .andWhere('content.approvalStatus = :approvalStatus', { approvalStatus: 'approved' })
               .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
               .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
+              .andWhere('content.biddingEnabledAt >= :fifteenDaysAgo', { fifteenDaysAgo })
               .getCount();
 
             const gallery: string[] = [];
             
-            // Process top 2 quality content images 
-            for (const content of topQualityContent) {
+            // Process latest 2 content images 
+            for (const content of latestContent) {
               if (content.contentImages && Array.isArray(content.contentImages)) {
                 // Get the first image from the content images array
                 const firstImage = content.contentImages[0];
