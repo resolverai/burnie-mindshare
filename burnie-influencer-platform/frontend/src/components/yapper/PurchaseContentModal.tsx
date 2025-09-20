@@ -133,7 +133,7 @@ export default function PurchaseContentModal({
       
       // Reset generation states
       setExecutionId(null);
-      setTextOnlyModeEnabled(null);
+      // Keep textOnlyModeEnabled as true (default)
       
       // Reset original content
       setOriginalContent(content);
@@ -203,7 +203,7 @@ export default function PurchaseContentModal({
       
       // Reset generation states
       setExecutionId(null);
-      setTextOnlyModeEnabled(null);
+      // Keep textOnlyModeEnabled as true (default)
       
       console.log('✅ All state reset when modal closed');
     }
@@ -237,7 +237,7 @@ export default function PurchaseContentModal({
       setIsPostingToTwitter(false);
       setTwitterPostingResult(null);
       setExecutionId(null);
-      setTextOnlyModeEnabled(null);
+      // Keep textOnlyModeEnabled as true (default)
     };
   }, []);
   
@@ -660,6 +660,7 @@ export default function PurchaseContentModal({
 
   
   // Yapper interface content generation functions
+  
   const generateContentFromYapper = async () => {
     return generateContentFromYapperInternal(false)
   }
@@ -678,29 +679,15 @@ export default function PurchaseContentModal({
       setGenerationStatus('Starting content generation...')
       setGenerationProgress(0)
       
-      // If text-only mode is requested, check if it's enabled on the backend
+      // Use the textOnly parameter directly since the frontend already checked the mode
       let actualTextOnly = textOnly;
-      if (textOnly) {
-        try {
-          const modeResponse = await fetch('/api/text-only-regeneration/mode-status');
-          if (modeResponse.ok) {
-            const modeData = await modeResponse.json();
-            if (!modeData.textOnlyModeEnabled) {
-              console.log('🔄 Text-only mode disabled on backend, falling back to full regeneration');
-              actualTextOnly = false;
-              setIsTextOnlyGeneration(false);
-              setGenerationStatus('Text-only mode disabled, using full regeneration instead...');
-            }
-          }
-        } catch (error) {
-          console.warn('⚠️ Could not check text-only mode status, falling back to full regeneration:', error);
-          actualTextOnly = false;
-          setIsTextOnlyGeneration(false);
-        }
-      }
       
       // Call TypeScript backend to start content generation
       const endpoint = actualTextOnly ? '/api/text-only-regeneration/regenerate-text' : '/api/yapper-interface/generate-content'
+      console.log('🔧 Content generation endpoint:', endpoint);
+      console.log('🔧 actualTextOnly:', actualTextOnly);
+      console.log('🔧 textOnly parameter:', textOnly);
+      console.log('🔧 textOnlyModeEnabled from state:', textOnlyModeEnabled);
       
       // Update status message based on actual mode
       if (textOnly && !actualTextOnly) {
@@ -1148,7 +1135,8 @@ export default function PurchaseContentModal({
   const [generatedContent, setGeneratedContent] = useState<ContentItem | null>(null)
   const [forceUpdate, setForceUpdate] = useState(0)
   const [contentUpdateTrigger, setContentUpdateTrigger] = useState(0)
-  const [textOnlyModeEnabled, setTextOnlyModeEnabled] = useState<boolean | null>(null)
+  const [textOnlyModeEnabled, setTextOnlyModeEnabled] = useState<boolean | null>(true)
+  const [modeCheckInProgress, setModeCheckInProgress] = useState(false)
   
   // Store original content for fallback
   const [originalContent, setOriginalContent] = useState<ContentItem | null>(content)
@@ -1236,14 +1224,28 @@ export default function PurchaseContentModal({
   useEffect(() => {
     const checkTextOnlyMode = async () => {
       try {
+        setModeCheckInProgress(true);
+        console.log('🔍 Checking text-only mode status...');
         const modeResponse = await fetch('/api/text-only-regeneration/mode-status');
+        console.log('📡 Mode response status:', modeResponse.status);
+        
         if (modeResponse.ok) {
           const modeData = await modeResponse.json();
+          console.log('📊 Mode data received:', modeData);
+          console.log('🔍 Setting textOnlyModeEnabled to:', modeData.textOnlyModeEnabled);
           setTextOnlyModeEnabled(modeData.textOnlyModeEnabled);
+          console.log('✅ Text-only mode enabled:', modeData.textOnlyModeEnabled);
+        } else {
+          console.error('❌ Mode response not ok:', modeResponse.status, modeResponse.statusText);
+          console.log('🔍 Keeping textOnlyModeEnabled as true (default) due to API error');
+          // Keep default value of true instead of setting to false
         }
       } catch (error) {
-        console.warn('⚠️ Could not check text-only mode status:', error);
-        setTextOnlyModeEnabled(false); // Default to full regeneration
+        console.error('❌ Error checking text-only mode status:', error);
+        console.log('🔍 Keeping textOnlyModeEnabled as true (default) due to error');
+        // Keep default value of true instead of setting to false
+      } finally {
+        setModeCheckInProgress(false);
       }
     };
     
@@ -3425,16 +3427,26 @@ export default function PurchaseContentModal({
                           // Content not generated yet - show single Generate button based on mode
                           <div className="flex flex-col gap-3">
                             <button
-                              onClick={textOnlyModeEnabled ? generateTextOnlyContentFromYapper : generateContentFromYapper}
-                              disabled={isGeneratingContent || !address || textOnlyModeEnabled === null}
+                              onClick={() => {
+                                console.log('🎯 Generate button clicked');
+                                console.log('📊 textOnlyModeEnabled:', textOnlyModeEnabled);
+                                console.log('📊 textOnlyModeEnabled type:', typeof textOnlyModeEnabled);
+                                console.log('📊 modeCheckInProgress:', modeCheckInProgress);
+                                console.log('📊 selectedYapper:', selectedYapper);
+                                console.log('📊 selectedVoiceTone:', selectedVoiceTone);
+                                console.log('🔧 Will call:', textOnlyModeEnabled ? 'generateTextOnlyContentFromYapper' : 'generateContentFromYapper');
+                                console.log('🔧 textOnlyModeEnabled === true:', textOnlyModeEnabled === true);
+                                if (textOnlyModeEnabled) {
+                                  console.log('🚀 Calling generateTextOnlyContentFromYapper');
+                                  generateTextOnlyContentFromYapper();
+                                } else {
+                                  console.log('🚀 Calling generateContentFromYapper');
+                                  generateContentFromYapper();
+                                }
+                              }}
+                              disabled={isGeneratingContent || !address}
                               className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
-                              {textOnlyModeEnabled === null && (
-                                <svg className="animate-spin h-5 w-5 text-white mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                              )}
                               {isGeneratingContent ? (
                                 <>
                                   <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -4583,9 +4595,14 @@ export default function PurchaseContentModal({
                           handlePurchase(); // Purchase generated content
                         } else {
                           // Use mode-based function selection
+                          console.log('🎯 Mobile button clicked - custom voice tone');
+                          console.log('📊 textOnlyModeEnabled:', textOnlyModeEnabled);
+                          console.log('📊 selectedYapper:', selectedYapper);
                           if (textOnlyModeEnabled) {
+                            console.log('🚀 Mobile: Calling generateTextOnlyContentFromYapper');
                             generateTextOnlyContentFromYapper(); // Generate text-only content
                           } else {
+                            console.log('🚀 Mobile: Calling generateContentFromYapper');
                             generateContentFromYapper(); // Generate full content
                           }
                         }
@@ -4599,9 +4616,9 @@ export default function PurchaseContentModal({
                         handlePurchase(); // Purchase existing content
                       }
                     }}
-                    disabled={isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent) || (selectedVoiceTone === "mystyle" && isGeneratingContent)}
+                    disabled={isLoading || isGeneratingContent}
                     className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 ${
-                      isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent)
+                      isLoading || isGeneratingContent
                         ? 'bg-[#FD7A10] cursor-not-allowed' 
                         : !address
                         ? 'bg-[#FD7A10] hover:bg-[#e86d0f] glow-orange-button'
@@ -4612,7 +4629,7 @@ export default function PurchaseContentModal({
                         : 'bg-[#FD7A10] glow-orange-button hover:bg-[#e86d0f]'
                     } text-white flex items-center justify-center gap-2`}
                   >
-                    {isLoading || (selectedVoiceTone === "custom" && selectedYapper !== "" && isGeneratingContent) || (selectedVoiceTone === "mystyle" && isGeneratingContent) ? (
+                    {isLoading || isGeneratingContent ? (
                       <>
                         <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
