@@ -61,6 +61,11 @@ export class MarketplaceContentService {
         'NOT EXISTS (SELECT 1 FROM content_purchases cp WHERE cp.content_id = content.id AND cp.payment_status = \'completed\')'
       );
 
+      // Apply 15-day shelf life filter - only show content enabled for bidding within last 15 days
+      const fifteenDaysAgo = new Date();
+      fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+      query = query.andWhere('content.biddingEnabledAt >= :fifteenDaysAgo', { fifteenDaysAgo });
+
       // Apply filters
       if (platform_source) {
         query = query.andWhere('campaign.platformSource = :platform', { platform: platform_source });
