@@ -104,13 +104,12 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
     const contentRepository: Repository<ContentMarketplace> = AppDataSource.getRepository(ContentMarketplace);
 
-    // Step 1: Get all active campaigns with future end dates, sorted in descending order by ID
+    // Step 1: Get all active campaigns with future end dates
     const currentDate = new Date();
     const allActiveCampaigns = await campaignRepository
       .createQueryBuilder('campaign')
       .where('campaign.isActive = :isActive', { isActive: true })
       .andWhere('campaign.endDate > :currentDate', { currentDate })
-      .orderBy('campaign.id', 'DESC') // Descending order by ID (newest first)
       .getMany();
 
     // Step 2: Filter campaigns that have at least one content which is approved, biddable and available
@@ -130,8 +129,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    // Step 3: Take first 3 campaigns for carousel
-    const campaigns = campaignsWithValidContent.slice(0, 3);
+    // Step 3: Randomly select 3 campaigns for carousel
+    const campaigns = campaignsWithValidContent
+      .sort(() => Math.random() - 0.5) // Shuffle the array randomly
+      .slice(0, 3); // Take first 3 after shuffling
 
     logger.info(`🎠 Found ${campaigns.length} active campaigns for carousel`);
     campaigns.forEach(campaign => {
