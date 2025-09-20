@@ -182,4 +182,126 @@ router.get('/hot-campaigns', async (req, res) => {
   }
 });
 
+// GET /api/hot-campaigns/text-regeneration - Get campaigns with 10+ purchases for text regeneration
+router.get('/hot-campaigns/text-regeneration', async (req, res) => {
+  try {
+    logger.info('🔥 Fetching campaigns for text regeneration (10+ purchases)...');
+
+    const campaignRepository = AppDataSource.getRepository(Campaign);
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+
+    // Step 1: Get campaigns with end_date >= current_date
+    const activeCampaigns = await campaignRepository
+      .createQueryBuilder('campaign')
+      .where('campaign.endDate >= :currentDate', { currentDate: new Date() })
+      .andWhere('campaign.isActive = :isActive', { isActive: true })
+      .select(['campaign.id', 'campaign.title', 'campaign.projectName', 'campaign.tokenTicker'])
+      .getMany();
+
+    if (activeCampaigns.length === 0) {
+      logger.info('📋 No active campaigns with valid end dates found');
+      return res.json({ 
+        success: true, 
+        data: [], 
+        message: 'No active campaigns with valid end dates found' 
+      });
+    }
+
+    logger.info(`📋 Found ${activeCampaigns.length} active campaigns with valid end dates`);
+
+    // Step 2: Get campaigns with 10+ total purchases
+    const campaignPurchaseCounts = await Promise.all(
+      activeCampaigns.map(async (campaign) => {
+        const totalPurchases = await purchaseRepository
+          .createQueryBuilder('purchase')
+          .innerJoin('purchase.content', 'content')
+          .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+          .getCount();
+
+        return {
+          campaign,
+          totalPurchases
+        };
+      })
+    );
+
+    // Filter campaigns with 10+ purchases
+    const qualifyingCampaigns = campaignPurchaseCounts
+      .filter(item => item.totalPurchases >= 10);
+
+    logger.info(`🔥 Found ${qualifyingCampaigns.length} campaigns with 10+ purchases`);
+
+    if (qualifyingCampaigns.length === 0) {
+      logger.info('📋 No campaigns with 10+ purchases found');
+      return res.json({ 
+        success: true, 
+        data: [], 
+        message: 'No campaigns with 10+ purchases found' 
+      });
+    }
+
+    // Step 3: For each qualifying campaign, get all available content by post type
+    const textRegenerationCampaigns: HotCampaignPostType[] = [];
+    const postTypes = ['thread', 'shitpost', 'longpost'];
+
+    for (const { campaign, totalPurchases } of qualifyingCampaigns) {
+      for (const postType of postTypes) {
+        // Get available content count (same logic as hot campaigns)
+        const availableCount = await contentRepository
+          .createQueryBuilder('content')
+          .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+          .andWhere('content.postType = :postType', { postType })
+          .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
+          .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
+          .andWhere('content.approvalStatus = :status', { status: 'approved' })
+          .getCount();
+
+        // Get purchase count for this post type
+        const purchaseCount = await purchaseRepository
+          .createQueryBuilder('purchase')
+          .innerJoin('purchase.content', 'content')
+          .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+          .andWhere('content.postType = :postType', { postType })
+          .getCount();
+
+        // Include ALL post types that have available content (no ratio filtering)
+        if (availableCount > 0) {
+          const ratio = purchaseCount / availableCount;
+          
+          textRegenerationCampaigns.push({
+            campaignId: campaign.id.toString(),
+            campaignName: campaign.title,
+            projectName: campaign.projectName || campaign.title,
+            postType,
+            availableCount,
+            purchaseCount,
+            ratio: ratio === Infinity ? 999999 : ratio,
+            totalCampaignPurchases: totalPurchases,
+            tokenTicker: campaign.tokenTicker || ''
+          });
+
+          logger.info(`📝 Text regeneration candidate: ${campaign.title} (${postType}) - Available: ${availableCount}, Purchased: ${purchaseCount}, Ratio: ${ratio.toFixed(2)}`);
+        }
+      }
+    }
+
+    logger.info(`📝 Found ${textRegenerationCampaigns.length} campaign post_types for text regeneration`);
+
+    return res.json({
+      success: true,
+      data: textRegenerationCampaigns,
+      message: `Found ${textRegenerationCampaigns.length} campaign post_types for text regeneration from ${qualifyingCampaigns.length} campaigns with 10+ purchases`
+    });
+
+  } catch (error) {
+    logger.error('❌ Error fetching text regeneration campaigns:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch text regeneration campaigns',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 export default router;

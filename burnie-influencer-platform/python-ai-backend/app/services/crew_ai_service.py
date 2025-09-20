@@ -142,6 +142,18 @@ class CrewAIService:
         
         # Yapper-specific context
         self.selected_yapper_handle = None  # Twitter handle of selected yapper for pattern
+    
+    def _replace_em_dashes(self, text: str) -> str:
+        """Replace em-dashes (—) with colons and space (': ') in text content"""
+        if not isinstance(text, str):
+            return text
+        return text.replace('—', ': ')
+    
+    def _replace_em_dashes_in_list(self, text_list: list) -> list:
+        """Replace em-dashes (—) with colons and space (': ') in a list of text strings"""
+        if not isinstance(text_list, list):
+            return text_list
+        return [self._replace_em_dashes(str(item)) if isinstance(item, str) else item for item in text_list]
 
     async def generate_content(self, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None, wallet_address: str = None) -> ContentGenerationResponse:
         """Main entry point for multi-agentic content generation"""
@@ -952,8 +964,8 @@ class CrewAIService:
                     json_str = json_match.group(0)
                     parsed_json = json.loads(json_str)
                     
-                    # Extract main tweet
-                    main_tweet = parsed_json.get("main_tweet", "")
+                    # Extract main tweet and apply em-dash replacement
+                    main_tweet = self._replace_em_dashes(parsed_json.get("main_tweet", ""))
                     
                     # Extract thread array and convert to proper format
                     thread_array = parsed_json.get("thread_array", [])
@@ -966,13 +978,13 @@ class CrewAIService:
                                     # Extract just the tweet text from the object
                                     tweet_text = thread_item.get("tweet", "")
                                     if tweet_text:
-                                        formatted_thread.append(str(tweet_text))
+                                        formatted_thread.append(self._replace_em_dashes(str(tweet_text)))
                                 elif isinstance(thread_item, str):
-                                    # If it's already a string, use it directly
-                                    formatted_thread.append(thread_item)
+                                    # If it's already a string, use it directly with em-dash replacement
+                                    formatted_thread.append(self._replace_em_dashes(thread_item))
                                 else:
                                     # Convert to string if it's something else
-                                    formatted_thread.append(str(thread_item))
+                                    formatted_thread.append(self._replace_em_dashes(str(thread_item)))
                             except Exception as e:
                                 logger.warning(f"⚠️ Error processing thread item: {e}")
                                 continue
@@ -994,8 +1006,8 @@ class CrewAIService:
                 # For threads, try to split by lines and treat as thread array
                 lines = raw_result.strip().split('\n')
                 if len(lines) > 1:
-                    main_tweet = lines[0].strip()
-                    thread_array = [line.strip() for line in lines[1:] if line.strip()]
+                    main_tweet = self._replace_em_dashes(lines[0].strip())
+                    thread_array = [self._replace_em_dashes(line.strip()) for line in lines[1:] if line.strip()]
                     logger.info(f"✅ Extracted thread content from lines: {len(thread_array)} thread tweets")
                     return {
                         "main_tweet": main_tweet,
@@ -1005,7 +1017,7 @@ class CrewAIService:
                     # Single line, treat as main tweet only
                     logger.info(f"✅ Extracted single tweet content for thread")
                     return {
-                        "main_tweet": raw_result.strip(),
+                        "main_tweet": self._replace_em_dashes(raw_result.strip()),
                         "thread_array": []
                     }
             
@@ -1013,7 +1025,7 @@ class CrewAIService:
                 # For shitposts and tweets, everything goes to main_tweet
                 logger.info(f"✅ Extracted {post_type} content")
                 return {
-                    "main_tweet": raw_result.strip(),
+                    "main_tweet": self._replace_em_dashes(raw_result.strip()),
                     "thread_array": []
                 }
             
@@ -1021,7 +1033,7 @@ class CrewAIService:
                 # For longposts, everything goes to main_tweet
                 logger.info(f"✅ Extracted longpost content")
                 return {
-                    "main_tweet": raw_result.strip(),
+                    "main_tweet": self._replace_em_dashes(raw_result.strip()),
                     "thread_array": []
                 }
             
@@ -1033,21 +1045,21 @@ class CrewAIService:
                 final_content = final_content.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
                 logger.info(f"✅ Extracted text-only content using regex")
                 return {
-                    "main_tweet": final_content,
+                    "main_tweet": self._replace_em_dashes(final_content),
                     "thread_array": []
                 }
             
             # Last resort: return raw result
             logger.warning(f"⚠️ Could not extract text content, returning raw result")
             return {
-                "main_tweet": raw_result,
+                "main_tweet": self._replace_em_dashes(raw_result),
                 "thread_array": []
             }
             
         except Exception as e:
             logger.error(f"❌ Error extracting text content: {e}")
             return {
-                "main_tweet": raw_result,
+                "main_tweet": self._replace_em_dashes(raw_result),
                 "thread_array": []
             }
 
@@ -1071,13 +1083,15 @@ class CrewAIService:
                     main_tweet = str(final_content) if final_content else ""
                     thread_array = []
                 
-                # Ensure main_tweet is a string
+                # Ensure main_tweet is a string and apply em-dash replacement
                 if not isinstance(main_tweet, str):
                     main_tweet = str(main_tweet) if main_tweet else ""
+                main_tweet = self._replace_em_dashes(main_tweet)
                 
-                # Ensure thread_array is a list
+                # Ensure thread_array is a list and apply em-dash replacement
                 if not isinstance(thread_array, list):
                     thread_array = []
+                thread_array = self._replace_em_dashes_in_list(thread_array)
                 
                 logger.info(f"📝 Post-processing text-only content:")
                 logger.info(f"   Main tweet: {str(main_tweet)[:50] if main_tweet else 'None'}...")
@@ -1085,7 +1099,7 @@ class CrewAIService:
                 
             except Exception as e:
                 logger.error(f"❌ Error extracting content data: {e}")
-                main_tweet = str(final_content) if final_content else ""
+                main_tweet = self._replace_em_dashes(str(final_content) if final_content else "")
                 thread_array = []
             
             # Create minimal response for text-only content
@@ -1166,14 +1180,18 @@ class CrewAIService:
                 logger.error(f"❌ Error formatting thread data: {e}")
                 formatted_thread = []
             
-            # Ensure content_text is a string
+            # Ensure content_text is a string and apply em-dash replacement
             content_text = final_content.content_text
             if not isinstance(content_text, str):
                 content_text = str(content_text) if content_text else ""
+            content_text = self._replace_em_dashes(content_text)
+            
+            # Apply em-dash replacement to thread items
+            formatted_thread = self._replace_em_dashes_in_list(formatted_thread)
             
             update_data = {
                 "updatedTweet": content_text,
-                "updatedThread": formatted_thread,  # Use properly formatted thread
+                "updatedThread": formatted_thread,  # Use properly formatted thread with em-dash replacement
                 "imagePrompt": getattr(self, 'stored_image_prompt', '')  # Store the image prompt
             }
             
@@ -3509,8 +3527,8 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                         json_str = json_match.group(0)
                         parsed_json = json.loads(json_str)
                         
-                        final_content = parsed_json.get("main_tweet", "")
-                        tweet_thread = parsed_json.get("thread_array", [])
+                        final_content = self._replace_em_dashes(parsed_json.get("main_tweet", ""))
+                        tweet_thread = self._replace_em_dashes_in_list(parsed_json.get("thread_array", []))
                         json_found = True
                         
                         # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
@@ -3531,6 +3549,8 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                         final_content = main_tweet_match.group(1)
                         # Unescape common escape sequences
                         final_content = final_content.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
+                        # Apply em-dash replacement
+                        final_content = self._replace_em_dashes(final_content)
                         tweet_thread = []  # No thread for longpost anyway
                         json_found = True
                         
@@ -4208,10 +4228,10 @@ No image generated
             import httpx
             from app.config.settings import settings
             
-            # Prepare content data for marketplace
+            # Prepare content data for marketplace with em-dash replacement
             content_data = {
-                "content_text": content.content_text,
-                "tweet_thread": getattr(content, 'tweet_thread', None),  # Include tweet thread if available
+                "content_text": self._replace_em_dashes(content.content_text),
+                "tweet_thread": self._replace_em_dashes_in_list(getattr(content, 'tweet_thread', None) or []),  # Include tweet thread if available
                 "content_images": content.content_images,  # Include images in sync payload
                 "predicted_mindshare": content.predicted_mindshare,
                 "quality_score": content.quality_score,
@@ -4311,6 +4331,8 @@ No image generated
                 final_text = main_tweet_match.group(1)
                 # Unescape any escaped quotes and other escape sequences in the content
                 final_text = final_text.replace('\\n', '\n').replace('\\r', '\r').replace('\\t', '\t').replace('\\"', '"').replace('\\\\', '\\')
+                # Apply em-dash replacement
+                final_text = self._replace_em_dashes(final_text)
                 logger.info(f"✅ Found main_tweet in _extract_twitter_content: {len(final_text)} chars")
             
             # Look for thread_array
@@ -4318,6 +4340,8 @@ No image generated
             if thread_match:
                 try:
                     tweet_thread = json.loads(thread_match.group(1))
+                    # Apply em-dash replacement to thread items
+                    tweet_thread = self._replace_em_dashes_in_list(tweet_thread)
                     logger.info(f"✅ Found thread_array: {len(tweet_thread)} tweets")
                 except:
                     pass
@@ -4328,7 +4352,7 @@ No image generated
         if not final_text:
             tweet_match = re.search(r'Tweet Text:\s*(.+)', raw_result)
             if tweet_match:
-                final_text = tweet_match.group(1).strip().strip('"')
+                final_text = self._replace_em_dashes(tweet_match.group(1).strip().strip('"'))
         
         if not tweet_thread:
             # First try to find JSON array format
@@ -4336,6 +4360,8 @@ No image generated
             if thread_match:
                 try:
                     tweet_thread = json.loads(thread_match.group(1))
+                    # Apply em-dash replacement to thread items
+                    tweet_thread = self._replace_em_dashes_in_list(tweet_thread)
                     logger.info(f"✅ Found thread_array in JSON format: {len(tweet_thread)} tweets")
                 except:
                     pass
@@ -4361,7 +4387,7 @@ No image generated
                             break
                 
                 if thread_lines:
-                    tweet_thread = thread_lines
+                    tweet_thread = self._replace_em_dashes_in_list(thread_lines)
                     logger.info(f"✅ Found thread in multi-line format: {len(tweet_thread)} tweets")
         
         # STEP 3: Extract image URL
@@ -5222,6 +5248,8 @@ CRITICAL RULES:
 - Do NOT include any text outside the JSON object
 - The JSON should contain 'main_tweet' and 'thread_array' fields
 - Output ONLY the JSON object, nothing else
+- NEVER mention Twitter handle names (like @username) in your generated content
+- Write content IN THE STYLE of the requested handle but WITHOUT mentioning the handle name itself
 
 🎯 **INTELLIGENT SUB-CONTEXT SELECTION**:
 - Analyze the provided campaign context and intelligently select the most relevant and engaging aspects
@@ -5243,6 +5271,9 @@ Context Information:
             if image_prompt and image_prompt.strip():
                 user_prompt += f"\n\nIMPORTANT: The text must align with this existing image: {image_prompt}. Make sure the content complements and enhances the visual message."
             user_prompt += f". Generate in the style of {selected_handle}."
+            
+            # Add instruction to NOT mention the handle name in the generated content
+            user_prompt += f"\n\nCRITICAL: Do NOT mention '{selected_handle}' or any Twitter handle names in your generated content. Write the content IN THE STYLE of {selected_handle} but without mentioning the handle name itself."
             
             # Add sub-context selection instructions
             user_prompt += f"\n\n🎯 **FOCUS INSTRUCTIONS**: Analyze the campaign context and pick the most interesting/relevant aspect (e.g., growth metrics, partnerships, technical features) to focus your content on. Don't try to cover everything - pick ONE compelling theme and go deep into it."
@@ -6596,11 +6627,11 @@ CRITICAL REQUIREMENTS:
                     try:
                         json_obj = json.loads(json_str)
                         if 'main_tweet' in json_obj:
-                            tweet_text = json_obj['main_tweet']
+                            tweet_text = self._replace_em_dashes(json_obj['main_tweet'])
                             logger.info(f"✅ Found main_tweet in new JSON format: {tweet_text[:50]}...")
                             
                             if 'thread_array' in json_obj and json_obj['thread_array']:
-                                tweet_thread = json_obj['thread_array']
+                                tweet_thread = self._replace_em_dashes_in_list(json_obj['thread_array'])
                                 logger.info(f"✅ Found thread_array in new JSON format: {len(tweet_thread)} tweets")
                             break
                     except json.JSONDecodeError:
@@ -6615,7 +6646,7 @@ CRITICAL REQUIREMENTS:
                     # Look for main_tweet in this approach
                     main_tweet_match = re.search(rf'"{approach}":\s*{{[^}}]*"main_tweet":\s*"([^"]+)"', agent_outputs, re.DOTALL)
                     if main_tweet_match:
-                        tweet_text = main_tweet_match.group(1)
+                        tweet_text = self._replace_em_dashes(main_tweet_match.group(1))
                         logger.info(f"✅ Found main_tweet in {approach}: {tweet_text[:50]}...")
                         
                         # Look for thread_array in the same approach
@@ -6625,13 +6656,13 @@ CRITICAL REQUIREMENTS:
                             # Parse the array elements
                             try:
                                 thread_items = json.loads(f'[{thread_content}]')
-                                tweet_thread = thread_items
+                                tweet_thread = self._replace_em_dashes_in_list(thread_items)
                                 logger.info(f"✅ Found thread_array in {approach}: {len(tweet_thread)} tweets")
                             except json.JSONDecodeError:
                                 # Fallback: split by quotes if JSON parsing fails
                                 thread_items = re.findall(r'"([^"]+)"', thread_content)
                                 if thread_items:
-                                    tweet_thread = thread_items
+                                    tweet_thread = self._replace_em_dashes_in_list(thread_items)
                                     logger.info(f"✅ Found thread_array (regex) in {approach}: {len(tweet_thread)} tweets")
                         break
             
@@ -6644,17 +6675,17 @@ CRITICAL REQUIREMENTS:
                     # Try to find "Engaging" approach first
                     engaging_match = re.search(r'"approach":\s*"Engaging".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
                     if engaging_match:
-                        tweet_text = engaging_match.group(1)
+                        tweet_text = self._replace_em_dashes(engaging_match.group(1))
                     else:
                         # Try "Bold" approach
                         bold_match = re.search(r'"approach":\s*"Bold".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
                         if bold_match:
-                            tweet_text = bold_match.group(1)
+                            tweet_text = self._replace_em_dashes(bold_match.group(1))
                         else:
                             # Try "Conservative" approach
                             conservative_match = re.search(r'"approach":\s*"Conservative".*?"content":\s*"([^"]+)"', variations_content, re.DOTALL)
                             if conservative_match:
-                                tweet_text = conservative_match.group(1)
+                                tweet_text = self._replace_em_dashes(conservative_match.group(1))
             
             # Pattern 4: Fallback tweet patterns if JSON extraction fails
             if tweet_text == "Generated content from AI agents":
@@ -6662,7 +6693,7 @@ CRITICAL REQUIREMENTS:
                 tweet_text_match = re.search(r'Tweet Text:\s*(.+?)(?=\n\nImage URL:|$)', agent_outputs, re.DOTALL | re.IGNORECASE)
                 if tweet_text_match:
                     # Join lines and clean up
-                    tweet_text = ' '.join(tweet_text_match.group(1).strip().split('\n')).strip()
+                    tweet_text = self._replace_em_dashes(' '.join(tweet_text_match.group(1).strip().split('\n')).strip())
                 else:
                     # Original fallback patterns
                     tweet_patterns = [
@@ -6674,7 +6705,7 @@ CRITICAL REQUIREMENTS:
                     for pattern in tweet_patterns:
                         match = re.search(pattern, agent_outputs, re.IGNORECASE)
                         if match:
-                            tweet_text = match.group(1).strip()
+                            tweet_text = self._replace_em_dashes(match.group(1).strip())
                             break
             
             # Extract image URL from Visual Content Creator output

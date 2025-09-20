@@ -184,42 +184,48 @@ export class MarketplaceContentService {
   }
 
   /**
-   * Format content for frontend consumption
+   * Format content for frontend consumption with priority logic for regenerated content
    */
   private async formatContentForFrontend(contents: ContentMarketplace[]): Promise<any[]> {
-    return contents.map(content => ({
-      id: content.id,
-      content_text: content.contentText,
-      tweet_thread: content.tweetThread || null,
-      content_images: content.contentImages || [],
-      watermark_image: content.watermarkImage || null,
-      predicted_mindshare: Number(content.predictedMindshare || 0),
-      quality_score: Number(content.qualityScore || 0),
-      asking_price: Number(content.biddingAskPrice || content.askingPrice || 0),
-      post_type: content.postType || 'thread',
-      creator: {
-        id: content.creator?.id,
-        username: content.creator?.username || 'Anonymous',
-        reputation_score: Number(content.creator?.reputationScore || 0),
-        wallet_address: content.creator?.walletAddress
-      },
-      campaign: {
-        id: content.campaign?.id,
-        title: content.campaign?.title || 'Unknown Campaign',
-        project_name: content.campaign?.projectName || content.campaign?.title || 'Unknown Project',
-        platform_source: content.campaign?.platformSource || 'unknown',
-        reward_token: content.campaign?.rewardToken || 'ROAST'
-      },
-      agent_name: content.agentName,
-      created_at: content.createdAt?.toISOString() || null,
-      approved_at: content.approvedAt?.toISOString() || null,
-      bidding_enabled_at: content.biddingEnabledAt?.toISOString() || 
-        (content.isBiddable ? content.createdAt?.toISOString() || null : null), // Fallback to createdAt if biddable but missing
-      // For immediate purchase system - no bidding data needed
-      current_highest_bid: null,
-      total_bids: 0,
-      bids: []
-    }));
+    return contents.map(content => {
+      // Priority logic: Use regenerated content if available, otherwise fallback to original
+      const mainTweet = content.updatedTweet || content.contentText;
+      const threadArray = content.updatedThread || content.tweetThread || null;
+      
+      return {
+        id: content.id,
+        content_text: mainTweet,
+        tweet_thread: threadArray,
+        content_images: content.contentImages || [],
+        watermark_image: content.watermarkImage || null,
+        predicted_mindshare: Number(content.predictedMindshare || 0),
+        quality_score: Number(content.qualityScore || 0),
+        asking_price: Number(content.biddingAskPrice || content.askingPrice || 0),
+        post_type: content.postType || 'thread',
+        creator: {
+          id: content.creator?.id,
+          username: content.creator?.username || 'Anonymous',
+          reputation_score: Number(content.creator?.reputationScore || 0),
+          wallet_address: content.creator?.walletAddress
+        },
+        campaign: {
+          id: content.campaign?.id,
+          title: content.campaign?.title || 'Unknown Campaign',
+          project_name: content.campaign?.projectName || content.campaign?.title || 'Unknown Project',
+          platform_source: content.campaign?.platformSource || 'unknown',
+          reward_token: content.campaign?.rewardToken || 'ROAST'
+        },
+        agent_name: content.agentName,
+        created_at: content.createdAt?.toISOString() || null,
+        approved_at: content.approvedAt?.toISOString() || null,
+        bidding_enabled_at: content.biddingEnabledAt?.toISOString() || 
+          (content.isBiddable ? content.createdAt?.toISOString() || null : null), // Fallback to createdAt if biddable but missing
+        // For immediate purchase system - no bidding data needed
+        current_highest_bid: null,
+        total_bids: 0,
+        bids: []
+      };
+    });
   }
 
   /**

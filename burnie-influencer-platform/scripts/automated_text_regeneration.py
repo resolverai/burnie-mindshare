@@ -153,20 +153,20 @@ class AutomatedTextRegenerator:
         logger.info(f"💰 Wallet Address: {self.wallet_address}")
     
     async def get_hot_campaigns(self) -> List[HotCampaign]:
-        """Fetch hot campaigns from TypeScript backend"""
+        """Fetch campaigns for text regeneration from TypeScript backend"""
         try:
-            logger.info("🔥 Fetching hot campaigns from TypeScript backend...")
+            logger.info("🔥 Fetching campaigns for text regeneration from TypeScript backend...")
             
             async with aiohttp.ClientSession() as session:
-                url = f"{self.typescript_backend_url}/api/hot-campaigns"
+                url = f"{self.typescript_backend_url}/api/hot-campaigns/text-regeneration"
                 async with session.get(url) as response:
                     if response.status != 200:
-                        logger.error(f"❌ Failed to fetch hot campaigns: {response.status}")
+                        logger.error(f"❌ Failed to fetch text regeneration campaigns: {response.status}")
                         return []
                     
                     data = await response.json()
                     if not data.get('success'):
-                        logger.error(f"❌ Hot campaigns API returned error: {data.get('message', 'Unknown error')}")
+                        logger.error(f"❌ Text regeneration campaigns API returned error: {data.get('message', 'Unknown error')}")
                         return []
                     
                     hot_campaigns = []
@@ -183,11 +183,11 @@ class AutomatedTextRegenerator:
                             token_ticker=item.get('tokenTicker')
                         ))
                     
-                    logger.info(f"✅ Found {len(hot_campaigns)} hot campaign+post_type combinations")
+                    logger.info(f"✅ Found {len(hot_campaigns)} campaign+post_type combinations for text regeneration")
                     return hot_campaigns
                     
         except Exception as e:
-            logger.error(f"❌ Error fetching hot campaigns: {str(e)}")
+            logger.error(f"❌ Error fetching text regeneration campaigns: {str(e)}")
             return []
     
     async def get_available_content(self, hot_campaigns: List[HotCampaign]) -> List[ContentItem]:
@@ -310,7 +310,7 @@ class AutomatedTextRegenerator:
     def print_campaign_metadata(self, hot_campaigns: List[HotCampaign], content_items: List[ContentItem]):
         """Print metadata about campaigns and content counts"""
         logger.info("\n" + "="*80)
-        logger.info("📊 HOT CAMPAIGNS METADATA")
+        logger.info("📊 TEXT REGENERATION CAMPAIGNS METADATA")
         logger.info("="*80)
         
         # Group content by campaign+post_type
@@ -335,7 +335,7 @@ class AutomatedTextRegenerator:
             logger.info("-" * 60)
         
         logger.info(f"📈 TOTAL SUMMARY:")
-        logger.info(f"   🔥 Hot Campaign+PostType Combinations: {len(hot_campaigns)}")
+        logger.info(f"   🔥 Campaign+PostType Combinations (10+ purchases): {len(hot_campaigns)}")
         logger.info(f"   📝 Total Content Items to Regenerate: {len(content_items)}")
         logger.info(f"   🎲 Random Handles Available: {len(self.all_handles)}")
         logger.info("="*80 + "\n")
@@ -346,16 +346,16 @@ class AutomatedTextRegenerator:
             logger.info("🚀 Starting automated text regeneration cycle...")
             start_time = datetime.now()
             
-            # Step 1: Get hot campaigns
+            # Step 1: Get campaigns for text regeneration
             hot_campaigns = await self.get_hot_campaigns()
             if not hot_campaigns:
-                logger.warning("⚠️ No hot campaigns found, skipping cycle")
+                logger.warning("⚠️ No campaigns with 10+ purchases found, skipping cycle")
                 return
             
             # Step 2: Get available content
             content_items = await self.get_available_content(hot_campaigns)
             if not content_items:
-                logger.warning("⚠️ No available content found for hot campaigns")
+                logger.warning("⚠️ No available content found for qualifying campaigns")
                 return
             
             # Step 3: Print metadata
