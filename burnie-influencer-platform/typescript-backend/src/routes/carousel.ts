@@ -112,9 +112,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       .andWhere('campaign.endDate > :currentDate', { currentDate })
       .getMany();
 
-    // Step 2: Filter campaigns that have at least one content which is approved, biddable and available
+    // Step 2: Filter campaigns that have at least 2 content items which are approved, biddable and available
     const campaignsWithValidContent: Campaign[] = [];
     
+    // Apply 30-day shelf life filter for campaign selection
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
     for (const campaign of allActiveCampaigns) {
       const validContentCount = await contentRepository
         .createQueryBuilder('content')
@@ -122,9 +126,11 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         .andWhere('content.approvalStatus = :approvalStatus', { approvalStatus: 'approved' })
         .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
         .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
+        .andWhere('content.biddingEnabledAt >= :thirtyDaysAgo', { thirtyDaysAgo })
         .getCount();
       
-      if (validContentCount > 0) {
+      // Only include campaigns with at least 2 valid content items (for gallery images)
+      if (validContentCount >= 2) {
         campaignsWithValidContent.push(campaign);
       }
     }
@@ -149,9 +155,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
             for (const campaign of campaigns) {
           try {
-            // Apply 15-day shelf life filter for gallery images
-            const fifteenDaysAgo = new Date();
-            fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+            // Apply 30-day shelf life filter for gallery images
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
             // Get latest content pieces for this campaign with post type priority
             // Priority: shitpost > thread > others, sorted by creation date (newest first)
@@ -162,7 +168,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
               .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
               .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
               .andWhere('content.contentImages IS NOT NULL')
-              .andWhere('content.biddingEnabledAt >= :fifteenDaysAgo', { fifteenDaysAgo })
+              .andWhere('content.biddingEnabledAt >= :thirtyDaysAgo', { thirtyDaysAgo })
               .orderBy(
                 'CASE WHEN content.postType = \'shitpost\' THEN 1 WHEN content.postType = \'thread\' THEN 2 ELSE 3 END',
                 'ASC'
@@ -171,14 +177,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
               .limit(2)
               .getMany();
 
-            // Get total content count (approved, biddable and available) for this campaign with 15-day filter
+            // Get total content count (approved, biddable and available) for this campaign with 30-day filter
             const totalContentCount = await contentRepository
               .createQueryBuilder('content')
               .where('content.campaignId = :campaignId', { campaignId: campaign.id })
               .andWhere('content.approvalStatus = :approvalStatus', { approvalStatus: 'approved' })
               .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
               .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
-              .andWhere('content.biddingEnabledAt >= :fifteenDaysAgo', { fifteenDaysAgo })
+              .andWhere('content.biddingEnabledAt >= :thirtyDaysAgo', { thirtyDaysAgo })
               .getCount();
 
             const gallery: string[] = [];
