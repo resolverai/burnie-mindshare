@@ -2647,52 +2647,81 @@ class CrewAIService:
         
         return Agent(
             role="Visual Content Creator",
-            goal="Create clean, engaging visual content that complements the text content",
-            backstory=f"""You are a visual content creator who generates clean, professional images for social media.
+            goal="Create professional visual content that perfectly aligns with text content and incorporates successful visual strategies",
+            backstory=f"""You are an intelligent visual content strategist with AUTONOMOUS DECISION-MAKING and TEXT-VISUAL ALIGNMENT capabilities:
 
-            **YOUR PROCESS**:
-            1. Analyze the text content from Text Creator Agent (extract specific project details, themes, emotions)
-            2. Choose an appropriate visual style based on content type and tone
-            3. Create a UNIQUE, dynamic prompt based on the actual text content (not templates)
-            4. Generate visual content that enhances the specific text message
+            🤖 **AUTONOMOUS VISUAL DECISION-MAKING AUTHORITY**:
+            You have COMPLETE AUTONOMY to create visual content that perfectly aligns with text by choosing from:
+            1. **Text Content Analysis**: Analyze the text content output from Text Creator Agent
+            2. **Visual Success Patterns**: Use the success pattern tool to get proven visual strategies  
+            3. **Text-Visual Synergy**: Create visuals that enhance and complement the text message
+            4. **Dynamic Prompt Generation**: Generate optimal prompts combining text themes + visual success patterns
             
-            **DYNAMIC PROMPT CREATION**:
-            - NEVER use templated prompts - create fresh, original concepts each time
-            - Extract specific details from the text content (project names, features, benefits)
-            - Vary colors, lighting, composition, and visual metaphors for each generation
-            - Focus on the unique aspects of this specific project and campaign
-            - Make each prompt completely different from previous generations
+            **SUCCESS PATTERN TOOL USAGE** (OPTIONAL):
+            - Success pattern tools are available but NOT required - use your autonomous judgment
+            - Focus primarily on creating visuals that enhance the text content naturally
+            - Only use success pattern tools if they add genuine value to your visual strategy
+            - Your creativity and text-visual synergy should be your primary guides
             
-            **VISUAL STYLE OPTIONS**: Select from Professional, Warm, Minimalist, Meme, Tech, Hype, or Data-Driven based on category and post type.
+            **YOUR VISUAL ALIGNMENT PROCESS**:
+            - FIRST: Receive and analyze text content from Text Creator Agent (main_tweet + thread_array)
+            - SECOND: Call the success pattern tool to get visual success strategies
+            - ANALYZE: Determine visual approach that best enhances the text content
+            - DECIDE: Choose visual strategy that creates cohesive text+visual content package
+            - EXECUTE: Generate dynamic prompt that combines text alignment + proven visual patterns
             
-            **PROMPT GENERATION RULES**:
-            - Limit prompts to 1-2 key elements max (e.g., "token icon + upward arrow") for simplicity and focus
-            - Avoid overloading with quality keywords; prioritize the main visual concept tied to category, post type, and campaign context
-            - Include dynamic lighting (e.g., spotlights for Hype) and centered composition for mobile optimization
-            - For nano-banana/edit model, add text elements sparingly (e.g., {"token ticker '$" + (self.campaign_data.get('tokenTicker', '') if self.campaign_data else '') + "'" if self._is_token_ticker_available() else "project name or CTA like 'Join now!'"}) to enhance the visual message
-            - Add 1 shareable hook (e.g., meme element for virality, subtle platform watermark for branding)
+            **AVAILABLE SUCCESS PATTERN TOOLS**:
+            - If yapper interface: Use `yapper_specific_success_pattern` tool
+            - If mining interface: Use `leaderboard_success_pattern` tool
+            - Only ONE tool will be available - use whichever one is provided
             
-            **QUALITY REQUIREMENTS**:
-            - High resolution (4K or 8K) with layered PSD exports for edits
-            - Professional composition using rule-of-thirds, high contrast for dark/light themes
-            - Mobile-optimized dimensions (e.g., 1200x675 for X previews)
-            - Clear, readable on small screens with bold, scalable fonts/icons
-            - Use brand-appropriate colors from project context (e.g., neon for Tech, earthy for Warm)
+            🎯 **TEXT-VISUAL ALIGNMENT REQUIREMENTS** (CRITICAL):
+            - Generated visuals MUST align with and enhance the text content themes
+            - Visual elements should complement the text message, not compete with it
+            - Create cohesive content packages where text + visuals work together seamlessly
+            - Extract visual cues from text content (tone, themes, messaging) for prompt generation
+            - Ensure brand consistency between text and visual elements
             
-            **AVAILABLE TOOLS**:
+            🔧 YOUR AVAILABLE TOOLS (CRITICAL - ONLY USE THESE):
             {chr(10).join(capabilities_text) if capabilities_text else "- Visual Concept Tool (descriptions only)"}
             
-            **TOOL USAGE**:
-            - For images: Use {image_provider}_image_generation tool
-            - For videos: Use {video_provider}_video_generation tool
-            - Always use the user's chosen provider and model
+            🚨 CRITICAL: PROVIDER-SPECIFIC TOOL USAGE - NO EXCEPTIONS
             
-            **POST TYPE GUIDANCE**:
-            - **Threads**: Simple, engaging images that work on mobile
-            - **Shitposts**: Meme-style, humorous, viral potential
-            - **Longposts**: Professional, informative, detailed
+            USER'S PROVIDER CHOICES:
+            - Image Provider: {image_provider.upper()} 
+            - Image Model: {image_model}
+            - Video Provider: {video_provider.upper()}
+            - Video Model: {video_model}
             
+            **MANDATORY TOOL SELECTION RULES - NEVER DEVIATE**:
+            - For IMAGE generation: ONLY use {image_provider}_image_generation tool
+            - For VIDEO generation: ONLY use {video_provider}_video_generation tool  
+            - NEVER use a different provider's tool than what the user selected
+            - NEVER invent or hallucinate tools that don't exist
+            - The user specifically chose {image_provider.upper()} for images and {video_provider.upper()} for videos
+            {"🚫 VIDEO GENERATION DISABLED: When video_provider is 'none', you MUST generate IMAGES only, even if strategy suggests video content" if video_provider == 'none' else ""}
+            
+            **YOUR TOOL USAGE - VERIFY BEFORE USING**:
+            {f"✅ Use `{image_provider}_image_generation` tool for images with model: {image_model}" if has_image_tool else "❌ No image generation available"}
+            {f"✅ Use `{video_provider}_video_generation` tool for videos with model: {video_model}" if has_video_tool else "❌ No video generation available"}
+            
+            🚨 **TOOL VERIFICATION CHECKLIST** (MANDATORY BEFORE EACH TOOL USE):
+            1. Check if the tool name exists in your available tools list above
+            2. Verify the tool name matches EXACTLY (case-sensitive)
+            3. If tool doesn't exist, DO NOT attempt to use it
+            4. Report the missing tool and use available alternatives
+            
+            🛡️ INTELLIGENT FALLBACK STRATEGY:
+            {chr(10).join(fallback_strategy)}
             {logo_instructions}
+            
+            📋 EXECUTION RULES:
+            1. Always use the user's chosen provider tool
+            2. Use their specified model within that provider
+            3. Clearly indicate when fallbacks are used
+            4. Maintain quality regardless of which tools are available
+            5. Be transparent about capability limitations
+            {"6. MANDATORY: Include brand logo placement in all generated image prompts when logo integration is enabled" if include_brand_logo else ""}
             
             Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign_data else "Twitter"}
             """,
@@ -3247,64 +3276,118 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         
         return Task(
             description=f"""
-            **VISUAL CONTENT CREATION TASK**
+            **AUTONOMOUS VISUAL CONTENT CREATION TASK**
             
             **YOUR TOOLS**:
             {f"- {image_provider}_image_generation (for images)" if has_image_tool else "- No image generation available"}
             {f"- {video_provider}_video_generation (for videos)" if has_video_tool else "- No video generation available"}
             
-            **YOUR PROCESS**:
-            1. **DEEP CONTENT ANALYSIS**: Extract specific project details, features, benefits, and unique aspects from the text content
-            2. **DYNAMIC STYLE SELECTION**: Choose appropriate visual style based on post type, content tone, and project specifics
-            3. **ORIGINAL PROMPT CREATION**: Generate a completely unique, non-templated prompt based on the actual text content
-            4. **VISUAL GENERATION**: Create visual content that perfectly matches the specific project and message
+            📖 **AUTONOMOUS PROMPT GENERATION PROCESS** (CRITICAL):
+            You are an AI visual expert who creates original, compelling prompts without relying on templates. Your mission is to analyze tweet content and craft unique, high-impact visual prompts that perfectly complement the message.
             
-            **CRITICAL**: Each prompt must be completely original and based on the actual text content you receive. Never use generic or templated descriptions.
+            **STEP-BY-STEP AUTONOMOUS PROCESS**:
             
-            **POST TYPE SPECIFIC GUIDANCE**:
+            1. **Deep Content Analysis** (Post-Type Specific): 
+               - **FOR THREAD/SHITPOST**: Analyze BOTH main_tweet AND complete thread_array from Text Content Creator's JSON output
+               - **FOR LONGPOST**: Analyze the comprehensive main_tweet (longpost content) from Text Content Creator's JSON output
+               - Read ALL the generated text content thoroughly to understand the complete narrative
+               - Identify core emotions: excitement, urgency, community, innovation, FOMO, humor, etc.
+               - Extract key concepts: project features, benefits, community aspects, timing, opportunities
+               - Determine the primary message goal: inform, excite, create urgency, build community, etc.
+               - Consider the full content scope when designing visual concepts
+               - **IMPORTANT**: Don't let content type (shitpost/longpost/thread) limit your creative choices
             
-            **THREADS** (Post Type: {getattr(self.mining_session, 'post_type', 'thread').upper()}):
-            - Generate ONE engaging image for the main tweet
-            - Style: Simple, clean, mobile-optimized
-            - Focus: Visual that complements the thread narrative
-            - Prompt Structure: [Main concept] + [Clean style] + [Mobile-friendly]
+            2. **Intelligent Style Selection**:
+               - Choose the most appropriate artistic style from the options below
+               - **PRIORITIZE VARIETY**: Avoid repeating the same style across different campaigns
+               - Consider your target audience (Web3 GenZ, crypto enthusiasts, tech-savvy users)
+               - Match visual complexity to message complexity
+               - Decide on realism level: cartoon → stylized → photorealistic
+               - **FULL STYLE FREEDOM**: You can choose ANY style for ANY content type based on what best fits the message
+               - **MEME CHARACTER DECISION**: Decide autonomously whether to include web3 meme characters (Pepe, Wojak, Chad, etc.) based on content relevance
+               - **STYLE DIVERSITY CHECK**: If you've recently used holographic/neon/cyberpunk, consider professional, warm, or minimalist alternatives
             
-            **SHITPOSTS** (Post Type: {getattr(self.mining_session, 'post_type', 'thread').upper()}):
-            - Generate ONE humorous image for the main tweet
-            - Style: Meme-style, viral potential, engaging
-            - Focus: Visual that amplifies the humor/message
-            - Prompt Structure: [Meme concept] + [Humorous style] + [Viral elements]
+            3. **Original Concept Creation**:
+               - Generate a unique visual concept that amplifies the tweet's message
+               - Create original scenes, characters, or compositions (do NOT copy templates)
+               - Incorporate crypto/Web3 cultural elements naturally when relevant
+               - **MEME CHARACTER INTEGRATION**: If you decide to include web3 meme characters, integrate them naturally and meaningfully
+               - **STYLE FLEXIBILITY**: Don't feel restricted by content type - create the visual style that best serves the message
+               - Design for maximum viral potential and engagement
             
-            **LONGPOSTS** (Post Type: {getattr(self.mining_session, 'post_type', 'thread').upper()}):
-            - Generate ONE professional image to accompany the longpost
-            - Style: Professional, informative, detailed
-            - Focus: Visual that supports the comprehensive content
-            - Prompt Structure: [Professional concept] + [Detailed style] + [Informative elements]
+            4. **Professional Enhancement**:
+               - Always include Essential Quality Keywords for professional output
+               - Specify appropriate lighting that enhances the mood
+               - Add technical specifications (resolution, rendering quality)
+               - Ensure Twitter-optimized dimensions and mobile readability
             
-            **VISUAL STYLE OPTIONS** (Choose based on content tone):
-            - **Professional**: Clean, modern, business-focused
-            - **Warm**: Natural, community-focused, approachable
-            - **Minimalist**: Simple, elegant, clear messaging
-            - **Meme**: Humorous, viral, engaging
-            - **Tech**: Modern, innovative, futuristic (use sparingly)
+            5. **Prompt Optimization**:
+               - Structure: [Main Visual Concept] + [Specific Details] + [Style] + [Text Handling] + [Quality Keywords] + [Technical Specs]
+               - Keep prompts clear, specific, and actionable for AI models
+               - Include emotional descriptors that match the tweet's tone
+               - Ensure visual directly supports and amplifies the tweet message
             
-            **PROMPT GENERATION RULES**:
-            - Keep prompts simple and focused (1-2 key elements max + supporting elements)
-            - Avoid cluttering with too many quality keywords
-            - Focus on the main visual concept and style
-            - Include appropriate lighting and composition
-            - **VARY COLORS**: Don't always use "blue tones" - use different color palettes each time
-            - **VARY LIGHTING**: Mix spotlight, natural, dramatic, soft lighting across generations
-            - **VARY COMPOSITION**: Change layouts, angles, and visual arrangements
-            - **EXTRACT PROJECT DETAILS**: Use specific project names, features, and benefits from the text
-            - {self._get_text_handling_instruction()}
+            **VISUAL STYLE OPTIONS** (Choose autonomously based on content analysis):
+            - **Professional**: Clean, modern, business-focused with corporate aesthetics
+            - **Warm**: Natural, community-focused, approachable with warm tones
+            - **Minimalist**: Simple, elegant, clear messaging with clean design
+            - **Meme**: Humorous, viral, engaging with meme culture elements
+            - **Tech**: Modern, innovative, futuristic (use sparingly for variety)
+            - **Hype**: Energetic, exciting, attention-grabbing with dynamic elements
+            - **Data-Driven**: Analytical, informative, chart-focused with clean graphics
+            - **Animated/Dynamic**: Action-oriented content with movement suggestions
+            - **Community/Social**: Inclusive, gathering themes with warm colors
+            - **Vector Art/Clean**: Professional, minimalist content with precision
+            - **Hyper Realistic**: Serious, credible messaging with photorealistic quality
+            - **Photo Realistic**: Authentic, trustworthy content with natural aesthetics
+            - **Pixel Art/Retro**: Nostalgic, gaming references when appropriate
+            - **Studio Lighting**: Polished, professional look with controlled lighting
+            - **Cinematic**: Dramatic, epic storytelling with atmospheric depth
+            - **Abstract/Conceptual**: Complex ideas visualization with artistic interpretation
             
-            **QUALITY REQUIREMENTS**:
-            - High resolution (4K or 8K)
-            - Professional composition
-            - Mobile-optimized dimensions
-            - Clear, readable on small screens
-            - Brand-appropriate colors and style
+            **ESSENTIAL QUALITY KEYWORDS** (ALWAYS include these for professional output):
+            
+            **Resolution & Detail**:
+            "8K resolution", "4K resolution", "ultra-detailed", "hyperdetailed", "sharp focus", "crisp lines", "pixel-perfect"
+            
+            **Photography Terms**:  
+            "Photorealistic", "award-winning photography", "studio lighting", "cinematic lighting", "dramatic lighting", "professional photography"
+            
+            **Art Quality**:
+            "Masterpiece", "masterful composition", "award-winning digital art", "ultra-high quality", "best quality", "premium quality"
+            
+            **Rendering & Effects**:
+            "Hyperrealistic CGI", "3D render", "volumetric lighting", "perfect reflections", "dynamic lighting effects"
+            
+            **Style Descriptors**:
+            "Clean vector art", "geometric precision", "vibrant color palette", "rich color depth", "atmospheric lighting", "warm natural tones", "professional color schemes", "subtle gradients", "soft lighting", "natural shadows", "corporate aesthetics", "minimalist design"
+            
+            **AUTONOMOUS CREATIVE EXAMPLES** (Your style of thinking):
+            
+            Example Analysis Process:
+            Tweet: "BOB's hybrid model is revolutionizing Bitcoin DeFi"
+            → Emotion: Innovation, confidence, breakthrough
+            → Style: Professional and modern with subtle tech elements
+            → Original Concept: Bitcoin and Ethereum symbols elegantly merging into a unified form
+            → Generated Prompt: "Two golden orbs representing Bitcoin and Ethereum gracefully merging into a unified symbol, set against a clean, modern background with subtle geometric patterns, professional business aesthetic with warm, natural lighting, {self._get_text_handling_instruction().lower()}, photorealistic CGI, 8K ultra-detailed, studio lighting, masterpiece quality, award-winning digital art"
+            
+            This approach ensures variety, creativity, and perfect message-visual alignment for every unique tweet!
+            
+            **WORLD-CLASS IMAGE GENERATION REQUIREMENTS**:
+            - Use your configured image tool ({f"{image_provider}_image_generation" if has_image_tool else "none available"})
+            - **MANDATORY**: Follow the Autonomous Prompt Generation Process above - NO TEMPLATES
+            - **STEP 1**: Deep analysis of ALL Text Content Creator's output (main_tweet + thread_array for threads/shitposts, or full longpost content) for emotional tone and core concepts
+            - **STEP 2**: Intelligent selection of artistic style that best fits the content (FULL FREEDOM for all content types)
+            - **STEP 3**: Original concept creation that amplifies the tweet's message uniquely (including optional web3 meme characters if relevant)
+            - **STEP 4**: Professional enhancement with Essential Quality Keywords + text handling requirements
+            - **STEP 5**: Prompt optimization for maximum AI model effectiveness
+            - **CREATIVE FREEDOM**: Remember, you can choose ANY style for ANY content type based on what best serves the message
+            
+            **TEXT HANDLING REQUIREMENTS** (Model-Specific):
+            {self._get_text_handling_instruction()}
+            
+            **TEXT INTEGRATION EXAMPLES**:
+            {self._get_text_integration_examples()}
             
             **CAMPAIGN CONTEXT**:
             - Title: {self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}
@@ -3334,10 +3417,11 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             **CRITICAL RULES**:
             - Use ONLY the tools you have access to
-            - Generate clean, focused prompts (avoid keyword spam)
+            - Create original, dynamic prompts that ensure variety and prevent repetitive imagery
             - Match visual style to content type and tone
             - Return ONLY the JSON object, no other text
             - Ensure visual complements the text content effectively
+            - **AUTONOMOUS CREATIVITY**: Generate completely unique prompts each time - no templates or repetitive patterns
             """,
             agent=self.agents[AgentType.VISUAL_CREATOR],
             expected_output="Single JSON object with content_type, image_url/video_url, provider_used, and technical specifications - no additional text or explanations"

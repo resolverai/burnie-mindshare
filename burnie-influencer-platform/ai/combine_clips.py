@@ -291,10 +291,7 @@ if __name__ == "__main__":
     # List of MP4 files to combine
     video_files = [
         "/Users/taran/Downloads/clip1.mp4",
-        "/Users/taran/Downloads/clip2.mp4", 
-        "/Users/taran/Downloads/clip3.mp4",
-        "/Users/taran/Downloads/clip4.mp4",
-        "/Users/taran/Downloads/clip5.mp4"
+        "/Users/taran/Downloads/clip2.mp4"
     ]
     
     # Audio file (optional)
