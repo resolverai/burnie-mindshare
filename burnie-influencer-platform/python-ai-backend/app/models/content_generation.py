@@ -47,6 +47,7 @@ class ContentGenerationResponse(BaseModel):
     content_text: str
     tweet_thread: Optional[List[str]] = None  # Array of tweet thread messages
     content_images: Optional[List[str]] = None
+    video_url: Optional[str] = None  # Video URL for video content
     predicted_mindshare: float = Field(ge=0, le=100)
     quality_score: float = Field(ge=0, le=100)
     generation_metadata: Dict[str, Any]
@@ -79,6 +80,10 @@ class MiningSession(BaseModel):
     include_brand_logo: Optional[bool] = False  # Whether to include brand logo in generated images
     brand_logo_model: Optional[str] = "flux-pro/kontext"  # Which model to use for brand logo integration
     source: Optional[str] = "mining_interface"  # Source of the request: "mining_interface" or "yapper_interface"
+    
+    # Video generation support
+    include_video: Optional[bool] = False  # Whether to generate video content
+    video_duration: Optional[int] = 10  # Video duration in seconds (10, 15, 20, or 25)
     
     # Session state
     status: MiningStatus = MiningStatus.INITIALIZING

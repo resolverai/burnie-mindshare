@@ -47,6 +47,7 @@ from app.routes.delta_model_training import router as delta_training_router
 from app.routes.realtime_predictions import router as realtime_predictions_router
 from app.routes.training_data_population import router as training_data_router
 from app.routes.watermark import router as watermark_router
+from app.routes.video_watermark import router as video_watermark_router
 from app.routes.twitter_handles import router as twitter_handles_router
 
 # Setup logging
@@ -131,6 +132,7 @@ app.include_router(delta_training_router)
 app.include_router(realtime_predictions_router)
 app.include_router(training_data_router)
 app.include_router(watermark_router, prefix="/api", tags=["watermark"])
+app.include_router(video_watermark_router, prefix="/api", tags=["video-watermark"])
 
 
 # Global progress tracker
@@ -185,7 +187,11 @@ class CampaignAgentPair(BaseModel):
     include_brand_logo: Optional[bool] = False  # New field: whether to include brand logo in generated images
     brand_logo_model: Optional[str] = "flux-pro/kontext"  # New field: which model to use for brand logo integration
     post_index: Optional[int] = 1  # New field: which post this is (1, 2, 3, etc.) for multiple posts per campaign
-    source: Optional[str] = "mining_interface"  # New field: "mining_interface" or "yapper_interface"
+    source: Optional[str] = "mining_interface"
+    
+    # Video generation support
+    include_video: Optional[bool] = False  # Whether to generate video content
+    video_duration: Optional[int] = 10  # Video duration in seconds (10, 15, 20, or 25)
     selected_yapper_handle: Optional[str] = None  # New field: Twitter handle of selected yapper for pattern
     price: Optional[float] = None  # New field: Price in ROAST for the content
 
@@ -209,6 +215,10 @@ class StartMiningRequest(BaseModel):
     
     user_preferences: Optional[dict] = None
     user_api_keys: Optional[Dict[str, str]] = None  # API keys from Neural Keys interface
+    
+    # Video generation support
+    include_video: Optional[bool] = False  # Whether to generate video content
+    video_duration: Optional[int] = 10  # Video duration in seconds (10, 15, 20, or 25)
 
 class MiningStatusResponse(BaseModel):
     session_id: str
@@ -288,8 +298,17 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
     try:
         logger.info(f"🎯 Starting mining session for wallet: {request.wallet_address}")
         
-        # Debug: Log the wallet address
+        # Debug: Log the wallet address and video flags
         logger.info(f"🔍 DEBUG: Received wallet_address: {request.wallet_address}")
+        logger.info(f"🔍 DEBUG: Received include_video: {request.include_video}")
+        logger.info(f"🔍 DEBUG: Received video_duration: {request.video_duration}")
+        print(f"🔥 === MINING REQUEST DEBUG ===")
+        print(f"🔥 include_video: {request.include_video}")
+        print(f"🔥 video_duration: {request.video_duration}")
+        print(f"🔥 campaigns count: {len(request.campaigns) if request.campaigns else 0}")
+        if request.campaigns:
+            for i, campaign in enumerate(request.campaigns):
+                print(f"🔥 Campaign {i+1}: include_video={campaign.include_video}, video_duration={campaign.video_duration}")
         
         # Look up user by wallet address
         from app.database.repositories.user_repository import UserRepository
@@ -319,7 +338,9 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
                 campaign_id=request.campaign_id,
                 agent_id=request.agent_id,
                 campaign_context=request.campaign_context or {},
-                post_type=request.post_type
+                post_type=request.post_type,
+                include_video=request.include_video,
+                video_duration=request.video_duration
             )]
         else:
             raise HTTPException(status_code=400, detail="Either campaigns list or single campaign_id and agent_id are required")
@@ -672,6 +693,8 @@ async def run_yapper_interface_generation(
                     post_type=campaign_pair.post_type,
                     include_brand_logo=campaign_pair.include_brand_logo,
                     brand_logo_model=campaign_pair.brand_logo_model,
+                    include_video=campaign_pair.include_video,
+                    video_duration=campaign_pair.video_duration,
                     source=source  # Set the source for this session
                 )
                 
@@ -959,7 +982,9 @@ async def run_multi_campaign_generation(
                     user_api_keys=user_api_keys,
                     post_type=campaign_pair.post_type,  # Pass post_type to mining session
                     include_brand_logo=campaign_pair.include_brand_logo,  # Pass brand logo preference
-                    brand_logo_model=campaign_pair.brand_logo_model  # Pass brand logo model preference
+                    brand_logo_model=campaign_pair.brand_logo_model,  # Pass brand logo model preference
+                    include_video=campaign_pair.include_video,  # Pass video generation preference
+                    video_duration=campaign_pair.video_duration  # Pass video duration preference
                 )
                 
                 # Add to progress tracker
@@ -994,7 +1019,9 @@ async def run_multi_campaign_generation(
                     "post_index": campaign_pair.post_index,  # Include post_index for multiple posts per campaign
                     "content_text": result.content_text,
                     "tweet_thread": result.tweet_thread,  # Include tweet thread in WebSocket message
-                    "content_images": result.content_images,  # Include images in WebSocket message
+                    # Ensure only image URLs are sent in content_images (exclude videos)
+                    "content_images": [u for u in (result.content_images or []) if isinstance(u, str) and not u.lower().endswith('.mp4') and 'video-generation' not in u.lower()],
+                    "video_url": getattr(result, 'video_url', None),
                     "quality_score": result.quality_score,
                     "predicted_mindshare": result.predicted_mindshare,
                     "generation_metadata": result.generation_metadata,
@@ -1003,7 +1030,12 @@ async def run_multi_campaign_generation(
                 }
                 
                 # Debug: Log the content being sent to frontend
-                logger.info(f"🖼️  Sending content with {len(result.content_images) if result.content_images else 0} image(s) to frontend")
+
+                img_count = len(result.content_images) if result.content_images else 0
+                if getattr(result, 'video_url', None):
+                    logger.info(f"🎬 Sending content with {img_count} image(s) and 1 video to frontend")
+                else:
+                    logger.info(f"🖼️  Sending content with {img_count} image(s) to frontend")
                 
                 # Send individual campaign completion update
                 await manager.send_progress_update(session_id, {

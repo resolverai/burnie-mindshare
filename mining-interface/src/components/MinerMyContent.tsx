@@ -14,6 +14,7 @@ import {
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 import TweetThreadDisplay from './TweetThreadDisplay'
+import VideoPlayer from './VideoPlayer'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../utils/markdownParser'
 import { buildApiUrl } from '../utils/api-config'
 import { showToast } from '../utils/toast'
@@ -27,6 +28,14 @@ interface ContentItem {
   predicted_mindshare: number
   quality_score: number
   asking_price: number
+  // Video fields
+  is_video?: boolean
+  video_url?: string
+  watermark_video_url?: string
+  video_duration?: number
+  subsequent_frame_prompts?: Record<string, string>
+  clip_prompts?: Record<string, string>
+  audio_prompt?: string
   creator: {
     username: string
     reputation_score: number
@@ -1114,7 +1123,39 @@ export default function MinerMyContent() {
                             </span>
                           </div>
                           {renderMarkdown(text, { className: 'longpost-content' })}
-                          {imageUrl && (
+                          {item.is_video && item.watermark_video_url ? (
+                            <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
+                              <VideoPlayer
+                                src={item.watermark_video_url}
+                                poster={imageUrl || undefined}
+                                autoPlay={false}
+                                muted={true}
+                                controls={true}
+                                className="w-full h-auto"
+                              />
+                              {item.video_duration && (
+                                <div className="mt-2 text-xs text-gray-400 text-center">
+                                  Duration: {item.video_duration}s
+                                </div>
+                              )}
+                            </div>
+                          ) : item.is_video && item.video_url ? (
+                            <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
+                              <VideoPlayer
+                                src={item.video_url}
+                                poster={imageUrl || undefined}
+                                autoPlay={false}
+                                muted={true}
+                                controls={true}
+                                className="w-full h-auto"
+                              />
+                              {item.video_duration && (
+                                <div className="mt-2 text-xs text-gray-400 text-center">
+                                  Duration: {item.video_duration}s
+                                </div>
+                              )}
+                            </div>
+                          ) : imageUrl && (
                             <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
                               <img 
                                 src={imageUrl} 
@@ -1144,6 +1185,10 @@ export default function MinerMyContent() {
                             hashtags={hashtags}
                             showImage={true}
                             isProtected={false} // Mining interface doesn't need protection for owned content
+                            is_video={item.is_video}
+                            video_url={item.video_url}
+                            watermark_video_url={item.watermark_video_url}
+                            video_duration={item.video_duration}
                           />
                         </div>
                       )}

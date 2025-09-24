@@ -8,6 +8,14 @@ export interface MarketplaceContent {
   predicted_mindshare: number
   quality_score: number
   asking_price: number
+  // Video fields
+  is_video?: boolean
+  video_url?: string
+  watermark_video_url?: string
+  video_duration?: number
+  subsequent_frame_prompts?: Record<string, string>
+  clip_prompts?: Record<string, string>
+  audio_prompt?: string
   creator: {
     id: number
     username: string

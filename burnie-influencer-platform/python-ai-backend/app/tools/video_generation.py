@@ -13,87 +13,18 @@ from pathlib import Path
 # Import required modules
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
-from dotenv import load_dotenv
+from app.config.settings import settings
 
-# Load environment variables from python-ai-backend/.env
-env_path = Path(__file__).parent.parent / "python-ai-backend" / ".env"
-load_dotenv(env_path)
-
-# Configure fal_client with API key (same as crew AI service)
-fal_api_key = os.getenv("FAL_API_KEY")
+# Configure fal_client with API key from central settings
+fal_api_key = settings.fal_api_key
 if fal_api_key:
     os.environ['FAL_KEY'] = fal_api_key
 
-# Simple S3 service for video generation
-class SimpleS3Service:
-    def __init__(self):
-        self.aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
-        self.aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
-        self.aws_region = os.getenv("AWS_REGION", "us-east-1")
-        self.bucket_name = os.getenv("S3_BUCKET_NAME")
-        
-        if not all([self.aws_access_key_id, self.aws_secret_access_key, self.bucket_name]):
-            raise ValueError("Missing required S3 configuration. Please set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_BUCKET_NAME in python-ai-backend/.env file.")
-        
-        self.s3_client = boto3.client(
-            's3',
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-            region_name=self.aws_region
-        )
-    
-    def upload_file_to_s3(self, file_path, content_type="image", file_type="img", project_name="video-testing"):
-        """Upload a local file directly to S3"""
-        try:
-            # Generate S3 key with video-testing folder structure
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-            file_extension = os.path.splitext(file_path)[1] or '.jpg'
-            
-            if file_type == "img":
-                s3_key = f"video-testing/{project_name}/temp-images/img-{timestamp}{file_extension}"
-            elif file_type == "clip":
-                s3_key = f"video-testing/{project_name}/temp-clips/clip-{timestamp}{file_extension}"
-            elif file_type == "prefinal":
-                s3_key = f"video-testing/{project_name}/prefinal-clips/clip-{timestamp}{file_extension}"
-            else:
-                s3_key = f"video-testing/{project_name}/temp-files/file-{timestamp}{file_extension}"
-            
-            # Upload file to S3
-            with open(file_path, 'rb') as file_obj:
-                self.s3_client.upload_fileobj(
-                    file_obj,
-                    self.bucket_name,
-                    s3_key,
-                    ExtraArgs={
-                        'ContentType': 'image/jpeg' if content_type == "image" else 'video/mp4',
-                        'ContentDisposition': f'attachment; filename="{os.path.basename(file_path)}"',
-                        'CacheControl': 'max-age=31536000',
-                        'ServerSideEncryption': 'AES256'
-                    }
-                )
-            
-            # Generate pre-signed URL
-            presigned_url = self.s3_client.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': self.bucket_name, 'Key': s3_key},
-                ExpiresIn=3600  # 1 hour
-            )
-            
-            return {
-                'success': True,
-                's3_url': presigned_url,
-                's3_key': s3_key,
-                'bucket': self.bucket_name
-            }
-            
-        except Exception as e:
-            return {
-                'success': False,
-                'error': f"Upload failed: {str(e)}"
-            }
+# Import S3StorageService from the app
+from ..services.s3_storage_service import S3StorageService
 
 class VideoGenerator:
-    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="nano-banana", video_duration=10):
+    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="seedream", video_duration=10):
         """
         Initialize the VideoGenerator.
         
@@ -102,10 +33,14 @@ class VideoGenerator:
             project_name (str): Project name for S3 folder organization
             output_dir (str): Directory to save generated files
             llm_provider (str): "claude" or "grok" for prompt generation
-            image_model (str): "nano-banana" or "seedream" for image generation
+            image_model (str): "seedream" or "nano-banana" for image generation
             video_duration (int): Video duration in seconds (10, 15, 20, or 25)
         """
-        if not logo_path or not os.path.exists(logo_path):
+        if not logo_path:
+            raise ValueError("Logo path/url is mandatory")
+        # Accept presigned/logo URLs directly without local existence
+        self.logo_is_url = isinstance(logo_path, str) and (logo_path.startswith("http://") or logo_path.startswith("https://"))
+        if not self.logo_is_url and not os.path.exists(logo_path):
             raise ValueError(f"Logo path is mandatory and must exist: {logo_path}")
         
         # Validate video duration
@@ -128,21 +63,21 @@ class VideoGenerator:
         
         # Initialize S3 service
         try:
-            self.s3_service = SimpleS3Service()
+            self.s3_service = S3StorageService()
             print(f"✅ S3 service initialized for bucket: {self.s3_service.bucket_name}")
         except Exception as e:
             print(f"❌ Failed to initialize S3 service: {e}")
             raise
         
-        # Initialize LLM clients based on provider using environment variables
+        # Initialize LLM clients based on provider using central settings
         if self.llm_provider == "claude":
-            api_key = os.getenv("ANTHROPIC_API_KEY")
+            api_key = settings.anthropic_api_key
             if not api_key:
                 raise ValueError("ANTHROPIC_API_KEY not found in environment variables")
             self.claude_client = anthropic.Anthropic(api_key=api_key)
             self.grok_client = None
         elif self.llm_provider == "grok":
-            api_key = os.getenv("XAI_API_KEY")
+            api_key = settings.xai_api_key
             if not api_key:
                 raise ValueError("XAI_API_KEY not found in environment variables")
             self.grok_client = Client(api_key=api_key, timeout=3600)
@@ -162,7 +97,7 @@ class VideoGenerator:
         print(f"Video duration: {self.video_duration} seconds")
         print(f"Frame count: {self.frame_count}")
         print(f"Clip count: {self.clip_count}")
-        print(f"Logo loaded: {self.logo_path}")
+        print(f"Logo reference: {'URL' if self.logo_is_url else 'Local file'} -> {self.logo_path}")
         print(f"Project name: {self.project_name}")
 
     def _calculate_frame_count(self):
@@ -279,17 +214,18 @@ class VideoGenerator:
         try:
             print(f"📤 Uploading {file_type} to S3: {local_path}")
             
-            # Upload file to S3
+            # Upload file to S3 using S3Service
             result = self.s3_service.upload_file_to_s3(
                 file_path=local_path,
                 content_type=content_type,
-                file_type=file_type,
-                project_name=self.project_name
+                wallet_address=None,  # Will use default "unknown-wallet"
+                agent_id=None,       # Will use default "default-agent"
+                model_name=self.image_model if content_type == "image" else "video-generation"
             )
             
-            if result['success']:
-                print(f"✅ Uploaded to S3: {result['s3_key']}")
-                return result['s3_url']
+            if result.get('success', False):
+                print(f"✅ Uploaded to S3: {result.get('s3_key', 'unknown')}")
+                return result.get('s3_url')
             else:
                 print(f"❌ S3 upload failed: {result.get('error', 'Unknown error')}")
                 return None
@@ -306,6 +242,48 @@ class VideoGenerator:
                 print(f"🗑️ Cleaned up local file: {file_path}")
         except Exception as e:
             print(f"⚠️ Warning: Could not clean up {file_path}: {str(e)}")
+    
+    def extract_video_metadata(self, prompts, frame_urls, clip_urls, combined_video_s3_url):
+        """
+        Extract video-specific metadata for database storage.
+        
+        Args:
+            prompts: Generated prompts dictionary
+            frame_urls: List of frame S3 URLs
+            clip_urls: List of clip S3 URLs
+            combined_video_s3_url: Combined video S3 URL
+            
+        Returns:
+            Dict containing video-specific metadata for database storage
+        """
+        # Extract frame prompts (frames 2 onwards)
+        subsequent_frame_prompts = {}
+        for key, value in prompts.items():
+            if key.startswith('frame') and key.endswith('_prompt') and key != 'frame1_prompt':
+                frame_num = key.replace('frame', '').replace('_prompt', '')
+                subsequent_frame_prompts[f"frame{frame_num}"] = value
+        
+        # Extract clip prompts
+        clip_prompts = {}
+        for key, value in prompts.items():
+            if key.startswith('clip') and key.endswith('_prompt'):
+                clip_num = key.replace('clip', '').replace('_prompt', '')
+                clip_prompts[f"clip{clip_num}"] = value
+        
+        # Extract audio prompt
+        audio_prompt = prompts.get('audio_prompt', '')
+        
+        return {
+            "subsequent_frame_prompts": subsequent_frame_prompts,
+            "clip_prompts": clip_prompts,
+            "audio_prompt": audio_prompt,
+            "frame_urls": frame_urls,
+            "clip_urls": clip_urls,
+            "combined_video_s3_url": combined_video_s3_url,
+            "video_duration": self.video_duration,
+            "llm_provider": self.llm_provider,
+            "image_model": self.image_model
+        }
 
     def generate_prompts_with_claude(self, tweet_text, initial_image_prompt, include_tweet_text=True):
         """
@@ -1106,7 +1084,11 @@ JSON only, no other text:"""
         Returns:
             str: Path to final video file
         """
-        if not initial_image_path or not os.path.exists(initial_image_path):
+        if not initial_image_path:
+            raise ValueError("Initial image path/url is mandatory")
+        # Accept presigned initial image URL directly
+        initial_is_url = isinstance(initial_image_path, str) and (initial_image_path.startswith("http://") or initial_image_path.startswith("https://"))
+        if not initial_is_url and not os.path.exists(initial_image_path):
             raise ValueError(f"Initial image path is mandatory and must exist: {initial_image_path}")
             
         print("="*60)
@@ -1115,24 +1097,32 @@ JSON only, no other text:"""
         print(f"🎯 Creating MAGNIFICENT content for: {self.project_name}")
         print(f"📱 Tweet: {tweet_text}")
         print(f"🎨 Initial prompt: {initial_image_prompt[:100]}...")
-        print(f"🖼️ Initial image: {initial_image_path}")
-        print(f"🏆 Logo: {self.logo_path}")
+        print(f"🖼️ Initial image: {('URL' if initial_is_url else 'Local file')} -> {initial_image_path}")
+        print(f"🏆 Logo: {('URL' if self.logo_is_url else 'Local file')} -> {self.logo_path}")
         print("🎬 Goal: Create VIRAL, jaw-dropping BRAND PROMOTION content that effectively highlights the brand and delivers the core message!")
         print("="*60)
         
         try:
-            # Step 1: Upload initial image and logo to S3
-            print("📤 Uploading initial image to S3...")
-            frame1_s3_url = self.upload_to_s3_and_get_presigned_url(initial_image_path, "image", "img")
-            if not frame1_s3_url:
-                print("❌ Failed to upload initial image to S3, stopping video generation")
-                return None
-            
-            print("📤 Uploading logo to S3...")
-            logo_s3_url = self.upload_to_s3_and_get_presigned_url(self.logo_path, "image", "img")
-            if not logo_s3_url:
-                print("❌ Failed to upload logo to S3, stopping video generation")
-                return None
+            # Step 1: Ensure S3 URLs for initial image and logo
+            if initial_is_url:
+                print("🔗 Using presigned URL for initial image (no upload)")
+                frame1_s3_url = initial_image_path
+            else:
+                print("📤 Uploading initial image to S3 (local file detected)...")
+                frame1_s3_url = self.upload_to_s3_and_get_presigned_url(initial_image_path, "image", "img")
+                if not frame1_s3_url:
+                    print("❌ Failed to upload initial image to S3, stopping video generation")
+                    return None
+
+            if self.logo_is_url:
+                print("🔗 Using presigned URL for logo (no upload)")
+                logo_s3_url = self.logo_path
+            else:
+                print("📤 Uploading logo to S3 (local file detected)...")
+                logo_s3_url = self.upload_to_s3_and_get_presigned_url(self.logo_path, "image", "img")
+                if not logo_s3_url:
+                    print("❌ Failed to upload logo to S3, stopping video generation")
+                    return None
             
             # Step 2: Generate all prompts using configured LLM
             print(f"Generating prompts with {self.llm_provider.upper()} API...")
@@ -1198,13 +1188,18 @@ JSON only, no other text:"""
             
             if final_video_path:
                 print(f"✅ Final video with audio created: {final_video_path}")
-                
-                # Copy final video to Downloads folder
-                downloads_path = "/Users/taran/Downloads"
-                final_filename = f"{self.project_name}_final_video_{self.timestamp}.mp4"
-                final_downloads_path = os.path.join(downloads_path, final_filename)
-                
-                # Step 8: Save prompts for reference (before cleanup)
+
+                # Step 8: Upload final video to S3 and get presigned URL
+                print("📤 Uploading final video to S3 (final)...")
+                final_video_s3_url = self.upload_to_s3_and_get_presigned_url(final_video_path, "video", "final")
+                if not final_video_s3_url:
+                    print("❌ Failed to upload final video to S3")
+                    return None
+
+                # Step 9: Extract video metadata for database storage
+                video_metadata = self.extract_video_metadata(prompts, frame_urls, clip_urls, combined_video_s3_url)
+
+                # Save prompts for reference (before cleanup)
                 prompts_file = os.path.join(self.project_folder, "generated_prompts.json")
                 with open(prompts_file, 'w') as f:
                     json.dump({
@@ -1219,22 +1214,16 @@ JSON only, no other text:"""
                         "frame_urls": frame_urls,
                         "clip_urls": clip_urls,
                         "combined_video_s3_url": combined_video_s3_url,
+                        "video_metadata": video_metadata,
                         **prompts
                     }, f, indent=2)
-                
+
+                # Clean up local final file first, then project directory
                 try:
-                    import shutil
-                    shutil.copy2(final_video_path, final_downloads_path)
-                    print(f"📁 Final video copied to Downloads: {final_downloads_path}")
-                    
-                    # Clean up project directory after successful copy
-                    self.cleanup_project_directory()
-                    
-                except Exception as e:
-                    print(f"⚠️ Could not copy to Downloads: {e}")
-                    print(f"📁 Final video available at: {final_video_path}")
-                    # Still cleanup even if copy failed
-                    self.cleanup_project_directory()
+                    self.cleanup_local_file(final_video_path)
+                except Exception:
+                    pass
+                self.cleanup_project_directory()
             else:
                 print("❌ Failed to generate final video with audio!")
                 return None
@@ -1242,13 +1231,33 @@ JSON only, no other text:"""
             print("="*60)
             print("🎉 VIRAL VIDEO GENERATION COMPLETED SUCCESSFULLY! 🎉")
             print("="*60)
-            print(f"🏆 MAGNIFICENT video created: {final_video_path}")
+            print(f"🏆 MAGNIFICENT video created and uploaded to S3: {final_video_s3_url}")
             print(f"📁 Project folder: {self.project_folder}")
             print(f"📝 Prompts saved: {prompts_file}")
             print("🚀 Ready to DOMINATE social media and get MILLIONS of views!")
             print("="*60)
             
-            return final_video_path
+            # Ensure video_metadata is populated with all prompts and URLs
+            try:
+                if not video_metadata:
+                    video_metadata = self.extract_video_metadata(
+                        prompts=prompts if 'prompts' in locals() else {},
+                        frame_urls=frame_urls if 'frame_urls' in locals() else [],
+                        clip_urls=clip_urls if 'clip_urls' in locals() else [],
+                        combined_video_s3_url=combined_video_s3_url if 'combined_video_s3_url' in locals() else ""
+                    )
+            except Exception:
+                # Keep existing metadata fallback if any extraction fails
+                pass
+
+            return {
+                "video_path": final_video_path,
+                "final_video_s3_url": final_video_s3_url,
+                "video_metadata": video_metadata,
+                "frame_urls": frame_urls,
+                "clip_urls": clip_urls,
+                "combined_video_s3_url": combined_video_s3_url
+            }
             
         except Exception as e:
             print(f"Error in video creation process: {str(e)}")
@@ -1266,7 +1275,7 @@ def main():
     # LLM_PROVIDER = "grok"        # Uncomment this line to use Grok
     
     # Image generation model
-    # IMAGE_MODEL = "nano-banana"  # Change to "seedream" to use ByteDance Seedream model
+    # IMAGE_MODEL = "seedream"  # Default to ByteDance Seedream model (can change to "nano-banana")
     IMAGE_MODEL = "seedream"     # Uncomment this line to use Seedream
     
     # Video duration (10, 15, 20, or 25 seconds)
@@ -1276,32 +1285,32 @@ def main():
     INCLUDE_TWEET_TEXT = True  # Set to True to include tweet text in prompt generation, False to use only initial image prompt
     
     # Input content
-    TWEET_TEXT = "Monday mornings used to be my enemy. That 3 PM crash was inevitable. But everything changed when I discovered SURGE. This isn't just energy, it's liquid ambition. Zero crash, all power, pure focus."
-    INITIAL_IMAGE_PROMPT = "A sleek energy drink can labeled 'SURGE' with electric blue and neon green design, sitting on a modern kitchen counter next to a tired-looking young professional in casual clothes. The person appears sluggish, checking their phone with a weary expression, coffee mug half-empty nearby. Morning light filters through the window showing it's early morning. The scene has a 'before the energy kicks in' mood - realistic, relatable, slightly muted colors. Photorealistic style, natural lighting, 8K resolution."
-    INITIAL_IMAGE_PATH = "/Users/taran/Downloads/surge-image.png"  # MUST SET THIS
-    LOGO_PATH = "/Users/taran/Downloads/surge-logo.png"  # MUST SET THIS
+    TWEET_TEXT = "Yo, $EVERLYN's autoregressive vid AI is straight fire: turning text into endless movies faster than a memecoin pump! Imagine your cat as a Web3 overlord. 🚀 Who's building the next viral agent? Let's decentralize Hollywood already."
+    INITIAL_IMAGE_PROMPT = "Futuristic scene of a cat as a Web3 overlord, surrounded by digital movie elements, vibrant and dynamic, meme-style humor, featuring the reference logo elegantly displayed on a digital screen, photorealistic CGI, 8K ultra-detailed, dynamic lighting, masterpiece quality digital art"
+    INITIAL_IMAGE_PATH = "/Users/taran/Downloads/everlyn-image.jpeg"  # MUST SET THIS
+    LOGO_PATH = "/Users/taran/Downloads/everlyn-logo.jpg"  # MUST SET THIS
     # ========================================
     # END CONFIGURATION
     # ========================================
     
     # Check for required environment variables based on provider
     if LLM_PROVIDER == "claude":
-        if not os.getenv("ANTHROPIC_API_KEY"):
+        if not settings.anthropic_api_key:
             print("❌ ERROR: ANTHROPIC_API_KEY environment variable not set!")
             print("Please set it in python-ai-backend/.env file")
             return
     elif LLM_PROVIDER == "grok":
-        if not os.getenv("XAI_API_KEY"):
+        if not settings.xai_api_key:
             print("❌ ERROR: XAI_API_KEY environment variable not set!")
             print("Please set it in python-ai-backend/.env file")
             return
-    
-    if not os.getenv("FAL_API_KEY"):
+
+    if not settings.fal_api_key:
         print("❌ ERROR: FAL_API_KEY environment variable not set!")
         print("Please set it in python-ai-backend/.env file")
         return
     
-    if not os.getenv("AWS_ACCESS_KEY_ID") or not os.getenv("AWS_SECRET_ACCESS_KEY") or not os.getenv("S3_BUCKET_NAME"):
+    if not settings.aws_access_key_id or not settings.aws_secret_access_key or not settings.s3_bucket_name:
         print("❌ ERROR: AWS S3 credentials not set!")
         print("Please set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and S3_BUCKET_NAME in python-ai-backend/.env file")
         return
@@ -1309,7 +1318,7 @@ def main():
     print(f"🤖 Using {LLM_PROVIDER.upper()} for prompt generation")
     print(f"📁 Project: {PROJECT_NAME}")
     print(f"⏱️ Video Duration: {VIDEO_DURATION} seconds")
-    print(f"🪣 S3 Bucket: {os.getenv('S3_BUCKET_NAME')}")
+    print(f"🪣 S3 Bucket: {settings.s3_bucket_name}")
     
     # Validate mandatory paths
     if not LOGO_PATH or not os.path.exists(LOGO_PATH):
@@ -1358,7 +1367,7 @@ def main():
 
 # Alternative function for easy switching
 def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_path,
-                              logo_path, project_name, output_dir="output", llm_provider="claude", include_tweet_text=True, image_model="nano-banana", video_duration=10):
+                              logo_path, project_name, output_dir="output", llm_provider="grok", include_tweet_text=True, image_model="seedream", video_duration=10):
     """
     Convenience function to create video with specified LLM provider.
     
@@ -1371,7 +1380,7 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
         output_dir (str): Output directory
         llm_provider (str): "claude" or "grok"
         include_tweet_text (bool): Whether to include tweet text in prompt generation
-        image_model (str): Image generation model ("nano-banana" or "seedream")
+        image_model (str): Image generation model ("seedream" or "nano-banana")
         video_duration (int): Video duration in seconds (10, 15, 20, or 25)
     
     Returns:
@@ -1392,12 +1401,17 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
         video_duration=video_duration
     )
     
-    return generator.create_video(
+    result = generator.create_video(
         tweet_text=tweet_text,
         initial_image_prompt=initial_image_prompt,
         initial_image_path=initial_image_path,
         include_tweet_text=include_tweet_text
     )
+    
+    # Return just the video path for backward compatibility
+    if result and isinstance(result, dict):
+        return result.get("video_path")
+    return result
 
 
 if __name__ == "__main__":

@@ -14,7 +14,9 @@ router.post('/generate-content', async (req, res) => {
       campaigns,
       user_preferences,
       user_api_keys,
-      source = 'yapper_interface'
+      source = 'yapper_interface',
+      include_video = false,
+      video_duration = 10
     } = req.body;
 
     if (!wallet_address || !campaigns || !Array.isArray(campaigns) || campaigns.length === 0) {
@@ -78,7 +80,9 @@ router.post('/generate-content', async (req, res) => {
         campaigns,
         user_preferences,
         user_api_keys,
-        source
+        source,
+        include_video,
+        video_duration
       })
     });
 

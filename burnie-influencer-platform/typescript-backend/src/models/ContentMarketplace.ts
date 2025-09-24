@@ -118,6 +118,28 @@ export class ContentMarketplace {
   @Column({ name: 'updated_thread', type: 'jsonb', nullable: true })
   updatedThread!: string[] | null // Store the regenerated thread items (similar to tweetThread)
 
+  // Video Generation Support
+  @Column({ name: 'is_video', type: 'boolean', default: false })
+  isVideo!: boolean // Whether this content is a video
+
+  @Column({ name: 'subsequent_frame_prompts', type: 'jsonb', nullable: true })
+  subsequentFramePrompts!: any | null // JSON object storing frame prompts for video generation
+
+  @Column({ name: 'clip_prompts', type: 'jsonb', nullable: true })
+  clipPrompts!: any | null // JSON object storing clip prompts for video generation
+
+  @Column({ name: 'audio_prompt', type: 'text', nullable: true })
+  audioPrompt!: string | null // Audio prompt for video generation
+
+  @Column({ name: 'video_url', type: 'text', nullable: true })
+  videoUrl!: string | null // S3 URL of the final video
+
+  @Column({ name: 'watermark_video_url', type: 'text', nullable: true })
+  watermarkVideoUrl!: string | null // S3 URL of the watermarked video
+
+  @Column({ name: 'video_duration', type: 'integer', nullable: true })
+  videoDuration!: number | null // Video duration in seconds
+
   // Relations
   @ManyToOne(() => User, user => user.id)
   @JoinColumn({ name: 'creatorId' })

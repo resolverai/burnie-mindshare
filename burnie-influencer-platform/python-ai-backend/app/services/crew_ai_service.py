@@ -59,6 +59,8 @@ from app.database.repositories.twitter_learning_repository import TwitterLearnin
 from app.utils.quality_scorer import QualityScorer
 from app.utils.mindshare_predictor import MindsharePredictor
 from app.services.llm_content_generators import unified_generator, UnifiedContentGenerator
+from app.tools.video_creation_tool import VideoCreationTool
+from app.tools.crew_video_creation_tool import CrewVideoCreationTool
 
 logger = logging.getLogger(__name__)
 
@@ -1107,6 +1109,7 @@ class CrewAIService:
                 content_text=main_tweet,
                 tweet_thread=thread_array,  # Use the extracted thread array
                 content_images=None,  # Keep existing images
+                video_url=None,  # No video for text-only content
                 predicted_mindshare=75.0,  # Default score
                 quality_score=80.0,  # Default score
                 generation_metadata={
@@ -2546,18 +2549,39 @@ class CrewAIService:
         # Video generation capabilities - ONLY add tool for user's chosen provider  
         available_video_providers = []
         
-        # Skip video tool creation if video_provider is explicitly set to 'none'
-        if video_provider == 'none':
-            logger.info(f"🔍 VIDEO GENERATION DISABLED: video_provider set to 'none'")
-        elif video_provider == 'google' and self.user_api_keys.get('google'):
-            logger.info(f"🔍 DEBUG: Creating Google tool for video provider choice: {video_provider}")
-            tools.append(GoogleVideoTool(
-                api_key=self.user_api_keys['google'],
-                model_preferences=self.model_preferences,
-                wallet_address=self.wallet_address,
-                agent_id=self.agent_id
-            ))
-            available_video_providers.append('google')
+        # Check if video generation is requested from mining session
+        include_video = getattr(self.mining_session, 'include_video', False)
+        video_duration = getattr(self.mining_session, 'video_duration', 10)
+        
+        # Debug logging for video flags
+        print(f"🔥 === VIDEO GENERATION DEBUG ===")
+        print(f"🔥 include_video from mining_session: {include_video}")
+        print(f"🔥 video_duration from mining_session: {video_duration}")
+        print(f"🔥 video_provider: {video_provider}")
+        print(f"🔥 FAL API key available: {'YES' if self.user_api_keys.get('fal') else 'NO'}")
+        
+        # Video tool creation - ONLY check include_video flag, ignore video_provider
+        if include_video and self.user_api_keys.get('fal'):
+            # Add our custom video creation tool for fal-based video generation
+            logger.info(f"🔍 DEBUG: Creating custom video creation tool for video generation")
+            print(f"🔥🔥🔥 CREATING CUSTOM VIDEO CREATION TOOL! 🔥🔥🔥")
+            print(f"🔥 include_video: {include_video}")
+            print(f"🔥 video_duration: {video_duration}")
+            print(f"🔥 FAL API key available: {'YES' if self.user_api_keys.get('fal') else 'NO'}")
+            from app.services.s3_storage_service import S3StorageService
+            s3_service = S3StorageService()  # Initialize S3 service
+            video_tool = CrewVideoCreationTool(s3_service, logger)
+            tools.append(video_tool)
+            available_video_providers.append('custom_video')
+            print(f"🔥 CUSTOM VIDEO TOOL ADDED TO VISUAL CREATOR!")
+            print(f"🔥 Tool name: {video_tool.name}")
+            print(f"🔥 Tool description: {video_tool.description}")
+        elif include_video and not self.user_api_keys.get('fal'):
+            logger.warning(f"⚠️ Video generation requested but FAL API key not available")
+            print(f"🔥 VIDEO GENERATION REQUESTED BUT FAL API KEY NOT AVAILABLE!")
+        elif not include_video:
+            logger.info(f"🔍 VIDEO GENERATION DISABLED: include_video={include_video}")
+            print(f"🔥 VIDEO GENERATION DISABLED: include_video={include_video}")
         
         # Create capability summary
         has_image_tool = len(available_image_providers) > 0
@@ -2583,8 +2607,11 @@ class CrewAIService:
             tool_name = f"{image_provider}_image_generation"
             capabilities_text.append(f"- {tool_name}: Generate images using {image_provider.upper()} {image_model}")
         if has_video_tool:
-            tool_name = f"{video_provider}_video_generation" 
-            capabilities_text.append(f"- {tool_name}: Generate videos using {video_provider.upper()} {video_model}")
+            if 'custom_video' in available_video_providers:
+                capabilities_text.append(f"- video_creation_tool: Generate professional videos with dynamic frames, clips, and audio")
+            else:
+                tool_name = f"{video_provider}_video_generation" 
+                capabilities_text.append(f"- {tool_name}: Generate videos using {video_provider.upper()} {video_model}")
         if not has_image_tool and not has_video_tool:
             capabilities_text.append("- visual_concept: Text descriptions only (no API keys available)")
         
@@ -2653,27 +2680,23 @@ class CrewAIService:
             🤖 **AUTONOMOUS VISUAL DECISION-MAKING AUTHORITY**:
             You have COMPLETE AUTONOMY to create visual content that perfectly aligns with text by choosing from:
             1. **Text Content Analysis**: Analyze the text content output from Text Creator Agent
-            2. **Visual Success Patterns**: Use the success pattern tool to get proven visual strategies  
-            3. **Text-Visual Synergy**: Create visuals that enhance and complement the text message
-            4. **Dynamic Prompt Generation**: Generate optimal prompts combining text themes + visual success patterns
-            
-            **SUCCESS PATTERN TOOL USAGE** (OPTIONAL):
-            - Success pattern tools are available but NOT required - use your autonomous judgment
-            - Focus primarily on creating visuals that enhance the text content naturally
-            - Only use success pattern tools if they add genuine value to your visual strategy
-            - Your creativity and text-visual synergy should be your primary guides
+            2. **Text-Visual Synergy**: Create visuals that enhance and complement the text message
+            3. **Dynamic Prompt Generation**: Generate optimal prompts combining text themes with visual creativity
             
             **YOUR VISUAL ALIGNMENT PROCESS**:
             - FIRST: Receive and analyze text content from Text Creator Agent (main_tweet + thread_array)
-            - SECOND: Call the success pattern tool to get visual success strategies
             - ANALYZE: Determine visual approach that best enhances the text content
             - DECIDE: Choose visual strategy that creates cohesive text+visual content package
-            - EXECUTE: Generate dynamic prompt that combines text alignment + proven visual patterns
+            - EXECUTE: Generate dynamic prompt that combines text alignment with visual creativity
             
-            **AVAILABLE SUCCESS PATTERN TOOLS**:
-            - If yapper interface: Use `yapper_specific_success_pattern` tool
-            - If mining interface: Use `leaderboard_success_pattern` tool
-            - Only ONE tool will be available - use whichever one is provided
+            **VIDEO GENERATION WORKFLOW** (when video tool is available):
+            - FIRST: Generate an image using the image generation tool
+            - SECOND: Use the video_creation_tool to create a professional video based on the generated image
+            - The video tool requires: tweet_text, initial_image_prompt, initial_image_url, logo_url, project_name, video_duration
+            - Video duration options: 10, 15, 20, or 25 seconds
+            - The video tool will generate dynamic frames, clips, and audio automatically
+            - IMPORTANT: Return BOTH image_url (initial image) and video_url (final video) in your JSON output
+            
             
             🎯 **TEXT-VISUAL ALIGNMENT REQUIREMENTS** (CRITICAL):
             - Generated visuals MUST align with and enhance the text content themes
@@ -2703,7 +2726,7 @@ class CrewAIService:
             
             **YOUR TOOL USAGE - VERIFY BEFORE USING**:
             {f"✅ Use `{image_provider}_image_generation` tool for images with model: {image_model}" if has_image_tool else "❌ No image generation available"}
-            {f"✅ Use `{video_provider}_video_generation` tool for videos with model: {video_model}" if has_video_tool else "❌ No video generation available"}
+            {f"✅ Use `video_creation_tool` for professional video generation with dynamic frames and audio" if 'custom_video' in available_video_providers else f"✅ Use `{video_provider}_video_generation` tool for videos with model: {video_model}" if has_video_tool else "❌ No video generation available"}
             
             🚨 **TOOL VERIFICATION CHECKLIST** (MANDATORY BEFORE EACH TOOL USE):
             1. Check if the tool name exists in your available tools list above
@@ -2729,8 +2752,8 @@ class CrewAIService:
             allow_delegation=False,
             llm=llm,
             tools=tools,
-            max_iter=2,  # Maximum 2 iterations to prevent loops
-            max_execution_time=300  # 5 minutes for image generation
+            max_iter=3,  # Allow more iterations for image + video workflow
+            max_execution_time=900  # 15 minutes for image + video generation
         )
 
     def _create_orchestrator_agent(self) -> Agent:
@@ -3264,9 +3287,13 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         video_provider = self.model_preferences.get('video', {}).get('provider', 'google')
         video_model = self.model_preferences.get('video', {}).get('model', 'veo-3')
         
+        # Check if video generation is requested
+        include_video = getattr(self.mining_session, 'include_video', False)
+        video_duration = getattr(self.mining_session, 'video_duration', 10)
+        
         # Check if tools are available
         has_image_tool = image_provider in ['openai', 'fal', 'google'] and self.user_api_keys.get(image_provider if image_provider != 'fal' else 'fal')
-        has_video_tool = video_provider == 'google' and self.user_api_keys.get('google')
+        has_video_tool = (video_provider == 'google' and self.user_api_keys.get('google')) or (include_video and self.user_api_keys.get('fal'))
         
         # Validate tool availability and log for debugging
         logger.info(f"🔧 Visual task tool validation:")
@@ -3274,13 +3301,56 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         logger.info(f"  - Video provider: {video_provider}, Available: {has_video_tool}")
         logger.info(f"  - API keys: {list(self.user_api_keys.keys()) if self.user_api_keys else 'None'}")
         
+        # Create dynamic workflow instructions based on video flag
+        workflow_instructions = ""
+        if include_video and has_video_tool:
+            workflow_instructions = f"""
+            **VIDEO GENERATION WORKFLOW** (ENABLED):
+            - FIRST: Generate an image using the {image_provider}_image_generation tool
+            - SECOND: Use the video_creation_tool to create a professional video based on the generated image
+            - The video tool requires: tweet_text, initial_image_prompt, initial_image_url, logo_url, project_name, video_duration
+            - Video duration: {video_duration} seconds
+            - The video tool will generate dynamic frames, clips, and audio automatically
+            - Return BOTH image_url (initial image) and video_url (final video) in your JSON output
+            """
+        else:
+            workflow_instructions = f"""
+            **IMAGE GENERATION WORKFLOW** (STANDARD):
+            - Generate an image using the {image_provider}_image_generation tool
+            - Return image_url in your JSON output
+            - Set video_url to null
+            """
+
+        # Precompute variables for description formatting
+        content_type = 'VIDEO' if include_video and has_video_tool else 'IMAGE'
+        video_url_field = "\"https://s3-url-here\"" if include_video and has_video_tool else "null"
+        video_meta_block = (
+            "\n              \"subsequent_frame_prompts\": {\"frame2\": \"prompt\", \"frame3\": \"prompt\"},"
+            "\n              \"clip_prompts\": {\"clip1\": \"prompt\", \"clip2\": \"prompt\"},"
+            "\n              \"audio_prompt\": \"copy the audio prompt here\"," 
+            "\n              \"video_duration\": {video_duration},"
+        ) if include_video and has_video_tool else ""
+        provider = image_provider.upper()
+        model = image_model
+        dimensions = '1920x1080px' if include_video and has_video_tool else '1024x576px'
+        file_format = 'MP4' if include_video and has_video_tool else 'JPEG'
+        asset_type = 'video' if include_video and has_video_tool else 'image'
+
         return Task(
             description=f"""
             **AUTONOMOUS VISUAL CONTENT CREATION TASK**
             
             **YOUR TOOLS**:
             {f"- {image_provider}_image_generation (for images)" if has_image_tool else "- No image generation available"}
-            {f"- {video_provider}_video_generation (for videos)" if has_video_tool else "- No video generation available"}
+            {f"- video_creation_tool (for professional video generation)" if include_video and has_video_tool else f"- {video_provider}_video_generation (for videos)" if has_video_tool else "- No video generation available"}
+            
+            {workflow_instructions}
+
+            When video is generated, include these metadata fields in your final JSON output in addition to image_url and video_url:
+            - subsequent_frame_prompts (object keyed by frame: prompt)
+            - clip_prompts (object keyed by clip: prompt)
+            - audio_prompt (string)
+            - video_duration (number)
             
             📖 **AUTONOMOUS PROMPT GENERATION PROCESS** (CRITICAL):
             You are an AI visual expert who creates original, compelling prompts without relying on templates. Your mission is to analyze tweet content and craft unique, high-impact visual prompts that perfectly complement the message.
@@ -3402,17 +3472,17 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             **OUTPUT FORMAT**:
             Return ONLY a JSON object with this structure:
             {{
-              "content_type": "IMAGE",
+              "content_type": "{content_type}",
               "image_url": "https://s3-url-here",
-              "video_url": null,
+              "video_url": {video_url_field},{video_meta_block}
               "visual_concept": null,
-              "provider_used": "{image_provider.upper()}",
-              "model_used": "{image_model}",
-              "dimensions": "1024x576px",
-              "file_format": "JPEG",
+              "provider_used": "{provider}",
+              "model_used": "{model}",
+              "dimensions": "{dimensions}",
+              "file_format": "{file_format}",
               "execution_tier": "PREFERRED_MODEL",
-              "strategy_alignment": "Generated image matches content requirements",
-              "alt_text": "Brief description of the image"
+              "strategy_alignment": "Generated {asset_type} matches content requirements",
+              "alt_text": "Brief description of the {asset_type}"
             }}
             
             **CRITICAL RULES**:
@@ -3424,34 +3494,78 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - **AUTONOMOUS CREATIVITY**: Generate completely unique prompts each time - no templates or repetitive patterns
             """,
             agent=self.agents[AgentType.VISUAL_CREATOR],
-            expected_output="Single JSON object with content_type, image_url/video_url, provider_used, and technical specifications - no additional text or explanations"
+            expected_output=(
+                "Single JSON object with content_type, image_url, "
+                + ("video_url, subsequent_frame_prompts, clip_prompts, audio_prompt, video_duration, " if include_video and has_video_tool else "")
+                + "provider_used, model_used, dimensions, file_format, execution_tier, strategy_alignment, alt_text - no additional text or explanations"
+            )
         )
 
     def _create_orchestration_task(self) -> Task:
         """Create task for Orchestrator Agent"""
         post_type = getattr(self.mining_session, 'post_type', 'thread')
+        include_video = getattr(self.mining_session, 'include_video', False)
         
-        # Define task instructions based on post type
+        # Define task instructions based on post type and video content
         if post_type == 'longpost':
-            format_example = '''{
+            if include_video:
+                format_example = '''{
+    "main_tweet": "copy the comprehensive longpost content here",
+    "image_url": "copy the image URL here (initial image)",
+    "video_url": "copy the video URL here (if video generation succeeded) or image_url if video failed",
+    "subsequent_frame_prompts": {"frame2": "prompt", "frame3": "prompt"},
+    "clip_prompts": {"clip1": "prompt", "clip2": "prompt"},
+    "audio_prompt": "copy the audio prompt here",
+    "video_duration": copy the video duration here
+}'''
+                instructions = """1. Look for the JSON output from Text Content Creator (has "main_tweet" for longpost)
+2. Look for BOTH image_url and video_url from Visual Content Creator
+3. If video generation failed, set video_url to image_url and still include image_url
+4. You MUST include these fields when video is generated: subsequent_frame_prompts (object), clip_prompts (object), audio_prompt (string), video_duration (number)
+5. Combine them into exactly this JSON format:"""
+                fallback_rules = """- If no video URL exists, use image URL as fallback
+- If no image URL exists, use empty string: ""
+- Do NOT include thread_array for longposts"""
+            else:
+                format_example = '''{
     "main_tweet": "copy the comprehensive longpost content here",
     "image_url": "copy the image URL here"
 }'''
-            instructions = """1. Look for the JSON output from Text Content Creator (has "main_tweet" for longpost)
+                instructions = """1. Look for the JSON output from Text Content Creator (has "main_tweet" for longpost)
 2. Look for the image URL from Visual Content Creator (S3 URL or other image URL)
 3. Combine them into exactly this JSON format:"""
-            fallback_rules = """- If no image URL exists, use empty string: ""
+                fallback_rules = """- If no image URL exists, use empty string: ""
 - Do NOT include thread_array for longposts"""
         else:
-            format_example = '''{
+            if include_video:
+                format_example = '''{
+    "main_tweet": "copy the main tweet text here",
+    "thread_array": ["copy", "the", "thread", "array", "here"],
+    "image_url": "copy the image URL here (initial image)",
+    "video_url": "copy the video URL here (if video generation succeeded) or image_url if video failed",
+    "subsequent_frame_prompts": {"frame2": "prompt", "frame3": "prompt"},
+    "clip_prompts": {"clip1": "prompt", "clip2": "prompt"},
+    "audio_prompt": "copy the audio prompt here",
+    "video_duration": 10
+}'''
+                instructions = """1. Look for the JSON output from Text Content Creator (has "main_tweet" and "thread_array")
+2. Look for BOTH image_url and video_url from Visual Content Creator
+3. If video generation failed, set video_url to image_url and still include image_url
+4. You MUST include these fields when video is generated: subsequent_frame_prompts (object), clip_prompts (object), audio_prompt (string), video_duration (number)
+5. Combine them into exactly this JSON format:"""
+                fallback_rules = """- If no thread_array exists, use an empty array: []
+- If no video URL exists, use image URL as fallback
+- If no image URL exists, use empty string: \"\""""
+            else:
+                format_example = '''{
     "main_tweet": "copy the main tweet text here",
     "thread_array": ["copy", "the", "thread", "array", "here"],
     "image_url": "copy the image URL here"
 }'''
-            instructions = """1. Look for the JSON output from Text Content Creator (has "main_tweet" and "thread_array")
+                instructions = """1. Look for the JSON output from Text Content Creator (has "main_tweet" and "thread_array")
 2. Look for the image URL from Visual Content Creator (S3 URL or other image URL)
 3. Combine them into exactly this JSON format:"""
-            fallback_rules = """- If no thread_array exists, use an empty array: []
+                fallback_rules = """- If no thread_array exists, use an empty array: []
 - If no image URL exists, use empty string: \"\""""
         
         return Task(
@@ -3475,7 +3589,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             Campaign: {self.campaign_data.get('title', 'Content Campaign') if self.campaign_data else 'Content Campaign'}
             """,
             agent=self.agents[AgentType.ORCHESTRATOR],
-            expected_output="Valid JSON containing main_tweet, thread_array, and image_url from previous agents",
+            expected_output="Valid JSON containing main_tweet, thread_array, and video_url/image_url from previous agents",
             context=[
                 self.tasks[AgentType.TEXT_CONTENT],
                 self.tasks[AgentType.VISUAL_CREATOR]
@@ -3597,6 +3711,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Try to parse the orchestrator output as JSON first
             final_content = ""
             tweet_thread = None
+            video_url = ""
             
             try:
                 import json
@@ -3613,6 +3728,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                         
                         final_content = self._replace_em_dashes(parsed_json.get("main_tweet", ""))
                         tweet_thread = self._replace_em_dashes_in_list(parsed_json.get("thread_array", []))
+                        video_url = parsed_json.get("video_url", "")
                         json_found = True
                         
                         # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
@@ -3648,6 +3764,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                     extraction_result = self._extract_twitter_content(raw_result)
                     final_content = extraction_result["content_text"]
                     tweet_thread = extraction_result["tweet_thread"]
+                    video_url = extraction_result["video_url"]
                     
                     # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
                     final_content = self._ensure_project_handle_tagged(final_content)
@@ -3657,6 +3774,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 extraction_result = self._extract_twitter_content(raw_result)
                 final_content = extraction_result["content_text"]
                 tweet_thread = extraction_result["tweet_thread"]
+                video_url = extraction_result["video_url"]
                 
                 # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
                 final_content = self._ensure_project_handle_tagged(final_content)
@@ -3688,6 +3806,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 extraction_result = self._extract_twitter_content(raw_result)
                 final_content = extraction_result["content_text"]
                 tweet_thread = extraction_result["tweet_thread"]
+                video_url = extraction_result["video_url"]
                 
                 # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
                 final_content = self._ensure_project_handle_tagged(final_content)
@@ -3730,9 +3849,28 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 "twitter_ready": True
             })
             
+            # Extract optional video metadata fields if present in orchestrator JSON
+            video_metadata: Dict[str, Any] = {}
+            try:
+                parsed = json.loads(raw_result)
+                for key in [
+                    "subsequent_frame_prompts",
+                    "clip_prompts",
+                    "audio_prompt",
+                    "video_duration",
+                    "frame_urls",
+                    "clip_urls"
+                ]:
+                    if key in parsed:
+                        video_metadata[key] = parsed[key]
+            except Exception:
+                pass
+
             return {
                 "final_content": final_content,
                 "tweet_thread": tweet_thread,  # Include extracted tweet thread
+                "video_url": video_url,  # Include extracted video URL
+                "video_metadata": video_metadata,  # Optional metadata for DB
                 "raw_orchestrator_output": raw_result,  # Add raw output for image extraction
                 "quality_metrics": {
                     "overall_quality": overall_quality,
@@ -3792,7 +3930,20 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Extract image URLs from the raw orchestrator output (not processed final_content)
             raw_output = generation_result.get("raw_orchestrator_output", final_content)
             logger.info(f"🔍 Post-processing: Raw orchestrator output preview: {raw_output[:300]}...")
-            image_urls = self._extract_image_urls_from_content(raw_output)
+            # Prefer explicit image_url from orchestrator JSON; fallback to extraction from text
+            image_urls = []
+            try:
+                parsed_orchestrator = json.loads(raw_output)
+                explicit_image_url = parsed_orchestrator.get("image_url")
+                if explicit_image_url:
+                    image_urls.append(explicit_image_url)
+            except Exception:
+                pass
+            # Append any additional URLs extracted from content (ensuring no duplicates)
+            extracted_images = self._extract_image_urls_from_content(raw_output) or []
+            for u in extracted_images:
+                if u not in image_urls:
+                    image_urls.append(u)
             logger.info(f"🖼️ Post-processing: Extracted {len(image_urls) if image_urls else 0} image URLs: {image_urls}")
             
             # Calculate final scores
@@ -3802,11 +3953,18 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Extract tweet thread if available
             tweet_thread = generation_result.get("tweet_thread")
             
-            # Create the response with properly extracted images and thread
+            # Extract video URL if available
+            video_url = generation_result.get("video_url")
+            
+            # Create the response with properly extracted images, thread, and video
+            # Pull optional video meta for DB persistence
+            video_meta = generation_result.get("video_metadata") or {}
+
             response = ContentGenerationResponse(
                 content_text=final_content,
                 tweet_thread=tweet_thread,  # Include tweet thread
                 content_images=image_urls if image_urls else None,  # Populate content_images field
+                video_url=video_url,  # Include video URL if available
                 predicted_mindshare=performance_prediction["mindshare_score"],
                 quality_score=quality_metrics["overall_quality"],
                 generation_metadata=generation_result["generation_metadata"],
@@ -3814,6 +3972,16 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 optimization_factors=generation_result["generation_metadata"]["optimization_factors"],
                 performance_predictions=performance_prediction
             )
+
+            # Attach video meta into generation_metadata for downstream sync
+            try:
+                if video_meta:
+                    response.generation_metadata = {
+                        **response.generation_metadata,
+                        "video_metadata": video_meta
+                    }
+            except Exception:
+                pass
             
             logger.info(f"📝 Generated content: {str(final_content)[:50] if final_content else 'None'}...")
             logger.info(f"🖼️  Extracted {len(image_urls) if image_urls else 0} image(s): {image_urls}")
@@ -4313,16 +4481,39 @@ No image generated
             from app.config.settings import settings
             
             # Prepare content data for marketplace with em-dash replacement
+            # Pull optional video meta from generation_metadata
+            video_meta = (content.generation_metadata or {}).get("video_metadata", {}) if isinstance(content.generation_metadata, dict) else {}
+
+            logger.info(f"🧩 Preparing marketplace sync payload (image count={len(content.content_images) if content.content_images else 0}, video_url={'yes' if getattr(content, 'video_url', None) else 'no'})")
+            # Pull optional video meta from generation_metadata
+            video_meta = (content.generation_metadata or {}).get("video_metadata", {}) if isinstance(content.generation_metadata, dict) else {}
+
             content_data = {
                 "content_text": self._replace_em_dashes(content.content_text),
                 "tweet_thread": self._replace_em_dashes_in_list(getattr(content, 'tweet_thread', None) or []),  # Include tweet thread if available
-                "content_images": content.content_images,  # Include images in sync payload
+                "content_images": content.content_images,  # Include images in sync payload (should already exclude videos)
                 "predicted_mindshare": content.predicted_mindshare,
                 "quality_score": content.quality_score,
                 "generation_metadata": content.generation_metadata,
                 "post_type": getattr(mining_session, 'post_type', 'thread'),  # Include post type from mining session
-                "imagePrompt": getattr(self, 'stored_image_prompt', '')  # Include captured image prompt
+                "imagePrompt": getattr(self, 'stored_image_prompt', ''),  # Include captured image prompt
+                "is_video": bool(getattr(content, 'video_url', None)),  # True if we have a video URL
+                "video_url": getattr(content, 'video_url', ''),  # Include video URL if available
+                "video_duration": int(video_meta.get("video_duration") or getattr(mining_session, 'video_duration', 10)),
+                "subsequent_frame_prompts": video_meta.get("subsequent_frame_prompts"),
+                "clip_prompts": video_meta.get("clip_prompts"),
+                "audio_prompt": video_meta.get("audio_prompt")
             }
+
+            try:
+                import json as _json
+                print("\n" + "="*80)
+                print("🧩 MARKETPLACE PAYLOAD (FULL JSON)")
+                print("="*80)
+                print(_json.dumps(content_data, ensure_ascii=False, indent=2))
+                print("="*80 + "\n")
+            except Exception as _e:
+                print(f"🧩 MARKETPLACE PAYLOAD (FALLBACK STRING): {content_data} | error: {_e}")
             
             # Calculate asking price based on quality score
             base_price = 15  # Base price in ROAST tokens
@@ -4405,6 +4596,7 @@ No image generated
         final_text = ""
         tweet_thread = None
         image_url = ""
+        video_url = ""
         
         # STEP 1: Extract from Text Content Creator JSON
         try:
@@ -4474,21 +4666,35 @@ No image generated
                     tweet_thread = self._replace_em_dashes_in_list(thread_lines)
                     logger.info(f"✅ Found thread in multi-line format: {len(tweet_thread)} tweets")
         
-        # STEP 3: Extract image URL
+        # STEP 3: Extract video URL (priority) or image URL (fallback)
+        video_match = re.search(r'"video_url"\s*:\s*"([^"]*)"', raw_result)
+        if video_match:
+            video_url = video_match.group(1)
+            logger.info(f"✅ Found video_url: {video_url[:80]}...")
+        elif 'Video URL:' in raw_result:
+            url_match = re.search(r'Video URL:\s*([^\s]+)', raw_result)
+            if url_match:
+                video_url = url_match.group(1)
+                logger.info(f"✅ Found video_url from text: {video_url[:80]}...")
+        
+        # Extract image URL regardless (needed for DB and UI precedence fallback)
         image_match = re.search(r'"image_url"\s*:\s*"([^"]*)"', raw_result)
         if image_match:
             image_url = image_match.group(1)
+            logger.info(f"✅ Found image_url: {image_url[:80]}...")
         elif 'Image URL:' in raw_result:
             url_match = re.search(r'Image URL:\s*([^\s]+)', raw_result)
             if url_match:
                 image_url = url_match.group(1)
+                logger.info(f"✅ Found image_url from text: {image_url[:80]}...")
         
-        logger.info(f"🎯 Extraction results: text={bool(final_text)}, thread={len(tweet_thread) if tweet_thread else 0}, image={bool(image_url)}")
+        logger.info(f"🎯 Extraction results: text={bool(final_text)}, thread={len(tweet_thread) if tweet_thread else 0}, image={bool(image_url)}, video={bool(video_url)}")
         
         return {
             "content_text": final_text,
             "tweet_thread": tweet_thread,
-            "image_url": image_url
+            "image_url": image_url,
+            "video_url": video_url
         }
     
     def _format_for_twitter(self, text: str, post_type: str = "thread") -> str:

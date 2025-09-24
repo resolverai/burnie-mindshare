@@ -3,6 +3,8 @@ import { logger } from '../config/logger';
 import { AppDataSource } from '../config/database';
 import { ContentMarketplace } from '../models/ContentMarketplace';
 import { ExecutionTracking } from '../models/ExecutionTracking';
+import { WatermarkService } from '../services/WatermarkService';
+import { VideoWatermarkService } from '../services/VideoWatermarkService';
 
 const router = Router();
 
@@ -46,8 +48,39 @@ router.post('/approve/:contentId', async (req, res) => {
     content.approvalStatus = 'approved';
     content.approvedAt = new Date();
     
-    // Generate watermark image (this would call the watermark service)
-    // For now, we'll just mark it as approved
+    // Generate watermarks for images and videos
+    const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
+    
+    try {
+      // Handle image watermarking
+      if (content.contentImages && content.contentImages.length > 0) {
+        logger.info(`🖼️ Creating watermark for images in content ${contentId}`);
+        const watermarkImageUrl = await WatermarkService.createWatermarkForContent(content.contentImages, s3Bucket);
+        if (watermarkImageUrl) {
+          content.watermarkImage = watermarkImageUrl;
+          logger.info(`✅ Image watermark created: ${watermarkImageUrl}`);
+        } else {
+          logger.warn(`⚠️ Failed to create image watermark for content ${contentId}`);
+        }
+      }
+      
+      // Handle video watermarking
+      if (content.isVideo && content.videoUrl) {
+        logger.info(`🎬 Creating watermark for video in content ${contentId}`);
+        const watermarkVideoUrl = await VideoWatermarkService.createWatermarkForVideo(content.videoUrl, s3Bucket);
+        if (watermarkVideoUrl) {
+          content.watermarkVideoUrl = watermarkVideoUrl;
+          logger.info(`✅ Video watermark created: ${watermarkVideoUrl}`);
+        } else {
+          logger.warn(`⚠️ Failed to create video watermark for content ${contentId}`);
+        }
+      }
+      
+    } catch (error) {
+      logger.error(`❌ Error creating watermarks for content ${contentId}:`, error);
+      // Continue with approval even if watermarking fails
+    }
+    
     logger.info(`✅ Content ${contentId} approved successfully by creator wallet: ${creatorWallet}`);
     
     await contentRepository.save(content);

@@ -10,6 +10,7 @@ import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
 import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance } from '../../utils/walletUtils'
 import { executeROASTPayment } from '../../services/roastPaymentService'
 import TweetThreadDisplay from '../TweetThreadDisplay'
+import VideoPlayer from '../VideoPlayer'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, markdownToPlainText, markdownToHTML } from '../../utils/markdownParser'
 
 import { useTwitter } from '../../contexts/TwitterContext'
@@ -31,6 +32,14 @@ interface ContentItem {
   quality_score: number
   asking_price: number
   bidding_ask_price?: number  // Add bidding ask price field
+  // Video fields
+  is_video?: boolean
+  video_url?: string
+  watermark_video_url?: string
+  video_duration?: number
+  subsequent_frame_prompts?: Record<string, string>
+  clip_prompts?: Record<string, string>
+  audio_prompt?: string
   creator: {
     id: number
     username: string
@@ -3790,6 +3799,16 @@ export default function PurchaseContentModal({
                                       title: 'Tweet 1 (Image)', 
                                       image: displayImage 
                                   }] : []),
+                                  ...(currentContent.is_video && currentContent.watermark_video_url ? [{ 
+                                      title: 'Tweet 1 (Video)', 
+                                      video: currentContent.watermark_video_url,
+                                      videoDuration: currentContent.video_duration
+                                  }] : []),
+                                  ...(currentContent.is_video && !currentContent.watermark_video_url && currentContent.video_url ? [{ 
+                                      title: 'Tweet 1 (Video)', 
+                                      video: currentContent.video_url,
+                                      videoDuration: currentContent.video_duration
+                                  }] : []),
                                   ...(processedThreadItems.map((tweet, idx) => ({ 
                                       title: `Tweet ${idx + 2}`, 
                                       text: tweet 
@@ -3852,6 +3871,22 @@ export default function PurchaseContentModal({
                                         alt="Tweet image" 
                                         className="w-full h-auto rounded-md"
                                       />
+                                    </div>
+                                  )}
+                                  {section.video && (
+                                    <div className="mt-3">
+                                      <VideoPlayer
+                                        src={section.video}
+                                        autoPlay={true}
+                                        muted={true}
+                                        controls={true}
+                                        className="w-full h-auto rounded-md"
+                                      />
+                                      {section.videoDuration && (
+                                        <div className="mt-2 text-xs text-white/60">
+                                          Duration: {section.videoDuration}s
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -4150,6 +4185,16 @@ export default function PurchaseContentModal({
                                   title: 'Tweet 1 (Image)', 
                                   image: displayImage 
                               }] : []),
+                              ...(currentContent.is_video && currentContent.watermark_video_url ? [{ 
+                                  title: 'Tweet 1 (Video)', 
+                                  video: currentContent.watermark_video_url,
+                                  videoDuration: currentContent.video_duration
+                              }] : []),
+                              ...(currentContent.is_video && !currentContent.watermark_video_url && currentContent.video_url ? [{ 
+                                  title: 'Tweet 1 (Video)', 
+                                  video: currentContent.video_url,
+                                  videoDuration: currentContent.video_duration
+                              }] : []),
                               ...(processedThreadItems.map((tweet, idx) => ({ 
                                   title: `Tweet ${idx + 2}`, 
                                   text: tweet 
@@ -4212,6 +4257,22 @@ export default function PurchaseContentModal({
                                     alt="Tweet image" 
                                     className="w-full h-auto rounded-md"
                                   />
+                                </div>
+                              )}
+                              {section.video && (
+                                <div className="mt-3">
+                                  <VideoPlayer
+                                    src={section.video}
+                                    autoPlay={true}
+                                    muted={true}
+                                    controls={true}
+                                    className="w-full h-auto rounded-md"
+                                  />
+                                  {section.videoDuration && (
+                                    <div className="mt-2 text-xs text-white/60">
+                                      Duration: {section.videoDuration}s
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -4956,6 +5017,16 @@ export default function PurchaseContentModal({
                               title: 'Tweet 1 (Image)', 
                               image: displayImage 
                           }] : []),
+                          ...(currentContent.is_video && currentContent.watermark_video_url ? [{ 
+                              title: 'Tweet 1 (Video)', 
+                              video: currentContent.watermark_video_url,
+                              videoDuration: currentContent.video_duration
+                          }] : []),
+                          ...(currentContent.is_video && !currentContent.watermark_video_url && currentContent.video_url ? [{ 
+                              title: 'Tweet 1 (Video)', 
+                              video: currentContent.video_url,
+                              videoDuration: currentContent.video_duration
+                          }] : []),
                           ...(processedThreadItems.map((tweet, idx) => ({ 
                               title: `Tweet ${idx + 2}`, 
                               text: tweet 
@@ -5014,6 +5085,22 @@ export default function PurchaseContentModal({
                           {section.image && (
                             <div className="mt-3 rounded-md overflow-hidden">
                               <img src={String(section.image)} alt="Tweet image" className="w-[50%] h-auto object-cover" />
+                            </div>
+                          )}
+                          {section.video && (
+                            <div className="mt-3 rounded-md overflow-hidden">
+                              <VideoPlayer
+                                src={section.video}
+                                autoPlay={true}
+                                muted={true}
+                                controls={true}
+                                className="w-[50%] h-auto"
+                              />
+                              {section.videoDuration && (
+                                <div className="mt-2 text-xs text-white/60">
+                                  Duration: {section.videoDuration}s
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

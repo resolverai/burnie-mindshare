@@ -18,6 +18,7 @@ import {
 // Import components
 import PurchaseContentModal from './PurchaseContentModal'
 import HeroCarousel, { HeroSlide } from './HeroCarousel'
+import VideoPlayer from '../VideoPlayer'
 import { generateRandomMindshare, formatMindshare } from '../../utils/mindshareUtils'
 import ProgressSlider from './ProgressSlider'
 import DynamicFilters from './DynamicFilters'
@@ -734,7 +735,29 @@ export default function BiddingInterface() {
                         }}
                       >
                         {/* Background layer */}
-                        {displayImage ? (
+                        {item.is_video && item.watermark_video_url ? (
+                          <VideoPlayer
+                            src={item.watermark_video_url}
+                            poster={displayImage || undefined}
+                            autoPlay={false}
+                            muted={true}
+                            controls={false}
+                            className={`w-full h-full object-cover transition-all duration-300 ${
+                              clickedCards.has(item.id) || false ? 'blur-sm' : 'md:group-hover:blur-sm'
+                            }`}
+                          />
+                        ) : item.is_video && item.video_url ? (
+                          <VideoPlayer
+                            src={item.video_url}
+                            poster={displayImage || undefined}
+                            autoPlay={false}
+                            muted={true}
+                            controls={false}
+                            className={`w-full h-full object-cover transition-all duration-300 ${
+                              clickedCards.has(item.id) || false ? 'blur-sm' : 'md:group-hover:blur-sm'
+                            }`}
+                          />
+                        ) : displayImage ? (
                           <Image 
                             src={displayImage} 
                             alt="Project" 
@@ -750,8 +773,8 @@ export default function BiddingInterface() {
                             clickedCards.has(item.id) || false ? 'blur-sm' : 'md:group-hover:blur-sm'
                           }`}>
                             <div className="text-white/50 text-center px-1.5 xs:px-2">
-                              <div className="text-2xl xs:text-3xl sm:text-4xl mb-1.5 xs:mb-2">📝</div>
-                              <div className="text-xs xs:text-xs sm:text-sm">AI Generated Content</div>
+                              <div className="text-2xl xs:text-3xl sm:text-4xl mb-1.5 xs:mb-2">{item.is_video ? '🎬' : '📝'}</div>
+                              <div className="text-xs xs:text-xs sm:text-sm">{item.is_video ? 'AI Generated Video' : 'AI Generated Content'}</div>
                             </div>
                           </div>
                         )}

@@ -13,6 +13,7 @@ import { TreasuryService } from '../services/TreasuryService';
 import { fetchROASTPrice } from '../services/priceService';
 import AsyncReferralPayoutService from '../services/AsyncReferralPayoutService';
 import { WatermarkService } from '../services/WatermarkService';
+import { VideoWatermarkService } from '../services/VideoWatermarkService';
 import { createPublicClient, http, parseUnits, formatUnits } from 'viem';
 import { base } from 'viem/chains';
 import { MarketplaceContentService } from '../services/MarketplaceContentService';
@@ -1168,7 +1169,14 @@ router.post('/approve', async (req, res) => {
       predictedMindshare,
       qualityScore,
       generationMetadata,
-      askingPrice = 100 // Default asking price
+      askingPrice = 100, // Default asking price
+      // Video fields
+      isVideo = false,
+      videoUrl,
+      videoDuration,
+      subsequentFramePrompts,
+      clipPrompts,
+      audioPrompt
     } = req.body;
 
     // Debug: Log received data
@@ -1234,6 +1242,18 @@ router.post('/approve', async (req, res) => {
         }
       }
 
+      // Generate watermarked video if content has video
+      let watermarkVideoUrl: string | null = null;
+      if (isVideo && videoUrl) {
+        try {
+          const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
+          watermarkVideoUrl = await VideoWatermarkService.createWatermarkForVideo(videoUrl, s3Bucket);
+          console.log('✅ Watermarked video created:', watermarkVideoUrl);
+        } catch (error) {
+          console.error('⚠️ Failed to create video watermark, proceeding without:', error);
+        }
+      }
+
       newContent.creatorId = creatorId;
       newContent.campaignId = Number(campaignId);
       newContent.contentText = contentText;
@@ -1241,6 +1261,16 @@ router.post('/approve', async (req, res) => {
       if (watermarkImageUrl) {
         newContent.watermarkImage = watermarkImageUrl;
       }
+      // Video fields
+      newContent.isVideo = isVideo || false;
+      newContent.videoUrl = videoUrl || null;
+      if (watermarkVideoUrl) {
+        newContent.watermarkVideoUrl = watermarkVideoUrl;
+      }
+      newContent.videoDuration = videoDuration || null;
+      newContent.subsequentFramePrompts = subsequentFramePrompts || null;
+      newContent.clipPrompts = clipPrompts || null;
+      newContent.audioPrompt = audioPrompt || null;
       newContent.predictedMindshare = Number(predictedMindshare) || 75;
       newContent.qualityScore = Number(qualityScore) || 80;
       newContent.askingPrice = Number(askingPrice);
@@ -4833,6 +4863,18 @@ router.post('/approve-content', async (req: Request, res: Response) => {
       }
     }
 
+    // Generate watermarked video if content has video
+    let watermarkVideoUrl: string | null = null;
+    if (content.isVideo && content.videoUrl) {
+      try {
+        const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
+        watermarkVideoUrl = await VideoWatermarkService.createWatermarkForVideo(content.videoUrl, s3Bucket);
+        console.log('✅ Watermarked video created:', watermarkVideoUrl);
+      } catch (error) {
+        console.error('⚠️ Failed to create video watermark, proceeding without:', error);
+      }
+    }
+
     // Update content to approved and set wallet address for ownership verification
     content.approvalStatus = 'approved';
     content.isAvailable = true;
@@ -4840,6 +4882,9 @@ router.post('/approve-content', async (req: Request, res: Response) => {
     content.walletAddress = walletAddress; // Set wallet address for bidding authorization
     if (watermarkImageUrl) {
       content.watermarkImage = watermarkImageUrl;
+    }
+    if (watermarkVideoUrl) {
+      content.watermarkVideoUrl = watermarkVideoUrl;
     }
 
     const updatedContent = await contentRepository.save(content);

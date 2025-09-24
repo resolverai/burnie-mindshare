@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
+import VideoPlayer from './VideoPlayer'
 
 interface TweetThreadDisplayProps {
   mainTweet: string
@@ -12,6 +13,11 @@ interface TweetThreadDisplayProps {
   characterCount?: number
   hashtags?: string[]
   isProtected?: boolean
+  // Video fields
+  is_video?: boolean
+  video_url?: string
+  watermark_video_url?: string
+  video_duration?: number
 }
 
 export default function TweetThreadDisplay({
@@ -22,9 +28,14 @@ export default function TweetThreadDisplay({
   imageUrl,
   characterCount,
   hashtags,
-  isProtected = false
+  isProtected = false,
+  is_video = false,
+  video_url,
+  watermark_video_url,
+  video_duration
 }: TweetThreadDisplayProps) {
   const [isThreadExpanded, setIsThreadExpanded] = useState(false)
+  const [videoFailed, setVideoFailed] = useState(false)
   
   // Debug logging
   console.log('🔍 TweetThreadDisplay Debug:', {
@@ -82,8 +93,27 @@ export default function TweetThreadDisplay({
               </div>
             )}
 
-            {/* Show image if available */}
-            {showImage && imageUrl && (
+            {/* Show video (preferred) or image fallback */}
+            {showImage && !videoFailed && video_url ? (
+              <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
+                <VideoPlayer
+                  src={video_url}
+                  poster={imageUrl || undefined}
+                  autoPlay={true}
+                  controls={true}
+                  className="w-full h-auto"
+                  onError={() => {
+                    console.warn('⚠️ TweetThreadDisplay: Video failed. Falling back to image', { video_url, imageUrl })
+                    setVideoFailed(true)
+                  }}
+                />
+                {video_duration && (
+                  <div className="mt-2 text-xs text-gray-400 text-center">
+                    Duration: {video_duration}s
+                  </div>
+                )}
+              </div>
+            ) : showImage && imageUrl && (
               <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
                 <img
                   src={imageUrl}

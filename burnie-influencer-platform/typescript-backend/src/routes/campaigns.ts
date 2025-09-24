@@ -1132,12 +1132,24 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
     }
 
     // Create marketplace content with pending status (awaiting user approval)
+    // Debug logging of payload
+    try {
+      logger.info('🧩 Sync payload content_data (full JSON): ' + JSON.stringify(content_data, null, 2));
+    } catch (e) {
+      logger.info('🧩 Sync payload content_data (fallback): ' + String(content_data));
+    }
+    logger.info('🧩 Sync payload asking_price:', asking_price);
+    logger.info('🧩 Sync payload source:', source);
+
     const marketplaceContent = contentRepository.create({
       creatorId: creator_id,
       campaignId: campaignId,
       contentText: content_data.content_text,
       tweetThread: content_data.tweet_thread || null, // Store tweet thread array
-      contentImages: content_data.content_images || null,
+      // Ensure only image URLs are stored in contentImages
+      contentImages: Array.isArray(content_data.content_images)
+        ? content_data.content_images.filter((u: string) => typeof u === 'string' && !u.toLowerCase().endsWith('.mp4') && !u.toLowerCase().includes('video-generation'))
+        : content_data.content_images || null,
       predictedMindshare: content_data.predicted_mindshare || 75,
       qualityScore: content_data.quality_score || 80,
       askingPrice: asking_price || env.platform.minimumBidAmount,
@@ -1148,6 +1160,14 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
       source: source || 'mining_interface', // Store the source of the request
       imagePrompt: content_data.imagePrompt || null // Store the captured image prompt
     });
+
+    // Video fields mapping
+    marketplaceContent.isVideo = !!content_data.is_video || !!content_data.video_url;
+    marketplaceContent.videoUrl = content_data.video_url || null;
+    marketplaceContent.videoDuration = content_data.video_duration || null;
+    marketplaceContent.subsequentFramePrompts = content_data.subsequent_frame_prompts || null;
+    marketplaceContent.clipPrompts = content_data.clip_prompts || null;
+    marketplaceContent.audioPrompt = content_data.audio_prompt || null;
 
     const savedContent = await contentRepository.save(marketplaceContent);
 

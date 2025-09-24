@@ -170,4 +170,43 @@ export interface CreateCampaignRequest {
   requirements?: any
   metadata?: any
   isActive?: boolean
+}
+
+export interface VideoContent {
+  is_video: boolean
+  video_url?: string
+  watermark_video_url?: string
+  video_duration?: number
+  subsequent_frame_prompts?: Record<string, string>
+  clip_prompts?: Record<string, string>
+  audio_prompt?: string
+}
+
+export interface ContentItem extends VideoContent {
+  id: number
+  content_text: string
+  tweet_thread?: string[]
+  content_images: string[]
+  watermark_image?: string
+  predicted_mindshare: number
+  quality_score: number
+  asking_price: number
+  post_type?: string
+  creator: {
+    username: string
+    reputation_score: number
+  }
+  campaign: {
+    title: string
+    platform_source: string
+    reward_token: string
+  }
+  agent_name?: string
+  created_at: string
+  approved_at?: string
+  winning_bid?: {
+    amount: number
+    currency: string
+    bid_date: string
+  }
 } 

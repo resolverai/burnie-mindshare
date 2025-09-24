@@ -17,6 +17,7 @@ import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import TweetPreviewModal from './TweetPreviewModal'
 import DynamicFilters from './DynamicFilters'
+import VideoPlayer from '../VideoPlayer'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } from '../../utils/markdownParser'
 import { useInfiniteMyContent } from '../../hooks/useInfiniteMyContent'
 import useMixpanel from '../../hooks/useMixpanel'
@@ -31,6 +32,14 @@ interface ContentItem {
   quality_score: number
   asking_price: number
   post_type?: string
+  // Video fields
+  is_video?: boolean
+  video_url?: string
+  watermark_video_url?: string
+  video_duration?: number
+  subsequent_frame_prompts?: Record<string, string>
+  clip_prompts?: Record<string, string>
+  audio_prompt?: string
   creator: {
     username: string
     reputation_score: number
@@ -575,13 +584,31 @@ export default function YapperMyContent() {
               >
                   <div className="relative aspect-[16/10]">
                     {/* Background layer */}
-                    {displayImage ? (
+                    {item.is_video && item.watermark_video_url ? (
+                      <VideoPlayer
+                        src={item.watermark_video_url}
+                        poster={displayImage || undefined}
+                        autoPlay={false}
+                        muted={true}
+                        controls={true}
+                        className="w-full h-full"
+                      />
+                    ) : item.is_video && item.video_url ? (
+                      <VideoPlayer
+                        src={item.video_url}
+                        poster={displayImage || undefined}
+                        autoPlay={false}
+                        muted={true}
+                        controls={true}
+                        className="w-full h-full"
+                      />
+                    ) : displayImage ? (
                       <Image src={displayImage} alt="Project" fill sizes="(min-width: 768px) 50vw, 100vw" className="object-cover" />
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center bg-[--color-muted]">
                         <div className="text-white/50 text-center">
-                          <div className="text-4xl mb-2">📝</div>
-                          <div className="text-sm">AI Generated Content</div>
+                          <div className="text-4xl mb-2">{item.is_video ? '🎬' : '📝'}</div>
+                          <div className="text-sm">{item.is_video ? 'AI Generated Video' : 'AI Generated Content'}</div>
                         </div>
                       </div>
                     )}

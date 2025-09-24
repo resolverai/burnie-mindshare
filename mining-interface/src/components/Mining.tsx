@@ -34,6 +34,7 @@ import {
 } from '@heroicons/react/24/solid'
 import { getApiKeys, validateAgentApiKeys } from '@/utils/api-keys'
 import TweetThreadDisplay from './TweetThreadDisplay'
+import VideoPlayer from './VideoPlayer'
 
 interface Campaign {
   id: number;
@@ -86,6 +87,8 @@ interface CampaignSelection {
   includeBrandLogo: boolean; // New field for brand logo inclusion
   brandLogoModel: 'flux-pro/kontext' | 'fal-ai/nano-banana/edit' | null; // New field for brand logo model selection
   numberOfPosts: number; // New field for number of posts to generate
+  includeVideo: boolean; // New field for video generation
+  videoDuration: number; // New field for video duration
 }
 
 interface GeneratedContent {
@@ -95,6 +98,14 @@ interface GeneratedContent {
   content_images?: string[];
   predicted_mindshare: number;
   quality_score: number;
+  // Video fields
+  is_video?: boolean;
+  video_url?: string;
+  watermark_video_url?: string;
+  video_duration?: number;
+  subsequent_frame_prompts?: Record<string, string>;
+  clip_prompts?: Record<string, string>;
+  audio_prompt?: string;
   generation_metadata: {
     agents_used: string[];
     optimization_factors: string[];
@@ -133,6 +144,7 @@ export default function Mining() {
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<number>>(new Set())
   const [miningStatus, setMiningStatus] = useState<MiningStatus>({ status: 'idle', progress: 0, currentStep: 'Ready to mine' })
   const [contentReviewItems, setContentReviewItems] = useState<ContentReviewItem[]>([])
+  const [failedVideos, setFailedVideos] = useState<Set<string>>(new Set())
   
   // Search, pagination and select all state
   const [searchTerm, setSearchTerm] = useState<string>('')
@@ -349,6 +361,8 @@ export default function Mining() {
             post_type: selection.postType, // Include post type for each campaign
             include_brand_logo: selection.includeBrandLogo, // Include brand logo preference
             brand_logo_model: selection.brandLogoModel, // Include brand logo model preference
+            include_video: selection.includeVideo, // Include video generation preference
+            video_duration: selection.videoDuration, // Include video duration preference
             post_index: i + 1, // Track which post this is (1, 2, 3, etc.)
             campaign_context: {
               title: selection.campaign.title,
@@ -395,7 +409,9 @@ export default function Mining() {
               stability: apiKeys?.stability,
               fal: apiKeys?.fal
             }).filter(([key, value]) => value && value.trim() !== '')
-          )
+          ),
+          include_video: selectedCampaigns.some(selection => selection.includeVideo),
+          video_duration: selectedCampaigns.find(selection => selection.includeVideo)?.videoDuration || 10
         })
       })
 
@@ -539,6 +555,14 @@ export default function Mining() {
                       content_images: data.campaign_content?.content_images || null, // Include images from backend
                       predicted_mindshare: data.campaign_content?.predicted_mindshare || 0,
                       quality_score: data.campaign_content?.quality_score || 0,
+                      // Video fields
+                      is_video: data.campaign_content?.is_video || false,
+                      video_url: data.campaign_content?.video_url || null,
+                      watermark_video_url: data.campaign_content?.watermark_video_url || null,
+                      video_duration: data.campaign_content?.video_duration || null,
+                      subsequent_frame_prompts: data.campaign_content?.subsequent_frame_prompts || null,
+                      clip_prompts: data.campaign_content?.clip_prompts || null,
+                      audio_prompt: data.campaign_content?.audio_prompt || null,
                       generation_metadata: data.campaign_content?.generation_metadata || {
                         agents_used: ['CrewAI Constellation'],
                         optimization_factors: ['mindshare', 'engagement'],
@@ -635,7 +659,7 @@ export default function Mining() {
       } else {
         // Add campaign with default agent (first available) and thread post type
         const firstAgent = userAgents && userAgents.length > 0 ? userAgents[0] : null
-        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const, includeBrandLogo: false, brandLogoModel: null, numberOfPosts: 1 }]
+        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const, includeBrandLogo: false, brandLogoModel: null, numberOfPosts: 1, includeVideo: false, videoDuration: 10 }]
       }
     })
   }
@@ -695,6 +719,26 @@ export default function Mining() {
     )
   }
 
+  const updateVideoOption = (campaignId: number, includeVideo: boolean) => {
+    setSelectedCampaigns(prev => 
+      prev.map(selection => 
+        selection.campaign.id === campaignId 
+          ? { ...selection, includeVideo }
+          : selection
+      )
+    )
+  }
+
+  const updateVideoDuration = (campaignId: number, videoDuration: number) => {
+    setSelectedCampaigns(prev => 
+      prev.map(selection => 
+        selection.campaign.id === campaignId 
+          ? { ...selection, videoDuration }
+          : selection
+      )
+    )
+  }
+
   const isCampaignSelected = (campaignId: number) => {
     return selectedCampaigns.some(selection => selection.campaign.id === campaignId)
   }
@@ -724,7 +768,9 @@ export default function Mining() {
         postType: 'thread' as const,
         includeBrandLogo: false, // Default to false
         brandLogoModel: null, // Default to null
-        numberOfPosts: 1 // Default to 1 post
+        numberOfPosts: 1, // Default to 1 post
+        includeVideo: false, // Default to false
+        videoDuration: 10 // Default to 10 seconds
       }))
       setSelectedCampaigns(newSelections)
       setIsSelectAllChecked(true)
@@ -1361,6 +1407,43 @@ export default function Mining() {
                             )}
                           </div>
 
+                          {/* Video Generation Options */}
+                          <div className="mt-3">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={getSelectedCampaign(campaign.id)?.includeVideo || false}
+                                onChange={(e) => {
+                                  updateVideoOption(campaign.id, e.target.checked)
+                                }}
+                                className="w-4 h-4 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
+                              />
+                              <span className="text-sm font-medium text-gray-300">
+                                🎬 Generate Video Content
+                              </span>
+                            </label>
+                            {getSelectedCampaign(campaign.id)?.includeVideo && (
+                              <div className="mt-2 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                                <label className="block text-sm font-medium text-purple-400 mb-2">
+                                  Video Duration:
+                                </label>
+                                <select
+                                  value={getSelectedCampaign(campaign.id)?.videoDuration || 10}
+                                  onChange={(e) => updateVideoDuration(campaign.id, parseInt(e.target.value))}
+                                  className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                                >
+                                  <option value={10}>10 seconds (3 frames, 2 clips)</option>
+                                  <option value={15}>15 seconds (4 frames, 3 clips)</option>
+                                  <option value={20}>20 seconds (5 frames, 4 clips)</option>
+                                  <option value={25}>25 seconds (6 frames, 5 clips)</option>
+                                </select>
+                                <p className="text-xs text-purple-300 mt-1">
+                                  Video will be generated after the initial image with dynamic frames, clips, and audio
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
                           {/* Number of Posts Input */}
                           <div className="mt-3">
                             <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -1633,6 +1716,8 @@ export default function Mining() {
                         const imageUrl = reviewItem.content.content_images && reviewItem.content.content_images.length > 0 
                           ? reviewItem.content.content_images[0] 
                           : extractedImageUrl
+
+                        const videoUrl = reviewItem.content.video_url || null
                         
                         // Debug logging
                         console.log('🖼️ Mining: Content images array:', reviewItem.content.content_images)
@@ -1663,7 +1748,21 @@ export default function Mining() {
                                   </span>
                                 </div>
                                 {renderMarkdown(text, { className: 'longpost-content' })}
-                                {imageUrl && (
+                                {videoUrl && !failedVideos.has(videoUrl) ? (
+                                  <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
+                                    <VideoPlayer
+                                      src={videoUrl}
+                                      poster={imageUrl || undefined}
+                                      autoPlay={true}
+                                      controls={true}
+                                      className="w-full h-auto"
+                                      onError={() => {
+                                        console.warn('⚠️ Video failed to play, falling back to image', { videoUrl, imageUrl })
+                                        setFailedVideos(prev => new Set(prev).add(videoUrl))
+                                      }}
+                                    />
+                                  </div>
+                                ) : imageUrl && (
                                   <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
                                     <img 
                                       src={imageUrl} 
@@ -1692,6 +1791,9 @@ export default function Mining() {
                                   characterCount={text.length}
                                   hashtags={hashtags}
                                   showImage={true}
+                                  is_video={!!videoUrl && !failedVideos.has(videoUrl)}
+                                  video_url={videoUrl || undefined}
+                                  video_duration={reviewItem.content.video_duration || undefined}
                                 />
                               </div>
                             )}
