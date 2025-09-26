@@ -230,18 +230,28 @@ export class AsyncReferralPayoutService {
 
   /**
    * Calculate payout amounts for direct and grand referrers
+   * NEW: Based on full transaction value with proper currency conversion
    */
   private static calculatePayoutAmounts(purchase: ContentPurchase, referralCode: ReferralCode): {
     directReferrerAmount: number;
     grandReferrerAmount: number;
   } {
-    const purchaseAmount = Number(purchase.purchasePrice);
-    const directRate = referralCode.getCommissionRate();
-    const grandRate = referralCode.getGrandReferrerRate();
+    let purchasePriceInRoast = 0;
+
+    if (purchase.paymentCurrency === 'ROAST') {
+      // For ROAST transactions: Use full purchase price
+      purchasePriceInRoast = Number(purchase.purchasePrice);
+    } else if (purchase.paymentCurrency === 'USDC') {
+      // For USDC transactions: Convert full purchase price to ROAST
+      purchasePriceInRoast = Number(purchase.purchasePrice) * Number(purchase.conversionRate);
+    }
+
+    const directReferrerAmount = purchasePriceInRoast * referralCode.getCommissionRate();
+    const grandReferrerAmount = purchasePriceInRoast * referralCode.getGrandReferrerRate();
 
     return {
-      directReferrerAmount: purchaseAmount * directRate,
-      grandReferrerAmount: purchaseAmount * grandRate
+      directReferrerAmount: Math.floor(directReferrerAmount * 100) / 100, // Round down to 2 decimals
+      grandReferrerAmount: Math.floor(grandReferrerAmount * 100) / 100
     };
   }
 

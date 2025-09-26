@@ -14,6 +14,7 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from dotenv import load_dotenv
+from PIL import Image
 
 # Load environment variables from python-ai-backend/.env
 env_path = Path(__file__).parent.parent / "python-ai-backend" / ".env"
@@ -279,9 +280,20 @@ class VideoGenerator:
         try:
             print(f"📤 Uploading {file_type} to S3: {local_path}")
             
+            # If this is an image, convert/resize to JPEG within 4000x4000 for pixverse constraints
+            path_to_upload = local_path
+            processed_temp_path = None
+            if content_type == "image":
+                try:
+                    processed_temp_path = self._prepare_image_for_model(local_path)
+                    if processed_temp_path:
+                        path_to_upload = processed_temp_path
+                except Exception as prep_err:
+                    print(f"⚠️ Image preprocessing failed, attempting raw upload: {prep_err}")
+            
             # Upload file to S3
             result = self.s3_service.upload_file_to_s3(
-                file_path=local_path,
+                file_path=path_to_upload,
                 content_type=content_type,
                 file_type=file_type,
                 project_name=self.project_name
@@ -297,6 +309,46 @@ class VideoGenerator:
         except Exception as e:
             print(f"❌ Error uploading to S3: {str(e)}")
             return None
+        finally:
+            # Cleanup any processed temp image if created
+            try:
+                if 'processed_temp_path' in locals() and processed_temp_path and processed_temp_path != local_path and os.path.exists(processed_temp_path):
+                    os.remove(processed_temp_path)
+            except Exception:
+                pass
+
+    def _prepare_image_for_model(self, src_path, max_dim=4000):
+        """Ensure image fits fal pixverse constraints: convert to JPEG and resize within max_dim.
+        Returns a temp JPEG path if changes were applied; otherwise returns original path.
+        """
+        with Image.open(src_path) as img:
+            original_mode = img.mode
+            width, height = img.size
+            needs_resize = width > max_dim or height > max_dim
+            current_format = (getattr(img, 'format', None) or '').upper()
+            needs_convert = current_format != 'JPEG' or original_mode not in ("RGB", "L")
+
+            if not needs_resize and not needs_convert:
+                return src_path
+
+            # Resize maintaining aspect ratio
+            if needs_resize:
+                scale = min(max_dim / float(width), max_dim / float(height))
+                new_size = (int(width * scale), int(height * scale))
+                img = img.resize(new_size, Image.LANCZOS)
+
+            # Convert to RGB for JPEG if needed
+            if original_mode not in ("RGB", "L") or needs_convert:
+                img = img.convert("RGB")
+
+            # Save to temporary JPEG in project frames folder
+            temp_dir = os.path.join(self.project_folder, "frames")
+            os.makedirs(temp_dir, exist_ok=True)
+            basename = os.path.basename(src_path)
+            name, _ = os.path.splitext(basename)
+            temp_path = os.path.join(temp_dir, f"{name}_prepared.jpg")
+            img.save(temp_path, format="JPEG", quality=92, optimize=True)
+            return temp_path
 
     def cleanup_local_file(self, file_path):
         """Clean up local file after S3 upload."""

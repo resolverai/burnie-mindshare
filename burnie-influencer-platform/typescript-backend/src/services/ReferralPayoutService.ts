@@ -174,26 +174,24 @@ export class ReferralPayoutService {
 
   /**
    * Calculate payout amounts based on purchase and referral code
+   * NEW: Based on full transaction value instead of platform fee
    */
   private static calculatePayoutAmounts(purchase: ContentPurchase, referralCode: ReferralCode): {
     directReferrerAmount: number;
     grandReferrerAmount: number;
   } {
-    let platformFeeInRoast = 0;
+    let purchasePriceInRoast = 0;
 
     if (purchase.paymentCurrency === 'ROAST') {
-      // For ROAST transactions: 20% of transaction amount
-      platformFeeInRoast = Number(purchase.purchasePrice) * 0.2;
+      // For ROAST transactions: Use full purchase price
+      purchasePriceInRoast = Number(purchase.purchasePrice);
     } else if (purchase.paymentCurrency === 'USDC') {
-      // For USDC transactions: Convert 0.03 USDC fee + 20% of converted amount
-      const usdcFeeInRoast = 0.03 * Number(purchase.conversionRate);
-      const remainingUsdcInRoast = (Number(purchase.purchasePrice) - 0.03) * Number(purchase.conversionRate);
-      const platformFeeFromRemainder = remainingUsdcInRoast * 0.2;
-      platformFeeInRoast = usdcFeeInRoast + platformFeeFromRemainder;
+      // For USDC transactions: Convert full purchase price to ROAST
+      purchasePriceInRoast = Number(purchase.purchasePrice) * Number(purchase.conversionRate);
     }
 
-    const directReferrerAmount = platformFeeInRoast * referralCode.getCommissionRate();
-    const grandReferrerAmount = platformFeeInRoast * referralCode.getGrandReferrerRate();
+    const directReferrerAmount = purchasePriceInRoast * referralCode.getCommissionRate();
+    const grandReferrerAmount = purchasePriceInRoast * referralCode.getGrandReferrerRate();
 
     return {
       directReferrerAmount: Math.floor(directReferrerAmount * 100) / 100, // Round down to 2 decimals

@@ -140,6 +140,9 @@ export default function MobileBottomNav({ navigationItems, isAuthenticated = fal
     router.push(item.route)
   }
 
+  // Filter out Dashboard option for mobile
+  const filteredNavigationItems = navigationItems.filter(item => item.id !== 'dashboard')
+
   return (
     <nav 
       className={`lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-yapper-surface/95 backdrop-blur-md border-t border-yapper-border transition-transform duration-300 ease-out ${
@@ -147,7 +150,7 @@ export default function MobileBottomNav({ navigationItems, isAuthenticated = fal
       }`}
     >
       <div className="flex items-center justify-around px-2 py-2">
-        {navigationItems.map((item) => {
+        {filteredNavigationItems.map((item) => {
           const isActive = pathname === item.route
           const isDisabled = item.requiresAuth && !isAuthenticated
           

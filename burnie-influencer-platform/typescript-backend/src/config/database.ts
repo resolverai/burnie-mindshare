@@ -60,6 +60,10 @@ import { ApprovedMiner } from '../models/ApprovedMiner';
 import { PopularTwitterHandles } from '../models/PopularTwitterHandles';
 import { TwitterHandleMetadata } from '../models/TwitterHandleMetadata';
 
+// Import rewards and leaderboard entities
+import { UserDailyPoints } from '../models/UserDailyPoints';
+import { UserTiers } from '../models/UserTiers';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -126,6 +130,9 @@ export const AppDataSource = new DataSource({
     // Popular twitter handles entity
     PopularTwitterHandles,
     TwitterHandleMetadata,
+    // Rewards and leaderboard entities
+    UserDailyPoints,
+    UserTiers,
   ],
   migrations: [],
   subscribers: [],

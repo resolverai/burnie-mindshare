@@ -559,6 +559,136 @@ class MixpanelService {
   }) {
     this.track('threadItemRemoved', properties);
   }
+
+  // Rewards Page Events
+  rewardsPageViewed(properties: {
+    screenName: 'Rewards';
+    activeTab: 'rewards' | 'leaderboard';
+    userTier: string;
+    totalPoints: number;
+    totalRoastEarned: number;
+    totalReferrals: number;
+    timeSpent?: number;
+  }) {
+    this.track('rewardsPageViewed', properties);
+  }
+
+  rewardsTabClicked(properties: {
+    tabName: 'rewards' | 'leaderboard';
+    previousTab: 'rewards' | 'leaderboard';
+    timeSpentOnPreviousTab: number;
+    screenName: 'Rewards';
+  }) {
+    this.track('rewardsTabClicked', properties);
+  }
+
+  tierProgressViewed(properties: {
+    currentTier: string;
+    nextTier: string;
+    progressPercentage: number;
+    pointsToNextTier: number;
+    screenName: 'Rewards';
+  }) {
+    this.track('tierProgressViewed', properties);
+  }
+
+  potentialEarningsCalculated(properties: {
+    selectedTier: string;
+    selectedReferrals: number;
+    isRunningNode: boolean;
+    calculatedEarnings: number;
+    baseEarnings: number;
+    nodeBonus: number;
+    screenName: 'Rewards';
+  }) {
+    this.track('potentialEarningsCalculated', properties);
+  }
+
+  referralLinkCopied(properties: {
+    referralCode: string;
+    copySource: 'rewards_page' | 'grow_section';
+    copySuccess: boolean;
+    screenName: 'Rewards';
+  }) {
+    this.track('referralLinkCopied', properties);
+  }
+
+  leaderboardViewed(properties: {
+    timePeriod: 'now' | '7d' | '1m';
+    userRank: number;
+    totalUsers: number;
+    userInTopThree: boolean;
+    screenName: 'Rewards';
+    timeSpent?: number;
+  }) {
+    this.track('leaderboardViewed', properties);
+  }
+
+  leaderboardTimePeriodChanged(properties: {
+    newTimePeriod: 'now' | '7d' | '1m';
+    previousTimePeriod: 'now' | '7d' | '1m';
+    userRankChange: number;
+    screenName: 'Rewards';
+  }) {
+    this.track('leaderboardTimePeriodChanged', properties);
+  }
+
+  leaderboardUserClicked(properties: {
+    clickedUserRank: number;
+    clickedUserTier: string;
+    clickedUserPoints: number;
+    viewerRank: number;
+    screenName: 'Rewards';
+  }) {
+    this.track('leaderboardUserClicked', properties);
+  }
+
+  // Yapping Campaign Page Events
+  yapperCampaignPageViewed(properties: {
+    screenName: 'YapperCampaign';
+    timeSpent?: number;
+  }) {
+    this.track('yapperCampaignPageViewed', properties);
+  }
+
+  campaignSectionViewed(properties: {
+    sectionName: 'reward_distribution' | 'earning_points' | 'tier_structure' | 'leaderboard_system' | 'strategy_guide' | 'rules' | 'getting_started' | 'faqs';
+    sectionPosition: number;
+    timeInSection: number;
+    screenName: 'YapperCampaign';
+  }) {
+    this.track('campaignSectionViewed', properties);
+  }
+
+  campaignTierViewed(properties: {
+    tierName: string;
+    tierLevel: number;
+    tierRequirements: string[];
+    revenueShare: string;
+    userCurrentTier: string;
+    isUnlocked: boolean;
+    screenName: 'YapperCampaign';
+  }) {
+    this.track('campaignTierViewed', properties);
+  }
+
+  campaignFaqClicked(properties: {
+    faqQuestion: string;
+    faqIndex: number;
+    isExpanded: boolean;
+    screenName: 'YapperCampaign';
+  }) {
+    this.track('campaignFaqClicked', properties);
+  }
+
+  campaignGetStartedClicked(properties: {
+    buttonText: string;
+    buttonPosition: string;
+    userAuthenticated: boolean;
+    screenName: 'YapperCampaign';
+  }) {
+    this.track('campaignGetStartedClicked', properties);
+  }
 }
 
 // Create singleton instance

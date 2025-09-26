@@ -154,7 +154,9 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
   const navigationItems = [
     { id: 'marketplace', label: 'Marketplace', icon: '/home.svg', route: '/marketplace' },
     { id: 'dashboard', label: 'Dashboard', icon: '/dashboard.svg', route: '/dashboard' },
-    { id: 'mycontent', label: 'My content', icon: '/content.svg', route: '/my-content' }
+    { id: 'mycontent', label: 'My content', icon: '/content.svg', route: '/my-content' },
+    { id: 'campaign', label: 'Yapping Campaign', icon: '/megaphone.svg', route: '/campaign' },
+    { id: 'rewards', label: 'My Rewards', icon: '/rewards.svg', route: '/rewards' }
     // Temporarily hiding: history and portfolio sections
     // { id: 'history', label: 'History', icon: '/history.svg', route: '/history' },
     // { id: 'portfolio', label: 'Portfolio', icon: '/portfolio.svg', route: '/portfolio' }

@@ -34,6 +34,7 @@ import twitterLearningAnalysisRoutes from './routes/twitterLearningAnalysis';
 import carouselRoutes from './routes/carousel';
 import filterOptionsRoutes from './routes/filterOptions';
 import referralRoutes from './routes/referrals';
+import rewardsRoutes from './routes/rewards';
 import waitlistRoutes from './routes/waitlist';
 import twitterPostingRoutes from './routes/twitterPosting';
 import executionRoutes from './routes/execution';
@@ -139,6 +140,7 @@ app.use('/api/yapper-twitter-auth', yapperTwitterAuthRoutes); // Twitter auth ro
 app.use('/api/carousel', carouselRoutes); // Carousel data for hero banner
 app.use('/api/filter-options', filterOptionsRoutes); // Filter options for platforms and projects
 app.use('/api/referrals', referralRoutes); // Referral system routes
+app.use('/api/rewards', rewardsRoutes); // Rewards and leaderboard routes
 app.use('/api/waitlist', waitlistRoutes); // Waitlist management routes
 app.use('/api/twitter', twitterPostingRoutes); // Twitter posting and management routes
 app.use('/api/execution', executionRoutes); // Execution tracking for yapper interface

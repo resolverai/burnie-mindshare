@@ -4,7 +4,10 @@ import { UserReferral } from './UserReferral';
 export enum LeaderTier {
   SILVER = 'SILVER',
   GOLD = 'GOLD',
-  PLATINUM = 'PLATINUM'
+  PLATINUM = 'PLATINUM',
+  EMERALD = 'EMERALD',
+  DIAMOND = 'DIAMOND',
+  UNICORN = 'UNICORN'
 }
 
 @Entity('referral_codes')
@@ -88,6 +91,12 @@ export class ReferralCode {
 
   getCommissionRate(): number {
     switch (this.tier) {
+      case LeaderTier.UNICORN:
+        return 0.10; // 10%
+      case LeaderTier.DIAMOND:
+        return 0.10; // 10%
+      case LeaderTier.EMERALD:
+        return 0.10; // 10%
       case LeaderTier.PLATINUM:
         return 0.10; // 10%
       case LeaderTier.GOLD:

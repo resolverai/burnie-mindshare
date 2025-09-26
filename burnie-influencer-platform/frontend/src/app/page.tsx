@@ -143,7 +143,9 @@ export default function HomePage() {
   const navigationItems = [
     { id: 'marketplace', label: 'Marketplace', icon: '/home.svg', route: '/marketplace', active: true },
     { id: 'dashboard', label: 'Dashboard', icon: '/dashboard.svg', route: '/dashboard', requiresAuth: true },
-    { id: 'mycontent', label: 'My content', icon: '/content.svg', route: '/my-content', requiresAuth: true }
+    { id: 'mycontent', label: 'My content', icon: '/content.svg', route: '/my-content', requiresAuth: true },
+    { id: 'campaign', label: 'Yapping Campaign', icon: '/megaphone.svg', route: '/campaign' },
+    { id: 'rewards', label: 'My Rewards', icon: '/rewards.svg', route: '/rewards' }
   ]
 
   return (

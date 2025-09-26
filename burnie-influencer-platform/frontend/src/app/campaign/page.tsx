@@ -1,0 +1,197 @@
+'use client'
+
+import React, { useEffect, useState } from 'react'
+import Image from 'next/image'
+import { useRouter } from 'next/navigation'
+import CampaignComponent from '@/components/sections/RewardCampaigning'
+import MobileBottomNav from '@/components/MobileBottomNav'
+import { useAuth } from '@/hooks/useAuth'
+import { useAuthGuard } from '@/hooks/useAuthGuard'
+import { useUserReferralCode } from '@/hooks/useUserReferralCode'
+import WalletDisplay from '@/components/WalletDisplay'
+import { useROASTBalance } from '@/hooks/useROASTBalance'
+import { useAccount } from 'wagmi'
+import { useMixpanel } from '@/hooks/useMixpanel'
+import { useTimeTracking } from '@/hooks/useTimeTracking'
+
+export default function CampaignPage() {
+  const { address } = useAccount()
+  console.log('Campaign page loaded for user:', address) // Keep address usage to avoid lint error
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
+  useAuthGuard({ redirectTo: '/', requiresAuth: true })
+  const { referralCode, copyReferralLink } = useUserReferralCode()
+  const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
+  const router = useRouter()
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const [showCopySuccess, setShowCopySuccess] = useState(false)
+
+  // Mixpanel tracking
+  const mixpanel = useMixpanel()
+  const { getTimeSpentSeconds } = useTimeTracking()
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Track page view when component mounts
+  useEffect(() => {
+    if (mounted && isAuthenticated) {
+      mixpanel.yapperCampaignPageViewed({
+        screenName: 'YapperCampaign',
+        timeSpent: getTimeSpentSeconds()
+      })
+    }
+  }, [mounted, isAuthenticated, mixpanel, getTimeSpentSeconds])
+
+  const navigationItems = [
+    { id: 'marketplace', label: 'Marketplace', icon: '/home.svg', route: '/marketplace' },
+    { id: 'dashboard', label: 'Dashboard', icon: '/dashboard.svg', route: '/dashboard' },
+    { id: 'mycontent', label: 'My content', icon: '/content.svg', route: '/my-content' },
+    { id: 'campaign', label: 'Yapping Campaign', icon: '/megaphone.svg', route: '/campaign' },
+    { id: 'rewards', label: 'My Rewards', icon: '/rewards.svg', route: '/rewards' },
+  ]
+
+  // Loading state while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen yapper-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 animate-spin border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <h2 className="text-2xl font-bold text-white mb-2">Loading</h2>
+          <p className="text-white/70">Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return null
+  }
+
+  const handleReferralCodeClick = async () => {
+    if (referralCode?.code) {
+      const success = await copyReferralLink(referralCode.code)
+      if (success) {
+        setShowCopySuccess(true)
+        setTimeout(() => setShowCopySuccess(false), 2000)
+      }
+    }
+  }
+
+  return (
+    <div className="min-h-screen yapper-background overflow-x-hidden">
+      {/* Top Header - consistent across pages */}
+      <header className="z-20 w-full sticky top-0 bg-yapper-surface/95 backdrop-blur border-b border-yapper">
+        <div className="relative flex items-center justify-between px-6 h-16 max-w-none mx-auto">
+          <div className="hidden lg:flex items-center space-x-6 xl:space-x-8"></div>
+          <div className="absolute left-4 lg:left-1/2 lg:-translate-x-1/2 z-20">
+            <div className="text-white text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-bold relative group cursor-pointer">
+              <span className="relative z-10 no-underline hover:no-underline transition-colors text-white font-nt-brick">
+                YAP.BURNIE
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-orange-400 to-orange-600 opacity-0 group-hover:opacity-20 transition-opacity duration-300 rounded-lg blur-sm"></div>
+            </div>
+          </div>
+          <div className="flex items-center flex-row justify-end gap-2 ml-auto">
+            {/* Referral code pill */}
+            {mounted && isAuthenticated && referralCode && (
+              <div className="relative">
+                <button
+                  onClick={handleReferralCodeClick}
+                  className="px-3 py-1 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-full text-sm font-bold transition-all duration-200 transform hover:scale-105 xl:flex hidden items-center gap-2"
+                  title="Click to copy your referral link"
+                >
+                  <span>🔗</span>
+                  <span>My Referral:</span>
+                  <span className="font-mono">{referralCode.code}</span>
+                </button>
+                {showCopySuccess && (
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-orange-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50">
+                    Copied!
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Wallet display */}
+            <WalletDisplay 
+              showBalance={true}
+              balance={roastBalance}
+              balanceLoading={balanceLoading}
+            />
+          </div>
+        </div>
+      </header>
+      <div className="flex">
+        {/* Desktop Sidebar (auth-gated) */}
+        {mounted && isAuthenticated && (
+          <aside
+            className={`hidden lg:flex ${isSidebarExpanded ? 'w-52' : 'w-16'} bg-yapper-surface border-r border-yapper transition-[width] duration-300 ease-in-out flex-col h-[calc(100vh-64px)] shadow-sm flex-shrink-0 sticky top-16`}
+            style={{ willChange: 'width' }}
+          >
+            <div className="flex items-center justify-start px-2 py-4">
+              <button
+                className="w-8 h-8 rounded-md hover:bg-yapper-muted transition-colors ml-2"
+                aria-label={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+                onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
+              >
+                {isSidebarExpanded ? (
+                  <Image src="/sidebarclose.svg" alt="Collapse sidebar" width={20} height={20} className="w-5 h-5 text-white" />
+                ) : (
+                  <Image src="/sidebaropen.svg" alt="Expand sidebar" width={20} height={20} className="w-5 h-5 text-white" />
+                )}
+              </button>
+            </div>
+            <div className="h-px bg-yapper-border mx-2"></div>
+            <nav className="flex flex-col gap-1 p-2 flex-1">
+              {navigationItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => router.push(item.route)}
+                  className="group flex items-center rounded-md px-2 py-2 text-sm transition-colors overflow-hidden justify-start text-white/90 hover:bg-yapper-muted hover:text-white"
+                >
+                  <span className="w-5 h-5 inline-flex items-center justify-center text-white/90 mr-3 shrink-0">
+                    <Image src={item.icon} alt={item.label} width={20} height={20} className="w-5 h-5" />
+                  </span>
+                  <span className="relative overflow-hidden shrink-0 w-[160px]">
+                    <span
+                      className="block"
+                      style={{
+                        clipPath: isSidebarExpanded ? 'inset(0 0 0 0)' : 'inset(0 100% 0 0)',
+                        transition: 'clip-path 300ms ease-in-out',
+                        willChange: 'clip-path',
+                      }}
+                      aria-hidden={!isSidebarExpanded}
+                    >
+                      {item.label}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </nav>
+          </aside>
+        )}
+
+        {/* Main Content Area */}
+        <div className="flex-1 min-h-[calc(100vh-64px)] flex flex-col overflow-x-hidden">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden px-2 md:px-6 lg:px-6 pb-24">
+            <section className="space-y-6 py-6">
+              <CampaignComponent mixpanel={mixpanel} />
+            </section>
+          </main>
+        </div>
+      </div>
+
+      {/* Mobile Bottom Navigation */}
+      <MobileBottomNav 
+        navigationItems={navigationItems}
+        isAuthenticated={!!isAuthenticated}
+      />
+
+      {/* Mobile & Tablet Bottom Padding */}
+      <div className="lg:hidden h-20"></div>
+    </div>
+  )
+}
+
+
