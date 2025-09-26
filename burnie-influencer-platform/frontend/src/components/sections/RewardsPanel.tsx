@@ -284,6 +284,42 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                             const clampedIndex = Math.max(userContext ? getTierIndex(userContext.currentTier) : 0, Math.min(5, tierIndex));
                                             handleTierChange(clampedIndex);
                                         }}
+                                        onMouseDown={(e) => {
+                                            const handleMouseMove = (moveEvent: MouseEvent) => {
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                const x = moveEvent.clientX - rect.left;
+                                                const percentage = Math.max(0, Math.min(1, x / rect.width));
+                                                const tierIndex = Math.round(percentage * 5);
+                                                const clampedIndex = Math.max(userContext ? getTierIndex(userContext.currentTier) : 0, Math.min(5, tierIndex));
+                                                handleTierChange(clampedIndex);
+                                            };
+                                            
+                                            const handleMouseUp = () => {
+                                                document.removeEventListener('mousemove', handleMouseMove);
+                                                document.removeEventListener('mouseup', handleMouseUp);
+                                            };
+                                            
+                                            document.addEventListener('mousemove', handleMouseMove);
+                                            document.addEventListener('mouseup', handleMouseUp);
+                                        }}
+                                        onTouchStart={(e) => {
+                                            const handleTouchMove = (moveEvent: TouchEvent) => {
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                const x = moveEvent.touches[0].clientX - rect.left;
+                                                const percentage = Math.max(0, Math.min(1, x / rect.width));
+                                                const tierIndex = Math.round(percentage * 5);
+                                                const clampedIndex = Math.max(userContext ? getTierIndex(userContext.currentTier) : 0, Math.min(5, tierIndex));
+                                                handleTierChange(clampedIndex);
+                                            };
+                                            
+                                            const handleTouchEnd = () => {
+                                                document.removeEventListener('touchmove', handleTouchMove);
+                                                document.removeEventListener('touchend', handleTouchEnd);
+                                            };
+                                            
+                                            document.addEventListener('touchmove', handleTouchMove);
+                                            document.addEventListener('touchend', handleTouchEnd);
+                                        }}
                                     >
                                         <div
                                             className="absolute left-0 top-0 h-full rounded-full"
@@ -294,7 +330,7 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                         ></div>
                                         {/* Slider handle */}
                                         <div
-                                            className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 shadow-lg"
+                                            className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 shadow-lg cursor-grab active:cursor-grabbing select-none"
                                             style={{
                                                 left: `calc(${((getTierIndex(selectedTier) + 1) / 6) * 100}% - 6px)`
                                             }}
@@ -324,6 +360,44 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                             const clampedReferrals = Math.max(minReferrals, Math.min(1000, referrals));
                                             handleReferralsChange(clampedReferrals);
                                         }}
+                                        onMouseDown={(e) => {
+                                            const handleMouseMove = (moveEvent: MouseEvent) => {
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                const x = moveEvent.clientX - rect.left;
+                                                const percentage = Math.max(0, Math.min(1, x / rect.width));
+                                                const referrals = Math.round(percentage * 1000);
+                                                const minReferrals = userContext?.totalReferrals || 0;
+                                                const clampedReferrals = Math.max(minReferrals, Math.min(1000, referrals));
+                                                handleReferralsChange(clampedReferrals);
+                                            };
+                                            
+                                            const handleMouseUp = () => {
+                                                document.removeEventListener('mousemove', handleMouseMove);
+                                                document.removeEventListener('mouseup', handleMouseUp);
+                                            };
+                                            
+                                            document.addEventListener('mousemove', handleMouseMove);
+                                            document.addEventListener('mouseup', handleMouseUp);
+                                        }}
+                                        onTouchStart={(e) => {
+                                            const handleTouchMove = (moveEvent: TouchEvent) => {
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                const x = moveEvent.touches[0].clientX - rect.left;
+                                                const percentage = Math.max(0, Math.min(1, x / rect.width));
+                                                const referrals = Math.round(percentage * 1000);
+                                                const minReferrals = userContext?.totalReferrals || 0;
+                                                const clampedReferrals = Math.max(minReferrals, Math.min(1000, referrals));
+                                                handleReferralsChange(clampedReferrals);
+                                            };
+                                            
+                                            const handleTouchEnd = () => {
+                                                document.removeEventListener('touchmove', handleTouchMove);
+                                                document.removeEventListener('touchend', handleTouchEnd);
+                                            };
+                                            
+                                            document.addEventListener('touchmove', handleTouchMove);
+                                            document.addEventListener('touchend', handleTouchEnd);
+                                        }}
                                     >
                                         <div
                                             className="absolute left-0 top-0 h-full rounded-full"
@@ -334,7 +408,7 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                         ></div>
                                         {/* Slider handle */}
                                         <div
-                                            className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 shadow-lg"
+                                            className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 shadow-lg cursor-grab active:cursor-grabbing select-none"
                                             style={{
                                                 left: `calc(${(selectedReferrals / 1000) * 100}% - 6px)`
                                             }}
