@@ -255,15 +255,18 @@ function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], 
           <div className="w-16 h-16 animate-spin border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
           <div className="text-xl font-semibold">Loading podium...</div>
         </div>
-      ) : top3.length === 0 ? (
-        <div className="text-white text-center py-12">
-          <div className="text-xl font-semibold mb-2">No Leaderboard Data</div>
-          <div className="text-white/70">Check back later when users start earning points</div>
-        </div>
       ) : (
-        <>
-          {/* 3D Podium SVG */}
-          <div className="relative w-full max-w-[750px] px-3 md:px-0 flex justify-center">
+        <div className="relative w-full">
+          {/* No Data Message - Show when no users */}
+          {top3.length === 0 && (
+            <div className="text-white text-center mb-8">
+              <div className="text-xl font-semibold mb-2">No Leaderboard Data</div>
+              <div className="text-white/70">Check back later when users start earning points</div>
+            </div>
+          )}
+          
+          {/* 3D Podium SVG - Always show */}
+          <div className="relative w-full max-w-[750px] px-3 md:px-0 flex justify-center mx-auto">
         <svg
           width="100%"
           height="176"
@@ -361,77 +364,81 @@ function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], 
           </defs>
         </svg>
 
-        {/* User Images Overlay */}
-          {/* 1st Place - Center */}
-          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-32 md:-translate-y-52 flex flex-col items-center justify-center">
-            <div className="relative">
-              {/* Flame SVG Background */}
-              <div className="relative w-20 h-24 md:w-32 md:h-36 flex items-center justify-center">
-                <img
-                  src="/flame.svg"
-                  alt="Flame background"
-                  className="absolute w-full h-full object-contain"
-                />
-                <div className="relative z-10 translate-y-1 md:translate-y-2">
-                  {top3[0] && <UserAvatar user={top3[0]} size="md" />}
+        {/* User Images Overlay - Only show when we have data */}
+        {top3.length > 0 && (
+          <>
+            {/* 1st Place - Center */}
+            <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-32 md:-translate-y-52 flex flex-col items-center justify-center">
+              <div className="relative">
+                {/* Flame SVG Background */}
+                <div className="relative w-20 h-24 md:w-32 md:h-36 flex items-center justify-center">
+                  <img
+                    src="/flame.svg"
+                    alt="Flame background"
+                    className="absolute w-full h-full object-contain"
+                  />
+                  <div className="relative z-10 translate-y-1 md:translate-y-2">
+                    {top3[0] && <UserAvatar user={top3[0]} size="md" />}
+                  </div>
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-white text-xs md:text-base font-bold mb-1">{top3[0]?.name || top3[0]?.twitterHandle || 'User'}</div>
+                <div className="bg-white text-black text-[8px] md:text-sm font-semibold px-3 py-1 rounded-full inline-block shadow-lg">
+                  {top3[0]?.totalPoints?.toLocaleString() || '0'} points
                 </div>
               </div>
             </div>
-            <div className="text-center">
-              <div className="text-white text-xs md:text-base font-bold mb-1">{top3[0]?.name || top3[0]?.twitterHandle || 'User'}</div>
-              <div className="bg-white text-black text-[8px] md:text-sm font-semibold px-3 py-1 rounded-full inline-block shadow-lg">
-                {top3[0]?.totalPoints?.toLocaleString() || '0'} points
-              </div>
-            </div>
-          </div>
 
-          {/* 2nd Place - Left */}
-          <div className="absolute top-0 left-0 transform translate-x-4 md:translate-x-14 -translate-y-28 md:-translate-y-40 flex flex-col items-center justify-center">
-            <div className="relative">
-              {/* Flame SVG Background */}
-              <div className="relative w-20 h-24 md:w-28 md:h-32 flex items-center justify-center">
-                <img
-                  src="/flame.svg"
-                  alt="Flame background"
-                  className="absolute w-full h-full object-contain"
-                />
-                <div className="relative z-10 translate-y-1 md:translate-y-2">
-                  {top3[1] && <UserAvatar user={top3[1]} size="sm" />}
+            {/* 2nd Place - Left */}
+            <div className="absolute top-0 left-0 transform translate-x-4 md:translate-x-14 -translate-y-28 md:-translate-y-40 flex flex-col items-center justify-center">
+              <div className="relative">
+                {/* Flame SVG Background */}
+                <div className="relative w-20 h-24 md:w-28 md:h-32 flex items-center justify-center">
+                  <img
+                    src="/flame.svg"
+                    alt="Flame background"
+                    className="absolute w-full h-full object-contain"
+                  />
+                  <div className="relative z-10 translate-y-1 md:translate-y-2">
+                    {top3[1] && <UserAvatar user={top3[1]} size="sm" />}
+                  </div>
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-white text-xs md:text-sm font-bold mb-1">{top3[1]?.name || top3[1]?.twitterHandle || 'User'}</div>
+                <div className="bg-white text-black text-[8px] md:text-xs font-semibold px-2 py-1 rounded-full inline-block shadow-lg">
+                  {top3[1]?.totalPoints?.toLocaleString() || '0'} points
                 </div>
               </div>
             </div>
-            <div className="text-center">
-              <div className="text-white text-xs md:text-sm font-bold mb-1">{top3[1]?.name || top3[1]?.twitterHandle || 'User'}</div>
-              <div className="bg-white text-black text-[8px] md:text-xs font-semibold px-2 py-1 rounded-full inline-block shadow-lg">
-                {top3[1]?.totalPoints?.toLocaleString() || '0'} points
-              </div>
-            </div>
-          </div>
 
-          {/* 3rd Place - Right */}
-          <div className="absolute top-0 right-0 transform -translate-x-4 md:-translate-x-14 -translate-y-28 md:-translate-y-40 flex flex-col items-center justify-center">
-            <div className="relative">
-              {/* Flame SVG Background */}
-              <div className="relative w-20 h-24 md:w-28 md:h-32 flex items-center justify-center">
-                <img
-                  src="/flame.svg"
-                  alt="Flame background"
-                  className="absolute w-full h-full object-contain"
-                />
-                <div className="relative z-10 translate-y-1 md:translate-y-2">
-                  {top3[2] && <UserAvatar user={top3[2]} size="sm" />}
+            {/* 3rd Place - Right */}
+            <div className="absolute top-0 right-0 transform -translate-x-4 md:-translate-x-14 -translate-y-28 md:-translate-y-40 flex flex-col items-center justify-center">
+              <div className="relative">
+                {/* Flame SVG Background */}
+                <div className="relative w-20 h-24 md:w-28 md:h-32 flex items-center justify-center">
+                  <img
+                    src="/flame.svg"
+                    alt="Flame background"
+                    className="absolute w-full h-full object-contain"
+                  />
+                  <div className="relative z-10 translate-y-1 md:translate-y-2">
+                    {top3[2] && <UserAvatar user={top3[2]} size="sm" />}
+                  </div>
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-white text-xs md:text-sm font-bold mb-1">{top3[2]?.name || top3[2]?.twitterHandle || 'User'}</div>
+                <div className="bg-white text-black text-[8px] md:text-xs font-semibold px-2 py-1 rounded-full inline-block shadow-lg">
+                  {top3[2]?.totalPoints?.toLocaleString() || '0'} points
                 </div>
               </div>
             </div>
-            <div className="text-center">
-              <div className="text-white text-xs md:text-sm font-bold mb-1">{top3[2]?.name || top3[2]?.twitterHandle || 'User'}</div>
-              <div className="bg-white text-black text-[8px] md:text-xs font-semibold px-2 py-1 rounded-full inline-block shadow-lg">
-                {top3[2]?.totalPoints?.toLocaleString() || '0'} points
-              </div>
-            </div>
-          </div>
+          </>
+        )}
       </div>
-        </>
+        </div>
       )}
     </div>
   );

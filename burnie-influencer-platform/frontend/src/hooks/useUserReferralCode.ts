@@ -54,7 +54,8 @@ export const useUserReferralCode = () => {
   };
 
   const generateReferralLink = (code: string) => {
-    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    // Use environment variable first, fallback to window.location.origin
+    const baseUrl = process.env.NEXT_PUBLIC_FRONTEND_URL || (typeof window !== 'undefined' ? window.location.origin : '');
     return `${baseUrl}/?ref=${code}`;
   };
 

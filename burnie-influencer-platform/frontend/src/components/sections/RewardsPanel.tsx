@@ -128,12 +128,12 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
         { name: "Tier 6: Unicorn", req: "500 Referrals or 5,00,000 points", selected: userStats?.currentTier === 'UNICORN', image: "/unicorn.svg" },
     ];
 
-    // Pick active banner tier based on API data or currently-selected mobile tier (defaults to Gold)
+    // Pick active banner tier based on API data or currently-selected mobile tier (defaults to Silver)
     const userTierName = userStats?.currentTier ? `Tier ${getTierNumber(userStats.currentTier)}: ${userStats.currentTier}` : null;
-    const selectedMobileTier = (mobileTiers.find(t => (t as any).selected) ?? mobileTiers[1]);
+    const selectedMobileTier = (mobileTiers.find(t => (t as any).selected) ?? mobileTiers[0]);
     const activeBanner = userTierName 
-        ? bannerTier.find(t => t.name === userTierName) ?? bannerTier[1]
-        : (bannerTier.find(t => t.name === selectedMobileTier.name) ?? bannerTier[1]);
+        ? bannerTier.find(t => t.name === userTierName) ?? bannerTier[0]
+        : (bannerTier.find(t => t.name === selectedMobileTier.name) ?? bannerTier[0]);
 
     // Helper function to get tier number
     function getTierNumber(tier: string): number {
@@ -553,7 +553,7 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                             <div className="flex items-center gap-3">
                                 <div>
                                     <div className="text-white font-medium">Tier 1: Silver</div>
-                                    <div className="text-white/50 text-sm">5% revenue share + Alpha group access</div>
+                                    <div className="text-white/50 text-sm">5% revenue share</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -573,19 +573,19 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                             <div className="flex items-center gap-3">
                                 <div>
                                     <div className="text-white font-medium">Tier 4: Emerald</div>
-                                    <div className="text-white/50 text-sm">Node priority + Alpha group access</div>
+                                    <div className="text-white/50 text-sm">All in Platinum + Node priority + Alpha group access</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-3">
                                 <div>
                                     <div className="text-white font-medium">Tier 5: Diamond</div>
-                                    <div className="text-white/50 text-sm">DAO membership</div>
+                                    <div className="text-white/50 text-sm">All in Emerald + DAO membership</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-3">
                                 <div>
                                     <div className="text-white font-medium">Tier 6: Unicorn</div>
-                                    <div className="text-gray-400 text-sm">NFT access + in-person exclusive events</div>
+                                    <div className="text-gray-400 text-sm">All in Diamond + NFT access + in-person exclusive events</div>
                                 </div>
                             </div>
                         </div>
