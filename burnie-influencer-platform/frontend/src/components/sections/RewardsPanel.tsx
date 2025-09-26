@@ -292,6 +292,13 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                                 background: "linear-gradient(270deg, #FFFFFF 0%, rgba(255, 255, 255, 0.4) 100%)"
                                             }}
                                         ></div>
+                                        {/* Slider handle */}
+                                        <div
+                                            className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 shadow-lg"
+                                            style={{
+                                                left: `calc(${((getTierIndex(selectedTier) + 1) / 6) * 100}% - 6px)`
+                                            }}
+                                        ></div>
                                     </div>
                                 </div>
 
@@ -323,6 +330,13 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                             style={{
                                                 width: `${(selectedReferrals / 1000) * 100}%`,
                                                 background: "linear-gradient(270deg, #FFFFFF 0%, rgba(255, 255, 255, 0.4) 100%)"
+                                            }}
+                                        ></div>
+                                        {/* Slider handle */}
+                                        <div
+                                            className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 shadow-lg"
+                                            style={{
+                                                left: `calc(${(selectedReferrals / 1000) * 100}% - 6px)`
                                             }}
                                         ></div>
                                     </div>
