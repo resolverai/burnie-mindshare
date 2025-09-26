@@ -30,7 +30,8 @@ requests
 boto3
 botocore
 opencv-python-headless
-moviepy
+moviepy>=1.0.3
+ffmpeg-python
 # ML and Data Science packages with compatible versions
 numpy
 scipy
@@ -49,4 +50,3 @@ pydantic-settings
 fal-client
 xai-sdk
 aiohttp
-ffmpeg-python

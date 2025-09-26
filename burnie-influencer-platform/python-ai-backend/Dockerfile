@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     ffmpeg \
     libffi-dev \
+    imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for dependency caching
