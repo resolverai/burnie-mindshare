@@ -217,9 +217,8 @@ const currentUserData = {
 
 // 3D Podium with SVG and user images
 function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], loading: boolean }) {
-  // Use API data if available, otherwise fall back to mock data
-  const apiUsers = topThreeUsers.length > 0 ? topThreeUsers : leaderboardData.slice(0, 3).map(normalizeUser);
-  const top3 = apiUsers.slice(0, 3);
+  // Use API data only - no dummy data
+  const top3 = topThreeUsers.slice(0, 3);
 
   // Sample user data for the top 3 (fallback for styling)
   const podiumUsers = [
@@ -251,8 +250,20 @@ function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], 
 
   return (
     <div className="relative w-full flex justify-center items-center py-8 mt-12 md:py-12 md:mt-20">
-      {/* 3D Podium SVG */}
-      <div className="relative w-full max-w-[750px] px-3 md:px-0 flex justify-center">
+      {loading ? (
+        <div className="text-white text-center py-12">
+          <div className="w-16 h-16 animate-spin border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <div className="text-xl font-semibold">Loading podium...</div>
+        </div>
+      ) : top3.length === 0 ? (
+        <div className="text-white text-center py-12">
+          <div className="text-xl font-semibold mb-2">No Leaderboard Data</div>
+          <div className="text-white/70">Check back later when users start earning points</div>
+        </div>
+      ) : (
+        <>
+          {/* 3D Podium SVG */}
+          <div className="relative w-full max-w-[750px] px-3 md:px-0 flex justify-center">
         <svg
           width="100%"
           height="176"
@@ -420,14 +431,16 @@ function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], 
             </div>
           </div>
       </div>
+        </>
+      )}
     </div>
   );
 }
 
 // Leaderboard table component
 function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: LeaderboardUser[], loading: boolean }) {
-  // Use API data if available, otherwise fall back to mock data
-  const users = leaderboardUsers.length > 0 ? leaderboardUsers : leaderboardData.map(normalizeUser);
+  // Use API data only - no dummy data
+  const users = leaderboardUsers;
   const currentUser = users.find(user => user.isCurrentUser);
   const shouldShowPinned = !!currentUser; // only pin if current user exists in data
 
@@ -481,7 +494,21 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
             e.stopPropagation();
           }}
         >
-          {shouldShowPinned && (
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-12 h-12 animate-spin border-4 border-orange-500 border-t-transparent rounded-full"></div>
+              <div className="text-white ml-4">Loading leaderboard...</div>
+            </div>
+          ) : users.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-white text-center">
+                <div className="text-xl font-semibold mb-2">No Leaderboard Data</div>
+                <div className="text-white/70">Be the first to start earning points!</div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {shouldShowPinned && (
             <div
               className={`flex items-center justify-between w-full text-white shadow-2xl`}
               style={{
@@ -561,6 +588,8 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{user.totalPoints.toLocaleString()}</div>
             </div>
           ))}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -617,9 +646,9 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
       }
     } catch (error) {
       console.error('Error fetching leaderboard data:', error);
-      // Fall back to mock data on error
-      setLeaderboardUsers(leaderboardData.map(normalizeUser));
-      setTopThreeUsers(leaderboardData.slice(0, 3).map(normalizeUser));
+      // Set empty arrays on error - no dummy data
+      setLeaderboardUsers([]);
+      setTopThreeUsers([]);
     } finally {
       setLoading(false);
     }
@@ -661,7 +690,7 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
     if (activeTab === "leaderboard") {
       fetchLeaderboardData();
     }
-  }, [activeTab, activeTimePeriod, fetchLeaderboardData]);
+  }, [activeTab, activeTimePeriod]); // Removed fetchLeaderboardData to prevent infinite loop
 
   // Handle tab change with tracking
   const handleTabChange = (newTab: "rewards" | "leaderboard") => {

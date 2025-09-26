@@ -211,7 +211,9 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                     }}
                                 >
                                     <div className="text-xs text-white font-semibold">Total points</div>
-                                    <div className="text-lg md:text-3xl font-bold text-white">{userStats?.totalPoints ? Math.floor(Number(userStats.totalPoints)).toLocaleString() : '70,000'}</div>
+                                    <div className="text-lg md:text-3xl font-bold text-white">
+                                        {loading ? '...' : userStats?.totalPoints ? Math.floor(Number(userStats.totalPoints)).toLocaleString() : 'No data'}
+                                    </div>
                                 </div>
                                 {/* Card 2 */}
                                 <div
@@ -225,7 +227,9 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                     }}
                                 >
                                     <div className="text-xs text-white font-semibold">$ROAST earned</div>
-                                    <div className="text-lg md:text-3xl font-bold text-white">{userStats?.totalRoastEarned ? Number(userStats.totalRoastEarned).toFixed(2) : '2,847.50'}</div>
+                                    <div className="text-lg md:text-3xl font-bold text-white">
+                                        {loading ? '...' : userStats?.totalRoastEarned ? Number(userStats.totalRoastEarned).toFixed(2) : 'No data'}
+                                    </div>
                                 </div>
                                 {/* Card 3 */}
                                 <div
@@ -239,7 +243,9 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                     }}
                                 >
                                     <div className="text-xs text-white font-semibold">Total referrals</div>
-                                    <div className="text-lg md:text-3xl font-bold text-white">{userStats?.totalReferrals?.toLocaleString() || '70'}</div>
+                                    <div className="text-lg md:text-3xl font-bold text-white">
+                                        {loading ? '...' : userStats?.totalReferrals ? userStats.totalReferrals.toLocaleString() : 'No data'}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -431,7 +437,7 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                         backgroundClip: "text"
                                     }}
                                 >
-                                    ${potentialEarnings?.totalEarnings || '0.00'}
+                                    {loading ? '...' : potentialEarnings?.totalEarnings ? `$${potentialEarnings.totalEarnings}` : 'No data'}
                                 </div>
 
                                 {/* Tooltip moved to icon trigger */}
@@ -480,13 +486,17 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                             >
                                 <input
                                     type="text"
-                                    value={userStats?.referralLink || "https://burnie.io?ref=YOURCODE"}
+                                    value={loading ? "Loading..." : userStats?.referralLink || "No referral link available"}
                                     readOnly
                                     className="flex-1 bg-transparent text-white text-xs lg:text-md outline-none px-1 lg:px-2"
                                 />
                                 <button
                                     onClick={() => {
-                                        const linkToCopy = userStats?.referralLink || "https://burnie.io?ref=YOURCODE";
+                                        const linkToCopy = userStats?.referralLink || null;
+                                        if (!linkToCopy) {
+                                            console.log('No referral link available to copy');
+                                            return;
+                                        }
                                         navigator.clipboard.writeText(linkToCopy).then(() => {
                                             console.log('Referral link copied to clipboard');
                                             setCopySuccess(true);
