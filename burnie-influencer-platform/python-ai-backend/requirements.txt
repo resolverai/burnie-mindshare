@@ -30,7 +30,7 @@ requests
 boto3
 botocore
 opencv-python-headless
-moviepy>=1.0.3
+moviepy==1.0.3
 ffmpeg-python
 # ML and Data Science packages with compatible versions
 numpy
