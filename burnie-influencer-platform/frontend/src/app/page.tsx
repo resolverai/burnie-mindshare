@@ -16,6 +16,71 @@ import useMixpanel from '@/hooks/useMixpanel'
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
 
+// Countdown Banner Component
+function CountdownBanner() {
+  const router = useRouter()
+  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 })
+
+  useEffect(() => {
+    const calculateTimeLeft = () => {
+      const now = new Date()
+      const currentET = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}))
+      
+      // Calculate next 10 PM ET
+      const nextSnapshot = new Date(currentET)
+      nextSnapshot.setHours(22, 0, 0, 0) // 10 PM ET
+      
+      // If it's already past 10 PM today, set for tomorrow
+      if (currentET.getHours() >= 22) {
+        nextSnapshot.setDate(nextSnapshot.getDate() + 1)
+      }
+      
+      const timeDiff = nextSnapshot.getTime() - currentET.getTime()
+      
+      if (timeDiff > 0) {
+        const hours = Math.floor(timeDiff / (1000 * 60 * 60))
+        const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60))
+        const seconds = Math.floor((timeDiff % (1000 * 60)) / 1000)
+        
+        setTimeLeft({ hours, minutes, seconds })
+      } else {
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 })
+      }
+    }
+
+    calculateTimeLeft()
+    const interval = setInterval(calculateTimeLeft, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  const formatTime = (value: number) => value.toString().padStart(2, '0')
+
+  return (
+    <div className="flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-black/70 transition-all duration-200 border border-white/10 ml-5">
+      <button
+        onClick={() => router.push('/yapping-campaign')}
+        className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+      >
+        <div className="flex items-center gap-2 text-white font-mono text-sm">
+          <span className="text-lg font-bold">
+            {formatTime(timeLeft.hours)}:{formatTime(timeLeft.minutes)}:{formatTime(timeLeft.seconds)}
+          </span>
+        </div>
+        <div className="text-white/90 text-xs font-medium">
+          UNTIL NEXT LEADERBOARD SNAPSHOT
+        </div>
+      </button>
+      <button 
+        onClick={() => router.push('/yapping-campaign')}
+        className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white text-xs font-semibold px-3 py-1 rounded-full transition-all duration-300 animate-pulse hover:animate-none hover:scale-105 shadow-lg hover:shadow-xl"
+      >
+        Yapping Campaign Details
+      </button>
+    </div>
+  )
+}
+
 export default function HomePage() {
   console.log('🏠 Homepage loaded - showing marketplace content at base URL')
   
@@ -168,9 +233,9 @@ export default function HomePage() {
       {/* Public Header - Simplified version without auth requirements */}
       <header className="z-20 w-full sticky top-0 bg-yapper-surface/95 backdrop-blur border-b border-yapper">
         <div className="relative flex items-center justify-between px-6 h-16 max-w-none mx-auto">
-          {/* Left Navigation Links - Hidden per user request */}
+          {/* Left Navigation Links */}
           <div className="hidden lg:flex items-center space-x-6 xl:space-x-8">
-            {/* About and Tokenomics links hidden */}
+            {!isAuthenticated && <CountdownBanner />}
           </div>
 
           {/* Center Logo */}
@@ -340,6 +405,50 @@ export default function HomePage() {
           navigationItems={navigationItems}
           isAuthenticated={isAuthenticated}
         />
+      )}
+
+      {/* Unauthenticated Mobile Bottom Navigation */}
+      {mounted && !isAuthenticated && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-yapper-surface/95 backdrop-blur border-t border-yapper z-50">
+          <div className="flex items-center justify-around py-2 px-4 max-w-md mx-auto">
+            <button
+              onClick={() => router.push('/')}
+              className="relative flex flex-col items-center justify-center py-2 px-3 rounded-lg transition-all duration-200 min-w-[60px] text-white/70 hover:text-white hover:bg-yapper-muted/30"
+            >
+              <div className="relative">
+                <Image 
+                  src="/home.svg" 
+                  alt="Home" 
+                  width={20} 
+                  height={20} 
+                  className="w-5 h-5 mb-1 opacity-70"
+                />
+              </div>
+              <span className="text-xs font-medium leading-tight text-center">
+                Home
+              </span>
+            </button>
+            
+            <button
+              onClick={() => router.push('/yapping-campaign')}
+              className="relative flex flex-col items-center justify-center py-2 px-3 rounded-lg transition-all duration-200 min-w-[60px] text-white/70 hover:text-white hover:bg-yapper-muted/30"
+            >
+              <div className="relative">
+                <Image 
+                  src="/megaphone.svg" 
+                  alt="Yapping Campaign" 
+                  width={20} 
+                  height={20} 
+                  className="w-5 h-5 mb-1 opacity-70"
+                />
+                <div className="nav-badge"></div>
+              </div>
+              <span className="text-xs font-medium leading-tight text-center">
+                Yapping Campaign
+              </span>
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Mobile & Tablet Bottom Padding to prevent content from being hidden behind bottom nav */}

@@ -4,9 +4,10 @@ import React, { useRef } from "react";
 
 interface CampaignComponentProps {
   mixpanel?: any;
+  onWalletConnect?: () => void;
 }
 
-export default function CampaignComponent({ mixpanel }: CampaignComponentProps) {
+export default function CampaignComponent({ mixpanel, onWalletConnect }: CampaignComponentProps) {
 
     const router = useRouter();
 
@@ -33,9 +34,9 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
 
     const howToEarnPoints = [
         { title: "Content Purchase", description: "Purchase any content from marketplace", points: "100" },
-        { title: "Transaction Milestone", description: "Referrals total transactions cross multiples of 20 (20,40,60,80, etc)", points: "1,000" },
-        { title: "Referral System", description: "New user connects Twitter account and purchases minimum 2 tweets", points: "10,000" },
-        { title: "Mindshare Rewards", description: "Based on your mindshare % on Crypto Twitter", points: "100,000" },
+        { title: "Referral System", description: "New user connects Twitter account and purchases minimum 2 tweets", points: "1,000" },
+        { title: "Transaction Milestone", description: "Referrals total transactions cross multiples of 20 (20,40,60,80, etc)", points: "10,000" },
+        { title: "Mindshare Rewards", description: "Based on your mindshare % on Crypto Twitter among top 100 yappers", points: "100,000" },
     ]
 
     const tiers = [
@@ -136,7 +137,7 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
             description: [
                 "Overall campaign performance ranking",
                 "Determines the grand prize distribution.",
-                "Top 5 positions share 1M tokens.",
+                "Top 5 positions share 2M tokens.",
             ]
         },
     ] as const
@@ -311,28 +312,30 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
             </section>
 
             {/* Start Yapping Button - Below Banner */}
-            <div className="w-full max-w-4xl flex justify-end px-3 md:px-5 -mt-8">
+            <div className="w-full max-w-4xl flex justify-center px-3 md:px-5 -mt-8">
                 <button
                     type="button"
                     onClick={() => {
-                        if (mixpanel) {
-                            mixpanel.campaignGetStartedClicked({
-                                buttonText: 'Start Yapping',
-                                buttonPosition: 'below_banner',
-                                userAuthenticated: true,
-                                screenName: 'YapperCampaign'
-                            });
+                        if (onWalletConnect) {
+                            onWalletConnect();
+                        } else {
+                            if (mixpanel) {
+                                mixpanel.campaignGetStartedClicked({
+                                    buttonText: 'Start Yapping',
+                                    buttonPosition: 'below_banner',
+                                    userAuthenticated: true,
+                                    screenName: 'YapperCampaign'
+                                });
+                            }
+                            router.push("/marketplace?search=burnie");
                         }
-                        router.push("/marketplace?search=burnie");
                     }}
-                    className="font-semibold text-sm transition-all duration-200 text-[#FD7A10] cursor-pointer hover:bg-[#FD7A10] hover:text-white"
+                    className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white font-semibold text-sm transition-colors"
                     style={{
                         width: "281px",
                         height: "41px",
                         borderRadius: "8px",
                         padding: "12px 16px",
-                        border: "1px solid #FD7A10",
-                        background: "transparent",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center"
@@ -703,15 +706,19 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                         <button
                             type="button"
                             onClick={() => {
-                                if (mixpanel) {
-                                    mixpanel.campaignGetStartedClicked({
-                                        buttonText: 'Start Yapping',
-                                        buttonPosition: 'main_hero',
-                                        userAuthenticated: true,
-                                        screenName: 'YapperCampaign'
-                                    });
+                                if (onWalletConnect) {
+                                    onWalletConnect();
+                                } else {
+                                    if (mixpanel) {
+                                        mixpanel.campaignGetStartedClicked({
+                                            buttonText: 'Start Yapping',
+                                            buttonPosition: 'main_hero',
+                                            userAuthenticated: true,
+                                            screenName: 'YapperCampaign'
+                                        });
+                                    }
+                                    router.push("/marketplace?search=burnie");
                                 }
-                                router.push("/marketplace?search=burnie");
                             }}
                             className="font-semibold text-sm transition-all duration-200 text-[#FD7A10] cursor-pointer"
                             style={{
@@ -732,15 +739,19 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                         <button
                             type="button"
                             onClick={() => {
-                                if (mixpanel) {
-                                    mixpanel.campaignGetStartedClicked({
-                                        buttonText: 'View Leaderboard',
-                                        buttonPosition: 'main_hero',
-                                        userAuthenticated: true,
-                                        screenName: 'YapperCampaign'
-                                    });
+                                if (onWalletConnect) {
+                                    onWalletConnect();
+                                } else {
+                                    if (mixpanel) {
+                                        mixpanel.campaignGetStartedClicked({
+                                            buttonText: 'View Leaderboard',
+                                            buttonPosition: 'main_hero',
+                                            userAuthenticated: true,
+                                            screenName: 'YapperCampaign'
+                                        });
+                                    }
+                                    router.push("/rewards?tab=leaderboard");
                                 }
-                                router.push("/rewards?tab=leaderboard");
                             }}
                             className="font-semibold text-sm transition-all duration-200 text-[#FD7A10] cursor-pointer"
                             style={{
@@ -761,15 +772,19 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                         <button
                             type="button"
                             onClick={() => {
-                                if (mixpanel) {
-                                    mixpanel.campaignGetStartedClicked({
-                                        buttonText: 'Dashboard',
-                                        buttonPosition: 'main_hero',
-                                        userAuthenticated: true,
-                                        screenName: 'YapperCampaign'
-                                    });
+                                if (onWalletConnect) {
+                                    onWalletConnect();
+                                } else {
+                                    if (mixpanel) {
+                                        mixpanel.campaignGetStartedClicked({
+                                            buttonText: 'Dashboard',
+                                            buttonPosition: 'main_hero',
+                                            userAuthenticated: true,
+                                            screenName: 'YapperCampaign'
+                                        });
+                                    }
+                                    router.push("/rewards?tab=rewards");
                                 }
-                                router.push("/rewards?tab=rewards");
                             }}
                             className="font-semibold text-sm transition-all duration-200 text-[#FD7A10] cursor-pointer"
                             style={{

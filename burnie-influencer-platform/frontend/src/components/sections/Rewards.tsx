@@ -879,16 +879,6 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
 
       {activeTab === "rewards" && (
         <div className="space-y-4">
-          {/* Campaign Details Button - Top Right */}
-          <div className="hidden lg:flex justify-end px-4 lg:px-0">
-            <button
-              onClick={() => router.push('/campaign')}
-              className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-            >
-              Yapping Campaign Details
-            </button>
-          </div>
-          
           <div className="w-full md:max-w-none">
             <RewardsPanel currentUserWallet={currentUserWallet} />
           </div>
