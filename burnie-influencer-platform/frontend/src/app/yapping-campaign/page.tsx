@@ -17,13 +17,23 @@ function CountdownBanner() {
       const now = new Date()
       const currentET = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}))
       
-      // Calculate next 10 PM ET
-      const nextSnapshot = new Date(currentET)
-      nextSnapshot.setHours(22, 0, 0, 0) // 10 PM ET
+      // First snapshot: October 2nd, 2025 at 10 PM ET
+      const firstSnapshot = new Date(2025, 9, 2, 22, 0, 0, 0) // Month is 0-indexed, so 9 = October
       
-      // If it's already past 10 PM today, set for tomorrow
-      if (currentET.getHours() >= 22) {
-        nextSnapshot.setDate(nextSnapshot.getDate() + 1)
+      let nextSnapshot: Date
+      
+      if (currentET < firstSnapshot) {
+        // Before first snapshot - countdown to Oct 2nd, 2025 10 PM ET
+        nextSnapshot = firstSnapshot
+      } else {
+        // After first snapshot - daily 10 PM ET snapshots
+        nextSnapshot = new Date(currentET)
+        nextSnapshot.setHours(22, 0, 0, 0) // 10 PM ET
+        
+        // If it's already past 10 PM today, set for tomorrow
+        if (currentET.getHours() >= 22) {
+          nextSnapshot.setDate(nextSnapshot.getDate() + 1)
+        }
       }
       
       const timeDiff = nextSnapshot.getTime() - currentET.getTime()
@@ -55,7 +65,7 @@ function CountdownBanner() {
         </span>
       </div>
       <div className="text-white/90 text-xs font-medium">
-        UNTIL NEXT LEADERBOARD SNAPSHOT
+        UNTIL NEXT SNAPSHOT
       </div>
     </div>
   )

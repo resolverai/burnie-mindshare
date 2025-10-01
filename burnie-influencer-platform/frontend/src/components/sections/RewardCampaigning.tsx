@@ -327,7 +327,7 @@ export default function CampaignComponent({ mixpanel, onWalletConnect }: Campaig
                                     screenName: 'YapperCampaign'
                                 });
                             }
-                            router.push("/marketplace?search=burnie");
+                            router.push("/marketplace?search=burnie yapping");
                         }
                     }}
                     className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white font-semibold text-sm transition-colors"
@@ -698,7 +698,7 @@ export default function CampaignComponent({ mixpanel, onWalletConnect }: Campaig
 
                     {/* Subtitle */}
                     <p className="text-lg text-white/80 mb-8">
-                        30 days. 6 million $ROAST. Daily rewards starting at 10 PM ET
+                        30 days. 10 million $ROAST. Daily rewards starting at 10 PM ET
                     </p>
 
                     {/* Action buttons */}
@@ -717,7 +717,7 @@ export default function CampaignComponent({ mixpanel, onWalletConnect }: Campaig
                                             screenName: 'YapperCampaign'
                                         });
                                     }
-                                    router.push("/marketplace?search=burnie");
+                                    router.push("/marketplace?search=burnie yapping");
                                 }
                             }}
                             className="font-semibold text-sm transition-all duration-200 text-[#FD7A10] cursor-pointer"

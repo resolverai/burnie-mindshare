@@ -14,6 +14,70 @@ import { useAccount } from 'wagmi'
 import { useMixpanel } from '@/hooks/useMixpanel'
 import { useTimeTracking } from '@/hooks/useTimeTracking'
 
+// Countdown Banner Component
+function CountdownBanner() {
+  const router = useRouter()
+  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 })
+
+  useEffect(() => {
+    const calculateTimeLeft = () => {
+      const now = new Date()
+      const currentET = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}))
+      
+      // First snapshot: October 2nd, 2025 at 10 PM ET
+      const firstSnapshot = new Date(2025, 9, 2, 22, 0, 0, 0) // Month is 0-indexed, so 9 = October
+      
+      let nextSnapshot: Date
+      
+      if (currentET < firstSnapshot) {
+        // Before first snapshot - countdown to Oct 2nd, 2025 10 PM ET
+        nextSnapshot = firstSnapshot
+      } else {
+        // After first snapshot - daily 10 PM ET snapshots
+        nextSnapshot = new Date(currentET)
+        nextSnapshot.setHours(22, 0, 0, 0) // 10 PM ET
+        
+        // If it's already past 10 PM today, set for tomorrow
+        if (currentET.getHours() >= 22) {
+          nextSnapshot.setDate(nextSnapshot.getDate() + 1)
+        }
+      }
+      
+      const timeDiff = nextSnapshot.getTime() - currentET.getTime()
+      
+      if (timeDiff > 0) {
+        const hours = Math.floor(timeDiff / (1000 * 60 * 60))
+        const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60))
+        const seconds = Math.floor((timeDiff % (1000 * 60)) / 1000)
+        
+        setTimeLeft({ hours, minutes, seconds })
+      } else {
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 })
+      }
+    }
+
+    calculateTimeLeft()
+    const interval = setInterval(calculateTimeLeft, 1000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  const formatTime = (value: number) => value.toString().padStart(2, '0')
+
+  return (
+    <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2 transition-all duration-200 border border-white/10 ml-5">
+      <div className="flex items-center gap-2 text-white font-mono text-sm">
+        <span className="text-lg font-bold">
+          {formatTime(timeLeft.hours)}:{formatTime(timeLeft.minutes)}:{formatTime(timeLeft.seconds)}
+        </span>
+      </div>
+      <div className="text-white/90 text-xs font-medium">
+        UNTIL NEXT SNAPSHOT
+      </div>
+    </div>
+  )
+}
+
 export default function CampaignPage() {
   const { address } = useAccount()
   console.log('Campaign page loaded for user:', address) // Keep address usage to avoid lint error
@@ -80,11 +144,13 @@ export default function CampaignPage() {
   }
 
   return (
-    <div className="min-h-screen yapper-background overflow-x-hidden">
+    <div className="min-h-screen yapper-background">
       {/* Top Header - consistent across pages */}
       <header className="z-20 w-full sticky top-0 bg-yapper-surface/95 backdrop-blur border-b border-yapper">
         <div className="relative flex items-center justify-between px-6 h-16 max-w-none mx-auto">
-          <div className="hidden lg:flex items-center space-x-6 xl:space-x-8"></div>
+          <div className="hidden lg:flex items-center space-x-6 xl:space-x-8">
+            <CountdownBanner />
+          </div>
           <div className="absolute left-4 lg:left-1/2 lg:-translate-x-1/2 z-20">
             <div className="text-white text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-bold relative group cursor-pointer">
               <span className="relative z-10 no-underline hover:no-underline transition-colors text-white font-nt-brick">
@@ -186,12 +252,12 @@ export default function CampaignPage() {
         )}
 
         {/* Main Content Area */}
-        <div className="flex-1 min-h-[calc(100vh-64px)] flex flex-col overflow-x-hidden">
-          <main className="flex-1 overflow-y-auto overflow-x-hidden px-2 md:px-6 lg:px-6 pb-24">
-            <section className="space-y-6 py-6">
-              <CampaignComponent mixpanel={mixpanel} />
-            </section>
-          </main>
+        <div className="flex-1 min-h-[calc(100vh-64px)] flex flex-col overflow-x-hidden max-w-[100vw]">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden px-0 md:px-6 lg:px-6 pb-24">
+        <section className="space-y-6 py-6">
+          <CampaignComponent mixpanel={mixpanel} />
+        </section>
+      </main>
         </div>
       </div>
 
