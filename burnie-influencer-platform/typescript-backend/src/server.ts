@@ -47,6 +47,7 @@ import adminContentApprovalsRoutes from './routes/adminContentApprovals';
 import dedicatedMinerExecutionsRoutes from './routes/dedicatedMinerExecutions';
 import approvedMinersRoutes from './routes/approvedMiners';
 import twitterHandlesRoutes from './routes/twitterHandles';
+import editTweetRoutes from './routes/editTweet';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -153,6 +154,7 @@ app.use('/api', adminContentApprovalsRoutes); // Admin content approvals for min
 app.use('/api', dedicatedMinerExecutionsRoutes); // Dedicated miner execution tracking
 app.use('/api', approvedMinersRoutes); // Approved miners management
 app.use('/api/admin/twitter-handles', twitterHandlesRoutes); // Twitter handles management
+app.use('/api/edit-tweet', editTweetRoutes); // Edit tweet functionality with avatar fusion
 
 // Start server
 const startServer = async () => {

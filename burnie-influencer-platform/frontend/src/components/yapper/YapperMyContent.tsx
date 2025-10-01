@@ -79,6 +79,16 @@ export default function YapperMyContent() {
   
   // Helper function to get display content based on priority algorithm
   const getDisplayContent = (content: ContentItem) => {
+    // Debug logging for personalized content
+    if (content.updatedTweet || content.updatedThread) {
+      console.log(`🎨 [MyContent] Using personalized content for ID ${content.id}:`, {
+        hasUpdatedTweet: !!content.updatedTweet,
+        hasUpdatedThread: !!content.updatedThread,
+        updatedTweetPreview: content.updatedTweet?.substring(0, 50) + '...',
+        originalTextPreview: content.content_text?.substring(0, 50) + '...'
+      });
+    }
+    
     // Always prioritize updated content if it exists (regardless of availability status)
     if (content.updatedTweet || content.updatedThread) {
       return {
@@ -88,6 +98,7 @@ export default function YapperMyContent() {
     }
     
     // Fallback to original content
+    console.log(`📄 [MyContent] Using original content for ID ${content.id}`);
     return {
       text: content.content_text,
       thread: content.tweet_thread || []

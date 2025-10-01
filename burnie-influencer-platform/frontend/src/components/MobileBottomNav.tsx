@@ -153,13 +153,14 @@ export default function MobileBottomNav({ navigationItems, isAuthenticated = fal
         {filteredNavigationItems.map((item) => {
           const isActive = pathname === item.route
           const isDisabled = item.requiresAuth && !isAuthenticated
+          const isSpecialItem = item.id === 'campaign' || item.id === 'rewards'
           
           return (
             <button
               key={item.id}
               onClick={() => handleNavigation(item)}
               disabled={isDisabled}
-              className={`flex flex-col items-center justify-center py-2 px-3 rounded-lg transition-all duration-200 min-w-[60px] ${
+              className={`relative flex flex-col items-center justify-center py-2 px-3 rounded-lg transition-all duration-200 min-w-[60px] ${
                 isActive 
                   ? 'text-white bg-yapper-muted/50' 
                   : isDisabled
@@ -167,15 +168,18 @@ export default function MobileBottomNav({ navigationItems, isAuthenticated = fal
                   : 'text-white/70 hover:text-white hover:bg-yapper-muted/30'
               }`}
             >
-              <Image 
-                src={item.icon} 
-                alt={item.label} 
-                width={20} 
-                height={20} 
-                className={`w-5 h-5 mb-1 ${
-                  isActive ? 'opacity-100' : 'opacity-70'
-                }`}
-              />
+              <div className="relative">
+                <Image 
+                  src={item.icon} 
+                  alt={item.label} 
+                  width={20} 
+                  height={20} 
+                  className={`w-5 h-5 mb-1 ${
+                    isActive ? 'opacity-100' : 'opacity-70'
+                  }`}
+                />
+                {isSpecialItem && <div className="nav-badge"></div>}
+              </div>
               <span className="text-xs font-medium leading-tight text-center">
                 {item.label}
               </span>

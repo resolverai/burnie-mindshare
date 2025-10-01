@@ -580,6 +580,55 @@ async def get_active_sessions():
         logger.error(f"❌ Error getting active sessions: {e}")
         raise HTTPException(status_code=500, detail="Failed to get active sessions")
 
+# Avatar Fusion Processing endpoint
+@app.post("/api/avatar-fusion/process", response_model=dict)
+async def process_avatar_fusion(request: dict, background_tasks: BackgroundTasks):
+    """Process avatar fusion for edit tweet functionality"""
+    try:
+        logger.info(f"🎨 Starting avatar fusion processing for execution: {request.get('execution_id')}")
+        
+        # Extract request data
+        execution_id = request.get('execution_id')
+        content_id = request.get('content_id')
+        original_tweet_text = request.get('original_tweet_text')
+        original_image_prompt = request.get('original_image_prompt')
+        original_thread = request.get('original_thread', [])
+        user_request = request.get('user_request')
+        avatar_image_url = request.get('avatar_image_url')
+        wallet_address = request.get('wallet_address')
+        roast_amount = request.get('roast_amount', 0)
+        
+        if not all([execution_id, content_id, original_tweet_text, user_request, wallet_address]):
+            raise HTTPException(status_code=400, detail="Missing required fields: execution_id, content_id, original_tweet_text, user_request, wallet_address")
+        
+        # Start background task for avatar fusion processing
+        background_tasks.add_task(
+            run_avatar_fusion_processing,
+            execution_id=execution_id,
+            content_id=content_id,
+            original_tweet_text=original_tweet_text,
+            original_image_prompt=original_image_prompt,
+            original_thread=original_thread,
+            user_request=user_request,
+            avatar_image_url=avatar_image_url,
+            wallet_address=wallet_address,
+            roast_amount=roast_amount
+        )
+        
+        logger.info(f"✅ Avatar fusion processing started for execution: {execution_id}")
+        
+        return {
+            "execution_id": execution_id,
+            "status": "started",
+            "message": "Avatar fusion processing started successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error starting avatar fusion processing: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start avatar fusion processing: {str(e)}")
+
 # Text-only regeneration endpoint
 @app.post("/api/mining/text-only-regeneration", response_model=dict)
 async def start_text_only_regeneration(request: dict, background_tasks: BackgroundTasks):
@@ -911,6 +960,449 @@ async def run_text_only_regeneration(
                     logger.warning(f"⚠️ Failed to update execution status: {response.status_code} - {response.text}")
         except Exception as update_error:
             logger.warning(f"⚠️ Failed to update execution status: {update_error}")
+
+# Background task for avatar fusion processing
+async def run_avatar_fusion_processing(
+    execution_id: str,
+    content_id: int,
+    original_tweet_text: str,
+    original_image_prompt: str,
+    original_thread: list,
+    user_request: str,
+    avatar_image_url: str,
+    wallet_address: str,
+    roast_amount: float = 0
+):
+    """Background task that processes avatar fusion using IntegratedAvatarFusion"""
+    try:
+        logger.info(f"🎨 Starting avatar fusion processing for execution: {execution_id}")
+        
+        # Import IntegratedAvatarFusion from the tools directory
+        from app.tools.integrated_avatar_fusion import IntegratedAvatarFusion
+        
+        # Initialize the fusion system
+        fusion_system = IntegratedAvatarFusion()
+        
+        # Get content marketplace data to find original image URL
+        from app.database.repositories.content_marketplace_repository import ContentMarketplaceRepository
+        content_repo = ContentMarketplaceRepository()
+        content_data = content_repo.get_content_by_id(content_id)
+        
+        logger.info(f"🔍 Content data retrieved: {content_data}")
+        
+        if not content_data:
+            raise Exception(f"Content not found for ID: {content_id}")
+        
+        # Get original image URL from content
+        original_image_urls = content_data.get('content_images', [])
+        logger.info(f"🖼️ Found {len(original_image_urls)} images in content: {original_image_urls}")
+        
+        if not original_image_urls:
+            logger.error(f"❌ No images found in content data. Available keys: {list(content_data.keys())}")
+            raise Exception("No original image found in content")
+        
+        original_image_url = original_image_urls[0]  # Use first image
+        
+        # Get project logo URL from campaigns table using campaign ID
+        project_logo_url = None
+        try:
+            logger.info(f"🔍 Content data keys: {list(content_data.keys())}")
+            
+            # Get campaign ID from content data
+            campaign_data = content_data.get('campaign', {})
+            campaign_id = campaign_data.get('id') if campaign_data else None
+            
+            if campaign_id:
+                logger.info(f"🔍 Found campaign ID: {campaign_id}")
+                
+                # Fetch project logo from campaigns table
+                from app.database.repositories.campaign_repository import CampaignRepository
+                campaign_repo = CampaignRepository()
+                campaign_details = campaign_repo.get_campaign_by_id(campaign_id)
+                
+                if campaign_details:
+                    project_logo_url = campaign_details.get('projectLogo') or campaign_details.get('projectLogoUrl')
+                    logger.info(f"🔍 Campaign details keys: {list(campaign_details.keys())}")
+                    
+                    if project_logo_url:
+                        logger.info(f"🏷️ Found project logo URL from campaigns table: {project_logo_url}")
+                        
+                        # Generate fresh presigned URL for the logo if it's an S3 URL
+                        if 's3.amazonaws.com' in project_logo_url or 'amazonaws.com' in project_logo_url:
+                            logger.info(f"🔑 Generating fresh presigned URL for project logo")
+                            
+                            # Extract S3 key from logo URL
+                            from urllib.parse import urlparse
+                            parsed_logo_url = urlparse(project_logo_url)
+                            logo_s3_key = parsed_logo_url.path.lstrip('/')  # Remove leading slash
+                            logger.info(f"🔑 Extracted logo S3 key: {logo_s3_key}")
+                            
+                            # Generate fresh presigned URL for logo
+                            from app.services.s3_storage_service import get_s3_storage
+                            s3_service = get_s3_storage()
+                            logo_presigned_result = s3_service.generate_presigned_url(logo_s3_key, expiration=3600)
+                            
+                            if logo_presigned_result['success']:
+                                project_logo_url = logo_presigned_result['presigned_url']
+                                logger.info(f"✅ Generated fresh presigned URL for project logo")
+                            else:
+                                logger.warning(f"⚠️ Failed to generate fresh presigned URL for logo: {logo_presigned_result.get('error')}")
+                                logger.info(f"📋 Will use original logo URL anyway: {project_logo_url}")
+                        else:
+                            logger.info(f"📋 Using original logo URL (not an S3 presigned URL): {project_logo_url}")
+                    else:
+                        logger.info("🏷️ No project logo URL found in campaign details")
+                else:
+                    logger.warning(f"⚠️ Campaign details not found for campaign ID: {campaign_id}")
+            else:
+                logger.info("🏷️ No campaign ID found in content data")
+                
+        except Exception as logo_error:
+            logger.warning(f"⚠️ Error extracting project logo URL: {logo_error}")
+            project_logo_url = None
+        
+        # Extract S3 key from the presigned URL and generate a fresh presigned URL
+        from urllib.parse import urlparse, parse_qs
+        parsed_url = urlparse(original_image_url)
+        if 's3.amazonaws.com' in parsed_url.netloc:
+            # Extract S3 key from the URL path
+            s3_key = parsed_url.path.lstrip('/')  # Remove leading slash
+            logger.info(f"🔑 Extracted S3 key: {s3_key}")
+            
+            # Generate fresh presigned URL (reuse s3_service if already initialized)
+            if 's3_service' not in locals():
+                from app.services.s3_storage_service import get_s3_storage
+                s3_service = get_s3_storage()
+            presigned_result = s3_service.generate_presigned_url(s3_key, expiration=3600)
+            
+            if presigned_result['success']:
+                original_image_url = presigned_result['presigned_url']
+                logger.info(f"✅ Generated fresh presigned URL for original image")
+            else:
+                logger.warning(f"⚠️ Failed to generate fresh presigned URL: {presigned_result.get('error')}")
+                logger.info(f"📋 Will attempt to use original URL anyway: {original_image_url}")
+        else:
+            logger.info(f"📋 Using original URL (not an S3 presigned URL): {original_image_url}")
+        
+        # Download original image temporarily
+        import tempfile
+        import requests
+        
+        # Download original image
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as original_temp:
+            response = requests.get(original_image_url)
+            response.raise_for_status()
+            original_temp.write(response.content)
+            original_image_path = original_temp.name
+        
+        # Download avatar image if provided
+        avatar_image_path = None
+        if avatar_image_url:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as avatar_temp:
+                response = requests.get(avatar_image_url)
+                response.raise_for_status()
+                avatar_temp.write(response.content)
+                avatar_image_path = avatar_temp.name
+        
+        # Extract post type and thread data from content
+        post_type = content_data.get('post_type', 'shitpost')  # Default to shitpost if not specified
+        original_thread_items = content_data.get('tweet_thread', []) if post_type == 'thread' else None
+        
+        logger.info(f"📄 Post type: {post_type}")
+        if post_type == 'thread' and original_thread_items:
+            logger.info(f"🧵 Original thread items: {len(original_thread_items)} items")
+        
+        try:
+            # Process avatar fusion with post type and thread data
+            logger.info(f"🔄 Processing avatar fusion with user request: {user_request[:100]}...")
+            
+            result = fusion_system.process_avatar_fusion(
+                original_tweet=original_tweet_text,
+                original_prompt=original_image_prompt,
+                original_image_path=original_image_path,
+                avatar_image_path=avatar_image_path,
+                users_request=user_request,
+                project_logo_url=project_logo_url,
+                post_type=post_type,
+                original_thread=original_thread_items
+            )
+            
+            if result['success']:
+                logger.info(f"✅ Avatar fusion completed successfully for execution: {execution_id}")
+                
+                # Determine if this is a pre-purchase edit (needs watermark)
+                # Pre-purchase edits should have roast_amount of 0 or None
+                # Handle both string and numeric roast_amount values
+                try:
+                    roast_amount_float = float(roast_amount) if roast_amount is not None else 0
+                except (ValueError, TypeError):
+                    roast_amount_float = 0
+                
+                is_pre_purchase = roast_amount_float == 0 or roast_amount is None
+                
+                # Log the roast_amount for debugging
+                logger.info(f"🔍 Roast amount received: {roast_amount} (type: {type(roast_amount)}), parsed as: {roast_amount_float}, is_pre_purchase: {is_pre_purchase}")
+                
+                logger.info(f"{'🔸' if is_pre_purchase else '💰'} {'Pre-purchase edit - will generate watermark' if is_pre_purchase else 'Post-purchase edit - no watermark needed'} for execution: {execution_id}")
+                
+                # Download the fused image from fal.ai
+                fused_image_url = result['fused_image_url']
+                logger.info(f"📥 Downloading fused image from: {fused_image_url}")
+                
+                import requests
+                import tempfile
+                import os
+                
+                # Download the fused image temporarily
+                fused_response = requests.get(fused_image_url, timeout=30)
+                fused_response.raise_for_status()
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as fused_temp:
+                    fused_temp.write(fused_response.content)
+                    fused_image_path = fused_temp.name
+                
+                logger.info(f"📥 Downloaded fused image to: {fused_image_path}")
+                
+                try:
+                    # Upload the unwatermarked image to S3
+                    from app.services.s3_storage_service import get_s3_storage
+                    s3_service = get_s3_storage()
+                    
+                    # Upload original fused image
+                    upload_result = s3_service.upload_file_to_s3(
+                        file_path=fused_image_path,
+                        content_type="image",
+                        wallet_address=wallet_address,
+                        agent_id="avatar-fusion",
+                        model_name="nano-banana-edit"
+                    )
+                    
+                    if not upload_result['success']:
+                        raise Exception(f"Failed to upload fused image to S3: {upload_result.get('error')}")
+                    
+                    unwatermarked_url = upload_result['s3_url']
+                    logger.info(f"✅ Uploaded unwatermarked image to S3: {unwatermarked_url}")
+                    
+                    # Generate watermark if pre-purchase
+                    watermarked_url = None
+                    if is_pre_purchase:
+                        try:
+                            logger.info(f"🔄 Starting watermark generation for pre-purchase edit...")
+                            watermarked_url = generate_watermark_for_image(unwatermarked_url)
+                            if watermarked_url:
+                                logger.info(f"✅ Generated watermarked image: {watermarked_url}")
+                            else:
+                                logger.warning(f"⚠️ Failed to generate watermark, using unwatermarked URL")
+                        except Exception as watermark_error:
+                            logger.error(f"❌ Exception during watermark generation: {watermark_error}")
+                            watermarked_url = None
+                    
+                    # Determine which URLs to store
+                    if is_pre_purchase:
+                        # Pre-purchase: newImageUrl = unwatermarked, newWatermarkImageUrl = watermarked
+                        user_edit_image_url = unwatermarked_url
+                        user_watermark_image_url = watermarked_url
+                        logger.info(f"🔸 Pre-purchase URL assignment - unwatermarked: {unwatermarked_url}, watermarked: {watermarked_url}")
+                    else:
+                        # Post-purchase: newImageUrl = unwatermarked, newWatermarkImageUrl = null
+                        user_edit_image_url = unwatermarked_url
+                        user_watermark_image_url = None
+                        logger.info(f"💰 Post-purchase URL assignment - unwatermarked: {unwatermarked_url}")
+                    
+                    # Call TypeScript backend to complete the edit
+                    from app.config.settings import settings
+                    typescript_backend_url = settings.typescript_backend_url or "http://localhost:3001"
+                    
+                    import httpx
+                    async with httpx.AsyncClient() as client:
+                        # Prepare the completion data based on post type
+                        completion_data = {
+                            "executionId": execution_id,
+                            "newTweetText": result['new_tweet_text'],
+                            "newImagePrompt": result['fusion_image_prompt'],
+                            "newImageUrl": user_edit_image_url,
+                            "newWatermarkImageUrl": user_watermark_image_url
+                        }
+                        
+                        # Add thread items for thread posts, otherwise use None
+                        if post_type == 'thread' and 'thread_items' in result:
+                            completion_data["newThread"] = result['thread_items']
+                            logger.info(f"🧵 Sending {len(result['thread_items'])} thread items to TypeScript backend")
+                        else:
+                            completion_data["newThread"] = None
+                            logger.info(f"📝 Sending single content for {post_type} post type")
+                        
+                        response = await client.put(
+                            f"{typescript_backend_url}/api/edit-tweet/complete",
+                            json=completion_data,
+                            timeout=30.0
+                        )
+                        
+                        if response.status_code == 200:
+                            logger.info(f"✅ Successfully completed edit for execution: {execution_id}")
+                        else:
+                            logger.error(f"❌ Failed to complete edit: {response.status_code} - {response.text}")
+                
+                finally:
+                    # Clean up temporary fused image file
+                    if os.path.exists(fused_image_path):
+                        os.unlink(fused_image_path)
+                        logger.info(f"🧹 Cleaned up temporary fused image: {fused_image_path}")
+                        
+            else:
+                logger.error(f"❌ Avatar fusion failed for execution: {execution_id} - {result.get('error')}")
+                # Update status to failed in TypeScript backend
+                try:
+                    import httpx
+                    async with httpx.AsyncClient() as client:
+                        failure_response = await client.put(
+                            f"{typescript_backend_url}/api/edit-tweet/complete",
+                            json={
+                                "executionId": execution_id,
+                                "status": "FAILED",
+                                "error": result.get('error', 'Avatar fusion failed'),
+                                "newTweetText": None,
+                                "newThread": None,
+                                "newImagePrompt": None,
+                                "newImageUrl": None,
+                                "newWatermarkImageUrl": None
+                                # Removed isPurchased - edit functionality doesn't update content_marketplace
+                            },
+                            timeout=30.0
+                        )
+                        
+                        if failure_response.status_code == 200:
+                            logger.info(f"✅ Updated edit status to failed for execution: {execution_id}")
+                        else:
+                            logger.error(f"❌ Failed to update edit status: {failure_response.status_code}")
+                except Exception as status_error:
+                    logger.error(f"❌ Error updating failed status: {status_error}")
+                
+        finally:
+            # Clean up temporary files
+            if os.path.exists(original_image_path):
+                os.unlink(original_image_path)
+            if avatar_image_path and os.path.exists(avatar_image_path):
+                os.unlink(avatar_image_path)
+        
+    except Exception as e:
+        logger.error(f"❌ Error in avatar fusion processing for execution {execution_id}: {e}")
+        # Update status to failed in TypeScript backend
+        try:
+            import httpx
+            typescript_backend_url = os.getenv('TYPESCRIPT_BACKEND_URL', 'http://localhost:3001')
+            
+            async with httpx.AsyncClient() as client:
+                failure_response = await client.put(
+                    f"{typescript_backend_url}/api/edit-tweet/complete",
+                    json={
+                        "executionId": execution_id,
+                        "status": "FAILED",
+                        "error": str(e),
+                        "newTweetText": None,
+                        "newThread": None,
+                        "newImagePrompt": None,
+                        "newImageUrl": None,
+                        "newWatermarkImageUrl": None
+                        # Removed isPurchased - edit functionality doesn't update content_marketplace
+                    },
+                    timeout=30.0
+                )
+                
+                if failure_response.status_code == 200:
+                    logger.info(f"✅ Updated edit status to failed for execution: {execution_id}")
+                else:
+                    logger.error(f"❌ Failed to update edit status: {failure_response.status_code}")
+        except Exception as status_error:
+            logger.error(f"❌ Error updating failed status: {status_error}")
+
+def generate_watermark_for_image(image_url: str) -> str | None:
+    """Generate watermark for an image directly using integrated watermark code"""
+    try:
+        logger.info(f"🖼️ Generating watermark for image: {image_url}")
+        
+        # Import required modules
+        import os
+        import tempfile
+        import requests
+        import cv2
+        from app.ai.watermarks import BlendedTamperResistantWatermark
+        from app.services.s3_storage_service import get_s3_storage
+        
+        # Initialize watermarker
+        font_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'NTBrickSans.ttf')
+        if os.path.exists(font_path):
+            watermarker = BlendedTamperResistantWatermark(font_path)
+            logger.info(f"✅ Using font: {font_path}")
+        else:
+            watermarker = BlendedTamperResistantWatermark()
+            logger.info("⚠️ Using default font")
+        
+        # Generate temporary file paths
+        with tempfile.TemporaryDirectory() as temp_dir:
+            original_path = os.path.join(temp_dir, 'original.jpg')
+            watermarked_path = os.path.join(temp_dir, 'watermarked.jpg')
+            
+            # Step 1: Download original image
+            logger.info(f"📥 Downloading image from: {image_url}")
+            response = requests.get(image_url, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            with open(original_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            logger.info(f"✅ Downloaded image to: {original_path}")
+            
+            # Step 2: Apply watermark
+            image = cv2.imread(original_path)
+            if image is None:
+                logger.error("❌ Failed to load image")
+                return None
+            
+            logger.info("🖼️ Applying watermark...")
+            watermarked = watermarker.add_robust_blended_watermark(
+                image,
+                corner_text="@burnieio",
+                center_text="Buy to Access",
+                center_text_2="@burnieio",
+                hidden_text="BURNIEIO_2024",
+                blend_mode='texture_aware'
+            )
+            
+            # Save watermarked image
+            success = cv2.imwrite(watermarked_path, watermarked)
+            if not success:
+                logger.error("❌ Failed to save watermarked image")
+                return None
+            
+            logger.info(f"✅ Watermark applied and saved to: {watermarked_path}")
+            
+            # Step 3: Upload watermarked image to S3
+            s3_service = get_s3_storage()
+            
+            # Upload to S3 (S3 service will auto-generate the key)
+            logger.info(f"📤 Uploading watermarked image to S3...")
+            upload_result = s3_service.upload_file_to_s3(
+                file_path=watermarked_path,
+                content_type="image",
+                wallet_address="avatar-fusion",  # Use as folder identifier
+                agent_id="watermark",            # Use as sub-folder identifier
+                model_name="watermark-edit"      # Use for file naming
+            )
+            
+            if not upload_result['success']:
+                logger.error(f"❌ Failed to upload watermarked image to S3: {upload_result.get('error')}")
+                return None
+            
+            watermark_url = upload_result['s3_url']
+            logger.info(f"✅ Watermarked image uploaded: {watermark_url}")
+            
+            return watermark_url
+            
+    except Exception as e:
+        logger.error(f"❌ Error generating watermark: {e}")
+        return None
 
 # Background task for multi-campaign content generation
 async def run_multi_campaign_generation(

@@ -26,9 +26,9 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
     };
 
     const rewardDistribution = [
-        { title: "Daily Rewards", desc: "Shared based on leaderboard position at 10 PM ET ", amount: "3,000,000", winners: "Top 25 Daily", image: "/twocoin.svg" },
+        { title: "Daily Rewards", desc: "Shared based on leaderboard position at 10 PM ET ", amount: "6,000,000", winners: "Top 25 Daily", image: "/twocoin.svg" },
         { title: "Weekly Rewards", desc: "Shared based on weekly leaderboard performance ", amount: "2,000,000", winners: "Top 10 weekly", image: "/threecoin.svg" },
-        { title: "Grand Prize", desc: "Share based on overall campaign performance", amount: "1,000,000", winners: "Top 5", image: "/multiplecoin.svg" },
+        { title: "Grand Prize", desc: "Share based on overall campaign performance", amount: "2,000,000", winners: "Top 5", image: "/multiplecoin.svg" },
     ]
 
     const howToEarnPoints = [
@@ -128,7 +128,7 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
             description: [
                 "Tracks cumulative performance over 7-day periods.",
                 "Top 10 positions earn weekly rewards.",
-                "Resets every Thursday.",
+                "Resets every Wednesday.",
             ]
         },
         {
@@ -283,11 +283,11 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                         </div>
                         <div>
                             <div className="text-white text-sm">Start Date</div>
-                            <div className="font-semibold text-lg">22 Sep 2025</div>
+                            <div className="font-semibold text-lg">01 Oct 2025</div>
                         </div>
                         <div>
                             <div className="text-white text-sm">End Date</div>
-                            <div className="font-semibold text-lg">20 Oct 2025</div>
+                            <div className="font-semibold text-lg">30 Oct 2025</div>
                         </div>
                     </div>
                     <div className="flex items-center justify-center mt-4 md:mt-0">
@@ -303,12 +303,44 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                                     backgroundClip: "text",
                                 }}
                             >
-                                6,000,000
+                                10,000,000
                             </div>
                         </div>
                     </div>
                 </div>
             </section>
+
+            {/* Start Yapping Button - Below Banner */}
+            <div className="w-full max-w-4xl flex justify-end px-3 md:px-5 -mt-8">
+                <button
+                    type="button"
+                    onClick={() => {
+                        if (mixpanel) {
+                            mixpanel.campaignGetStartedClicked({
+                                buttonText: 'Start Yapping',
+                                buttonPosition: 'below_banner',
+                                userAuthenticated: true,
+                                screenName: 'YapperCampaign'
+                            });
+                        }
+                        router.push("/marketplace?search=burnie");
+                    }}
+                    className="font-semibold text-sm transition-all duration-200 text-[#FD7A10] cursor-pointer hover:bg-[#FD7A10] hover:text-white"
+                    style={{
+                        width: "281px",
+                        height: "41px",
+                        borderRadius: "8px",
+                        padding: "12px 16px",
+                        border: "1px solid #FD7A10",
+                        background: "transparent",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center"
+                    }}
+                >
+                    Start Yapping
+                </button>
+            </div>
 
                 {/* Reward distribution cards */}
                 <section className="w-full max-w-7xl px-2 md:px-0 overflow-x-hidden">
@@ -673,13 +705,13 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                             onClick={() => {
                                 if (mixpanel) {
                                     mixpanel.campaignGetStartedClicked({
-                                        buttonText: 'Join campaign',
+                                        buttonText: 'Start Yapping',
                                         buttonPosition: 'main_hero',
                                         userAuthenticated: true,
                                         screenName: 'YapperCampaign'
                                     });
                                 }
-                                router.push("/marketplace");
+                                router.push("/marketplace?search=burnie");
                             }}
                             className="font-semibold text-sm transition-all duration-200 text-[#FD7A10] cursor-pointer"
                             style={{
@@ -694,7 +726,7 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                                 justifyContent: "center"
                             }}
                         >
-                            Join campaign
+                            Start Yapping
                         </button>
 
                         <button
@@ -702,13 +734,13 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                             onClick={() => {
                                 if (mixpanel) {
                                     mixpanel.campaignGetStartedClicked({
-                                        buttonText: 'View live leaderboard',
+                                        buttonText: 'View Leaderboard',
                                         buttonPosition: 'main_hero',
                                         userAuthenticated: true,
                                         screenName: 'YapperCampaign'
                                     });
                                 }
-                                router.push("/rewards");
+                                router.push("/rewards?tab=leaderboard");
                             }}
                             className="font-semibold text-sm transition-all duration-200 text-[#FD7A10] cursor-pointer"
                             style={{
@@ -723,7 +755,7 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                                 justifyContent: "center"
                             }}
                         >
-                            View live leaderboard
+                            View Leaderboard
                         </button>
 
                         <button
@@ -731,13 +763,13 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                             onClick={() => {
                                 if (mixpanel) {
                                     mixpanel.campaignGetStartedClicked({
-                                        buttonText: 'Start earning',
+                                        buttonText: 'Dashboard',
                                         buttonPosition: 'main_hero',
                                         userAuthenticated: true,
                                         screenName: 'YapperCampaign'
                                     });
                                 }
-                                router.push("/rewards");
+                                router.push("/rewards?tab=rewards");
                             }}
                             className="font-semibold text-sm transition-all duration-200 text-[#FD7A10] cursor-pointer"
                             style={{
@@ -752,7 +784,7 @@ export default function CampaignComponent({ mixpanel }: CampaignComponentProps) 
                                 justifyContent: "center"
                             }}
                         >
-                            Start earning
+                            Dashboard
                         </button>
                     </div>
                 </div>

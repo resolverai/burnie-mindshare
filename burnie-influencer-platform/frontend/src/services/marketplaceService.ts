@@ -66,7 +66,7 @@ export interface MarketplaceParams {
 }
 
 const marketplaceService = {
-  async getContent(params: MarketplaceParams = {}): Promise<MarketplaceResponse> {
+  async getContent(params: MarketplaceParams = {}, walletAddress?: string): Promise<MarketplaceResponse> {
     const queryParams = new URLSearchParams()
     
     Object.entries(params).forEach(([key, value]) => {
@@ -77,12 +77,20 @@ const marketplaceService = {
     
     const url = `${API_BASE_URL}/api/marketplace/content?${queryParams.toString()}`
     
+    // Prepare headers with optional wallet address for personalization
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    
+    // Include wallet address in Authorization header if provided
+    if (walletAddress) {
+      headers.Authorization = `Bearer ${walletAddress}`
+    }
+    
     try {
       const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       })
       
       if (!response.ok) {

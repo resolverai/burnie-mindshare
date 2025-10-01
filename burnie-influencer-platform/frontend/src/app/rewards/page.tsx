@@ -11,6 +11,7 @@ import { useUserReferralCode } from '@/hooks/useUserReferralCode'
 import WalletDisplay from '@/components/WalletDisplay'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
 import { useAccount } from 'wagmi'
+import { createPortal } from 'react-dom'
 
 export default function RewardsPage() {
   const { address } = useAccount()
@@ -22,10 +23,24 @@ export default function RewardsPage() {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [showCopySuccess, setShowCopySuccess] = useState(false)
+  const [tooltipData, setTooltipData] = useState<{ label: string; x: number; y: number } | null>(null)
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  const handleTooltipShow = (event: React.MouseEvent, label: string) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    setTooltipData({
+      label,
+      x: rect.right + 8, // 8px margin from the right edge
+      y: rect.top + rect.height / 2 // Center vertically
+    })
+  }
+
+  const handleTooltipHide = () => {
+    setTooltipData(null)
+  }
 
   const navigationItems = [
     { id: 'marketplace', label: 'Marketplace', icon: '/home.svg', route: '/marketplace' },
@@ -124,37 +139,44 @@ export default function RewardsPage() {
             </div>
             <div className="h-px bg-yapper-border mx-2"></div>
             <nav className="flex flex-col gap-1 p-2 flex-1">
-              {navigationItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => router.push(item.route)}
-                  className="group flex items-center rounded-md px-2 py-2 text-sm transition-colors overflow-hidden justify-start text-white/90 hover:bg-yapper-muted hover:text-white"
-                >
-                  <span className="w-5 h-5 inline-flex items-center justify-center text-white/90 mr-3 shrink-0">
-                    <Image src={item.icon} alt={item.label} width={20} height={20} className="w-5 h-5" />
-                  </span>
-                  <span className="relative overflow-hidden shrink-0 w-[160px]">
-                    <span
-                      className="block"
-                      style={{
-                        clipPath: isSidebarExpanded ? 'inset(0 0 0 0)' : 'inset(0 100% 0 0)',
-                        transition: 'clip-path 300ms ease-in-out',
-                        willChange: 'clip-path',
-                      }}
-                      aria-hidden={!isSidebarExpanded}
-                    >
-                      {item.label}
+              {navigationItems.map((item) => {
+                const isSpecialItem = item.id === 'campaign' || item.id === 'rewards'
+                
+                return (
+                  <div key={item.id} className="relative">
+                    <button
+                      onClick={() => router.push(item.route)}
+                      onMouseEnter={!isSidebarExpanded ? (e) => handleTooltipShow(e, item.label) : undefined}
+                      onMouseLeave={!isSidebarExpanded ? handleTooltipHide : undefined}
+                      className={`w-full flex items-center rounded-md px-2 py-2 text-sm transition-colors overflow-hidden justify-start text-white/90 hover:bg-yapper-muted hover:text-white ${isSpecialItem ? (isSidebarExpanded ? 'nav-item-special-expanded' : 'nav-item-special-glow') : ''}`}
+                  >
+                    <span className="w-5 h-5 inline-flex items-center justify-center text-white/90 mr-3 shrink-0">
+                      <Image src={item.icon} alt={item.label} width={20} height={20} className="w-5 h-5" />
                     </span>
-                  </span>
-                </button>
-              ))}
+                    <span className="relative overflow-hidden shrink-0 w-[160px]">
+                      <span
+                        className="block"
+                        style={{
+                          clipPath: isSidebarExpanded ? 'inset(0 0 0 0)' : 'inset(0 100% 0 0)',
+                          transition: 'clip-path 300ms ease-in-out',
+                          willChange: 'clip-path',
+                        }}
+                        aria-hidden={!isSidebarExpanded}
+                      >
+                        {item.label}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+                )
+              })}
             </nav>
           </aside>
         )}
 
         {/* Main Content Area */}
-        <div className="flex-1 min-h-[calc(100vh-64px)] flex flex-col overflow-x-hidden max-w-[100vw]">
-      <main className="flex-1 overflow-y-auto overflow-x-hidden px-0 md:px-6 lg:px-6 pb-24">
+        <div className="flex-1 min-h-[calc(100vh-64px)] flex flex-col overflow-x-visible max-w-[100vw]">
+      <main className="flex-1 overflow-y-auto overflow-x-visible px-0 md:px-6 lg:px-6 pb-24">
         <section className="space-y-6 py-6">
           <Rewards currentUserWallet={address} />
         </section>
@@ -170,6 +192,23 @@ export default function RewardsPage() {
 
       {/* Mobile & Tablet Bottom Padding to prevent content from being hidden behind bottom nav */}
       <div className="lg:hidden h-20"></div>
+
+      {/* Portal Tooltip - Rendered outside of sidebar to avoid stacking context issues */}
+      {mounted && tooltipData && createPortal(
+        <div 
+          className="fixed bg-[#220808] text-white text-sm px-3 py-2 rounded-lg shadow-xl pointer-events-none whitespace-nowrap z-[2147483647]"
+          style={{
+            left: tooltipData.x,
+            top: tooltipData.y,
+            transform: 'translateY(-50%)',
+            zIndex: 2147483647
+          }}
+        >
+          {tooltipData.label}
+          <div className="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-b-[6px] border-r-[6px] border-transparent border-r-[#220808]"></div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

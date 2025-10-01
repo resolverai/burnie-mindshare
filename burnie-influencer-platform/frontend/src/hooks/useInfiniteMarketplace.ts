@@ -9,6 +9,7 @@ interface UseInfiniteMarketplaceOptions {
   post_type?: string
   sort_by?: string
   limit?: number
+  walletAddress?: string // Add wallet address for personalization
 }
 
 export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = {}) {
@@ -18,7 +19,8 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
     project_name,
     post_type,
     sort_by = 'bidding_enabled',
-    limit = 18
+    limit = 18,
+    walletAddress // Extract wallet address
   } = options
 
   const {
@@ -31,7 +33,7 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
     error,
     refetch
   } = useInfiniteQuery({
-    queryKey: ['marketplace', search, platform_source, project_name, post_type, sort_by, limit],
+    queryKey: ['marketplace', search, platform_source, project_name, post_type, sort_by, limit, walletAddress],
     queryFn: async ({ pageParam = 1 }) => {
       const params: MarketplaceParams = {
         page: pageParam,
@@ -44,7 +46,7 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
       if (project_name && project_name !== 'all') params.project_name = project_name
       if (post_type && post_type !== 'all') params.post_type = post_type
 
-      return marketplaceService.getContent(params)
+      return marketplaceService.getContent(params, walletAddress)
     },
     getNextPageParam: (lastPage: MarketplaceResponse) => {
       return lastPage.pagination.hasNextPage ? lastPage.pagination.nextPage : undefined

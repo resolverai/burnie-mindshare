@@ -64,6 +64,9 @@ import { TwitterHandleMetadata } from '../models/TwitterHandleMetadata';
 import { UserDailyPoints } from '../models/UserDailyPoints';
 import { UserTiers } from '../models/UserTiers';
 
+// Import edit tweet functionality entity
+import { UserTweetEdits } from '../models/UserTweetEdits';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -133,6 +136,8 @@ export const AppDataSource = new DataSource({
     // Rewards and leaderboard entities
     UserDailyPoints,
     UserTiers,
+    // Edit tweet functionality entity
+    UserTweetEdits,
   ],
   migrations: [],
   subscribers: [],

@@ -1,5 +1,4 @@
 from moviepy.editor import VideoFileClip, CompositeVideoClip, concatenate_videoclips
-import os
 
 def crossfade_videos(clip_paths, output_path, transition_duration=1.0):
     """
@@ -90,24 +89,22 @@ def crossfade_videos(clip_paths, output_path, transition_duration=1.0):
     
     print(f"Video saved to: {output_path}")
 
-# Simple convenience function
-def combine_with_smooth_transitions(input_files, output_file, transition_duration=1.0):
-    """Combine clips with smooth crossfade transitions."""
-    print(f"🎬 Combining {len(input_files)} videos with smooth crossfade transitions...")
-    crossfade_videos(input_files, output_file, transition_duration)
-    print("✅ Done!")
 
 # Example usage
 if __name__ == "__main__":
-    # List of MP4 files to combine
-    video_files = [
-        "/Users/taran/Downloads/audi3_clip.mp4",
-        "/Users/taran/Downloads/audi4_clip.mp4",
-        "/Users/taran/Downloads/audi5_clip.mp4"
+    # Specify your input files as a list (in order)
+    input_clips = [
+        "/Users/taran/Downloads/dove1_clip.mp4",
+        "/Users/taran/Downloads/dove2_clip.mp4",
+        "/Users/taran/Downloads/dove3_clip.mp4",
+        "/Users/taran/Downloads/dove4_clip.mp4"
+        # Add as many clips as you want...
     ]
+    
+    output_file = "/Users/taran/Downloads/combined_output_final_dove.mp4"
     
     # Duration of crossfade transition in seconds
     fade_duration = 1.5  # Adjust as needed
     
-    # Combine all videos with smooth transitions
-    combine_with_smooth_transitions(video_files, "/Users/taran/Downloads/audi_final_smooth.mp4", fade_duration)
+    # Combine all videos
+    crossfade_videos(input_clips, output_file, fade_duration)

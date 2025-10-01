@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAccount, useBalance } from 'wagmi'
+import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { 
   MagnifyingGlassIcon,
@@ -106,6 +107,7 @@ type ContentItem = MarketplaceContent & {
 
 export default function BiddingInterface() {
   const { address } = useAccount()
+  const searchParams = useSearchParams()
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
   const { price: roastPrice } = useROASTPrice()
@@ -233,12 +235,22 @@ export default function BiddingInterface() {
     project_name: selectedProject !== 'all' ? selectedProject : undefined,
     post_type: selectedPostType !== 'all' ? selectedPostType : undefined,
     sort_by: sortBy,
-    limit: 18
+    limit: 18,
+    walletAddress: address // Pass wallet address for personalization
   })
 
 
 
   // Page view tracking moved to individual page components to avoid duplicates
+
+  // Initialize search term from URL parameter
+  useEffect(() => {
+    const searchQuery = searchParams?.get('search')
+    if (searchQuery) {
+      setSearchTerm(searchQuery)
+      setDebouncedSearchTerm(searchQuery)
+    }
+  }, [searchParams])
 
   // Debug carousel data
   useEffect(() => {

@@ -396,6 +396,116 @@ async function processExpiredAuctions(): Promise<void> {
 }
 
 /**
+ * Apply personalized edits to content if user has completed edits
+ */
+const applyPersonalizedEdits = async (content: any, walletAddress: string): Promise<any> => {
+  try {
+    logger.info(`🔍 Checking personalized edits for content ${content.id}, wallet ${walletAddress.substring(0, 10)}...`);
+    
+    // Check for user edits in user_tweet_edits table
+    const { UserTweetEdits, EditStatus } = await import('../models/UserTweetEdits');
+    const editRepository = AppDataSource.getRepository(UserTweetEdits);
+    
+    // Find the most recent completed edit for this content by this user (case-insensitive)
+    const latestEdit = await editRepository.findOne({
+      where: { 
+        contentId: content.id,
+        walletAddress: walletAddress.toLowerCase(), // Ensure lowercase comparison
+        status: EditStatus.COMPLETED
+      },
+      order: { updatedAt: 'DESC' }
+    });
+
+    logger.info(`🔍 Edit query result for content ${content.id}:`, {
+      contentId: content.id,
+      walletAddress: walletAddress.substring(0, 10) + '...',
+      editFound: !!latestEdit,
+      editId: latestEdit?.id,
+      editStatus: latestEdit?.status
+    });
+
+    if (!latestEdit) {
+      // No personalized edit found, return original content
+      logger.info(`❌ No personalized edit found for content ${content.id}`);
+      return content;
+    }
+
+    logger.info(`🎨 Found personalized edit for content ${content.id}, wallet ${walletAddress.substring(0, 10)}...`);
+
+    // Helper function to regenerate presigned URL (reuse from content/:id endpoint)
+    const regeneratePresignedUrl = async (existingUrl: string): Promise<string | null> => {
+      if (!existingUrl) return null;
+      
+      try {
+        logger.info(`🔄 Regenerating presigned URL for marketplace: ${existingUrl.substring(0, 100)}...`);
+        
+        const url = new URL(existingUrl);
+        const s3Key = url.pathname.substring(1); // Remove leading slash
+        
+        const queryParams = new URLSearchParams({
+          s3_key: s3Key,
+          expiration: '3600'
+        });
+        
+        const fullUrl = `${env.ai.pythonBackendUrl}/api/s3/generate-presigned-url?${queryParams}`;
+        
+        const response = await fetch(fullUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+          const result = await response.json() as { presigned_url: string };
+          logger.info(`✅ Generated fresh presigned URL for marketplace`);
+          return result.presigned_url;
+        } else {
+          const errorText = await response.text();
+          logger.warn(`⚠️ Failed to regenerate presigned URL for marketplace: ${s3Key}, Response: ${errorText}`);
+        }
+        
+        return existingUrl; // Return original if regeneration fails
+      } catch (error) {
+        logger.error(`❌ Error regenerating presigned URL for marketplace: ${error}`);
+        return existingUrl;
+      }
+    };
+
+    // Regenerate presigned URLs for edit images
+    const newWatermarkImageUrl = latestEdit.newWatermarkImageUrl ? 
+      await regeneratePresignedUrl(latestEdit.newWatermarkImageUrl) : null;
+
+    // Update the edit record with fresh watermark URL if it changed
+    if (newWatermarkImageUrl && newWatermarkImageUrl !== latestEdit.newWatermarkImageUrl) {
+      latestEdit.newWatermarkImageUrl = newWatermarkImageUrl;
+      await editRepository.save(latestEdit);
+      logger.info(`✅ Updated edit record with fresh watermark URL for marketplace`);
+    }
+
+    // Create personalized content with user's edits
+    const personalizedContent = {
+      ...content,
+      // Replace text with user's edited version
+      content_text: latestEdit.newTweetText || content.content_text,
+      tweet_thread: latestEdit.newThread || content.tweet_thread,
+      // For marketplace (pre-purchase), show watermarked image only
+      watermark_image: newWatermarkImageUrl || content.watermark_image,
+      // Keep original content_images unchanged (they're for post-purchase)
+      // Add metadata to indicate this is personalized
+      isPersonalized: true,
+      personalizedAt: latestEdit.updatedAt
+    };
+
+    logger.info(`🎨 Applied personalized edit to content ${content.id} for marketplace display`);
+    return personalizedContent;
+
+  } catch (error) {
+    logger.error(`❌ Error applying personalized edits to content ${content.id}:`, error);
+    // Return original content if personalization fails
+    return content;
+  }
+};
+
+/**
  * @route GET /api/marketplace/content
  * @desc Get available content in marketplace with filters (updated for immediate purchase system)
  */
@@ -410,6 +520,11 @@ router.get('/content', async (req, res) => {
       page = 1,
       limit = 18 
     } = req.query;
+
+    // Get wallet address from Authorization header (optional for marketplace browsing)
+    const walletAddress = req.headers.authorization?.replace('Bearer ', '');
+    logger.info(`🔍 Marketplace request - wallet address: ${walletAddress ? walletAddress.substring(0, 10) + '...' : 'anonymous'}`);
+    logger.info(`🔍 Marketplace request - headers:`, req.headers);
 
     const marketplaceService = new MarketplaceContentService();
     
@@ -428,8 +543,20 @@ router.get('/content', async (req, res) => {
       result.data.map(content => refreshExpiredUrls(content))
     );
 
-    // Update the result with refreshed content
-    result.data = refreshedContents;
+    // Apply personalized edits if user is logged in
+    let personalizedContents = refreshedContents;
+    if (walletAddress) {
+      logger.info(`🎨 Applying personalized edits for wallet: ${walletAddress.substring(0, 10)}...`);
+      logger.info(`🎨 Processing ${refreshedContents.length} content items, IDs: ${refreshedContents.map(c => c.id).join(', ')}`);
+      personalizedContents = await Promise.all(
+        refreshedContents.map(content => applyPersonalizedEdits(content, walletAddress.toLowerCase()))
+      );
+    } else {
+      logger.info(`🔍 No wallet address provided, skipping personalization`);
+    }
+
+    // Update the result with personalized content
+    result.data = personalizedContents;
 
     res.json(result);
 
@@ -765,6 +892,99 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    // Check for user edits in user_tweet_edits table
+    const { UserTweetEdits, EditStatus } = await import('../models/UserTweetEdits');
+    const editRepository = AppDataSource.getRepository(UserTweetEdits);
+    
+    // Find the most recent completed edit for this content
+    const latestEdit = await editRepository.findOne({
+      where: { 
+        contentId: parseInt(id),
+        status: EditStatus.COMPLETED
+      },
+      order: { updatedAt: 'DESC' }
+    });
+
+    // If edit exists, regenerate presigned URLs and update the record
+    let editContent = null;
+    if (latestEdit) {
+      logger.info(`🔄 Found completed edit for content ${id}, regenerating presigned URLs`);
+      
+      // Helper function to regenerate presigned URL
+      const regeneratePresignedUrl = async (existingUrl: string): Promise<string | null> => {
+        if (!existingUrl) return null;
+        
+        try {
+          logger.info(`🔄 Regenerating presigned URL for: ${existingUrl.substring(0, 100)}...`);
+          
+          // Extract S3 key from existing URL
+          // URL format: https://burnie-mindshare-content-staging.s3.amazonaws.com/path/to/file.jpg?params
+          const url = new URL(existingUrl);
+          const s3Key = url.pathname.substring(1); // Remove leading slash
+          
+          logger.info(`🔑 Extracted S3 key: ${s3Key}`);
+          logger.info(`🌐 Using Python backend URL: ${env.ai.pythonBackendUrl}`);
+          
+          // Generate fresh presigned URL using query parameters
+          const queryParams = new URLSearchParams({
+            s3_key: s3Key,
+            expiration: '3600'
+          });
+          
+          const fullUrl = `${env.ai.pythonBackendUrl}/api/s3/generate-presigned-url?${queryParams}`;
+          logger.info(`🔗 Calling: ${fullUrl}`);
+          
+          const response = await fetch(fullUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          
+          logger.info(`📡 S3 API response status: ${response.status}`);
+          
+          if (response.ok) {
+            const result = await response.json() as { presigned_url: string };
+            logger.info(`✅ Generated new presigned URL: ${result.presigned_url.substring(0, 100)}...`);
+            return result.presigned_url;
+          } else {
+            const errorText = await response.text();
+            logger.warn(`⚠️ Failed to regenerate presigned URL for: ${s3Key}, Response: ${errorText}`);
+          }
+          
+          return existingUrl; // Return original if regeneration fails
+        } catch (error) {
+          logger.error(`❌ Error regenerating presigned URL: ${error}`);
+          return existingUrl;
+        }
+      };
+
+      // Regenerate presigned URLs
+      const newImageUrl = latestEdit.newImageUrl ? await regeneratePresignedUrl(latestEdit.newImageUrl) : null;
+      const newWatermarkImageUrl = latestEdit.newWatermarkImageUrl ? await regeneratePresignedUrl(latestEdit.newWatermarkImageUrl) : null;
+
+      // Update the edit record with fresh URLs if they changed
+      if ((newImageUrl && newImageUrl !== latestEdit.newImageUrl) || 
+          (newWatermarkImageUrl && newWatermarkImageUrl !== latestEdit.newWatermarkImageUrl)) {
+        
+        if (newImageUrl) latestEdit.newImageUrl = newImageUrl;
+        if (newWatermarkImageUrl) latestEdit.newWatermarkImageUrl = newWatermarkImageUrl;
+        
+        await editRepository.save(latestEdit);
+        logger.info(`✅ Updated edit record with fresh presigned URLs for content ${id}`);
+      }
+
+      editContent = {
+        newTweetText: latestEdit.newTweetText,
+        newThread: latestEdit.newThread || [],
+        newImageUrl: newImageUrl,
+        newWatermarkImageUrl: newWatermarkImageUrl,
+        editedAt: latestEdit.updatedAt
+      };
+      
+      logger.info(`📤 Returning editContent with URLs:`);
+      logger.info(`   - newImageUrl: ${newImageUrl?.substring(0, 100)}...`);
+      logger.info(`   - newWatermarkImageUrl: ${newWatermarkImageUrl?.substring(0, 100)}...`);
+    }
+
     // Format content for frontend consumption (same as MarketplaceContentService)
     const formattedContent = {
       id: content.id,
@@ -820,6 +1040,7 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
       success: true,
       data: {
         content: formattedContent,
+        editContent: editContent, // Include edit overlay data if available
         bids: bids.map(bid => ({
           id: bid.id,
           bidAmount: bid.bidAmount,
@@ -2010,6 +2231,102 @@ router.get('/my-content/miner/:userId', async (req: Request, res: Response) => {
 });
 
 /**
+ * Apply personalized edits to My Content (purchased content - always use unwatermarked version)
+ */
+const applyPersonalizedEditsToMyContent = async (content: any, walletAddress: string): Promise<any> => {
+  try {
+    // Check for user edits in user_tweet_edits table
+    const { UserTweetEdits, EditStatus } = await import('../models/UserTweetEdits');
+    const editRepository = AppDataSource.getRepository(UserTweetEdits);
+    
+    // Find the most recent completed edit for this content by this user
+    const latestEdit = await editRepository.findOne({
+      where: { 
+        contentId: content.id,
+        walletAddress: walletAddress.toLowerCase(),
+        status: EditStatus.COMPLETED
+      },
+      order: { updatedAt: 'DESC' }
+    });
+
+    if (!latestEdit) {
+      // No personalized edit found, return original content
+      return content;
+    }
+
+    logger.info(`🎨 [MyContent] Found personalized edit for content ${content.id}, wallet ${walletAddress.substring(0, 10)}...`);
+
+    // Helper function to regenerate presigned URL (reuse logic)
+    const regeneratePresignedUrl = async (existingUrl: string): Promise<string | null> => {
+      if (!existingUrl) return null;
+      
+      try {
+        const url = new URL(existingUrl);
+        const s3Key = url.pathname.substring(1);
+        
+        const queryParams = new URLSearchParams({
+          s3_key: s3Key,
+          expiration: '3600'
+        });
+        
+        const fullUrl = `${env.ai.pythonBackendUrl}/api/s3/generate-presigned-url?${queryParams}`;
+        
+        const response = await fetch(fullUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+          const result = await response.json() as { presigned_url: string };
+          return result.presigned_url;
+        } else {
+          const errorText = await response.text();
+          logger.warn(`⚠️ [MyContent] Failed to regenerate presigned URL: ${s3Key}, Response: ${errorText}`);
+        }
+        
+        return existingUrl;
+      } catch (error) {
+        logger.error(`❌ [MyContent] Error regenerating presigned URL: ${error}`);
+        return existingUrl;
+      }
+    };
+
+    // For My Content (purchased), always use unwatermarked version
+    const newImageUrl = latestEdit.newImageUrl ? 
+      await regeneratePresignedUrl(latestEdit.newImageUrl) : null;
+
+    // Update the edit record with fresh URL if it changed
+    if (newImageUrl && newImageUrl !== latestEdit.newImageUrl) {
+      latestEdit.newImageUrl = newImageUrl;
+      await editRepository.save(latestEdit);
+      logger.info(`✅ [MyContent] Updated edit record with fresh URL`);
+    }
+
+    // Create personalized content with user's edits (unwatermarked for purchased content)
+    const personalizedContent = {
+      ...content,
+      // Use updatedTweet and updatedThread to follow existing frontend priority logic
+      updatedTweet: latestEdit.newTweetText || content.updatedTweet || content.contentText,
+      updatedThread: latestEdit.newThread || content.updatedThread || content.tweetThread,
+      // For My Content (purchased), use unwatermarked image
+      contentImages: newImageUrl ? [newImageUrl] : content.contentImages,
+      // Add metadata to indicate this is personalized
+      isPersonalized: true,
+      personalizedAt: latestEdit.updatedAt
+    };
+
+    logger.info(`🎨 [MyContent] Applied personalized edit to content ${content.id} (unwatermarked)`);
+    logger.info(`🎨 [MyContent] Updated text - original: "${content.contentText?.substring(0, 50)}..." -> personalized: "${latestEdit.newTweetText?.substring(0, 50)}..."`);
+    return personalizedContent;
+
+  } catch (error) {
+    logger.error(`❌ [MyContent] Error applying personalized edits to content ${content.id}:`, error);
+    // Return original content if personalization fails
+    return content;
+  }
+};
+
+/**
  * @route GET /api/marketplace/my-content/yapper/wallet/:walletAddress
  * @desc Get yapper's owned content (direct purchases only) for My Content section with pagination and search
  */
@@ -2089,8 +2406,16 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
       })
     );
 
+    // Apply personalized edits for purchased content (always use unwatermarked version)
+    const personalizedPurchases = await Promise.all(
+      refreshedPurchases.map(async purchase => {
+        purchase.content = await applyPersonalizedEditsToMyContent(purchase.content, walletAddress.toLowerCase());
+        return purchase;
+      })
+    );
+
     // Format content from direct purchases
-    const formattedPurchaseContent = refreshedPurchases.map(purchase => ({
+    const formattedPurchaseContent = personalizedPurchases.map(purchase => ({
       id: purchase.content.id,
       content_text: purchase.content.contentText,
       tweet_thread: purchase.content.tweetThread || null,

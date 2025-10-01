@@ -551,6 +551,16 @@ class MixpanelService {
     this.track('threadItemAdded', properties);
   }
 
+  editTweetSubmitted(properties: {
+    content_id: number;
+    campaign_title: string;
+    user_prompt: string;
+    edit_type: 'pre_purchase' | 'post_purchase';
+    wallet_address: string;
+  }) {
+    this.track('editTweetSubmitted', properties);
+  }
+
   threadItemRemoved(properties: {
     contentId: number;
     postType: string;

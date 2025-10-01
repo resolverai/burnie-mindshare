@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useAccount } from 'wagmi'
 import { appKit } from '@/app/reown'
 import Image from 'next/image'
@@ -21,6 +21,7 @@ import { useRouter } from 'next/navigation'
 import useMixpanel from '../../hooks/useMixpanel'
 import { EditText, ThreadItemEditor } from './EditComponents'
 import useTextEditing from '../../hooks/useTextEditing'
+import TweetEditDropdown from './TweetEditDropdown'
 
 interface ContentItem {
   id: number
@@ -63,6 +64,7 @@ interface ContentItem {
   updatedTweet?: string
   updatedThread?: string[]
   isAvailable?: boolean
+  purchased_at?: string
 }
 
 interface PurchaseContentModalProps {
@@ -88,6 +90,19 @@ export default function PurchaseContentModal({
   const [editedMainTweet, setEditedMainTweet] = useState('')
   const [editedThread, setEditedThread] = useState<string[]>([])
   const [isUpdatingPost, setIsUpdatingPost] = useState(false)
+  
+  // Avatar fusion edit state
+  const [editMode, setEditMode] = useState<'text' | 'fusion' | null>(null)
+  const [editPrompt, setEditPrompt] = useState('')
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [isProcessingEdit, setIsProcessingEdit] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [remainingCredits, setRemainingCredits] = useState<number>(3)
+  const [completedEdit, setCompletedEdit] = useState<any>(null) // Store completed edit data
+  const [serverEditContent, setServerEditContent] = useState<any>(null) // Store edit overlay data from server
+  const [lastExecutionId, setLastExecutionId] = useState<string | null>(null) // Store last execution ID for post-purchase refresh
+  const dropdownRefreshCredits = useRef<(() => void) | null>(null) // Ref to TweetEditDropdown refresh function
+  const editTweetUIRef = useRef<HTMLDivElement | null>(null) // Ref to Edit Tweet UI section for scrolling
   
   // Text editing hook
   const { saveTextChanges, isSaving, getCharacterLimit, canEditThread } = useTextEditing({
@@ -258,6 +273,89 @@ export default function PurchaseContentModal({
   const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting()
   const router = useRouter()
 
+  // Fetch remaining edit credits when wallet changes
+  React.useEffect(() => {
+    const fetchCredits = async () => {
+      if (!address) return;
+      
+      try {
+        const response = await fetch(`/api/edit-tweet/credits/${address}`);
+        if (response.ok) {
+          const data = await response.json();
+          setRemainingCredits(data.remainingCredits);
+        }
+      } catch (error) {
+        console.error('Failed to fetch edit credits:', error);
+      }
+    };
+    
+    fetchCredits();
+  }, [address]);
+
+  // Reset edit states when content changes (switching between different content items)
+  useEffect(() => {
+    console.log('🔄 Content ID changed, resetting edit states. Content ID:', content?.id);
+    setEditMode(null);
+    setEditPrompt('');
+    setAvatarFile(null);
+    setIsProcessingEdit(false);
+    setEditError(null);
+    // Don't reset completedEdit immediately - let it persist until we know there's no edit for this content
+    // setCompletedEdit(null);
+    setIsEditingMainTweet(false);
+    setIsEditingThread(false);
+    setEditedMainTweet('');
+    setEditedThread([]);
+  }, [content?.id]); // Reset when content ID changes
+
+  // Also reset serverEditContent when content changes
+  useEffect(() => {
+    setServerEditContent(null);
+  }, [content?.id]);
+
+  // Fetch content with edit overlay when content changes
+  useEffect(() => {
+    const fetchContentWithEdits = async () => {
+      if (!content?.id) return;
+      
+        try {
+         const headers: Record<string, string> = {
+           'Content-Type': 'application/json',
+         };
+         
+         // Include wallet address for personalized edit content
+         if (address) {
+           headers.Authorization = `Bearer ${address}`;
+         }
+         
+         const response = await fetch(`/api/marketplace/content/${content.id}`, {
+           method: 'GET',
+           headers
+         });
+         
+         if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data.editContent) {
+            setServerEditContent(data.data.editContent);
+            console.log('📝 Found server edit content:', data.data.editContent);
+            // Clear completedEdit since we have server edit content
+            setCompletedEdit(null);
+          } else {
+            setServerEditContent(null);
+            // Only clear completedEdit if there's no server edit content
+            setCompletedEdit(null);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch content with edits:', error);
+        setServerEditContent(null);
+        setCompletedEdit(null);
+      }
+    };
+
+      fetchContentWithEdits();
+   }, [content?.id, address]); // Fetch when content ID or wallet address changes
+
   // Track purchase modal opened
   // Note: purchaseModalOpened tracking removed - now handled by contentItemClicked in BiddingInterface
 
@@ -276,6 +374,18 @@ export default function PurchaseContentModal({
         screenName: 'PurchaseContentModal'
       })
     }
+    
+    // Reset all edit-related states when modal is closed
+    setEditMode(null);
+    setEditPrompt('');
+    setAvatarFile(null);
+    setIsProcessingEdit(false);
+    setEditError(null);
+    setCompletedEdit(null);
+    setIsEditingMainTweet(false);
+    setIsEditingThread(false);
+    setEditedMainTweet('');
+    setEditedThread([]);
     
     // Force scroll restoration before closing
     document.body.style.position = '';
@@ -405,6 +515,304 @@ export default function PurchaseContentModal({
       setIsUpdatingPost(false)
     }
   }
+
+  // Edit tweet handlers
+  const handleEditSelect = (type: 'text' | 'fusion') => {
+    setEditMode(type);
+    setEditError(null);
+    
+    if (type === 'text') {
+      // Start text editing mode (existing functionality)
+      handleStartMainTweetEdit();
+    } else if (type === 'fusion') {
+      // For fusion mode, scroll to the Edit Tweet UI after a brief delay to ensure it's rendered
+      setTimeout(() => {
+        if (editTweetUIRef.current) {
+          // Scroll to the Edit Tweet UI with smooth animation
+          editTweetUIRef.current.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+            inline: 'nearest'
+          });
+          
+          // Add a subtle highlight effect to draw attention (optional)
+          editTweetUIRef.current.style.transition = 'box-shadow 0.3s ease';
+          editTweetUIRef.current.style.boxShadow = '0 0 20px rgba(253, 122, 16, 0.3)';
+          
+          // Remove the highlight after 2 seconds
+          setTimeout(() => {
+            if (editTweetUIRef.current) {
+              editTweetUIRef.current.style.boxShadow = '';
+            }
+          }, 2000);
+        }
+      }, 100); // Small delay to ensure the UI is rendered
+    }
+  };
+
+  const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setAvatarFile(file);
+    }
+  };
+
+  const handleSubmitEdit = async () => {
+    if (!editPrompt.trim() || !content || !address) return;
+    
+    setIsProcessingEdit(true);
+    setEditError(null);
+    
+    try {
+      // Track edit submission
+      mixpanel.editTweetSubmitted({
+        content_id: content.id,
+        campaign_title: content.campaign?.title || 'Unknown',
+        user_prompt: editPrompt,
+        edit_type: content.purchased_at ? 'post_purchase' : 'pre_purchase',
+        wallet_address: address
+      });
+
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('walletAddress', address);
+      formData.append('contentId', content.id.toString());
+      formData.append('userRequest', editPrompt);
+      formData.append('isPurchased', (!!content.purchased_at).toString());
+      
+      if (avatarFile) {
+        formData.append('avatarImage', avatarFile);
+      }
+
+      // Submit edit request with file upload
+      const submitResponse = await fetch('/api/edit-tweet/submit', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!submitResponse.ok) {
+        const errorData = await submitResponse.json();
+        throw new Error(errorData.message || 'Failed to submit edit request');
+      }
+
+      const submitData = await submitResponse.json();
+      
+      console.log('🔄 Submit response:', submitData);
+      console.log('🔍 Debug - requiresPayment type:', typeof submitData.requiresPayment, 'value:', submitData.requiresPayment);
+      console.log('🔍 Debug - roastAmount:', submitData.roastAmount);
+      
+      // Handle string vs boolean comparison issue
+      const needsPayment = submitData.requiresPayment === true || submitData.requiresPayment === 'true';
+      
+      let processingStarted = false;
+      
+      if (needsPayment) {
+        // Handle payment flow for post-purchase edits
+        console.log('💳 Triggering payment flow for execution:', submitData.executionId);
+        await handleEditPayment(submitData.executionId, submitData.roastAmount);
+        processingStarted = true;
+      } else {
+        // Handle free edit flow
+        console.log('🆓 Triggering free edit flow for execution:', submitData.executionId);
+        await handleFreeEdit(submitData.executionId);
+        processingStarted = true;
+      }
+
+      // Don't set isProcessingEdit to false if processing started successfully
+      // It will be set to false when polling completes (success/failure/timeout)
+      return;
+
+    } catch (error) {
+      console.error('❌ Edit submission failed:', error);
+      setEditError(error instanceof Error ? error.message : 'Failed to submit edit');
+      setCompletedEdit(null); // Clear any previous completed edit on error
+      setIsProcessingEdit(false); // Only set to false on error
+    }
+  };
+
+  const handleEditPayment = async (executionId: string, roastAmount: number) => {
+    try {
+      console.log('💳 Payment required:', { executionId, roastAmount });
+      
+      // TODO: Replace with actual ROAST token contract address
+      const roastTokenAddress = "0x..."; // Get from environment or config
+      
+      // Open wallet to send ROAST tokens
+      // This would typically use a library like wagmi/viem to interact with the wallet
+      console.log('🔓 Opening wallet for ROAST token transaction...');
+      console.log('📄 Token Contract:', roastTokenAddress);
+      console.log('💰 Amount:', roastAmount);
+      
+      // Placeholder for wallet interaction
+      // In a real implementation, this would:
+      // 1. Connect to wallet
+      // 2. Get ROAST token contract
+      // 3. Approve/transfer tokens
+      // 4. Get transaction hash
+      // 5. Call confirm-payment endpoint
+      
+      const mockTransactionHash = "0x" + Math.random().toString(16).substr(2, 64);
+      console.log('✅ Mock transaction successful:', mockTransactionHash);
+      
+      // Confirm payment with backend
+      const confirmResponse = await fetch('/api/edit-tweet/confirm-payment', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          executionId, 
+          transactionHash: mockTransactionHash 
+        })
+      });
+      
+      if (confirmResponse.ok) {
+        const confirmData = await confirmResponse.json();
+        console.log('✅ Payment confirmed:', confirmData);
+        
+        // Start polling for status
+        pollEditStatus(executionId);
+      } else {
+        const errorData = await confirmResponse.json();
+        console.error('❌ Payment confirmation failed:', errorData);
+        setEditError(errorData.message || 'Payment confirmation failed');
+      }
+      
+    } catch (error) {
+      console.error('❌ Payment failed:', error);
+      setEditError('Payment failed. Please try again.');
+    }
+  };
+
+  const handleFreeEdit = async (executionId: string) => {
+    try {
+      console.log('🔄 Making request to trigger-free with executionId:', executionId);
+      
+      // Set processing state to show shimmers
+      setIsProcessingEdit(true);
+      setEditError(null);
+      
+      const response = await fetch('/api/edit-tweet/trigger-free', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ executionId })
+      });
+
+      console.log('🔄 trigger-free response status:', response.status);
+      
+      if (response.ok) {
+        const responseData = await response.json();
+        console.log('✅ trigger-free response data:', responseData);
+        
+        // Start polling for status (keep isProcessingEdit true until completion)
+        pollEditStatus(executionId);
+      } else {
+        const errorData = await response.json();
+        console.error('❌ trigger-free failed:', errorData);
+        
+        // Provide user-friendly error messages
+        let userMessage = 'Failed to start edit processing';
+        if (errorData.message?.includes('payment required') || errorData.message?.includes('confirm-payment')) {
+          userMessage = 'This edit requires payment. Please try again.';
+        } else if (errorData.message?.includes('not found')) {
+          userMessage = 'Edit request not found. Please try submitting again.';
+        } else if (errorData.message) {
+          userMessage = errorData.message;
+        }
+        
+        setEditError(userMessage);
+        setCompletedEdit(null); // Clear any previous completed edit on error
+        setIsProcessingEdit(false); // Reset processing state on error
+      }
+    } catch (error) {
+      console.error('❌ Failed to trigger free edit:', error);
+      setEditError('Failed to start edit processing');
+      setCompletedEdit(null); // Clear any previous completed edit on error
+      setIsProcessingEdit(false); // Reset processing state on error
+    }
+  };
+
+  const pollEditStatus = async (executionId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/edit-tweet/status/${executionId}`);
+        if (response.ok) {
+          const data = await response.json();
+          
+          if (data.status === 'completed') {
+            clearInterval(pollInterval);
+            console.log('✅ Edit completed successfully:', data);
+            console.log('🔍 Debug - newWatermarkImageUrl:', data.newWatermarkImageUrl);
+            console.log('🔍 Debug - newImageUrl:', data.newImageUrl);
+            console.log('🔍 Debug - isPurchased:', data.isPurchased);
+            console.log('🔍 Debug - content purchased_at:', content?.purchased_at);
+            
+            // Store the execution ID for potential post-purchase refresh
+            setLastExecutionId(executionId);
+            
+            // Store the completed edit data for display
+            setCompletedEdit({
+              newTweetText: data.newTweetText,
+              newThread: data.newThread,
+              newImageUrl: data.newImageUrl, // This is now the appropriate image for purchase status
+              newWatermarkImageUrl: data.newWatermarkImageUrl,
+              isPurchased: data.isPurchased || !!content?.purchased_at
+            });
+            
+            console.log('🔍 Debug - completedEdit set with watermark:', data.newWatermarkImageUrl);
+            console.log('🎯 POLLING - completedEdit state updated, should trigger re-render with new image!');
+            
+            // ✅ Edit tweet functionality only updates user_tweet_edits table
+            // Content marketplace table and main content object remain unchanged
+            // The edited content will be displayed via completedEdit state
+            
+            // Reset edit form state and stop processing
+            setEditMode(null);
+            setEditPrompt('');
+            setAvatarFile(null);
+            setIsProcessingEdit(false); // Hide shimmers
+            setEditError(null);
+            
+            // Refresh credits counter to show updated remaining credits
+            if (address) {
+              const creditsResponse = await fetch(`/api/edit-tweet/credits/${address}`);
+              if (creditsResponse.ok) {
+                const creditsData = await creditsResponse.json();
+                setRemainingCredits(creditsData.remainingCredits);
+                console.log('🔄 Updated remaining credits:', creditsData.remainingCredits);
+                
+                // Also refresh the dropdown credits counter
+                if (dropdownRefreshCredits.current) {
+                  dropdownRefreshCredits.current();
+                }
+              }
+            }
+            
+          } else if (data.status === 'failed') {
+            clearInterval(pollInterval);
+            console.log('❌ Edit failed:', data);
+            setEditError(data.error || 'Edit processing failed. Please try again.');
+            setIsProcessingEdit(false);
+            setCompletedEdit(null); // Clear any previous completed edit
+          }
+        }
+      } catch (error) {
+        console.error('❌ Status polling failed:', error);
+        // On polling error, also stop processing and clear completed edit
+        setIsProcessingEdit(false);
+        setCompletedEdit(null);
+        setEditError('Failed to check edit status. Please try again.');
+      }
+    }, 2000); // Poll every 2 seconds
+
+    // Stop polling after 5 minutes
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (isProcessingEdit) {
+        setIsProcessingEdit(false);
+        setCompletedEdit(null);
+        setEditError('Edit timeout. Please try again.');
+      }
+    }, 300000);
+  };
 
   const handleStartMainTweetEdit = () => {
     const currentContent = getCurrentContent()
@@ -570,8 +978,39 @@ export default function PurchaseContentModal({
     const currentContent = getCurrentContent()
     if (!currentContent) return { text: '', thread: [] }
     
-    // SIMPLIFIED LOGIC: If we have updated content, always show it
-    // PRIORITY 1: If we have local edits, show them
+    // PRIORITY -1: If we have server edit content from user_tweet_edits table, show it
+    if (serverEditContent) {
+      const result = {
+        text: serverEditContent.newTweetText || currentContent.content_text,
+        thread: serverEditContent.newThread || currentContent.tweet_thread || []
+      };
+      console.log('🔍 SERVER EDIT CONTENT DISPLAYED:', {
+        contentId: currentContent.id,
+        text: result.text?.substring(0, 100) + '...',
+        threadLength: result.thread?.length || 0,
+        editedAt: serverEditContent.editedAt,
+        source: 'user_tweet_edits_table'
+      });
+      return result;
+    }
+    
+    // PRIORITY 0: If we have a completed edit from avatar fusion, show it
+    if (completedEdit) {
+      const result = {
+        text: completedEdit.newTweetText || currentContent.content_text,
+        thread: completedEdit.newThread || currentContent.tweet_thread || []
+      };
+      console.log('🔍 COMPLETED EDIT DISPLAYED:', {
+        contentId: currentContent.id,
+        text: result.text?.substring(0, 100) + '...',
+        threadLength: result.thread?.length || 0,
+        isPurchased: completedEdit.isPurchased,
+        source: 'avatar_fusion_edit'
+      });
+      return result;
+    }
+    
+    // PRIORITY 1: If we have local text edits, show them
     if (editedMainTweet || editedThread.length > 0) {
       const result = {
         text: editedMainTweet || currentContent.updatedTweet || currentContent.content_text,
@@ -1300,6 +1739,109 @@ export default function PurchaseContentModal({
     }
   }, [generatedContent])
   
+  // Refresh edit data after purchase to get unwatermarked URLs
+  const refreshEditDataAfterPurchase = async (contentId: number) => {
+    try {
+      if (!address) {
+        console.log('⚠️ No wallet address available for refreshing edit data');
+        return;
+      }
+
+      // If we have a lastExecutionId, re-fetch the edit status to get post-purchase URLs
+      if (lastExecutionId && completedEdit) {
+        console.log('🔄 Re-fetching edit status after purchase with execution ID:', lastExecutionId);
+        
+        const response = await fetch(`/api/edit-tweet/status/${lastExecutionId}`);
+        console.log('📡 Status endpoint response status:', response.status);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('🔄 Post-purchase edit status response:', data);
+          console.log('🔍 Backend purchase detection result:', {
+            isPurchased: data.isPurchased,
+            contentId: data.contentId || 'not provided',
+            executionId: data.executionId,
+            walletFromEdit: 'not shown in response'
+          });
+          
+          // Update completedEdit with fresh data from backend
+          setCompletedEdit({
+            newTweetText: data.newTweetText,
+            newThread: data.newThread,
+            newImageUrl: data.newImageUrl, // Should now be unwatermarked if purchased
+            newWatermarkImageUrl: data.newWatermarkImageUrl, // Should now be unwatermarked if purchased
+            isPurchased: data.isPurchased
+          });
+          
+          console.log('✅ Updated completedEdit with post-purchase data');
+          console.log('🔍 Post-purchase URLs - newImageUrl:', data.newImageUrl?.substring(0, 100) + '...');
+          console.log('🔍 Post-purchase URLs - newWatermarkImageUrl:', data.newWatermarkImageUrl?.substring(0, 100) + '...');
+          console.log('🔍 Post-purchase isPurchased:', data.isPurchased);
+          console.log('🔍 URLs are different (should be true for purchased):', data.newImageUrl !== data.newWatermarkImageUrl);
+        } else {
+          const errorText = await response.text();
+          console.log('❌ Failed to re-fetch edit status after purchase. Status:', response.status);
+          console.log('❌ Error response:', errorText);
+        }
+      } else {
+        console.log('⚠️ Cannot re-fetch edit status after purchase');
+        console.log('   - lastExecutionId:', lastExecutionId);
+        console.log('   - completedEdit exists:', !!completedEdit);
+      }
+      
+      // Also refresh serverEditContent if it exists
+      if (serverEditContent && serverEditContent.newImageUrl) {
+        console.log('🔄 Refreshing serverEditContent after purchase...');
+        
+        // Re-fetch content with edits
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        
+        if (address) {
+          headers.Authorization = `Bearer ${address}`;
+        }
+        
+        console.log('📡 Fetching content with ID:', contentId, 'and wallet:', address?.substring(0, 10) + '...');
+        
+        const contentResponse = await fetch(`/api/marketplace/content/${contentId}`, {
+          method: 'GET',
+          headers
+        });
+        
+        console.log('📡 Content response status:', contentResponse.status);
+        
+        if (contentResponse.ok) {
+          const data = await contentResponse.json();
+          console.log('📡 Content response data structure:', {
+            success: data.success,
+            hasData: !!data.data,
+            hasContent: !!data.data?.content,
+            hasEditContent: !!data.data?.editContent
+          });
+          
+          if (data.success && data.data.editContent) {
+            setServerEditContent(data.data.editContent);
+            console.log('✅ Refreshed serverEditContent after purchase:', data.data.editContent);
+          } else {
+            console.log('⚠️ No editContent in response after purchase');
+            console.log('📊 Full response data:', data);
+          }
+        } else {
+          const errorText = await contentResponse.text();
+          console.log('❌ Failed to refresh content after purchase. Status:', contentResponse.status, 'Error:', errorText);
+        }
+      } else {
+        console.log('⚠️ Skipping serverEditContent refresh - no existing serverEditContent or newImageUrl');
+        console.log('   - serverEditContent exists:', !!serverEditContent);
+        console.log('   - has newImageUrl:', !!serverEditContent?.newImageUrl);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error refreshing edit data after purchase:', error);
+    }
+  };
+  
   // Handle purchase with content management
   const handlePurchaseWithContentManagement = async (contentToPurchase: ContentItem, price: number, currency: 'ROAST' | 'USDC', transactionHash?: string) => {
     try {
@@ -1326,8 +1868,19 @@ export default function PurchaseContentModal({
       
       // Set success state immediately after purchase callback completes
       console.log('🎉 Setting purchase success state...')
+      console.log('🔍 Before state update - isPurchased:', isPurchased);
       setIsPurchased(true)
       setShowTweetManagement(true)
+      console.log('✅ State update calls completed - isPurchased should now be true');
+      
+      // Refresh edit data after purchase to get unwatermarked URLs
+      console.log('🔄 Refreshing edit data after purchase...')
+      
+      // Add a small delay to ensure purchase transaction is processed in the database
+      console.log('⏳ Waiting 3 seconds for purchase to be processed in database...')
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      
+      await refreshEditDataAfterPurchase(contentToPurchase.id)
       
       // Track purchase completion
       mixpanel.purchaseCompleted({
@@ -1791,10 +2344,37 @@ export default function PurchaseContentModal({
         extractedImageUrl = formatted.imageUrl
       }
       
-      // Use original image for posting (after purchase), not watermarked
-      const displayImage = currentContent.content_images && currentContent.content_images.length > 0 
-          ? currentContent.content_images[0] 
-          : extractedImageUrl
+      // Determine the correct image URL to use for Twitter posting
+      let displayImage: string | null = null;
+      const actualIsPurchased = isPurchased || !!purchasedContentDetails?.transactionHash;
+      
+      // Priority 1: Use edited image if available
+      if (completedEdit?.newImageUrl || serverEditContent?.newImageUrl) {
+        if (actualIsPurchased) {
+          // Post-purchase: Use unwatermarked edited image
+          displayImage = completedEdit?.newImageUrl || serverEditContent?.newImageUrl;
+          console.log('🐦 Twitter posting: Using unwatermarked edited image (post-purchase):', displayImage?.substring(0, 100) + '...');
+        } else {
+          // Pre-purchase: Use watermarked edited image
+          displayImage = completedEdit?.newWatermarkImageUrl || serverEditContent?.newWatermarkImageUrl || 
+                        completedEdit?.newImageUrl || serverEditContent?.newImageUrl;
+          console.log('🐦 Twitter posting: Using watermarked edited image (pre-purchase):', displayImage?.substring(0, 100) + '...');
+        }
+      } else {
+        // Priority 2: Fall back to original content images
+        if (actualIsPurchased) {
+          // Post-purchase: Use original unwatermarked image
+          displayImage = currentContent.content_images && currentContent.content_images.length > 0 
+            ? currentContent.content_images[0] 
+            : extractedImageUrl;
+          console.log('🐦 Twitter posting: Using original unwatermarked image (post-purchase):', displayImage?.substring(0, 100) + '...');
+        } else {
+          // Pre-purchase: Use watermarked original image
+          displayImage = currentContent.watermark_image || 
+                        (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl);
+          console.log('🐦 Twitter posting: Using watermarked original image (pre-purchase):', displayImage?.substring(0, 100) + '...');
+        }
+      }
 
       // Prepare tweet data - also convert thread items if they contain markdown
       const processedThread = getDisplayContent().thread ? getDisplayContent().thread.map(tweet => {
@@ -2546,10 +3126,46 @@ export default function PurchaseContentModal({
               ? { text: getDisplayContent().text, imageUrl: null }
         : formatTwitterContent(getDisplayContent().text)
     
-    // Use watermarked image for preview, original for purchased content
-    const imageUrl = isPurchased 
+    // Use edit image if available, otherwise original image
+    let imageUrl: string | null = null;
+    const hasEditContent = serverEditContent?.newImageUrl || completedEdit?.newImageUrl;
+    
+    console.log('🔍 [getContentData] Image Display Debug - hasEditContent:', hasEditContent);
+    console.log('🔍 [getContentData] Image Display Debug - completedEdit:', completedEdit);
+    // Use actual purchase status from component state or transaction hash
+    const actualIsPurchased = isPurchased || !!purchasedContentDetails?.transactionHash;
+    console.log('🔍 [getContentData] Image Display Debug - isPurchased (state):', isPurchased);
+    console.log('🔍 [getContentData] Image Display Debug - transactionHash:', purchasedContentDetails?.transactionHash);
+    console.log('🔍 [getContentData] Image Display Debug - actualIsPurchased:', actualIsPurchased);
+    
+    if (hasEditContent) {
+      // Choose correct image based on purchase status
+      const editImageUrl = actualIsPurchased 
+        ? (serverEditContent?.newImageUrl || completedEdit?.newImageUrl)           // Post-purchase: unwatermarked
+        : (serverEditContent?.newWatermarkImageUrl || completedEdit?.newWatermarkImageUrl || 
+           serverEditContent?.newImageUrl || completedEdit?.newImageUrl);          // Pre-purchase: watermarked (fallback to unwatermarked)
+      console.log('🔍 [getContentData] Image Display Debug - editImageUrl found:', editImageUrl);
+      console.log('🔍 [getContentData] Image Display Debug - actualIsPurchased:', actualIsPurchased, 'choosing:', actualIsPurchased ? 'newImageUrl' : 'newWatermarkImageUrl');
+      
+      if (editImageUrl) {
+        imageUrl = editImageUrl;
+        console.log(`🖼️ [getContentData] Using edit image (${actualIsPurchased ? 'unwatermarked' : 'watermarked'}):`, imageUrl);
+      } else {
+        // Fallback to original image based on purchase status
+        imageUrl = actualIsPurchased 
       ? (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
-      : (currentContent.watermark_image || (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl))
+          : (currentContent.watermark_image || (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
+        console.log('🖼️ [getContentData] Edit failed, using original image:', imageUrl);
+      }
+    } else {
+      // No edit content, show original images based on purchase status
+      imageUrl = actualIsPurchased 
+        ? (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
+        : (currentContent.watermark_image || (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
+      console.log('🖼️ [getContentData] Using original image:', imageUrl);
+    }
+    
+    console.log('🎯 [getContentData] FINAL imageUrl value:', imageUrl);
     
     const hashtags = extractHashtags(text)
     
@@ -2601,10 +3217,46 @@ export default function PurchaseContentModal({
               ? { text: getDisplayContent().text, imageUrl: null }
         : formatTwitterContent(getDisplayContent().text)
     
-    // Use watermarked image for preview, original for purchased content
-    const imageUrl = isPurchased 
+    // Use edit image if available, otherwise original image
+    let imageUrl: string | null = null;
+    const hasEditContent = serverEditContent?.newImageUrl || completedEdit?.newImageUrl;
+    
+    console.log('🔍 [contentData] Image Display Debug - hasEditContent:', hasEditContent);
+    console.log('🔍 [contentData] Image Display Debug - completedEdit:', completedEdit);
+    // Use actual purchase status from component state or transaction hash
+    const actualIsPurchased = isPurchased || !!purchasedContentDetails?.transactionHash;
+    console.log('🔍 [contentData] Image Display Debug - isPurchased (state):', isPurchased);
+    console.log('🔍 [contentData] Image Display Debug - transactionHash:', purchasedContentDetails?.transactionHash);
+    console.log('🔍 [contentData] Image Display Debug - actualIsPurchased:', actualIsPurchased);
+    
+    if (hasEditContent) {
+      // Choose correct image based on purchase status
+      const editImageUrl = actualIsPurchased 
+        ? (serverEditContent?.newImageUrl || completedEdit?.newImageUrl)           // Post-purchase: unwatermarked
+        : (serverEditContent?.newWatermarkImageUrl || completedEdit?.newWatermarkImageUrl || 
+           serverEditContent?.newImageUrl || completedEdit?.newImageUrl);          // Pre-purchase: watermarked (fallback to unwatermarked)
+      console.log('🔍 [contentData] Image Display Debug - editImageUrl found:', editImageUrl);
+      console.log('🔍 [contentData] Image Display Debug - actualIsPurchased:', actualIsPurchased, 'choosing:', actualIsPurchased ? 'newImageUrl' : 'newWatermarkImageUrl');
+      
+      if (editImageUrl) {
+        imageUrl = editImageUrl;
+        console.log(`🖼️ [contentData] Using edit image (${actualIsPurchased ? 'unwatermarked' : 'watermarked'}):`, imageUrl);
+      } else {
+        // Fallback to original image based on purchase status
+        imageUrl = actualIsPurchased 
       ? (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
-      : (currentContent.watermark_image || (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl))
+          : (currentContent.watermark_image || (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
+        console.log('🖼️ [contentData] Edit failed, using original image:', imageUrl);
+      }
+    } else {
+      // No edit content, show original images based on purchase status
+      imageUrl = actualIsPurchased 
+        ? (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
+        : (currentContent.watermark_image || (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
+      console.log('🖼️ [contentData] Using original image:', imageUrl);
+    }
+    
+    console.log('🎯 [contentData] FINAL imageUrl value:', imageUrl);
     
     const hashtags = extractHashtags(text)
     
@@ -2731,6 +3383,26 @@ export default function PurchaseContentModal({
         key={`purchase-modal-${content?.id || 'no-content'}`}
         className="relative w-full max-w-none lg:max-w-6xl rounded-none lg:rounded-2xl bg-transparent lg:bg-[#492222] max-h-[100vh] overflow-y-auto lg:overflow-y-hidden shadow-none lg:shadow-2xl p-0 lg:p-6 overscroll-contain touch-pan-y modal-scrollable"
       >
+        {/* DEBUG: Component render trace */}
+        {(() => {
+          const actualIsPurchased = isPurchased || !!purchasedContentDetails?.transactionHash;
+          const hasUnwatermarkedEdit = serverEditContent?.newImageUrl && serverEditContent?.newWatermarkImageUrl && 
+                                      serverEditContent.newImageUrl !== serverEditContent.newWatermarkImageUrl;
+          console.log('🚀 PurchaseContentModal RENDER - Content ID:', content?.id);
+          console.log('🚀 PurchaseContentModal RENDER - isPurchased (state):', isPurchased);
+          console.log('🚀 PurchaseContentModal RENDER - transactionHash:', purchasedContentDetails?.transactionHash);
+          console.log('🚀 PurchaseContentModal RENDER - actualIsPurchased:', actualIsPurchased);
+          console.log('🚀 PurchaseContentModal RENDER - hasUnwatermarkedEdit:', hasUnwatermarkedEdit);
+          console.log('🚀 PurchaseContentModal RENDER - completedEdit:', completedEdit);
+          console.log('🚀 PurchaseContentModal RENDER - serverEditContent:', serverEditContent);
+          if (serverEditContent?.newImageUrl && serverEditContent?.newWatermarkImageUrl) {
+            console.log('🔍 SERVER EDIT URLs:');
+            console.log('   - newImageUrl (should be unwatermarked):', serverEditContent.newImageUrl.substring(0, 100) + '...');
+            console.log('   - newWatermarkImageUrl (should be watermarked):', serverEditContent.newWatermarkImageUrl.substring(0, 100) + '...');
+            console.log('   - URLs are different (indicating purchase):', serverEditContent.newImageUrl !== serverEditContent.newWatermarkImageUrl);
+          }
+          return null;
+        })()}
         {/* Close Button */}
             <button
               onClick={handleModalClose}
@@ -2745,7 +3417,21 @@ export default function PurchaseContentModal({
         <div className="flex flex-col lg:flex-row max-h-[90vh] gap-0 lg:gap-4 overflow-y-auto lg:overflow-hidden touch-pan-y">
           {/* Left Panel - Tweet Preview + Mobile Purchase Options Combined */}
           <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-screen lg:min-h-0">
-            <h2 className="text-white/80 text-base lg:text-lg font-medium mb-4 lg:mb-6">Tweet preview</h2>
+            {/* Tweet Preview Header with Edit Options */}
+            <div className="flex items-center justify-between mb-4 lg:mb-6">
+              <h2 className="text-white/80 text-base lg:text-lg font-medium">
+                Tweet preview
+                {address && (
+                  <TweetEditDropdown 
+                    contentId={content?.id || 0}
+                    isPurchased={!!content?.purchased_at}
+                    walletAddress={address}
+                    onEditSelect={handleEditSelect}
+                    refreshCredits={dropdownRefreshCredits}
+                  />
+                )}
+              </h2>
+            </div>
 
             {/* Twitter Thread Container */}
             <div className="w-full flex-1 overflow-y-auto pr-0 lg:pr-2 rounded-none lg:rounded-2xl touch-pan-y overscroll-contain modal-scrollable scrollbar-hide">
@@ -2821,7 +3507,7 @@ export default function PurchaseContentModal({
                       {contentData.shouldUseMarkdown ? (
                         <>
                           {/* Longpost Image at top */}
-                          {isGeneratingContent && !isTextOnlyGeneration ? (
+                          {(isGeneratingContent && !isTextOnlyGeneration) || (isProcessingEdit && !editError) ? (
                             <ImageShimmer />
                           ) : (
                             contentData.imageUrl ? (
@@ -2841,7 +3527,7 @@ export default function PurchaseContentModal({
                           
                           {/* Longpost Content with white text styling */}
                           <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
-                            {isGeneratingContent ? (
+                            {isGeneratingContent || (isProcessingEdit && !editError) ? (
                               <TextShimmer />
                             ) : isContentPurchased() ? (
                               <EditText
@@ -2872,7 +3558,7 @@ export default function PurchaseContentModal({
                         <>
                           {/* Regular content (shitpost/thread): Content first, then image */}
                           <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
-                            {isGeneratingContent ? (
+                            {isGeneratingContent || (isProcessingEdit && !editError) ? (
                               <TextShimmer />
                             ) : isContentPurchased() ? (
                               <EditText
@@ -2897,7 +3583,7 @@ export default function PurchaseContentModal({
                           </div>
                           
                           {/* Tweet Images for regular content */}
-                          {isGeneratingContent && !isTextOnlyGeneration ? (
+                          {(isGeneratingContent && !isTextOnlyGeneration) || (isProcessingEdit && !editError) ? (
                             <ImageShimmer />
                           ) : (
                             contentData.imageUrl ? (
@@ -2962,7 +3648,7 @@ export default function PurchaseContentModal({
                               <span className="text-gray-500 text-xs lg:text-sm">@{getDisplayUsernameLower()}</span>
                             </div>
                             <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
-                              {isGeneratingContent ? (
+                              {isGeneratingContent || (isProcessingEdit && !editError) ? (
                                 <ThreadItemShimmer />
                               ) : isContentPurchased() ? (
                                 <div className="flex items-start gap-2">
@@ -3063,6 +3749,100 @@ export default function PurchaseContentModal({
                   )
                 })()}
               </div>
+
+              {/* Avatar Fusion Edit Form */}
+              {editMode === 'fusion' && (
+                <div ref={editTweetUIRef} className="mt-6 p-4 bg-gray-800/50 rounded-lg border border-gray-600">
+                  <h3 className="text-white text-lg font-medium mb-4">
+                    Edit This Tweet
+                  </h3>
+                  
+                  {/* Edit Prompt Input */}
+                  <div className="mb-4">
+                    <label className="block text-white/80 text-sm font-medium mb-2">
+                      Describe the changes you want
+                    </label>
+                    <textarea
+                      value={editPrompt}
+                      onChange={(e) => setEditPrompt(e.target.value)}
+                      placeholder="e.g., Replace the character with my avatar wearing sunglasses and holding a microphone..."
+                      className="w-full bg-gray-900 text-white text-sm rounded-lg p-3 border border-gray-600 focus:border-orange-500 focus:outline-none resize-none"
+                      rows={3}
+                      disabled={isProcessingEdit}
+                    />
+                  </div>
+
+                  {/* Avatar Upload */}
+                  <div className="mb-4">
+                    <label className="block text-white/80 text-sm font-medium mb-2">
+                      Upload Avatar Image (Optional)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarUpload}
+                        disabled={isProcessingEdit}
+                        className="w-full bg-gray-900 text-white text-sm rounded-lg p-3 border border-gray-600 focus:border-orange-500 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-orange-500 file:text-white hover:file:bg-orange-600"
+                      />
+                      {avatarFile && (
+                        <div className="mt-2 text-xs text-green-400">
+                          ✓ {avatarFile.name} selected
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Error Message */}
+                  {editError && (
+                    <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg">
+                      <p className="text-red-400 text-sm">{editError}</p>
+                    </div>
+                  )}
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setEditMode(null);
+                        setEditPrompt('');
+                        setAvatarFile(null);
+                        setEditError(null);
+                      }}
+                      disabled={isProcessingEdit}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSubmitEdit}
+                      disabled={!editPrompt.trim() || isProcessingEdit}
+                      className="px-6 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isProcessingEdit ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Processing...
+                        </div>
+                      ) : (
+                        'Submit Edit'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Loading message during processing */}
+              {isProcessingEdit && (
+                <div className="mt-6 p-4 bg-gray-800/30 rounded-lg">
+                  <div className="text-white/80 text-sm text-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Processing avatar fusion... Check the tweet preview above for progress.
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Longpost Warning Message - Only show on mobile for longposts */}
               {contentData.shouldUseMarkdown && (
@@ -3776,10 +4556,46 @@ export default function PurchaseContentModal({
                                 extractedImageUrl = formatted.imageUrl
                               }
                               
-                              // Use original image for purchased content (post-purchase), watermarked for preview
-                              const displayImage = isPurchased 
+                              // Use edit image if available, otherwise original image
+                              let displayImage: string | null = null;
+                              const hasEditContent = serverEditContent?.newImageUrl || completedEdit?.newImageUrl;
+                              
+                              console.log('🔍 [Section 1] Image Display Debug - hasEditContent:', hasEditContent);
+                              console.log('🔍 [Section 1] Image Display Debug - completedEdit:', completedEdit);
+                              // Use actual purchase status from component state or transaction hash
+                              const actualIsPurchased = isPurchased || !!purchasedContentDetails?.transactionHash;
+                              console.log('🔍 [Section 1] Image Display Debug - isPurchased (state):', isPurchased);
+                              console.log('🔍 [Section 1] Image Display Debug - transactionHash:', purchasedContentDetails?.transactionHash);
+                              console.log('🔍 [Section 1] Image Display Debug - actualIsPurchased:', actualIsPurchased);
+                              
+                              if (hasEditContent) {
+                                // Choose correct image based on purchase status
+                                const editImageUrl = actualIsPurchased 
+                                  ? (serverEditContent?.newImageUrl || completedEdit?.newImageUrl)           // Post-purchase: unwatermarked
+                                  : (serverEditContent?.newWatermarkImageUrl || completedEdit?.newWatermarkImageUrl || 
+                                     serverEditContent?.newImageUrl || completedEdit?.newImageUrl);          // Pre-purchase: watermarked (fallback to unwatermarked)
+                                console.log('🔍 [Section 1] Image Display Debug - editImageUrl found:', editImageUrl);
+                                console.log('🔍 [Section 1] Image Display Debug - actualIsPurchased:', actualIsPurchased, 'choosing:', actualIsPurchased ? 'newImageUrl' : 'newWatermarkImageUrl');
+                                
+                                if (editImageUrl) {
+                                  displayImage = editImageUrl;
+                                  console.log(`🖼️ [Section 1] Using edit image (${actualIsPurchased ? 'unwatermarked' : 'watermarked'}):`, displayImage);
+                                } else {
+                                  // Fallback to original image based on purchase status
+                                  displayImage = actualIsPurchased 
                                 ? (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
                                 : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
+                                  console.log('🖼️ [Section 1] Edit failed, using original image:', displayImage);
+                                }
+                              } else {
+                                // No edit content, show original images based on purchase status
+                                displayImage = actualIsPurchased 
+                                  ? (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
+                                  : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
+                                console.log('🖼️ [Section 1] Using original image:', displayImage);
+                              }
+                              
+                              console.log('🎯 [Section 1] FINAL displayImage value:', displayImage);
 
                               // Prepare tweets for copy - also process thread items if they contain markdown
                               const processedThreadItems = getDisplayContent().thread ? getDisplayContent().thread.map(tweet => {
@@ -4162,10 +4978,46 @@ export default function PurchaseContentModal({
                             extractedImageUrl = formatted.imageUrl
                           }
                           
-                          // Use original image for purchased content (post-purchase), watermarked for preview
-                          const displayImage = isPurchased 
+                          // Use edit image if available, otherwise original image
+                          let displayImage: string | null = null;
+                          const hasEditContent = serverEditContent?.newImageUrl || completedEdit?.newImageUrl;
+                          
+                          console.log('🔍 [Section 2] Image Display Debug - hasEditContent:', hasEditContent);
+                          console.log('🔍 [Section 2] Image Display Debug - completedEdit:', completedEdit);
+                          // Use actual purchase status from component state or transaction hash
+                          const actualIsPurchased = isPurchased || !!purchasedContentDetails?.transactionHash;
+                          console.log('🔍 [Section 2] Image Display Debug - isPurchased (state):', isPurchased);
+                          console.log('🔍 [Section 2] Image Display Debug - transactionHash:', purchasedContentDetails?.transactionHash);
+                          console.log('🔍 [Section 2] Image Display Debug - actualIsPurchased:', actualIsPurchased);
+                          
+                          if (hasEditContent) {
+                            // Choose correct image based on purchase status
+                            const editImageUrl = actualIsPurchased 
+                              ? (serverEditContent?.newImageUrl || completedEdit?.newImageUrl)           // Post-purchase: unwatermarked
+                              : (serverEditContent?.newWatermarkImageUrl || completedEdit?.newWatermarkImageUrl || 
+                                 serverEditContent?.newImageUrl || completedEdit?.newImageUrl);          // Pre-purchase: watermarked (fallback to unwatermarked)
+                            console.log('🔍 [Section 2] Image Display Debug - editImageUrl found:', editImageUrl);
+                            console.log('🔍 [Section 2] Image Display Debug - actualIsPurchased:', actualIsPurchased, 'choosing:', actualIsPurchased ? 'newImageUrl' : 'newWatermarkImageUrl');
+                            
+                            if (editImageUrl) {
+                              displayImage = editImageUrl;
+                              console.log(`🖼️ [Section 2] Using edit image (${actualIsPurchased ? 'unwatermarked' : 'watermarked'}):`, displayImage);
+                            } else {
+                              // Fallback to original image based on purchase status
+                              displayImage = actualIsPurchased 
                             ? (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
                             : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
+                              console.log('🖼️ [Section 2] Edit failed, using original image:', displayImage);
+                            }
+                          } else {
+                            // No edit content, show original images based on purchase status
+                            displayImage = actualIsPurchased 
+                              ? (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
+                              : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
+                            console.log('🖼️ [Section 2] Using original image:', displayImage);
+                          }
+                          
+                          console.log('🎯 [Section 2] FINAL displayImage value:', displayImage);
 
                           // Prepare tweets for copy - also process thread items if they contain markdown
                           const processedThreadItems = getDisplayContent().thread ? getDisplayContent().thread.map(tweet => {
@@ -4994,10 +5846,57 @@ export default function PurchaseContentModal({
                         extractedImageUrl = formatted.imageUrl
                       }
                       
-                      // Use original image for purchased content (post-purchase), watermarked for preview
-                      const displayImage = isPurchased 
-                        ? (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl)
-                        : (currentContent?.watermark_image || (currentContent?.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl));
+                      // Determine which image to display with updated priority logic
+                      let displayImage: string | null = null;
+                      
+                      // Check if we have edit content from user_tweet_edits table
+                      const hasEditContent = serverEditContent?.newImageUrl || completedEdit?.newImageUrl;
+                      
+                      console.log('🔍 Image Display Debug - hasEditContent:', hasEditContent);
+                      console.log('🔍 Image Display Debug - serverEditContent:', serverEditContent);
+                      console.log('🔍 Image Display Debug - completedEdit:', completedEdit);
+                      console.log('🔍 Image Display Debug - isPurchased:', isPurchased);
+                      console.log('🔍 Image Display Debug - currentContent.watermark_image:', currentContent?.watermark_image);
+                      console.log('🔍 Image Display Debug - currentContent.content_images:', currentContent?.content_images);
+                      
+                      if (hasEditContent) {
+                        // Choose correct image based on purchase status
+                        const editImageUrl = isPurchased 
+                          ? (serverEditContent?.newImageUrl || completedEdit?.newImageUrl)           // Post-purchase: unwatermarked
+                          : (serverEditContent?.newWatermarkImageUrl || completedEdit?.newWatermarkImageUrl || 
+                             serverEditContent?.newImageUrl || completedEdit?.newImageUrl);          // Pre-purchase: watermarked (fallback to unwatermarked)
+                        console.log('🔍 Image Display Debug - editImageUrl found:', editImageUrl);
+                        console.log('🔍 Image Display Debug - isPurchased:', isPurchased, 'choosing:', isPurchased ? 'newImageUrl' : 'newWatermarkImageUrl');
+                        
+                        if (editImageUrl) {
+                          displayImage = editImageUrl;
+                          console.log(`🖼️ Using edit image (${isPurchased ? 'unwatermarked' : 'watermarked'}):`, displayImage);
+                        } else {
+                          // Fallback to original image based on purchase status
+                          if (!isPurchased) {
+                            displayImage = currentContent?.watermark_image || null;
+                            console.log('🖼️ Edit failed, using original watermark image:', displayImage);
+                          } else {
+                            displayImage = currentContent?.content_images && currentContent.content_images.length > 0 
+                              ? currentContent.content_images[0] 
+                              : extractedImageUrl;
+                            console.log('🖼️ Edit failed, using original content image:', displayImage);
+                          }
+                        }
+                      } else {
+                        // No edit content, show original images based on purchase status
+                        if (!isPurchased) {
+                          displayImage = currentContent?.watermark_image || null;
+                          console.log('🖼️ Using original watermark image:', displayImage);
+                        } else {
+                          displayImage = currentContent?.content_images && currentContent.content_images.length > 0 
+                            ? currentContent.content_images[0] 
+                            : extractedImageUrl;
+                          console.log('🖼️ Using original content image:', displayImage);
+                        }
+                      }
+                      
+                      console.log('🎯 FINAL displayImage value:', displayImage);
 
                       // Prepare tweets for copy - also process thread items if they contain markdown
                       const processedThreadItems = getDisplayContent().thread ? getDisplayContent().thread.map(tweet => {
@@ -5070,7 +5969,9 @@ export default function PurchaseContentModal({
                           </div>
                           {section.text && (
                             <div className="text-white/80 text-sm leading-relaxed">
-                              {forceMarkdown ? (
+                              {isProcessingEdit && !editError ? (
+                                <TextShimmer />
+                              ) : forceMarkdown ? (
                                 <div 
                                   className="markdown-content max-w-none"
                                   dangerouslySetInnerHTML={{ 
@@ -5084,7 +5985,13 @@ export default function PurchaseContentModal({
                           )}
                           {section.image && (
                             <div className="mt-3 rounded-md overflow-hidden">
+                              {isProcessingEdit && !editError ? (
+                                <div className="w-[50%]">
+                                  <ImageShimmer />
+                                </div>
+                              ) : (
                               <img src={String(section.image)} alt="Tweet image" className="w-[50%] h-auto object-cover" />
+                              )}
                             </div>
                           )}
                           {section.video && (

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import RewardsPanel from "@/components/sections/RewardsPanel";
 import { rewardsApi, LeaderboardUser, TierLevel } from "@/services/rewardsApi";
 import { useMixpanel } from "@/hooks/useMixpanel";
@@ -604,7 +605,16 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
 }
 
 export default function Rewards({ currentUserWallet }: { currentUserWallet?: string }) {
-  const [activeTab, setActiveTab] = useState<"rewards" | "leaderboard">("rewards");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  
+  // Initialize activeTab based on URL parameter
+  const getInitialTab = (): "rewards" | "leaderboard" => {
+    const tabParam = searchParams?.get('tab');
+    return tabParam === 'leaderboard' ? 'leaderboard' : 'rewards';
+  };
+  
+  const [activeTab, setActiveTab] = useState<"rewards" | "leaderboard">(getInitialTab());
   const [activeTimePeriod, setActiveTimePeriod] = useState<"now" | "7d" | "1m">("now");
   const [leaderboardUsers, setLeaderboardUsers] = useState<LeaderboardUser[]>([]);
   const [topThreeUsers, setTopThreeUsers] = useState<LeaderboardUser[]>([]);
@@ -677,6 +687,16 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
     fetchUserStats();
   }, [currentUserWallet]);
 
+  // Handle URL parameter changes for tab switching
+  useEffect(() => {
+    const tabParam = searchParams?.get('tab');
+    if (tabParam === 'leaderboard' && activeTab !== 'leaderboard') {
+      setActiveTab('leaderboard');
+    } else if (tabParam !== 'leaderboard' && activeTab !== 'rewards') {
+      setActiveTab('rewards');
+    }
+  }, [searchParams, activeTab]);
+
   // Track page view on mount and when user stats are loaded
   useEffect(() => {
     if (userStats) {
@@ -713,6 +733,10 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
       screenName: 'Rewards'
     });
     
+    // Update URL parameter to match the new tab
+    const newUrl = newTab === 'rewards' ? '/rewards?tab=rewards' : '/rewards?tab=leaderboard';
+    router.push(newUrl, { scroll: false });
+    
     setActiveTab(newTab);
     tabStartTime.current = Date.now();
   };
@@ -742,7 +766,7 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
   };
 
   return (
-    <section className="space-y-6 md:space-y-8 overflow-x-hidden px-0 md:px-0 w-full max-w-[100vw]">
+    <section className="space-y-6 md:space-y-8 overflow-x-visible px-0 md:px-0 w-full max-w-[100vw]">
       {/* Header Section */}
       <div
         className="text-white w-full px-4 lg:px-0"
@@ -756,33 +780,36 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
       </div>
 
       {/* Tabs Section */}
-      <div
-        className="flex gap-2 md:gap-3 justify-start items-center w-full max-w-[calc(100vw-1rem)] md:max-w-md mx-auto md:mx-0 px-4 lg:px-1"
-        style={{
-          borderRadius: "32px",
-          padding: "4px",
-          background: "rgba(255,255,255,0.1)",
-          backdropFilter: "blur(10px)"
-        }}
-      >
-        <button
-          onClick={() => handleTabChange("rewards")}
-          className={`px-3 md:px-6 py-2 rounded-3xl w-full text-xs md:text-sm font-medium transition-all duration-200 ${activeTab === "rewards"
-              ? "bg-white text-black shadow-lg"
-              : "text-white/70 hover:text-white"
-            }`}
+      <div className="relative w-full px-4 lg:px-1">
+        {/* Tabs Container - Original Width */}
+        <div
+          className="flex gap-2 md:gap-3 justify-start items-center w-full max-w-[calc(100vw-1rem)] md:max-w-md mx-auto md:mx-0"
+          style={{
+            borderRadius: "32px",
+            padding: "4px",
+            background: "rgba(255,255,255,0.1)",
+            backdropFilter: "blur(10px)"
+          }}
         >
-          Rewards
-        </button>
-        <button
-          onClick={() => handleTabChange("leaderboard")}
-          className={`px-3 md:px-6 py-2 rounded-3xl w-full text-xs md:text-sm font-medium transition-all duration-200 ${activeTab === "leaderboard"
-              ? "bg-white text-black shadow-lg"
-              : "text-white/70 hover:text-white"
-            }`}
-        >
-          Leaderboard
-        </button>
+          <button
+            onClick={() => handleTabChange("rewards")}
+            className={`px-3 md:px-6 py-2 rounded-3xl w-full text-xs md:text-sm font-medium transition-all duration-200 ${activeTab === "rewards"
+                ? "bg-white text-black shadow-lg"
+                : "text-white/70 hover:text-white"
+              }`}
+          >
+            Rewards
+          </button>
+          <button
+            onClick={() => handleTabChange("leaderboard")}
+            className={`px-3 md:px-6 py-2 rounded-3xl w-full text-xs md:text-sm font-medium transition-all duration-200 ${activeTab === "leaderboard"
+                ? "bg-white text-black shadow-lg"
+                : "text-white/70 hover:text-white"
+              }`}
+          >
+            Leaderboard
+          </button>
+        </div>
       </div>
 
       {/* Time Period Selector - Only show on leaderboard tab */}
@@ -852,6 +879,16 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
 
       {activeTab === "rewards" && (
         <div className="space-y-4">
+          {/* Campaign Details Button - Top Right */}
+          <div className="hidden lg:flex justify-end px-4 lg:px-0">
+            <button
+              onClick={() => router.push('/campaign')}
+              className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+            >
+              Yapping Campaign Details
+            </button>
+          </div>
+          
           <div className="w-full md:max-w-none">
             <RewardsPanel currentUserWallet={currentUserWallet} />
           </div>

@@ -241,41 +241,51 @@ export default function HomePage() {
               {navigationItems.map((item) => {
                 const isActive = item.active
                 const isDisabled = item.requiresAuth && !isAuthenticated
+                const isSpecialItem = item.id === 'campaign' || item.id === 'rewards'
                 
                 return (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      if (!isDisabled) {
-                        window.location.href = item.route
-                      }
-                    }}
-                    disabled={isDisabled}
-                    className={`group flex items-center rounded-md px-2 py-2 text-sm transition-colors overflow-hidden justify-start ${
+                  <div key={item.id} className="relative group">
+                    <button
+                      onClick={() => {
+                        if (!isDisabled) {
+                          window.location.href = item.route
+                        }
+                      }}
+                      disabled={isDisabled}
+                    className={`w-full flex items-center rounded-md px-2 py-2 text-sm transition-colors overflow-hidden justify-start ${
                       isActive 
                         ? 'bg-yapper-muted text-white' 
                         : isDisabled
                         ? 'text-white/40 cursor-not-allowed'
                         : 'text-white/90 hover:bg-yapper-muted hover:text-white'
-                    }`}
-                  >
-                    <span className="w-5 h-5 inline-flex items-center justify-center text-white/90 mr-3 shrink-0">
-                      <Image src={item.icon} alt={item.label} width={20} height={20} className="w-5 h-5" />
-                    </span>
-                    <span className="relative overflow-hidden shrink-0 w-[160px]">
-                      <span
-                        className={`block ${isActive ? 'text-white' : isDisabled ? 'text-white/40' : 'text-white/90'}`}
-                        style={{
-                          clipPath: isSidebarExpanded ? "inset(0 0 0 0)" : "inset(0 100% 0 0)",
-                          transition: "clip-path 300ms ease-in-out",
-                          willChange: "clip-path",
-                        }}
-                        aria-hidden={!isSidebarExpanded}
-                      >
-                        {item.label}
+                    } ${isSpecialItem ? (isSidebarExpanded ? 'nav-item-special-expanded' : 'nav-item-special-glow') : ''}`}
+                    >
+                      <span className="w-5 h-5 inline-flex items-center justify-center text-white/90 mr-3 shrink-0">
+                        <Image src={item.icon} alt={item.label} width={20} height={20} className="w-5 h-5" />
                       </span>
-                    </span>
-                  </button>
+                      <span className="relative overflow-hidden shrink-0 w-[160px]">
+                        <span
+                          className={`block ${isActive ? 'text-white' : isDisabled ? 'text-white/40' : 'text-white/90'}`}
+                          style={{
+                            clipPath: isSidebarExpanded ? "inset(0 0 0 0)" : "inset(0 100% 0 0)",
+                            transition: "clip-path 300ms ease-in-out",
+                            willChange: "clip-path",
+                          }}
+                          aria-hidden={!isSidebarExpanded}
+                        >
+                          {item.label}
+                        </span>
+                      </span>
+                    </button>
+                    
+                    {/* Tooltip - only show when sidebar is collapsed */}
+                    {!isSidebarExpanded && (
+                      <div className="sidebar-tooltip absolute left-full ml-2 top-1/2 -translate-y-1/2 bg-[#220808] text-white text-sm px-3 py-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap" style={{ zIndex: 2147483647 }}>
+                        {item.label}
+                        <div className="absolute right-full top-1/2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-b-[6px] border-r-[6px] border-transparent border-r-[#220808]"></div>
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </nav>

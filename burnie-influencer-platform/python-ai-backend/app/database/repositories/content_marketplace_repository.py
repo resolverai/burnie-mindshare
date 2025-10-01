@@ -32,16 +32,35 @@ class ContentMarketplaceRepository:
             return False
     
     def get_content_by_id(self, content_id: int) -> Optional[Dict[str, Any]]:
-        """Get content record by ID"""
+        """Get content record by ID from TypeScript backend"""
         try:
-            # For now, return a mock response since we don't have the table in Python backend
-            logger.info(f"🔍 Getting content {content_id}")
-            return {
-                "id": content_id,
-                "content_text": "Sample content",
-                "tweet_thread": [],
-                "content_images": []
-            }
+            import os
+            import httpx
+            
+            typescript_backend_url = os.getenv('TYPESCRIPT_BACKEND_URL', 'http://localhost:3001')
+            
+            logger.info(f"🔍 Getting content {content_id} from TypeScript backend")
+            
+            # Call TypeScript backend to get actual content data
+            with httpx.Client() as client:
+                response = client.get(
+                    f"{typescript_backend_url}/api/marketplace/content/{content_id}",
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    # Extract content from the response structure
+                    content = data.get('data', {}).get('content', data.get('content', data))
+                    
+                    logger.info(f"✅ Retrieved content {content_id}: images={len(content.get('content_images', []))}")
+                    
+                    return content
+                else:
+                    logger.error(f"❌ Failed to get content {content_id}: {response.status_code} - {response.text}")
+                    return None
+                    
         except Exception as e:
-            logger.error(f"❌ Error getting content: {e}")
+            logger.error(f"❌ Error getting content {content_id}: {e}")
             return None

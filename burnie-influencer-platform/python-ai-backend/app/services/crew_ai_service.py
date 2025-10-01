@@ -859,13 +859,15 @@ class CrewAIService:
         5. **NO IMAGE GENERATION**: Only generate text content
         6. **IGNORE LOGO INFO**: Do not include any logo-related information in your text generation
         
-        **GROK TOOL USAGE**:
+        **AUTONOMOUS GROK TOOL USAGE**:
         - Call grok_category_style_tool with the campaign context, post type, image prompt, AND selected_handle
         - Pass the stored image prompt to ensure text aligns with the existing image
-        - Pass the selected_handle parameter to use the specific handle's style
-        - The tool will generate content in @{selected_handle}'s authentic style that complements the image
+        - Pass the selected_handle parameter to use @{selected_handle}'s specific writing style
+        - The tool will autonomously generate content in @{selected_handle}'s authentic voice and style
+        - Each handle has their own unique vocabulary, tone, greeting patterns, and communication style
+        - Do NOT impose any format requirements or suggest specific opening phrases
+        - Let the tool generate naturally in @{selected_handle}'s authentic voice
         - Use the EXACT content returned by the tool as your final output
-        - Do NOT modify, expand, or rewrite the tool's output
         - Simply format the tool's output into the required JSON structure
         
         **CONTENT ALIGNMENT STRATEGY**:
@@ -3143,17 +3145,23 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         
         if is_grok_model:
             tool_instructions = f"""
-        🤖 **SIMPLE GROK INSTRUCTIONS**:
-        Call the `grok_category_style_tool` to generate content in popular handle styles.
-        The tool will randomly select a handle and generate content in their authentic style.
+        🤖 **AUTONOMOUS GROK CONTENT GENERATION**:
+        Call the `grok_category_style_tool` to generate content in authentic handle styles.
+        The tool will select a handle and generate content in their unique, natural writing style.
         
-        **IMPORTANT**: When calling the tool, include the post type in your prompt:
-        - For threads: "Generate a thread about [topic]" (main_tweet ≤240 chars, thread_array items ≤260 chars each)
-        - For shitposts: "Generate a shitpost about [topic]" (main_tweet ≤260 chars, NO thread_array)
-        - For longposts: "Generate a longpost about [topic]" (main_tweet 8000-12000 chars, NO thread_array)
-        - For tweets: "Generate a tweet about [topic]" (main_tweet ≤240 chars, NO thread_array)
+        **TOOL USAGE**: Simply call the tool with the post type and let it work autonomously:
+        - The tool will select an appropriate handle style for the campaign
+        - It will generate content naturally in that handle's authentic voice
+        - Each handle has their own vocabulary, tone, and communication patterns
+        - Do NOT impose any specific format, greetings, or structural constraints
         
-        **CRITICAL**: Use the EXACT content returned by the tool as your final output. Do NOT modify, expand, or rewrite the tool's output.
+        **POST TYPE GUIDANCE** (Character limits only):
+        - **THREAD**: main_tweet ≤240 chars, thread_array items ≤260 chars each
+        - **SHITPOST**: main_tweet ≤260 chars, NO thread_array
+        - **LONGPOST**: main_tweet 8000-12000 chars, NO thread_array  
+        - **TWEET**: main_tweet ≤240 chars, NO thread_array
+        
+        **CRITICAL**: Use the EXACT content returned by the tool. Do NOT modify, expand, or rewrite the tool's output.
         """
         else:
             success_pattern_tool = self._get_success_pattern_tool_name()
@@ -3195,9 +3203,12 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             **OUTPUT FORMAT**: JSON object with main_tweet, thread_array (if applicable), and character_counts - no hashtags needed
             
-            **EXAMPLE**:
-            If the tool returns: "Yo, crypto crew! Just checked out BOB..."
-            Your output should be: {{"main_tweet": "Yo, crypto crew! Just checked out BOB...", "character_count": 244}}
+            **AUTONOMOUS CONTENT GENERATION**:
+            - The grok_category_style_tool will generate content in the authentic style of the selected handle
+            - Use the EXACT content returned by the tool without any modifications
+            - Each handle has their own unique writing style, vocabulary, and approach
+            - Do NOT impose any specific format, greeting, or opening phrases
+            - Let the tool generate naturally in the selected handle's authentic voice
             """
         else:
             # Complex instructions for other models
@@ -3358,32 +3369,60 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             **STEP-BY-STEP AUTONOMOUS PROCESS**:
             
             1. **Deep Content Analysis** (Post-Type Specific): 
-               - **FOR THREAD/SHITPOST**: Analyze BOTH main_tweet AND complete thread_array from Text Content Creator's JSON output
+               - **FOR SHITPOST**: Analyze ONLY the main_tweet for humor, meme potential, and emotional expression
+               - **FOR THREAD**: Analyze BOTH main_tweet AND complete thread_array from Text Content Creator's JSON output
                - **FOR LONGPOST**: Analyze the comprehensive main_tweet (longpost content) from Text Content Creator's JSON output
                - Read ALL the generated text content thoroughly to understand the complete narrative
                - Identify core emotions: excitement, urgency, community, innovation, FOMO, humor, etc.
                - Extract key concepts: project features, benefits, community aspects, timing, opportunities
                - Determine the primary message goal: inform, excite, create urgency, build community, etc.
-               - Consider the full content scope when designing visual concepts
-               - **IMPORTANT**: Don't let content type (shitpost/longpost/thread) limit your creative choices
+               - **SHITPOST SPECIFIC**: Focus on meme potential, humor elements, relatable scenarios, and viral expressions
             
             2. **Intelligent Style Selection**:
-               - Choose the most appropriate artistic style from the options below
+               - Choose the most appropriate artistic style from the options above
                - **PRIORITIZE VARIETY**: Avoid repeating the same style across different campaigns
                - Consider your target audience (Web3 GenZ, crypto enthusiasts, tech-savvy users)
                - Match visual complexity to message complexity
                - Decide on realism level: cartoon → stylized → photorealistic
+               - **SHITPOST STYLE PRIORITY**: For shitposts, prioritize Meme/Comic, Illustrated/Cartoon, or Pixel Art styles
                - **FULL STYLE FREEDOM**: You can choose ANY style for ANY content type based on what best fits the message
-               - **MEME CHARACTER DECISION**: Decide autonomously whether to include web3 meme characters (Pepe, Wojak, Chad, etc.) based on content relevance
-               - **STYLE DIVERSITY CHECK**: If you've recently used holographic/neon/cyberpunk, consider professional, warm, or minimalist alternatives
+               - **MEME CHARACTER AUTONOMY**: Decide autonomously whether to include popular characters based on content relevance
+               - **STYLE DIVERSITY CHECK**: Avoid repetitive tech/futuristic aesthetics, embrace variety and humor
             
-            3. **Original Concept Creation**:
+            3. **Original Concept Creation & Meme Character Integration**:
                - Generate a unique visual concept that amplifies the tweet's message
                - Create original scenes, characters, or compositions (do NOT copy templates)
                - Incorporate crypto/Web3 cultural elements naturally when relevant
-               - **MEME CHARACTER INTEGRATION**: If you decide to include web3 meme characters, integrate them naturally and meaningfully
+               - **CONDITIONAL MEME CHARACTER SELECTION**: Include popular characters ONLY if they genuinely enhance the message and engagement
                - **STYLE FLEXIBILITY**: Don't feel restricted by content type - create the visual style that best serves the message
                - Design for maximum viral potential and engagement
+               
+               **POPULAR MEME CHARACTERS** (Optional - Use ONLY when truly relevant and engaging):
+               
+               **Web2 Classic Memes**:
+               - **Drake**: Pointing/rejecting gestures, reaction expressions, approval/disapproval scenarios
+               - **Distracted Boyfriend**: Choice scenarios, temptation situations, comparison memes
+               - **Woman Yelling at Cat**: Confrontation, argument, explanation scenarios
+               - **This is Fine Dog**: Chaos situations, everything falling apart but staying calm
+               - **Expanding Brain**: Evolution of ideas, complexity levels, enlightenment progression
+               - **Stonks Man**: Financial gains, investment scenarios, market reactions
+               - **Chad Yes**: Confident agreement, alpha moves, assertive responses
+               - **Virgin vs Chad**: Comparison memes, lifestyle contrasts, preference scenarios
+               
+               **Web3/Crypto Characters**:
+               - **Pepe**: Various emotions (happy, sad, smug, angry), crypto reactions, market sentiment
+               - **Wojak**: Anxiety, FOMO, market stress, relatable crypto investor emotions
+               - **Chad Crypto Trader**: Confident trading, diamond hands, bull market energy
+               - **Bobo**: Bear market sentiment, fear, uncertainty, doubt scenarios
+               - **Apu Apustaja**: Cute, innocent, helpful scenarios, friendly community vibes
+               - **Rare Pepes**: Special occasions, unique situations, collectible moments
+               
+               **CHARACTER USAGE GUIDELINES**:
+               - **Relevance First**: Only include meme characters if they genuinely add value to the visual story
+               - **Quality Over Quantity**: Better to have no characters than forced/irrelevant ones
+               - **Natural Integration**: Characters should feel like they belong in the scene, never forced
+               - **Full Emotional Range**: When using characters, they can show ANY emotion that fits the content
+               - **Creative Alternatives**: Consider original characters, abstract concepts, or non-character visuals when more appropriate
             
             4. **Professional Enhancement**:
                - Always include Essential Quality Keywords for professional output
@@ -3401,63 +3440,93 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - **Professional**: Clean, modern, business-focused with corporate aesthetics
             - **Warm**: Natural, community-focused, approachable with warm tones
             - **Minimalist**: Simple, elegant, clear messaging with clean design
-            - **Meme**: Humorous, viral, engaging with meme culture elements
-            - **Tech**: Modern, innovative, futuristic (use sparingly for variety)
+            - **Meme/Comic**: Humorous, viral, engaging with meme culture elements and cartoon aesthetics
+            - **Illustrated/Cartoon**: Fun, expressive, character-driven with comic book styling
+            - **Pixel Art/Retro**: Nostalgic, gaming references, 8-bit aesthetics when appropriate
+            - **Photo Realistic**: Authentic, trustworthy content with natural aesthetics
+            - **Vector Art/Clean**: Professional, minimalist content with precision
+            - **Community/Social**: Inclusive, gathering themes with warm colors
             - **Hype**: Energetic, exciting, attention-grabbing with dynamic elements
             - **Data-Driven**: Analytical, informative, chart-focused with clean graphics
-            - **Animated/Dynamic**: Action-oriented content with movement suggestions
-            - **Community/Social**: Inclusive, gathering themes with warm colors
-            - **Vector Art/Clean**: Professional, minimalist content with precision
-            - **Hyper Realistic**: Serious, credible messaging with photorealistic quality
-            - **Photo Realistic**: Authentic, trustworthy content with natural aesthetics
-            - **Pixel Art/Retro**: Nostalgic, gaming references when appropriate
             - **Studio Lighting**: Polished, professional look with controlled lighting
             - **Cinematic**: Dramatic, epic storytelling with atmospheric depth
             - **Abstract/Conceptual**: Complex ideas visualization with artistic interpretation
+            - **Tech**: Modern, innovative (use ONLY when content specifically requires tech themes)
             
-            **ESSENTIAL QUALITY KEYWORDS** (ALWAYS include these for professional output):
+            **CRITICAL STYLE DIVERSITY REQUIREMENTS**:
+            - **AVOID overusing** holographic, neon, cyberpunk, or futuristic aesthetics
+            - **PRIORITIZE variety** across different campaigns and content types
+            - **Consider professional, warm, natural, meme, and minimalist styles FIRST**
+            - **Only use tech/futuristic** when content explicitly requires technological themes
+            - **Balance futuristic elements** with approachable, human-centered aesthetics
             
-            **Resolution & Detail**:
-            "8K resolution", "4K resolution", "ultra-detailed", "hyperdetailed", "sharp focus", "crisp lines", "pixel-perfect"
+            **ESSENTIAL QUALITY KEYWORDS** (Choose based on style and content type):
             
-            **Photography Terms**:  
-            "Photorealistic", "award-winning photography", "studio lighting", "cinematic lighting", "dramatic lighting", "professional photography"
+            **Resolution & Detail** (Universal):
+            "High resolution", "ultra-detailed", "sharp focus", "crisp lines", "clear quality"
             
-            **Art Quality**:
-            "Masterpiece", "masterful composition", "award-winning digital art", "ultra-high quality", "best quality", "premium quality"
+            **Art Quality** (Universal):
+            "Masterpiece", "masterful composition", "award-winning art", "high quality", "best quality", "premium quality"
             
-            **Rendering & Effects**:
-            "Hyperrealistic CGI", "3D render", "volumetric lighting", "perfect reflections", "dynamic lighting effects"
+            **Style-Specific Keywords**:
             
-            **Style Descriptors**:
-            "Clean vector art", "geometric precision", "vibrant color palette", "rich color depth", "atmospheric lighting", "warm natural tones", "professional color schemes", "subtle gradients", "soft lighting", "natural shadows", "corporate aesthetics", "minimalist design"
+            **For Meme/Comic/Cartoon Styles**:
+            "Vibrant cartoon style", "expressive character design", "bold comic book art", "meme aesthetic", "internet culture art", "viral visual style", "cartoon illustration", "character expression mastery"
+            
+            **For Professional Styles**:
+            "Professional photography", "studio lighting", "corporate aesthetics", "clean vector art", "minimalist design", "business-focused composition"
+            
+            **For Natural/Warm Styles**:
+            "Warm natural tones", "soft lighting", "natural shadows", "atmospheric lighting", "organic composition", "human-centered design"
+            
+            **For Artistic Styles**:
+            "Artistic illustration", "creative composition", "expressive brushwork", "stylized rendering", "artistic interpretation"
+            
+            **Tech Keywords** (Use ONLY for tech-themed content):
+            "Hyperrealistic CGI", "3D render", "volumetric lighting", "perfect reflections", "dynamic lighting effects" (ONLY when content requires tech themes)
             
             **AUTONOMOUS CREATIVE EXAMPLES** (Your style of thinking):
             
-            Example Analysis Process:
+            **Professional Content Example**:
             Tweet: "BOB's hybrid model is revolutionizing Bitcoin DeFi"
             → Emotion: Innovation, confidence, breakthrough
             → Style: Professional and modern with subtle tech elements
             → Original Concept: Bitcoin and Ethereum symbols elegantly merging into a unified form
-            → Generated Prompt: "Two golden orbs representing Bitcoin and Ethereum gracefully merging into a unified symbol, set against a clean, modern background with subtle geometric patterns, professional business aesthetic with warm, natural lighting, {self._get_text_handling_instruction().lower()}, photorealistic CGI, 8K ultra-detailed, studio lighting, masterpiece quality, award-winning digital art"
+            → Generated Prompt: "Two golden orbs representing Bitcoin and Ethereum gracefully merging into a unified symbol, set against a clean, modern background with subtle geometric patterns, professional business aesthetic with warm, natural lighting, {self._get_text_handling_instruction().lower()}, professional photography, masterpiece quality, award-winning art"
             
-            This approach ensures variety, creativity, and perfect message-visual alignment for every unique tweet!
+            **Shitpost Example** (NEW APPROACH):
+            Tweet: "When you check your portfolio after buying the dip but it keeps dipping 💀"
+            → Emotion: Relatable pain, humor, crypto struggle
+            → Style: Meme/Comic with popular characters
+            → Original Concept: Wojak crying while watching numbers go down with "This is Fine" dog in burning background
+            → Generated Prompt: "Wojak character with tears streaming down face staring at red declining chart on phone screen, while This is Fine dog sits calmly in burning room background, comic book style illustration, expressive character design, meme aesthetic, vibrant cartoon style, {self._get_text_handling_instruction().lower()}, character expression mastery, internet culture art"
+            
+            **Thread Example**:
+            Tweet Thread: "DeFi is changing everything... Here's why you should care..."
+            → Emotion: Educational, progressive, enlightening
+            → Style: Clean vector with expanding brain concept
+            → Original Concept: Expanding brain meme showing evolution from traditional finance to DeFi
+            → Generated Prompt: "Expanding brain meme template showing four ascending levels from traditional banking to advanced DeFi protocols, clean vector art style, educational illustration, progressive enlightenment concept, minimalist design, {self._get_text_handling_instruction().lower()}, masterful composition, award-winning art"
+            
+            This approach ensures variety, creativity, and perfect message-visual alignment for every content type!
             
             **WORLD-CLASS IMAGE GENERATION REQUIREMENTS**:
             - Use your configured image tool ({f"{image_provider}_image_generation" if has_image_tool else "none available"})
             - **MANDATORY**: Follow the Autonomous Prompt Generation Process above - NO TEMPLATES
-            - **STEP 1**: Deep analysis of ALL Text Content Creator's output (main_tweet + thread_array for threads/shitposts, or full longpost content) for emotional tone and core concepts
+            - **STEP 1**: Deep analysis of Text Content Creator's output (main_tweet for shitposts, main_tweet + thread_array for threads, full longpost content for longposts) for emotional tone and core concepts
             - **STEP 2**: Intelligent selection of artistic style that best fits the content (FULL FREEDOM for all content types)
             - **STEP 3**: Original concept creation that amplifies the tweet's message uniquely (including optional web3 meme characters if relevant)
             - **STEP 4**: Professional enhancement with Essential Quality Keywords + text handling requirements
             - **STEP 5**: Prompt optimization for maximum AI model effectiveness
             - **CREATIVE FREEDOM**: Remember, you can choose ANY style for ANY content type based on what best serves the message
             
-            **TEXT HANDLING REQUIREMENTS** (Model-Specific):
-            {self._get_text_handling_instruction()}
+            **CLEAN IMAGE PROMPT GENERATION**:
+            - Generate ONLY clean image prompts without explanatory text
+            - Do NOT include model capability descriptions in your prompts
+            - Do NOT add phrases like "for nano-banana model" or "this model excels at"
+            - Include text handling instructions directly in the prompt: {self._get_text_handling_instruction()}
             
-            **TEXT INTEGRATION EXAMPLES**:
-            {self._get_text_integration_examples()}
+            **PROMPT FORMAT**: Generate concise visual descriptions only
             
             **CAMPAIGN CONTEXT**:
             - Title: {self.campaign_data.get('title', 'campaign') if self.campaign_data else 'campaign'}
@@ -4741,11 +4810,11 @@ No image generated
                 brand_logo_model = 'flux-pro/kontext'
             
             if 'nano-banana/edit' in brand_logo_model:
-                return """For nano-banana/edit model: You can include text elements in your visual prompts as this model excels at generating text on images. Use text sparingly and only when it enhances the visual message."""
+                return "text elements allowed"
             else:
-                return """You MUST INTELLIGENTLY INTEGRATE "no text", "no words", "no letters", "no writing" directly into every visual prompt you generate. This ensures clean imagery without unwanted text overlays."""
+                return "no text, no words, no letters, no writing"
         else:
-            return """You MUST INTELLIGENTLY INTEGRATE "no text", "no words", "no letters", "no writing" directly into every visual prompt you generate. This ensures clean imagery without unwanted text overlays."""
+            return "no text, no words, no letters, no writing"
     
     def _get_text_integration_examples(self) -> str:
         """Get text integration examples based on the selected model"""
@@ -4779,11 +4848,11 @@ No image generated
                 brand_logo_model = 'flux-pro/kontext'
             
             if 'nano-banana/edit' in brand_logo_model:
-                return "For nano-banana/edit: Include text elements only when they enhance the visual message. Use text sparingly and strategically."
+                return "text elements can be included when relevant"
             else:
-                return "EVERY prompt MUST include explicit 'no text', 'no words', 'no letters' instructions"
+                return "no text, no words, no letters"
         else:
-            return "EVERY prompt MUST include explicit 'no text', 'no words', 'no letters' instructions"
+            return "no text, no words, no letters"
     
     def _get_text_constraint_for_example(self) -> str:
         """Get text constraint for example prompts based on the selected model"""
@@ -4809,21 +4878,21 @@ No image generated
             "defi": {
                 "recommended_styles": "Data-Driven (primary for stats focus), Professional (for trust)",
                 "longpost": "Use Data-Driven with detailed charts (e.g., yield trends) to educate; overlay text with key metrics",
-                "shitpost": "Opt for Hype with exaggerated yield visuals; add meme-style text like 'Ape in!'",
+                "shitpost": "Use Meme/Comic style with crypto characters (Wojak checking yields, Pepe celebrating gains); focus on relatable DeFi scenarios",
                 "thread": "Combine Professional and Data-Driven for sequential data panels; include numbered text overlays (e.g., '1/3')",
                 "sample_prompt": "A data-driven chart of a DeFi token yield spiking 300%, clean blue tones, overlay text '$TOKEN 300% APY! 📈 #DeFi' in sans-serif, centered mobile layout, 4K resolution, soft spotlight"
             },
             "nft": {
                 "recommended_styles": "Minimalist (primary for art focus), Meme (for virality)",
                 "longpost": "Use Minimalist with a single elegant artwork; overlay text with mint details",
-                "shitpost": "Go for Meme with humorous NFT twists; add playful text like 'Mint the meme!'",
+                "shitpost": "Use Meme/Comic style with popular characters (Drake choosing NFTs, Expanding Brain meme about digital ownership); make NFT scenarios relatable and funny",
                 "thread": "Blend Minimalist and Meme for a narrative art series; include text with story cues (e.g., 'Part 1')",
                 "sample_prompt": "A minimalist NFT avatar with glowing edges, chaotic meme background with a dancing figure, overlay text 'Mint now! 🎨 #NFT' in bold graffiti, high-contrast, 4K, mobile-optimized"
             },
             "gaming": {
                 "recommended_styles": "Tech (primary for innovation), Meme (for engagement)",
-                "longpost": "Use Tech with futuristic gameplay visuals; overlay text with feature highlights",
-                "shitpost": "Choose Meme with gaming humor; add text like 'Play2Win LOL!'",
+                "longpost": "Use Tech with modern gameplay visuals; overlay text with feature highlights",
+                "shitpost": "Use Meme/Comic style with gaming characters (Chad gamer, Wojak losing, Pepe winning); create relatable gaming scenarios and reactions",
                 "thread": "Mix Tech and Meme for a gameplay walkthrough; include text with step markers (e.g., 'Step 1')",
                 "sample_prompt": "A neon-lit gaming arena with a meme frog battling, overlay text 'Play2Earn! 🎮 #Web3Gaming' in glitch font, dynamic lighting, 4K, thumb-stopping composition"
             },
@@ -4832,7 +4901,7 @@ No image generated
                 "longpost": "Use Tech with a detailed world view; overlay text with exploration invites",
                 "shitpost": "Opt for Hype with explosive event visuals; add text like 'Drop live!'",
                 "thread": "Combine Tech and Hype for a world-building series; include text with progression (e.g., 'World 1/3')",
-                "sample_prompt": "A futuristic metaverse cityscape with airdrop coins bursting, overlay text 'Explore now! 🚀 #Metaverse' in neon, dramatic sky lighting, 4K, mobile-ready"
+                "sample_prompt": "A vibrant metaverse cityscape with airdrop coins bursting, overlay text 'Explore now! 🚀 #Metaverse' in neon, dramatic sky lighting, 4K, mobile-ready"
             },
             "dao": {
                 "recommended_styles": "Warm (primary for community), Professional (for governance)",
@@ -4872,7 +4941,7 @@ No image generated
             "meme coins": {
                 "recommended_styles": "Meme (primary for virality), Hype (for pumps)",
                 "longpost": "Use Meme with a detailed meme story; overlay text with token lore",
-                "shitpost": "Go for Hype with explosive coin visuals; add text like 'Moon time!'",
+                "shitpost": "Use Meme/Comic style with classic meme characters (Doge, Pepe, Stonks Man celebrating gains); create authentic meme coin scenarios",
                 "thread": "Combine Meme and Hype for a pump series; include text with hype (e.g., 'Part 1/3')",
                 "sample_prompt": "A meme doge with explosive coins, overlay text 'To the moon! 🐶🚀 #MemeCoin' in fun font, vibrant colors, 4K, mobile-friendly"
             },
@@ -4888,7 +4957,7 @@ No image generated
                 "longpost": "Use Tech with AI visuals; overlay text with feature details",
                 "shitpost": "Opt for Hype with AI hype; add text like 'AI to 1M!'",
                 "thread": "Combine Data-Driven and Tech for an AI breakdown; include text with data (e.g., '1/3')",
-                "sample_prompt": "A tech AI bot analyzing data with a 200% ROI chart, overlay text 'AI alpha! 🤖 #AICrypto' in futuristic font, clear lighting, 4K, mobile-optimized"
+                "sample_prompt": "A tech AI bot analyzing data with a 200% ROI chart, overlay text 'AI alpha! 🤖 #AICrypto' in modern digital font, clear lighting, 4K, mobile-optimized"
             },
             "real world assets": {
                 "recommended_styles": "Professional (primary for trust), Data-Driven (for value)",
@@ -5010,7 +5079,7 @@ No image generated
 **STYLE REFERENCE EXAMPLES** (for inspiration only - create your own):
 - DeFi: Think data charts, yield curves, token symbols, but make them unique
 - NFT: Think art, avatars, collections, but create original concepts
-- Gaming: Think futuristic arenas, characters, but design fresh scenes
+- Gaming: Think dynamic arenas, characters, but design fresh scenes
 - Tech: Think networks, interfaces, but invent new visualizations
 
 **REMEMBER**: Analyze the text content first, then create a completely original visual concept that fits the category style but is unique to this specific project and content.
@@ -5312,6 +5381,8 @@ class GrokCategoryStyleTool(BaseTool):
 - Focus on authentic community engagement and natural reactions
 - Make it feel like sharing alpha with crypto friends
 - Use casual language and authentic reactions
+- AVOID repetitive openings - use natural, diverse ways to start the tweet
+- Capture the handle's authentic voice without forcing generic greetings
 - Output format: Just the tweet text, nothing else"""
         
         elif post_type == 'longpost':
@@ -5541,6 +5612,13 @@ CRITICAL RULES:
 - NEVER mention Twitter handle names (like @username) in your generated content
 - Write content IN THE STYLE of the requested handle but WITHOUT mentioning the handle name itself
 
+🎯 **OPENING VARIETY REQUIREMENTS**:
+- AVOID repetitive openings like "Yo," "Hey," "Guys," etc.
+- Use DIVERSE and AUTHENTIC opening styles that match the specific handle
+- Each handle has their own unique voice - capture their AUTHENTIC opening patterns
+- Prioritize NATURAL variety in how tweets begin
+- Don't force any specific greeting or opening pattern
+
 🎯 **INTELLIGENT SUB-CONTEXT SELECTION**:
 - Analyze the provided campaign context and intelligently select the most relevant and engaging aspects
 - Focus on specific themes (e.g., growth metrics, partnerships, technical features, user adoption, TVL, tokenomics) rather than trying to cover everything
@@ -5564,6 +5642,9 @@ Context Information:
             
             # Add instruction to NOT mention the handle name in the generated content
             user_prompt += f"\n\nCRITICAL: Do NOT mention '{selected_handle}' or any Twitter handle names in your generated content. Write the content IN THE STYLE of {selected_handle} but without mentioning the handle name itself."
+            
+            # Add variety instructions
+            user_prompt += f"\n\n🎯 **OPENING VARIETY**: Avoid repetitive openings like 'Yo,' 'Hey,' 'Guys,' etc. Use {selected_handle}'s authentic opening style with natural variety. Each tweet should start differently."
             
             # Add sub-context selection instructions
             user_prompt += f"\n\n🎯 **FOCUS INSTRUCTIONS**: Analyze the campaign context and pick the most interesting/relevant aspect (e.g., growth metrics, partnerships, technical features) to focus your content on. Don't try to cover everything - pick ONE compelling theme and go deep into it."
@@ -7203,7 +7284,7 @@ WEB3 CHARACTER REQUIREMENTS:
 - PREFER animated/cartoon characters over real humans (Web3 community preference)
 - Use imaginative hypothetical characters: cyber-punk avatars, digital beings, holographic personas
 - Mix of animated characters with occasional stylized humans
-- Characters should have futuristic, tech-savvy appearance
+- Characters should have diverse, authentic appearances that match the content theme
 - Include NFT-style character aesthetics (unique traits, digital accessories)
 - Anthropomorphic crypto mascots or blockchain-inspired creatures
 - Cyberpunk-style avatars with neon accents and digital elements
@@ -7664,7 +7745,7 @@ WEB3 CHARACTER REQUIREMENTS:
 - PREFER animated/cartoon characters over real humans (Web3 community preference)
 - Use imaginative hypothetical characters: cyber-punk avatars, digital beings, holographic personas
 - Mix of animated characters with occasional stylized humans
-- Characters should have futuristic, tech-savvy appearance
+- Characters should have diverse, authentic appearances that match the content theme
 - Include NFT-style character aesthetics (unique traits, digital accessories)
 - Anthropomorphic crypto mascots or blockchain-inspired creatures
 - Cyberpunk-style avatars with neon accents and digital elements
