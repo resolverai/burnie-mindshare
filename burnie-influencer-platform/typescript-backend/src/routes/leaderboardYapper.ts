@@ -301,4 +301,139 @@ router.get('/campaign/:campaignId', async (req: Request, res: Response): Promise
   }
 });
 
+/**
+ * @route POST /api/leaderboard-yapper/add-handle
+ * @desc Add a new Twitter handle to the yapper list (public endpoint for Choose Yapper feature)
+ */
+router.post('/add-handle', async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { twitter_handle } = req.body;
+
+    if (!twitter_handle) {
+      return res.status(400).json({
+        success: false,
+        message: 'Twitter handle is required'
+      });
+    }
+
+    // Clean handle (remove @ if present and trim whitespace)
+    const cleanHandle = twitter_handle.replace(/^@/, '').toLowerCase().trim();
+
+    if (!cleanHandle) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Twitter handle'
+      });
+    }
+
+    const { TwitterHandleMetadata } = await import('../models/TwitterHandleMetadata');
+    const repository = AppDataSource.getRepository(TwitterHandleMetadata);
+
+    // Check if handle already exists
+    const existingHandle = await repository.findOne({
+      where: { twitter_handle: cleanHandle }
+    });
+
+    if (existingHandle) {
+      // Return existing handle data
+      return res.json({
+        success: true,
+        message: 'Twitter handle already exists',
+        data: {
+          id: `twitter_${existingHandle.id}`,
+          twitter_handle: existingHandle.twitter_handle,
+          display_name: existingHandle.display_name || existingHandle.twitter_handle,
+          followers_count: existingHandle.followers_count,
+          verified: existingHandle.verified,
+          profile_image_url: existingHandle.profile_image_url,
+          source: 'popular_handles'
+        },
+        already_exists: true
+      });
+    }
+
+    // Create new handle metadata
+    const newHandle = repository.create({
+      twitter_handle: cleanHandle,
+      display_name: cleanHandle,
+      priority: 5, // Default priority
+      status: 'pending' // Will be processed by background service
+    });
+
+    await repository.save(newHandle);
+    logger.info(`✅ Added new Twitter handle for Choose Yapper: @${cleanHandle}`);
+
+    // Try to fetch metadata from Python backend (non-blocking)
+    try {
+      const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+      
+      const response = await fetch(`${pythonBackendUrl}/api/twitter-handles/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          handle_ids: [newHandle.id],
+          twitter_handles: [cleanHandle],
+          last_tweet_ids: [""]
+        }),
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+
+      if (response.ok) {
+        const result = await response.json() as any;
+        
+        if (result.success && result.results && result.results.length > 0) {
+          const handleResult = result.results[0];
+          
+          // Update metadata with fetched data
+          await repository.update(newHandle.id, {
+            status: 'active',
+            followers_count: handleResult.followers_count || 0,
+            following_count: handleResult.following_count || 0,
+            verified: handleResult.verified || false,
+            profile_image_url: handleResult.profile_image_url || null,
+            last_tweet_id: handleResult.latest_tweet_id || null,
+            last_fetch_at: new Date(),
+            fetch_count: 1,
+            tweet_count: handleResult.tweets_count || 0
+          });
+
+          logger.info(`✅ Successfully fetched metadata for @${cleanHandle}`);
+        }
+      }
+    } catch (fetchError) {
+      // Non-blocking - just log the error
+      logger.warn(`⚠️ Could not fetch metadata for @${cleanHandle}:`, fetchError);
+      // Set status to active anyway so it can be used
+      await repository.update(newHandle.id, {
+        status: 'active'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Successfully added @${cleanHandle} to yapper list`,
+      data: {
+        id: `twitter_${newHandle.id}`,
+        twitter_handle: cleanHandle,
+        display_name: cleanHandle,
+        followers_count: 0,
+        verified: false,
+        profile_image_url: null,
+        source: 'popular_handles'
+      },
+      already_exists: false
+    });
+
+  } catch (error) {
+    logger.error('❌ Error adding Twitter handle for Choose Yapper:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to add Twitter handle',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 export default router;

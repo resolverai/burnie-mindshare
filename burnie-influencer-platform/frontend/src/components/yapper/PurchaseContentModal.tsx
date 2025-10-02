@@ -2112,7 +2112,43 @@ export default function PurchaseContentModal({
     }
   }, [address, isAuthenticated])
 
-  // Filter yappers based on search query
+  // Add new yapper handle
+  const addNewYapperHandle = async (handle: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/leaderboard-yapper/add-handle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          twitter_handle: handle
+        })
+      })
+
+      const data = await response.json()
+      
+      if (data.success) {
+        // Add the new yapper to the list
+        const newYapper = {
+          id: data.data.id,
+          twitter_handle: data.data.twitter_handle,
+          display_name: data.data.display_name
+        }
+        
+        setAllYappers(prev => [...prev, newYapper])
+        console.log(`✅ Added new yapper: @${data.data.twitter_handle}`)
+        return true
+      } else {
+        console.error('❌ Failed to add yapper:', data.message)
+        return false
+      }
+    } catch (error) {
+      console.error('❌ Error adding yapper:', error)
+      return false
+    }
+  }
+
+  // Filter yappers based on search query and detect potential new handles
   const filteredYappers = allYappers.filter((yapper) => {
     const searchLower = yapperSearchQuery.toLowerCase()
     return (
@@ -2120,6 +2156,39 @@ export default function PurchaseContentModal({
       yapper.display_name.toLowerCase().includes(searchLower)
     )
   })
+
+  // Check if search query looks like a Twitter handle and isn't in the list
+  const isSearchQueryNewHandle = () => {
+    if (!yapperSearchQuery.trim()) return false
+    
+    const cleanQuery = yapperSearchQuery.replace(/^@/, '').toLowerCase().trim()
+    
+    // Basic Twitter handle validation (alphanumeric, underscores, 1-15 chars)
+    const twitterHandleRegex = /^[a-zA-Z0-9_]{1,15}$/
+    if (!twitterHandleRegex.test(cleanQuery)) return false
+    
+    // Check if it's already in the list
+    const existsInList = allYappers.some(yapper => 
+      yapper.twitter_handle.toLowerCase() === cleanQuery
+    )
+    
+    return !existsInList
+  }
+
+  // Handle selecting a new yapper (either from list or new handle)
+  const handleYapperSelection = async (handle: string) => {
+    // If it's a new handle, add it first
+    if (isSearchQueryNewHandle() && handle === yapperSearchQuery.replace(/^@/, '').toLowerCase().trim()) {
+      const added = await addNewYapperHandle(handle)
+      if (!added) {
+        alert('Failed to add new yapper. Please try again.')
+        return
+      }
+    }
+    
+    setSelectedYapper(handle)
+    console.log(`🎯 Selected yapper: @${handle}`)
+  }
 
   // Helper functions to get display data based on Twitter connection (for tweet preview only)
   // Priority: Twitter handle > Logged-in user username > Miner username (for non-logged-in users)
@@ -4059,7 +4128,7 @@ export default function PurchaseContentModal({
                               <button
                                 key={yapper.id}
                                 type="button"
-                                onClick={() => setSelectedYapper(yapper.twitter_handle)}
+                                onClick={() => handleYapperSelection(yapper.twitter_handle)}
                                 className={`w-full text-left p-2 xs:p-2.5 md:p-2.5 rounded-lg border transition-all duration-200 ${
                                   selectedYapper === yapper.twitter_handle
                                     ? 'bg-[#FD7A10] border-[#FD7A10] text-black shadow-lg'
@@ -4081,10 +4150,33 @@ export default function PurchaseContentModal({
                             ))}
                           </div>
                         ) : (
-                          <div className="flex items-center justify-center py-2.5 xs:py-3 md:py-3">
-                            <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px] text-center">
-                              {yapperSearchQuery ? 'No yappers found matching your search' : 'No yappers available'}
-                            </div>
+                          <div className="py-2.5 xs:py-3 md:py-3">
+                            {isSearchQueryNewHandle() ? (
+                              <button
+                                onClick={() => handleYapperSelection(yapperSearchQuery.replace(/^@/, '').toLowerCase().trim())}
+                                className="w-full text-left p-2 xs:p-2.5 md:p-2.5 rounded-lg transition-colors border border-dashed border-[#FD7A10]/50 bg-[#FD7A10]/10 text-white/80 hover:bg-[#FD7A10]/20 hover:border-[#FD7A10]"
+                              >
+                                <div className="flex items-center space-x-2 xs:space-x-2.5 md:space-x-2.5">
+                                  <div className="w-6 xs:w-7 md:w-8 h-6 xs:h-7 md:h-8 rounded-full bg-gradient-to-br from-[#FD7A10] to-[#FF6B35] flex items-center justify-center text-white font-bold text-[8px] xs:text-[9px] md:text-[10px]">
+                                    +
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px] font-medium truncate">
+                                      @{yapperSearchQuery.replace(/^@/, '').toLowerCase().trim()}
+                                    </div>
+                                    <div className="text-[9px] xs:text-[5px] sm:text-[7px] md:text-[9px] text-[#FD7A10] truncate">
+                                      Add new yapper
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                            ) : (
+                              <div className="flex items-center justify-center">
+                                <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px] text-center">
+                                  {yapperSearchQuery ? 'No yappers found. Try entering a valid Twitter handle.' : 'No yappers available'}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -5369,7 +5461,7 @@ export default function PurchaseContentModal({
                                 <button
                                   key={yapper.id}
                                   type="button"
-                                  onClick={() => setSelectedYapper(yapper.twitter_handle)}
+                                  onClick={() => handleYapperSelection(yapper.twitter_handle)}
                                   className={`w-full text-left p-2 rounded border transition-colors ${
                                     selectedYapper === yapper.twitter_handle
                                       ? 'bg-[#FD7A10] border-[#FD7A10] text-black'
@@ -5391,10 +5483,33 @@ export default function PurchaseContentModal({
                               ))}
                             </div>
                           ) : (
-                            <div className="flex items-center justify-center py-4">
-                              <div className="text-white/60 text-xs text-center">
-                                {yapperSearchQuery ? 'No yappers found matching your search' : 'No yappers available'}
-                              </div>
+                            <div className="py-4">
+                              {isSearchQueryNewHandle() ? (
+                                <button
+                                  onClick={() => handleYapperSelection(yapperSearchQuery.replace(/^@/, '').toLowerCase().trim())}
+                                  className="w-full text-left p-2 rounded border border-dashed border-[#FD7A10]/50 bg-[#FD7A10]/10 text-white/80 hover:bg-[#FD7A10]/20 hover:border-[#FD7A10] transition-colors"
+                                >
+                                  <div className="flex items-center space-x-2">
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FD7A10] to-[#FF6B35] flex items-center justify-center text-white font-bold text-sm">
+                                      +
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-sm font-medium truncate">
+                                        @{yapperSearchQuery.replace(/^@/, '').toLowerCase().trim()}
+                                      </div>
+                                      <div className="text-xs text-[#FD7A10] truncate">
+                                        Add new yapper
+                                      </div>
+                                    </div>
+                                  </div>
+                                </button>
+                              ) : (
+                                <div className="flex items-center justify-center">
+                                  <div className="text-white/60 text-xs text-center">
+                                    {yapperSearchQuery ? 'No yappers found. Try entering a valid Twitter handle.' : 'No yappers available'}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
 
