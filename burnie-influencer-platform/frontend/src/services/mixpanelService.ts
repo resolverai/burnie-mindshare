@@ -699,6 +699,39 @@ class MixpanelService {
   }) {
     this.track('campaignGetStartedClicked', properties);
   }
+
+  // Yapper Management Events
+  yapperAdded(properties: {
+    yapperHandle: string;
+    yapperDisplayName: string;
+    addedFromSearch: boolean;
+    alreadyExisted: boolean;
+    contentId?: number;
+    campaignId?: number;
+    source: 'choose_yapper_search' | 'admin_panel';
+  }) {
+    this.track('yapperAdded', properties);
+  }
+
+  yapperAddFailed(properties: {
+    yapperHandle: string;
+    errorMessage: string;
+    contentId?: number;
+    source: 'choose_yapper_search' | 'admin_panel';
+  }) {
+    this.track('yapperAddFailed', properties);
+  }
+
+  yapperSelected(properties: {
+    yapperHandle: string;
+    yapperDisplayName: string;
+    contentId?: number;
+    campaignId?: number;
+    selectionSource: 'existing_list' | 'newly_added';
+    screenName: 'PurchaseContentModal';
+  }) {
+    this.track('yapperSelected', properties);
+  }
 }
 
 // Create singleton instance

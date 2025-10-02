@@ -2137,13 +2137,43 @@ export default function PurchaseContentModal({
         
         setAllYappers(prev => [...prev, newYapper])
         console.log(`✅ Added new yapper: @${data.data.twitter_handle}`)
+        
+        // Track yapper addition
+        mixpanel.yapperAdded({
+          yapperHandle: data.data.twitter_handle,
+          yapperDisplayName: data.data.display_name,
+          addedFromSearch: true,
+          alreadyExisted: data.already_exists || false,
+          contentId: content?.id,
+          campaignId: content?.campaign?.id,
+          source: 'choose_yapper_search'
+        })
+        
         return true
       } else {
         console.error('❌ Failed to add yapper:', data.message)
+        
+        // Track failed yapper addition
+        mixpanel.yapperAddFailed({
+          yapperHandle: handle,
+          errorMessage: data.message,
+          contentId: content?.id,
+          source: 'choose_yapper_search'
+        })
+        
         return false
       }
     } catch (error) {
       console.error('❌ Error adding yapper:', error)
+      
+      // Track network/API error
+      mixpanel.yapperAddFailed({
+        yapperHandle: handle,
+        errorMessage: error instanceof Error ? error.message : 'Network error',
+        contentId: content?.id,
+        source: 'choose_yapper_search'
+      })
+      
       return false
     }
   }
@@ -2177,8 +2207,10 @@ export default function PurchaseContentModal({
 
   // Handle selecting a new yapper (either from list or new handle)
   const handleYapperSelection = async (handle: string) => {
+    const isNewHandle = isSearchQueryNewHandle() && handle === yapperSearchQuery.replace(/^@/, '').toLowerCase().trim()
+    
     // If it's a new handle, add it first
-    if (isSearchQueryNewHandle() && handle === yapperSearchQuery.replace(/^@/, '').toLowerCase().trim()) {
+    if (isNewHandle) {
       const added = await addNewYapperHandle(handle)
       if (!added) {
         alert('Failed to add new yapper. Please try again.')
@@ -2186,8 +2218,22 @@ export default function PurchaseContentModal({
       }
     }
     
+    // Find yapper display name
+    const selectedYapperData = allYappers.find(y => y.twitter_handle === handle)
+    const displayName = selectedYapperData?.display_name || handle
+    
     setSelectedYapper(handle)
     console.log(`🎯 Selected yapper: @${handle}`)
+    
+    // Track yapper selection
+    mixpanel.yapperSelected({
+      yapperHandle: handle,
+      yapperDisplayName: displayName,
+      contentId: content?.id,
+      campaignId: content?.campaign?.id,
+      selectionSource: isNewHandle ? 'newly_added' : 'existing_list',
+      screenName: 'PurchaseContentModal'
+    })
   }
 
   // Helper functions to get display data based on Twitter connection (for tweet preview only)
@@ -3526,7 +3572,12 @@ export default function PurchaseContentModal({
       onClick={handleBackdropClick}
       onContextMenu={preventRightClick}
       onKeyDown={preventKeyboardCopy}
-      style={{ height: '100vh', minHeight: '100vh' }}
+        style={{ 
+          height: '100vh', 
+          minHeight: '100vh',
+          paddingTop: 'max(1rem, env(safe-area-inset-top))',
+          paddingBottom: 'env(safe-area-inset-bottom)'
+        }}
       tabIndex={0}
     >
       <div 
@@ -3556,7 +3607,8 @@ export default function PurchaseContentModal({
         {/* Close Button */}
             <button
               onClick={handleModalClose}
-          className="absolute right-4 top-4 z-50 hover:opacity-80 transition-opacity text-white/60 hover:text-white"
+            className="absolute right-4 top-4 lg:top-4 z-50 hover:opacity-80 transition-opacity text-white/60 hover:text-white bg-black/20 lg:bg-transparent rounded-full p-2 lg:p-1"
+            style={{ top: 'max(1rem, calc(env(safe-area-inset-top) + 1rem))' }}
           type="button"
             >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -3566,7 +3618,7 @@ export default function PurchaseContentModal({
 
         <div className="flex flex-col lg:flex-row max-h-[90vh] gap-0 lg:gap-4 overflow-y-auto lg:overflow-hidden touch-pan-y">
           {/* Left Panel - Tweet Preview + Mobile Purchase Options Combined */}
-          <div className="flex flex-col w-full lg:w-1/2 p-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-screen lg:min-h-0">
+            <div className="flex flex-col w-full lg:w-1/2 pt-12 pb-4 px-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-screen lg:min-h-0">
             {/* Tweet Preview Header with Edit Options */}
             <div className="flex items-center justify-between mb-4 lg:mb-6">
               <h2 className="text-white/80 text-base lg:text-lg font-medium">

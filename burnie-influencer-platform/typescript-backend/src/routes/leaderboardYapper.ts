@@ -335,6 +335,16 @@ router.post('/add-handle', async (req: Request, res: Response): Promise<Response
     });
 
     if (existingHandle) {
+      // Track existing yapper lookup
+      logger.info(`📊 MIXPANEL_BACKEND_EVENT: yapperAdded`, {
+        yapperHandle: cleanHandle,
+        yapperDisplayName: existingHandle.display_name || existingHandle.twitter_handle,
+        addedFromSearch: true,
+        alreadyExisted: true,
+        source: 'choose_yapper_search',
+        timestamp: new Date().toISOString()
+      });
+
       // Return existing handle data
       return res.json({
         success: true,
@@ -362,6 +372,16 @@ router.post('/add-handle', async (req: Request, res: Response): Promise<Response
 
     await repository.save(newHandle);
     logger.info(`✅ Added new Twitter handle for Choose Yapper: @${cleanHandle}`);
+
+    // Track yapper addition in backend logs
+    logger.info(`📊 MIXPANEL_BACKEND_EVENT: yapperAdded`, {
+      yapperHandle: cleanHandle,
+      yapperDisplayName: cleanHandle,
+      addedFromSearch: true,
+      alreadyExisted: false,
+      source: 'choose_yapper_search',
+      timestamp: new Date().toISOString()
+    });
 
     // Try to fetch metadata from Python backend (non-blocking)
     try {

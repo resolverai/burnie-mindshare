@@ -61,6 +61,11 @@ All events include additional properties:
 - `chooseYapperContentGenerated` - When content is generated via Choose Yapper flow
 - `myVoiceContentGenerated` - When content is generated via My Voice flow
 
+### Yapper Management Events
+- `yapperAdded` - When user adds a new yapper to the system (tracks handle, source, success/failure)
+- `yapperAddFailed` - When adding a new yapper fails (tracks handle, error message, source)
+- `yapperSelected` - When user selects a yapper for content generation (tracks if newly added or existing)
+
 ### Content Management Events
 - `myContentViewed` - When user views their content
 - `contentPreviewOpened` - When user opens content preview
