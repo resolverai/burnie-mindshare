@@ -6,7 +6,7 @@ import { PaymentTransaction, TransactionType, Currency } from '../models/Payment
 import { User, UserRoleType } from '../models/User';
 import { Campaign } from '../models/Campaign';
 import { env } from '../config/env';
-import { MoreThan, LessThan, In } from 'typeorm';
+import { MoreThan, LessThan, In, Between } from 'typeorm';
 import { ContentPurchase } from '../models/ContentPurchase';
 import { logger } from '../config/logger';
 import { TreasuryService } from '../services/TreasuryService';
@@ -3548,6 +3548,66 @@ router.get('/analytics/yapper/mindshare/:walletAddress', async (req: Request, re
 });
 
 /**
+ * @route GET /api/marketplace/free-content-limit/:walletAddress
+ * @desc Check daily free content purchase limit for a wallet address
+ */
+router.get('/free-content-limit/:walletAddress', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { walletAddress } = req.params;
+    
+    if (!walletAddress) {
+      res.status(400).json({
+        success: false,
+        message: 'Wallet address is required'
+      });
+      return;
+    }
+
+    const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
+    
+    // Get start and end of today in UTC
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endOfDay = new Date(startOfDay);
+    endOfDay.setDate(endOfDay.getDate() + 1);
+
+    // Count free content purchases today (purchasePrice = 0)
+    const freeContentPurchasesToday = await purchaseRepository.count({
+      where: {
+        buyerWalletAddress: walletAddress.toLowerCase(),
+        purchasePrice: 0,
+        paymentStatus: 'completed',
+        purchasedAt: Between(startOfDay, endOfDay)
+      }
+    });
+
+    const dailyLimit = 3;
+    const remainingPurchases = Math.max(0, dailyLimit - freeContentPurchasesToday);
+    const canPurchase = freeContentPurchasesToday < dailyLimit;
+
+    logger.info(`🆓 Free content limit check for ${walletAddress.substring(0, 10)}... - Today: ${freeContentPurchasesToday}/${dailyLimit}, Can purchase: ${canPurchase}`);
+
+    res.json({
+      success: true,
+      data: {
+        dailyLimit,
+        purchasedToday: freeContentPurchasesToday,
+        remainingPurchases,
+        canPurchase,
+        resetTime: endOfDay.toISOString()
+      }
+    });
+
+  } catch (error) {
+    logger.error('❌ Error checking free content limit:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check free content limit'
+    });
+  }
+});
+
+/**
  * GET /api/marketplace/analytics/yapper/portfolio/:walletAddress
  * Get content portfolio and usage analytics for a yapper
  */
@@ -4158,6 +4218,42 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
     // Check if this is free content (0 price)
     const isFreeContent = purchasePrice === 0;
     const isSyntheticTxHash = transactionHash && transactionHash.startsWith('FREE_CONTENT_');
+    
+    // Check daily free content limit for free content
+    if (isFreeContent) {
+      // Get start and end of today in UTC
+      const today = new Date();
+      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const endOfDay = new Date(startOfDay);
+      endOfDay.setDate(endOfDay.getDate() + 1);
+
+      // Count free content purchases today
+      const freeContentPurchasesToday = await purchaseRepository.count({
+        where: {
+          buyerWalletAddress: buyerWalletAddress.toLowerCase(),
+          purchasePrice: 0,
+          paymentStatus: 'completed',
+          purchasedAt: Between(startOfDay, endOfDay)
+        }
+      });
+
+      const dailyLimit = 3;
+      if (freeContentPurchasesToday >= dailyLimit) {
+        logger.warn(`🚫 Daily free content limit exceeded for ${buyerWalletAddress.substring(0, 10)}... - ${freeContentPurchasesToday}/${dailyLimit}`);
+        res.status(429).json({
+          success: false,
+          message: 'Daily free content limit exceeded',
+          data: {
+            dailyLimit,
+            purchasedToday: freeContentPurchasesToday,
+            resetTime: endOfDay.toISOString()
+          }
+        });
+        return;
+      }
+
+      logger.info(`🆓 Free content purchase allowed for ${buyerWalletAddress.substring(0, 10)}... - ${freeContentPurchasesToday + 1}/${dailyLimit}`);
+    }
     
     // Get current ROAST price for conversion tracking
     const roastPrice = await fetchROASTPrice();

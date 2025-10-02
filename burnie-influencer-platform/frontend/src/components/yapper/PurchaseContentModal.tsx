@@ -1536,21 +1536,36 @@ export default function PurchaseContentModal({
     currentBalance: number;
     requiredAmount: number;
   } | null>(null)
+  
+  const [dailyLimitError, setDailyLimitError] = useState<{
+    show: boolean;
+    message: string;
+    dailyLimit: number;
+    purchasedToday: number;
+    resetTime: string;
+  } | null>(null)
 
   // Clear balance error
   const clearBalanceError = () => {
     setBalanceError(null)
   }
+  
+  // Clear daily limit error
+  const clearDailyLimitError = () => {
+    setDailyLimitError(null)
+  }
 
   // Clear balance error when payment method changes
   useEffect(() => {
     clearBalanceError()
+    clearDailyLimitError()
   }, [selectedPayment])
 
   // Clear balance error when modal closes
   useEffect(() => {
     if (!isOpen) {
       clearBalanceError()
+      clearDailyLimitError()
     }
   }, [isOpen])
 
@@ -2863,18 +2878,44 @@ export default function PurchaseContentModal({
       return
     }
 
-    // Only now check content availability and lock it (after confirming sufficient balance)
-    const isAvailable = await checkContentAvailability()
-    if (!isAvailable) {
-      return
-    }
-
-    // Handle FREE CONTENT (0 ROAST price) - skip wallet interaction
+    // Handle FREE CONTENT (0 ROAST price) - check daily limit first, skip availability check
     if (requiredAmount === 0) {
-      console.log('🆓 Processing FREE CONTENT - explicit user action confirmed, no wallet interaction needed')
+      console.log('🆓 Processing FREE CONTENT - checking daily limit first')
       setIsLoading(true)
       
       try {
+        // Check daily free content limit
+        const limitResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/marketplace/free-content-limit/${address}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+
+        if (!limitResponse.ok) {
+          throw new Error('Failed to check daily limit')
+        }
+
+        const limitData = await limitResponse.json()
+        
+        if (!limitData.success || !limitData.data.canPurchase) {
+          console.log('🚫 Daily free content limit exceeded:', limitData.data)
+          
+          // Show limit exceeded message in modal
+          setDailyLimitError({
+            show: true,
+            message: `Daily limit reached! You can only get ${limitData.data.dailyLimit} free tweets per day. You've already claimed ${limitData.data.purchasedToday} today. Try again tomorrow!`,
+            dailyLimit: limitData.data.dailyLimit,
+            purchasedToday: limitData.data.purchasedToday,
+            resetTime: limitData.data.resetTime
+          })
+          setIsLoading(false)
+          return
+        }
+
+        console.log('✅ Daily limit check passed:', limitData.data)
+        console.log('🆓 Processing FREE CONTENT - explicit user action confirmed, no wallet interaction needed')
+        
         // Generate synthetic transaction hash for free content
         const syntheticTxHash = `FREE_CONTENT_${Date.now()}_${currentContent.id}`
         console.log('🔖 Generated synthetic transaction hash for free content:', syntheticTxHash)
@@ -2886,12 +2927,25 @@ export default function PurchaseContentModal({
         
       } catch (error) {
         console.error('❌ Failed to process free content:', error)
+        setDailyLimitError({
+          show: true,
+          message: error instanceof Error ? `Failed to process free content: ${error.message}` : 'Failed to process free content. Please try again.',
+          dailyLimit: 3,
+          purchasedToday: 0,
+          resetTime: new Date().toISOString()
+        })
         setIsLoading(false)
       } finally {
         // Always restore modals and purchase flow state
         restoreModals();
         setPurchaseFlowActive(false);
       }
+      return
+    }
+
+    // For PAID CONTENT - check content availability and lock it (after confirming sufficient balance)
+    const isAvailable = await checkContentAvailability()
+    if (!isAvailable) {
       return
     }
 
@@ -4131,6 +4185,29 @@ export default function PurchaseContentModal({
                         <p className="text-red-300 text-xs leading-relaxed">
                           {balanceError.message}. You have <span className="font-semibold">{balanceError.tokenType === 'ROAST' ? Math.round(balanceError.currentBalance) : `$${balanceError.currentBalance.toFixed(2)}`}</span>, 
                           but need <span className="font-semibold">{balanceError.tokenType === 'ROAST' ? balanceError.requiredAmount : `$${balanceError.requiredAmount}`}</span>.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Daily Limit Error Message - Mobile */}
+                    {dailyLimitError && dailyLimitError.show && (
+                      <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3 mb-4">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <svg className="w-4 h-4 text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-orange-400 font-semibold text-sm">🆓 Daily Limit Reached</span>
+                          <button
+                            onClick={clearDailyLimitError}
+                            className="ml-auto text-orange-400 hover:text-orange-300 transition-colors"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                        <p className="text-orange-300 text-xs leading-relaxed">
+                          {dailyLimitError.message}
                         </p>
                       </div>
                     )}
@@ -5431,6 +5508,29 @@ export default function PurchaseContentModal({
                       <p className="text-red-300 text-xs leading-relaxed">
                         {balanceError.message}. You have <span className="font-semibold">{balanceError.tokenType === 'ROAST' ? Math.round(balanceError.currentBalance) : `$${balanceError.currentBalance.toFixed(2)}`}</span>, 
                         but need <span className="font-semibold">{balanceError.tokenType === 'ROAST' ? balanceError.requiredAmount : `$${balanceError.requiredAmount}`}</span>.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Daily Limit Error Message - Desktop */}
+                  {dailyLimitError && dailyLimitError.show && (
+                    <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <svg className="w-4 h-4 text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                        <span className="text-orange-400 font-semibold text-sm">🆓 Daily Limit Reached</span>
+                        <button
+                          onClick={clearDailyLimitError}
+                          className="ml-auto text-orange-400 hover:text-orange-300 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      <p className="text-orange-300 text-xs leading-relaxed">
+                        {dailyLimitError.message}
                       </p>
                     </div>
                   )}
