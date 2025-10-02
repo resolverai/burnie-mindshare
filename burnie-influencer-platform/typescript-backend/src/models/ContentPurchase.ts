@@ -65,7 +65,7 @@ export class ContentPurchase {
   treasuryTransactionHash!: string | null
 
   @Column({ type: 'varchar', length: 50, default: 'pending', name: 'payout_status' })
-  payoutStatus!: 'pending' | 'completed' | 'failed'
+  payoutStatus!: 'pending' | 'completed' | 'failed' | 'not_applicable'
 
   // Rollback Fields
   @Column({ name: 'rollback_reason', type: 'text', nullable: true })

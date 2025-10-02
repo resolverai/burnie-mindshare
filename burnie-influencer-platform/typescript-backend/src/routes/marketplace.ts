@@ -2621,7 +2621,7 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
     content.isBiddable = is_biddable;
     if (is_biddable) {
       content.biddingEndDate = bidding_end_date ? new Date(bidding_end_date) : null;
-      content.biddingAskPrice = bidding_ask_price ? parseFloat(bidding_ask_price) : null;
+      content.biddingAskPrice = bidding_ask_price !== undefined && bidding_ask_price !== null ? parseFloat(bidding_ask_price) : null;
       
       // Ensure biddingEnabledAt is always set when enabling bidding
       if (!content.biddingEnabledAt) {
@@ -2642,7 +2642,7 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
         id: updatedContent.id,
         is_biddable: updatedContent.isBiddable,
         bidding_end_date: updatedContent.biddingEndDate?.toISOString() || null,
-        bidding_ask_price: updatedContent.biddingAskPrice ? Number(updatedContent.biddingAskPrice) : null,
+        bidding_ask_price: updatedContent.biddingAskPrice !== null ? Number(updatedContent.biddingAskPrice) : null,
         bidding_enabled_at: updatedContent.biddingEnabledAt?.toISOString() || null
       },
       message: is_biddable ? 'Content enabled for bidding' : 'Content disabled for bidding'
@@ -4061,8 +4061,8 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
   try {
     const { contentId, buyerWalletAddress, purchasePrice, currency = 'ROAST', transactionHash } = req.body;
 
-    // Validate required fields
-    if (!contentId || !buyerWalletAddress || !purchasePrice) {
+    // Validate required fields - allow 0 as valid price for free content
+    if (!contentId || !buyerWalletAddress || (purchasePrice === undefined || purchasePrice === null)) {
       res.status(400).json({
         success: false,
         message: 'Missing required fields: contentId, buyerWalletAddress, purchasePrice'
@@ -4155,6 +4155,10 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       console.log(`🆕 Auto-created new buyer: ${buyerWalletAddress}`);
     }
 
+    // Check if this is free content (0 price)
+    const isFreeContent = purchasePrice === 0;
+    const isSyntheticTxHash = transactionHash && transactionHash.startsWith('FREE_CONTENT_');
+    
     // Get current ROAST price for conversion tracking
     const roastPrice = await fetchROASTPrice();
     
@@ -4172,23 +4176,28 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       normalizedPurchasePriceROAST = purchasePrice / roastPrice;
     }
     
-    // Calculate miner payout: ALWAYS 80% of original ROAST asking price
-    const minerPayoutRoast = originalRoastPrice * 0.80;
+    // Calculate miner payout and platform fee - set to 0 for free content
+    const minerPayoutRoast = isFreeContent ? 0 : (originalRoastPrice * 0.80);
     
-    // Calculate platform fee based on payment currency (still in payment currency)
+    // Calculate platform fee based on payment currency (still in payment currency) - set to 0 for free content
     let platformFee: number;
-    if (currency === 'ROAST') {
+    if (isFreeContent) {
+      platformFee = 0;
+    } else if (currency === 'ROAST') {
       // For ROAST payments: 20% of original asking price
       platformFee = originalRoastPrice * 0.20;
     } else {
-      // For USDC payments: 20% of asking price (converted to USDC) + 0.03 USDC fee
+      // For USDC payments: 20% of asking price (converted to USDC) + 0.03 USDC fee (no extra fee for free content)
       const baseUsdcFee = originalRoastPrice * roastPrice * 0.20;
-      const extraUsdcFee = 0.03;
+      const extraUsdcFee = isFreeContent ? 0 : 0.03;
       platformFee = baseUsdcFee + extraUsdcFee;
     }
 
     // Extract miner wallet address (already validated above) and normalize case
     const minerWalletAddress = content.creator!.walletAddress.toLowerCase();
+    
+    // Log purchase processing details
+    logger.info(`Purchase processing: ${isFreeContent ? 'FREE CONTENT' : 'PAID CONTENT'} - Price: ${purchasePrice} ${currency}, Platform Fee: ${platformFee}, Miner Payout: ${minerPayoutRoast}, Synthetic TX: ${isSyntheticTxHash}`);
 
     // Create purchase record with normalized ROAST pricing
     const purchase = purchaseRepository.create({
@@ -4204,7 +4213,8 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       minerPayout: minerPayoutRoast, // ALWAYS in ROAST (80% of original)
       minerPayoutRoast, // Explicit ROAST amount for clarity
       paymentStatus: transactionHash ? 'completed' : 'pending', // If transaction hash provided, mark as completed
-      payoutStatus: 'pending',
+      payoutStatus: isFreeContent ? 'not_applicable' : 'pending', // Set payout status for free content
+      referralPayoutStatus: isFreeContent ? 'not_applicable' : 'pending', // Set referral status for free content
       transactionHash: transactionHash || null // Store transaction hash if provided
     });
 
@@ -4386,6 +4396,28 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
       res.status(500).json({
         success: false,
         message: 'Treasury configuration incomplete'
+      });
+      return;
+    }
+
+    // Skip miner payouts for free content (0 price)
+    const isFreeContent = purchase.purchasePrice === 0;
+    const isSyntheticTxHash = purchase.transactionHash && purchase.transactionHash.startsWith('FREE_CONTENT_');
+    
+    if (isFreeContent || isSyntheticTxHash) {
+      logger.info(`🆓 Skipping miner payout for FREE CONTENT - Purchase ${purchase.id}, Price: ${purchase.purchasePrice}, TX: ${purchase.transactionHash}`);
+      purchase.payoutStatus = 'not_applicable';
+      await purchaseRepository.save(purchase);
+      
+      res.json({
+        success: true,
+        message: 'Free content - miner payout not applicable',
+        data: {
+          purchaseId: purchase.id,
+          minerAddress: purchase.minerWalletAddress,
+          minerPayoutRoast: 0,
+          payoutStatus: purchase.payoutStatus
+        }
       });
       return;
     }

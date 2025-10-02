@@ -1213,7 +1213,7 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                         </div>
 
                         {/* Blockchain Transaction - Always at bottom */}
-                            {contentData?.transaction_hash && (
+                            {contentData?.transaction_hash && !contentData.transaction_hash.startsWith('FREE_CONTENT_') && (
                             <div className="bg-[#331C1E] rounded-md px-4 py-3 flex items-center justify-between mt-4">
                                     <div className="flex items-center gap-3">
                                         <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center">

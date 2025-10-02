@@ -34,6 +34,17 @@ export class ReferralPayoutService {
         return { success: false, message: 'Purchase not found' };
       }
 
+      // Skip referral payouts for free content (0 price)
+      const isFreeContent = purchase.purchasePrice === 0;
+      const isSyntheticTxHash = purchase.transactionHash && purchase.transactionHash.startsWith('FREE_CONTENT_');
+      
+      if (isFreeContent || isSyntheticTxHash) {
+        logger.info(`🆓 Skipping referral payouts for FREE CONTENT - Purchase ${purchaseId}, Price: ${purchase.purchasePrice}, TX: ${purchase.transactionHash}`);
+        purchase.referralPayoutStatus = 'not_applicable';
+        await contentPurchaseRepository.save(purchase);
+        return { success: true, message: 'Free content - referral payouts not applicable' };
+      }
+
       // Get buyer's referral information
       const buyer = await userRepository.findOne({
         where: { walletAddress: purchase.buyerWalletAddress }

@@ -2790,9 +2790,9 @@ export default function PurchaseContentModal({
     
     const requiredAmount = getDisplayPrice(currentContent)
     
-    // Calculate USDC equivalent
-    const usdcPrice = roastPrice ? (getDisplayPrice(currentContent) * roastPrice) : 0
-    const usdcFee = 0.03
+    // Calculate USDC equivalent - set to 0 if ROAST price is 0
+    const usdcPrice = requiredAmount === 0 ? 0 : (roastPrice ? (getDisplayPrice(currentContent) * roastPrice) : 0)
+    const usdcFee = requiredAmount === 0 ? 0 : 0.03  // No fee for free content
     const totalUSDC = usdcPrice + usdcFee
 
     // Track purchase initiation
@@ -2869,6 +2869,33 @@ export default function PurchaseContentModal({
       return
     }
 
+    // Handle FREE CONTENT (0 ROAST price) - skip wallet interaction
+    if (requiredAmount === 0) {
+      console.log('🆓 Processing FREE CONTENT - explicit user action confirmed, no wallet interaction needed')
+      setIsLoading(true)
+      
+      try {
+        // Generate synthetic transaction hash for free content
+        const syntheticTxHash = `FREE_CONTENT_${Date.now()}_${currentContent.id}`
+        console.log('🔖 Generated synthetic transaction hash for free content:', syntheticTxHash)
+        
+        // Directly call purchase handler with synthetic hash
+        await handlePurchaseWithContentManagement(currentContent, 0, 'ROAST', syntheticTxHash)
+        
+        console.log('✅ Free content processed successfully!')
+        
+      } catch (error) {
+        console.error('❌ Failed to process free content:', error)
+        setIsLoading(false)
+      } finally {
+        // Always restore modals and purchase flow state
+        restoreModals();
+        setPurchaseFlowActive(false);
+      }
+      return
+    }
+
+    // For PAID CONTENT - continue with normal wallet flow
     // Now start the actual purchase process
     setIsLoading(true)
     try {
@@ -3284,7 +3311,7 @@ export default function PurchaseContentModal({
 
   // Calculate USDC price
           const usdcPrice = roastPrice && currentContent ? (getDisplayPrice(currentContent) * roastPrice).toFixed(2) : '0.00'
-  const usdcFee = '0.030' // Constant 0.03 USDC fee
+  const usdcFee = currentContent && getDisplayPrice(currentContent) === 0 ? '0.000' : '0.030' // No fee for free content
   const totalUSDC = roastPrice && currentContent ? (parseFloat(usdcPrice) + parseFloat(usdcFee)).toFixed(2) : '0.00'
 
   // Helper functions to get display data based on Twitter connection (for tweet preview only)
@@ -4210,7 +4237,7 @@ export default function PurchaseContentModal({
                             disabled={isLoading}
                             className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {isLoading ? 'Processing...' : 'Buy Tweet'}
+                            {isLoading ? 'Processing...' : (currentContent && getDisplayPrice(currentContent) === 0 ? 'Get Free Tweet' : 'Buy Tweet')}
                           </button>
                         ) : (
                           // Content not generated yet - show single Generate button based on mode
@@ -4259,7 +4286,7 @@ export default function PurchaseContentModal({
                             disabled={isLoading}
                             className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {isLoading ? 'Processing...' : 'Buy Tweet'}
+                            {isLoading ? 'Processing...' : (currentContent && getDisplayPrice(currentContent) === 0 ? 'Get Free Tweet' : 'Buy Tweet')}
                           </button>
                         ) : (
                           // Content not generated yet - show Generate button
@@ -4340,8 +4367,8 @@ export default function PurchaseContentModal({
                           </div>
                         </div>
 
-                        {/* Transaction Hash Display */}
-                        {purchasedContentDetails?.transactionHash && (
+                        {/* Transaction Hash Display - Hide for free content */}
+                        {purchasedContentDetails?.transactionHash && !purchasedContentDetails.transactionHash.startsWith('FREE_CONTENT_') && (
                           <div className="bg-[#331C1E] rounded-lg p-4 mb-4">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
@@ -4762,8 +4789,8 @@ export default function PurchaseContentModal({
                       </div>
                     </div>
 
-                    {/* Transaction Hash Display */}
-                    {purchasedContentDetails?.transactionHash && (
+                    {/* Transaction Hash Display - Hide for free content */}
+                    {purchasedContentDetails?.transactionHash && !purchasedContentDetails.transactionHash.startsWith('FREE_CONTENT_') && (
                       <div className="bg-[#331C1E] rounded-lg p-4 mb-4">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
@@ -5691,8 +5718,8 @@ export default function PurchaseContentModal({
                   ) : postingMethod === 'twitter' ? (
                     /* Twitter Posting Interface */
                     <div className="flex flex-col h-full">
-                      {/* Transaction Hash Display */}
-                      {purchasedContentDetails?.transactionHash && (
+                      {/* Transaction Hash Display - Hide for free content */}
+                      {purchasedContentDetails?.transactionHash && !purchasedContentDetails.transactionHash.startsWith('FREE_CONTENT_') && (
                         <div className="bg-[#331C1E] rounded-lg p-4 mb-4 mx-4">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
