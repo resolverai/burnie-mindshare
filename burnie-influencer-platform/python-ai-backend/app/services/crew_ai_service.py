@@ -1308,47 +1308,84 @@ class CrewAIService:
     def _ensure_project_handle_tagged(self, main_tweet: str) -> str:
         """
         Sanity check: Ensure the project Twitter handle is tagged in the main_tweet.
-        If not present, add it at the end of the tweet.
+        Also removes any hashtags from the main_tweet.
+        If project handle is not present, add it at the end of the tweet.
         """
         try:
             if not main_tweet or not main_tweet.strip():
                 logger.warning("⚠️ Empty main_tweet provided to sanity check")
                 return main_tweet
             
-            # Get project Twitter handle from campaign data
+            # Get post type for debugging
+            post_type = getattr(self.mining_session, 'post_type', 'unknown') if hasattr(self, 'mining_session') and self.mining_session else 'unknown'
+            logger.info(f"🏷️ SANITY CHECK: Processing {post_type} main_tweet for handle tagging and hashtag removal")
+            
+            # Step 1: Remove hashtags from main_tweet
+            import re
+            original_tweet = main_tweet
+            
+            # Remove hashtags (# followed by alphanumeric characters, underscores, or hyphens)
+            # This regex matches #word but preserves URLs and other content
+            hashtag_pattern = r'#[A-Za-z0-9_-]+(?:\s|$)'
+            main_tweet_no_hashtags = re.sub(hashtag_pattern, '', main_tweet).strip()
+            
+            # Clean up extra spaces that might be left after hashtag removal
+            main_tweet_no_hashtags = re.sub(r'\s+', ' ', main_tweet_no_hashtags).strip()
+            
+            # Log hashtag removal if any were found
+            if main_tweet_no_hashtags != original_tweet:
+                hashtags_found = re.findall(r'#[A-Za-z0-9_-]+', original_tweet)
+                logger.info(f"🏷️ HASHTAG REMOVAL: Removed {len(hashtags_found)} hashtag(s) from {post_type}: {hashtags_found}")
+                logger.info(f"🏷️ Before: {original_tweet[:100]}...")
+                logger.info(f"🏷️ After: {main_tweet_no_hashtags[:100]}...")
+                main_tweet = main_tweet_no_hashtags
+            else:
+                logger.info(f"🏷️ No hashtags found in {post_type} main_tweet")
+            
+            # Step 2: Get project Twitter handle from multiple sources
             project_twitter_handle = None
+            
+            # Source 1: Campaign data
             if hasattr(self, 'campaign_data') and self.campaign_data:
                 project_twitter_handle = self.campaign_data.get('projectTwitterHandle')
+                logger.info(f"🔍 Campaign data handle: {project_twitter_handle}")
             
-            # If no project handle available, return original tweet
+            # Source 2: Mining session campaign context (fallback)
+            if not project_twitter_handle and hasattr(self, 'mining_session') and self.mining_session:
+                if hasattr(self.mining_session, 'campaign_context') and self.mining_session.campaign_context:
+                    project_twitter_handle = self.mining_session.campaign_context.get('projectTwitterHandle')
+                    logger.info(f"🔍 Mining session handle: {project_twitter_handle}")
+            
+            # If no project handle available, return tweet without hashtags
             if not project_twitter_handle or not project_twitter_handle.strip():
-                logger.info("📭 No project Twitter handle available for tagging")
-                return main_tweet
+                logger.warning(f"📭 No project Twitter handle available for tagging in {post_type}")
+                logger.info(f"🔍 Campaign data available: {hasattr(self, 'campaign_data') and bool(self.campaign_data)}")
+                logger.info(f"🔍 Mining session available: {hasattr(self, 'mining_session') and bool(self.mining_session)}")
+                return main_tweet  # Return with hashtags removed but no handle added
             
             # Clean the handle - ensure it starts with @
             if not project_twitter_handle.startswith('@'):
                 project_twitter_handle = f"@{project_twitter_handle}"
             
-            # Check if the handle is already in the tweet (case-insensitive)
+            # Step 3: Check if the handle is already in the tweet (case-insensitive)
             if project_twitter_handle.lower() in main_tweet.lower():
-                logger.info(f"✅ Project handle {project_twitter_handle} already tagged in main_tweet")
-                return main_tweet
+                logger.info(f"✅ Project handle {project_twitter_handle} already tagged in {post_type} main_tweet")
+                return main_tweet  # Return with hashtags removed, handle already present
             
-            # Handle is not present - add it at the end
+            # Step 4: Handle is not present - add it at the end
             # Ensure there's a space before the handle
             if main_tweet.endswith(' '):
                 tagged_tweet = f"{main_tweet}{project_twitter_handle}"
             else:
                 tagged_tweet = f"{main_tweet} {project_twitter_handle}"
             
-            logger.info(f"🏷️ SANITY CHECK: Added project handle {project_twitter_handle} to main_tweet")
-            logger.info(f"🏷️ Original: {main_tweet[:50]}...")
-            logger.info(f"🏷️ Tagged: {tagged_tweet[:50]}...")
+            logger.info(f"🏷️ HANDLE TAGGING: Added project handle {project_twitter_handle} to {post_type} main_tweet")
+            logger.info(f"🏷️ Final result: {tagged_tweet[:100]}...")
             
             return tagged_tweet
             
         except Exception as e:
-            logger.error(f"❌ Error in project handle sanity check: {e}")
+            logger.error(f"❌ Error in project handle sanity check and hashtag removal: {e}")
             # Return original tweet if sanity check fails
             return main_tweet
 
