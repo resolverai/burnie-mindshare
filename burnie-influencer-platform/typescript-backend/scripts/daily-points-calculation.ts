@@ -534,28 +534,60 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Save user tier change
+   * Save user tier information (only on upgrades or first-time entries)
    */
   async saveUserTierChange(calculation: UserCalculation): Promise<void> {
-    if (!calculation.tierChanged) return;
-
     const userTiersRepo = this.dataSource.getRepository(UserTiers);
 
-    const userTier = new UserTiers();
-    userTier.walletAddress = calculation.walletAddress;
-    userTier.twitterHandle = calculation.twitterHandle || undefined;
-    userTier.name = calculation.name || undefined;
-    userTier.tier = calculation.newTier;
-    userTier.previousTier = calculation.currentTier;
-    userTier.pointsAtTierChange = calculation.totalPoints;
-    userTier.referralsAtTierChange = calculation.totalReferrals;
+    // Check if user has any previous tier records
+    const existingTierRecord = await userTiersRepo.findOne({
+      where: { walletAddress: calculation.walletAddress },
+      order: { createdAt: 'DESC' }
+    });
 
-    await userTiersRepo.save(userTier);
+    const isFirstTimeEntry = !existingTierRecord;
+    const isTierUpgrade = calculation.tierChanged && this.isTierHigher(calculation.newTier, calculation.currentTier);
 
-    // Update referral_codes table
-    await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
+    // Only save if it's a tier upgrade or first-time entry
+    if (isTierUpgrade || isFirstTimeEntry) {
+      const userTier = new UserTiers();
+      userTier.walletAddress = calculation.walletAddress;
+      userTier.twitterHandle = calculation.twitterHandle || undefined;
+      userTier.name = calculation.name || undefined;
+      userTier.tier = calculation.newTier;
+      userTier.previousTier = calculation.currentTier;
+      userTier.pointsAtTierChange = calculation.totalPoints;
+      userTier.referralsAtTierChange = calculation.totalReferrals;
 
-    console.log(`✅ Tier updated: ${calculation.walletAddress} ${calculation.currentTier} → ${calculation.newTier}`);
+      await userTiersRepo.save(userTier);
+
+      if (isTierUpgrade) {
+        // Update referral_codes table for tier upgrades
+        await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
+        console.log(`✅ Tier upgraded: ${calculation.walletAddress} ${calculation.currentTier} → ${calculation.newTier}`);
+      } else if (isFirstTimeEntry) {
+        console.log(`🆕 First tier recorded: ${calculation.walletAddress} → ${calculation.newTier}`);
+      }
+    }
+  }
+
+  /**
+   * Check if new tier is higher than current tier
+   */
+  private isTierHigher(newTier: TierLevel, currentTier: TierLevel): boolean {
+    const tierOrder = [
+      TierLevel.SILVER,
+      TierLevel.GOLD, 
+      TierLevel.PLATINUM,
+      TierLevel.EMERALD,
+      TierLevel.DIAMOND,
+      TierLevel.UNICORN
+    ];
+    
+    const newTierIndex = tierOrder.indexOf(newTier);
+    const currentTierIndex = tierOrder.indexOf(currentTier);
+    
+    return newTierIndex > currentTierIndex;
   }
 
   /**
