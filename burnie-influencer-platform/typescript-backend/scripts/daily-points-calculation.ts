@@ -45,6 +45,15 @@ interface MindshareData {
   [twitterHandle: string]: number;
 }
 
+interface MindshareUser {
+  username: string;
+  normalizedMindShare: number;
+}
+
+interface ProcessedMindshareData {
+  [twitterHandle: string]: number; // Points allocated based on mindshare
+}
+
 interface UserCalculation {
   walletAddress: string;
   twitterHandle: string | undefined;
@@ -53,6 +62,7 @@ interface UserCalculation {
   totalReferralTransactionsValue: number;
   totalRoastEarned: number;
   mindshare: number;
+  mindsharePoints: number;
   totalPoints: number;
   dailyPointsEarned: number;
   currentTier: TierLevel;
@@ -69,6 +79,17 @@ const TIER_REQUIREMENTS = {
   [TierLevel.DIAMOND]: { referrals: 200, points: 200000, purchases: 0 },
   [TierLevel.UNICORN]: { referrals: 500, points: 500000, purchases: 0 }
 };
+
+// Daily mindshare points pool
+const DAILY_MINDSHARE_POINTS_POOL = 100000;
+const TOP_MINDSHARE_USERS_COUNT = 100;
+
+// Excluded wallets (lowercase) - these wallets will be skipped from points calculation
+const EXCLUDED_WALLETS: string[] = [
+  // Add wallet addresses here that should be excluded
+  // Example: '0x1234567890abcdef1234567890abcdef12345678',
+  // Example: '0xabcdef1234567890abcdef1234567890abcdef12',
+];
 
 // Commission rates by tier
 const COMMISSION_RATES = {
@@ -96,13 +117,21 @@ const AppDataSource = new DataSource({
 class DailyPointsCalculationScript {
   private dataSource: DataSource;
   private mindshareData: MindshareData = {};
+  private processedMindshareData: ProcessedMindshareData = {};
 
   constructor(dataSource: DataSource) {
     this.dataSource = dataSource;
   }
 
   /**
-   * Load mindshare data from CSV file
+   * Check if a wallet address should be excluded from calculations
+   */
+  private isWalletExcluded(walletAddress: string): boolean {
+    return EXCLUDED_WALLETS.includes(walletAddress.toLowerCase());
+  }
+
+  /**
+   * Load mindshare data from CSV file and process top 100 users
    */
   async loadMindshareData(csvPath?: string): Promise<void> {
     if (!csvPath || !fs.existsSync(csvPath)) {
@@ -111,7 +140,7 @@ class DailyPointsCalculationScript {
     }
 
     return new Promise((resolve, reject) => {
-      const mindshareData: MindshareData = {};
+      const rawMindshareUsers: MindshareUser[] = [];
       let headers: string[] = [];
 
       fs.createReadStream(csvPath)
@@ -121,38 +150,22 @@ class DailyPointsCalculationScript {
           console.log('CSV Headers:', headers);
         })
         .on('data', (row: any) => {
-          // Find twitter handle and mindshare columns
-          let twitterHandle = '';
-          let mindshareValue = 0;
+          // Extract username and normalizedMindShare columns
+          const username = row['username'];
+          const normalizedMindShare = parseFloat(row['normalizedMindShare']);
 
-          // Look for twitter handle column (case insensitive)
-          for (const [key, value] of Object.entries(row)) {
-            if (key.toLowerCase().includes('twitter') || key.toLowerCase().includes('handle')) {
-              twitterHandle = (value as string).replace('@', '').toLowerCase();
-              break;
-            }
-          }
-
-          // Look for mindshare column (case insensitive)
-          for (const [key, value] of Object.entries(row)) {
-            if (key.toLowerCase().includes('mindshare') || key.toLowerCase().includes('share')) {
-              let numValue = parseFloat(value as string);
-              // Handle invalid percentages
-              if (isNaN(numValue) || numValue < 0) numValue = 0;
-              if (numValue > 100) numValue = 100;
-              mindshareValue = numValue;
-              break;
-            }
-          }
-
-          if (twitterHandle) {
-            // Handle duplicates - take the last entry
-            mindshareData[twitterHandle] = mindshareValue;
+          if (username && !isNaN(normalizedMindShare) && normalizedMindShare >= 0) {
+            rawMindshareUsers.push({
+              username: username.replace('@', '').toLowerCase(),
+              normalizedMindShare: normalizedMindShare
+            });
           }
         })
         .on('end', () => {
-          this.mindshareData = mindshareData;
-          console.log(`Loaded mindshare data for ${Object.keys(mindshareData).length} users`);
+          // Process mindshare data
+          this.processMindshareData(rawMindshareUsers);
+          console.log(`Loaded mindshare data for ${rawMindshareUsers.length} users`);
+          console.log(`Top ${TOP_MINDSHARE_USERS_COUNT} users will receive mindshare points`);
           resolve();
         })
         .on('error', (error: any) => {
@@ -163,7 +176,47 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Get all users with Twitter connections
+   * Process mindshare data to calculate points for top 100 users
+   */
+  private processMindshareData(users: MindshareUser[]): void {
+    // Step 1: Sort by normalizedMindShare in descending order
+    const sortedUsers = users.sort((a, b) => b.normalizedMindShare - a.normalizedMindShare);
+    
+    // Step 2: Take top 100 users
+    const top100Users = sortedUsers.slice(0, TOP_MINDSHARE_USERS_COUNT);
+    
+    if (top100Users.length === 0) {
+      console.log('No valid mindshare users found');
+      return;
+    }
+    
+    // Step 3: Calculate sum of top 100 mindshares (should be close to 100% if all users included)
+    const totalMindshare = top100Users.reduce((sum, user) => sum + user.normalizedMindShare, 0);
+    
+    console.log(`Top 100 users total mindshare: ${totalMindshare.toFixed(4)}%`);
+    
+    // Step 4: Calculate points directly from percentage (normalizedMindShare is already a proportion)
+    this.processedMindshareData = {};
+    this.mindshareData = {}; // Keep for backward compatibility
+    
+    top100Users.forEach((user, index) => {
+      // normalizedMindShare is already a percentage, so divide by 100 to get proportion
+      const proportion = user.normalizedMindShare / 100;
+      const mindsharePoints = Math.round(proportion * DAILY_MINDSHARE_POINTS_POOL);
+      
+      this.processedMindshareData[user.username] = mindsharePoints;
+      this.mindshareData[user.username] = user.normalizedMindShare; // Keep original value
+      
+      if (index < 10) { // Log first 10 for verification
+        console.log(`#${index + 1}: ${user.username} - ${user.normalizedMindShare.toFixed(4)}% = ${mindsharePoints} points`);
+      }
+    });
+    
+    console.log(`Processed mindshare points for ${Object.keys(this.processedMindshareData).length} users`);
+  }
+
+  /**
+   * Get all users with Twitter connections (excluding blocked wallets)
    */
   async getUsersWithTwitterConnections(): Promise<User[]> {
     const query = `
@@ -175,12 +228,50 @@ class DailyPointsCalculationScript {
     `;
 
     const users = await this.dataSource.query(query);
-    return users.map((user: any) => ({
+    const filteredUsers = users
+      .map((user: any) => ({
+        id: user.id,
+        walletAddress: user.walletAddress.toLowerCase(),
+        createdAt: new Date(user.createdAt),
+        referralCount: user.referralCount || 0
+      }))
+      .filter((user: User) => !this.isWalletExcluded(user.walletAddress));
+
+    console.log(`📊 Found ${users.length} total users, ${filteredUsers.length} after excluding blocked wallets`);
+    
+    return filteredUsers;
+  }
+
+  /**
+   * Get a single user with Twitter connection by wallet address
+   */
+  async getSingleUserWithTwitterConnection(walletAddress: string): Promise<User | null> {
+    // Check if wallet is excluded first
+    if (this.isWalletExcluded(walletAddress)) {
+      console.log(`⚠️ Wallet ${walletAddress} is in the exclusion list`);
+      return null;
+    }
+
+    const query = `
+      SELECT DISTINCT u.id, u."walletAddress", u."createdAt", u."referralCount"
+      FROM users u
+      INNER JOIN yapper_twitter_connections ytc ON u.id = ytc."userId"
+      WHERE ytc."isConnected" = true AND LOWER(u."walletAddress") = LOWER($1)
+      LIMIT 1
+    `;
+
+    const users = await this.dataSource.query(query, [walletAddress]);
+    if (users.length === 0) {
+      return null;
+    }
+
+    const user = users[0];
+    return {
       id: user.id,
       walletAddress: user.walletAddress.toLowerCase(),
       createdAt: new Date(user.createdAt),
       referralCount: user.referralCount || 0
-    }));
+    };
   }
 
   /**
@@ -265,30 +356,37 @@ class DailyPointsCalculationScript {
   /**
    * Calculate points for a user
    */
-  async calculateUserPoints(user: User): Promise<number> {
+  async calculateUserPoints(user: User, twitterHandle?: string): Promise<{ totalPoints: number; mindsharePoints: number }> {
     // 1. Purchase points (100 per purchase)
     const purchaseCount = await this.getUserPurchaseCount(user.walletAddress, user.createdAt);
     const purchasePoints = purchaseCount * 100;
 
-    // 2. Milestone points (1000 per every 20 transactions)
-    const milestonePoints = Math.floor(purchaseCount / 20) * 1000;
+    // 2. Milestone points (10,000 per every 20 transactions)
+    const milestonePoints = Math.floor(purchaseCount / 20) * 10000;
 
-    // 3. Referral points (10,000 per referral with 2+ transactions)
+    // 3. Referral points (1,000 per referral with 2+ transactions)
     const referrals = await this.getUserReferrals(user.id);
     let referralPoints = 0;
 
     for (const referral of referrals) {
       const transactionCount = await this.getReferralTransactionCount(referral.userId);
       if (transactionCount >= 2) {
-        referralPoints += 10000;
+        referralPoints += 1000;
       }
     }
 
-    const totalPoints = purchasePoints + milestonePoints + referralPoints;
+    // 4. Mindshare points (from daily pool distribution)
+    let mindsharePoints = 0;
+    if (twitterHandle) {
+      const handleLower = twitterHandle.toLowerCase();
+      mindsharePoints = this.processedMindshareData[handleLower] || 0;
+    }
 
-    console.log(`User ${user.walletAddress}: ${purchaseCount} purchases, ${purchasePoints + milestonePoints} purchase/milestone points, ${referralPoints} referral points, Total: ${totalPoints}`);
+    const totalPoints = purchasePoints + milestonePoints + referralPoints + mindsharePoints;
 
-    return totalPoints;
+    console.log(`User ${user.walletAddress}: ${purchaseCount} purchases, ${purchasePoints + milestonePoints} purchase/milestone points, ${referralPoints} referral points, ${mindsharePoints} mindshare points, Total: ${totalPoints}`);
+
+    return { totalPoints, mindsharePoints };
   }
 
   /**
@@ -377,11 +475,20 @@ class DailyPointsCalculationScript {
   async processUser(user: User): Promise<UserCalculation> {
     console.log(`Processing user: ${user.walletAddress}`);
 
+    // Double-check if wallet should be excluded (safety check)
+    if (this.isWalletExcluded(user.walletAddress)) {
+      throw new Error(`Attempted to process excluded wallet: ${user.walletAddress}`);
+    }
+
     // Get Twitter connection
     const twitterConnection = await this.getUserTwitterConnection(user.id);
+    const twitterHandle = twitterConnection?.twitterUsername?.toLowerCase();
     
-    // Calculate points
-    const totalPoints = await this.calculateUserPoints(user);
+    // Calculate points (including mindshare points)
+    const pointsResult = await this.calculateUserPoints(user, twitterHandle);
+    const totalPoints = pointsResult.totalPoints;
+    const mindsharePoints = pointsResult.mindsharePoints;
+    
     const previousTotalPoints = await this.getPreviousTotalPoints(user.walletAddress);
     const dailyPointsEarned = this.calculateDailyPointsEarned(totalPoints, previousTotalPoints);
 
@@ -397,8 +504,7 @@ class DailyPointsCalculationScript {
     const commissionRate = COMMISSION_RATES[currentTier];
     const totalRoastEarned = totalReferralTransactionsValue * commissionRate;
 
-    // Get mindshare data
-    const twitterHandle = twitterConnection?.twitterUsername?.toLowerCase();
+    // Get mindshare data (original value for storage)
     const mindshare = twitterHandle && this.mindshareData[twitterHandle] ? this.mindshareData[twitterHandle] : 0;
 
     return {
@@ -409,6 +515,7 @@ class DailyPointsCalculationScript {
       totalReferralTransactionsValue,
       totalRoastEarned,
       mindshare,
+      mindsharePoints,
       totalPoints,
       dailyPointsEarned,
       currentTier,
@@ -525,7 +632,7 @@ class DailyPointsCalculationScript {
   /**
    * Main execution function
    */
-  async run(csvPath?: string): Promise<void> {
+  async run(csvPath?: string, singleUserWallet?: string): Promise<void> {
     try {
       console.log('🚀 Starting Daily Points Calculation Script');
       console.log('📅 Date:', new Date().toISOString());
@@ -539,22 +646,46 @@ class DailyPointsCalculationScript {
       // Load mindshare data
       await this.loadMindshareData(csvPath);
 
-      // Get all users with Twitter connections
-      const users = await this.getUsersWithTwitterConnections();
-      console.log(`📊 Found ${users.length} users with Twitter connections`);
+      if (singleUserWallet) {
+        // Process single user
+        console.log(`🎯 Processing single user: ${singleUserWallet}`);
+        const user = await this.getSingleUserWithTwitterConnection(singleUserWallet);
+        
+        if (!user) {
+          console.log(`❌ User not found or doesn't have Twitter connection: ${singleUserWallet}`);
+          return;
+        }
 
-      if (users.length === 0) {
-        console.log('⚠️ No users found with Twitter connections. Exiting.');
-        return;
+        console.log(`📊 Found user with Twitter connection`);
+        
+        // Process single user
+        const calculation = await this.processUser(user);
+        
+        // Save to database
+        await this.saveUserDailyPoints(calculation);
+        await this.saveUserTierChange(calculation);
+
+        console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points, tier: ${calculation.currentTier})`);
+        console.log('🎉 Single User Points Calculation completed successfully!');
+        
+      } else {
+        // Process all users
+        const users = await this.getUsersWithTwitterConnections();
+        console.log(`📊 Found ${users.length} users with Twitter connections`);
+
+        if (users.length === 0) {
+          console.log('⚠️ No users found with Twitter connections. Exiting.');
+          return;
+        }
+
+        // Process users in batches
+        await this.processUsersInBatches(users, 100);
+
+        // Calculate daily ranks
+        await this.calculateDailyRanks();
+
+        console.log('🎉 Daily Points Calculation Script completed successfully!');
       }
-
-      // Process users in batches
-      await this.processUsersInBatches(users, 100);
-
-      // Calculate daily ranks
-      await this.calculateDailyRanks();
-
-      console.log('🎉 Daily Points Calculation Script completed successfully!');
 
     } catch (error) {
       console.error('💥 Script failed:', error);
@@ -571,17 +702,45 @@ class DailyPointsCalculationScript {
 
 // Script execution
 async function main() {
-  const csvPath = process.argv[2]; // CSV path as command line argument
+  // Parse command line arguments
+  let csvPath: string | undefined;
+  let singleUserWallet: string | undefined;
+  
+  // Parse arguments: --csv=path, --user=wallet, or positional arguments
+  for (let i = 2; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    
+    if (arg && arg.startsWith('--csv=')) {
+      csvPath = arg.substring(6);
+    } else if (arg && arg.startsWith('--user=')) {
+      singleUserWallet = arg.substring(7).toLowerCase();
+    } else if (arg && arg.startsWith('--wallet=')) {
+      singleUserWallet = arg.substring(9).toLowerCase();
+    } else if (!csvPath && arg && arg.includes('.csv')) {
+      // First positional argument that looks like a CSV file
+      csvPath = arg;
+    } else if (!singleUserWallet && arg && arg.startsWith('0x')) {
+      // First positional argument that looks like a wallet address
+      singleUserWallet = arg.toLowerCase();
+    }
+  }
   
   console.log('🔧 Configuration:');
   console.log(`   Database: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`);
   console.log(`   CSV Path: ${csvPath || 'Not provided'}`);
+  console.log(`   Single User: ${singleUserWallet || 'Not specified (will process all users)'}`);
+  console.log(`   Excluded Wallets: ${EXCLUDED_WALLETS.length} wallet(s)`);
+  if (EXCLUDED_WALLETS.length > 0) {
+    EXCLUDED_WALLETS.forEach((wallet, index) => {
+      console.log(`     ${index + 1}. ${wallet}`);
+    });
+  }
   console.log('');
 
   const script = new DailyPointsCalculationScript(AppDataSource);
   
   try {
-    await script.run(csvPath);
+    await script.run(csvPath, singleUserWallet);
     process.exit(0);
   } catch (error) {
     console.error('Script execution failed:', error);
