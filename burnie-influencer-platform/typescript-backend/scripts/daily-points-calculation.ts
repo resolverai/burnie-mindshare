@@ -180,25 +180,24 @@ class DailyPointsCalculationScript {
       return;
     }
     
-    // Step 3: Calculate sum of top 100 mindshares (should be close to 100% if all users included)
+    // Step 3: Calculate sum of top 100 mindshares (should be close to 1.0 if all users included)
     const totalMindshare = top100Users.reduce((sum, user) => sum + user.normalizedMindShare, 0);
     
-    console.log(`Top 100 users total mindshare: ${totalMindshare.toFixed(4)}%`);
+    console.log(`Top 100 users total mindshare: ${totalMindshare.toFixed(6)} (${(totalMindshare * 100).toFixed(4)}%)`);
     
-    // Step 4: Calculate points directly from percentage (normalizedMindShare is already a proportion)
+    // Step 4: Calculate points directly from proportion (normalizedMindShare is already a decimal proportion)
     this.processedMindshareData = {};
     this.mindshareData = {}; // Keep for backward compatibility
     
     top100Users.forEach((user, index) => {
-      // normalizedMindShare is already a percentage, so divide by 100 to get proportion
-      const proportion = user.normalizedMindShare / 100;
-      const mindsharePoints = Math.round(proportion * DAILY_MINDSHARE_POINTS_POOL);
+      // normalizedMindShare is already a decimal proportion, so multiply directly
+      const mindsharePoints = Math.round(user.normalizedMindShare * DAILY_MINDSHARE_POINTS_POOL);
       
       this.processedMindshareData[user.username] = mindsharePoints;
       this.mindshareData[user.username] = user.normalizedMindShare; // Keep original value
       
       if (index < 10) { // Log first 10 for verification
-        console.log(`#${index + 1}: ${user.username} - ${user.normalizedMindShare.toFixed(4)}% = ${mindsharePoints} points`);
+        console.log(`#${index + 1}: ${user.username} - ${user.normalizedMindShare.toFixed(6)} (${(user.normalizedMindShare * 100).toFixed(4)}%) = ${mindsharePoints} points`);
       }
     });
     
