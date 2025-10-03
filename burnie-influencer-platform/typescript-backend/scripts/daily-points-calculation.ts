@@ -95,6 +95,13 @@ const EXCLUDED_WALLETS: string[] = [
   // Add wallet addresses here that should be excluded
   // Example: '0x1234567890abcdef1234567890abcdef12345678',
   // Example: '0xabcdef1234567890abcdef1234567890abcdef12',
+];
+
+// Excluded wallets from rewards (lowercase) - these wallets will be skipped from rewards distribution only
+const EXCLUDE_WALLET_REWARDS: string[] = [
+  // Add wallet addresses here that should be excluded from rewards
+  // Example: '0x1234567890abcdef1234567890abcdef12345678',
+  // Example: '0xabcdef1234567890abcdef1234567890abcdef12',
 ];  
 
 // Commission rates by tier
@@ -124,6 +131,13 @@ class DailyPointsCalculationScript {
    */
   private isWalletExcluded(walletAddress: string): boolean {
     return EXCLUDED_WALLETS.includes(walletAddress.toLowerCase());
+  }
+
+  /**
+   * Check if a wallet address should be excluded from rewards distribution
+   */
+  private isWalletExcludedFromRewards(walletAddress: string): boolean {
+    return EXCLUDE_WALLET_REWARDS.includes(walletAddress.toLowerCase());
   }
 
   /**
@@ -618,7 +632,7 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Calculate daily rewards for top users (up to 25)
+   * Calculate daily rewards for top users (up to 25, excluding reward-excluded wallets)
    */
   async calculateDailyRewards(): Promise<void> {
     console.log('Calculating daily rewards for top users...');
@@ -628,40 +642,58 @@ class DailyPointsCalculationScript {
     const todayEnd = new Date(todayStart);
     todayEnd.setDate(todayEnd.getDate() + 1);
 
-    // Get top users by dailyPointsEarned for today (up to 25)
-    const topUsersQuery = `
+    // Get ALL users with daily points earned for today (we'll filter later)
+    const allUsersQuery = `
       SELECT id, "walletAddress", "dailyPointsEarned"
       FROM user_daily_points
       WHERE "createdAt" >= $1 AND "createdAt" < $2
         AND "dailyPointsEarned" > 0
       ORDER BY "dailyPointsEarned" DESC, "createdAt" ASC
-      LIMIT $3
     `;
 
-    const topUsers = await this.dataSource.query(topUsersQuery, [todayStart, todayEnd, TOP_REWARDS_USERS_COUNT]);
+    const allUsers = await this.dataSource.query(allUsersQuery, [todayStart, todayEnd]);
 
-    if (topUsers.length === 0) {
+    if (allUsers.length === 0) {
       console.log('No users with daily points earned found for rewards calculation');
       return;
     }
 
-    // Calculate total daily points earned by top users
-    const totalDailyPointsTop = topUsers.reduce((sum: number, user: any) => {
+    // Filter out wallets excluded from rewards
+    const eligibleUsers = allUsers.filter((user: any) => {
+      const isExcluded = this.isWalletExcludedFromRewards(user.walletAddress);
+      if (isExcluded) {
+        console.log(`🚫 Excluding ${user.walletAddress} from rewards (in EXCLUDE_WALLET_REWARDS)`);
+      }
+      return !isExcluded;
+    });
+
+    if (eligibleUsers.length === 0) {
+      console.log('No eligible users found for rewards distribution after filtering');
+      return;
+    }
+
+    // Take top 25 from eligible users
+    const topEligibleUsers = eligibleUsers.slice(0, TOP_REWARDS_USERS_COUNT);
+
+    // Calculate total daily points earned by top eligible users
+    const totalDailyPointsTop = topEligibleUsers.reduce((sum: number, user: any) => {
       return sum + parseFloat(user.dailyPointsEarned || '0');
     }, 0);
 
     if (totalDailyPointsTop === 0) {
-      console.log('Total daily points earned by top users is 0, no rewards to distribute');
+      console.log('Total daily points earned by eligible users is 0, no rewards to distribute');
       return;
     }
 
-    console.log(`📊 Found ${topUsers.length} users with daily points earned`);
-    console.log(`📊 Total daily points by top ${topUsers.length} users: ${totalDailyPointsTop}`);
+    console.log(`📊 Found ${allUsers.length} total users with daily points earned`);
+    console.log(`📊 Found ${eligibleUsers.length} eligible users after filtering rewards exclusions`);
+    console.log(`📊 Selected top ${topEligibleUsers.length} eligible users for rewards`);
+    console.log(`📊 Total daily points by selected users: ${totalDailyPointsTop}`);
     console.log(`💰 Daily rewards pool: ${DAILY_REWARDS_POOL}`);
-    console.log(`💰 Distributing rewards among top ${topUsers.length} users...`);
+    console.log(`💰 Distributing rewards among ${topEligibleUsers.length} selected users...`);
 
-    // Calculate and update daily rewards for each top user
-    for (const user of topUsers) {
+    // Calculate and update daily rewards for each selected user
+    for (const user of topEligibleUsers) {
       const userDailyPoints = parseFloat(user.dailyPointsEarned || '0');
       const proportion = userDailyPoints / totalDailyPointsTop;
       const dailyRewards = Math.round(proportion * DAILY_REWARDS_POOL);
@@ -678,8 +710,12 @@ class DailyPointsCalculationScript {
       console.log(`💰 ${user.walletAddress}: ${userDailyPoints} points (${(proportion * 100).toFixed(2)}%) = ${dailyRewards} rewards`);
     }
 
-    console.log(`✅ Daily rewards calculated and distributed to ${topUsers.length} users`);
+    console.log(`✅ Daily rewards calculated and distributed to ${topEligibleUsers.length} users`);
     console.log(`✅ Total rewards distributed: ${DAILY_REWARDS_POOL.toLocaleString()}`);
+    
+    if (EXCLUDE_WALLET_REWARDS.length > 0) {
+      console.log(`ℹ️  ${EXCLUDE_WALLET_REWARDS.length} wallet(s) excluded from rewards distribution`);
+    }
   }
 
   /**
@@ -888,6 +924,12 @@ async function main() {
   console.log(`   Excluded Wallets: ${EXCLUDED_WALLETS.length} wallet(s)`);
   if (EXCLUDED_WALLETS.length > 0) {
     EXCLUDED_WALLETS.forEach((wallet, index) => {
+      console.log(`     ${index + 1}. ${wallet}`);
+    });
+  }
+  console.log(`   Excluded from Rewards: ${EXCLUDE_WALLET_REWARDS.length} wallet(s)`);
+  if (EXCLUDE_WALLET_REWARDS.length > 0) {
+    EXCLUDE_WALLET_REWARDS.forEach((wallet, index) => {
       console.log(`     ${index + 1}. ${wallet}`);
     });
   }
