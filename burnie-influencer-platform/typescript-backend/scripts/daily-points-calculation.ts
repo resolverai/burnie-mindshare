@@ -102,6 +102,9 @@ const EXCLUDE_WALLET_REWARDS: string[] = [
   // Add wallet addresses here that should be excluded from rewards
   // Example: '0x1234567890abcdef1234567890abcdef12345678',
   // Example: '0xabcdef1234567890abcdef1234567890abcdef12',
+  '0x1b19d30c6b6d3161668738b169f8920507e7f22a',
+  '0x2129d279fa40c41ec930f4604ab3a6a5bf30823b',
+  '0x3e0b1d31454b982a02517f97dd2ae71bd1c9ee6e'
 ];  
 
 // Commission rates by tier
