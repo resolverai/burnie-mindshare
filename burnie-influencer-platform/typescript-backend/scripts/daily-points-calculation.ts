@@ -325,11 +325,16 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Calculate total referral transaction value
+   * Calculate total referral transaction value (with price cap of 1999)
    */
   async calculateReferralTransactionValue(userId: number, userCreatedAt: Date): Promise<number> {
     const query = `
-      SELECT COALESCE(SUM(cp.purchase_price), 0) as total_value
+      SELECT COALESCE(SUM(
+        CASE 
+          WHEN cp.purchase_price > 1999 THEN 1999
+          ELSE cp.purchase_price
+        END
+      ), 0) as total_value
       FROM content_purchases cp
       INNER JOIN user_referrals ur ON ur."userId" = (
         SELECT u.id FROM users u WHERE LOWER(u."walletAddress") = LOWER(cp.buyer_wallet_address)
