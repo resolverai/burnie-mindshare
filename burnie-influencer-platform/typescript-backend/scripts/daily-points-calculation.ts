@@ -89,7 +89,7 @@ const EXCLUDED_WALLETS: string[] = [
   // Add wallet addresses here that should be excluded
   // Example: '0x1234567890abcdef1234567890abcdef12345678',
   // Example: '0xabcdef1234567890abcdef1234567890abcdef12',
-];
+];  
 
 // Commission rates by tier
 const COMMISSION_RATES = {
@@ -101,18 +101,8 @@ const COMMISSION_RATES = {
   [TierLevel.UNICORN]: 0.10
 };
 
-// Database connection
-const AppDataSource = new DataSource({
-  type: 'postgres',
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: parseInt(process.env.DB_PORT || '5434'),
-  username: process.env.DB_USERNAME || 'postgres',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'roastpower',
-  entities: [UserDailyPoints, UserTiers],
-  synchronize: false,
-  logging: process.env.DB_LOGGING === 'true',
-});
+// Database connection will be created in main() with SSL flag
+let AppDataSource: DataSource;
 
 class DailyPointsCalculationScript {
   private dataSource: DataSource;
@@ -705,8 +695,9 @@ async function main() {
   // Parse command line arguments
   let csvPath: string | undefined;
   let singleUserWallet: string | undefined;
+  let useSSL: boolean | undefined;
   
-  // Parse arguments: --csv=path, --user=wallet, or positional arguments
+  // Parse arguments: --csv=path, --user=wallet, --ssl, --no-ssl, or positional arguments
   for (let i = 2; i < process.argv.length; i++) {
     const arg = process.argv[i];
     
@@ -716,6 +707,10 @@ async function main() {
       singleUserWallet = arg.substring(7).toLowerCase();
     } else if (arg && arg.startsWith('--wallet=')) {
       singleUserWallet = arg.substring(9).toLowerCase();
+    } else if (arg === '--ssl') {
+      useSSL = true;
+    } else if (arg === '--no-ssl') {
+      useSSL = false;
     } else if (!csvPath && arg && arg.includes('.csv')) {
       // First positional argument that looks like a CSV file
       csvPath = arg;
@@ -724,9 +719,41 @@ async function main() {
       singleUserWallet = arg.toLowerCase();
     }
   }
+
+  // Determine SSL usage
+  let sslEnabled: boolean;
+  if (useSSL !== undefined) {
+    // Explicitly set via command line
+    sslEnabled = useSSL;
+  } else {
+    // Auto-detect: use SSL for production or AWS RDS
+    sslEnabled = process.env.NODE_ENV === 'production' || 
+                 process.env.DB_HOST?.includes('rds.amazonaws.com') || 
+                 false;
+  }
+
+  // Create database connection with SSL configuration
+  AppDataSource = new DataSource({
+    type: 'postgres',
+    host: process.env.DB_HOST || '127.0.0.1',
+    port: parseInt(process.env.DB_PORT || '5434'),
+    username: process.env.DB_USERNAME || 'postgres',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'roastpower',
+    entities: [UserDailyPoints, UserTiers],
+    synchronize: false,
+    logging: process.env.DB_LOGGING === 'true',
+    ssl: sslEnabled ? { rejectUnauthorized: false } : false,
+    extra: {
+      connectionLimit: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    },
+  });
   
   console.log('🔧 Configuration:');
   console.log(`   Database: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`);
+  console.log(`   SSL: ${sslEnabled ? 'Enabled' : 'Disabled'} ${useSSL !== undefined ? '(explicit)' : '(auto-detected)'}`);
   console.log(`   CSV Path: ${csvPath || 'Not provided'}`);
   console.log(`   Single User: ${singleUserWallet || 'Not specified (will process all users)'}`);
   console.log(`   Excluded Wallets: ${EXCLUDED_WALLETS.length} wallet(s)`);
