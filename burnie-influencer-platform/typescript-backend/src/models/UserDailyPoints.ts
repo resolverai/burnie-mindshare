@@ -38,6 +38,10 @@ export class UserDailyPoints {
   @Column({ type: 'integer', default: 0 })
   totalReferrals!: number;
 
+  // Active referrals count (referrals with 2+ transactions)
+  @Column({ type: 'integer', default: 0 })
+  activeReferrals!: number;
+
   // Total transaction value from referrals (cumulative)
   @Column({ type: 'decimal', precision: 18, scale: 8, default: 0 })
   totalReferralTransactionsValue!: number;

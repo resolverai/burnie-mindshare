@@ -10,7 +10,9 @@ export interface LeaderboardUser {
   tier: TierLevel;
   mindshare: number;
   totalReferrals: number;
+  activeReferrals: number;
   totalPoints: number;
+  totalRoastEarned: number;
   profileImageUrl?: string;
   isCurrentUser?: boolean;
 }
@@ -19,6 +21,7 @@ export interface UserStats {
   totalPoints: number;
   totalRoastEarned: number;
   totalReferrals: number;
+  activeReferrals: number;
   currentTier: TierLevel;
   mindshare: number;
   referralLink: string;

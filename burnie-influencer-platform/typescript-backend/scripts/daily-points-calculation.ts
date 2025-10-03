@@ -59,6 +59,7 @@ interface UserCalculation {
   twitterHandle: string | undefined;
   name: string | undefined;
   totalReferrals: number;
+  activeReferrals: number;
   totalReferralTransactionsValue: number;
   totalRoastEarned: number;
   mindshare: number;
@@ -345,7 +346,7 @@ class DailyPointsCalculationScript {
   /**
    * Calculate points for a user
    */
-  async calculateUserPoints(user: User, twitterHandle?: string): Promise<{ totalPoints: number; mindsharePoints: number }> {
+  async calculateUserPoints(user: User, twitterHandle?: string): Promise<{ totalPoints: number; mindsharePoints: number; activeReferrals: number }> {
     // 1. Purchase points (100 per purchase)
     const purchaseCount = await this.getUserPurchaseCount(user.walletAddress, user.createdAt);
     const purchasePoints = purchaseCount * 100;
@@ -356,11 +357,13 @@ class DailyPointsCalculationScript {
     // 3. Referral points (1,000 per referral with 2+ transactions)
     const referrals = await this.getUserReferrals(user.id);
     let referralPoints = 0;
+    let activeReferrals = 0;
 
     for (const referral of referrals) {
       const transactionCount = await this.getReferralTransactionCount(referral.userId);
       if (transactionCount >= 2) {
         referralPoints += 1000;
+        activeReferrals += 1;
       }
     }
 
@@ -373,9 +376,9 @@ class DailyPointsCalculationScript {
 
     const totalPoints = purchasePoints + milestonePoints + referralPoints + mindsharePoints;
 
-    console.log(`User ${user.walletAddress}: ${purchaseCount} purchases, ${purchasePoints + milestonePoints} purchase/milestone points, ${referralPoints} referral points, ${mindsharePoints} mindshare points, Total: ${totalPoints}`);
+    console.log(`User ${user.walletAddress}: ${purchaseCount} purchases, ${purchasePoints + milestonePoints} purchase/milestone points, ${referralPoints} referral points (${activeReferrals} active), ${mindsharePoints} mindshare points, Total: ${totalPoints}`);
 
-    return { totalPoints, mindsharePoints };
+    return { totalPoints, mindsharePoints, activeReferrals };
   }
 
   /**
@@ -477,6 +480,7 @@ class DailyPointsCalculationScript {
     const pointsResult = await this.calculateUserPoints(user, twitterHandle);
     const totalPoints = pointsResult.totalPoints;
     const mindsharePoints = pointsResult.mindsharePoints;
+    const activeReferrals = pointsResult.activeReferrals;
     
     const previousTotalPoints = await this.getPreviousTotalPoints(user.walletAddress);
     const dailyPointsEarned = this.calculateDailyPointsEarned(totalPoints, previousTotalPoints);
@@ -501,6 +505,7 @@ class DailyPointsCalculationScript {
       twitterHandle: twitterConnection?.twitterUsername,
       name: twitterConnection?.twitterDisplayName,
       totalReferrals: user.referralCount,
+      activeReferrals,
       totalReferralTransactionsValue,
       totalRoastEarned,
       mindshare,
@@ -524,6 +529,7 @@ class DailyPointsCalculationScript {
     userDailyPoints.twitterHandle = calculation.twitterHandle || undefined;
     userDailyPoints.name = calculation.name || undefined;
     userDailyPoints.totalReferrals = calculation.totalReferrals;
+    userDailyPoints.activeReferrals = calculation.activeReferrals;
     userDailyPoints.totalReferralTransactionsValue = calculation.totalReferralTransactionsValue;
     userDailyPoints.totalRoastEarned = calculation.totalRoastEarned;
     userDailyPoints.mindshare = calculation.mindshare;
@@ -566,7 +572,16 @@ class DailyPointsCalculationScript {
         await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
         console.log(`✅ Tier upgraded: ${calculation.walletAddress} ${calculation.currentTier} → ${calculation.newTier}`);
       } else if (isFirstTimeEntry) {
+        // Also update referral_codes table for first-time entries to ensure consistency
+        await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
         console.log(`🆕 First tier recorded: ${calculation.walletAddress} → ${calculation.newTier}`);
+      }
+    } else {
+      // Even if no tier record is created, ensure referral_codes table reflects the current tier
+      // This handles cases where user's tier should be updated but no user_tiers entry is needed
+      if (calculation.tierChanged) {
+        await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
+        console.log(`🔄 Tier updated in referral_codes: ${calculation.walletAddress} ${calculation.currentTier} → ${calculation.newTier}`);
       }
     }
   }

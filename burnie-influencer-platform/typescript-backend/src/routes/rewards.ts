@@ -6,7 +6,7 @@ import { UserTiers, TierLevel } from '../models/UserTiers';
 import { User } from '../models/User';
 import { YapperTwitterConnection } from '../models/YapperTwitterConnection';
 import { authenticateToken } from '../middleware/auth';
-import { ReferralCode } from '../models/ReferralCode';
+import { ReferralCode, LeaderTier } from '../models/ReferralCode';
 
 const router = express.Router();
 
@@ -18,7 +18,9 @@ interface LeaderboardUser {
   tier: TierLevel;
   mindshare: number;
   totalReferrals: number;
+  activeReferrals: number;
   totalPoints: number;
+  totalRoastEarned: number;
   profileImageUrl?: string | undefined;
   isCurrentUser?: boolean;
 }
@@ -27,6 +29,7 @@ interface UserStatsResponse {
   totalPoints: number;
   totalRoastEarned: number;
   totalReferrals: number;
+  activeReferrals: number;
   currentTier: TierLevel;
   mindshare: number;
   referralLink: string;
@@ -61,24 +64,30 @@ router.get('/user-stats/:walletAddress', async (req, res) => {
       order: { createdAt: 'DESC' }
     });
 
-    // Get current tier
+    // Get current tier from user_tiers table
     const currentTierRecord = await userTiersRepo.findOne({
       where: { walletAddress },
       order: { createdAt: 'DESC' }
     });
 
-    // Get user's referral code for generating referral link
+    // Get user's referral code for generating referral link and get tier from referral_codes table
     const user = await userRepo.findOne({ where: { walletAddress } });
     const referralCodeRepo: Repository<ReferralCode> = AppDataSource.getRepository(ReferralCode);
     const referralCode = await referralCodeRepo.findOne({
       where: { leaderWalletAddress: walletAddress }
     });
 
+    // Use tier from user_tiers table as primary source for display consistency
+    // Fall back to referral_codes table if user_tiers doesn't have a tier
+    // Convert LeaderTier to TierLevel since they have the same string values
+    const currentTier = currentTierRecord?.tier || (referralCode?.tier as unknown as TierLevel) || TierLevel.SILVER;
+
     const response: UserStatsResponse = {
       totalPoints: latestPoints?.totalPoints || 0,
       totalRoastEarned: latestPoints?.totalRoastEarned || 0,
       totalReferrals: latestPoints?.totalReferrals || 0,
-      currentTier: currentTierRecord?.tier || TierLevel.SILVER,
+      activeReferrals: latestPoints?.activeReferrals || 0,
+      currentTier: currentTier,
       mindshare: latestPoints?.mindshare || 0,
       referralLink: referralCode ? `${process.env.FRONTEND_URL || 'http://localhost:3004'}?ref=${referralCode.code}` : ''
     };
@@ -194,6 +203,8 @@ router.get('/leaderboard', async (req, res) => {
         name,
         SUM("totalPoints") as total_points,
         SUM("totalReferrals") as total_referrals,
+        SUM("activeReferrals") as active_referrals,
+        SUM("totalRoastEarned") as total_roast_earned,
         AVG(mindshare) as avg_mindshare,
         MAX("createdAt") as latest_created_at
       FROM user_daily_points 
@@ -229,7 +240,9 @@ router.get('/leaderboard', async (req, res) => {
         tier: tierRecord?.tier || TierLevel.SILVER,
         mindshare: parseFloat(userData.avg_mindshare) || 0,
         totalReferrals: parseInt(userData.total_referrals) || 0,
+        activeReferrals: parseInt(userData.active_referrals) || 0,
         totalPoints: parseFloat(userData.total_points) || 0,
+        totalRoastEarned: parseFloat(userData.total_roast_earned) || 0,
         profileImageUrl: twitterConnection?.profileImageUrl || undefined,
         isCurrentUser: userData.wallet_address === currentUserWallet
       });
@@ -288,6 +301,8 @@ router.get('/leaderboard/top-three', async (req, res) => {
         name,
         SUM("totalPoints") as total_points,
         SUM("totalReferrals") as total_referrals,
+        SUM("activeReferrals") as active_referrals,
+        SUM("totalRoastEarned") as total_roast_earned,
         AVG(mindshare) as avg_mindshare
       FROM user_daily_points 
       WHERE 1=1 ${dateFilter}
@@ -320,7 +335,9 @@ router.get('/leaderboard/top-three', async (req, res) => {
         tier: tierRecord?.tier || TierLevel.SILVER,
         mindshare: parseFloat(userData.avg_mindshare) || 0,
         totalReferrals: parseInt(userData.total_referrals) || 0,
+        activeReferrals: parseInt(userData.active_referrals) || 0,
         totalPoints: parseFloat(userData.total_points) || 0,
+        totalRoastEarned: parseFloat(userData.total_roast_earned) || 0,
         profileImageUrl: twitterConnection?.profileImageUrl || undefined
       });
     }

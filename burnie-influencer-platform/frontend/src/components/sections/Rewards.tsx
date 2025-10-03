@@ -7,6 +7,19 @@ import { rewardsApi, LeaderboardUser, TierLevel } from "@/services/rewardsApi";
 import { useMixpanel } from "@/hooks/useMixpanel";
 import { useTimeTracking } from "@/hooks/useTimeTracking";
 
+// Helper function to format ROAST values with K/M suffixes
+const formatRoastValue = (value: number): string => {
+    if (value >= 1000000) {
+        const millions = value / 1000000;
+        return millions % 1 === 0 ? `${millions}M` : `${millions.toFixed(1)}M`;
+    } else if (value >= 100000) {
+        const thousands = value / 1000;
+        return thousands % 1 === 0 ? `${thousands}K` : `${thousands.toFixed(1)}K`;
+    } else {
+        return Math.round(value).toLocaleString();
+    }
+};
+
 // Helper function to normalize data from different sources
 const normalizeUser = (user: any): LeaderboardUser => ({
   rank: user.rank,
@@ -16,7 +29,9 @@ const normalizeUser = (user: any): LeaderboardUser => ({
   tier: user.tier as TierLevel,
   mindshare: user.mindshare || 0,
   totalReferrals: user.totalReferrals || user.referrals || 0,
+  activeReferrals: user.activeReferrals || 0,
   totalPoints: user.totalPoints || user.points || 0,
+  totalRoastEarned: user.totalRoastEarned || 0,
   profileImageUrl: user.profileImageUrl || user.avatar,
   isCurrentUser: user.isCurrentUser || false
 });
@@ -474,7 +489,7 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
         >
           <div className="text-left md:text-center text-white text-sm font-medium w-6">#</div>
           <div className="text-left text-white text-sm font-medium md:text-center md:w-48">TWITTER HANDLE</div>
-          <div className="hidden md:block text-center text-white text-sm font-medium w-36">WALLET ADDRESS</div>
+          <div className="hidden md:block text-center text-white text-sm font-medium w-36">$ROAST EARNED</div>
           <div className="hidden md:block text-center text-white text-sm font-medium w-20">TIER</div>
           <div className="hidden md:block text-center text-white text-sm font-medium w-24">MINDSHARE%</div>
           <div className="hidden md:block text-center text-white text-sm font-medium w-24">REFERRALS</div>
@@ -533,16 +548,8 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
                 {currentUser && <UserAvatar user={currentUser} size="sm" />}
                 <span className="text-white text-sm truncate" title={currentUser?.twitterHandle || currentUser?.name}>@{currentUser?.twitterHandle || currentUser?.name}</span>
               </div>
-              <div className="hidden md:block text-white/70 text-center text-sm font-mono w-36">
-                <span 
-                  className="truncate block cursor-help hover:text-white transition-colors duration-200" 
-                  title={currentUser?.walletAddress}
-                >
-                  {currentUser?.walletAddress ? 
-                    `${currentUser.walletAddress.slice(0, 6)}...${currentUser.walletAddress.slice(-4)}` : 
-                    ''
-                  }
-                </span>
+              <div className="hidden md:block text-white text-center text-sm w-36">
+                {currentUser?.totalRoastEarned ? formatRoastValue(Number(currentUser.totalRoastEarned)) : '0'}
               </div>
               <div className="hidden md:block w-20 text-center">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${currentUser?.tier === "EMERALD" ? "bg-emerald-500/20 text-emerald-400" :
@@ -550,7 +557,7 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
                     "bg-yellow-500/20 text-yellow-400"}`}>{currentUser?.tier}</span>
               </div>
               <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.mindshare ? (currentUser.mindshare * 100).toFixed(1) : '0.0'}%</div>
-              <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.totalReferrals?.toLocaleString() || '0'}</div>
+              <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.activeReferrals?.toLocaleString() || '0'}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{currentUser?.totalPoints?.toLocaleString() || '0'}</div>
             </div>
           )}
@@ -572,16 +579,8 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
                 <UserAvatar user={user} size="sm" />
                 <span className="text-white text-sm truncate" title={user.twitterHandle || user.name}>@{user.twitterHandle || user.name}</span>
               </div>
-              <div className="hidden md:block text-white/70 text-center text-sm font-mono w-36">
-                <span 
-                  className="truncate block cursor-help hover:text-white transition-colors duration-200" 
-                  title={user.walletAddress}
-                >
-                  {user.walletAddress ? 
-                    `${user.walletAddress.slice(0, 6)}...${user.walletAddress.slice(-4)}` : 
-                    ''
-                  }
-                </span>
+              <div className="hidden md:block text-white text-center text-sm w-36">
+                {user.totalRoastEarned ? formatRoastValue(Number(user.totalRoastEarned)) : '0'}
               </div>
               <div className="hidden md:block w-20 text-center">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${user.tier === "EMERALD" ? "bg-emerald-500/20 text-emerald-400" :
@@ -592,7 +591,7 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
                 </span>
               </div>
               <div className="hidden md:block text-white text-center text-sm w-24">{(user.mindshare * 100).toFixed(1)}%</div>
-              <div className="hidden md:block text-white text-center text-sm w-24">{user.totalReferrals.toLocaleString()}</div>
+              <div className="hidden md:block text-white text-center text-sm w-24">{user.activeReferrals.toLocaleString()}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{user.totalPoints.toLocaleString()}</div>
             </div>
           ))}

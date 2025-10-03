@@ -5,6 +5,45 @@ import Image from "next/image";
 import React, { useEffect, useRef, useState } from "react";
 import { rewardsApi, UserStats, TierProgress, UserContext, PotentialEarnings, TierLevel } from "@/services/rewardsApi";
 
+// Helper function to format ROAST values with K/M suffixes
+const formatRoastValue = (value: number): string => {
+    if (value >= 1000000) {
+        const millions = value / 1000000;
+        return millions % 1 === 0 ? `${millions}M` : `${millions.toFixed(1)}M`;
+    } else if (value >= 100000) {
+        const thousands = value / 1000;
+        return thousands % 1 === 0 ? `${thousands}K` : `${thousands.toFixed(1)}K`;
+    } else {
+        return Math.round(value).toLocaleString();
+    }
+};
+
+// Helper function to get tier image based on current tier
+const getTierImage = (tier: TierLevel): string => {
+    const tierImages = {
+        'SILVER': '/silver.jpeg',
+        'GOLD': '/gold.jpeg', 
+        'PLATINUM': '/platinum.jpeg',
+        'EMERALD': '/emerald.jpeg',
+        'DIAMOND': '/diamond.jpeg',
+        'UNICORN': '/unicorn.jpeg'
+    };
+    return tierImages[tier] || '/silver.jpeg';
+};
+
+// Helper function to get tier number based on tier level
+const getTierNumber = (tier: TierLevel): number => {
+    const tierNumbers = {
+        'SILVER': 1,
+        'GOLD': 2,
+        'PLATINUM': 3,
+        'EMERALD': 4,
+        'DIAMOND': 5,
+        'UNICORN': 6
+    };
+    return tierNumbers[tier] || 1;
+};
+
 // Rewards banner (Tier 2: Gold) — first step of Rewards tab UI
 export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?: string }) {
     const [isRunningNode, setIsRunningNode] = useState(true);
@@ -38,6 +77,7 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                 rewardsApi.getTierProgress(currentUserWallet),
                 rewardsApi.getUserContext(currentUserWallet)
             ]);
+            
             
             setUserStats(stats);
             setTierProgress(progress);
@@ -108,32 +148,33 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
 
     // Banner tier config (swap this object to change tier/name/image quickly)
     const bannerTier = [
-        { name: "Tier 1: Silver", subtitle: "10 Referrals or 10,000 points", image: "/silver.jpeg" },
-        { name: "Tier 2: Gold", subtitle: "20 Referrals or 20,000 points", image: "/gold.jpeg" },
-        { name: "Tier 3: Platinum", subtitle: "50 Referrals or 50,000 points", image: "/platinum.jpeg" },
-        { name: "Tier 4: Emerald", subtitle: "100 Referrals or 1,00,000 points", image: "/emerald.jpeg" },
-        { name: "Tier 5: Diamond", subtitle: "200 Referrals or 2,00,000 points", image: "/diamond.jpeg" },
-        { name: "Tier 6: Unicorn", subtitle: "500 Referrals or 5,00,000 points", image: "/unicorn.jpeg" },
+        { name: "Tier 1: Silver", subtitle: "0 Referrals or 0 points", image: "/silver.jpeg" },
+        { name: "Tier 2: Gold", subtitle: "10 Referrals or 10,000 points", image: "/gold.jpeg" },
+        { name: "Tier 3: Platinum", subtitle: "20 Referrals or 20,000 points", image: "/platinum.jpeg" },
+        { name: "Tier 4: Emerald", subtitle: "50 Referrals or 50,000 points", image: "/emerald.jpeg" },
+        { name: "Tier 5: Diamond", subtitle: "100 Referrals or 100,000 points", image: "/diamond.jpeg" },
+        { name: "Tier 6: Unicorn", subtitle: "500 Referrals or 500,000 points", image: "/unicorn.jpeg" },
     ] as const;
     // Refs for mobile tier growth carousel centering
     const mobileTierContainerRef = useRef<HTMLDivElement | null>(null);
     const mobileTierItemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
     const mobileTiers = [
-        { name: "Tier 1: Silver", req: "10 Referrals or 10,000 points", selected: userStats?.currentTier === 'SILVER', image: "/silver.svg" },
-        { name: "Tier 2: Gold", req: "20 Referrals or 20,000 points", selected: userStats?.currentTier === 'GOLD', image: "/gold.svg" },
-        { name: "Tier 3: Platinum", req: "50 Referrals or 50,000 points", selected: userStats?.currentTier === 'PLATINUM', image: "/platinum.svg" },
-        { name: "Tier 4: Emerald", req: "100 Referrals or 1,00,000 points", selected: userStats?.currentTier === 'EMERALD', image: "/emeraldbadge.png" },
-        { name: "Tier 5: Diamond", req: "200 Referrals or 2,00,000 points", selected: userStats?.currentTier === 'DIAMOND', image: "/diamond.svg" },
-        { name: "Tier 6: Unicorn", req: "500 Referrals or 5,00,000 points", selected: userStats?.currentTier === 'UNICORN', image: "/unicorn.svg" },
+        { name: "Tier 1: Silver", req: "0 Referrals or 0 points", selected: userStats?.currentTier === 'SILVER', image: "/silver.svg" },
+        { name: "Tier 2: Gold", req: "10 Referrals or 10,000 points", selected: userStats?.currentTier === 'GOLD', image: "/gold.svg" },
+        { name: "Tier 3: Platinum", req: "20 Referrals or 20,000 points", selected: userStats?.currentTier === 'PLATINUM', image: "/platinum.svg" },
+        { name: "Tier 4: Emerald", req: "50 Referrals or 50,000 points", selected: userStats?.currentTier === 'EMERALD', image: "/emeraldbadge.png" },
+        { name: "Tier 5: Diamond", req: "100 Referrals or 100,000 points", selected: userStats?.currentTier === 'DIAMOND', image: "/diamond.svg" },
+        { name: "Tier 6: Unicorn", req: "500 Referrals or 500,000 points", selected: userStats?.currentTier === 'UNICORN', image: "/unicorn.svg" },
     ];
 
     // Pick active banner tier based on API data or currently-selected mobile tier (defaults to Silver)
-    const userTierName = userStats?.currentTier ? `Tier ${getTierNumber(userStats.currentTier)}: ${userStats.currentTier}` : null;
+    const userTierName = userStats?.currentTier ? `Tier ${getTierNumber(userStats.currentTier)}: ${userStats.currentTier.charAt(0) + userStats.currentTier.slice(1).toLowerCase()}` : null;
     const selectedMobileTier = (mobileTiers.find(t => (t as any).selected) ?? mobileTiers[0]);
     const activeBanner = userTierName 
         ? bannerTier.find(t => t.name === userTierName) ?? bannerTier[0]
         : (bannerTier.find(t => t.name === selectedMobileTier.name) ?? bannerTier[0]);
+    
 
     // Helper function to get tier number
     function getTierNumber(tier: string): number {
@@ -162,29 +203,26 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                 <div
                     className="relative text-white w-full max-w-[calc(100vw-1rem)] h-[250px] rounded-2xl bg-[#382121] overflow-hidden mx-2 lg:mx-0"
                 >
-                    {/* Image + feather gradient only on md+ */}
-                    <div
-                        aria-hidden
-                        className="absolute inset-0 hidden md:block rounded-2xl"
-                        style={{
-                            backgroundImage:
-                                `linear-gradient(89.95deg,
-                                    rgba(56,33,33,1) 0%,
-                                    rgba(56,33,33,0.95) 40%,
-                                    rgba(56,33,33,0.70) 60%,
-                                    rgba(56,33,33,0.35) 78%,
-                                    rgba(56,33,33,0.12) 90%,
-                                    rgba(56,33,33,0.00) 100%),
-                                radial-gradient(60% 140% at 74% 50%, rgba(56,33,33,0.45), rgba(56,33,33,0) 70%),
-                                url('${activeBanner.image}')`,
-                            backgroundRepeat: "no-repeat, no-repeat, no-repeat",
-                            backgroundPosition: "left top, right center, right center",
-                            backgroundSize: "auto, 100% 100%, auto 130%",
-                            backgroundBlendMode: "multiply, multiply, normal",
-                            WebkitMaskImage: "linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,0,0,0.25) 8%, rgba(0,0,0,0.6) 16%, rgba(0,0,0,0.85) 26%, rgba(0,0,0,1) 38%)",
-                            maskImage: "linear-gradient(to right, rgba(0,0,0,0) 58%, rgba(0,0,0,1.25) 65%, rgba(0,0,0,0.6) 60%, rgba(0,0,0,0.85) 50%, rgba(0,0,0,1) 38%)",
-                        }}
-                    />
+                    {/* Background tier image with fade effect */}
+                    <div className="absolute inset-0 hidden md:block rounded-2xl overflow-hidden">
+                        {/* Tier image positioned on the right */}
+                        <div 
+                            className="absolute right-0 top-0 w-full h-full"
+                            style={{
+                                backgroundImage: `url('${activeBanner.image}')`,
+                                backgroundRepeat: "no-repeat",
+                                backgroundPosition: "right center",
+                                backgroundSize: "auto 120%",
+                            }}
+                        />
+                        {/* Fade overlay from left to right */}
+                        <div 
+                            className="absolute inset-0 pointer-events-none"
+                            style={{
+                                background: 'linear-gradient(to right, #382121 0%, #382121 35%, rgba(56, 33, 33, 0.95) 40%, rgba(56, 33, 33, 0.85) 45%, rgba(56, 33, 33, 0.7) 50%, rgba(56, 33, 33, 0.5) 55%, rgba(56, 33, 33, 0.3) 60%, rgba(56, 33, 33, 0.15) 65%, rgba(56, 33, 33, 0.05) 70%, transparent 75%)'
+                            }}
+                        />
+                    </div>
                     {/* Left content block */}
                     <div
                         className="absolute w-full max-w-[calc(100vw-2rem)] md:max-w-[552px] h-auto md:h-[196px] top-4 md:top-8 left-1/2 md:left-[34px] right-auto md:right-auto transform -translate-x-1/2 md:transform-none flex flex-col gap-2 md:gap-8 overflow-x-hidden"
@@ -228,12 +266,12 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                 >
                                     <div className="text-xs text-white font-semibold">$ROAST earned</div>
                                     <div className="text-lg md:text-3xl font-bold text-white">
-                                        {loading ? '...' : userStats?.totalRoastEarned ? Number(userStats.totalRoastEarned).toFixed(2) : 'No data'}
+                                        {loading ? '...' : userStats?.totalRoastEarned ? formatRoastValue(Number(userStats.totalRoastEarned)) : 'No data'}
                                     </div>
                                 </div>
                                 {/* Card 3 */}
                                 <div
-                                    className="flex-1 w-full md:min-w-0 h-24 px-4 py-2 md:p-4 flex flex-row sm:flex-col items-center md:items-start justify-between md:justify-center gap-0 md:gap-2 rounded-xl md:rounded-2xl"
+                                    className="flex-1 w-full md:min-w-0 h-24 px-4 py-2 md:p-4 flex flex-row sm:flex-col items-center md:items-start justify-between md:justify-center gap-0 md:gap-2 rounded-xl md:rounded-2xl relative group cursor-help"
                                     style={{
                                         background: "#284E8380",
                                         borderImageSlice: 1,
@@ -244,7 +282,16 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                 >
                                     <div className="text-xs text-white font-semibold">Total referrals</div>
                                     <div className="text-lg md:text-3xl font-bold text-white">
-                                        {loading ? '...' : userStats?.totalReferrals ? userStats.totalReferrals.toLocaleString() : 'No data'}
+                                        {loading ? '...' : userStats?.totalReferrals ? 
+                                            `${userStats.activeReferrals || 0} (Q) / ${userStats.totalReferrals.toLocaleString()}` : 
+                                            'No data'
+                                        }
+                                    </div>
+                                    
+                                    {/* Tooltip */}
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-black/90 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 w-48 text-center">
+                                        Only referrals with 2+ transactions count as qualified (Q)
+                                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-black/90"></div>
                                     </div>
                                 </div>
                             </div>
@@ -656,7 +703,9 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                         <div className="space-y-4">
                             <div className="flex items-center gap-3">
                                 <div>
-                                    <div className="text-white font-medium">Tier 1: Silver</div>
+                                    <div className="text-white font-medium">
+                                        {userStats?.currentTier ? `Tier ${getTierNumber(userStats.currentTier)}: ${userStats.currentTier}` : 'Tier 1: Silver'}
+                                    </div>
                                     <div className="text-white/50 text-sm">5% revenue share</div>
                                 </div>
                             </div>
@@ -701,12 +750,12 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                     <h4 className="text-center text-2xl font-bold">Your Tier growth</h4>
 
                     {[
-                        { name: "Tier 1: Silver", req: "10 Referrals or 10,000 points", selected: userStats?.currentTier === 'SILVER', image: "/silver.svg" },
-                        { name: "Tier 2: Gold", req: "20 Referrals or 20,000 points", selected: userStats?.currentTier === 'GOLD', image: "/gold.svg" },
-                        { name: "Tier 3: Platinum", req: "50 Referrals or 50,000 points", selected: userStats?.currentTier === 'PLATINUM', image: "/platinum.svg" },
-                        { name: "Tier 4: Emerald", req: "100 Referrals or 1,00,000 points", selected: userStats?.currentTier === 'EMERALD', image: "/emeraldbadge.png" },
-                        { name: "Tier 5: Diamond", req: "200 Referrals or 2,00,000 points", selected: userStats?.currentTier === 'DIAMOND', image: "/diamond.svg" },
-                        { name: "Tier 6: Unicorn", req: "500 Referrals or 5,00,000 points", selected: userStats?.currentTier === 'UNICORN', image: "/unicorn.svg" },
+                        { name: "Tier 1: Silver", req: "0 Referrals or 0 points", selected: userStats?.currentTier === 'SILVER', image: "/silver.svg" },
+                        { name: "Tier 2: Gold", req: "10 Referrals or 10,000 points", selected: userStats?.currentTier === 'GOLD', image: "/gold.svg" },
+                        { name: "Tier 3: Platinum", req: "20 Referrals or 20,000 points", selected: userStats?.currentTier === 'PLATINUM', image: "/platinum.svg" },
+                        { name: "Tier 4: Emerald", req: "50 Referrals or 50,000 points", selected: userStats?.currentTier === 'EMERALD', image: "/emeraldbadge.png" },
+                        { name: "Tier 5: Diamond", req: "100 Referrals or 100,000 points", selected: userStats?.currentTier === 'DIAMOND', image: "/diamond.svg" },
+                        { name: "Tier 6: Unicorn", req: "500 Referrals or 500,000 points", selected: userStats?.currentTier === 'UNICORN', image: "/unicorn.svg" },
                     ].map((tier, idx) => (
                         <div key={idx} className="flex flex-col items-center justify-center py-4">
                             <div
