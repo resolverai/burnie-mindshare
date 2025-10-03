@@ -32,6 +32,7 @@ const normalizeUser = (user: any): LeaderboardUser => ({
   activeReferrals: user.activeReferrals || 0,
   totalPoints: user.totalPoints || user.points || 0,
   totalRoastEarned: user.totalRoastEarned || 0,
+  totalDailyRewards: user.totalDailyRewards || 0,
   profileImageUrl: user.profileImageUrl || user.avatar,
   isCurrentUser: user.isCurrentUser || false
 });
@@ -417,7 +418,7 @@ function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], 
                     className="absolute w-full h-full object-contain"
                   />
                   <div className="relative z-10 translate-y-1 md:translate-y-2">
-                    {top3[1] && <UserAvatar user={top3[1]} size="sm" />}
+                    {top3[1] && <UserAvatar user={top3[1]} size="md" />}
                   </div>
                 </div>
               </div>
@@ -440,7 +441,7 @@ function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], 
                     className="absolute w-full h-full object-contain"
                   />
                   <div className="relative z-10 translate-y-1 md:translate-y-2">
-                    {top3[2] && <UserAvatar user={top3[2]} size="sm" />}
+                    {top3[2] && <UserAvatar user={top3[2]} size="md" />}
                   </div>
                 </div>
               </div>
@@ -487,13 +488,14 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
             background: "linear-gradient(to bottom, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.1) 100%)"
           }}
         >
-          <div className="text-left md:text-center text-white text-sm font-medium w-6">#</div>
-          <div className="text-left text-white text-sm font-medium md:text-center md:w-48">TWITTER HANDLE</div>
-          <div className="hidden md:block text-center text-white text-sm font-medium w-36">$ROAST EARNED</div>
-          <div className="hidden md:block text-center text-white text-sm font-medium w-20">TIER</div>
-          <div className="hidden md:block text-center text-white text-sm font-medium w-24">MINDSHARE%</div>
-          <div className="hidden md:block text-center text-white text-sm font-medium w-24">REFERRALS</div>
-          <div className="text-right md:text-center text-white text-sm font-medium w-20">POINTS</div>
+          <div className="text-left md:text-center text-white text-xs font-medium w-6">#</div>
+          <div className="text-left text-white text-xs font-medium md:text-center md:w-40">TWITTER HANDLE</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-20">TIER</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-24">MINDSHARE%</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-24">REFERRALS</div>
+          <div className="text-right md:text-center text-white text-xs font-medium w-20">POINTS</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-32">REFERRAL EARNINGS ($ROAST)</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-28">REWARDS ($ROAST)</div>
         </div>
 
         {/* Table Body */}
@@ -544,12 +546,9 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
               }}
             >
               <div className="text-white md:text-center text-sm font-medium w-6">{currentUser?.rank}</div>
-              <div className="flex items-center gap-3 w-40 md:w-48 min-w-0">
+              <div className="flex items-center gap-3 w-40 min-w-0">
                 {currentUser && <UserAvatar user={currentUser} size="sm" />}
                 <span className="text-white text-sm truncate" title={currentUser?.twitterHandle || currentUser?.name}>@{currentUser?.twitterHandle || currentUser?.name}</span>
-              </div>
-              <div className="hidden md:block text-white text-center text-sm w-36">
-                {currentUser?.totalRoastEarned ? formatRoastValue(Number(currentUser.totalRoastEarned)) : '0'}
               </div>
               <div className="hidden md:block w-20 text-center">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${currentUser?.tier === "EMERALD" ? "bg-emerald-500/20 text-emerald-400" :
@@ -559,6 +558,12 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
               <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.mindshare ? (currentUser.mindshare * 100).toFixed(1) : '0.0'}%</div>
               <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.activeReferrals?.toLocaleString() || '0'}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{currentUser?.totalPoints?.toLocaleString() || '0'}</div>
+              <div className="hidden md:block text-white text-center text-sm w-32">
+                {currentUser?.totalRoastEarned ? formatRoastValue(Number(currentUser.totalRoastEarned)) : '0'}
+              </div>
+              <div className="hidden md:block text-white text-center text-sm w-28">
+                {currentUser?.totalDailyRewards ? formatRoastValue(Number(currentUser.totalDailyRewards)) : '0'}
+              </div>
             </div>
           )}
 
@@ -575,12 +580,9 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
               }}
             >
               <div className="text-white md:text-center text-sm font-medium w-6">{user.rank}</div>
-              <div className="flex items-center gap-3 w-40 md:w-48 min-w-0">
+              <div className="flex items-center gap-3 w-40 min-w-0">
                 <UserAvatar user={user} size="sm" />
                 <span className="text-white text-sm truncate" title={user.twitterHandle || user.name}>@{user.twitterHandle || user.name}</span>
-              </div>
-              <div className="hidden md:block text-white text-center text-sm w-36">
-                {user.totalRoastEarned ? formatRoastValue(Number(user.totalRoastEarned)) : '0'}
               </div>
               <div className="hidden md:block w-20 text-center">
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${user.tier === "EMERALD" ? "bg-emerald-500/20 text-emerald-400" :
@@ -593,6 +595,12 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
               <div className="hidden md:block text-white text-center text-sm w-24">{(user.mindshare * 100).toFixed(1)}%</div>
               <div className="hidden md:block text-white text-center text-sm w-24">{user.activeReferrals.toLocaleString()}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{user.totalPoints.toLocaleString()}</div>
+              <div className="hidden md:block text-white text-center text-sm w-32">
+                {user.totalRoastEarned ? formatRoastValue(Number(user.totalRoastEarned)) : '0'}
+              </div>
+              <div className="hidden md:block text-white text-center text-sm w-28">
+                {user.totalDailyRewards ? formatRoastValue(Number(user.totalDailyRewards)) : '0'}
+              </div>
             </div>
           ))}
             </>

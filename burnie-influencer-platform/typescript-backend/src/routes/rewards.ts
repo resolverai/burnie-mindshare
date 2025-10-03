@@ -21,6 +21,7 @@ interface LeaderboardUser {
   activeReferrals: number;
   totalPoints: number;
   totalRoastEarned: number;
+  totalDailyRewards: number;
   profileImageUrl?: string | undefined;
   isCurrentUser?: boolean;
 }
@@ -33,6 +34,7 @@ interface UserStatsResponse {
   currentTier: TierLevel;
   mindshare: number;
   referralLink: string;
+  totalDailyRewards: number;
 }
 
 interface TierProgressResponse {
@@ -82,6 +84,15 @@ router.get('/user-stats/:walletAddress', async (req, res) => {
     // Convert LeaderTier to TierLevel since they have the same string values
     const currentTier = currentTierRecord?.tier || (referralCode?.tier as unknown as TierLevel) || TierLevel.SILVER;
 
+    // Calculate total daily rewards earned by this user
+    const dailyRewardsQuery = `
+      SELECT COALESCE(SUM("dailyRewards"), 0) as total_daily_rewards
+      FROM user_daily_points
+      WHERE "walletAddress" = $1
+    `;
+    const dailyRewardsResult = await AppDataSource.query(dailyRewardsQuery, [walletAddress]);
+    const totalDailyRewards = parseInt(dailyRewardsResult[0]?.total_daily_rewards || '0');
+
     const response: UserStatsResponse = {
       totalPoints: latestPoints?.totalPoints || 0,
       totalRoastEarned: latestPoints?.totalRoastEarned || 0,
@@ -89,7 +100,8 @@ router.get('/user-stats/:walletAddress', async (req, res) => {
       activeReferrals: latestPoints?.activeReferrals || 0,
       currentTier: currentTier,
       mindshare: latestPoints?.mindshare || 0,
-      referralLink: referralCode ? `${process.env.FRONTEND_URL || 'http://localhost:3004'}?ref=${referralCode.code}` : ''
+      referralLink: referralCode ? `${process.env.FRONTEND_URL || 'http://localhost:3004'}?ref=${referralCode.code}` : '',
+      totalDailyRewards: totalDailyRewards
     };
 
     res.json(response);
@@ -205,6 +217,7 @@ router.get('/leaderboard', async (req, res) => {
         SUM("totalReferrals") as total_referrals,
         SUM("activeReferrals") as active_referrals,
         SUM("totalRoastEarned") as total_roast_earned,
+        SUM("dailyRewards") as total_daily_rewards,
         AVG(mindshare) as avg_mindshare,
         MAX("createdAt") as latest_created_at
       FROM user_daily_points 
@@ -243,6 +256,7 @@ router.get('/leaderboard', async (req, res) => {
         activeReferrals: parseInt(userData.active_referrals) || 0,
         totalPoints: parseFloat(userData.total_points) || 0,
         totalRoastEarned: parseFloat(userData.total_roast_earned) || 0,
+        totalDailyRewards: parseFloat(userData.total_daily_rewards) || 0,
         profileImageUrl: twitterConnection?.profileImageUrl || undefined,
         isCurrentUser: userData.wallet_address === currentUserWallet
       });
@@ -303,6 +317,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
         SUM("totalReferrals") as total_referrals,
         SUM("activeReferrals") as active_referrals,
         SUM("totalRoastEarned") as total_roast_earned,
+        SUM("dailyRewards") as total_daily_rewards,
         AVG(mindshare) as avg_mindshare
       FROM user_daily_points 
       WHERE 1=1 ${dateFilter}
@@ -338,6 +353,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
         activeReferrals: parseInt(userData.active_referrals) || 0,
         totalPoints: parseFloat(userData.total_points) || 0,
         totalRoastEarned: parseFloat(userData.total_roast_earned) || 0,
+        totalDailyRewards: parseFloat(userData.total_daily_rewards) || 0,
         profileImageUrl: twitterConnection?.profileImageUrl || undefined
       });
     }

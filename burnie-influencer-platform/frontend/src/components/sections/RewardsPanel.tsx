@@ -201,7 +201,7 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
             <div className="w-full max-w-[100vw] flex flex-col gap-4 lg:gap-8 justify-center lg:justify-start px-0 lg:px-2 overflow-x-hidden">
                 {/* Banner container */}
                 <div
-                    className="relative text-white w-full max-w-[calc(100vw-1rem)] h-[250px] rounded-2xl bg-[#382121] overflow-hidden mx-2 lg:mx-0"
+                    className="relative text-white w-full max-w-[calc(100vw-1rem)] h-[300px] rounded-2xl bg-[#382121] overflow-hidden mx-2 lg:mx-0"
                 >
                     {/* Background tier image with fade effect */}
                     <div className="absolute inset-0 hidden md:block rounded-2xl overflow-hidden">
@@ -212,34 +212,34 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                 backgroundImage: `url('${activeBanner.image}')`,
                                 backgroundRepeat: "no-repeat",
                                 backgroundPosition: "right center",
-                                backgroundSize: "auto 120%",
+                                backgroundSize: "auto 100%",
                             }}
                         />
                         {/* Fade overlay from left to right */}
                         <div 
                             className="absolute inset-0 pointer-events-none"
                             style={{
-                                background: 'linear-gradient(to right, #382121 0%, #382121 35%, rgba(56, 33, 33, 0.95) 40%, rgba(56, 33, 33, 0.85) 45%, rgba(56, 33, 33, 0.7) 50%, rgba(56, 33, 33, 0.5) 55%, rgba(56, 33, 33, 0.3) 60%, rgba(56, 33, 33, 0.15) 65%, rgba(56, 33, 33, 0.05) 70%, transparent 75%)'
+                                background: 'linear-gradient(to right, #382121 0%, #382121 50%, rgba(56, 33, 33, 0.95) 55%, rgba(56, 33, 33, 0.85) 60%, rgba(56, 33, 33, 0.7) 65%, rgba(56, 33, 33, 0.5) 70%, rgba(56, 33, 33, 0.3) 75%, rgba(56, 33, 33, 0.15) 80%, rgba(56, 33, 33, 0.05) 85%, transparent 90%)'
                             }}
                         />
                     </div>
                     {/* Left content block */}
                     <div
-                        className="absolute w-full max-w-[calc(100vw-2rem)] md:max-w-[552px] h-auto md:h-[196px] top-4 md:top-8 left-1/2 md:left-[34px] right-auto md:right-auto transform -translate-x-1/2 md:transform-none flex flex-col gap-2 md:gap-8 overflow-x-hidden"
+                        className="absolute w-full max-w-[calc(100vw-2rem)] md:max-w-[55%] h-auto md:h-[260px] top-4 md:top-6 left-1/2 md:left-[2rem] right-auto md:right-auto transform -translate-x-1/2 md:transform-none flex flex-col gap-2 md:gap-6 overflow-x-hidden"
                     >
                         {/* Title + subtitle block */}
-                        <div className="flex flex-col gap-3 md:gap-8">
+                        <div className="flex flex-col gap-3 md:gap-6">
                             <div className="flex flex-col items-start gap-2">
                                 <h3 className="font-bold text-lg md:text-3xl text-white">
                                     {activeBanner.name}
                                 </h3>
                                 <span className="text-white font-semibold text-xs md:text-sm">{activeBanner.subtitle}</span>
                             </div>
-                            {/* Three stat cards */}
-                            <div className="flex flex-col sm:flex-row items-center sm:items-center gap-2 md:gap-4 w-full">
-                                {/* Card 1 */}
+                            {/* Four stat cards */}
+                            <div className="flex flex-col sm:flex-row items-center sm:items-center gap-2 md:gap-3 w-full">
+                                {/* Card 1 - Total points */}
                                 <div
-                                    className="flex-1 w-full md:min-w-0 h-24 px-4 py-2 md:p-4 flex flex-row sm:flex-col items-center md:items-start justify-between md:justify-center gap-0 md:gap-2 rounded-xl md:rounded-2xl"
+                                    className="flex-1 w-full md:w-1/4 md:min-w-0 md:max-w-none h-24 md:h-32 px-3 py-2 md:px-3 md:py-3 flex flex-row sm:flex-col items-center md:items-start justify-between md:justify-center gap-1 md:gap-2 rounded-xl md:rounded-2xl"
                                     style={{
                                         background: "#6B612080",
                                         borderImageSlice: 1,
@@ -248,14 +248,18 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                         backdropFilter: "blur(6.8px)",
                                     }}
                                 >
-                                    <div className="text-xs text-white font-semibold">Total points</div>
-                                    <div className="text-lg md:text-3xl font-bold text-white">
-                                        {loading ? '...' : userStats?.totalPoints ? Math.floor(Number(userStats.totalPoints)).toLocaleString() : 'No data'}
+                                    <div className="text-xs md:text-sm text-white font-semibold">Total points</div>
+                                    <div className="text-base md:text-2xl font-bold text-white">
+                                        {loading ? '...' : userStats?.totalPoints ? 
+                                            (Number(userStats.totalPoints) >= 1000000 ? 
+                                                formatRoastValue(Math.floor(Number(userStats.totalPoints))) : 
+                                                Math.floor(Number(userStats.totalPoints)).toLocaleString()
+                                            ) : 'No data'}
                                     </div>
                                 </div>
-                                {/* Card 2 */}
+                                {/* Card 2 - Rewards Earned */}
                                 <div
-                                    className="flex-1 w-full md:min-w-0 h-24 px-4 py-2 md:p-4 flex flex-row sm:flex-col items-center md:items-start justify-between md:justify-center gap-0 md:gap-2 rounded-xl md:rounded-2xl"
+                                    className="flex-1 w-full md:w-1/4 md:min-w-0 md:max-w-none h-24 md:h-32 px-3 py-2 md:px-3 md:py-3 flex flex-row sm:flex-col items-center md:items-start justify-between md:justify-center gap-1 md:gap-2 rounded-xl md:rounded-2xl"
                                     style={{
                                         background: "#48821C80",
                                         borderImageSlice: 1,
@@ -264,14 +268,30 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                         backdropFilter: "blur(6.8px)",
                                     }}
                                 >
-                                    <div className="text-xs text-white font-semibold">$ROAST earned</div>
-                                    <div className="text-lg md:text-3xl font-bold text-white">
+                                    <div className="text-xs md:text-sm text-white font-semibold">Rewards Earned ($ROAST)</div>
+                                    <div className="text-base md:text-2xl font-bold text-white">
+                                        {loading ? '...' : userStats?.totalDailyRewards ? formatRoastValue(Number(userStats.totalDailyRewards)) : '0'}
+                                    </div>
+                                </div>
+                                {/* Card 3 - Referral Earnings */}
+                                <div
+                                    className="flex-1 w-full md:w-1/4 md:min-w-0 md:max-w-none h-24 md:h-32 px-3 py-2 md:px-3 md:py-3 flex flex-row sm:flex-col items-center md:items-start justify-between md:justify-center gap-1 md:gap-2 rounded-xl md:rounded-2xl"
+                                    style={{
+                                        background: "#8B5A2B80",
+                                        borderImageSlice: 1,
+                                        borderImageSource:
+                                            "linear-gradient(107.36deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.5) 107.18%)",
+                                        backdropFilter: "blur(6.8px)",
+                                    }}
+                                >
+                                    <div className="text-xs md:text-sm text-white font-semibold">Referral Earnings ($ROAST)</div>
+                                    <div className="text-base md:text-2xl font-bold text-white">
                                         {loading ? '...' : userStats?.totalRoastEarned ? formatRoastValue(Number(userStats.totalRoastEarned)) : 'No data'}
                                     </div>
                                 </div>
-                                {/* Card 3 */}
+                                {/* Card 4 - Total referrals */}
                                 <div
-                                    className="flex-1 w-full md:min-w-0 h-24 px-4 py-2 md:p-4 flex flex-row sm:flex-col items-center md:items-start justify-between md:justify-center gap-0 md:gap-2 rounded-xl md:rounded-2xl relative group cursor-help"
+                                    className="flex-1 w-full md:w-1/4 md:min-w-0 md:max-w-none h-24 md:h-32 px-3 py-2 md:px-3 md:py-3 flex flex-row sm:flex-col items-center md:items-start justify-between md:justify-center gap-1 md:gap-2 rounded-xl md:rounded-2xl relative group cursor-help"
                                     style={{
                                         background: "#284E8380",
                                         borderImageSlice: 1,
@@ -280,8 +300,8 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                         backdropFilter: "blur(6.8px)",
                                     }}
                                 >
-                                    <div className="text-xs text-white font-semibold">Total referrals</div>
-                                    <div className="text-lg md:text-3xl font-bold text-white">
+                                    <div className="text-xs md:text-sm text-white font-semibold">Total referrals</div>
+                                    <div className="text-sm md:text-xl font-bold text-white">
                                         {loading ? '...' : userStats?.totalReferrals ? 
                                             `${userStats.activeReferrals || 0} (Q) / ${userStats.totalReferrals.toLocaleString()}` : 
                                             'No data'

@@ -66,6 +66,7 @@ interface UserCalculation {
   mindsharePoints: number;
   totalPoints: number;
   dailyPointsEarned: number;
+  dailyRewards: number;
   currentTier: TierLevel;
   newTier: TierLevel;
   tierChanged: boolean;
@@ -84,6 +85,10 @@ const TIER_REQUIREMENTS = {
 // Daily mindshare points pool
 const DAILY_MINDSHARE_POINTS_POOL = 100000;
 const TOP_MINDSHARE_USERS_COUNT = 100;
+
+// Daily rewards pool
+const DAILY_REWARDS_POOL = 200000;
+const TOP_REWARDS_USERS_COUNT = 25;
 
 // Excluded wallets (lowercase) - these wallets will be skipped from points calculation
 const EXCLUDED_WALLETS: string[] = [
@@ -517,6 +522,7 @@ class DailyPointsCalculationScript {
       mindsharePoints,
       totalPoints,
       dailyPointsEarned,
+      dailyRewards: 0, // Will be calculated later for top 25 users
       currentTier,
       newTier,
       tierChanged
@@ -540,6 +546,7 @@ class DailyPointsCalculationScript {
     userDailyPoints.mindshare = calculation.mindshare;
     userDailyPoints.totalPoints = calculation.totalPoints;
     userDailyPoints.dailyPointsEarned = calculation.dailyPointsEarned;
+    userDailyPoints.dailyRewards = calculation.dailyRewards;
 
     await userDailyPointsRepo.save(userDailyPoints);
   }
@@ -608,6 +615,71 @@ class DailyPointsCalculationScript {
     const currentTierIndex = tierOrder.indexOf(currentTier);
     
     return newTierIndex > currentTierIndex;
+  }
+
+  /**
+   * Calculate daily rewards for top users (up to 25)
+   */
+  async calculateDailyRewards(): Promise<void> {
+    console.log('Calculating daily rewards for top users...');
+
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+
+    // Get top users by dailyPointsEarned for today (up to 25)
+    const topUsersQuery = `
+      SELECT id, "walletAddress", "dailyPointsEarned"
+      FROM user_daily_points
+      WHERE "createdAt" >= $1 AND "createdAt" < $2
+        AND "dailyPointsEarned" > 0
+      ORDER BY "dailyPointsEarned" DESC, "createdAt" ASC
+      LIMIT $3
+    `;
+
+    const topUsers = await this.dataSource.query(topUsersQuery, [todayStart, todayEnd, TOP_REWARDS_USERS_COUNT]);
+
+    if (topUsers.length === 0) {
+      console.log('No users with daily points earned found for rewards calculation');
+      return;
+    }
+
+    // Calculate total daily points earned by top users
+    const totalDailyPointsTop = topUsers.reduce((sum: number, user: any) => {
+      return sum + parseFloat(user.dailyPointsEarned || '0');
+    }, 0);
+
+    if (totalDailyPointsTop === 0) {
+      console.log('Total daily points earned by top users is 0, no rewards to distribute');
+      return;
+    }
+
+    console.log(`📊 Found ${topUsers.length} users with daily points earned`);
+    console.log(`📊 Total daily points by top ${topUsers.length} users: ${totalDailyPointsTop}`);
+    console.log(`💰 Daily rewards pool: ${DAILY_REWARDS_POOL}`);
+    console.log(`💰 Distributing rewards among top ${topUsers.length} users...`);
+
+    // Calculate and update daily rewards for each top user
+    for (const user of topUsers) {
+      const userDailyPoints = parseFloat(user.dailyPointsEarned || '0');
+      const proportion = userDailyPoints / totalDailyPointsTop;
+      const dailyRewards = Math.round(proportion * DAILY_REWARDS_POOL);
+
+      // Update the user's daily rewards
+      const updateQuery = `
+        UPDATE user_daily_points
+        SET "dailyRewards" = $1
+        WHERE id = $2
+      `;
+
+      await this.dataSource.query(updateQuery, [dailyRewards, user.id]);
+
+      console.log(`💰 ${user.walletAddress}: ${userDailyPoints} points (${(proportion * 100).toFixed(2)}%) = ${dailyRewards} rewards`);
+    }
+
+    console.log(`✅ Daily rewards calculated and distributed to ${topUsers.length} users`);
+    console.log(`✅ Total rewards distributed: ${DAILY_REWARDS_POOL.toLocaleString()}`);
   }
 
   /**
@@ -706,6 +778,9 @@ class DailyPointsCalculationScript {
         await this.saveUserDailyPoints(calculation);
         await this.saveUserTierChange(calculation);
 
+        // Calculate daily rewards (will include this single user if they have daily points)
+        await this.calculateDailyRewards();
+
         console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points, tier: ${calculation.currentTier})`);
         console.log('🎉 Single User Points Calculation completed successfully!');
         
@@ -724,6 +799,9 @@ class DailyPointsCalculationScript {
 
         // Calculate daily ranks
         await this.calculateDailyRanks();
+
+        // Calculate daily rewards for top 25 users
+        await this.calculateDailyRewards();
 
         console.log('🎉 Daily Points Calculation Script completed successfully!');
       }

@@ -13,6 +13,7 @@ export interface LeaderboardUser {
   activeReferrals: number;
   totalPoints: number;
   totalRoastEarned: number;
+  totalDailyRewards: number;
   profileImageUrl?: string;
   isCurrentUser?: boolean;
 }
@@ -25,6 +26,7 @@ export interface UserStats {
   currentTier: TierLevel;
   mindshare: number;
   referralLink: string;
+  totalDailyRewards: number;
 }
 
 export interface TierProgress {
