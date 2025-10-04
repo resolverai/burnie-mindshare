@@ -3,6 +3,8 @@ import { AppDataSource } from '../config/database';
 import { Repository } from 'typeorm';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
+import { UserTwitterPost, PostType, PlatformSource } from '../models/UserTwitterPost';
+import { logger } from '../config/logger';
 
 // Helper function to extract S3 key from URL
 function extractS3KeyFromUrl(url: string): string | null {
@@ -74,6 +76,79 @@ async function generatePresignedUrlForTwitter(s3Key: string): Promise<string | n
 }
 
 const router = Router();
+
+// Helper function to determine post type
+function determinePostType(mainTweet: string, thread?: string[]): PostType {
+  if (thread && thread.length > 0) {
+    return 'thread';
+  }
+  
+  // Consider longpost if tweet is longer than 280 characters (Twitter's limit)
+  if (mainTweet.length > 280) {
+    return 'longpost';
+  }
+  
+  return 'shitpost';
+}
+
+// Helper function to extract Twitter image URL from media upload response
+function extractTwitterImageUrl(mediaId: string): string | null {
+  // Twitter doesn't return direct image URLs in media upload response
+  // We'll store the media ID and can construct URL later if needed
+  // For now, return null as we don't have direct access to the final image URL
+  return null;
+}
+
+// Function to store Twitter post data
+async function storeTwitterPostData(
+  walletAddress: string,
+  mainTweet: string,
+  mainTweetId: string,
+  threadTweetIds: string[],
+  thread?: string[],
+  mediaId?: string,
+  imageUrl?: string,
+  contentId?: number,
+  platformSource: PlatformSource = 'other'
+): Promise<UserTwitterPost | null> {
+  try {
+    const userTwitterPostRepository = AppDataSource.getRepository(UserTwitterPost);
+    
+    const postType = determinePostType(mainTweet, thread);
+    const twitterImageUrl = mediaId ? extractTwitterImageUrl(mediaId) : null;
+    
+    const userTwitterPost = new UserTwitterPost();
+    userTwitterPost.walletAddress = walletAddress.toLowerCase();
+    userTwitterPost.postType = postType;
+    userTwitterPost.mainTweet = mainTweet;
+    userTwitterPost.mainTweetId = mainTweetId;
+    if (thread && thread.length > 0) {
+      userTwitterPost.tweetThread = thread;
+    }
+    userTwitterPost.imageUrl = imageUrl || twitterImageUrl;
+    userTwitterPost.videoUrl = null; // Future implementation
+    userTwitterPost.engagementMetrics = {};
+    userTwitterPost.postedAt = new Date();
+    userTwitterPost.contentId = contentId || null;
+    userTwitterPost.platformSource = platformSource;
+    if (threadTweetIds.length > 1) {
+      userTwitterPost.threadTweetIds = threadTweetIds;
+    }
+    userTwitterPost.twitterMediaId = mediaId || null;
+    userTwitterPost.threadCount = threadTweetIds.length;
+    userTwitterPost.lastEngagementFetch = null;
+
+    const savedPost = await userTwitterPostRepository.save(userTwitterPost);
+    
+    logger.info(`✅ Stored Twitter post data: ${savedPost.id} for wallet ${walletAddress}`);
+    logger.info(`📊 Post details: Type=${postType}, MainTweetId=${mainTweetId}, ThreadCount=${threadTweetIds.length}`);
+    
+    return savedPost;
+  } catch (error) {
+    logger.error('❌ Error storing Twitter post data:', error);
+    return null;
+  }
+}
 
 // Import the YapperTwitterConnection model
 interface YapperTwitterConnection {
@@ -265,7 +340,7 @@ const createTweet = async (accessToken: string, text: string, mediaId?: string, 
 // POST /api/twitter/post-thread
 router.post('/post-thread', async (req: Request, res: Response) => {
   try {
-    const { mainTweet, thread, imageUrl } = req.body;
+    const { mainTweet, thread, imageUrl, contentId, platformSource } = req.body;
     const walletAddress = req.headers.authorization?.replace('Bearer ', '');
 
     if (!walletAddress) {
@@ -443,11 +518,29 @@ router.post('/post-thread', async (req: Request, res: Response) => {
       }
     }
 
+    // Store Twitter post data in database
+    const storedPost = await storeTwitterPostData(
+      walletAddress,
+      mainTweet,
+      mainTweetId,
+      threadTweetIds,
+      thread,
+      mediaId || undefined,
+      imageUrl,
+      contentId,
+      (platformSource as PlatformSource) || 'other'
+    );
+
+    if (!storedPost) {
+      logger.warn(`⚠️ Failed to store Twitter post data for wallet ${walletAddress}, but tweet was posted successfully`);
+    }
+
     return res.json({
       success: true,
       mainTweetId,
       threadTweetIds,
-      tweetCount: threadTweetIds.length
+      tweetCount: threadTweetIds.length,
+      postId: storedPost?.id || null
     });
 
   } catch (error) {

@@ -67,6 +67,9 @@ import { UserTiers } from '../models/UserTiers';
 // Import edit tweet functionality entity
 import { UserTweetEdits } from '../models/UserTweetEdits';
 
+// Import user twitter posts tracking entity
+import { UserTwitterPost } from '../models/UserTwitterPost';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -138,6 +141,8 @@ export const AppDataSource = new DataSource({
     UserTiers,
     // Edit tweet functionality entity
     UserTweetEdits,
+    // User twitter posts tracking entity
+    UserTwitterPost,
   ],
   migrations: [],
   subscribers: [],

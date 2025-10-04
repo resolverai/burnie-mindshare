@@ -2518,7 +2518,9 @@ export default function PurchaseContentModal({
       const tweetData = {
         mainTweet: tweetText,
         thread: processedThread,
-        imageUrl: displayImage
+        imageUrl: displayImage,
+        contentId: currentContent.id,
+        platformSource: 'PurchaseContentModal'
       }
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/twitter/post-thread`, {

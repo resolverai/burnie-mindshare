@@ -495,7 +495,9 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
             const payload = {
                 mainTweet: tweetText,
                 thread: processedThread,
-                imageUrl: displayImage
+                imageUrl: displayImage,
+                contentId: contentData?.id,
+                platformSource: 'TweetPreviewModal'
             };
             
             // Call the backend to post to Twitter
