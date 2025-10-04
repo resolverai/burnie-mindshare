@@ -296,13 +296,15 @@ export class TwitterEngagementService {
       
       Object.entries(allEngagementData).forEach(([tweetId, metrics]) => {
         const postId = postTweetMapping[tweetId];
-        if (!postEngagementData[postId]) {
+        if (postId && !postEngagementData[postId]) {
           postEngagementData[postId] = {};
         }
-        postEngagementData[postId][tweetId] = {
-          ...metrics,
-          last_updated: timestamp
-        };
+        if (postId) {
+          postEngagementData[postId]![tweetId] = {
+            ...metrics,
+            last_updated: timestamp
+          };
+        }
       });
 
       // Update all posts
@@ -310,8 +312,9 @@ export class TwitterEngagementService {
       const updateTime = new Date();
       
       for (const post of posts) {
-        if (postEngagementData[post.id]) {
-          post.engagementMetrics = postEngagementData[post.id];
+        const postEngagementForThisPost = postEngagementData[post.id];
+        if (postEngagementForThisPost) {
+          post.engagementMetrics = postEngagementForThisPost;
           post.lastEngagementFetch = updateTime;
           await postRepository.save(post);
           updatedCount++;

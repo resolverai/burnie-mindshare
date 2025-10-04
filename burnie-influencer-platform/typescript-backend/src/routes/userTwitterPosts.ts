@@ -177,8 +177,8 @@ router.get('/:walletAddress/stats', async (req: Request, res: Response) => {
         views: 0
       },
       postsWithEngagement: 0,
-      lastPosted: posts.length > 0 ? posts[0].postedAt : null,
-      firstPosted: posts.length > 0 ? posts[posts.length - 1].postedAt : null
+      lastPosted: posts.length > 0 ? posts[0]?.postedAt : null,
+      firstPosted: posts.length > 0 ? posts[posts.length - 1]?.postedAt : null
     };
 
     // Calculate total and average engagement
@@ -235,6 +235,13 @@ router.delete('/:postId', async (req: Request, res: Response) => {
       return res.status(401).json({
         success: false,
         message: 'Wallet address required'
+      });
+    }
+
+    if (!postId || isNaN(parseInt(postId))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid post ID required'
       });
     }
 
