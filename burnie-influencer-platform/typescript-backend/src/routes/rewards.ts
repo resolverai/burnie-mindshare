@@ -207,22 +207,32 @@ router.get('/leaderboard', async (req, res) => {
         break;
     }
 
-    // Aggregate points based on period
+    // Aggregate points based on period, but get latest referral values
     const aggregatedData = await userDailyPointsRepo.query(`
+      WITH latest_referral_data AS (
+        SELECT DISTINCT ON ("walletAddress")
+          "walletAddress",
+          "totalReferrals",
+          "activeReferrals", 
+          "totalRoastEarned"
+        FROM user_daily_points
+        ORDER BY "walletAddress", "createdAt" DESC
+      )
       SELECT 
-        "walletAddress" as wallet_address,
-        "twitterHandle" as twitter_handle,
-        name,
-        SUM("dailyPointsEarned") as total_points,
-        SUM("totalReferrals") as total_referrals,
-        SUM("activeReferrals") as active_referrals,
-        SUM("totalRoastEarned") as total_roast_earned,
-        SUM("dailyRewards") as total_daily_rewards,
-        AVG(mindshare) as avg_mindshare,
-        MAX("createdAt") as latest_created_at
-      FROM user_daily_points 
+        udp."walletAddress" as wallet_address,
+        udp."twitterHandle" as twitter_handle,
+        udp.name,
+        SUM(udp."dailyPointsEarned") as total_points,
+        lrd."totalReferrals" as total_referrals,
+        lrd."activeReferrals" as active_referrals,
+        lrd."totalRoastEarned" as total_roast_earned,
+        SUM(udp."dailyRewards") as total_daily_rewards,
+        AVG(udp.mindshare) as avg_mindshare,
+        MAX(udp."createdAt") as latest_created_at
+      FROM user_daily_points udp
+      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"
       WHERE 1=1 ${dateFilter}
-      GROUP BY "walletAddress", "twitterHandle", name
+      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"
       ORDER BY total_points DESC
       LIMIT ${limit} OFFSET ${((page as number) - 1) * (limit as number)}
     `);
@@ -307,21 +317,31 @@ router.get('/leaderboard/top-three', async (req, res) => {
         break;
     }
 
-    // Get top 3 users
+    // Get top 3 users with latest referral values
     const topThreeData = await userDailyPointsRepo.query(`
+      WITH latest_referral_data AS (
+        SELECT DISTINCT ON ("walletAddress")
+          "walletAddress",
+          "totalReferrals",
+          "activeReferrals", 
+          "totalRoastEarned"
+        FROM user_daily_points
+        ORDER BY "walletAddress", "createdAt" DESC
+      )
       SELECT 
-        "walletAddress" as wallet_address,
-        "twitterHandle" as twitter_handle,
-        name,
-        SUM("dailyPointsEarned") as total_points,
-        SUM("totalReferrals") as total_referrals,
-        SUM("activeReferrals") as active_referrals,
-        SUM("totalRoastEarned") as total_roast_earned,
-        SUM("dailyRewards") as total_daily_rewards,
-        AVG(mindshare) as avg_mindshare
-      FROM user_daily_points 
+        udp."walletAddress" as wallet_address,
+        udp."twitterHandle" as twitter_handle,
+        udp.name,
+        SUM(udp."dailyPointsEarned") as total_points,
+        lrd."totalReferrals" as total_referrals,
+        lrd."activeReferrals" as active_referrals,
+        lrd."totalRoastEarned" as total_roast_earned,
+        SUM(udp."dailyRewards") as total_daily_rewards,
+        AVG(udp.mindshare) as avg_mindshare
+      FROM user_daily_points udp
+      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"
       WHERE 1=1 ${dateFilter}
-      GROUP BY "walletAddress", "twitterHandle", name
+      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"
       ORDER BY total_points DESC
       LIMIT 3
     `);
