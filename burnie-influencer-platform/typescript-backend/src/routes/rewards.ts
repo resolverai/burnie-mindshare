@@ -233,7 +233,7 @@ router.get('/leaderboard', async (req, res) => {
       JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"
       WHERE 1=1 ${dateFilter}
       GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"
-      ORDER BY total_points DESC
+      ORDER BY total_points DESC, avg_mindshare DESC
       LIMIT ${limit} OFFSET ${((page as number) - 1) * (limit as number)}
     `);
 
@@ -342,7 +342,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
       JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"
       WHERE 1=1 ${dateFilter}
       GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"
-      ORDER BY total_points DESC
+      ORDER BY total_points DESC, avg_mindshare DESC
       LIMIT 3
     `);
 

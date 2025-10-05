@@ -733,13 +733,13 @@ class DailyPointsCalculationScript {
     const todayEnd = new Date(todayStart);
     todayEnd.setDate(todayEnd.getDate() + 1);
 
-    // Get today's entries and rank them by dailyPointsEarned
+    // Get today's entries and rank them by dailyPointsEarned, then by mindshare
     const query = `
       UPDATE user_daily_points 
       SET "dailyRank" = ranked_table.rank
       FROM (
         SELECT id, 
-               ROW_NUMBER() OVER (ORDER BY "dailyPointsEarned" DESC, "createdAt" ASC) as rank
+               ROW_NUMBER() OVER (ORDER BY "dailyPointsEarned" DESC, mindshare DESC, "createdAt" ASC) as rank
         FROM user_daily_points
         WHERE "createdAt" >= $1 AND "createdAt" < $2
       ) as ranked_table
