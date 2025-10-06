@@ -132,6 +132,9 @@ class CrewAIService:
         self.campaign_data = None
         self.agent_configs = {}
         self.twitter_insights = None
+        
+        # NEW: Advanced video options storage
+        self.advanced_video_options = None
 
         # User preferences and API keys
         self.user_agent_config = None
@@ -157,7 +160,7 @@ class CrewAIService:
             return text_list
         return [self._replace_em_dashes(str(item)) if isinstance(item, str) else item for item in text_list]
 
-    async def generate_content(self, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None, wallet_address: str = None) -> ContentGenerationResponse:
+    async def generate_content(self, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None, wallet_address: str = None, advanced_video_options = None) -> ContentGenerationResponse:
         """Main entry point for multi-agentic content generation"""
         try:
             logger.info(f"🚀 Starting CrewAI generation for user {mining_session.user_id}, campaign {mining_session.campaign_id}")
@@ -176,9 +179,14 @@ class CrewAIService:
             self.agent_id = str(agent_id) if agent_id else "default-agent"
             self.wallet_address = wallet_address or "unknown-wallet"
             
+            # NEW: Store advanced video options
+            self.advanced_video_options = advanced_video_options
+            logger.info(f"🎬 Advanced video options received: {advanced_video_options}")
+            
             # Debug: Log what was stored
             logger.info(f"🔍 DEBUG: CrewAI stored wallet_address: {self.wallet_address}")
             logger.info(f"🔍 DEBUG: CrewAI stored agent_id: {self.agent_id}")
+            logger.info(f"🔍 DEBUG: CrewAI stored advanced_video_options: {self.advanced_video_options}")
             
             # Debug: Log available API keys (without exposing actual keys)
             available_keys = list(self.user_api_keys.keys()) if self.user_api_keys else []
@@ -1330,7 +1338,8 @@ class CrewAIService:
             main_tweet_no_hashtags = re.sub(hashtag_pattern, '', main_tweet).strip()
             
             # Clean up extra spaces that might be left after hashtag removal
-            main_tweet_no_hashtags = re.sub(r'\s+', ' ', main_tweet_no_hashtags).strip()
+            # IMPORTANT: Only replace multiple spaces, NOT newlines (preserve \n for longposts)
+            main_tweet_no_hashtags = re.sub(r' +', ' ', main_tweet_no_hashtags).strip()
             
             # Log hashtag removal if any were found
             if main_tweet_no_hashtags != original_tweet:
@@ -2606,15 +2615,23 @@ class CrewAIService:
             print(f"🔥🔥🔥 CREATING CUSTOM VIDEO CREATION TOOL! 🔥🔥🔥")
             print(f"🔥 include_video: {include_video}")
             print(f"🔥 video_duration: {video_duration}")
+            print(f"🔥 advanced_video_options: {self.advanced_video_options}")
             print(f"🔥 FAL API key available: {'YES' if self.user_api_keys.get('fal') else 'NO'}")
             from app.services.s3_storage_service import S3StorageService
             s3_service = S3StorageService()  # Initialize S3 service
-            video_tool = CrewVideoCreationTool(s3_service, logger)
+            video_tool = CrewVideoCreationTool(
+                s3_service, 
+                logger, 
+                self.advanced_video_options,
+                wallet_address=self.wallet_address,
+                agent_id=self.agent_id
+            )
             tools.append(video_tool)
             available_video_providers.append('custom_video')
             print(f"🔥 CUSTOM VIDEO TOOL ADDED TO VISUAL CREATOR!")
             print(f"🔥 Tool name: {video_tool.name}")
             print(f"🔥 Tool description: {video_tool.description}")
+            print(f"🔥 Advanced options passed: {self.advanced_video_options}")
         elif include_video and not self.user_api_keys.get('fal'):
             logger.warning(f"⚠️ Video generation requested but FAL API key not available")
             print(f"🔥 VIDEO GENERATION REQUESTED BUT FAL API KEY NOT AVAILABLE!")
@@ -3339,9 +3356,29 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         include_video = getattr(self.mining_session, 'include_video', False)
         video_duration = getattr(self.mining_session, 'video_duration', 10)
         
+        # IMPORTANT FIX: Also check if video generation is enabled via advanced options
+        # This handles cases where video generation happens through advanced options even if include_video=False
+        video_enabled_via_advanced = False
+        if self.advanced_video_options:
+            # Check if any video-related advanced options are set
+            video_enabled_via_advanced = (
+                getattr(self.advanced_video_options, 'videoDuration', None) is not None or
+                getattr(self.advanced_video_options, 'clipDuration', None) is not None or
+                getattr(self.advanced_video_options, 'numberOfClips', None) is not None or
+                getattr(self.advanced_video_options, 'durationMode', None) is not None
+            )
+        
+        # Use video format if either flag indicates video generation
+        should_include_video = include_video or video_enabled_via_advanced
+        
+        logger.info(f"🎬 Visual task video settings:")
+        logger.info(f"  - mining_session.include_video: {include_video}")
+        logger.info(f"  - video_enabled_via_advanced: {video_enabled_via_advanced}")
+        logger.info(f"  - should_include_video (final): {should_include_video}")
+        
         # Check if tools are available
         has_image_tool = image_provider in ['openai', 'fal', 'google'] and self.user_api_keys.get(image_provider if image_provider != 'fal' else 'fal')
-        has_video_tool = (video_provider == 'google' and self.user_api_keys.get('google')) or (include_video and self.user_api_keys.get('fal'))
+        has_video_tool = (video_provider == 'google' and self.user_api_keys.get('google')) or (should_include_video and self.user_api_keys.get('fal'))
         
         # Validate tool availability and log for debugging
         logger.info(f"🔧 Visual task tool validation:")
@@ -3351,7 +3388,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         
         # Create dynamic workflow instructions based on video flag
         workflow_instructions = ""
-        if include_video and has_video_tool:
+        if should_include_video and has_video_tool:
             workflow_instructions = f"""
             **VIDEO GENERATION WORKFLOW** (ENABLED):
             - FIRST: Generate an image using the {image_provider}_image_generation tool
@@ -3359,7 +3396,15 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - The video tool requires: tweet_text, initial_image_prompt, initial_image_url, logo_url, project_name, video_duration
             - Video duration: {video_duration} seconds
             - The video tool will generate dynamic frames, clips, and audio automatically
-            - Return BOTH image_url (initial image) and video_url (final video) in your JSON output
+            
+            CRITICAL VIDEO TOOL RESPONSE HANDLING:
+            - The video_creation_tool returns a JSON string containing comprehensive video metadata
+            - You MUST parse this JSON response and extract ALL fields from it
+            - Include ALL extracted fields in your final JSON output alongside image_url
+            - DO NOT just copy the basic fields - include the complete video tool response data
+            - Example: If tool returns {{"video_url": "...", "frame_urls": [...], "video_metadata": {{...}}}}, include ALL these fields
+            
+            - Return BOTH image_url (initial image) and ALL video metadata from the tool response in your JSON output
             """
         else:
             workflow_instructions = f"""
@@ -3370,19 +3415,19 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             """
 
         # Precompute variables for description formatting
-        content_type = 'VIDEO' if include_video and has_video_tool else 'IMAGE'
-        video_url_field = "\"https://s3-url-here\"" if include_video and has_video_tool else "null"
+        content_type = 'VIDEO' if should_include_video and has_video_tool else 'IMAGE'
+        video_url_field = "\"https://s3-url-here\"" if should_include_video and has_video_tool else "null"
         video_meta_block = (
             "\n              \"subsequent_frame_prompts\": {\"frame2\": \"prompt\", \"frame3\": \"prompt\"},"
             "\n              \"clip_prompts\": {\"clip1\": \"prompt\", \"clip2\": \"prompt\"},"
             "\n              \"audio_prompt\": \"copy the audio prompt here\"," 
             "\n              \"video_duration\": {video_duration},"
-        ) if include_video and has_video_tool else ""
+        ) if should_include_video and has_video_tool else ""
         provider = image_provider.upper()
         model = image_model
-        dimensions = '1920x1080px' if include_video and has_video_tool else '1024x576px'
-        file_format = 'MP4' if include_video and has_video_tool else 'JPEG'
-        asset_type = 'video' if include_video and has_video_tool else 'image'
+        dimensions = '1920x1080px' if should_include_video and has_video_tool else '1024x576px'
+        file_format = 'MP4' if should_include_video and has_video_tool else 'JPEG'
+        asset_type = 'video' if should_include_video and has_video_tool else 'image'
 
         return Task(
             description=f"""
@@ -3390,15 +3435,50 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             **YOUR TOOLS**:
             {f"- {image_provider}_image_generation (for images)" if has_image_tool else "- No image generation available"}
-            {f"- video_creation_tool (for professional video generation)" if include_video and has_video_tool else f"- {video_provider}_video_generation (for videos)" if has_video_tool else "- No video generation available"}
+            {f"- video_creation_tool (for professional video generation)" if should_include_video and has_video_tool else f"- {video_provider}_video_generation (for videos)" if has_video_tool else "- No video generation available"}
             
             {workflow_instructions}
 
-            When video is generated, include these metadata fields in your final JSON output in addition to image_url and video_url:
-            - subsequent_frame_prompts (object keyed by frame: prompt)
-            - clip_prompts (object keyed by clip: prompt)
-            - audio_prompt (string)
-            - video_duration (number)
+            When video is generated, you MUST extract and include ALL metadata fields from the video_creation_tool output in your final JSON response:
+            
+            CRITICAL: The video_creation_tool returns a comprehensive JSON response. You must parse this JSON and extract ALL fields including:
+            - video_url (string): The final video S3 URL
+            - subsequent_frame_prompts (object): Complete frame prompts with regular/prime streams
+            - clip_prompts (object): Complete clip prompts with regular/prime streams  
+            - audio_prompt (string): Main audio prompt
+            - audio_prompts (object): Complete audio prompts with regular/prime streams and voiceover
+            - video_duration (number): Video duration
+            - frame_urls (array): All frame S3 URLs
+            - clip_urls (array): All clip S3 URLs
+            - combined_video_s3_url (string): Combined video URL
+            - is_video (boolean): Video flag
+            - video_metadata (object): Complete video metadata
+            - advanced_video_metadata (object): Advanced options metadata
+            - All other metadata fields from the tool response
+            
+            EXAMPLE: If video_creation_tool returns:
+            {{"success": true, "video_url": "https://s3.../video.mp4", "subsequent_frame_prompts": {{"frame2": "prompt"}}, "clip_prompts": {{"clip1": "prompt"}}, "audio_prompt": "audio prompt", "video_duration": 5, "frame_urls": ["https://s3.../frame1.jpg"], "clip_urls": ["https://s3.../clip1.mp4"], "video_metadata": {{"llm_provider": "grok"}}, "advanced_video_metadata": {{"duration_mode": "clip_based"}}}}
+            
+            Then your Final Answer MUST include ALL these fields:
+            {{
+              "content_type": "VIDEO",
+              "image_url": "https://s3.../initial_image.jpg",
+              "video_url": "https://s3.../video.mp4",
+              "subsequent_frame_prompts": {{"frame2": "prompt"}},
+              "clip_prompts": {{"clip1": "prompt"}},
+              "audio_prompt": "audio prompt",
+              "video_duration": 5,
+              "frame_urls": ["https://s3.../frame1.jpg"],
+              "clip_urls": ["https://s3.../clip1.mp4"],
+              "video_metadata": {{"llm_provider": "grok"}},
+              "advanced_video_metadata": {{"duration_mode": "clip_based"}},
+              "provider_used": "FAL",
+              "model_used": "flux-pro/kontext",
+              "dimensions": "1920x1080px",
+              "file_format": "MP4"
+            }}
+            
+            DO NOT just copy basic fields - extract and include the COMPLETE video tool response data.
             
             📖 **AUTONOMOUS PROMPT GENERATION PROCESS** (CRITICAL):
             You are an AI visual expert who creates original, compelling prompts without relying on templates. Your mission is to analyze tweet content and craft unique, high-impact visual prompts that perfectly complement the message.
@@ -3602,7 +3682,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             agent=self.agents[AgentType.VISUAL_CREATOR],
             expected_output=(
                 "Single JSON object with content_type, image_url, "
-                + ("video_url, subsequent_frame_prompts, clip_prompts, audio_prompt, video_duration, " if include_video and has_video_tool else "")
+                + ("video_url, subsequent_frame_prompts, clip_prompts, audio_prompt, audio_prompts, video_duration, frame_urls, clip_urls, combined_video_s3_url, is_video, video_metadata, advanced_video_metadata, and ALL other fields from video_creation_tool response, " if should_include_video and has_video_tool else "")
                 + "provider_used, model_used, dimensions, file_format, execution_tier, strategy_alignment, alt_text - no additional text or explanations"
             )
         )
@@ -3612,9 +3692,29 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         post_type = getattr(self.mining_session, 'post_type', 'thread')
         include_video = getattr(self.mining_session, 'include_video', False)
         
+        # IMPORTANT FIX: Also check if video generation is enabled via advanced options
+        # This handles cases where video generation happens through advanced options even if include_video=False
+        video_enabled_via_advanced = False
+        if self.advanced_video_options:
+            # Check if any video-related advanced options are set
+            video_enabled_via_advanced = (
+                getattr(self.advanced_video_options, 'videoDuration', None) is not None or
+                getattr(self.advanced_video_options, 'clipDuration', None) is not None or
+                getattr(self.advanced_video_options, 'numberOfClips', None) is not None or
+                getattr(self.advanced_video_options, 'durationMode', None) is not None
+            )
+        
+        # Use video format if either flag indicates video generation
+        should_include_video = include_video or video_enabled_via_advanced
+        
+        logger.info(f"🎬 Orchestration task video settings:")
+        logger.info(f"  - mining_session.include_video: {include_video}")
+        logger.info(f"  - video_enabled_via_advanced: {video_enabled_via_advanced}")
+        logger.info(f"  - should_include_video (final): {should_include_video}")
+        
         # Define task instructions based on post type and video content
         if post_type == 'longpost':
-            if include_video:
+            if should_include_video:
                 format_example = '''{
     "main_tweet": "copy the comprehensive longpost content here",
     "image_url": "copy the image URL here (initial image)",
@@ -3643,7 +3743,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                 fallback_rules = """- If no image URL exists, use empty string: ""
 - Do NOT include thread_array for longposts"""
         else:
-            if include_video:
+            if should_include_video:
                 format_example = '''{
     "main_tweet": "copy the main tweet text here",
     "thread_array": ["copy", "the", "thread", "array", "here"],
@@ -3652,13 +3752,46 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
     "subsequent_frame_prompts": {"frame2": "prompt", "frame3": "prompt"},
     "clip_prompts": {"clip1": "prompt", "clip2": "prompt"},
     "audio_prompt": "copy the audio prompt here",
-    "video_duration": 10
+    "video_duration": 10,
+    "frame_urls": ["copy", "all", "frame", "urls", "here"],
+    "clip_urls": ["copy", "all", "clip", "urls", "here"],
+    "video_metadata": {"copy": "complete", "video": "metadata", "here"},
+    "advanced_video_metadata": {"copy": "advanced", "video": "metadata", "here"}
 }'''
                 instructions = """1. Look for the JSON output from Text Content Creator (has "main_tweet" and "thread_array")
-2. Look for BOTH image_url and video_url from Visual Content Creator
-3. If video generation failed, set video_url to image_url and still include image_url
-4. You MUST include these fields when video is generated: subsequent_frame_prompts (object), clip_prompts (object), audio_prompt (string), video_duration (number)
-5. Combine them into exactly this JSON format:"""
+2. Look for the Visual Content Creator's Final Answer JSON which contains comprehensive video metadata
+3. CRITICAL: The Visual Content Creator returns a complete JSON with ALL video fields - you must extract ALL of them:
+   - video_url (string): Final video S3 URL ending in .mp4
+   - image_url (string): Initial image S3 URL  
+   - subsequent_frame_prompts (object): Complete frame prompts with regular/prime streams
+   - clip_prompts (object): Complete clip prompts with regular/prime streams
+   - audio_prompt (string): Main audio prompt
+   - video_duration (number): Video duration
+   - frame_urls (array): All frame S3 URLs
+   - clip_urls (array): All clip S3 URLs
+   - video_metadata (object): Complete video metadata
+   - advanced_video_metadata (object): Advanced options metadata
+4. Extract ALL these fields from the Visual Content Creator's Final Answer JSON
+5. If video generation failed or video_url is missing, set video_url to image_url
+
+EXAMPLE: If Visual Content Creator's Final Answer contains:
+{
+  "content_type": "VIDEO",
+  "video_url": "https://s3.../video.mp4",
+  "image_url": "https://s3.../image.jpg",
+  "subsequent_frame_prompts": {"regular": {"frame2": "prompt"}},
+  "clip_prompts": {"regular": {"clip1": "prompt"}},
+  "audio_prompt": "audio prompt text",
+  "video_duration": 5,
+  "frame_urls": ["https://s3.../frame1.jpg"],
+  "clip_urls": ["https://s3.../clip1.mp4"],
+  "video_metadata": {"llm_provider": "grok"},
+  "advanced_video_metadata": {"duration_mode": "clip_based"}
+}
+
+Then extract ALL these fields and include them in your output.
+
+6. Combine them into exactly this JSON format:"""
                 fallback_rules = """- If no thread_array exists, use an empty array: []
 - If no video URL exists, use image URL as fallback
 - If no image URL exists, use empty string: \"\""""
@@ -3679,6 +3812,14 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             COMBINE JSON OUTPUTS INTO SINGLE CLEAN JSON
             
             You must find and combine the outputs from the Text Content Creator and Visual Content Creator.
+            
+            CRITICAL: The Visual Content Creator provides a comprehensive JSON response with ALL video metadata.
+            You MUST extract and include ALL video-related fields from their Final Answer JSON.
+            
+            DO NOT just copy basic fields - extract the COMPLETE video data including:
+            - video_url, image_url, subsequent_frame_prompts, clip_prompts, audio_prompt, video_duration
+            - frame_urls, clip_urls, video_metadata, advanced_video_metadata
+            - ALL other video-related fields from the Visual Content Creator's response
             
             INSTRUCTIONS:
             {instructions}
@@ -3821,12 +3962,32 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             
             try:
                 import json
+                import re  # ✅ Add missing re import
                 
                 # Try multiple approaches to extract JSON from orchestrator output
                 json_found = False
                 
-                # Approach 1: Look for complete JSON object with main_tweet
-                json_match = re.search(r'\{(?:[^{}]|{[^{}]*}|\[[^\]]*\])*"main_tweet"(?:[^{}]|{[^{}]*}|\[[^\]]*\])*\}', raw_result, re.DOTALL)
+                # Approach 1: Try to parse the entire raw result as JSON first (for clean JSON output)
+                try:
+                    parsed_json = json.loads(raw_result.strip())
+                    if "main_tweet" in parsed_json:
+                        final_content = self._replace_em_dashes(parsed_json.get("main_tweet", ""))
+                        tweet_thread = self._replace_em_dashes_in_list(parsed_json.get("thread_array", []))
+                        video_url = parsed_json.get("video_url", "")
+                        json_found = True
+                        
+                        # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
+                        final_content = self._ensure_project_handle_tagged(final_content)
+                        
+                        logger.info(f"✅ Successfully parsed orchestrator JSON output (direct parse)")
+                        logger.info(f"✅ Extracted main_tweet length: {len(str(final_content)) if final_content else 0} chars")
+                        logger.info(f"✅ Extracted thread_array: {len(tweet_thread) if tweet_thread else 0} tweets")
+                except json.JSONDecodeError:
+                    logger.info("🔍 Direct JSON parse failed, trying regex extraction...")
+                
+                # Approach 2: Look for complete JSON object with main_tweet using regex
+                if not json_found:
+                    json_match = re.search(r'\{(?:[^{}]|{[^{}]*}|\[[^\]]*\])*"main_tweet"(?:[^{}]|{[^{}]*}|\[[^\]]*\])*\}', raw_result, re.DOTALL)
                 if json_match:
                     try:
                         json_str = json_match.group(0)
@@ -3958,18 +4119,53 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Extract optional video metadata fields if present in orchestrator JSON
             video_metadata: Dict[str, Any] = {}
             try:
-                parsed = json.loads(raw_result)
-                for key in [
-                    "subsequent_frame_prompts",
-                    "clip_prompts",
-                    "audio_prompt",
-                    "video_duration",
-                    "frame_urls",
-                    "clip_urls"
-                ]:
-                    if key in parsed:
-                        video_metadata[key] = parsed[key]
-            except Exception:
+                # Use the same JSON parsing approach as above
+                parsed = None
+                
+                # Try direct JSON parse first
+                try:
+                    parsed = json.loads(raw_result.strip())
+                except json.JSONDecodeError:
+                    # Try regex extraction
+                    json_match = re.search(r'\{(?:[^{}]|{[^{}]*}|\[[^\]]*\])*"main_tweet"(?:[^{}]|{[^{}]*}|\[[^\]]*\])*\}', raw_result, re.DOTALL)
+                    if json_match:
+                        json_str = json_match.group(0)
+                        parsed = json.loads(json_str)
+                
+                if parsed:
+                    # Extract ALL video-related fields from orchestrator output
+                    for key in [
+                        "subsequent_frame_prompts",
+                        "clip_prompts", 
+                        "audio_prompt",
+                        "audio_prompts",  # ✅ Added comprehensive audio prompts
+                        "video_duration",
+                        "frame_urls",
+                        "clip_urls",
+                        "combined_video_s3_url",  # ✅ Added combined video URL
+                        "is_video",  # ✅ Added video flag
+                        "video_metadata",  # ✅ Added nested video metadata
+                        "advanced_video_metadata"  # ✅ Added advanced metadata
+                    ]:
+                        if key in parsed:
+                            video_metadata[key] = parsed[key]
+                            
+                    logger.info(f"✅ Extracted {len(video_metadata)} video metadata fields from orchestrator output")
+                    if video_metadata:
+                        logger.info(f"🎬 Video metadata keys: {list(video_metadata.keys())}")
+                        # Debug: Log specific prompt data
+                        if "subsequent_frame_prompts" in video_metadata:
+                            logger.info(f"🎬 Frame prompts extracted: {type(video_metadata['subsequent_frame_prompts'])}")
+                        if "clip_prompts" in video_metadata:
+                            logger.info(f"🎬 Clip prompts extracted: {type(video_metadata['clip_prompts'])}")
+                        if "audio_prompt" in video_metadata:
+                            logger.info(f"🎬 Audio prompt extracted: {len(str(video_metadata['audio_prompt']))}")
+                        if "audio_prompts" in video_metadata:
+                            logger.info(f"🎬 Audio prompts extracted: {type(video_metadata['audio_prompts'])}")
+                else:
+                    logger.warning("⚠️ No valid JSON found for video metadata extraction")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to extract video metadata from orchestrator JSON: {e}")
                 pass
 
             return {
@@ -4065,7 +4261,7 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             # Create the response with properly extracted images, thread, and video
             # Pull optional video meta for DB persistence
             video_meta = generation_result.get("video_metadata") or {}
-
+            
             response = ContentGenerationResponse(
                 content_text=final_content,
                 tweet_thread=tweet_thread,  # Include tweet thread
@@ -4581,7 +4777,7 @@ No image generated
         return "No specific writing style data - using platform best practices"
 
     async def _sync_to_marketplace(self, content: ContentGenerationResponse, mining_session: MiningSession) -> bool:
-        """Sync generated content to TypeScript backend marketplace"""
+        """Sync generated content to TypeScript backend marketplace and insert video analytics"""
         try:
             import httpx
             from app.config.settings import settings
@@ -4589,13 +4785,27 @@ No image generated
             # Prepare content data for marketplace with em-dash replacement
             # Pull optional video meta from generation_metadata
             video_meta = (content.generation_metadata or {}).get("video_metadata", {}) if isinstance(content.generation_metadata, dict) else {}
+            
+            # Debug: Log video metadata extraction for marketplace
+            logger.info(f"🧩 DEBUG: Video metadata for marketplace payload:")
+            logger.info(f"   - video_meta keys: {list(video_meta.keys()) if video_meta else 'None'}")
+            logger.info(f"   - subsequent_frame_prompts: {'Present' if video_meta.get('subsequent_frame_prompts') else 'Missing'}")
+            logger.info(f"   - clip_prompts: {'Present' if video_meta.get('clip_prompts') else 'Missing'}")
+            logger.info(f"   - audio_prompt: {'Present' if video_meta.get('audio_prompt') else 'Missing'}")
+            logger.info(f"   - audio_prompts: {'Present' if video_meta.get('audio_prompts') else 'Missing'}")
+            
+            # Check for nested video_metadata structure
+            nested_video_meta = video_meta.get("video_metadata", {}) if video_meta else {}
+            if nested_video_meta:
+                logger.info(f"🧩 DEBUG: Found nested video_metadata with keys: {list(nested_video_meta.keys())}")
+                logger.info(f"   - nested audio_prompts: {'Present' if nested_video_meta.get('audio_prompts') else 'Missing'}")
 
             logger.info(f"🧩 Preparing marketplace sync payload (image count={len(content.content_images) if content.content_images else 0}, video_url={'yes' if getattr(content, 'video_url', None) else 'no'})")
-            # Pull optional video meta from generation_metadata
-            video_meta = (content.generation_metadata or {}).get("video_metadata", {}) if isinstance(content.generation_metadata, dict) else {}
-
+            
+            processed_content_text = self._replace_em_dashes(content.content_text)
+            
             content_data = {
-                "content_text": self._replace_em_dashes(content.content_text),
+                "content_text": processed_content_text,
                 "tweet_thread": self._replace_em_dashes_in_list(getattr(content, 'tweet_thread', None) or []),  # Include tweet thread if available
                 "content_images": content.content_images,  # Include images in sync payload (should already exclude videos)
                 "predicted_mindshare": content.predicted_mindshare,
@@ -4608,7 +4818,10 @@ No image generated
                 "video_duration": int(video_meta.get("video_duration") or getattr(mining_session, 'video_duration', 10)),
                 "subsequent_frame_prompts": video_meta.get("subsequent_frame_prompts"),
                 "clip_prompts": video_meta.get("clip_prompts"),
-                "audio_prompt": video_meta.get("audio_prompt")
+                "audio_prompt": video_meta.get("audio_prompt"),
+                # NEW: Enhanced audio prompts with dual-stream support - check nested structure first
+                "audio_prompts": nested_video_meta.get("audio_prompts") or video_meta.get("audio_prompts"),
+                "advanced_video_metadata": self.advanced_video_options.__dict__ if self.advanced_video_options else None
             }
 
             try:
@@ -4649,6 +4862,14 @@ No image generated
                     sync_result = response.json()
                     content_id = sync_result['data']['id']
                     logger.info(f"✅ Content synced to marketplace: ID {content_id}")
+                    
+                    # Store the content ID in the ContentGenerationResponse for approval flow
+                    content.content_id = content_id
+                    
+                    # NEW: Insert video analytics data if this is a video generation (now that we have content_id)
+                    if getattr(content, 'video_url', None) and self.advanced_video_options:
+                        video_analytics_id = await self._insert_video_analytics(content, mining_session, video_meta, content_id)
+                        logger.info(f"📊 Video analytics inserted with ID: {video_analytics_id}")
                     
                     # If this is a yapper interface request, update execution tracking with content ID
                     if self.execution_id and getattr(mining_session, 'source', 'mining_interface') == 'yapper_interface':
@@ -4691,6 +4912,120 @@ No image generated
         except Exception as e:
             logger.error(f"❌ Error syncing content to marketplace: {e}")
             return False
+
+    async def _insert_video_analytics(self, content: ContentGenerationResponse, mining_session: MiningSession, video_meta: dict, content_id: int) -> int:
+        """Insert video analytics data into the database and return the analytics ID"""
+        try:
+            import httpx
+            from app.config.settings import settings
+            from datetime import datetime
+            
+            # Prepare video analytics data
+            analytics_data = {
+                "user_id": mining_session.user_id,
+                "content_id": content_id,  # Now we have the content_id from marketplace sync
+                "project_name": getattr(mining_session, 'project_name', 'Unknown'),
+                "video_url": getattr(content, 'video_url', None),
+                "initial_image_url": getattr(content, 'content_images', [None])[0] if getattr(content, 'content_images', None) else None,
+                "logo_url": getattr(mining_session, 'logo_url', None),
+                
+                # Duration System - use camelCase field names
+                "duration_mode": getattr(self.advanced_video_options, 'durationMode', 'video_duration') if self.advanced_video_options else 'video_duration',
+                "video_duration": video_meta.get("video_duration") or getattr(self.advanced_video_options, 'videoDuration', getattr(mining_session, 'video_duration', 10)) if self.advanced_video_options else getattr(mining_session, 'video_duration', 10),
+                "clip_duration": getattr(self.advanced_video_options, 'clipDuration', 5) if self.advanced_video_options else 5,
+                "number_of_clips": getattr(self.advanced_video_options, 'numberOfClips', None) if self.advanced_video_options else None,
+                
+                # Character Control - use camelCase field names
+                "character_control": getattr(self.advanced_video_options, 'characterControl', 'unlimited') if self.advanced_video_options else 'unlimited',
+                "human_characters_only": getattr(self.advanced_video_options, 'characterControl', '') == 'human_only' if self.advanced_video_options else False,
+                "web3_characters": getattr(self.advanced_video_options, 'characterControl', '') == 'web3_memes' if self.advanced_video_options else False,
+                "no_characters": getattr(self.advanced_video_options, 'characterControl', '') == 'no_characters' if self.advanced_video_options else False,
+                
+                # Audio System - use camelCase field names
+                "audio_system": getattr(self.advanced_video_options, 'audioSystem', 'individual_clips') if self.advanced_video_options else 'individual_clips',
+                "enable_voiceover": getattr(self.advanced_video_options, 'enableVoiceover', False) if self.advanced_video_options else False,
+                "clip_audio_prompts": getattr(self.advanced_video_options, 'audioSystem', 'individual_clips') == 'individual_clips' if self.advanced_video_options else True,
+                
+                # Creative Control - use camelCase field names
+                "enable_crossfade_transitions": getattr(self.advanced_video_options, 'enableCrossfadeTransitions', True) if self.advanced_video_options else True,
+                "random_mode": getattr(self.advanced_video_options, 'randomMode', 'true_random') if self.advanced_video_options else 'true_random',
+                "use_brand_aesthetics": getattr(self.advanced_video_options, 'useBrandAesthetics', False) if self.advanced_video_options else False,
+                "include_product_images": getattr(self.advanced_video_options, 'includeProductImages', False) if self.advanced_video_options else False,
+                
+                # Model Options - use camelCase field names
+                "image_model": getattr(self.advanced_video_options, 'imageModel', 'seedream') if self.advanced_video_options else 'seedream',
+                "llm_provider": getattr(self.advanced_video_options, 'llmProvider', 'grok') if self.advanced_video_options else 'grok',
+                
+                # Generation Status
+                "video_generation_status": "completed" if getattr(content, 'video_url', None) else "failed",
+                "generation_start_time": datetime.utcnow().isoformat(),
+                "generation_end_time": datetime.utcnow().isoformat(),
+                "generation_duration_seconds": video_meta.get("generation_duration_seconds", 0),
+                
+                # Advanced Metadata
+                "advanced_options_metadata": self.advanced_video_options.__dict__ if self.advanced_video_options else {},
+                "generation_metadata": video_meta,
+                "frame_urls": video_meta.get("frame_urls", []),
+                "clip_urls": video_meta.get("clip_urls", []),
+                "audio_urls": video_meta.get("audio_urls", []),
+                "voiceover_urls": video_meta.get("voiceover_urls", []),
+                
+                # Content Information
+                "tweet_text": content.content_text[:500] if content.content_text else None,  # Truncate for storage
+                "initial_image_prompt": getattr(self, 'stored_image_prompt', '')[:500],
+                "theme": getattr(self.advanced_video_options, 'theme', None) if self.advanced_video_options else None,
+                
+                # Performance Metrics
+                "frames_generated": video_meta.get("frames_generated", 0),
+                "clips_generated": video_meta.get("clips_generated", 0),
+                "audio_tracks_generated": video_meta.get("audio_tracks_generated", 0),
+                "voiceover_tracks_generated": video_meta.get("voiceover_tracks_generated", 0),
+                "total_processing_cost": video_meta.get("total_processing_cost", 0),
+                "api_calls_made": video_meta.get("api_calls_made", 0),
+                
+                # Source and Context
+                "source": getattr(mining_session, 'source', 'mining_interface'),
+                "session_id": self.session_id,
+                "execution_id": self.execution_id
+            }
+            
+            # Send to TypeScript backend for video analytics insertion
+            typescript_backend_url = settings.typescript_backend_url
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{typescript_backend_url}/api/video-analytics",
+                    json=analytics_data,
+                    timeout=10.0
+                )
+                
+                if response.status_code == 201:
+                    result = response.json()
+                    analytics_id = result['data']['id']
+                    logger.info(f"✅ Video analytics inserted with ID: {analytics_id}")
+                    
+                    return analytics_id
+                else:
+                    logger.warning(f"⚠️ Video analytics insertion failed: {response.status_code} - {response.text}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"❌ Error inserting video analytics: {e}")
+            return None
+
+    def _get_character_control_type(self) -> str:
+        """Get the character control type based on advanced options"""
+        if not self.advanced_video_options:
+            return 'unlimited'
+        
+        if getattr(self.advanced_video_options, 'no_characters', False):
+            return 'no_characters'
+        elif getattr(self.advanced_video_options, 'human_characters_only', False):
+            return 'human_only'
+        elif getattr(self.advanced_video_options, 'web3', False):
+            return 'web3'
+        else:
+            return 'unlimited'
 
     def _extract_twitter_content(self, raw_result: str) -> Dict[str, Any]:
         """Extract Twitter content directly from agent JSON - SIMPLE VERSION"""

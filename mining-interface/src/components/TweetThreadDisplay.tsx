@@ -18,6 +18,7 @@ interface TweetThreadDisplayProps {
   video_url?: string
   watermark_video_url?: string
   video_duration?: number
+  autoPlay?: boolean // Add autoPlay prop to control video autoplay
 }
 
 export default function TweetThreadDisplay({
@@ -32,7 +33,8 @@ export default function TweetThreadDisplay({
   is_video = false,
   video_url,
   watermark_video_url,
-  video_duration
+  video_duration,
+  autoPlay = true // Default to true for backward compatibility (Mining screen behavior)
 }: TweetThreadDisplayProps) {
   const [isThreadExpanded, setIsThreadExpanded] = useState(false)
   const [videoFailed, setVideoFailed] = useState(false)
@@ -99,7 +101,7 @@ export default function TweetThreadDisplay({
                 <VideoPlayer
                   src={video_url}
                   poster={imageUrl || undefined}
-                  autoPlay={true}
+                  autoPlay={autoPlay}
                   controls={true}
                   className="w-full h-auto"
                   onError={() => {

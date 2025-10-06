@@ -86,10 +86,19 @@ async def create_video_watermark(request: VideoWatermarkRequest):
                     ExtraArgs={'ContentType': 'video/mp4'}
                 )
             
-            # Generate public URL
-            watermark_video_url = f"https://{request.s3_bucket}.s3.amazonaws.com/{watermarked_s3_key}"
+            # Generate presigned URL for consistency with other media URLs
+            from app.services.s3_storage_service import get_s3_storage
+            s3_service = get_s3_storage()
             
-            logger.info(f"✅ Watermarked video uploaded: {watermark_video_url}")
+            presigned_result = s3_service.generate_presigned_url(watermarked_s3_key, expiration=3600)
+            
+            if presigned_result.get('success'):
+                watermark_video_url = presigned_result['presigned_url']
+                logger.info(f"✅ Watermarked video uploaded with presigned URL: {watermark_video_url[:100]}...")
+            else:
+                # Fallback to direct S3 URL if presigned generation fails
+                watermark_video_url = f"https://{request.s3_bucket}.s3.amazonaws.com/{watermarked_s3_key}"
+                logger.warning(f"⚠️ Failed to generate presigned URL, using direct S3 URL: {presigned_result.get('error')}")
             
             return VideoWatermarkResponse(
                 success=True,

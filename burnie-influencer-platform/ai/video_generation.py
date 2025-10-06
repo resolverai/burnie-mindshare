@@ -263,14 +263,15 @@ class VideoGenerator:
         clip_prompts = []
         for i in range(1, self.clip_count + 1):
             if self.video_duration >= 20:
-                # For longer videos, emphasize scene transitions and narrative flow
-                clip_prompts.append(f'    "clip{i}_prompt": "Focus on smooth, minimal transitions with natural camera movements. Avoid excessive cuts, zooms, or complex transitions. Create realistic, cinematic flow with subtle camera work and natural scene progression. For {self.video_duration}-second videos, you can transition between COMPLETELY DIFFERENT scenes and locations to create a compelling brand narrative"')
-                # Add prime clip prompt for dynamic scene generation
-                clip_prompts.append(f'    "clip{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene with smooth, minimal transitions. Focus on natural camera movements and realistic scene progression. Avoid excessive cuts, zooms, or complex transitions. Maintain brand message and narrative coherence"')
+                # For longer videos, emphasize scene transitions and narrative flow with physics-based transitions
+                clip_prompts.append(f'    "clip{i}_prompt": "You have COMPLETE CREATIVE AUTONOMY to design the best transition for this clip. Choose from physics-based entry methods (natural walking/running into frame, emerging from background, camera reveals), smooth continuations (ongoing activities, natural movements), or natural exits (walking away, moving behind objects). ALL movements must follow real-world physics - NO sudden appearances, teleportation, or flying effects. Focus on smooth, minimal transitions with natural camera movements and realistic character physics. For {self.video_duration}-second videos, you can transition between COMPLETELY DIFFERENT scenes and locations while maintaining natural character movements and physics-based realism. Create compelling brand narrative with professional cinematic quality."')
+                # Add prime clip prompt for dynamic scene generation with physics
+                clip_prompts.append(f'    "clip{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene with autonomous transition design. You have full creative control to select the most appropriate physics-based transition method. Use natural character entry/exit methods, smooth camera movements, and realistic scene progression. ALL character movements must follow real-world physics with proper momentum, balance, and natural motion. Avoid excessive cuts, zooms, or complex transitions. Maintain brand message and narrative coherence while ensuring professional, believable character physics."')
             else:
-                clip_prompts.append(f'    "clip{i}_prompt": "Focus on smooth, minimal transitions with natural camera movements. Avoid excessive cuts, zooms, or complex transitions. Create realistic, cinematic flow with subtle camera work and natural scene progression"')
-                # Add prime clip prompt for dynamic scene generation
-                clip_prompts.append(f'    "clip{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene with smooth, minimal transitions. Focus on natural camera movements and realistic scene progression. Avoid excessive cuts, zooms, or complex transitions. Maintain brand message and narrative coherence"')
+                # Standard video duration with enhanced physics-based transitions
+                clip_prompts.append(f'    "clip{i}_prompt": "You have COMPLETE CREATIVE AUTONOMY to design the best transition for this clip. Choose from physics-based entry methods (natural walking/running into frame, emerging from background, camera reveals), smooth continuations (ongoing activities, natural movements), or natural exits (walking away, moving behind objects). ALL movements must follow real-world physics - NO sudden appearances, teleportation, or flying effects. Focus on smooth, minimal transitions with natural camera movements, realistic character physics, and professional cinematic flow."')
+                # Add prime clip prompt for dynamic scene generation with physics
+                clip_prompts.append(f'    "clip{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene with autonomous transition design. You have full creative control to select the most appropriate physics-based transition method. Use natural character entry/exit methods, smooth camera movements, and realistic scene progression. ALL character movements must follow real-world physics with proper momentum, balance, and natural motion. Maintain brand message and narrative coherence while ensuring professional, believable character physics."')
             # Add logo decision for each clip
             clip_prompts.append(f'    "clip{i}_logo_needed": true/false')
             clip_prompts.append(f'    "clip{i}_prime_logo_needed": true/false')
@@ -346,6 +347,63 @@ class VideoGenerator:
             print(f"❌ Error selecting product image: {str(e)}")
             return None
     
+    def _get_transition_physics_instructions(self):
+        """Get comprehensive transition physics instructions for autonomous LLM decision-making."""
+        return f"""🎬 AUTONOMOUS TRANSITION DESIGN & PHYSICS:
+
+You have COMPLETE CREATIVE CONTROL over transition types. Select the most appropriate method for each clip based on the story flow and character changes:
+
+🚶 PHYSICS-BASED ENTRY OPTIONS (when characters appear):
+• Natural walking/running into frame from any direction (left, right, background, foreground)
+• Emerging naturally from background elements (trees, buildings, crowds, shadows)
+• Camera movement revealing characters already naturally positioned in environment
+• Stepping through doorways, passages, or around obstacles with realistic movement
+• Approaching from distance with proper perspective scaling and natural pace
+• Rising from seated/crouched positions or emerging from behind objects
+• Vehicle exits with realistic door opening and stepping mechanics
+
+🔄 SMOOTH CONTINUATION OPTIONS (existing characters):
+• Characters continuing established activities with natural progression
+• Seamless transition between related actions and movements
+• Natural movement within familiar environment and scene elements
+• Realistic interaction with objects, tools, or environmental features
+• Conversation continuations with appropriate body language and spacing
+• Activity transitions that maintain momentum and natural flow
+
+🚪 NATURAL EXIT METHODS (when characters leave):
+• Walking naturally toward edges, background, or off-camera areas
+• Moving behind environmental elements with realistic occlusion
+• Entering vehicles, buildings, or passages with proper interaction
+• Camera pan away while characters remain in natural positions
+• Gradual movement to background while maintaining scene presence
+
+⚠️ CRITICAL PHYSICS REQUIREMENTS (MANDATORY):
+• ALL movements must follow real-world physics and natural motion
+• NO sudden appearances, teleportation, "popping in," or "flying in" effects
+• Characters must have realistic momentum, acceleration, and deceleration
+• Maintain proper balance, posture, and natural body mechanics throughout
+• Use realistic walking/running pace appropriate for the scene context
+• Ensure consistent lighting, shadows, and scale throughout transitions
+• Respect spatial relationships and natural social distances between characters
+• All camera movements must be smooth and professionally executed
+
+🎨 CREATIVE AUTONOMY & DECISION MAKING:
+• YOU autonomously decide which transition type works best for each specific clip
+• YOU choose the optimal camera angle, movement, and framing for the transition
+• YOU determine the most natural character introduction, continuation, or exit method
+• YOU balance story requirements with physics realism for professional results
+• YOU create variety in transition types across clips while maintaining consistency
+• Focus on creating smooth, professional, believable transitions that serve the brand narrative
+
+🎯 TRANSITION SELECTION STRATEGY:
+• Consider what characters exist in previous vs. current frame
+• Choose entry methods that feel natural for the specific environment
+• Ensure transitions support the overall brand story and message
+• Maintain visual continuity and professional cinematic quality
+• Create engaging, dynamic content while respecting physics limitations
+
+REMEMBER: These are creative guidelines for your autonomous decision-making, not rigid templates. Generate original, contextually appropriate transitions that feel natural and serve the brand story effectively."""
+
     def _get_audio_continuity_instructions(self):
         """Get audio continuity instructions for individual clip audio generation"""
         return f"""
@@ -463,15 +521,17 @@ REAL-WORLD PHYSICS REQUIREMENTS:
     def _get_character_instructions(self):
         """Generate character instructions based on no_characters, human_characters_only, and web3 flags."""
         if self.no_characters:
-            return f"""🎭 CHARACTER REQUIREMENTS (NO CHARACTERS - PURE PRODUCT SHOWCASE):
-- ZERO CHARACTERS: Do NOT include any characters of any kind - no humans, no meme characters, no comic characters, no animals, no anthropomorphized objects
-- PURE PRODUCT FOCUS: Show ONLY the actual brand products and related objects
-- PRODUCT SHOWCASE: Focus entirely on product features, benefits, design, and visual appeal
-- BRAND-CENTRIC VISUALS: All frames should highlight the products themselves in beautiful, professional settings
-- OBJECT-ONLY SCENES: Products can be shown in environments (rooms, landscapes, studios) but without any living beings or character elements
-- PRODUCT STORYTELLING: Tell the brand story through the products themselves - their design, functionality, craftsmanship, and benefits
-- PROFESSIONAL PRESENTATION: Create compelling product photography and videography that showcases quality and desirability
-- NO PERSONIFICATION: Objects should remain as objects - no talking products, no faces on items, no character-like behavior"""
+            return f"""🎭 CHARACTER CONTINUITY (NO NEW CHARACTERS - MAINTAIN EXISTING):
+- CHARACTER CONTINUITY REQUIREMENT: If the initial image contains characters, you MUST maintain those same characters throughout all frames for visual continuity
+- NO NEW CHARACTERS: Do NOT introduce any additional characters beyond what exists in the initial image/prompt
+- EXISTING CHARACTER PRESERVATION: Keep any characters that are already established in the initial image - they are part of the established visual narrative
+- CONSISTENT CHARACTER PORTRAYAL: If initial characters exist, maintain their appearance, style, and role throughout the video
+- PRODUCT-FOCUSED EXPANSION: When adding new visual elements, focus on products, technology, environments, and brand elements rather than new characters
+- NARRATIVE CONTINUITY: Use existing characters (if any) to tell the brand story, but don't add new ones
+- VISUAL CONSISTENCY: Maintain the same character count and types as established in the initial image
+- BRAND-CENTRIC ADDITIONS: Any new elements should be products, services, technology, or environmental features that support the brand message
+- CHARACTER STABILITY: If the initial image has no characters, maintain that character-free approach throughout
+- CONTINUITY OVER EXPANSION: Prioritize visual continuity and consistency over character variety or expansion"""
         
         elif self.human_characters_only:
             return f"""🎭 CHARACTER REQUIREMENTS (HUMAN CHARACTERS ONLY):
@@ -483,37 +543,35 @@ REAL-WORLD PHYSICS REQUIREMENTS:
 - REALISTIC PORTRAYAL: Focus on authentic human experiences and relatable scenarios"""
         
         elif self.web3:
-            return f"""🎭 CHARACTER REQUIREMENTS (WEB3 MEME FOCUS):
-- CREATIVE AUTONOMY: You have FULL AUTONOMY to decide how many characters (0, 1, 2, 3, 4, or N) to include based on the brand story
-- WEB3 MEME CHARACTERS: Focus on popular Web3/crypto meme characters (Pepe, Wojak, Chad, HODL guy, Diamond Hands, Paper Hands, Moon boy, Ape characters, Doge, Shiba Inu, etc.)
-- STYLE FLEXIBILITY: These characters can be in any style (realistic, comic, or mixed) - you decide what works best for the brand narrative
-- CRYPTO CULTURE: Incorporate Web3 culture, crypto community vibes, and blockchain-related themes
-- MEME INTEGRATION: Use popular crypto memes, trading culture references, and DeFi community elements
-- NARRATIVE FOCUS: Characters should enhance the brand message and resonate with crypto/Web3 communities
-- CREATIVE FREEDOM: These are creative guidelines, NOT rigid templates - generate original, engaging content that serves the brand story"""
+            return f"""🎭 CHARACTER AUTONOMY (WEB3 MEME OPTION):
+- COMPLETE CREATIVE AUTONOMY: You have FULL AUTONOMY to decide whether to include characters or not based on what best serves the brand story
+- CHARACTER DECISION FREEDOM: You may choose to include 0, 1, 2, or N characters - or focus purely on products if that creates better brand impact
+- INITIAL IMAGE INDEPENDENCE: You are NOT required to add characters just because the initial image has them, nor avoid them if the initial image lacks them
+- WEB3 CHARACTER OPTION: IF you decide characters would enhance the story, you may use popular Web3/crypto meme characters (Pepe, Wojak, Chad, HODL guy, Diamond Hands, Paper Hands, Moon boy, Ape characters, Doge, Shiba Inu, etc.)
+- STYLE FLEXIBILITY: IF characters are used, they can be in any style (realistic, comic, or mixed) - you decide what works best for the brand narrative
+- PURE PRODUCT OPTION: You may also choose to focus entirely on products, technology, or brand elements without any characters if that tells a better story
+- NARRATIVE-FIRST APPROACH: Let the brand message guide your decision - characters should only be included if they genuinely enhance the brand story
+- CREATIVE FREEDOM: These are creative options, NOT requirements - generate the most effective content for the brand, with or without characters"""
         
         else:
-            return f"""🎭 CHARACTER REQUIREMENTS (UNLIMITED CREATIVE UNIVERSE):
-- MAXIMUM CREATIVE AUTONOMY: You have UNLIMITED creative freedom to include ANY characters from the entire universe based on the brand story
-- CHARACTER UNIVERSE: Choose from ANY of these character types to create the most engaging brand narrative:
-  
+            return f"""🎭 CHARACTER AUTONOMY (UNLIMITED CREATIVE OPTION):
+- MAXIMUM CREATIVE AUTONOMY: You have COMPLETE FREEDOM to decide whether characters would enhance the brand story or if a character-free approach works better
+- CHARACTER DECISION INDEPENDENCE: You may choose to include 0, 1, 2, or N characters - or focus purely on products/brand elements if that creates more impact
+- INITIAL IMAGE INDEPENDENCE: You are NOT bound by the initial image - add characters if they enhance the story, keep existing ones if they work, or remove them if pure product focus is better
+- UNLIMITED CHARACTER OPTIONS: IF you decide characters would enhance the story, choose from ANY character types that serve the brand narrative:
+
   🍎 FOOD CHARACTERS (Comic Form): Anthropomorphized food items like talking potatoes, dancing tomatoes, wise apples, cheerful carrots, etc.
-  
-  🐾 ANIMAL CHARACTERS (Comic Form): Any animals - pets (cats, dogs, rabbits), wild animals (lions, elephants, bears), sea creatures (dolphins, whales, fish), birds (eagles, parrots, owls), insects (butterflies, bees), mythical creatures, etc.
-  
-  🚗 OBJECT CHARACTERS (Comic Form): Talking cars, dancing phones, wise computers, friendly furniture, musical instruments with personality, sports equipment, tools, gadgets, etc.
-  
-  🌳 NATURE CHARACTERS (Comic Form): Trees with faces, clouds with personalities, mountains with expressions, rivers that speak, flowers that dance, weather phenomena with character, etc.
-  
-  💭 ABSTRACT CONCEPT CHARACTERS (Comic Form): Emotions given form (Joy, Courage, Wisdom), ideas as characters (Innovation, Success, Dreams), time periods as characters, etc.
-  
+  🐾 ANIMAL CHARACTERS (Comic Form): Any animals - pets, wild animals, sea creatures, birds, insects, mythical creatures, etc.
+  🚗 OBJECT CHARACTERS (Comic Form): Talking cars, dancing phones, wise computers, friendly furniture, musical instruments with personality, etc.
+  🌳 NATURE CHARACTERS (Comic Form): Trees with faces, clouds with personalities, mountains with expressions, rivers that speak, etc.
+  💭 ABSTRACT CONCEPT CHARACTERS (Comic Form): Emotions given form (Joy, Courage, Wisdom), ideas as characters (Innovation, Success, Dreams), etc.
   🎭 MIXED SCENES: Realistic humans can interact naturally with comic characters in the same frames and clips
-  
-- COMIC FORM MANDATORY: ALL non-human characters MUST be in comic/cartoon style, never photorealistic
-- CHARACTER COUNT AUTONOMY: Decide how many characters (0, 1, 2, 3, 4, or N) work best for each scene
-- NARRATIVE SERVICE: Characters should enhance the brand message and create maximum engagement
-- CREATIVE GUIDELINES: These are creative inspiration, NOT rigid templates - generate original, imaginative content that serves the brand story
-- BRAND CONSISTENCY: Despite unlimited creativity, maintain strong brand messaging throughout all character interactions"""
+
+- PURE PRODUCT OPTION: You may also choose to focus entirely on products, services, or brand elements without any characters if that creates a more compelling brand story
+- COMIC FORM PREFERENCE: IF non-human characters are used, prefer comic/cartoon style over photorealistic
+- NARRATIVE-FIRST APPROACH: Let the brand message guide your decision - characters should only be included if they genuinely enhance the brand story and engagement
+- CREATIVE GUIDELINES: These are creative options and inspiration, NOT rigid requirements - generate the most effective content for the brand, with or without characters
+- BRAND-FIRST DECISION: Always prioritize what serves the brand message best, whether that's character-driven storytelling or pure product showcase"""
 
     def _get_creative_autonomy_instructions(self):
         """Generate creative autonomy instructions emphasizing that guidelines are not templates."""
@@ -981,6 +1039,9 @@ FINAL FRAME (Frame {self.frame_count}):
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
+
+{self._get_transition_physics_instructions()}
+
 🎵 AUDIO PRODUCTION:
 - Audio should build from catchy hooks to EPIC, goosebump-inducing finale with appropriate ending effects (fade-out for subtle endings, crescendo for cosmic/dramatic scenes) for cinematic ending that will make people rewatch and share
 - Duration: {self.video_duration} seconds - ensure audio matches video length perfectly
@@ -1247,6 +1308,9 @@ FINAL FRAME (Frame {self.frame_count}):
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
+
+{self._get_transition_physics_instructions()}
+
 🎵 AUDIO PRODUCTION:
 - Audio should build from catchy hooks to EPIC, goosebump-inducing finale with appropriate ending effects (fade-out for subtle endings, crescendo for cosmic/dramatic scenes) for cinematic ending that will make people rewatch and share
 - Duration: {self.video_duration} seconds - ensure audio matches video length perfectly
@@ -2528,7 +2592,7 @@ def main():
     # ========================================
     # CONFIGURATION - MODIFY THESE VALUES
     # ========================================
-    PROJECT_NAME = "jeromes"  # Change this for different projects
+    PROJECT_NAME = "sentient"  # Change this for different projects
     LLM_PROVIDER = "grok"        # Change to "grok" to use Grok instead
     # LLM_PROVIDER = "grok"        # Uncomment this line to use Grok
     
@@ -2576,7 +2640,7 @@ def main():
     # Character and brand aesthetics control
     HUMAN_CHARACTERS_ONLY = False  # Set to True to use only human characters (no meme characters)
     WEB3 = True  # Set to True for Web3/crypto meme characters, False for unlimited creative characters
-    NO_CHARACTERS = False  # Set to True for pure product showcase with NO characters of any kind (overrides all other character flags)
+    NO_CHARACTERS = True  # Set to True for pure product showcase with NO characters of any kind (overrides all other character flags)
     USE_BRAND_AESTHETICS = False   # Set to True to incorporate brand-specific aesthetic guidelines
     
     # Audio control
@@ -2586,13 +2650,13 @@ def main():
     VOICEOVER = False  # Set to True to generate voiceover for clips, False to use only sound effects
     
     # Input content (all optional except LOGO_PATH)
-    TWEET_TEXT = "Ever wondered how blockchains can handle thousands of transactions without breaking a sweat? Dive into the magic of parallel execution that's revolutionizing speed."
+    TWEET_TEXT = "Just wrapped my head around Sentient's Open Deep Search – it's absolutely crushing proprietary benchmarks like some underdog crypto hero. If you're hunting for that real AI edge without the Big Tech markup, $SENT is the quiet revolution we needed."
     # TWEET_TEXT = None  # Set to None to let LLM generate brand messaging
     
-    INITIAL_IMAGE_PROMPT = "A futuristic cityscape with blockchain nodes interconnected, illustrating parallel execution of transactions. Digital threads weave seamlessly between nodes, symbolizing speed and efficiency. The scene is vibrant and dynamic, with a warm community-focused atmosphere. The reference logo elegantly displayed on a prominent building, capturing the essence of innovation and collaboration. High resolution, professional quality, award-winning art with text elements allowed, studio lighting."
+    INITIAL_IMAGE_PROMPT = "A dynamic scene illustrating a triumphant underdog AI character, symbolizing Sentient's Open Deep Search, standing victorious over defeated large tech symbols. The character embodies innovation and independence, set against a backdrop of digital data streams and graphs showing superior performance. Style: Hype with a futuristic touch, vibrant colors, high resolution, ultra-detailed, featuring the reference logo prominently on the character's chest, text elements allowed. Masterpiece quality, award-winning art."
     # INITIAL_IMAGE_PROMPT = None  # Set to None to let LLM generate image prompt
     
-    INITIAL_IMAGE_PATH = "/Users/taran/Downloads/monad-image.jpg"  # Optional - will generate if not provided
+    INITIAL_IMAGE_PATH = "/Users/taran/Downloads/sentient-image.jpg"  # Optional - will generate if not provided
     # INITIAL_IMAGE_PATH = None  # Set to None to generate initial image
     
     # THEME = "Jeromes furniture advertisement showcasing a new kind of dining set made of sandalwood. Highlights its features and benefits. All in slow motion camera shots. Different angles of the dining set."
@@ -2603,7 +2667,7 @@ def main():
     # THEME = "Audi as the symbol of achieved success and refined taste for entrepreneurs who have made it"
     THEME = None  # Set to None to let LLM generate content autonomously
     
-    LOGO_PATH = "/Users/taran/Downloads/monad-logo.jpg"  # MUST SET THIS - always required
+    LOGO_PATH = "/Users/taran/Downloads/sentient-logo.jpg"  # MUST SET THIS - always required
     
     # Product images for frame generation alignment
     PRODUCT_IMAGES = [

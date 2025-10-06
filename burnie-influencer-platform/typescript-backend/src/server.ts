@@ -49,6 +49,7 @@ import approvedMinersRoutes from './routes/approvedMiners';
 import twitterHandlesRoutes from './routes/twitterHandles';
 import editTweetRoutes from './routes/editTweet';
 import userTwitterPostsRoutes from './routes/userTwitterPosts';
+import videoAnalyticsRoutes from './routes/videoAnalytics';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -157,6 +158,7 @@ app.use('/api', approvedMinersRoutes); // Approved miners management
 app.use('/api/admin/twitter-handles', twitterHandlesRoutes); // Twitter handles management
 app.use('/api/edit-tweet', editTweetRoutes); // Edit tweet functionality with avatar fusion
 app.use('/api/user-twitter-posts', userTwitterPostsRoutes); // User Twitter posts tracking and engagement
+app.use('/api', videoAnalyticsRoutes); // Video analytics and performance metrics
 
 // Start server
 const startServer = async () => {

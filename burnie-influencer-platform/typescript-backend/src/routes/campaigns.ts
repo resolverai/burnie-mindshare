@@ -1167,7 +1167,15 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
     marketplaceContent.videoDuration = content_data.video_duration || null;
     marketplaceContent.subsequentFramePrompts = content_data.subsequent_frame_prompts || null;
     marketplaceContent.clipPrompts = content_data.clip_prompts || null;
-    marketplaceContent.audioPrompt = content_data.audio_prompt || null;
+    
+    // NEW: Enhanced audio prompts structure with dual-stream and voiceover support
+    if (content_data.audio_prompts) {
+      // Store the enhanced audio_prompts structure in the audio_prompt field as JSON
+      marketplaceContent.audioPrompt = JSON.stringify(content_data.audio_prompts);
+    } else {
+      // Fallback to legacy single audio prompt
+      marketplaceContent.audioPrompt = content_data.audio_prompt || null;
+    }
 
     const savedContent = await contentRepository.save(marketplaceContent);
 

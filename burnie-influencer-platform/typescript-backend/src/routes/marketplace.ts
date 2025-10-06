@@ -318,6 +318,120 @@ async function refreshExpiredUrls(content: any): Promise<any> {
     }
   }
 
+  // Process video URL (ALWAYS generate presigned URL for videos)
+  const videoUrl = content.videoUrl || content.video_url;
+  if (videoUrl && typeof videoUrl === 'string') {
+    logger.info(`🎬 Processing video URL for content ${content.id}: ${videoUrl.substring(0, 100)}...`);
+    
+    if (isUrlExpired(videoUrl)) {
+      const s3Key = extractS3KeyFromUrl(videoUrl);
+      if (s3Key) {
+        const freshUrl = await generatePresignedUrl(s3Key);
+        if (freshUrl) {
+          // Update both possible field names
+          if (content.videoUrl) {
+            content.videoUrl = freshUrl;
+          }
+          if (content.video_url) {
+            content.video_url = freshUrl;
+          }
+          logger.info(`🔄 Refreshed expired video URL in content ${content.id}`);
+        }
+      }
+    }
+  }
+
+  // Process watermark video URL (ALWAYS generate presigned URL for watermarked videos)
+  const watermarkVideoUrl = content.watermarkVideoUrl || content.watermark_video_url;
+  if (watermarkVideoUrl && typeof watermarkVideoUrl === 'string') {
+    logger.info(`🎬 Processing watermark video URL for content ${content.id}: ${watermarkVideoUrl.substring(0, 100)}...`);
+    
+    if (isUrlExpired(watermarkVideoUrl)) {
+      const s3Key = extractS3KeyFromUrl(watermarkVideoUrl);
+      if (s3Key) {
+        const freshUrl = await generatePresignedUrl(s3Key);
+        if (freshUrl) {
+          // Update both possible field names
+          if (content.watermarkVideoUrl) {
+            content.watermarkVideoUrl = freshUrl;
+          }
+          if (content.watermark_video_url) {
+            content.watermark_video_url = freshUrl;
+          }
+          logger.info(`🔄 Refreshed expired watermark video URL in content ${content.id}`);
+        }
+      }
+    }
+  }
+
+  return content;
+}
+
+/**
+ * Process content for MinerMyContent - always use unwatermarked URLs and generate fresh presigned URLs
+ */
+async function refreshUrlsForMinerContent(content: any): Promise<any> {
+  // For MinerMyContent, we ALWAYS want fresh presigned URLs and NEVER watermarked content
+  // This is the user's own content, so they should see the original unwatermarked version
+  
+  // Process content images - ALWAYS generate fresh presigned URLs
+  const contentImages = content.contentImages || content.content_images;
+  if (contentImages) {
+    if (Array.isArray(contentImages)) {
+      const updatedImages = await Promise.all(
+        contentImages.map(async (imageUrl: string) => {
+          if (typeof imageUrl === 'string') {
+            const s3Key = extractS3KeyFromUrl(imageUrl);
+            if (s3Key) {
+              const freshUrl = await generatePresignedUrl(s3Key);
+              if (freshUrl) {
+                logger.info(`🔄 Generated fresh presigned URL for image in content ${content.id}`);
+                return freshUrl;
+              }
+            }
+          }
+          return imageUrl;
+        })
+      );
+      // Update both possible field names
+      if (content.contentImages) {
+        content.contentImages = updatedImages;
+      }
+      if (content.content_images) {
+        content.content_images = updatedImages;
+      }
+    }
+  }
+
+  // Process video URL - ALWAYS generate fresh presigned URL for original (unwatermarked) video
+  const videoUrl = content.videoUrl || content.video_url;
+  if (videoUrl && typeof videoUrl === 'string') {
+    logger.info(`🎬 Generating fresh presigned URL for video in content ${content.id}`);
+    
+    const s3Key = extractS3KeyFromUrl(videoUrl);
+    if (s3Key) {
+      const freshUrl = await generatePresignedUrl(s3Key);
+      if (freshUrl) {
+        // Update both possible field names
+        if (content.videoUrl) {
+          content.videoUrl = freshUrl;
+        }
+        if (content.video_url) {
+          content.video_url = freshUrl;
+        }
+        logger.info(`🔄 Generated fresh presigned URL for video in content ${content.id}`);
+      }
+    }
+  }
+
+  // For MinerMyContent, we DON'T process watermarked content (images or videos)
+  // The user should see their original unwatermarked content
+  // Remove watermarked URLs to avoid confusion
+  content.watermarkImage = null;
+  content.watermark_image = null;
+  content.watermarkVideoUrl = null;
+  content.watermark_video_url = null;
+
   return content;
 }
 
@@ -1391,13 +1505,15 @@ router.post('/approve', async (req, res) => {
       qualityScore,
       generationMetadata,
       askingPrice = 100, // Default asking price
+      postType = 'thread', // Default post type
       // Video fields
       isVideo = false,
       videoUrl,
       videoDuration,
       subsequentFramePrompts,
       clipPrompts,
-      audioPrompt
+      audioPrompt,
+      audioPrompts
     } = req.body;
 
     // Debug: Log received data
@@ -1437,101 +1553,9 @@ router.post('/approve', async (req, res) => {
     
     if (!creator) {
       console.error('❌ Creator not found with wallet address:', walletAddress);
-      
-      // Try to create a new user if they don't exist
-      const newUser = new User();
-      newUser.walletAddress = walletAddress.toLowerCase();
-      newUser.roleType = UserRoleType.MINER;
-      
-      const savedUser = await userRepository.save(newUser);
-      console.log('✅ Created new user:', savedUser.id, savedUser.walletAddress);
-      
-      // Use the newly created user as creator
-      const creatorId = savedUser.id;
-      
-      // Create new content entry
-      const newContent = new ContentMarketplace();
-      // Generate watermarked image if content has images
-      let watermarkImageUrl: string | null = null;
-      if (contentImages) {
-        try {
-          const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
-          watermarkImageUrl = await WatermarkService.createWatermarkForContent(contentImages, s3Bucket);
-          console.log('✅ Watermarked image created:', watermarkImageUrl);
-        } catch (error) {
-          console.error('⚠️ Failed to create watermark, proceeding without:', error);
-        }
-      }
-
-      // Generate watermarked video if content has video
-      let watermarkVideoUrl: string | null = null;
-      if (isVideo && videoUrl) {
-        try {
-          const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
-          watermarkVideoUrl = await VideoWatermarkService.createWatermarkForVideo(videoUrl, s3Bucket);
-          console.log('✅ Watermarked video created:', watermarkVideoUrl);
-        } catch (error) {
-          console.error('⚠️ Failed to create video watermark, proceeding without:', error);
-        }
-      }
-
-      newContent.creatorId = creatorId;
-      newContent.campaignId = Number(campaignId);
-      newContent.contentText = contentText;
-      newContent.contentImages = contentImages || null;
-      if (watermarkImageUrl) {
-        newContent.watermarkImage = watermarkImageUrl;
-      }
-      // Video fields
-      newContent.isVideo = isVideo || false;
-      newContent.videoUrl = videoUrl || null;
-      if (watermarkVideoUrl) {
-        newContent.watermarkVideoUrl = watermarkVideoUrl;
-      }
-      newContent.videoDuration = videoDuration || null;
-      newContent.subsequentFramePrompts = subsequentFramePrompts || null;
-      newContent.clipPrompts = clipPrompts || null;
-      newContent.audioPrompt = audioPrompt || null;
-      newContent.predictedMindshare = Number(predictedMindshare) || 75;
-      newContent.qualityScore = Number(qualityScore) || 80;
-      newContent.askingPrice = Number(askingPrice);
-      newContent.approvalStatus = 'approved';
-      newContent.isAvailable = true;
-      if (agentId) {
-        newContent.agentId = Number(agentId);
-      }
-      if (agentName) {
-        newContent.agentName = agentName;
-      }
-      newContent.walletAddress = walletAddress;
-      newContent.approvedAt = new Date();
-      newContent.generationMetadata = generationMetadata || null;
-
-      const savedContent = await contentRepository.save(newContent);
-
-      console.log('✅ Content approved and saved to marketplace (new user):', {
-        id: savedContent.id,
-        creatorId: savedContent.creatorId,
-        campaignId: savedContent.campaignId,
-        agentId: savedContent.agentId,
-        agentName: savedContent.agentName,
-        walletAddress: savedContent.walletAddress,
-        contentText: savedContent.contentText.substring(0, 100) + '...',
-        contentImages: savedContent.contentImages,
-        predictedMindshare: savedContent.predictedMindshare,
-        qualityScore: savedContent.qualityScore,
-        askingPrice: savedContent.askingPrice,
-        approvedAt: savedContent.approvedAt
-      });
-
-      res.json({
-        success: true,
-        data: {
-          id: savedContent.id,
-          message: 'Content approved and added to marketplace (new user created)',
-          marketplace_url: `/marketplace/content/${savedContent.id}`,
-          approvedAt: savedContent.approvedAt
-        }
+      res.status(404).json({
+        success: false,
+        error: 'User not found. Content should have been synced to marketplace during generation.'
       });
       return;
     }
@@ -1556,6 +1580,7 @@ router.post('/approve', async (req, res) => {
       existingContent.predictedMindshare = Number(predictedMindshare) || existingContent.predictedMindshare || 75;
       existingContent.qualityScore = Number(qualityScore) || existingContent.qualityScore || 80;
       existingContent.askingPrice = Number(askingPrice) || existingContent.askingPrice;
+      existingContent.postType = postType; // Add post type
       existingContent.approvalStatus = 'approved';
       existingContent.isAvailable = true;
       
@@ -1572,11 +1597,29 @@ router.post('/approve', async (req, res) => {
       let watermarkImageUrl: string | null = null;
       if (contentImages) {
         try {
+          console.log('🖼️ Starting image watermarking for existing content update. Images:', contentImages);
           const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
           watermarkImageUrl = await WatermarkService.createWatermarkForContent(contentImages, s3Bucket);
           console.log('✅ Watermarked image created:', watermarkImageUrl);
         } catch (error) {
-          console.error('⚠️ Failed to create watermark, proceeding without:', error);
+          console.error('❌ Failed to create image watermark:', error);
+        }
+      }
+
+      // Generate watermarked video if content has video
+      let watermarkVideoUrl: string | null = null;
+      if (isVideo && videoUrl) {
+        try {
+          console.log('🎬 Starting video watermarking for existing content update. Video URL:', videoUrl);
+          const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
+          watermarkVideoUrl = await VideoWatermarkService.createWatermarkForVideo(videoUrl, s3Bucket);
+          console.log('✅ Watermarked video created:', watermarkVideoUrl);
+        } catch (error) {
+          console.error('❌ Failed to create video watermark:', error);
+          // Log the full error for debugging
+          if (error instanceof Error) {
+            console.error('❌ Video watermarking error details:', error.message, error.stack);
+          }
         }
       }
 
@@ -1586,6 +1629,17 @@ router.post('/approve', async (req, res) => {
       if (watermarkImageUrl) {
         existingContent.watermarkImage = watermarkImageUrl;
       }
+      // Update video fields
+      existingContent.isVideo = isVideo || false;
+      existingContent.videoUrl = videoUrl || null;
+      if (watermarkVideoUrl) {
+        existingContent.watermarkVideoUrl = watermarkVideoUrl;
+      }
+      existingContent.videoDuration = videoDuration || null;
+      existingContent.subsequentFramePrompts = subsequentFramePrompts || null;
+      existingContent.clipPrompts = clipPrompts || null;
+      existingContent.audioPrompt = audioPrompt || null;
+      existingContent.audioPrompts = audioPrompts || null;
       if (generationMetadata) {
         existingContent.generationMetadata = generationMetadata;
       }
@@ -1623,73 +1677,16 @@ router.post('/approve', async (req, res) => {
       });
       return;
     } else {
-      // CREATE new record (fallback for cases where initial record wasn't created)
-      console.log('🆕 Creating new content record (no pending record found)');
-      
-      // Generate watermarked image if content has images
-      let watermarkImageUrl: string | null = null;
-      if (contentImages) {
-        try {
-          const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
-          watermarkImageUrl = await WatermarkService.createWatermarkForContent(contentImages, s3Bucket);
-          console.log('✅ Watermarked image created:', watermarkImageUrl);
-        } catch (error) {
-          console.error('⚠️ Failed to create watermark, proceeding without:', error);
-        }
-      }
-
-      const newContent = new ContentMarketplace();
-      newContent.creatorId = creator.id;
-      newContent.campaignId = Number(campaignId);
-      newContent.contentText = contentText;
-      newContent.tweetThread = tweetThread || null;
-      newContent.contentImages = contentImages || null;
-      if (watermarkImageUrl) {
-        newContent.watermarkImage = watermarkImageUrl;
-      }
-      newContent.predictedMindshare = Number(predictedMindshare) || 75;
-      newContent.qualityScore = Number(qualityScore) || 80;
-      newContent.askingPrice = Number(askingPrice);
-      newContent.approvalStatus = 'approved';
-      newContent.isAvailable = true;
-      if (agentId) {
-        newContent.agentId = Number(agentId);
-      }
-      if (agentName) {
-        newContent.agentName = agentName;
-      }
-      newContent.walletAddress = walletAddress;
-      newContent.approvedAt = new Date();
-      newContent.generationMetadata = generationMetadata || null;
-
-      const savedContent = await contentRepository.save(newContent);
-
-      console.log('✅ Content approved and saved to marketplace (new record):', {
-        id: savedContent.id,
-        creatorId: savedContent.creatorId,
-        campaignId: savedContent.campaignId,
-        agentId: savedContent.agentId,
-        agentName: savedContent.agentName,
-        walletAddress: savedContent.walletAddress,
-        contentText: savedContent.contentText.substring(0, 100) + '...',
-        tweetThread: savedContent.tweetThread ? `Array with ${savedContent.tweetThread.length} tweets` : null,
-        contentImages: savedContent.contentImages,
-        predictedMindshare: savedContent.predictedMindshare,
-        qualityScore: savedContent.qualityScore,
-        askingPrice: savedContent.askingPrice,
-        approvedAt: savedContent.approvedAt,
-        action: 'CREATED'
+      // No pending content found - this shouldn't happen in normal flow
+      console.error('❌ No pending content found for approval:', {
+        campaignId,
+        creatorId: creator.id,
+        contentText: contentText.substring(0, 100) + '...'
       });
-
-      res.json({
-        success: true,
-        data: {
-          id: savedContent.id,
-          message: 'Content approved and added to marketplace',
-          marketplace_url: `/marketplace/content/${savedContent.id}`,
-          approvedAt: savedContent.approvedAt,
-          action: 'created'
-        }
+      
+      res.status(404).json({
+        success: false,
+        error: 'No pending content found for approval. Content should have been synced to marketplace during generation.'
       });
       return;
     }
@@ -1947,9 +1944,9 @@ router.get('/my-content/miner/wallet/:walletAddress/totals', async (req: Request
       .orderBy('content.createdAt', 'DESC')
       .getMany();
 
-    // Refresh expired pre-signed URLs in miner content
+    // Refresh URLs for miner content - use unwatermarked URLs with fresh presigned URLs
     const refreshedContents = await Promise.all(
-      contents.map(content => refreshExpiredUrls(content))
+      contents.map(content => refreshUrlsForMinerContent(content))
     );
 
     const formattedContents = refreshedContents.map(content => ({
@@ -1957,13 +1954,23 @@ router.get('/my-content/miner/wallet/:walletAddress/totals', async (req: Request
       content_text: content.contentText,
       tweet_thread: content.tweetThread || null,
       content_images: content.contentImages,
-      watermark_image: content.watermarkImage || null,
+      // Don't send watermarked URLs for MinerMyContent - user should see original content
+      // watermark_image: null,
       predicted_mindshare: Number(content.predictedMindshare),
       quality_score: Number(content.qualityScore),
       asking_price: Number(content.askingPrice),
       post_type: content.postType || 'thread',
       status: content.approvalStatus,
       is_available: content.isAvailable,
+      // Video fields - add missing video data for consistency with Mining screen
+      is_video: content.isVideo || false,
+      video_url: content.videoUrl || null,
+      // Don't send watermarked video URLs for MinerMyContent - user should see original content
+      // watermark_video_url: null,
+      video_duration: content.videoDuration || null,
+      subsequent_frame_prompts: content.subsequentFramePrompts || null,
+      clip_prompts: content.clipPrompts || null,
+      audio_prompt: content.audioPrompt || null,
       creator: {
         username: content.creator?.username || 'Anonymous',
         reputation_score: content.creator?.reputationScore || 0
@@ -2099,9 +2106,9 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       .take(limitNum)
       .getMany();
 
-    // Refresh expired pre-signed URLs in miner content
+    // Refresh URLs for miner content - use unwatermarked URLs with fresh presigned URLs
     const refreshedContents = await Promise.all(
-      contents.map(content => refreshExpiredUrls(content))
+      contents.map(content => refreshUrlsForMinerContent(content))
     );
 
     const formattedContents = refreshedContents.map(content => ({
@@ -2109,13 +2116,23 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       content_text: content.contentText,
       tweet_thread: content.tweetThread || null, // Include tweet thread data
       content_images: content.contentImages,
-      watermark_image: content.watermarkImage || null,
+      // Don't send watermarked URLs for MinerMyContent - user should see original content
+      // watermark_image: null,
       predicted_mindshare: Number(content.predictedMindshare),
       quality_score: Number(content.qualityScore),
       asking_price: Number(content.askingPrice),
       post_type: content.postType || 'thread', // Include post type
       status: content.approvalStatus, // Add approval status
       is_available: content.isAvailable, // Add availability status
+      // Video fields - add missing video data for consistency with Mining screen
+      is_video: content.isVideo || false,
+      video_url: content.videoUrl || null,
+      // Don't send watermarked video URLs for MinerMyContent - user should see original content
+      // watermark_video_url: null,
+      video_duration: content.videoDuration || null,
+      subsequent_frame_prompts: content.subsequentFramePrompts || null,
+      clip_prompts: content.clipPrompts || null,
+      audio_prompt: content.audioPrompt || null,
       creator: {
         username: content.creator?.username || 'Anonymous',
         reputation_score: content.creator?.reputationScore || 0
@@ -5308,11 +5325,12 @@ router.post('/approve-content', async (req: Request, res: Response) => {
     let watermarkImageUrl: string | null = null;
     if (content.contentImages) {
       try {
+        console.log('🖼️ Starting image watermarking for content:', content.id, 'Images:', content.contentImages);
         const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
         watermarkImageUrl = await WatermarkService.createWatermarkForContent(content.contentImages, s3Bucket);
         console.log('✅ Watermarked image created:', watermarkImageUrl);
       } catch (error) {
-        console.error('⚠️ Failed to create watermark, proceeding without:', error);
+        console.error('❌ Failed to create image watermark for content', content.id, ':', error);
       }
     }
 
@@ -5320,11 +5338,16 @@ router.post('/approve-content', async (req: Request, res: Response) => {
     let watermarkVideoUrl: string | null = null;
     if (content.isVideo && content.videoUrl) {
       try {
+        console.log('🎬 Starting video watermarking for content:', content.id, 'Video URL:', content.videoUrl);
         const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
         watermarkVideoUrl = await VideoWatermarkService.createWatermarkForVideo(content.videoUrl, s3Bucket);
         console.log('✅ Watermarked video created:', watermarkVideoUrl);
       } catch (error) {
-        console.error('⚠️ Failed to create video watermark, proceeding without:', error);
+        console.error('❌ Failed to create video watermark for content', content.id, ':', error);
+        // Log the full error for debugging
+        if (error instanceof Error) {
+          console.error('❌ Video watermarking error details:', error.message, error.stack);
+        }
       }
     }
 
@@ -5333,11 +5356,20 @@ router.post('/approve-content', async (req: Request, res: Response) => {
     content.isAvailable = true;
     content.approvedAt = new Date();
     content.walletAddress = walletAddress; // Set wallet address for bidding authorization
+    
+    // Save watermark URLs if they were generated
     if (watermarkImageUrl) {
       content.watermarkImage = watermarkImageUrl;
+      console.log('💾 Saving watermarked image URL for content', content.id, ':', watermarkImageUrl);
+    } else if (content.contentImages) {
+      console.log('⚠️ Content', content.id, 'has images but no watermarked image was created');
     }
+    
     if (watermarkVideoUrl) {
       content.watermarkVideoUrl = watermarkVideoUrl;
+      console.log('💾 Saving watermarked video URL for content', content.id, ':', watermarkVideoUrl);
+    } else if (content.isVideo && content.videoUrl) {
+      console.log('⚠️ Content', content.id, 'has video but no watermarked video was created');
     }
 
     const updatedContent = await contentRepository.save(content);
@@ -5345,7 +5377,11 @@ router.post('/approve-content', async (req: Request, res: Response) => {
     console.log('✅ Content approved:', {
       id: updatedContent.id,
       creatorId: updatedContent.creatorId,
-      approvedAt: updatedContent.approvedAt
+      approvedAt: updatedContent.approvedAt,
+      hasOriginalImage: !!updatedContent.contentImages,
+      hasWatermarkedImage: !!updatedContent.watermarkImage,
+      hasOriginalVideo: !!updatedContent.videoUrl,
+      hasWatermarkedVideo: !!updatedContent.watermarkVideoUrl
     });
 
     return res.json({

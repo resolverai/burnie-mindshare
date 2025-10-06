@@ -131,6 +131,9 @@ export class ContentMarketplace {
   @Column({ name: 'audio_prompt', type: 'text', nullable: true })
   audioPrompt!: string | null // Audio prompt for video generation
 
+  @Column({ name: 'audio_prompts', type: 'jsonb', nullable: true })
+  audioPrompts!: any | null // JSON object storing regular/prime audio prompts for video generation
+
   @Column({ name: 'video_url', type: 'text', nullable: true })
   videoUrl!: string | null // S3 URL of the final video
 
@@ -197,5 +200,10 @@ export class ContentMarketplace {
     const performanceScore = this.getPerformanceScore();
     const price = this.getAskingPrice();
     return price > 0 ? performanceScore / price : performanceScore;
+  }
+
+  // Video Helper Methods
+  isAdvancedVideo(): boolean {
+    return this.isVideo;
   }
 } 

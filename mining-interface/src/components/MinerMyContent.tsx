@@ -1019,19 +1019,27 @@ export default function MinerMyContent() {
               const imageUrl = item.content_images && item.content_images.length > 0 
                 ? item.content_images[0] 
                 : extractedImageUrl
+
+              // Video URL handling - same as Mining screen
+              const videoUrl = item.video_url || null
+              
               const hashtags = extractHashtags(text)
               
               // Debug logging
               console.log('🖼️ MyContent: Content images array:', item.content_images)
               console.log('🖼️ MyContent: Selected image URL:', imageUrl)
+              console.log('🎬 MyContent: Video data:', {
+                is_video: item.is_video,
+                video_url: item.video_url,
+                watermark_video_url: item.watermark_video_url,
+                video_duration: item.video_duration,
+                videoUrl: videoUrl
+              })
               console.log('🔍 MyContent: Post type:', item.post_type)
               console.log('🔍 MyContent: Should use markdown:', shouldUseMarkdown)
               console.log('🔍 MyContent: Has markdown syntax:', hasMarkdownSyntax)
               console.log('🔍 MyContent: Force markdown:', forceMarkdown)
-              console.log('🔍 MyContent: Raw content length:', item.content_text?.length)
-              console.log('🔍 MyContent: Processed text length:', text?.length)
-              console.log('🔍 MyContent: Raw content preview:', item.content_text?.substring(0, 200))
-              console.log('🔍 MyContent: Processed text preview:', text?.substring(0, 200))
+              console.log('🔍 MyContent: Final condition (shouldUseMarkdown || forceMarkdown):', (shouldUseMarkdown || forceMarkdown))
               
               return (
                 <div key={item.id} className={`bg-gray-800/50 rounded-lg border transition-all duration-300 relative ${
@@ -1114,7 +1122,7 @@ export default function MinerMyContent() {
                       </div>
                       
                       {/* Content Display - Markdown for longposts, regular for others */}
-                      {forceMarkdown ? (
+                      {(shouldUseMarkdown || forceMarkdown) ? (
                         // Render longpost with markdown formatting
                         <div className="relative">
                           <div className="absolute top-2 right-2 z-10">
@@ -1123,26 +1131,10 @@ export default function MinerMyContent() {
                             </span>
                           </div>
                           {renderMarkdown(text, { className: 'longpost-content' })}
-                          {item.is_video && item.watermark_video_url ? (
+                          {videoUrl ? (
                             <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
                               <VideoPlayer
-                                src={item.watermark_video_url}
-                                poster={imageUrl || undefined}
-                                autoPlay={false}
-                                muted={true}
-                                controls={true}
-                                className="w-full h-auto"
-                              />
-                              {item.video_duration && (
-                                <div className="mt-2 text-xs text-gray-400 text-center">
-                                  Duration: {item.video_duration}s
-                                </div>
-                              )}
-                            </div>
-                          ) : item.is_video && item.video_url ? (
-                            <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
-                              <VideoPlayer
-                                src={item.video_url}
+                                src={videoUrl}
                                 poster={imageUrl || undefined}
                                 autoPlay={false}
                                 muted={true}
@@ -1185,10 +1177,11 @@ export default function MinerMyContent() {
                             hashtags={hashtags}
                             showImage={true}
                             isProtected={false} // Mining interface doesn't need protection for owned content
-                            is_video={item.is_video}
-                            video_url={item.video_url}
+                            is_video={!!videoUrl}
+                            video_url={videoUrl || undefined}
                             watermark_video_url={item.watermark_video_url}
                             video_duration={item.video_duration}
+                            autoPlay={false} // Don't autoplay videos in MinerMyContent
                           />
                         </div>
                       )}

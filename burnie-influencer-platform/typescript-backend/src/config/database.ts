@@ -70,6 +70,9 @@ import { UserTweetEdits } from '../models/UserTweetEdits';
 // Import user twitter posts tracking entity
 import { UserTwitterPost } from '../models/UserTwitterPost';
 
+// Import video analytics entity
+import { VideoAnalytics } from '../models/VideoAnalytics';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -143,6 +146,8 @@ export const AppDataSource = new DataSource({
     UserTweetEdits,
     // User twitter posts tracking entity
     UserTwitterPost,
+    // Video analytics entity
+    VideoAnalytics,
   ],
   migrations: [],
   subscribers: [],

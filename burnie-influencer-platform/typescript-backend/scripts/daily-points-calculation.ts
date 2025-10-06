@@ -400,6 +400,18 @@ class DailyPointsCalculationScript {
     if (twitterHandle) {
       const handleLower = twitterHandle.toLowerCase();
       mindsharePoints = this.processedMindshareData[handleLower] || 0;
+      
+      // Debug logging for mindshare lookup
+      if (this.processedMindshareData[handleLower]) {
+        console.log(`  ✅ Mindshare found for ${handleLower}: ${mindsharePoints} points`);
+      } else if (Object.keys(this.processedMindshareData).length > 0) {
+        console.log(`  ❌ No mindshare found for ${handleLower}`);
+        // Log available handles for debugging
+        const availableHandles = Object.keys(this.processedMindshareData).slice(0, 5);
+        console.log(`  Available handles (first 5): ${availableHandles.join(', ')}`);
+      }
+    } else {
+      console.log(`  ⚠️ No Twitter handle found for user`);
     }
 
     const totalPoints = purchasePoints + milestonePoints + referralPoints + mindsharePoints;
@@ -479,14 +491,19 @@ class DailyPointsCalculationScript {
       order: { createdAt: 'DESC' }
     });
 
-    return latestEntry ? parseFloat(latestEntry.totalPoints.toString()) : 0;
+    const previousPoints = latestEntry ? parseFloat(latestEntry.totalPoints.toString()) : 0;
+    console.log(`  📋 Previous Record: ${latestEntry ? `Found (${latestEntry.createdAt.toISOString()}) with ${previousPoints} points` : 'None found (new user)'}`);
+    
+    return previousPoints;
   }
 
   /**
    * Calculate daily points earned
    */
   calculateDailyPointsEarned(currentTotalPoints: number, previousTotalPoints: number): number {
-    return Math.max(0, currentTotalPoints - previousTotalPoints);
+    const dailyEarned = Math.max(0, currentTotalPoints - previousTotalPoints);
+    console.log(`  🧮 Daily Points Calculation: ${currentTotalPoints} - ${previousTotalPoints} = ${dailyEarned}`);
+    return dailyEarned;
   }
 
   /**
@@ -504,6 +521,8 @@ class DailyPointsCalculationScript {
     const twitterConnection = await this.getUserTwitterConnection(user.id);
     const twitterHandle = twitterConnection?.twitterUsername?.toLowerCase();
     
+    console.log(`  Twitter handle: ${twitterHandle || 'None'} (from DB: ${twitterConnection?.twitterUsername || 'None'})`);
+    
     // Calculate points (including mindshare points)
     const pointsResult = await this.calculateUserPoints(user, twitterHandle);
     const totalPoints = pointsResult.totalPoints;
@@ -512,6 +531,13 @@ class DailyPointsCalculationScript {
     
     const previousTotalPoints = await this.getPreviousTotalPoints(user.walletAddress);
     const dailyPointsEarned = this.calculateDailyPointsEarned(totalPoints, previousTotalPoints);
+    
+    // Debug logging for points calculation flow
+    console.log(`  📊 Points Calculation Flow:`);
+    console.log(`    Previous Total Points: ${previousTotalPoints}`);
+    console.log(`    New Total Points: ${totalPoints}`);
+    console.log(`    Daily Points Earned: ${dailyPointsEarned}`);
+    console.log(`    Mindshare Points in Total: ${mindsharePoints}`);
 
     // Determine tier
     const currentTier = await this.getUserCurrentTier(user.walletAddress);
@@ -528,7 +554,7 @@ class DailyPointsCalculationScript {
     // Get mindshare data (original value for storage)
     const mindshare = twitterHandle && this.mindshareData[twitterHandle] ? this.mindshareData[twitterHandle] : 0;
 
-    return {
+    const calculation = {
       walletAddress: user.walletAddress,
       twitterHandle: twitterConnection?.twitterUsername,
       name: twitterConnection?.twitterDisplayName,
@@ -545,6 +571,14 @@ class DailyPointsCalculationScript {
       newTier,
       tierChanged
     };
+    
+    console.log(`  💾 Final Calculation Result:`);
+    console.log(`    Daily Points Earned: ${dailyPointsEarned}`);
+    console.log(`    Total Points: ${totalPoints}`);
+    console.log(`    Mindshare Points: ${mindsharePoints}`);
+    console.log(`    Will be saved to database: ${dailyPointsEarned > 0 ? 'YES' : 'NO (0 daily points)'}`);
+    
+    return calculation;
   }
 
   /**

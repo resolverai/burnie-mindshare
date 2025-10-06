@@ -178,6 +178,33 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # Pydantic models for API
+class AdvancedVideoOptions(BaseModel):
+    """Advanced video generation options"""
+    # Duration System
+    durationMode: Optional[str] = "video_duration"  # "video_duration" | "clip_based"
+    videoDuration: Optional[int] = None  # Remove default, let frontend control this
+    clipDuration: Optional[int] = 5
+    numberOfClips: Optional[int] = None
+    
+    # Character Control
+    characterControl: Optional[str] = None  # Remove default, let frontend control this
+    
+    # Audio System
+    audioSystem: Optional[str] = None  # Remove default, let frontend control this
+    enableVoiceover: Optional[bool] = False
+    
+    # Creative Control
+    enableCrossfadeTransitions: Optional[bool] = True
+    randomMode: Optional[str] = None  # Remove default, let frontend control this
+    
+    # Model Options
+    imageModel: Optional[str] = None  # Remove default, let frontend control this
+    llmProvider: Optional[str] = "grok"  # "claude" | "grok"
+    
+    # Brand Integration
+    useBrandAesthetics: Optional[bool] = False
+    includeProductImages: Optional[bool] = False
+
 class CampaignAgentPair(BaseModel):
     """Represents a campaign and its selected agent"""
     campaign_id: int
@@ -189,9 +216,13 @@ class CampaignAgentPair(BaseModel):
     post_index: Optional[int] = 1  # New field: which post this is (1, 2, 3, etc.) for multiple posts per campaign
     source: Optional[str] = "mining_interface"
     
-    # Video generation support
+    # Video generation support (backward compatibility)
     include_video: Optional[bool] = False  # Whether to generate video content
     video_duration: Optional[int] = 10  # Video duration in seconds (10, 15, 20, or 25)
+    
+    # NEW: Advanced video options
+    advanced_video_options: Optional[AdvancedVideoOptions] = None
+    
     selected_yapper_handle: Optional[str] = None  # New field: Twitter handle of selected yapper for pattern
     price: Optional[float] = None  # New field: Price in ROAST for the content
 
@@ -216,9 +247,12 @@ class StartMiningRequest(BaseModel):
     user_preferences: Optional[dict] = None
     user_api_keys: Optional[Dict[str, str]] = None  # API keys from Neural Keys interface
     
-    # Video generation support
+    # Video generation support (backward compatibility)
     include_video: Optional[bool] = False  # Whether to generate video content
     video_duration: Optional[int] = 10  # Video duration in seconds (10, 15, 20, or 25)
+    
+    # NEW: Advanced video options (applies to all campaigns if campaigns don't have individual options)
+    advanced_video_options: Optional[AdvancedVideoOptions] = None
 
 class MiningStatusResponse(BaseModel):
     session_id: str
@@ -302,13 +336,41 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
         logger.info(f"🔍 DEBUG: Received wallet_address: {request.wallet_address}")
         logger.info(f"🔍 DEBUG: Received include_video: {request.include_video}")
         logger.info(f"🔍 DEBUG: Received video_duration: {request.video_duration}")
+        logger.info(f"🔍 DEBUG: Received advanced_video_options: {request.advanced_video_options}")
         print(f"🔥 === MINING REQUEST DEBUG ===")
         print(f"🔥 include_video: {request.include_video}")
         print(f"🔥 video_duration: {request.video_duration}")
+        print(f"🔥 advanced_video_options: {request.advanced_video_options}")
         print(f"🔥 campaigns count: {len(request.campaigns) if request.campaigns else 0}")
         if request.campaigns:
             for i, campaign in enumerate(request.campaigns):
                 print(f"🔥 Campaign {i+1}: include_video={campaign.include_video}, video_duration={campaign.video_duration}")
+                print(f"🔥 Campaign {i+1}: advanced_video_options={campaign.advanced_video_options}")
+        
+        # Process advanced video options for backward compatibility
+        def process_campaign_video_options(campaign, global_advanced_options):
+            """Process video options for a campaign, applying global options if campaign doesn't have them"""
+            if campaign.advanced_video_options:
+                # Campaign has its own advanced options
+                return campaign.advanced_video_options
+            elif global_advanced_options:
+                # Use global advanced options
+                return global_advanced_options
+            else:
+                # Create basic advanced options from legacy fields
+                return AdvancedVideoOptions(
+                    duration_mode="video_duration",
+                    video_duration=campaign.video_duration,
+                    character_control="unlimited",
+                    audio_system="individual_clips",
+                    enable_voiceover=False,
+                    enable_crossfade_transitions=True,
+                    random_mode="true_random",
+                    image_model="seedream",
+                    llm_provider="grok",
+                    use_brand_aesthetics=False,
+                    include_product_images=False
+                )
         
         # Look up user by wallet address
         from app.database.repositories.user_repository import UserRepository
@@ -330,17 +392,40 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
         campaigns_to_process = []
         
         if request.campaigns:
-            # Multiple campaigns mode
-            campaigns_to_process = request.campaigns
+            # Multiple campaigns mode - process advanced video options for each campaign
+            campaigns_to_process = []
+            for campaign in request.campaigns:
+                processed_campaign = campaign.copy()
+                # Ensure each campaign has advanced video options
+                if not processed_campaign.advanced_video_options:
+                    processed_campaign.advanced_video_options = process_campaign_video_options(
+                        campaign, request.advanced_video_options
+                    )
+                campaigns_to_process.append(processed_campaign)
         elif request.campaign_id and request.agent_id:
             # Single campaign mode (backward compatibility)
+            advanced_options = request.advanced_video_options or AdvancedVideoOptions(
+                duration_mode="video_duration",
+                video_duration=request.video_duration,
+                character_control="unlimited",
+                audio_system="individual_clips",
+                enable_voiceover=False,
+                enable_crossfade_transitions=True,
+                random_mode="true_random",
+                image_model="seedream",
+                llm_provider="grok",
+                use_brand_aesthetics=False,
+                include_product_images=False
+            )
+            
             campaigns_to_process = [CampaignAgentPair(
                 campaign_id=request.campaign_id,
                 agent_id=request.agent_id,
                 campaign_context=request.campaign_context or {},
                 post_type=request.post_type,
                 include_video=request.include_video,
-                video_duration=request.video_duration
+                video_duration=request.video_duration,
+                advanced_video_options=advanced_options
             )]
         else:
             raise HTTPException(status_code=400, detail="Either campaigns list or single campaign_id and agent_id are required")
@@ -783,7 +868,8 @@ async def run_yapper_interface_generation(
                     mining_session,
                     user_api_keys=system_api_keys,  # Use system keys for yapper interface
                     agent_id=campaign_pair.agent_id,
-                    wallet_address=wallet_address
+                    wallet_address=wallet_address,
+                    advanced_video_options=campaign_pair.advanced_video_options
                 )
                 
                 # Format the result for this campaign
@@ -1501,7 +1587,8 @@ async def run_multi_campaign_generation(
                     mining_session,
                     user_api_keys=user_api_keys,
                     agent_id=campaign_pair.agent_id,
-                    wallet_address=wallet_address
+                    wallet_address=wallet_address,
+                    advanced_video_options=campaign_pair.advanced_video_options
                 )
                 
                 # Format the result for this campaign
@@ -1517,12 +1604,13 @@ async def run_multi_campaign_generation(
                     "quality_score": result.quality_score,
                     "predicted_mindshare": result.predicted_mindshare,
                     "generation_metadata": result.generation_metadata,
-                    "id": f"{session_id}_campaign_{campaign_pair.campaign_id}_post_{campaign_pair.post_index}",
+                    "post_type": campaign_pair.post_type,  # Include post_type for proper frontend rendering
+                    "id": getattr(result, 'content_id', f"{session_id}_campaign_{campaign_pair.campaign_id}_post_{campaign_pair.post_index}"),  # Use actual database ID if available
                     "status": "completed"
                 }
                 
                 # Debug: Log the content being sent to frontend
-
+                logger.info(f"📝 Sending content with post_type: {campaign_pair.post_type}")
                 img_count = len(result.content_images) if result.content_images else 0
                 if getattr(result, 'video_url', None):
                     logger.info(f"🎬 Sending content with {img_count} image(s) and 1 video to frontend")
@@ -1604,7 +1692,7 @@ async def run_multi_campaign_generation(
         })
 
 # Original single campaign generation (for backward compatibility)
-async def run_content_generation(session_id: str, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None, wallet_address: str = None):
+async def run_content_generation(session_id: str, mining_session: MiningSession, user_api_keys: Dict[str, str] = None, agent_id: int = None, wallet_address: str = None, advanced_video_options = None):
     """Background task that runs the CrewAI multi-agentic content generation with user's preferences"""
     try:
         logger.info(f"🧠 Starting content generation for session: {session_id} with agent: {agent_id}")
@@ -1622,7 +1710,8 @@ async def run_content_generation(session_id: str, mining_session: MiningSession,
             mining_session,
             user_api_keys=user_api_keys,
             agent_id=agent_id,
-            wallet_address=wallet_address
+            wallet_address=wallet_address,
+            advanced_video_options=advanced_video_options
         )
         
         # Update session with final result
@@ -1848,7 +1937,8 @@ async def run_dedicated_miner_generation(
                 mining_session,
                 user_api_keys=user_api_keys,
                 agent_id=campaign_pair.agent_id,
-                wallet_address=wallet_address
+                wallet_address=wallet_address,
+                advanced_video_options=campaign_pair.advanced_video_options
             )
         
         logger.info(f"✅ Dedicated miner generation completed: {execution_id}")

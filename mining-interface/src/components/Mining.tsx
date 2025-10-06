@@ -35,6 +35,8 @@ import {
 import { getApiKeys, validateAgentApiKeys } from '@/utils/api-keys'
 import TweetThreadDisplay from './TweetThreadDisplay'
 import VideoPlayer from './VideoPlayer'
+import { AdvancedVideoOptions } from './VideoOptions'
+import VideoOptions from './VideoOptions'
 
 interface Campaign {
   id: number;
@@ -89,6 +91,7 @@ interface CampaignSelection {
   numberOfPosts: number; // New field for number of posts to generate
   includeVideo: boolean; // New field for video generation
   videoDuration: number; // New field for video duration
+  advancedVideoOptions?: AdvancedVideoOptions; // NEW: Advanced video options
 }
 
 interface GeneratedContent {
@@ -106,6 +109,7 @@ interface GeneratedContent {
   subsequent_frame_prompts?: Record<string, string>;
   clip_prompts?: Record<string, string>;
   audio_prompt?: string;
+  audio_prompts?: Record<string, any>;
   generation_metadata: {
     agents_used: string[];
     optimization_factors: string[];
@@ -363,6 +367,7 @@ export default function Mining() {
             brand_logo_model: selection.brandLogoModel, // Include brand logo model preference
             include_video: selection.includeVideo, // Include video generation preference
             video_duration: selection.videoDuration, // Include video duration preference
+            advanced_video_options: selection.advancedVideoOptions, // NEW: Include advanced video options
             post_index: i + 1, // Track which post this is (1, 2, 3, etc.)
             campaign_context: {
               title: selection.campaign.title,
@@ -411,7 +416,9 @@ export default function Mining() {
             }).filter(([key, value]) => value && value.trim() !== '')
           ),
           include_video: selectedCampaigns.some(selection => selection.includeVideo),
-          video_duration: selectedCampaigns.find(selection => selection.includeVideo)?.videoDuration || 10
+          video_duration: selectedCampaigns.find(selection => selection.includeVideo)?.videoDuration || 5,
+          // NEW: Global advanced video options for backward compatibility
+          advanced_video_options: selectedCampaigns.find(selection => selection.includeVideo)?.advancedVideoOptions
         })
       })
 
@@ -518,6 +525,7 @@ export default function Mining() {
                 campaign_id: data.campaign_content?.campaign_id,
                 post_index: data.campaign_content?.post_index,
                 content_text: data.campaign_content?.content_text?.substring(0, 100) + '...',
+                post_type: data.campaign_content?.post_type,
                 has_images: !!data.campaign_content?.content_images,
                 has_thread: !!data.campaign_content?.tweet_thread
               })
@@ -555,6 +563,7 @@ export default function Mining() {
                       content_images: data.campaign_content?.content_images || null, // Include images from backend
                       predicted_mindshare: data.campaign_content?.predicted_mindshare || 0,
                       quality_score: data.campaign_content?.quality_score || 0,
+                      post_type: data.campaign_content?.post_type || newItems[contentIndex].postType || 'thread', // Include post_type from WebSocket or fallback to selected postType
                       // Video fields
                       is_video: data.campaign_content?.is_video || false,
                       video_url: data.campaign_content?.video_url || null,
@@ -572,6 +581,8 @@ export default function Mining() {
                     status: 'reviewing'
                   }
                   console.log(`✅ Updated content for campaign ${data.campaign_content?.campaign_id}, post ${data.campaign_content?.post_index} at index ${contentIndex}`)
+                  console.log('🔍 WebSocket: Final post_type set to:', newItems[contentIndex].content?.post_type)
+                  console.log('🔍 WebSocket: Content preview:', newItems[contentIndex].content?.content_text?.substring(0, 100))
                   return newItems
                 } else {
                   console.warn(`⚠️ Could not find content review item for campaign ${data.campaign_content?.campaign_id}, post ${data.campaign_content?.post_index}`)
@@ -659,7 +670,7 @@ export default function Mining() {
       } else {
         // Add campaign with default agent (first available) and thread post type
         const firstAgent = userAgents && userAgents.length > 0 ? userAgents[0] : null
-        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const, includeBrandLogo: false, brandLogoModel: null, numberOfPosts: 1, includeVideo: false, videoDuration: 10 }]
+        return [...prev, { campaign, selectedAgent: firstAgent, postType: 'thread' as const, includeBrandLogo: false, brandLogoModel: null, numberOfPosts: 1, includeVideo: false, videoDuration: 5 }]
       }
     })
   }
@@ -733,7 +744,30 @@ export default function Mining() {
     setSelectedCampaigns(prev => 
       prev.map(selection => 
         selection.campaign.id === campaignId 
-          ? { ...selection, videoDuration }
+          ? { 
+              ...selection, 
+              videoDuration,
+              // Update advanced video options if they exist
+              advancedVideoOptions: selection.advancedVideoOptions ? {
+                ...selection.advancedVideoOptions,
+                videoDuration: videoDuration
+              } : undefined
+            }
+          : selection
+      )
+    )
+  }
+
+  const updateAdvancedVideoOptions = (campaignId: number, options: AdvancedVideoOptions) => {
+    setSelectedCampaigns(prev => 
+      prev.map(selection => 
+        selection.campaign.id === campaignId 
+          ? { 
+              ...selection, 
+              advancedVideoOptions: options,
+              // Also update basic video duration for backward compatibility
+              videoDuration: options.videoDuration || selection.videoDuration
+            }
           : selection
       )
     )
@@ -770,7 +804,7 @@ export default function Mining() {
         brandLogoModel: null, // Default to null
         numberOfPosts: 1, // Default to 1 post
         includeVideo: false, // Default to false
-        videoDuration: 10 // Default to 10 seconds
+        videoDuration: 5 // Default to 5 seconds
       }))
       setSelectedCampaigns(newSelections)
       setIsSelectAllChecked(true)
@@ -876,25 +910,38 @@ export default function Mining() {
 
       const reviewItem = contentReviewItems[index]
       
-      // Send to backend for publication to Burnie influencer platform
+      // Use the original /approve endpoint that creates a new record with full content data
+      const payload = {
+        campaignId: reviewItem.campaign.id,
+        agentId: reviewItem.agent.id,
+        agentName: reviewItem.agent.name,
+        walletAddress: address,
+        contentText: reviewItem.content.content_text,
+        tweetThread: reviewItem.content.tweet_thread || [],
+        contentImages: reviewItem.content.content_images || [],
+        predictedMindshare: reviewItem.content.predicted_mindshare || 0,
+        qualityScore: reviewItem.content.quality_score || 0,
+        generationMetadata: reviewItem.content.generation_metadata || {},
+        askingPrice: 100, // Default asking price
+        // Video fields
+        isVideo: reviewItem.content.is_video || false,
+        videoUrl: reviewItem.content.video_url || null,
+        videoDuration: reviewItem.content.video_duration || null,
+        subsequentFramePrompts: reviewItem.content.subsequent_frame_prompts || null,
+        clipPrompts: reviewItem.content.clip_prompts || null,
+        audioPrompt: reviewItem.content.audio_prompt || null,
+        audioPrompts: reviewItem.content.audio_prompts || null,
+        postType: reviewItem.content.post_type || 'thread'
+      }
+      
+
+      // Use the original /approve endpoint that creates new records and handles watermarking
       const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          campaignId: reviewItem.campaign.id,
-          agentId: reviewItem.agent.id,
-          agentName: reviewItem.agent.name,
-          walletAddress: address,
-          contentText: reviewItem.content?.content_text,
-          tweetThread: reviewItem.content?.tweet_thread || null, // Include tweet thread
-          contentImages: reviewItem.content?.content_images || null, // Pass actual images from content
-          predictedMindshare: reviewItem.content?.predicted_mindshare,
-          qualityScore: reviewItem.content?.quality_score,
-          generationMetadata: reviewItem.content?.generation_metadata,
-          askingPrice: 100 // Default asking price
-        })
+        body: JSON.stringify(payload)
       })
 
       if (!response.ok) {
@@ -903,15 +950,16 @@ export default function Mining() {
 
       const result = await response.json()
       
-      console.log('✅ Content approved and added to marketplace:', {
+      console.log('✅ Content approved and updated in marketplace:', {
         campaign: reviewItem.campaign.title,
         agent: reviewItem.agent.name,
-        marketplaceId: result.data?.id,
-        marketplaceUrl: result.data?.marketplace_url
+        contentId: reviewItem.content.id,
+        databaseId: result.data?.id,
+        approvedAt: result.data?.approvedAt
       })
 
-      // Show success notification
-      alert(`✅ Content approved! Added to marketplace with ID: ${result.data?.id}`)
+      // Show success notification with actual database ID
+      alert(`✅ Content approved! Content ID: ${result.data?.id || reviewItem.content.id}`)
       
     } catch (error) {
       console.error('❌ Failed to approve content:', error)
@@ -928,20 +976,29 @@ export default function Mining() {
     try {
       const item = contentReviewItems[index]
       
-      // Make API call to record rejection in database
+      // Use the original /reject endpoint
+      const payload = {
+        campaignId: item.campaign.id,
+        agentId: item.agent.id,
+        walletAddress: address,
+        contentText: item.content.content_text,
+        reason: 'Quality standards not met'
+      }
+      
+
+      // Use the original /reject endpoint
       const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/reject`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          campaignId: item.campaign.id,
-          agentId: item.agent.id,
-          walletAddress: address,
-          contentText: item.content?.content_text || '',
-          reason: 'Content rejected by user'
-        })
+        body: JSON.stringify(payload)
       })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`)
+      }
 
       const result = await response.json()
 
@@ -951,19 +1008,20 @@ export default function Mining() {
           i === index ? { ...item, status: 'rejected' } : item
         ))
 
-        console.log('✅ Content rejected and recorded in database:', {
+        console.log('✅ Content rejected and updated in database:', {
           campaignTitle: item.campaign.title,
-          recordId: result.data.id,
-          action: result.data.action,
-          rejectedAt: result.data.rejectedAt
+          contentId: item.content.id,
+          rejectedAt: result.data?.rejectedAt
         })
+
+        alert('✅ Content rejected successfully!')
       } else {
         console.error('❌ Failed to reject content:', result.error)
         alert('Failed to reject content. Please try again.')
       }
     } catch (error) {
       console.error('❌ Error rejecting content:', error)
-      alert('Error rejecting content. Please try again.')
+      alert(`Error rejecting content: ${error.message}`)
     }
   }
 
@@ -1409,39 +1467,14 @@ export default function Mining() {
 
                           {/* Video Generation Options */}
                           <div className="mt-3">
-                            <label className="flex items-center space-x-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={getSelectedCampaign(campaign.id)?.includeVideo || false}
-                                onChange={(e) => {
-                                  updateVideoOption(campaign.id, e.target.checked)
-                                }}
-                                className="w-4 h-4 text-orange-600 bg-gray-700 border-gray-600 rounded focus:ring-orange-500 focus:ring-2"
-                              />
-                              <span className="text-sm font-medium text-gray-300">
-                                🎬 Generate Video Content
-                              </span>
-                            </label>
-                            {getSelectedCampaign(campaign.id)?.includeVideo && (
-                              <div className="mt-2 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
-                                <label className="block text-sm font-medium text-purple-400 mb-2">
-                                  Video Duration:
-                                </label>
-                                <select
-                                  value={getSelectedCampaign(campaign.id)?.videoDuration || 10}
-                                  onChange={(e) => updateVideoDuration(campaign.id, parseInt(e.target.value))}
-                                  className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white text-sm"
-                                >
-                                  <option value={10}>10 seconds (3 frames, 2 clips)</option>
-                                  <option value={15}>15 seconds (4 frames, 3 clips)</option>
-                                  <option value={20}>20 seconds (5 frames, 4 clips)</option>
-                                  <option value={25}>25 seconds (6 frames, 5 clips)</option>
-                                </select>
-                                <p className="text-xs text-purple-300 mt-1">
-                                  Video will be generated after the initial image with dynamic frames, clips, and audio
-                                </p>
-                              </div>
-                            )}
+                            <VideoOptions
+                              includeVideo={getSelectedCampaign(campaign.id)?.includeVideo || false}
+                              videoDuration={getSelectedCampaign(campaign.id)?.videoDuration || 5}
+                              onVideoToggle={(includeVideo) => updateVideoOption(campaign.id, includeVideo)}
+                              onDurationChange={(duration) => updateVideoDuration(campaign.id, duration)}
+                              onAdvancedOptionsChange={(options) => updateAdvancedVideoOptions(campaign.id, options)}
+                              disabled={false}
+                            />
                           </div>
 
                           {/* Number of Posts Input */}
@@ -1726,8 +1759,7 @@ export default function Mining() {
                         console.log('🔍 Mining: Should use markdown:', shouldUseMarkdown)
                         console.log('🔍 Mining: Has markdown syntax:', hasMarkdownSyntax)
                         console.log('🔍 Mining: Force markdown:', forceMarkdown)
-                        console.log('🔍 Mining: Raw content length:', reviewItem.content.content_text?.length)
-                        console.log('🔍 Mining: Processed text length:', text?.length)
+                        console.log('🔍 Mining: Final condition (shouldUseMarkdown || forceMarkdown):', (shouldUseMarkdown || forceMarkdown))
                         console.log('🔍 Mining: Tweet thread:', {
                           thread: reviewItem.content.tweet_thread,
                           type: typeof reviewItem.content.tweet_thread,
@@ -1739,7 +1771,7 @@ export default function Mining() {
                         
                         return (
                           <div className="space-y-4">
-                            {forceMarkdown ? (
+                            {(shouldUseMarkdown || forceMarkdown) ? (
                               // Render longpost with markdown formatting
                               <div className="relative">
                                 <div className="absolute top-2 right-2 z-10">

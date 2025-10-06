@@ -20,13 +20,105 @@ fal_api_key = settings.fal_api_key
 if fal_api_key:
     os.environ['FAL_KEY'] = fal_api_key
 
+# Enhanced function to create video with advanced options
+def create_video_with_provider(tweet_text, initial_image_url, logo_url, project_name, 
+                              video_duration=10, clip_duration=5, number_of_clips=None,
+                              human_characters_only=False, web3=False, no_characters=False,
+                              use_brand_aesthetics=False, clip_random_numbers=None,
+                              voiceover=False, clip_audio_prompts=True, theme=None,
+                              product_images=None, llm_provider="grok", image_model="seedream",
+                              include_tweet_text=True, initial_image_prompt=None, random_mode="true_random",
+                              wallet_address=None, agent_id=None):
+    """
+    Enhanced video creation function with advanced options support.
+    
+    This function creates a VideoGenerator instance with advanced options and generates a video.
+    """
+    try:
+        print(f"🚀 Creating enhanced video with advanced options...")
+        print(f"   - Character Control: {'Human Only' if human_characters_only else 'Web3' if web3 else 'No Characters' if no_characters else 'Unlimited'}")
+        print(f"   - Audio: {'Individual Clips' if clip_audio_prompts else 'Single Audio'} | Voiceover: {voiceover}")
+        print(f"   - Duration: {video_duration}s | Clip Duration: {clip_duration}s | Number of Clips: {number_of_clips}")
+        print(f"   - Random Mode: {random_mode}")
+        
+        # Calculate clip count for random mode processing
+        if number_of_clips:
+            clip_count = number_of_clips
+        else:
+            # Calculate based on video duration (default logic)
+            clip_count = max(2, min(5, video_duration // 5))
+        
+        # NEW: Convert random_mode to clip_random_numbers (matching AI standalone logic)
+        import random
+        if clip_random_numbers is None:
+            # No explicit random numbers provided, generate based on random_mode
+            if random_mode == "all_regular":
+                # All regular frames: use 0 for all clips (< 0.5 = regular)
+                clip_random_numbers = [0.0] * clip_count
+                print(f"🎲 Random Mode: ALL REGULAR - Using regular prompts for all {clip_count} clips")
+            elif random_mode == "all_prime":
+                # All prime frames: use 1 for all clips (>= 0.5 = prime)
+                clip_random_numbers = [1.0] * clip_count
+                print(f"🎲 Random Mode: ALL PRIME - Using prime prompts for all {clip_count} clips")
+            elif random_mode == "true_random":
+                # True random: generate random numbers for each clip
+                clip_random_numbers = [random.random() for _ in range(clip_count)]
+                print(f"🎲 Random Mode: TRUE RANDOM - Generated random values: {[f'{val:.3f}' for val in clip_random_numbers]}")
+            else:
+                # Default to true random if unknown mode
+                clip_random_numbers = [random.random() for _ in range(clip_count)]
+                print(f"⚠️ Unknown random mode '{random_mode}', defaulting to TRUE RANDOM")
+        else:
+            print(f"🎲 Using provided clip_random_numbers: {[f'{val:.3f}' for val in clip_random_numbers]}")
+        
+        # Create enhanced VideoGenerator with all advanced options
+        generator = VideoGenerator(
+            logo_path=logo_url,
+            project_name=project_name,
+            output_dir="output",
+            llm_provider=llm_provider,
+            image_model=image_model,
+            video_duration=video_duration,
+            clip_duration=clip_duration,
+            number_of_clips=number_of_clips,
+            human_characters_only=human_characters_only,
+            web3=web3,
+            no_characters=no_characters,
+            use_brand_aesthetics=use_brand_aesthetics,
+            clip_random_numbers=clip_random_numbers,  # Use calculated/provided random numbers
+            voiceover=voiceover,
+            clip_audio_prompts=clip_audio_prompts,
+            theme=theme,
+            product_images=product_images,
+            # NEW: Pass wallet and agent information for proper S3 organization
+            wallet_address=wallet_address,
+            agent_id=agent_id
+        )
+        
+        # Generate the video
+        # Pass the initial image URL directly to the video generator
+        # No need to download - FAL models can accept URLs directly
+        result = generator.create_video(tweet_text, initial_image_prompt, initial_image_url)
+        
+        print(f"✅ Enhanced video generation completed: {result}")
+        return result
+        
+    except Exception as e:
+        error_msg = f"Enhanced video generation failed: {str(e)}"
+        print(f"❌ {error_msg}")
+        return error_msg
+
 # Import S3StorageService from the app
 from ..services.s3_storage_service import S3StorageService
 
 class VideoGenerator:
-    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="seedream", video_duration=10):
+    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="seedream", 
+                 video_duration=10, clip_duration=5, number_of_clips=None, human_characters_only=False, 
+                 web3=False, no_characters=False, use_brand_aesthetics=False, clip_random_numbers=None, 
+                 voiceover=False, clip_audio_prompts=True, theme=None, product_images=None,
+                 wallet_address=None, agent_id=None):
         """
-        Initialize the VideoGenerator.
+        Initialize the Enhanced VideoGenerator with advanced options.
         
         Args:
             logo_path (str): Path to project logo image (MANDATORY)
@@ -35,6 +127,19 @@ class VideoGenerator:
             llm_provider (str): "claude" or "grok" for prompt generation
             image_model (str): "seedream" or "nano-banana" for image generation
             video_duration (int): Video duration in seconds (10, 15, 20, or 25)
+            
+            # Advanced Options:
+            clip_duration (int): Individual clip duration (5 or 8 seconds)
+            number_of_clips (int): Number of clips (overrides video_duration calculation)
+            human_characters_only (bool): Use only human characters
+            web3 (bool): Use Web3/crypto meme characters
+            no_characters (bool): Pure product showcase with no new characters
+            use_brand_aesthetics (bool): Use brand-specific aesthetic guidelines
+            clip_random_numbers (list): Random numbers for dual-stream selection
+            voiceover (bool): Enable AI voiceover generation
+            clip_audio_prompts (bool): Individual audio per clip vs single audio
+            theme (str): Optional theme for content generation
+            product_images (list): Optional product images for integration
         """
         if not logo_path:
             raise ValueError("Logo path/url is mandatory")
@@ -43,28 +148,70 @@ class VideoGenerator:
         if not self.logo_is_url and not os.path.exists(logo_path):
             raise ValueError(f"Logo path is mandatory and must exist: {logo_path}")
         
-        # Validate video duration
-        valid_durations = [10, 15, 20, 25]
-        if video_duration not in valid_durations:
-            raise ValueError(f"Video duration must be one of {valid_durations} seconds, got: {video_duration}")
+        # Process duration settings with preference for clip-based approach
+        if number_of_clips and clip_duration:
+            # Clip-based mode takes precedence
+            self.video_duration = clip_duration * number_of_clips
+            self.clip_duration = clip_duration
+            self.number_of_clips = number_of_clips
+            print(f"🎬 Using clip-based duration: {number_of_clips} clips × {clip_duration}s = {self.video_duration}s total")
+        else:
+            # Video duration mode
+            valid_durations = [10, 15, 20, 25]
+            if video_duration not in valid_durations:
+                raise ValueError(f"Video duration must be one of {valid_durations} seconds, got: {video_duration}")
+            self.video_duration = video_duration
+            self.clip_duration = min(clip_duration, 8)  # Cap at 8 seconds for Pixverse
+            self.number_of_clips = None
+            
+        # Warn if clip_duration exceeds Pixverse limits
+        if self.clip_duration > 8:
+            print(f"⚠️ WARNING: clip_duration {self.clip_duration}s exceeds Pixverse maximum of 8s. Capping to 8s.")
+            self.clip_duration = 8
+            
+        # Store advanced video options
+        self.human_characters_only = human_characters_only
+        self.web3 = web3
+        self.no_characters = no_characters
+        self.use_brand_aesthetics = use_brand_aesthetics
+        self.clip_random_numbers = clip_random_numbers
+        self.voiceover = voiceover
+        self.clip_audio_prompts = clip_audio_prompts
+        self.theme = theme
+        self.product_images = product_images
             
         self.output_dir = output_dir
         self.logo_path = logo_path
         self.project_name = project_name
         self.llm_provider = llm_provider.lower()
         self.image_model = image_model.lower()
-        self.video_duration = video_duration
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.project_folder = os.path.join(output_dir, f"project_{self.timestamp}")
         
-        # Calculate frame and clip counts based on duration
+        print(f"🎬 Advanced Video Options:")
+        print(f"   - Character Control: {'Human Only' if self.human_characters_only else 'Web3' if self.web3 else 'No Characters' if self.no_characters else 'Unlimited'}")
+        print(f"   - Audio System: {'Individual Clips' if self.clip_audio_prompts else 'Single Audio'}")
+        print(f"   - Voiceover: {'Enabled' if self.voiceover else 'Disabled'}")
+        print(f"   - Brand Aesthetics: {'Enabled' if self.use_brand_aesthetics else 'Disabled'}")
+        print(f"   - Clip Duration: {self.clip_duration}s")
+        if self.number_of_clips:
+            print(f"   - Number of Clips: {self.number_of_clips}")
+        if self.theme:
+            print(f"   - Theme: {self.theme}")
+        
+        # Calculate frame and clip counts based on duration or clips
         self.frame_count = self._calculate_frame_count()
         self.clip_count = self.frame_count - 1
         
-        # Initialize S3 service
+        # Store S3 organization parameters
+        self.wallet_address = wallet_address or "unknown-wallet"
+        self.agent_id = agent_id or "default-agent"
+        
+        # Initialize S3 service with proper organization
         try:
             self.s3_service = S3StorageService()
             print(f"✅ S3 service initialized for bucket: {self.s3_service.bucket_name}")
+            print(f"🏷️ S3 Organization: wallet_address={self.wallet_address}, agent_id={self.agent_id}")
         except Exception as e:
             print(f"❌ Failed to initialize S3 service: {e}")
             raise
@@ -101,36 +248,231 @@ class VideoGenerator:
         print(f"Project name: {self.project_name}")
 
     def _calculate_frame_count(self):
-        """Calculate number of frames based on video duration."""
-        duration_mapping = {
-            10: 3,  # 10s -> 3 frames -> 2 clips
-            15: 4,  # 15s -> 4 frames -> 3 clips
-            20: 5,  # 20s -> 5 frames -> 4 clips
-            25: 6   # 25s -> 6 frames -> 5 clips
-        }
-        return duration_mapping[self.video_duration]
+        """Calculate number of frames based on video duration or clip count."""
+        if hasattr(self, 'number_of_clips') and self.number_of_clips:
+            # Clip-based mode: frames = clips + 1
+            return self.number_of_clips + 1
+        else:
+            # Duration-based mode (original logic)
+            duration_mapping = {
+                10: 3,  # 10s -> 3 frames -> 2 clips
+                15: 4,  # 15s -> 4 frames -> 3 clips
+                20: 5,  # 20s -> 5 frames -> 4 clips
+                25: 6   # 25s -> 6 frames -> 5 clips
+            }
+            return duration_mapping.get(self.video_duration, 3)
+    
+    def _get_character_instructions(self):
+        """Generate character instructions based on no_characters, human_characters_only, and web3 flags."""
+        if self.no_characters:
+            return f"""🎭 CHARACTER CONTINUITY (NO NEW CHARACTERS - MAINTAIN EXISTING):
+- CHARACTER CONTINUITY REQUIREMENT: If the initial image contains characters, you MUST maintain those same characters throughout all frames for visual continuity
+- NO NEW CHARACTERS: Do NOT introduce any additional characters beyond what exists in the initial image/prompt
+- EXISTING CHARACTER PRESERVATION: Keep any characters that are already established in the initial image - they are part of the established visual narrative
+- CONSISTENT CHARACTER PORTRAYAL: If initial characters exist, maintain their appearance, style, and role throughout the video
+- PRODUCT-FOCUSED EXPANSION: When adding new visual elements, focus on products, technology, environments, and brand elements rather than new characters
+- NARRATIVE CONTINUITY: Use existing characters (if any) to tell the brand story while keeping them consistent
+- BRAND STORYTELLING: Tell the brand story through products and existing characters without adding new character elements"""
+
+        elif self.human_characters_only:
+            return f"""🎭 CHARACTER REQUIREMENTS (HUMAN CHARACTERS ONLY):
+- MANDATORY: Use ONLY human characters throughout the entire video
+- NO MEME CHARACTERS: Do not use Pepe, Wojak, Chad, Shiba Inu, Doge, or any cartoon/meme characters
+- PROFESSIONAL HUMANS: Use diverse, realistic human characters that represent the target audience
+- HUMAN INTERACTIONS: Show realistic human emotions, expressions, and interactions
+- CHARACTER CONSISTENCY: Maintain the same human characters throughout the video for continuity
+- REALISTIC PORTRAYAL: Focus on authentic human experiences and relatable scenarios"""
+
+        elif self.web3:
+            return f"""🎭 CHARACTER AUTONOMY (WEB3 MEME OPTION):
+- COMPLETE CREATIVE AUTONOMY: You have FULL AUTONOMY to decide whether to include characters or not based on what best serves the brand story
+- CHARACTER DECISION FREEDOM: You may choose to include 0, 1, 2, or N characters - or focus purely on products if that creates better brand impact
+- INITIAL IMAGE INDEPENDENCE: You are NOT required to add characters just because the initial image has them, nor avoid them if the initial image lacks them
+- WEB3 CHARACTER OPTION: IF you decide characters would enhance the story, you may use popular Web3/crypto meme characters (Pepe, Wojak, Chad, HODL guy, Diamond Hands, Paper Hands, Moon boy, Ape characters, Doge, Shiba Inu, etc.)
+- STYLE FLEXIBILITY: IF characters are used, they can be in any style (realistic, comic, or mixed) - you decide what works best for the brand narrative
+- PURE PRODUCT OPTION: You may also choose to focus entirely on products, technology, or brand elements without any characters if that tells a better story
+- NARRATIVE-FIRST APPROACH: Let the brand message guide your decision - characters should only be included if they genuinely enhance the brand story
+- CREATIVE FREEDOM: These are creative options, NOT requirements - generate the most effective content for the brand, with or without characters"""
+
+        else:
+            return f"""🎭 CHARACTER AUTONOMY (UNLIMITED CREATIVE OPTION):
+- MAXIMUM CREATIVE AUTONOMY: You have COMPLETE FREEDOM to decide whether characters would enhance the brand story or if a character-free approach works better
+- CHARACTER DECISION INDEPENDENCE: You may choose to include 0, 1, 2, or N characters - or focus purely on products/brand elements if that creates more impact
+- INITIAL IMAGE INDEPENDENCE: You are NOT bound by the initial image - add characters if they enhance the story, keep existing ones if they work, or remove them if pure product focus is better
+- UNLIMITED CHARACTER OPTIONS: IF you decide characters would enhance the story, choose from ANY character types that serve the brand narrative:
+
+  🍎 FOOD CHARACTERS (Comic Form): Anthropomorphized food items like talking potatoes, dancing tomatoes, wise apples, cheerful carrots, etc.
+  🐾 ANIMAL CHARACTERS (Comic Form): Any animals - pets, wild animals, sea creatures, birds, insects, mythical creatures, etc.
+  🚗 OBJECT CHARACTERS (Comic Form): Talking cars, dancing phones, wise computers, friendly furniture, musical instruments with personality, etc.
+  🌳 NATURE CHARACTERS (Comic Form): Trees with faces, clouds with personalities, mountains with expressions, rivers that speak, etc.
+  💭 ABSTRACT CONCEPT CHARACTERS (Comic Form): Emotions given form (Joy, Courage, Wisdom), ideas as characters (Innovation, Success, Dreams), etc.
+  🎭 MIXED SCENES: Realistic humans can interact naturally with comic characters in the same frames and clips
+
+- PURE PRODUCT OPTION: You may also choose to focus entirely on products, services, or brand elements without any characters if that creates a more compelling brand story
+- COMIC FORM PREFERENCE: IF non-human characters are used, prefer comic/cartoon style over photorealistic
+- NARRATIVE-FIRST APPROACH: Let the brand message guide your decision - characters should only be included if they genuinely enhance the brand story and engagement
+- CREATIVE GUIDELINES: These are creative options and inspiration, NOT rigid requirements - generate the most effective content for the brand, with or without characters
+- BRAND-FIRST DECISION: Always prioritize what serves the brand message best, whether that's character-driven storytelling or pure product showcase"""
+    
+    def _get_brand_aesthetics_instructions(self):
+        """Generate brand aesthetic instructions based on use_brand_aesthetics flag."""
+        if self.use_brand_aesthetics:
+            return f"""🎨 BRAND AESTHETICS REQUIREMENTS ({self.project_name.upper()}):
+-- BRAND IDENTITY: Follow {self.project_name} brand guidelines and visual identity
+-- COLOR PALETTE: Use {self.project_name} brand colors and maintain consistent color scheme
+-- VISUAL STYLE: Apply {self.project_name} brand typography, design elements, and visual style
+-- BRAND TONE: Maintain {self.project_name} brand personality and messaging tone
+-- AUDIO BRANDING: Audio should match {self.project_name} brand tone and preferred music style
+-- CONSISTENT BRANDING: Every visual and audio element should reinforce {self.project_name} brand identity
+-- PROFESSIONAL BRAND PRESENCE: Ensure all content aligns with {self.project_name} brand standards"""
+        else:
+            return f"""🎨 VISUAL STYLE & BRAND NARRATIVE:
+-- Style should be ULTRA-VIRAL with trending aesthetics, meme culture, and Web3 vibes that will dominate social feeds
+-- Content should be inspired by popular image memes, Web3 memes, and shitpost culture - let you decide the best visual style for maximum viral potential
+-- Create a professional brand promotion video - you have FULL AUTONOMY to decide the optimal number of characters and visual elements for maximum impact without clutter
+-- BRAND NARRATIVE FOCUS: Ensure the core message from the tweet is clearly communicated through a compelling visual narrative that builds to a powerful brand revelation
+-- PROFESSIONAL PRODUCTION: Every element must feel like it was created by a professional creative team at a top advertising agency"""
+    
+    def _get_brand_context_validation_instructions(self):
+        """Get brand context validation instructions for guardrails"""
+        if not self.use_brand_aesthetics:
+            return ""
+        
+        return f"""
+🛡️ BRAND CONTEXT VALIDATION GUARDRAILS:
+
+Before generating any frame or clip prompt, you MUST validate:
+
+1. **Product-Brand Alignment**: Does this action/visual directly support {self.project_name}'s core function and brand message?
+
+2. **Logical Consistency**: Does this action make logical sense for someone using {self.project_name}?
+
+3. **Brand Authenticity**: Would this action genuinely occur in a real {self.project_name} usage scenario?
+
+4. **Professional Standards**: Does this maintain {self.project_name}'s professional brand image?
+
+5. **Target Audience Relevance**: Does this resonate with {self.project_name}'s target demographic?
+
+If ANY validation fails, regenerate the prompt with corrected logic.
+"""
+    
+    def _get_audio_continuity_instructions(self):
+        """Get audio continuity instructions for individual clip audio generation"""
+        return f"""
+🎵 INDIVIDUAL CLIP AUDIO GENERATION:
+
+AUDIO CONTINUITY REQUIREMENTS:
+- Each clip must have its own detailed audio prompt with MUSIC ONLY
+- Audio for each clip must naturally follow the previous clip's musical progression
+- Maintain musical continuity throughout all clips for consistency
+- Create musical narrative progression that supports the brand story
+
+AUDIO PROMPT STRUCTURE FOR EACH CLIP (MUSIC ONLY):
+- Musical composition and instrumental arrangements
+- Music style and progression that matches the brand tone
+- Musical elements that enhance the clip's emotional impact
+- Musical continuity that maintains atmospheric consistency
+- Appropriate musical ending that flows into the next clip
+
+AUDIO CONTINUITY ACROSS STREAMS:
+- Regular audio (audioN_prompt) must follow previous audio (whether regular or prime)
+- Prime audio (audioN_prime_prompt) must follow previous audio (whether regular or prime)
+- Maintain musical continuity regardless of visual stream changes
+
+EXAMPLES OF MUSIC-ONLY AUDIO PROMPTS:
+- "Melancholic piano melody building with orchestral strings, soft ambient synthesizers, emotional musical progression"
+- "Building hopeful orchestral arrangement with strings and brass, uplifting musical crescendo, inspiring musical composition"
+- "Triumphant orchestral finale with full brass section, majestic musical climax, powerful musical resolution"
+- "Elegant orchestral conclusion with refined musical elements, sophisticated musical arrangement, timeless musical excellence"
+
+AUDIO NARRATIVE PROGRESSION:
+- Clip 1: Establish musical foundation and emotional tone
+- Clip 2+: Build upon previous musical elements while introducing new layers
+- Final Clip: Bring musical narrative to satisfying conclusion
+"""
+    
+    def _get_logo_integration_instructions(self):
+        """Generate instructions for intelligent logo integration decisions."""
+        return f"""🎯 INTELLIGENT BRAND LOGO INTEGRATION:
+-- AUTONOMOUS DECISIONS: You have FULL AUTONOMY to decide when brand logo/identity is relevant for each frame and clip
+-- NATURAL INTEGRATION: Only include logo when it enhances the narrative and feels natural, not forced
+-- PROFESSIONAL STANDARDS: Think like a professional brand creative director - when would a real brand video show the logo?
+-- CONTEXTUAL RELEVANCE: Include logo when it makes logical sense within the scene (on products, screens, signage, etc.)
+-- AVOID FORCED PLACEMENT: Don't add logo just because you can - it should serve the story and feel organic
+-- DECISION CRITERIA: Ask yourself: "Would a professional brand video show the logo here, or would it feel forced?"
+-- QUALITY OVER QUANTITY: Better to have fewer, well-placed logo moments than constant branding"""
+    
+    def _get_theme_instructions(self):
+        """Generate theme-based instructions if theme is provided."""
+        if self.theme:
+            return f"""🎨 THEME GUIDANCE ({self.theme.upper()}):
+-- THEME INTEGRATION: Incorporate the theme "{self.theme}" naturally throughout the video narrative
+-- THEMATIC CONSISTENCY: Ensure all visual and audio elements align with the {self.theme} theme
+-- CREATIVE INTERPRETATION: Use the theme as inspiration, not a rigid constraint
+-- BRAND ALIGNMENT: Ensure the theme enhances rather than overshadows the brand message
+-- NARRATIVE COHERENCE: Let the theme guide the story while maintaining professional brand standards"""
+        else:
+            return ""
     
     def _generate_frame_prompts_json(self):
-        """Generate JSON structure for frame prompts based on frame count."""
+        """Generate JSON structure for frame prompts based on frame count with dual-stream support."""
         frame_prompts = []
         for i in range(2, self.frame_count + 1):  # Start from frame 2 (frame 1 is initial image)
             if self.video_duration >= 20:
                 # For longer videos, emphasize narrative flexibility
-                frame_prompts.append(f'    "frame{i}_prompt": "Your detailed prompt for frame {i} here - describe the actual scene, characters, actions, and visual elements. For {self.video_duration}-second videos, you can use COMPLETELY DIFFERENT scenes, locations, and characters to create a compelling brand narrative"')
+                frame_prompts.append(f'    "frame{i}_prompt": "Describe the actual scene, characters, actions, and visual elements following real-world physics laws. For {self.video_duration}-second videos, you can use COMPLETELY DIFFERENT scenes, locations, and characters to create a compelling brand narrative. IMPORTANT: Generate a square (1:1 aspect ratio) image composition suitable for video transitions"')
+                # Add prime frame prompt for dynamic scene generation
+                frame_prompts.append(f'    "frame{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene, setting, and characters while maintaining the same brand message, narrative coherence, and real-world physics laws. IMPORTANT: Generate a square (1:1 aspect ratio) image composition suitable for video transitions"')
             else:
-                frame_prompts.append(f'    "frame{i}_prompt": "Your detailed prompt for frame {i} here - describe the actual scene, characters, actions, and visual elements"')
+                frame_prompts.append(f'    "frame{i}_prompt": "Describe the actual scene, characters, actions, and visual elements following real-world physics laws. IMPORTANT: Generate a square (1:1 aspect ratio) image composition suitable for video transitions"')
+                # Add prime frame prompt for dynamic scene generation
+                frame_prompts.append(f'    "frame{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene, setting, and characters while maintaining the same brand message, narrative coherence, and real-world physics laws. IMPORTANT: Generate a square (1:1 aspect ratio) image composition suitable for video transitions"')
+            # Add logo decision for each frame (restored)
+            frame_prompts.append(f'    "frame{i}_logo_needed": true/false')
+            frame_prompts.append(f'    "frame{i}_prime_logo_needed": true/false')
         return ',\n'.join(frame_prompts)
     
     def _generate_clip_prompts_json(self):
-        """Generate JSON structure for clip prompts based on clip count."""
+        """Generate JSON structure for clip prompts based on clip count with dual-stream support."""
         clip_prompts = []
         for i in range(1, self.clip_count + 1):
             if self.video_duration >= 20:
-                # For longer videos, emphasize scene transitions and narrative flow
-                clip_prompts.append(f'    "clip{i}_prompt": "Your clip content description - start directly with content, include transition details if needed. For {self.video_duration}-second videos, you can transition between COMPLETELY DIFFERENT scenes and locations to create a compelling brand narrative"')
+                # For longer videos, emphasize scene transitions and narrative flow with physics-based transitions
+                clip_prompts.append(f'    "clip{i}_prompt": "You have COMPLETE CREATIVE AUTONOMY to design the best transition for this clip. Choose from physics-based entry methods (natural walking/running into frame, emerging from background, camera reveals), smooth continuations (ongoing activities, natural movements), or natural exits (walking away, moving behind objects). ALL movements must follow real-world physics - NO sudden appearances, teleportation, or flying effects. Focus on smooth, minimal transitions with natural camera movements and realistic character physics. For {self.video_duration}-second videos, you can transition between COMPLETELY DIFFERENT scenes and locations while maintaining natural character movements and physics-based realism. Create compelling brand narrative with professional cinematic quality."')
+                # Add prime clip prompt for dynamic scene generation with physics
+                clip_prompts.append(f'    "clip{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene with autonomous transition design. You have full creative control to select the most appropriate physics-based transition method. Use natural character entry/exit methods, smooth camera movements, and realistic scene progression. ALL character movements must follow real-world physics with proper momentum, balance, and natural motion. Avoid excessive cuts, zooms, or complex transitions. Maintain brand message and narrative coherence while ensuring professional, believable character physics."')
             else:
-                clip_prompts.append(f'    "clip{i}_prompt": "Your clip content description - start directly with content, include transition details if needed"')
+                # Standard video duration with enhanced physics-based transitions
+                clip_prompts.append(f'    "clip{i}_prompt": "You have COMPLETE CREATIVE AUTONOMY to design the best transition for this clip. Choose from physics-based entry methods (natural walking/running into frame, emerging from background, camera reveals), smooth continuations (ongoing activities, natural movements), or natural exits (walking away, moving behind objects). ALL movements must follow real-world physics - NO sudden appearances, teleportation, or flying effects. Focus on smooth, minimal transitions with natural camera movements, realistic character physics, and professional cinematic flow."')
+                # Add prime clip prompt for dynamic scene generation with physics
+                clip_prompts.append(f'    "clip{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene with autonomous transition design. You have full creative control to select the most appropriate physics-based transition method. Use natural character entry/exit methods, smooth camera movements, and realistic scene progression. ALL character movements must follow real-world physics with proper momentum, balance, and natural motion. Avoid excessive cuts, zooms, or complex transitions. Maintain brand message and narrative coherence while ensuring professional, believable character physics."')
+        
+        # Add voiceover prompts if enabled
+        if self.voiceover:
+            for i in range(1, self.clip_count + 1):
+                clip_prompts.append(f'    "voiceover{i}_prompt": "Create engaging voiceover text for clip {i} (max 90 characters) that matches the visual content and reinforces the brand message. Use emotional brackets like [excited], [confident], [pause 1 second] for natural delivery."')
+                clip_prompts.append(f'    "voiceover{i}_prime_prompt": "Create alternative voiceover text for clip {i} (max 90 characters) with different tone/approach while maintaining brand consistency. Use emotional brackets like [enthusiastic], [inspiring], [pause 1 second] for natural delivery."')
+        
         return ',\n'.join(clip_prompts)
+    
+    def _generate_audio_prompts_json(self):
+        """Generate JSON structure for audio prompts based on audio system and voiceover settings."""
+        audio_prompts = []
+        
+        if self.clip_audio_prompts:
+            # Individual audio prompts for each clip
+            for i in range(1, self.clip_count + 1):
+                audio_prompts.append(f'    "audio{i}_prompt": "Your detailed audio description for clip {i} - specific sounds, music style, audio effects that match the visual content"')
+                audio_prompts.append(f'    "audio{i}_prime_prompt": "Alternative audio description for clip {i} - different style/approach while maintaining brand consistency"')
+        else:
+            # Single continuous audio for entire video
+            audio_prompts.append(f'    "single_audio_prompt": "Your detailed audio description for the entire {self.video_duration}-second video - continuous background music, sound effects, and audio atmosphere that flows seamlessly throughout"')
+            audio_prompts.append(f'    "single_audio_prime_prompt": "Alternative continuous audio description for the entire video - different musical style/approach while maintaining brand consistency and seamless flow"')
+        
+        # Legacy audio prompt for backward compatibility
+        audio_prompts.append(f'    "audio_prompt": "Your detailed audio description here - specific sounds, music style, audio effects with appropriate ending (you decide best ending style), {self.video_duration} seconds"')
+        
+        return ',\n'.join(audio_prompts)
     
     def _get_narrative_flexibility_instructions(self):
         """Generate narrative flexibility instructions based on video duration."""
@@ -199,6 +541,62 @@ class VideoGenerator:
             print(f"Error downloading {url}: {str(e)}")
             return False
 
+    def get_fresh_presigned_url_from_s3_url(self, s3_url):
+        """
+        Generate a fresh presigned URL from an existing S3 URL.
+        
+        Args:
+            s3_url (str): Existing S3 URL (may be expired)
+            
+        Returns:
+            str: Fresh presigned URL or None if failed
+        """
+        try:
+            # Extract bucket name and key from S3 URL
+            # Format: https://bucket-name.s3.amazonaws.com/key/path
+            # or https://s3.amazonaws.com/bucket-name/key/path
+            import re
+            from urllib.parse import urlparse
+            
+            parsed = urlparse(s3_url)
+            
+            if '.s3.amazonaws.com' in parsed.netloc:
+                # Format: https://bucket-name.s3.amazonaws.com/key/path
+                bucket_name = parsed.netloc.split('.s3.amazonaws.com')[0]
+                key = parsed.path[1:]  # Remove leading slash
+            elif 's3.amazonaws.com' in parsed.netloc:
+                # Format: https://s3.amazonaws.com/bucket-name/key/path
+                path_parts = parsed.path[1:].split('/', 1)  # Remove leading slash and split
+                bucket_name = path_parts[0]
+                key = path_parts[1] if len(path_parts) > 1 else ''
+            else:
+                print(f"❌ Unrecognized S3 URL format: {s3_url}")
+                return None
+            
+            # Generate fresh presigned URL using S3 service
+            print(f"🔍 DEBUG: Generating presigned URL for key: {key}")
+            result = self.s3_service.generate_presigned_url(key, expiration=3600)
+            print(f"🔍 DEBUG: S3 service returned: {type(result)} = {result}")
+            
+            # Extract the URL string from the result
+            if isinstance(result, dict) and result.get('success'):
+                fresh_url = result.get('presigned_url')
+                print(f"✅ Generated fresh presigned URL for: {key}")
+                print(f"🔗 URL: {fresh_url[:100]}..." if fresh_url and len(fresh_url) > 100 else f"🔗 URL: {fresh_url}")
+                return fresh_url
+            elif isinstance(result, str):
+                # Direct URL string returned
+                print(f"✅ Generated fresh presigned URL for: {key}")
+                print(f"🔗 URL: {result[:100]}..." if len(result) > 100 else f"🔗 URL: {result}")
+                return result
+            else:
+                print(f"❌ Invalid presigned URL result format: {type(result)} = {result}")
+                return None
+            
+        except Exception as e:
+            print(f"❌ Failed to generate fresh presigned URL from {s3_url}: {e}")
+            return None
+
     def upload_to_s3_and_get_presigned_url(self, local_path, content_type="image", file_type="img"):
         """
         Upload file to S3 and get presigned URL.
@@ -214,12 +612,12 @@ class VideoGenerator:
         try:
             print(f"📤 Uploading {file_type} to S3: {local_path}")
             
-            # Upload file to S3 using S3Service
+            # Upload file to S3 using S3Service with proper organization
             result = self.s3_service.upload_file_to_s3(
                 file_path=local_path,
                 content_type=content_type,
-                wallet_address=None,  # Will use default "unknown-wallet"
-                agent_id=None,       # Will use default "default-agent"
+                wallet_address=self.wallet_address,  # Use stored wallet address
+                agent_id=self.agent_id,             # Use stored agent ID
                 model_name=self.image_model if content_type == "image" else "video-generation"
             )
             
@@ -245,10 +643,10 @@ class VideoGenerator:
     
     def extract_video_metadata(self, prompts, frame_urls, clip_urls, combined_video_s3_url):
         """
-        Extract video-specific metadata for database storage.
+        Extract video-specific metadata for database storage with dual-stream support.
         
         Args:
-            prompts: Generated prompts dictionary
+            prompts: Generated prompts dictionary with regular and prime streams
             frame_urls: List of frame S3 URLs
             clip_urls: List of clip S3 URLs
             combined_video_s3_url: Combined video S3 URL
@@ -256,27 +654,102 @@ class VideoGenerator:
         Returns:
             Dict containing video-specific metadata for database storage
         """
-        # Extract frame prompts (frames 2 onwards)
-        subsequent_frame_prompts = {}
+        # Extract frame prompts (frames 2 onwards) - both regular and prime streams
+        subsequent_frame_prompts = {
+            "regular": {},
+            "prime": {}
+        }
+        
         for key, value in prompts.items():
-            if key.startswith('frame') and key.endswith('_prompt') and key != 'frame1_prompt':
+            print(f"🔍 DEBUG: Processing key '{key}', value type: {type(value)}")
+            
+            if key.startswith('frame') and key.endswith('_prime_prompt'):
+                # Prime frame prompt - check this FIRST
+                frame_num = key.replace('frame', '').replace('_prime_prompt', '')
+                subsequent_frame_prompts["prime"][f"frame{frame_num}"] = value
+                print(f"✅ Added PRIME frame prompt: frame{frame_num}")
+            elif key.startswith('frame') and key.endswith('_prompt') and key != 'frame1_prompt':
+                # Regular frame prompt - check this AFTER prime prompts
                 frame_num = key.replace('frame', '').replace('_prompt', '')
-                subsequent_frame_prompts[f"frame{frame_num}"] = value
+                subsequent_frame_prompts["regular"][f"frame{frame_num}"] = value
+                print(f"✅ Added REGULAR frame prompt: frame{frame_num}")
+            elif key.startswith('frame') and key.endswith('_logo_needed'):
+                # Skip logo decision values - they're boolean, not strings
+                print(f"🔍 DEBUG: Skipping logo decision key '{key}' with value {value} (type: {type(value)})")
+                continue
         
-        # Extract clip prompts
-        clip_prompts = {}
+        # Extract clip prompts - both regular and prime streams
+        clip_prompts = {
+            "regular": {},
+            "prime": {}
+        }
+        
         for key, value in prompts.items():
-            if key.startswith('clip') and key.endswith('_prompt'):
+            if key.startswith('clip') and key.endswith('_prime_prompt'):
+                # Prime clip prompt - check this FIRST
+                clip_num = key.replace('clip', '').replace('_prime_prompt', '')
+                clip_prompts["prime"][f"clip{clip_num}"] = value
+                print(f"✅ Added PRIME clip prompt: clip{clip_num}")
+            elif key.startswith('clip') and key.endswith('_prompt'):
+                # Regular clip prompt - check this AFTER prime prompts
                 clip_num = key.replace('clip', '').replace('_prompt', '')
-                clip_prompts[f"clip{clip_num}"] = value
+                clip_prompts["regular"][f"clip{clip_num}"] = value
+                print(f"✅ Added REGULAR clip prompt: clip{clip_num}")
         
-        # Extract audio prompt
-        audio_prompt = prompts.get('audio_prompt', '')
+        # Extract audio prompts - both regular and prime streams, including voiceover
+        audio_prompts = {
+            "regular": {
+                "audio": {},
+                "voiceover": {}
+            },
+            "prime": {
+                "audio": {},
+                "voiceover": {}
+            }
+        }
+        
+        # Individual clip audio prompts
+        for key, value in prompts.items():
+            if key.startswith('audio') and key.endswith('_prime_prompt'):
+                # Prime audio prompt - check this FIRST
+                audio_num = key.replace('audio', '').replace('_prime_prompt', '')
+                audio_prompts["prime"]["audio"][f"audio{audio_num}"] = value
+                print(f"✅ Added PRIME audio prompt: audio{audio_num}")
+            elif key.startswith('audio') and key.endswith('_prompt'):
+                # Regular audio prompt - check this AFTER prime prompts
+                audio_num = key.replace('audio', '').replace('_prompt', '')
+                audio_prompts["regular"]["audio"][f"audio{audio_num}"] = value
+                print(f"✅ Added REGULAR audio prompt: audio{audio_num}")
+        
+        # Single audio prompts (when clip_audio_prompts=False)
+        if 'single_audio_prompt' in prompts:
+            audio_prompts["regular"]["audio"]["single_audio"] = prompts['single_audio_prompt']
+            print(f"✅ Added REGULAR single audio prompt")
+        if 'single_audio_prime_prompt' in prompts:
+            audio_prompts["prime"]["audio"]["single_audio"] = prompts['single_audio_prime_prompt']
+            print(f"✅ Added PRIME single audio prompt")
+        
+        # Voiceover prompts - both regular and prime streams
+        for key, value in prompts.items():
+            if key.startswith('voiceover') and key.endswith('_prime_prompt'):
+                # Prime voiceover prompt - check this FIRST
+                voiceover_num = key.replace('voiceover', '').replace('_prime_prompt', '')
+                audio_prompts["prime"]["voiceover"][f"voiceover{voiceover_num}"] = value
+                print(f"✅ Added PRIME voiceover prompt: voiceover{voiceover_num}")
+            elif key.startswith('voiceover') and key.endswith('_prompt'):
+                # Regular voiceover prompt - check this AFTER prime prompts
+                voiceover_num = key.replace('voiceover', '').replace('_prompt', '')
+                audio_prompts["regular"]["voiceover"][f"voiceover{voiceover_num}"] = value
+                print(f"✅ Added REGULAR voiceover prompt: voiceover{voiceover_num}")
+        
+        # Legacy single audio prompt (for backward compatibility)
+        legacy_audio_prompt = prompts.get('audio_prompt', '')
         
         return {
             "subsequent_frame_prompts": subsequent_frame_prompts,
             "clip_prompts": clip_prompts,
-            "audio_prompt": audio_prompt,
+            "audio_prompts": audio_prompts,  # NEW: Enhanced structure with dual streams and voiceover
+            "audio_prompt": legacy_audio_prompt,  # Keep for backward compatibility
             "frame_urls": frame_urls,
             "clip_urls": clip_urls,
             "combined_video_s3_url": combined_video_s3_url,
@@ -347,7 +820,7 @@ Please provide EXACTLY the following in JSON format with ACTUAL detailed prompts
 {{
     {self._generate_frame_prompts_json()},
     {self._generate_clip_prompts_json()},
-    "audio_prompt": "Your detailed audio description here - specific sounds, music style, audio effects with appropriate ending (you decide best ending style), {self.video_duration} seconds"
+    {self._generate_audio_prompts_json()}
 }}
 
 🎬 CREATIVE DIRECTOR REQUIREMENTS:
@@ -361,6 +834,8 @@ FRAME PRODUCTION (Frames 2-{self.frame_count}):
 - Focus on creating a clean, professional brand promotion video that tells a compelling story without visual clutter
 
 {self._get_creative_freedom_instructions()}
+
+{self._get_character_instructions()}
 
 FINAL FRAME (Frame {self.frame_count}):
 - Create a powerful brand promotion moment that effectively highlights the brand and delivers the core message
@@ -380,12 +855,16 @@ FINAL FRAME (Frame {self.frame_count}):
 - Audio should build from catchy hooks to EPIC, goosebump-inducing finale with appropriate ending effects (fade-out for subtle endings, crescendo for cosmic/dramatic scenes) for cinematic ending that will make people rewatch and share
 - Duration: {self.video_duration} seconds - ensure audio matches video length perfectly
 
-🎨 VISUAL STYLE & BRAND NARRATIVE:
-- Style should be ULTRA-VIRAL with trending aesthetics, meme culture, and Web3 vibes that will dominate social feeds
-- Content should be inspired by popular image memes, Web3 memes, and shitpost culture - let you decide the best visual style for maximum viral potential
-- Create a professional brand promotion video - you have FULL AUTONOMY to decide the optimal number of characters and visual elements for maximum impact without clutter
-- BRAND NARRATIVE FOCUS: Ensure the core message from the tweet is clearly communicated through a compelling visual narrative that builds to a powerful brand revelation
-- PROFESSIONAL PRODUCTION: Every element must feel like it was created by a professional creative team at a top advertising agency
+{self._get_brand_aesthetics_instructions()}
+
+{self._get_brand_context_validation_instructions()}
+
+{self._get_logo_integration_instructions()}
+
+{self._get_audio_continuity_instructions()}
+
+{self._get_theme_instructions()}
+
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
 - AUDIO STYLE AUTONOMY: You have FULL AUTONOMY to decide the audio ending style - use fade-out for subtle endings, crescendo/fade-in for dramatic scenes, or any other appropriate ending that matches the visual theme and brand message
 - Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
@@ -457,7 +936,7 @@ Please provide EXACTLY the following in JSON format with ACTUAL detailed prompts
 {{
     {self._generate_frame_prompts_json()},
     {self._generate_clip_prompts_json()},
-    "audio_prompt": "Your detailed audio description here - specific sounds, music style, audio effects with appropriate ending (you decide best ending style), {self.video_duration} seconds"
+    {self._generate_audio_prompts_json()}
 }}
 
 Requirements:
@@ -595,7 +1074,7 @@ Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instruct
 {{
     {self._generate_frame_prompts_json()},
     {self._generate_clip_prompts_json()},
-    "audio_prompt": "Your detailed audio description here - specific sounds, music style, audio effects with appropriate ending (you decide best ending style), {self.video_duration} seconds"
+    {self._generate_audio_prompts_json()}
 }}
 
 🎬 CREATIVE DIRECTOR REQUIREMENTS:
@@ -609,6 +1088,8 @@ FRAME PRODUCTION (Frames 2-{self.frame_count}):
 - Focus on creating a clean, professional brand promotion video that tells a compelling story without visual clutter
 
 {self._get_creative_freedom_instructions()}
+
+{self._get_character_instructions()}
 
 FINAL FRAME (Frame {self.frame_count}):
 - Create a powerful brand promotion moment that effectively highlights the brand and delivers the core message
@@ -628,12 +1109,16 @@ FINAL FRAME (Frame {self.frame_count}):
 - Audio should build from catchy hooks to EPIC, goosebump-inducing finale with appropriate ending effects (fade-out for subtle endings, crescendo for cosmic/dramatic scenes) for cinematic ending that will make people rewatch and share
 - Duration: {self.video_duration} seconds - ensure audio matches video length perfectly
 
-🎨 VISUAL STYLE & BRAND NARRATIVE:
-- Style should be ULTRA-VIRAL with trending aesthetics, meme culture, and Web3 vibes that will dominate social feeds
-- Content should be inspired by popular image memes, Web3 memes, and shitpost culture - let you decide the best visual style for maximum viral potential
-- Create a professional brand promotion video - you have FULL AUTONOMY to decide the optimal number of characters and visual elements for maximum impact without clutter
-- BRAND NARRATIVE FOCUS: Ensure the core message from the tweet is clearly communicated through a compelling visual narrative that builds to a powerful brand revelation
-- PROFESSIONAL PRODUCTION: Every element must feel like it was created by a professional creative team at a top advertising agency
+{self._get_brand_aesthetics_instructions()}
+
+{self._get_brand_context_validation_instructions()}
+
+{self._get_logo_integration_instructions()}
+
+{self._get_audio_continuity_instructions()}
+
+{self._get_theme_instructions()}
+
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
 - AUDIO STYLE AUTONOMY: You have FULL AUTONOMY to decide the audio ending style - use fade-out for subtle endings, crescendo/fade-in for dramatic scenes, or any other appropriate ending that matches the visual theme and brand message
 - Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
@@ -691,7 +1176,7 @@ Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instruct
 {{
     {self._generate_frame_prompts_json()},
     {self._generate_clip_prompts_json()},
-    "audio_prompt": "Your detailed audio description here - specific sounds, music style, audio effects with appropriate ending (you decide best ending style), {self.video_duration} seconds"
+    {self._generate_audio_prompts_json()}
 }}
 
 Requirements:
@@ -1084,6 +1569,7 @@ JSON only, no other text:"""
         Returns:
             str: Path to final video file
         """
+        print("🔍 DEBUG: Starting create_video method")
         if not initial_image_path:
             raise ValueError("Initial image path/url is mandatory")
         # Accept presigned initial image URL directly
@@ -1103,10 +1589,13 @@ JSON only, no other text:"""
         print("="*60)
         
         try:
-            # Step 1: Ensure S3 URLs for initial image and logo
+            # Step 1: Ensure fresh S3 presigned URLs for initial image and logo
             if initial_is_url:
-                print("🔗 Using presigned URL for initial image (no upload)")
-                frame1_s3_url = initial_image_path
+                print("🔄 Generating fresh presigned URL for initial image (S3 URL detected)...")
+                frame1_s3_url = self.get_fresh_presigned_url_from_s3_url(initial_image_path)
+                if not frame1_s3_url:
+                    print("❌ Failed to generate fresh presigned URL for initial image, stopping video generation")
+                    return None
             else:
                 print("📤 Uploading initial image to S3 (local file detected)...")
                 frame1_s3_url = self.upload_to_s3_and_get_presigned_url(initial_image_path, "image", "img")
@@ -1115,8 +1604,11 @@ JSON only, no other text:"""
                     return None
 
             if self.logo_is_url:
-                print("🔗 Using presigned URL for logo (no upload)")
-                logo_s3_url = self.logo_path
+                print("🔄 Generating fresh presigned URL for logo (S3 URL detected)...")
+                logo_s3_url = self.get_fresh_presigned_url_from_s3_url(self.logo_path)
+                if not logo_s3_url:
+                    print("❌ Failed to generate fresh presigned URL for logo, stopping video generation")
+                    return None
             else:
                 print("📤 Uploading logo to S3 (local file detected)...")
                 logo_s3_url = self.upload_to_s3_and_get_presigned_url(self.logo_path, "image", "img")
@@ -1135,40 +1627,88 @@ JSON only, no other text:"""
                 print("Failed to generate prompts!")
                 return None
             
+            print("Generated prompts successfully with Grok!")
+            print("🔍 RAW LLM OUTPUT (JSON):")
+            print("="*80)
+            import json
+            print(json.dumps(prompts, indent=2))
+            print("="*80)
+            
             print("Generated prompts:")
             for key, value in prompts.items():
-                print(f"  {key}: {value[:100]}...")
+                if isinstance(value, str):
+                    print(f"  {key}: {value[:100]}...")
+                else:
+                    print(f"  {key}: {value}")  # For boolean, int, or other non-string values
             
-            # Step 3: Generate subsequent frames dynamically
+            # Step 3: Generate subsequent frames dynamically with logo decision logic
             frame_urls = [frame1_s3_url]  # Start with initial frame
             for i in range(2, self.frame_count + 1):
-                print(f"🎨 Generating frame {i}...")
-                frame_prompt_key = f"frame{i}_prompt"
-                
-                if i == self.frame_count:
-                    # Final frame gets logo integration
-                    frame_prompt = prompts[frame_prompt_key] + " Include the project logo prominently displayed as part of the cosmic branding revelation. Make it ABSOLUTELY MAGNIFICENT with viral-worthy visual effects that will make viewers' jaws drop and share immediately!"
-                    reference_images = [frame_urls[-1], logo_s3_url]
-                else:
-                    frame_prompt = prompts[frame_prompt_key]
-                    reference_images = [frame_urls[-1]]
-                
-                frame_s3_url = self.generate_image(frame_prompt, reference_images, frame_number=i)
-                if not frame_s3_url:
-                    print(f"❌ Failed to generate frame {i}!")
+                try:
+                    print(f"🎨 Generating frame {i}...")
+                    frame_prompt_key = f"frame{i}_prompt"
+                    frame_logo_key = f"frame{i}_logo_needed"
+                    
+                    print(f"🔍 DEBUG: Looking for key '{frame_logo_key}' in prompts")
+                    print(f"🔍 DEBUG: Available keys: {list(prompts.keys())}")
+                    
+                    # Get LLM's decision on whether logo is needed for this frame
+                    logo_needed_raw = prompts.get(frame_logo_key, False)
+                    print(f"🔍 DEBUG: logo_needed_raw = {logo_needed_raw}, type = {type(logo_needed_raw)}")
+                    
+                    # Convert string "true"/"false" to boolean (fix for 'bool' object is not subscriptable)
+                    if isinstance(logo_needed_raw, str):
+                        logo_needed = logo_needed_raw.lower() in ['true', '1', 'yes']
+                    else:
+                        logo_needed = bool(logo_needed_raw)
+                    print(f"🎯 Frame {i} logo needed: {logo_needed} (raw: {logo_needed_raw})")
+                    
+                    # Prepare reference images based on LLM decision
+                    reference_images = [frame_urls[-1]]  # Always include previous frame
+                    if logo_needed:
+                        reference_images.append(logo_s3_url)
+                        print(f"🏆 Including logo for frame {i}")
+                    else:
+                        print(f"📷 No logo for frame {i} - natural scene")
+                    
+                    print(f"🔍 DEBUG: About to call generate_image with prompt key: {frame_prompt_key}")
+                    print(f"🔍 DEBUG: Prompt exists: {frame_prompt_key in prompts}")
+                    
+                    frame_s3_url = self.generate_image(prompts[frame_prompt_key], reference_images, frame_number=i)
+                    if not frame_s3_url:
+                        print(f"❌ Failed to generate frame {i}!")
+                        return None
+                    
+                    frame_urls.append(frame_s3_url)
+                    
+                except Exception as e:
+                    print(f"❌ ERROR in frame generation loop: {str(e)}")
+                    print(f"❌ ERROR type: {type(e)}")
+                    import traceback
+                    print(f"❌ Full traceback:")
+                    traceback.print_exc()
                     return None
-                
-                frame_urls.append(frame_s3_url)
             
-            # Step 5: Generate video clips dynamically
+            # Step 5: Generate video clips dynamically with fresh presigned URLs
             clip_urls = []
             for i in range(1, self.clip_count + 1):
                 print(f"🎬 Generating clip {i}...")
                 clip_prompt_key = f"clip{i}_prompt"
+                
+                # Get the frame URLs for this clip
                 first_frame_url = frame_urls[i - 1]
                 last_frame_url = frame_urls[i]
                 
-                clip_s3_url = self.generate_clip(prompts[clip_prompt_key], first_frame_url, last_frame_url, clip_number=i)
+                # Generate fresh presigned URLs for the frame images before clip generation
+                print(f"🔄 Refreshing presigned URLs for clip {i} frame images...")
+                fresh_first_frame_url = self.get_fresh_presigned_url_from_s3_url(first_frame_url)
+                fresh_last_frame_url = self.get_fresh_presigned_url_from_s3_url(last_frame_url)
+                
+                if not fresh_first_frame_url or not fresh_last_frame_url:
+                    print(f"❌ Failed to refresh presigned URLs for clip {i} frames!")
+                    return None
+                
+                clip_s3_url = self.generate_clip(prompts[clip_prompt_key], fresh_first_frame_url, fresh_last_frame_url, clip_number=i)
                 if not clip_s3_url:
                     print(f"❌ Failed to generate clip {i}!")
                     return None
@@ -1261,6 +1801,10 @@ JSON only, no other text:"""
             
         except Exception as e:
             print(f"Error in video creation process: {str(e)}")
+            print(f"❌ ERROR type: {type(e)}")
+            import traceback
+            print(f"❌ Full traceback:")
+            traceback.print_exc()
             return None
 
 
@@ -1366,7 +1910,7 @@ def main():
 
 
 # Alternative function for easy switching
-def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_path,
+def create_video_with_provider_legacy(tweet_text, initial_image_prompt, initial_image_path,
                               logo_path, project_name, output_dir="output", llm_provider="grok", include_tweet_text=True, image_model="seedream", video_duration=10):
     """
     Convenience function to create video with specified LLM provider.

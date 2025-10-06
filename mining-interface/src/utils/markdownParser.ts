@@ -16,13 +16,20 @@ export const renderMarkdown = (content: string, options: MarkdownParserOptions =
 
   if (!content) return React.createElement('div');
 
-  // Preprocess content to handle escaped characters
-  const processedContent = content
-    .replace(/\\n/g, '\n')  // Convert \n to actual newlines
-    .replace(/\\t/g, '\t')  // Convert \t to actual tabs
-    .replace(/\\r/g, '\r')  // Convert \r to actual carriage returns
-    .replace(/\\\\/g, '\\') // Convert \\ to actual backslashes
+  // Preprocess content to handle escaped characters - AGGRESSIVE NEWLINE PROCESSING
+  let processedContent = content
+    .replace(/\\\\n/g, '\n')  // Convert \\n to actual newlines (double escaped)
+    .replace(/\\n/g, '\n')    // Convert \n to actual newlines (single escaped)
+    .replace(/\\t/g, '\t')    // Convert \t to actual tabs
+    .replace(/\\r/g, '\r')    // Convert \r to actual carriage returns
+    .replace(/\\\\/g, '\\')   // Convert \\ to actual backslashes
     .trim(); // Remove leading/trailing whitespace
+
+  // Additional newline processing - handle different newline patterns
+  processedContent = processedContent
+    .replace(/\r\n/g, '\n')   // Windows line endings
+    .replace(/\r/g, '\n')     // Mac line endings
+    .replace(/\n\s*\n/g, '\n\n') // Normalize multiple newlines
 
   return React.createElement(
     'div',
