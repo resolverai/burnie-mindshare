@@ -481,9 +481,9 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Get user's previous daily points total
+   * Get user's previous daily points data
    */
-  async getPreviousTotalPoints(walletAddress: string): Promise<number> {
+  async getPreviousDailyPointsData(walletAddress: string): Promise<{ totalPoints: number; mindshare: number }> {
     const userDailyPointsRepo = this.dataSource.getRepository(UserDailyPoints);
     
     const latestEntry = await userDailyPointsRepo.findOne({
@@ -492,17 +492,37 @@ class DailyPointsCalculationScript {
     });
 
     const previousPoints = latestEntry ? parseFloat(latestEntry.totalPoints.toString()) : 0;
-    console.log(`  📋 Previous Record: ${latestEntry ? `Found (${latestEntry.createdAt.toISOString()}) with ${previousPoints} points` : 'None found (new user)'}`);
+    const previousMindshare = latestEntry ? parseFloat(latestEntry.mindshare.toString()) : 0;
     
-    return previousPoints;
+    console.log(`  📋 Previous Record: ${latestEntry ? `Found (${latestEntry.createdAt.toISOString()}) with ${previousPoints} points (${previousMindshare} mindshare)` : 'None found (new user)'}`);
+    
+    return { totalPoints: previousPoints, mindshare: previousMindshare };
   }
 
   /**
-   * Calculate daily points earned
+   * Calculate daily points earned (handling fluctuating mindshare correctly)
    */
-  calculateDailyPointsEarned(currentTotalPoints: number, previousTotalPoints: number): number {
-    const dailyEarned = Math.max(0, currentTotalPoints - previousTotalPoints);
-    console.log(`  🧮 Daily Points Calculation: ${currentTotalPoints} - ${previousTotalPoints} = ${dailyEarned}`);
+  calculateDailyPointsEarned(
+    currentTotalPoints: number, 
+    currentMindsharePoints: number,
+    previousTotalPoints: number, 
+    previousMindsharePoints: number
+  ): number {
+    // Calculate non-mindshare points for current and previous days
+    const currentNonMindsharePoints = currentTotalPoints - currentMindsharePoints;
+    const previousNonMindsharePoints = previousTotalPoints - previousMindsharePoints;
+    
+    // Daily earned = (new non-mindshare activities) + (today's mindshare)
+    const nonMindshareEarned = Math.max(0, currentNonMindsharePoints - previousNonMindsharePoints);
+    const dailyEarned = nonMindshareEarned + currentMindsharePoints;
+    
+    console.log(`  🧮 Daily Points Calculation:`);
+    console.log(`    Current Non-Mindshare: ${currentNonMindsharePoints} (Total: ${currentTotalPoints} - Mindshare: ${currentMindsharePoints})`);
+    console.log(`    Previous Non-Mindshare: ${previousNonMindsharePoints} (Total: ${previousTotalPoints} - Mindshare: ${previousMindsharePoints})`);
+    console.log(`    Non-Mindshare Earned: ${nonMindshareEarned}`);
+    console.log(`    Today's Mindshare: ${currentMindsharePoints}`);
+    console.log(`    Total Daily Earned: ${nonMindshareEarned} + ${currentMindsharePoints} = ${dailyEarned}`);
+    
     return dailyEarned;
   }
 
@@ -529,12 +549,17 @@ class DailyPointsCalculationScript {
     const mindsharePoints = pointsResult.mindsharePoints;
     const activeReferrals = pointsResult.activeReferrals;
     
-    const previousTotalPoints = await this.getPreviousTotalPoints(user.walletAddress);
-    const dailyPointsEarned = this.calculateDailyPointsEarned(totalPoints, previousTotalPoints);
+    const previousData = await this.getPreviousDailyPointsData(user.walletAddress);
+    const dailyPointsEarned = this.calculateDailyPointsEarned(
+      totalPoints, 
+      mindsharePoints, 
+      previousData.totalPoints, 
+      previousData.mindshare
+    );
     
     // Debug logging for points calculation flow
     console.log(`  📊 Points Calculation Flow:`);
-    console.log(`    Previous Total Points: ${previousTotalPoints}`);
+    console.log(`    Previous Total Points: ${previousData.totalPoints}`);
     console.log(`    New Total Points: ${totalPoints}`);
     console.log(`    Daily Points Earned: ${dailyPointsEarned}`);
     console.log(`    Mindshare Points in Total: ${mindsharePoints}`);
