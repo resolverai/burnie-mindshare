@@ -268,6 +268,10 @@ class AutomatedMiningService {
         post_type: postType,
         include_brand_logo: true, // Default to true for automated generation
         post_index: 1,
+        // Dedicated miners: NEVER include video generation
+        include_video: false,
+        video_duration: 0,
+        advanced_video_options: null,
         campaign_context: {
           title: campaignName,
           description: `${campaignName} content generation`,
@@ -311,7 +315,11 @@ class AutomatedMiningService {
               stability: apiKeys?.stability,
               fal: apiKeys?.fal
             }).filter(([key, value]) => value && value.trim() !== '')
-          )
+          ),
+          // Dedicated miners: NEVER generate video - only text and images
+          include_video: false,
+          video_duration: 0,
+          advanced_video_options: null
         })
       });
 

@@ -36,6 +36,9 @@ function Agents() {
   const { address } = useAccount()
   const queryClient = useQueryClient()
 
+  // Check if we're in dedicated miner mode
+  const isDedicatedMiner = process.env.NEXT_PUBLIC_MINER === '1'
+
   // Fetch real user agents from backend
   const { data: agents = [], isLoading: agentsLoading, error } = useQuery({
     queryKey: ['user-agents', address],
@@ -159,11 +162,11 @@ function Agents() {
     }
   })
 
-  // Get learning status for all agents
+  // Get learning status for all agents (only for regular miners)
   const agentLearningStatuses = useQuery({
     queryKey: ['all-agents-learning-status', address, agents.map(a => a.id)],
     queryFn: async () => {
-      if (!address || agents.length === 0) return {}
+      if (!address || agents.length === 0 || isDedicatedMiner) return {}
       
       const statusPromises = agents.map(async (agent) => {
         try {
@@ -182,7 +185,7 @@ function Agents() {
       const results = await Promise.all(statusPromises)
       return results.reduce((acc, curr) => ({ ...acc, ...curr }), {})
     },
-    enabled: !!address && agents.length > 0 && !agentsLoading,
+    enabled: !!address && agents.length > 0 && !agentsLoading && !isDedicatedMiner,
   })
 
   // Fetch agent performance analytics for quality and deploys calculation
@@ -407,7 +410,12 @@ function Agents() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white">Neural Agents</h2>
-          <p className="text-gray-400 mt-1">Your personalized AI agents trained on your Twitter behavior</p>
+          <p className="text-gray-400 mt-1">
+            {isDedicatedMiner 
+              ? "Your personalized AI agents for automated content generation"
+              : "Your personalized AI agents trained on your Twitter behavior"
+            }
+          </p>
         </div>
         
         <button
@@ -428,7 +436,10 @@ function Agents() {
           
           <h3 className="text-xl font-bold text-white mb-3">Create Your Personalized AI Agent</h3>
           <p className="text-gray-400 mb-6 max-w-md mx-auto">
-            Deploy a personalized AI agent that learns from your Twitter behavior to create content that matches your unique voice and style.
+            {isDedicatedMiner 
+              ? "Deploy a personalized AI agent configured with your preferred settings for automated content generation."
+              : "Deploy a personalized AI agent that learns from your Twitter behavior to create content that matches your unique voice and style."
+            }
           </p>
           
           <button
@@ -449,8 +460,8 @@ function Agents() {
               
               return (
                 <div key={agent.id} className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
-                  {/* Per-Agent Learning Status */}
-                  {agentLearningStatus && (
+                  {/* Per-Agent Learning Status - Only show for regular miners */}
+                  {!isDedicatedMiner && agentLearningStatus && (
                     <div className="mb-4 p-3 bg-gray-800/40 rounded-lg border border-gray-700/30">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
@@ -516,19 +527,22 @@ function Agents() {
                     </div>
                     
                     <div className="flex items-center space-x-3">
-                      <div className="flex items-center space-x-2 text-sm text-gray-400">
-                        {agent.x_account_connected ? (
-                          <div className="flex items-center space-x-1 text-green-400">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span>Twitter Connected</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center space-x-1 text-yellow-400">
-                            <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                            <span>No Twitter</span>
-                          </div>
-                        )}
-                      </div>
+                      {/* Twitter connection status - Only show for regular miners */}
+                      {!isDedicatedMiner && (
+                        <div className="flex items-center space-x-2 text-sm text-gray-400">
+                          {agent.x_account_connected ? (
+                            <div className="flex items-center space-x-1 text-green-400">
+                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                              <span>Twitter Connected</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-1 text-yellow-400">
+                              <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                              <span>No Twitter</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       
                       {/* Agent Action Buttons */}
                       <div className="flex items-center space-x-2">
@@ -542,8 +556,8 @@ function Agents() {
                           <span>Edit</span>
                         </button>
                         
-                        {/* Twitter Re-connect Button - Show when Twitter is not connected or has issues */}
-                        {(agentLearningStatus && !agentLearningStatus.twitterConnected) || twitterConnectionError ? (
+                        {/* Twitter Re-connect Button - Only show for regular miners */}
+                        {!isDedicatedMiner && ((agentLearningStatus && !agentLearningStatus.twitterConnected) || twitterConnectionError) ? (
                           <button
                             onClick={handleTwitterReconnect}
                             disabled={isReconnectingTwitter || twitterReconnectMutation.isPending}
@@ -561,25 +575,27 @@ function Agents() {
                           </button>
                         ) : null}
                         
-                        {/* Per-Agent Update Learning Button */}
-                        <button
-                          onClick={() => handleUpdateAgentLearning(agent.id)}
-                          disabled={updateAgentLearningMutation.isPending}
-                          className="flex items-center space-x-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white text-sm rounded-lg transition-colors"
-                        >
-                          {updateAgentLearningMutation.isPending ? (
-                            <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <AcademicCapIcon className="w-4 h-4" />
-                          )}
-                          <span>{updateAgentLearningMutation.isPending ? 'Updating...' : 'Update Learning'}</span>
-                        </button>
+                        {/* Per-Agent Update Learning Button - Only show for regular miners */}
+                        {!isDedicatedMiner && (
+                          <button
+                            onClick={() => handleUpdateAgentLearning(agent.id)}
+                            disabled={updateAgentLearningMutation.isPending}
+                            className="flex items-center space-x-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white text-sm rounded-lg transition-colors"
+                          >
+                            {updateAgentLearningMutation.isPending ? (
+                              <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <AcademicCapIcon className="w-4 h-4" />
+                            )}
+                            <span>{updateAgentLearningMutation.isPending ? 'Updating...' : 'Update Learning'}</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
                   
                   {/* Stats */}
-                  <div className="grid grid-cols-4 gap-4 mb-4">
+                  <div className={`grid ${isDedicatedMiner ? 'grid-cols-3' : 'grid-cols-4'} gap-4 mb-4`}>
                     <div className="text-center">
                       <div className="text-2xl font-bold text-orange-400">Lv.{agent.level}</div>
                       <div className="text-xs text-gray-400">Level</div>
@@ -588,10 +604,13 @@ function Agents() {
                       <div className="text-2xl font-bold text-blue-400">{calculateQualityPercentage(agent.name)}%</div>
                       <div className="text-xs text-gray-400">Quality</div>
                     </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-green-400">{agentLearningStatuses.data?.[agent.id]?.progress || agent.learning || 0}%</div>
-                      <div className="text-xs text-gray-400">Learning</div>
-                    </div>
+                    {/* Learning stat - Only show for regular miners */}
+                    {!isDedicatedMiner && (
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-green-400">{agentLearningStatuses.data?.[agent.id]?.progress || agent.learning || 0}%</div>
+                        <div className="text-xs text-gray-400">Learning</div>
+                      </div>
+                    )}
                     <div className="text-center">
                       <div className="text-2xl font-bold text-purple-400">{calculateDeploys(agent.name)}</div>
                       <div className="text-xs text-gray-400">Deploys</div>
@@ -630,8 +649,8 @@ function Agents() {
         />
       )}
       
-      {/* Loading/Error states for mutations */}
-      {updateAgentLearningMutation.isError && (
+      {/* Loading/Error states for mutations - Only show for regular miners */}
+      {!isDedicatedMiner && updateAgentLearningMutation.isError && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
           <p className="text-red-400">
             Failed to update learning: {updateAgentLearningMutation.error?.message}
@@ -639,7 +658,7 @@ function Agents() {
           </div>
         )}
       
-      {updateAgentLearningMutation.isSuccess && (
+      {!isDedicatedMiner && updateAgentLearningMutation.isSuccess && (
         <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
           <p className="text-green-400">
             ✅ Learning updated successfully! Your agent now has the latest insights from your Twitter.
@@ -647,8 +666,8 @@ function Agents() {
       </div>
       )}
       
-      {/* Twitter Re-connection feedback */}
-      {twitterReconnectMutation.isError && (
+      {/* Twitter Re-connection feedback - Only show for regular miners */}
+      {!isDedicatedMiner && twitterReconnectMutation.isError && (
         <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
           <p className="text-red-400">
             Failed to re-connect Twitter: {twitterReconnectMutation.error?.message}
@@ -656,8 +675,8 @@ function Agents() {
         </div>
       )}
       
-      {/* Twitter connection error with guidance */}
-      {twitterConnectionError && !twitterReconnectMutation.isPending && (
+      {/* Twitter connection error with guidance - Only show for regular miners */}
+      {!isDedicatedMiner && twitterConnectionError && !twitterReconnectMutation.isPending && (
         <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
           <p className="text-yellow-400">
             ⚠️ Twitter connection issue detected. Please click the "Re-connect Twitter" button to refresh your authentication.
@@ -665,7 +684,7 @@ function Agents() {
         </div>
       )}
       
-      {twitterReconnectMutation.isSuccess && (
+      {!isDedicatedMiner && twitterReconnectMutation.isSuccess && (
         <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
           <p className="text-green-400">
             ✅ Twitter re-connected successfully! Your agent can now learn from your latest tweets.

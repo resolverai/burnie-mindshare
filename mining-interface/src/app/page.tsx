@@ -18,6 +18,9 @@ function HomePageContent() {
   const { isConnected: isTwitterConnected, isLoading: isTwitterLoading, refetch: refetchTwitterStatus } = useTwitterConnection(address)
   const router = useRouter()
 
+  // Check if we're in dedicated miner mode
+  const isDedicatedMiner = process.env.NEXT_PUBLIC_MINER === '1'
+
   // Auto-trigger sign-in when wallet connects and signature is needed
   useEffect(() => {
     if (needsSignature && address && !isLoading) {
@@ -33,19 +36,27 @@ function HomePageContent() {
       isTwitterConnected, 
       isLoading, 
       isTwitterLoading,
-      address 
+      address,
+      isDedicatedMiner
     })
     
     // If user is authenticated and we have finished checking Twitter status
     if (isAuthenticated && !isLoading && !isTwitterLoading) {
-      if (isTwitterConnected) {
-        console.log('✅ Fully authenticated with Twitter, redirecting to dashboard')
+      // For dedicated miners, skip Twitter requirement
+      if (isDedicatedMiner) {
+        console.log('✅ Dedicated miner authenticated (Twitter not required), redirecting to dashboard')
         router.push('/dashboard')
       } else {
-        console.log('🐦 Authenticated but Twitter not connected, will show Twitter connection screen')
+        // For regular miners, require Twitter connection
+        if (isTwitterConnected) {
+          console.log('✅ Regular miner fully authenticated with Twitter, redirecting to dashboard')
+          router.push('/dashboard')
+        } else {
+          console.log('🐦 Regular miner authenticated but Twitter not connected, will show Twitter connection screen')
+        }
       }
     }
-  }, [isAuthenticated, isTwitterConnected, isLoading, isTwitterLoading, router, address])
+  }, [isAuthenticated, isTwitterConnected, isLoading, isTwitterLoading, router, address, isDedicatedMiner])
 
   // Handle Twitter connection completion
   const handleTwitterConnected = async () => {
@@ -106,13 +117,15 @@ function HomePageContent() {
     )
   }
 
-  // Show Twitter connection screen if authenticated but no Twitter
-  if (isAuthenticated && !isTwitterConnected) {
+  // Show Twitter connection screen if authenticated but no Twitter (only for regular miners)
+  if (isAuthenticated && !isDedicatedMiner && !isTwitterConnected) {
     return <TwitterConnection onConnected={handleTwitterConnected} />
   }
 
   // Show mining dashboard if fully authenticated (fallback before redirect)
-  if (isAuthenticated && isTwitterConnected) {
+  // For dedicated miners: only wallet auth required
+  // For regular miners: both wallet auth and Twitter required
+  if (isAuthenticated && (isDedicatedMiner || isTwitterConnected)) {
     return <MinerDashboard activeSection="dashboard" />
   }
 

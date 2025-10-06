@@ -110,17 +110,17 @@ export default function VideoOptions({
   const initialSentRef = useRef(false)
   
   const [advancedOptions, setAdvancedOptions] = useState<AdvancedVideoOptions>({
-    durationMode: 'video_duration',
+    durationMode: 'video_duration' as const,
     videoDuration: videoDuration,
     clipDuration: 5,                        // ✅ Default: 5 seconds
     numberOfClips: 1,                       // ✅ Default: 1 clip (was 2)
-    characterControl: 'no_characters',      // ✅ Default: No Characters (was 'unlimited')
-    audioSystem: 'single_audio',            // ✅ Default: Continuous Audio (was 'individual_clips')
+    characterControl: 'no_characters' as const,      // ✅ Default: No Characters (was 'unlimited')
+    audioSystem: 'single_audio' as const,            // ✅ Default: Continuous Audio (was 'individual_clips')
     enableVoiceover: false,                 // ✅ Default: Unchecked (already correct)
     enableCrossfadeTransitions: true,
-    randomMode: 'all_regular',              // ✅ Default: Unchecked randomize (was 'true_random')
-    imageModel: 'nano-banana',              // ✅ Default: Nano Banana (was 'seedream')
-    llmProvider: 'grok',                    // ✅ Default: Grok (already correct)
+    randomMode: 'all_regular' as const,              // ✅ Default: Unchecked randomize (was 'true_random')
+    imageModel: 'nano-banana' as const,              // ✅ Default: Nano Banana (was 'seedream')
+    llmProvider: 'grok' as const,                    // ✅ Default: Grok (already correct)
     useBrandAesthetics: false,              // ✅ Default: Unchecked (already correct)
     includeProductImages: false
   })
@@ -145,18 +145,18 @@ export default function VideoOptions({
   useEffect(() => {
     if (!initialSentRef.current) {
       // Send the initial advanced options to the parent component
-      const initialOptions = {
-        durationMode: 'video_duration',
+      const initialOptions: AdvancedVideoOptions = {
+        durationMode: 'video_duration' as const,
         videoDuration: videoDuration,
         clipDuration: 5,
         numberOfClips: 1,
-        characterControl: 'no_characters',
-        audioSystem: 'single_audio',
+        characterControl: 'no_characters' as const,
+        audioSystem: 'single_audio' as const,
         enableVoiceover: false,
         enableCrossfadeTransitions: true,
-        randomMode: 'all_regular',
-        imageModel: 'nano-banana',
-        llmProvider: 'grok',
+        randomMode: 'all_regular' as const,
+        imageModel: 'nano-banana' as const,
+        llmProvider: 'grok' as const,
         useBrandAesthetics: false,
         includeProductImages: false
       }
