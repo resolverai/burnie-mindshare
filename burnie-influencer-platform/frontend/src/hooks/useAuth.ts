@@ -37,6 +37,7 @@ export function useAuth() {
   const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [userExplicitlyDisconnected, setUserExplicitlyDisconnected] = useState(false)
   const [isRecoveringFromMobile, setIsRecoveringFromMobile] = useState(false)
+  const [isSigningInProgress, setIsSigningInProgress] = useState(false)
 
   // Initialize authentication state on mount
   useEffect(() => {
@@ -114,6 +115,15 @@ export function useAuth() {
       return false
     }
 
+    // Prevent multiple simultaneous signature requests
+    if (isSigningInProgress) {
+      console.log('🚫 Signature already in progress, skipping duplicate request')
+      return false
+    }
+
+    console.log('🔐 Starting signature process')
+    setIsSigningInProgress(true)
+
     // Clear disconnect flag when user explicitly signs in
     setUserExplicitlyDisconnected(false)
     if (typeof window !== 'undefined') {
@@ -177,11 +187,15 @@ This signature proves you own this wallet.`
       }
 
       return false
+    } finally {
+      // Always clear the signing flag
+      setIsSigningInProgress(false)
+      console.log('🔐 Signature process completed')
     }
-  }, [address, chainId, isConnected, signMessageAsync, disconnect])
+  }, [address, chainId, isConnected, signMessageAsync, disconnect, isSigningInProgress])
 
-  // Mobile-specific: Handle return from wallet app
-  useEffect(() => {
+  // Consolidated mobile recovery function
+  const attemptMobileRecovery = useCallback(async (source: string) => {
     if (!mounted || typeof window === 'undefined') return
 
     // Only run mobile recovery on mobile devices
@@ -193,137 +207,127 @@ This signature proves you own this wallet.`
       return
     }
 
-    const handleMobileWalletReturn = async () => {
-      const returnPath = localStorage.getItem('wc_return_path')
-      const walletConnectionTimestamp = localStorage.getItem('wc_connection_timestamp')
-      const now = Date.now()
+    // Prevent multiple simultaneous recovery attempts
+    if (isRecoveringFromMobile || isSigningInProgress) {
+      console.log('🚫 Mobile recovery already in progress, skipping duplicate attempt from:', source)
+      return
+    }
+
+    const returnPath = localStorage.getItem('wc_return_path')
+    const walletConnectionTimestamp = localStorage.getItem('wc_connection_timestamp')
+    const now = Date.now()
+    
+    // Check if user recently initiated wallet connection (within last 5 minutes)
+    const isRecentConnection = walletConnectionTimestamp && 
+      (now - parseInt(walletConnectionTimestamp)) < 5 * 60 * 1000
+
+    console.log('📱 Mobile wallet recovery check from', source, ':', {
+      returnPath: !!returnPath,
+      isConnected,
+      isAuthenticated: authState.isAuthenticated,
+      isRecentConnection,
+      address: !!address,
+      needsSignature: authState.needsSignature,
+      isRecoveringFromMobile,
+      isSigningInProgress
+    })
+
+    // If user has return path, wallet is connected, but not authenticated
+    // AND it's a recent connection attempt, trigger recovery
+    if (returnPath && isConnected && !authState.isAuthenticated && isRecentConnection && address) {
+      console.log('📱 Starting mobile authentication recovery from:', source)
+      setIsRecoveringFromMobile(true)
       
-      // Check if user recently initiated wallet connection (within last 5 minutes)
-      const isRecentConnection = walletConnectionTimestamp && 
-        (now - parseInt(walletConnectionTimestamp)) < 5 * 60 * 1000
-
-      console.log('📱 Mobile wallet return check:', {
-        returnPath: !!returnPath,
-        isConnected,
-        isAuthenticated: authState.isAuthenticated,
-        isRecentConnection,
-        address: !!address,
-        needsSignature: authState.needsSignature,
-        isMobile
-      })
-
-      // If user has return path, wallet is connected, but not authenticated
-      // AND it's a recent connection attempt, trigger recovery
-      if (returnPath && isConnected && !authState.isAuthenticated && isRecentConnection && address && !isRecoveringFromMobile) {
-        console.log('📱 Detected mobile wallet return - attempting authentication recovery')
-        setIsRecoveringFromMobile(true)
+      try {
+        // Small delay to ensure wallet state is fully synced
+        await new Promise(resolve => setTimeout(resolve, 1000))
         
-        try {
-          // Small delay to ensure wallet state is fully synced
-          await new Promise(resolve => setTimeout(resolve, 1000))
-          
-          // Check if user is already authenticated with this wallet (race condition fix)
-          const storedAuth = localStorage.getItem('burnie_yapper_auth_user')
-          if (storedAuth) {
-            const user = JSON.parse(storedAuth)
-            if (user.address === address.toLowerCase()) {
-              console.log('✅ Found existing auth during mobile recovery')
-              setAuthState(prev => ({
-                ...prev,
-                isAuthenticated: true,
-                user,
-                needsSignature: false,
-                error: null,
-                isLoading: false
-              }))
-              
-              // Redirect to return path
-              setTimeout(() => {
-                if (returnPath !== window.location.pathname) {
-                  console.log('🔄 Redirecting to return path:', returnPath)
-                  window.location.href = returnPath
-                }
-                localStorage.removeItem('wc_return_path')
-                localStorage.removeItem('wc_connection_timestamp')
-              }, 500)
-              
-              setIsRecoveringFromMobile(false)
-              return
-            }
-          }
-          
-          // If no existing auth, trigger signature
-          console.log('🔐 Triggering signature for mobile recovery')
-          const success = await handleSignIn()
-          
-          if (success) {
-            console.log('✅ Mobile authentication recovery successful')
-            // Redirect to return path after successful authentication
+        // Check if user is already authenticated with this wallet (race condition fix)
+        const storedAuth = localStorage.getItem('burnie_yapper_auth_user')
+        if (storedAuth) {
+          const user = JSON.parse(storedAuth)
+          if (user.address === address.toLowerCase()) {
+            console.log('✅ Found existing auth during mobile recovery')
+            setAuthState(prev => ({
+              ...prev,
+              isAuthenticated: true,
+              user,
+              needsSignature: false,
+              error: null,
+              isLoading: false
+            }))
+            
+            // Redirect to return path
             setTimeout(() => {
               if (returnPath !== window.location.pathname) {
-                console.log('🔄 Redirecting to return path after auth:', returnPath)
+                console.log('🔄 Redirecting to return path:', returnPath)
                 window.location.href = returnPath
               }
               localStorage.removeItem('wc_return_path')
               localStorage.removeItem('wc_connection_timestamp')
-            }, 1000)
-          } else {
-            console.log('❌ Mobile authentication recovery failed')
-            // Clear return path on failure
+            }, 500)
+            
+            setIsRecoveringFromMobile(false)
+            return
+          }
+        }
+        
+        // If no existing auth, trigger signature
+        console.log('🔐 Triggering signature for mobile recovery')
+        const success = await handleSignIn()
+        
+        if (success) {
+          console.log('✅ Mobile authentication recovery successful')
+          // Redirect to return path after successful authentication
+          setTimeout(() => {
+            if (returnPath !== window.location.pathname) {
+              console.log('🔄 Redirecting to return path after auth:', returnPath)
+              window.location.href = returnPath
+            }
             localStorage.removeItem('wc_return_path')
             localStorage.removeItem('wc_connection_timestamp')
-          }
-        } catch (error) {
-          console.error('❌ Error during mobile wallet recovery:', error)
+          }, 1000)
+        } else {
+          console.log('❌ Mobile authentication recovery failed')
+          // Clear return path on failure
           localStorage.removeItem('wc_return_path')
           localStorage.removeItem('wc_connection_timestamp')
-        } finally {
-          setIsRecoveringFromMobile(false)
         }
+      } catch (error) {
+        console.error('❌ Error during mobile wallet recovery:', error)
+        localStorage.removeItem('wc_return_path')
+        localStorage.removeItem('wc_connection_timestamp')
+      } finally {
+        setIsRecoveringFromMobile(false)
       }
     }
+  }, [mounted, isConnected, authState.isAuthenticated, address, authState.needsSignature, handleSignIn, isRecoveringFromMobile, isSigningInProgress])
 
-    // Run immediately on mount
-    handleMobileWalletReturn()
+  // Mobile-specific: Handle return from wallet app
+  useEffect(() => {
+    if (!mounted) return
 
-    // Also run when wallet connection state changes
-    const timeoutId = setTimeout(handleMobileWalletReturn, 1000)
+    // Run recovery on mount and state changes
+    const timeoutId = setTimeout(() => {
+      attemptMobileRecovery('state-change')
+    }, 500) // Small delay to let state settle
     
     return () => clearTimeout(timeoutId)
-  }, [mounted, isConnected, authState.isAuthenticated, address, authState.needsSignature, handleSignIn, isRecoveringFromMobile])
+  }, [mounted, isConnected, authState.isAuthenticated, address, attemptMobileRecovery])
 
   // Enhanced mobile recovery: Trigger when user returns from background
   useEffect(() => {
     if (!mounted || !returnedFromBackground) return
 
-    // Only run on mobile devices
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                     window.innerWidth < 768
-
-    if (!isMobile) {
-      console.log('🖥️ Desktop detected - skipping background return recovery logic')
-      return
-    }
-
-    console.log('📱 User returned from background - checking wallet state')
+    console.log('📱 User returned from background - triggering recovery check')
     
-    // Small delay to allow wallet state to sync
+    // Longer delay for background returns to ensure wallet state is synced
     const timeoutId = setTimeout(() => {
-      const returnPath = localStorage.getItem('wc_return_path')
-      const walletConnectionTimestamp = localStorage.getItem('wc_connection_timestamp')
-      const now = Date.now()
-      
-      const isRecentConnection = walletConnectionTimestamp && 
-        (now - parseInt(walletConnectionTimestamp)) < 5 * 60 * 1000
-
-      if (returnPath && isConnected && !authState.isAuthenticated && isRecentConnection && address && !isRecoveringFromMobile) {
-        console.log('📱 Triggering mobile recovery after background return')
-        // The main mobile recovery logic will handle this
-      }
-    }, 1500) // Longer delay for background returns
+      attemptMobileRecovery('background-return')
+    }, 2000)
 
     return () => clearTimeout(timeoutId)
-  }, [returnedFromBackground, mounted, isConnected, authState.isAuthenticated, address, isRecoveringFromMobile])
+  }, [returnedFromBackground, mounted, attemptMobileRecovery])
 
   // Handle wallet changes (only after component is mounted)
   useEffect(() => {
@@ -539,7 +543,7 @@ This signature proves you own this wallet.`
 
   return {
     isAuthenticated: authState.isAuthenticated,
-    isLoading: authState.isLoading || isRecoveringFromMobile,
+    isLoading: authState.isLoading || isRecoveringFromMobile || isSigningInProgress,
     user: authState.user,
     address: authState.user?.address || address,
     needsSignature: authState.needsSignature,
@@ -547,6 +551,7 @@ This signature proves you own this wallet.`
     signIn: handleSignIn,
     logout,
     clearError,
-    isRecoveringFromMobile
+    isRecoveringFromMobile,
+    isSigningInProgress
   }
 } 

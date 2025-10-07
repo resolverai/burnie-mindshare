@@ -34,10 +34,10 @@ export function usePageVisibility() {
         setReturnedFromBackground(true)
         console.log('📱 Page visible after being hidden - user returned from wallet app')
         
-        // Clear the flag after a short delay to allow other components to react
+        // Clear the flag after a longer delay to prevent rapid triggering
         setTimeout(() => {
           setReturnedFromBackground(false)
-        }, 2000)
+        }, 5000) // Increased from 2000 to 5000ms
       } else {
         // Page is visible (normal state)
         setIsVisible(true)
@@ -54,7 +54,7 @@ export function usePageVisibility() {
         setReturnedFromBackground(true)
         setTimeout(() => {
           setReturnedFromBackground(false)
-        }, 2000)
+        }, 5000) // Increased from 2000 to 5000ms
       }
     }
 
