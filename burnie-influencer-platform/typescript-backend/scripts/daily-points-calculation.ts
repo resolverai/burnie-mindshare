@@ -508,20 +508,30 @@ class DailyPointsCalculationScript {
     previousTotalPoints: number, 
     previousMindsharePoints: number
   ): number {
-    // Calculate non-mindshare points for current and previous days
+    // For new users (no previous record), all current points are "daily earned"
+    if (previousTotalPoints === 0) {
+      console.log(`  🧮 Daily Points Calculation (New User):`);
+      console.log(`    All points are new: ${currentTotalPoints}`);
+      return currentTotalPoints;
+    }
+    
+    // For existing users, calculate the change in each component
     const currentNonMindsharePoints = currentTotalPoints - currentMindsharePoints;
     const previousNonMindsharePoints = previousTotalPoints - previousMindsharePoints;
     
-    // Daily earned = (new non-mindshare activities) + (today's mindshare)
-    const nonMindshareEarned = Math.max(0, currentNonMindsharePoints - previousNonMindsharePoints);
-    const dailyEarned = nonMindshareEarned + currentMindsharePoints;
+    // Calculate changes
+    const nonMindshareChange = currentNonMindsharePoints - previousNonMindsharePoints;
+    const mindshareChange = currentMindsharePoints - previousMindsharePoints;
     
-    console.log(`  🧮 Daily Points Calculation:`);
-    console.log(`    Current Non-Mindshare: ${currentNonMindsharePoints} (Total: ${currentTotalPoints} - Mindshare: ${currentMindsharePoints})`);
-    console.log(`    Previous Non-Mindshare: ${previousNonMindsharePoints} (Total: ${previousTotalPoints} - Mindshare: ${previousMindsharePoints})`);
-    console.log(`    Non-Mindshare Earned: ${nonMindshareEarned}`);
-    console.log(`    Today's Mindshare: ${currentMindsharePoints}`);
-    console.log(`    Total Daily Earned: ${nonMindshareEarned} + ${currentMindsharePoints} = ${dailyEarned}`);
+    // Daily earned = change in non-mindshare + change in mindshare
+    // But ensure we don't go negative (user can't "lose" daily points)
+    const dailyEarned = Math.max(0, nonMindshareChange + mindshareChange);
+    
+    console.log(`  🧮 Daily Points Calculation (Existing User):`);
+    console.log(`    Current Non-Mindshare: ${currentNonMindsharePoints} | Previous: ${previousNonMindsharePoints} | Change: ${nonMindshareChange}`);
+    console.log(`    Current Mindshare: ${currentMindsharePoints} | Previous: ${previousMindsharePoints} | Change: ${mindshareChange}`);
+    console.log(`    Total Change: ${nonMindshareChange} + ${mindshareChange} = ${nonMindshareChange + mindshareChange}`);
+    console.log(`    Daily Earned (max 0): ${dailyEarned}`);
     
     return dailyEarned;
   }
@@ -629,12 +639,24 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Save user tier information (only on upgrades or first-time entries)
+   * Save user tier information (creates daily entry for every processed user)
    */
   async saveUserTierChange(calculation: UserCalculation): Promise<void> {
     const userTiersRepo = this.dataSource.getRepository(UserTiers);
 
-    // Check if user has any previous tier records
+    // Check if there's already an entry for today for this user
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+
+    const todaysTierRecord = await userTiersRepo
+      .createQueryBuilder('userTier')
+      .where('userTier.walletAddress = :walletAddress', { walletAddress: calculation.walletAddress })
+      .andWhere('userTier.createdAt >= :startOfDay', { startOfDay })
+      .andWhere('userTier.createdAt < :endOfDay', { endOfDay })
+      .getOne();
+
+    // Check if user has any previous tier records (for determining if it's first time)
     const existingTierRecord = await userTiersRepo.findOne({
       where: { walletAddress: calculation.walletAddress },
       order: { createdAt: 'DESC' }
@@ -642,9 +664,10 @@ class DailyPointsCalculationScript {
 
     const isFirstTimeEntry = !existingTierRecord;
     const isTierUpgrade = calculation.tierChanged && this.isTierHigher(calculation.newTier, calculation.currentTier);
+    const shouldCreateTodaysEntry = !todaysTierRecord; // Create entry if none exists for today
 
-    // Only save if it's a tier upgrade or first-time entry
-    if (isTierUpgrade || isFirstTimeEntry) {
+    // Create daily entry if none exists for today
+    if (shouldCreateTodaysEntry) {
       const userTier = new UserTiers();
       userTier.walletAddress = calculation.walletAddress;
       userTier.twitterHandle = calculation.twitterHandle || undefined;
@@ -657,19 +680,19 @@ class DailyPointsCalculationScript {
       await userTiersRepo.save(userTier);
 
       if (isTierUpgrade) {
-        // Update referral_codes table for tier upgrades
-        await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
         console.log(`✅ Tier upgraded: ${calculation.walletAddress} ${calculation.currentTier} → ${calculation.newTier}`);
       } else if (isFirstTimeEntry) {
-        // Also update referral_codes table for first-time entries to ensure consistency
-        await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
         console.log(`🆕 First tier recorded: ${calculation.walletAddress} → ${calculation.newTier}`);
+      } else {
+        console.log(`📊 Daily tier snapshot: ${calculation.walletAddress} → ${calculation.newTier}`);
       }
-    } else {
-      // Even if no tier record is created, ensure referral_codes table reflects the current tier
-      // This handles cases where user's tier should be updated but no user_tiers entry is needed
-      if (calculation.tierChanged) {
-        await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
+    }
+
+    // Always ensure referral_codes table reflects the current tier
+    if (calculation.tierChanged || shouldCreateTodaysEntry) {
+      await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
+      
+      if (!shouldCreateTodaysEntry && calculation.tierChanged) {
         console.log(`🔄 Tier updated in referral_codes: ${calculation.walletAddress} ${calculation.currentTier} → ${calculation.newTier}`);
       }
     }
@@ -825,11 +848,13 @@ class DailyPointsCalculationScript {
           try {
             const calculation = await this.processUser(user);
             
-            // Save to database
-            await this.saveUserDailyPoints(calculation);
-            await this.saveUserTierChange(calculation);
+            // Save to database (if not dry run)
+            if (!dryRun) {
+              await this.saveUserDailyPoints(calculation);
+              await this.saveUserTierChange(calculation);
+            }
 
-            console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points, tier: ${calculation.currentTier})`);
+            console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points, tier: ${calculation.currentTier})${dryRun ? ' [DRY RUN - NOT SAVED]' : ''}`);
           } catch (error) {
             console.error(`❌ Error processing user ${user.walletAddress}:`, error);
             throw error; // This will rollback the transaction
@@ -844,7 +869,7 @@ class DailyPointsCalculationScript {
   /**
    * Main execution function
    */
-  async run(csvPath?: string, singleUserWallet?: string): Promise<void> {
+  async run(csvPath?: string, singleUserWallet?: string, dryRun: boolean = false): Promise<void> {
     try {
       console.log('🚀 Starting Daily Points Calculation Script');
       console.log('📅 Date:', new Date().toISOString());
@@ -873,15 +898,17 @@ class DailyPointsCalculationScript {
         // Process single user
         const calculation = await this.processUser(user);
         
-        // Save to database
-        await this.saveUserDailyPoints(calculation);
-        await this.saveUserTierChange(calculation);
+        // Save to database (if not dry run)
+        if (!dryRun) {
+          await this.saveUserDailyPoints(calculation);
+          await this.saveUserTierChange(calculation);
 
-        // Calculate daily rewards (will include this single user if they have daily points)
-        await this.calculateDailyRewards();
+          // Calculate daily rewards (will include this single user if they have daily points)
+          await this.calculateDailyRewards();
+        }
 
-        console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points, tier: ${calculation.currentTier})`);
-        console.log('🎉 Single User Points Calculation completed successfully!');
+        console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points, tier: ${calculation.currentTier})${dryRun ? ' [DRY RUN - NOT SAVED]' : ''}`);
+        console.log(`🎉 Single User Points Calculation completed successfully!${dryRun ? ' [DRY RUN MODE]' : ''}`);
         
       } else {
         // Process all users
@@ -896,13 +923,13 @@ class DailyPointsCalculationScript {
         // Process users in batches
         await this.processUsersInBatches(users, 100);
 
-        // Calculate daily ranks
-        await this.calculateDailyRanks();
+        // Calculate daily ranks and rewards (if not dry run)
+        if (!dryRun) {
+          await this.calculateDailyRanks();
+          await this.calculateDailyRewards();
+        }
 
-        // Calculate daily rewards for top 25 users
-        await this.calculateDailyRewards();
-
-        console.log('🎉 Daily Points Calculation Script completed successfully!');
+        console.log(`🎉 Daily Points Calculation Script completed successfully!${dryRun ? ' [DRY RUN MODE]' : ''}`);
       }
 
     } catch (error) {
@@ -924,8 +951,9 @@ async function main() {
   let csvPath: string | undefined;
   let singleUserWallet: string | undefined;
   let useSSL: boolean | undefined;
+  let dryRun: boolean = false;
   
-  // Parse arguments: --csv=path, --user=wallet, --ssl, --no-ssl, or positional arguments
+  // Parse arguments: --csv=path, --user=wallet, --ssl, --no-ssl, --dry-run, or positional arguments
   for (let i = 2; i < process.argv.length; i++) {
     const arg = process.argv[i];
     
@@ -939,6 +967,8 @@ async function main() {
       useSSL = true;
     } else if (arg === '--no-ssl') {
       useSSL = false;
+    } else if (arg === '--dry-run') {
+      dryRun = true;
     } else if (!csvPath && arg && arg.includes('.csv')) {
       // First positional argument that looks like a CSV file
       csvPath = arg;
@@ -984,6 +1014,7 @@ async function main() {
   console.log(`   SSL: ${sslEnabled ? 'Enabled' : 'Disabled'} ${useSSL !== undefined ? '(explicit)' : '(auto-detected)'}`);
   console.log(`   CSV Path: ${csvPath || 'Not provided'}`);
   console.log(`   Single User: ${singleUserWallet || 'Not specified (will process all users)'}`);
+  console.log(`   Mode: ${dryRun ? 'DRY RUN (calculations only, no database writes)' : 'LIVE (calculations + database writes)'}`);
   console.log(`   Excluded Wallets: ${EXCLUDED_WALLETS.length} wallet(s)`);
   if (EXCLUDED_WALLETS.length > 0) {
     EXCLUDED_WALLETS.forEach((wallet, index) => {
@@ -1001,7 +1032,7 @@ async function main() {
   const script = new DailyPointsCalculationScript(AppDataSource);
   
   try {
-    await script.run(csvPath, singleUserWallet);
+    await script.run(csvPath, singleUserWallet, dryRun);
     process.exit(0);
   } catch (error) {
     console.error('Script execution failed:', error);
