@@ -852,6 +852,10 @@ class DailyPointsCalculationScript {
             if (!dryRun) {
               await this.saveUserDailyPoints(calculation);
               await this.saveUserTierChange(calculation);
+            } else {
+              // In dry-run mode, show all key values in a single line
+              const tierInfo = calculation.tierChanged ? ` → ${calculation.newTier} (UPGRADED!)` : ` (${calculation.currentTier})`;
+              console.log(`📊 [DRY RUN] ${user.walletAddress} | Daily: ${calculation.dailyPointsEarned} pts | Total: ${calculation.totalPoints} pts | Rewards: ${calculation.dailyRewards} | Referrals: ${calculation.totalReferrals}(${calculation.activeReferrals}) | ROAST: ${calculation.totalRoastEarned} | Mindshare: ${calculation.mindsharePoints} | Tier${tierInfo}`);
             }
 
             console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points, tier: ${calculation.currentTier})${dryRun ? ' [DRY RUN - NOT SAVED]' : ''}`);
@@ -905,6 +909,10 @@ class DailyPointsCalculationScript {
 
           // Calculate daily rewards (will include this single user if they have daily points)
           await this.calculateDailyRewards();
+        } else {
+          // In dry-run mode, show all key values in a single line
+          const tierInfo = calculation.tierChanged ? ` → ${calculation.newTier} (UPGRADED!)` : ` (${calculation.currentTier})`;
+          console.log(`📊 [DRY RUN] ${user.walletAddress} | Daily: ${calculation.dailyPointsEarned} pts | Total: ${calculation.totalPoints} pts | Rewards: ${calculation.dailyRewards} | Referrals: ${calculation.totalReferrals}(${calculation.activeReferrals}) | ROAST: ${calculation.totalRoastEarned} | Mindshare: ${calculation.mindsharePoints} | Tier${tierInfo}`);
         }
 
         console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points, tier: ${calculation.currentTier})${dryRun ? ' [DRY RUN - NOT SAVED]' : ''}`);
@@ -927,6 +935,13 @@ class DailyPointsCalculationScript {
         if (!dryRun) {
           await this.calculateDailyRanks();
           await this.calculateDailyRewards();
+        } else {
+          // In dry-run mode, show what daily rewards calculation would have done
+          console.log(`\n📊 [DRY RUN] Daily Rewards Summary:`);
+          console.log(`   🏆 Daily ranks would be calculated and updated`);
+          console.log(`   💰 Daily rewards pool (200,000) would be distributed among top users`);
+          console.log(`   🚫 Excluded wallets from rewards: ${EXCLUDE_WALLET_REWARDS.length} wallet(s)`);
+          console.log(`   ℹ️  Note: Individual reward amounts shown above in per-user calculations`);
         }
 
         console.log(`🎉 Daily Points Calculation Script completed successfully!${dryRun ? ' [DRY RUN MODE]' : ''}`);
