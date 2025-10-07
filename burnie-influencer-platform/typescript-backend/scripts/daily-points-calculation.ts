@@ -572,19 +572,30 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Get user's last recorded entry from user_daily_points table
+   * Get user's last recorded entry and cumulative points from user_daily_points table
    */
-  async getLastRecordedEntry(walletAddress: string): Promise<UserDailyPoints | null> {
+  async getLastRecordedEntry(walletAddress: string): Promise<{ lastEntry: UserDailyPoints | null; cumulativePoints: number }> {
     const userDailyPointsRepo = this.dataSource.getRepository(UserDailyPoints);
     
+    // Get the most recent entry for timestamp reference
     const latestEntry = await userDailyPointsRepo.findOne({
       where: { walletAddress: walletAddress.toLowerCase() },
       order: { createdAt: 'DESC' }
     });
 
-    console.log(`  📋 Last Recorded Entry: ${latestEntry ? `Found (${latestEntry.createdAt.toISOString()}) with ${latestEntry.totalPoints} total points` : 'None found (new user)'}`);
+    // Get cumulative points (same logic as leaderboard)
+    const sumResult = await userDailyPointsRepo
+      .createQueryBuilder('udp')
+      .select('SUM(udp.dailyPointsEarned)', 'cumulativePoints')
+      .where('udp.walletAddress = :walletAddress', { walletAddress: walletAddress.toLowerCase() })
+      .getRawOne();
+
+    const cumulativePoints = sumResult?.cumulativePoints ? parseFloat(sumResult.cumulativePoints) : 0;
+
+    console.log(`  📋 Last Recorded Entry: ${latestEntry ? `Found (${latestEntry.createdAt.toISOString()})` : 'None found (new user)'}`);
+    console.log(`  📊 Cumulative Points: ${cumulativePoints} (sum of all dailyPointsEarned)`);
     
-    return latestEntry;
+    return { lastEntry: latestEntry, cumulativePoints };
   }
 
 
@@ -606,13 +617,13 @@ class DailyPointsCalculationScript {
     console.log(`  Twitter handle: ${twitterHandle || 'None'} (from DB: ${twitterConnection?.twitterUsername || 'None'})`);
     
     // Get last recorded entry for this user
-    const lastRecordedEntry = await this.getLastRecordedEntry(user.walletAddress);
+    const { lastEntry, cumulativePoints } = await this.getLastRecordedEntry(user.walletAddress);
     
     // Calculate incremental points since last recorded entry
-    const incrementalResult = await this.calculateIncrementalPoints(user, lastRecordedEntry, twitterHandle);
+    const incrementalResult = await this.calculateIncrementalPoints(user, lastEntry, twitterHandle);
     
     // Calculate new totals
-    const previousTotalPoints = lastRecordedEntry ? parseFloat(lastRecordedEntry.totalPoints.toString()) : 0;
+    const previousTotalPoints = cumulativePoints; // Use cumulative sum (same as leaderboard)
     const dailyPointsEarned = incrementalResult.totalIncrementalPoints;
     const newTotalPoints = previousTotalPoints + dailyPointsEarned;
     
