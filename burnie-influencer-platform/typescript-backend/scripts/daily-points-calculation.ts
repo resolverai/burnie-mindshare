@@ -307,7 +307,7 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Calculate user's own purchase count
+   * Calculate user's own purchase count (excluding zero-price purchases)
    */
   async getUserPurchaseCount(walletAddress: string, userCreatedAt: Date): Promise<number> {
     const query = `
@@ -316,6 +316,7 @@ class DailyPointsCalculationScript {
       WHERE LOWER(buyer_wallet_address) = LOWER($1)
         AND payment_status = 'completed'
         AND created_at >= $2
+        AND purchase_price > 0
     `;
 
     const result = await this.dataSource.query(query, [walletAddress, userCreatedAt]);
@@ -323,7 +324,7 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Get user purchase count since a specific timestamp
+   * Get user purchase count since a specific timestamp (excluding zero-price purchases)
    */
   async getUserPurchaseCountSince(walletAddress: string, sinceTimestamp: Date): Promise<number> {
     const query = `
@@ -332,6 +333,7 @@ class DailyPointsCalculationScript {
       WHERE LOWER(buyer_wallet_address) = LOWER($1)
         AND payment_status = 'completed'
         AND created_at > $2
+        AND purchase_price > 0
     `;
 
     const result = await this.dataSource.query(query, [walletAddress, sinceTimestamp]);
@@ -353,7 +355,7 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Get referral's transaction count
+   * Get referral's transaction count (excluding zero-price purchases)
    */
   async getReferralTransactionCount(referralUserId: number): Promise<number> {
     const query = `
@@ -362,6 +364,7 @@ class DailyPointsCalculationScript {
       INNER JOIN users u ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
       WHERE u.id = $1
         AND cp.payment_status = 'completed'
+        AND cp.purchase_price > 0
     `;
 
     const result = await this.dataSource.query(query, [referralUserId]);
@@ -399,7 +402,7 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Get referral transaction count since a specific timestamp
+   * Get referral transaction count since a specific timestamp (excluding zero-price purchases)
    */
   async getReferralTransactionCountSince(referralUserId: number, sinceTimestamp: Date): Promise<number> {
     const query = `
@@ -409,6 +412,7 @@ class DailyPointsCalculationScript {
       WHERE u.id = $1
         AND cp.payment_status = 'completed'
         AND cp.created_at > $2
+        AND cp.purchase_price > 0
     `;
 
     const result = await this.dataSource.query(query, [referralUserId, sinceTimestamp]);
@@ -416,7 +420,7 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Calculate total referral transaction value (with price cap of 1999)
+   * Calculate total referral transaction value (with price cap of 1999, excluding zero-price purchases)
    */
   async calculateReferralTransactionValue(userId: number, userCreatedAt: Date): Promise<number> {
     const query = `
@@ -433,6 +437,7 @@ class DailyPointsCalculationScript {
       WHERE (ur."directReferrerId" = $1 OR ur."grandReferrerId" = $1)
         AND cp.payment_status = 'completed'
         AND cp.created_at >= $2
+        AND cp.purchase_price > 0
     `;
 
     const result = await this.dataSource.query(query, [userId, userCreatedAt]);
