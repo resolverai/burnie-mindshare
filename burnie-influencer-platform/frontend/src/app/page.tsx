@@ -96,7 +96,7 @@ export default function HomePage() {
   
   const { address, isConnected } = useAccount()
   const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
-  const { needsSignature, signIn, isLoading: authLoading, isAuthenticated } = useAuth()
+  const { needsSignature, signIn, isLoading: authLoading, isAuthenticated, isRecoveringFromMobile } = useAuth()
   const { checkAccessOnly } = useMarketplaceAccess()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -418,7 +418,7 @@ export default function HomePage() {
       )}
 
       {/* Unauthenticated Mobile Bottom Navigation */}
-      {mounted && !isAuthenticated && (
+      {mounted && !isAuthenticated && !isRecoveringFromMobile && (
         <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-yapper-surface/95 backdrop-blur border-t border-yapper z-50">
           <div className="flex items-center justify-around py-2 px-4 max-w-md mx-auto">
             <button
@@ -457,6 +457,20 @@ export default function HomePage() {
                 Yapping Campaign
               </span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Recovery Loading State */}
+      {mounted && isRecoveringFromMobile && (
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-yapper-surface/95 backdrop-blur border-t border-yapper z-50">
+          <div className="flex items-center justify-center py-4 px-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-white text-sm font-medium">
+                Completing wallet connection...
+              </span>
+            </div>
           </div>
         </div>
       )}

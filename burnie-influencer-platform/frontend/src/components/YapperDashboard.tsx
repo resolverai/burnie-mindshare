@@ -199,6 +199,20 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
               
               const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search + window.location.hash : "/";
               localStorage.setItem("wc_return_path", currentPath);
+              
+              // Only set timestamp for mobile devices to enable mobile recovery
+              const isMobile = typeof window !== "undefined" && (
+                /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                window.innerWidth < 768
+              );
+              
+              if (isMobile) {
+                localStorage.setItem("wc_connection_timestamp", Date.now().toString());
+                console.log('📱 Mobile wallet connection initiated from dashboard:', currentPath);
+              } else {
+                console.log('🖥️ Desktop wallet connection initiated from dashboard:', currentPath);
+              }
+              
               appKit.open();
             }}
             className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white px-6 py-3 rounded-lg font-medium transition-colors"

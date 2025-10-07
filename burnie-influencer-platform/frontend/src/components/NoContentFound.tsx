@@ -42,6 +42,20 @@ export default function NoContentFound({ searchQuery, onRequestContent }: NoCont
             // This will trigger the complete authentication flow
             const currentPath = typeof window !== "undefined" ? window.location.pathname + window.location.search + window.location.hash : "/";
             localStorage.setItem("wc_return_path", currentPath);
+            
+            // Only set timestamp for mobile devices to enable mobile recovery
+            const isMobile = typeof window !== "undefined" && (
+              /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+              window.innerWidth < 768
+            );
+            
+            if (isMobile) {
+              localStorage.setItem("wc_connection_timestamp", Date.now().toString());
+              console.log('📱 Mobile wallet connection initiated from NoContentFound:', currentPath);
+            } else {
+              console.log('🖥️ Desktop wallet connection initiated from NoContentFound:', currentPath);
+            }
+            
             appKit.open(); // This opens wallet connection, then signature, then redirect
         } else {
             // Open request content modal for authenticated users
