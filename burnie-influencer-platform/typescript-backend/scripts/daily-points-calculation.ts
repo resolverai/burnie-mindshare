@@ -125,6 +125,7 @@ class DailyPointsCalculationScript {
   private dataSource: DataSource;
   private mindshareData: MindshareData = {};
   private processedMindshareData: ProcessedMindshareData = {};
+  private allCalculations: UserCalculation[] = [];
 
   constructor(dataSource: DataSource) {
     this.dataSource = dataSource;
@@ -243,10 +244,10 @@ class DailyPointsCalculationScript {
     const users = await this.dataSource.query(query);
     const filteredUsers = users
       .map((user: any) => ({
-        id: user.id,
-        walletAddress: user.walletAddress.toLowerCase(),
-        createdAt: new Date(user.createdAt),
-        referralCount: user.referralCount || 0
+      id: user.id,
+      walletAddress: user.walletAddress.toLowerCase(),
+      createdAt: new Date(user.createdAt),
+      referralCount: user.referralCount || 0
       }))
       .filter((user: User) => !this.isWalletExcluded(user.walletAddress));
 
@@ -668,16 +669,16 @@ class DailyPointsCalculationScript {
 
     // Create daily entry if none exists for today
     if (shouldCreateTodaysEntry) {
-      const userTier = new UserTiers();
-      userTier.walletAddress = calculation.walletAddress;
-      userTier.twitterHandle = calculation.twitterHandle || undefined;
-      userTier.name = calculation.name || undefined;
-      userTier.tier = calculation.newTier;
-      userTier.previousTier = calculation.currentTier;
-      userTier.pointsAtTierChange = calculation.totalPoints;
-      userTier.referralsAtTierChange = calculation.totalReferrals;
+    const userTier = new UserTiers();
+    userTier.walletAddress = calculation.walletAddress;
+    userTier.twitterHandle = calculation.twitterHandle || undefined;
+    userTier.name = calculation.name || undefined;
+    userTier.tier = calculation.newTier;
+    userTier.previousTier = calculation.currentTier;
+    userTier.pointsAtTierChange = calculation.totalPoints;
+    userTier.referralsAtTierChange = calculation.totalReferrals;
 
-      await userTiersRepo.save(userTier);
+    await userTiersRepo.save(userTier);
 
       if (isTierUpgrade) {
         console.log(`✅ Tier upgraded: ${calculation.walletAddress} ${calculation.currentTier} → ${calculation.newTier}`);
@@ -690,12 +691,44 @@ class DailyPointsCalculationScript {
 
     // Always ensure referral_codes table reflects the current tier
     if (calculation.tierChanged || shouldCreateTodaysEntry) {
-      await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
-      
+    await this.updateUserTierInReferralCodes(calculation.walletAddress, calculation.newTier);
+
       if (!shouldCreateTodaysEntry && calculation.tierChanged) {
         console.log(`🔄 Tier updated in referral_codes: ${calculation.walletAddress} ${calculation.currentTier} → ${calculation.newTier}`);
       }
     }
+  }
+
+  /**
+   * Display final summary of all processed users (for dry-run mode)
+   */
+  private displayFinalSummary(): void {
+    if (this.allCalculations.length === 0) {
+      console.log('\n📊 [DRY RUN] Final Summary: No users processed');
+      return;
+    }
+
+    console.log('\n' + '='.repeat(120));
+    console.log('📊 [DRY RUN] FINAL SUMMARY - ALL PROCESSED USERS');
+    console.log('='.repeat(120));
+    
+    // Sort by daily points earned (descending) for better visibility
+    const sortedCalculations = [...this.allCalculations].sort((a, b) => b.dailyPointsEarned - a.dailyPointsEarned);
+    
+    sortedCalculations.forEach((calc, index) => {
+      const tierInfo = calc.tierChanged ? ` → ${calc.newTier} (UPGRADED!)` : ` (${calc.currentTier})`;
+      console.log(`${(index + 1).toString().padStart(3, ' ')}. ${calc.walletAddress} | Daily: ${calc.dailyPointsEarned.toString().padStart(6, ' ')} pts | Total: ${calc.totalPoints.toString().padStart(8, ' ')} pts | Rewards: ${calc.dailyRewards.toString().padStart(6, ' ')} | Referrals: ${calc.totalReferrals.toString().padStart(2, ' ')}(${calc.activeReferrals.toString().padStart(2, ' ')}) | ROAST: ${calc.totalRoastEarned.toString().padStart(8, ' ')} | Mindshare: ${calc.mindsharePoints.toString().padStart(6, ' ')} | Tier${tierInfo}`);
+    });
+    
+    // Summary statistics
+    const totalDailyPoints = sortedCalculations.reduce((sum, calc) => sum + calc.dailyPointsEarned, 0);
+    const totalRewards = sortedCalculations.reduce((sum, calc) => sum + calc.dailyRewards, 0);
+    const usersWithPoints = sortedCalculations.filter(calc => calc.dailyPointsEarned > 0).length;
+    const tierUpgrades = sortedCalculations.filter(calc => calc.tierChanged).length;
+    
+    console.log('='.repeat(120));
+    console.log(`📈 SUMMARY STATS: ${sortedCalculations.length} users processed | ${usersWithPoints} earned points | ${tierUpgrades} tier upgrades | ${totalDailyPoints} total daily points | ${totalRewards} total rewards`);
+    console.log('='.repeat(120));
   }
 
   /**
@@ -848,10 +881,15 @@ class DailyPointsCalculationScript {
           try {
             const calculation = await this.processUser(user);
             
+            // Store calculation for final summary (in dry-run mode)
+            if (dryRun) {
+              this.allCalculations.push(calculation);
+            }
+            
             // Save to database (if not dry run)
             if (!dryRun) {
-              await this.saveUserDailyPoints(calculation);
-              await this.saveUserTierChange(calculation);
+            await this.saveUserDailyPoints(calculation);
+            await this.saveUserTierChange(calculation);
             } else {
               // In dry-run mode, show all key values in a single line
               const tierInfo = calculation.tierChanged ? ` → ${calculation.newTier} (UPGRADED!)` : ` (${calculation.currentTier})`;
@@ -902,6 +940,11 @@ class DailyPointsCalculationScript {
         // Process single user
         const calculation = await this.processUser(user);
         
+        // Store calculation for final summary (in dry-run mode)
+        if (dryRun) {
+          this.allCalculations.push(calculation);
+        }
+        
         // Save to database (if not dry run)
         if (!dryRun) {
           await this.saveUserDailyPoints(calculation);
@@ -918,22 +961,27 @@ class DailyPointsCalculationScript {
         console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points, tier: ${calculation.currentTier})${dryRun ? ' [DRY RUN - NOT SAVED]' : ''}`);
         console.log(`🎉 Single User Points Calculation completed successfully!${dryRun ? ' [DRY RUN MODE]' : ''}`);
         
+        // Display final summary for dry-run mode
+        if (dryRun) {
+          this.displayFinalSummary();
+        }
+        
       } else {
         // Process all users
-        const users = await this.getUsersWithTwitterConnections();
-        console.log(`📊 Found ${users.length} users with Twitter connections`);
+      const users = await this.getUsersWithTwitterConnections();
+      console.log(`📊 Found ${users.length} users with Twitter connections`);
 
-        if (users.length === 0) {
-          console.log('⚠️ No users found with Twitter connections. Exiting.');
-          return;
-        }
+      if (users.length === 0) {
+        console.log('⚠️ No users found with Twitter connections. Exiting.');
+        return;
+      }
 
-        // Process users in batches
+      // Process users in batches
         await this.processUsersInBatches(users, 100, dryRun);
 
         // Calculate daily ranks and rewards (if not dry run)
         if (!dryRun) {
-          await this.calculateDailyRanks();
+      await this.calculateDailyRanks();
           await this.calculateDailyRewards();
         } else {
           // In dry-run mode, show what daily rewards calculation would have done
@@ -945,6 +993,11 @@ class DailyPointsCalculationScript {
         }
 
         console.log(`🎉 Daily Points Calculation Script completed successfully!${dryRun ? ' [DRY RUN MODE]' : ''}`);
+      }
+
+      // Display final summary for dry-run mode
+      if (dryRun) {
+        this.displayFinalSummary();
       }
 
     } catch (error) {
