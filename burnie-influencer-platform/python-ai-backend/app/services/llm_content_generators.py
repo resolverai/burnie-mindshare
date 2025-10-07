@@ -1228,7 +1228,8 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                         arguments.update({
                             "guidance_scale": model_params.get("guidance_scale", 3.5),
                             "output_format": model_params.get("output_format", "jpeg"),
-                            "safety_tolerance": model_params.get("safety_tolerance", "2")
+                            "safety_tolerance": model_params.get("safety_tolerance", "2"),
+                            "aspect_ratio": model_params.get("aspect_ratio", "1:1")
                         })
                         logger.info(f"🏷️ Using flux-pro/kontext format with image_url")
                     

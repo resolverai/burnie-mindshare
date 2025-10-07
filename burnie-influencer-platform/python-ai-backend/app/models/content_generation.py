@@ -54,6 +54,7 @@ class ContentGenerationResponse(BaseModel):
     agent_contributions: Dict[AgentType, Dict[str, Any]]
     optimization_factors: List[str]
     performance_predictions: Dict[str, float]
+    content_id: Optional[int] = None  # Content ID from TypeScript backend marketplace
 
 class AgentProgress(BaseModel):
     """Progress tracking for individual agents"""

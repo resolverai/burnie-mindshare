@@ -3,6 +3,9 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Build argument for miner mode (must be defined before ENV that uses it)
+ARG NEXT_PUBLIC_MINER=1
+
 # Set production environment variables by default (for external container deployment)
 # These can be overridden by docker-compose or build args if needed
 ENV NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io/api
@@ -24,7 +27,6 @@ ENV NEXT_PUBLIC_APP_DESCRIPTION="AI-powered content mining platform"
 ENV NEXT_PUBLIC_APP_VERSION=2.0.0
 ENV NEXT_PUBLIC_DEFAULT_LLM_PROVIDER=openai
 ENV NEXT_PUBLIC_SUPPORTED_PROVIDERS=openai,claude,gemini
-ARG NEXT_PUBLIC_MINER=1
 ENV NEXT_PUBLIC_MINER=$NEXT_PUBLIC_MINER
 ENV NEXT_PUBLIC_ENABLE_AGENT_PERSISTENCE=true
 ENV NEXT_PUBLIC_STORAGE_PREFIX=burnie_mining_
@@ -70,9 +72,11 @@ USER nextjs
 
 EXPOSE 3000
 
+# Build argument for runtime (must be defined before ENV that uses it)
+ARG NEXT_PUBLIC_MINER=1
+
 ENV NODE_ENV=production
 ENV PORT=3000
-ARG NEXT_PUBLIC_MINER=1
 ENV NEXT_PUBLIC_MINER=$NEXT_PUBLIC_MINER
 
 CMD ["node", "server.js"]

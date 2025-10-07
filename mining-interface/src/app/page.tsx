@@ -20,6 +20,15 @@ function HomePageContent() {
 
   // Check if we're in dedicated miner mode
   const isDedicatedMiner = process.env.NEXT_PUBLIC_MINER === '1'
+  
+  // Debug logging for environment variables
+  useEffect(() => {
+    console.log('🔧 Environment Debug:', {
+      NEXT_PUBLIC_MINER: process.env.NEXT_PUBLIC_MINER,
+      isDedicatedMiner,
+      NODE_ENV: process.env.NODE_ENV
+    })
+  }, [])
 
   // Auto-trigger sign-in when wallet connects and signature is needed
   useEffect(() => {
@@ -37,7 +46,9 @@ function HomePageContent() {
       isLoading, 
       isTwitterLoading,
       address,
-      isDedicatedMiner
+      isDedicatedMiner,
+      NEXT_PUBLIC_MINER_RAW: process.env.NEXT_PUBLIC_MINER,
+      NEXT_PUBLIC_MINER_TYPE: typeof process.env.NEXT_PUBLIC_MINER
     })
     
     // If user is authenticated and we have finished checking Twitter status

@@ -1606,7 +1606,14 @@ async def run_multi_campaign_generation(
                     "generation_metadata": result.generation_metadata,
                     "post_type": campaign_pair.post_type,  # Include post_type for proper frontend rendering
                     "id": getattr(result, 'content_id', f"{session_id}_campaign_{campaign_pair.campaign_id}_post_{campaign_pair.post_index}"),  # Use actual database ID if available
-                    "status": "completed"
+                    "status": "completed",
+                    # Include video metadata for approval flow
+                    "is_video": bool(getattr(result, 'video_url', None)),
+                    "video_duration": result.generation_metadata.get('video_metadata', {}).get('video_duration') if result.generation_metadata else None,
+                    "subsequent_frame_prompts": result.generation_metadata.get('video_metadata', {}).get('subsequent_frame_prompts') if result.generation_metadata else None,
+                    "clip_prompts": result.generation_metadata.get('video_metadata', {}).get('clip_prompts') if result.generation_metadata else None,
+                    "audio_prompt": result.generation_metadata.get('video_metadata', {}).get('audio_prompt') if result.generation_metadata else None,
+                    "audio_prompts": result.generation_metadata.get('video_metadata', {}).get('audio_prompts') if result.generation_metadata else None,
                 }
                 
                 # Debug: Log the content being sent to frontend
@@ -1721,6 +1728,27 @@ async def run_content_generation(session_id: str, mining_session: MiningSession,
         mining_session.generated_content = result
         mining_session.completed_at = datetime.utcnow()
         
+        # Prepare content for websocket with proper id field for mining interface
+        websocket_content = {
+            "id": getattr(result, 'content_id', f"{session_id}_single"),  # Use content_id from marketplace as id
+            "content_text": result.content_text,
+            "tweet_thread": result.tweet_thread,
+            "content_images": result.content_images,
+            "video_url": getattr(result, 'video_url', None),
+            "predicted_mindshare": result.predicted_mindshare,
+            "quality_score": result.quality_score,
+            "generation_metadata": result.generation_metadata,
+            "post_type": getattr(mining_session, 'post_type', 'thread'),
+            "status": "completed",
+            # Include video metadata for approval flow
+            "is_video": bool(getattr(result, 'video_url', None)),
+            "video_duration": result.generation_metadata.get('video_metadata', {}).get('video_duration') if result.generation_metadata else None,
+            "subsequent_frame_prompts": result.generation_metadata.get('video_metadata', {}).get('subsequent_frame_prompts') if result.generation_metadata else None,
+            "clip_prompts": result.generation_metadata.get('video_metadata', {}).get('clip_prompts') if result.generation_metadata else None,
+            "audio_prompt": result.generation_metadata.get('video_metadata', {}).get('audio_prompt') if result.generation_metadata else None,
+            "audio_prompts": result.generation_metadata.get('video_metadata', {}).get('audio_prompts') if result.generation_metadata else None,
+        }
+        
         # Send final update via WebSocket
         await manager.send_progress_update(session_id, {
             "type": "completion",
@@ -1728,7 +1756,7 @@ async def run_content_generation(session_id: str, mining_session: MiningSession,
             "status": "completed",
             "progress": 100,
             "current_step": "Content generation completed!",
-            "generated_content": result,
+            "generated_content": websocket_content,
             "agent_statuses": {agent: "completed" for agent in mining_session.agent_statuses.keys()}
         })
         

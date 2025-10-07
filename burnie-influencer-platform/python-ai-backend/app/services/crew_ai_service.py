@@ -3982,6 +3982,7 @@ Then extract ALL these fields and include them in your output.
                         logger.info(f"✅ Successfully parsed orchestrator JSON output (direct parse)")
                         logger.info(f"✅ Extracted main_tweet length: {len(str(final_content)) if final_content else 0} chars")
                         logger.info(f"✅ Extracted thread_array: {len(tweet_thread) if tweet_thread else 0} tweets")
+                        print(f"🎬 DEBUG: Extracted video_url: '{video_url}' (length: {len(video_url) if video_url else 0})")
                 except json.JSONDecodeError:
                     logger.info("🔍 Direct JSON parse failed, trying regex extraction...")
                 
@@ -4262,6 +4263,11 @@ Then extract ALL these fields and include them in your output.
             # Pull optional video meta for DB persistence
             video_meta = generation_result.get("video_metadata") or {}
             
+            print(f"🎬 DEBUG: Creating ContentGenerationResponse with video_url: '{video_url}' (length: {len(video_url) if video_url else 0})")
+            
+            # Get video metadata from generation result
+            extracted_video_metadata = generation_result.get("video_metadata", {})
+            
             response = ContentGenerationResponse(
                 content_text=final_content,
                 tweet_thread=tweet_thread,  # Include tweet thread
@@ -4269,11 +4275,16 @@ Then extract ALL these fields and include them in your output.
                 video_url=video_url,  # Include video URL if available
                 predicted_mindshare=performance_prediction["mindshare_score"],
                 quality_score=quality_metrics["overall_quality"],
-                generation_metadata=generation_result["generation_metadata"],
+                generation_metadata={
+                    **generation_result["generation_metadata"],
+                    "video_metadata": extracted_video_metadata  # ✅ Use video metadata from generation result
+                },
                 agent_contributions=generation_result["agent_contributions"],
                 optimization_factors=generation_result["generation_metadata"]["optimization_factors"],
                 performance_predictions=performance_prediction
             )
+            
+            print(f"🎬 DEBUG: ContentGenerationResponse created with video_url: '{getattr(response, 'video_url', 'MISSING')}'")
 
             # Attach video meta into generation_metadata for downstream sync
             try:
@@ -4801,8 +4812,12 @@ No image generated
                 logger.info(f"   - nested audio_prompts: {'Present' if nested_video_meta.get('audio_prompts') else 'Missing'}")
 
             logger.info(f"🧩 Preparing marketplace sync payload (image count={len(content.content_images) if content.content_images else 0}, video_url={'yes' if getattr(content, 'video_url', None) else 'no'})")
+            print(f"🎬 DEBUG: Marketplace sync - content.video_url: '{getattr(content, 'video_url', 'MISSING')}' (type: {type(getattr(content, 'video_url', None))})")
             
             processed_content_text = self._replace_em_dashes(content.content_text)
+            
+            extracted_video_url = getattr(content, 'video_url', '')
+            print(f"🎬 DEBUG: Extracted video_url for marketplace: '{extracted_video_url}' (length: {len(extracted_video_url) if extracted_video_url else 0})")
             
             content_data = {
                 "content_text": processed_content_text,
@@ -4813,8 +4828,8 @@ No image generated
                 "generation_metadata": content.generation_metadata,
                 "post_type": getattr(mining_session, 'post_type', 'thread'),  # Include post type from mining session
                 "imagePrompt": getattr(self, 'stored_image_prompt', ''),  # Include captured image prompt
-                "is_video": bool(getattr(content, 'video_url', None)),  # True if we have a video URL
-                "video_url": getattr(content, 'video_url', ''),  # Include video URL if available
+                "is_video": bool(extracted_video_url),  # True if we have a video URL
+                "video_url": extracted_video_url,  # Include video URL if available
                 "video_duration": int(video_meta.get("video_duration") or getattr(mining_session, 'video_duration', 10)),
                 "subsequent_frame_prompts": video_meta.get("subsequent_frame_prompts"),
                 "clip_prompts": video_meta.get("clip_prompts"),
@@ -9119,7 +9134,8 @@ class FalAIImageTool(BaseTool):
                             "guidance_scale": 3.5,
                             "num_images": 1,
                             "output_format": "jpeg",
-                            "safety_tolerance": "2"
+                            "safety_tolerance": "2",
+                            "aspect_ratio": "1:1"
                         }
                     }
                     logger.info(f"🏷️ Added logo integration parameters for flux-pro/kontext")
@@ -9131,7 +9147,8 @@ class FalAIImageTool(BaseTool):
                         "model_specific_params": {
                             "image_urls": [self.project_logo_url],  # Array format for nano-banana/edit
                             "num_images": 1,
-                            "output_format": "jpeg"
+                            "output_format": "jpeg",
+                            "aspect_ratio": "1:1"
                         }
                     }
                     logger.info(f"🏷️ Added logo integration parameters for fal-ai/nano-banana/edit")
@@ -9146,7 +9163,8 @@ class FalAIImageTool(BaseTool):
                             "guidance_scale": 3.5,
                             "num_images": 1,
                             "output_format": "jpeg",
-                            "safety_tolerance": "2"
+                            "safety_tolerance": "2",
+                            "aspect_ratio": "1:1"
                         }
                     }
             

@@ -222,9 +222,10 @@ class CrewVideoCreationTool(BaseTool):
                 'include_tweet_text': include_tweet_text,
                 
                 # Advanced parameters mapping - use actual values from frontend
+                # Duration mode logic: respect the selected duration mode
                 'video_duration': actual_video_duration if actual_duration_mode == 'video_duration' else None,
                 'clip_duration': actual_clip_duration,
-                'number_of_clips': actual_number_of_clips,
+                'number_of_clips': actual_number_of_clips if actual_duration_mode == 'clip_based' else None,
                 'human_characters_only': actual_character_control == 'human_only',
                 'web3': actual_character_control == 'web3',
                 'no_characters': actual_character_control == 'no_characters',

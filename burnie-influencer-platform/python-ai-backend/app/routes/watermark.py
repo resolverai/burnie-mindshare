@@ -54,9 +54,45 @@ async def create_watermark(request: WatermarkRequest):
             original_path = os.path.join(temp_dir, 'original.jpg')
             watermarked_path = os.path.join(temp_dir, 'watermarked.jpg')
             
-            # Step 1: Download original image
-            logger.info(f"📥 Downloading image from: {request.image_url}")
-            response = requests.get(request.image_url, stream=True, timeout=30)
+            # Step 1: Generate fresh presigned URL if this is an S3 URL
+            download_url = request.image_url
+            if 's3.amazonaws.com' in request.image_url:
+                logger.info(f"🔄 Detected S3 URL, generating fresh presigned URL...")
+                try:
+                    from urllib.parse import urlparse
+                    from app.services.s3_storage_service import get_s3_storage
+                    
+                    # Extract S3 key from URL
+                    parsed = urlparse(request.image_url)
+                    if '.s3.amazonaws.com' in parsed.netloc:
+                        # Format: https://bucket-name.s3.amazonaws.com/key/path
+                        s3_key = parsed.path.lstrip('/')  # Remove leading slash
+                    else:
+                        # Format: https://s3.amazonaws.com/bucket-name/key/path
+                        path_parts = parsed.path.lstrip('/').split('/', 1)
+                        s3_key = path_parts[1] if len(path_parts) > 1 else ''
+                    
+                    if s3_key:
+                        logger.info(f"🔑 Extracted S3 key: {s3_key}")
+                        s3_service = get_s3_storage()
+                        presigned_result = s3_service.generate_presigned_url(s3_key, expiration=3600)
+                        
+                        if presigned_result['success']:
+                            download_url = presigned_result['presigned_url']
+                            logger.info(f"✅ Generated fresh presigned URL for watermarking")
+                        else:
+                            logger.warning(f"⚠️ Failed to generate fresh presigned URL: {presigned_result.get('error')}")
+                            logger.info(f"📋 Will attempt to use original URL anyway")
+                    else:
+                        logger.warning(f"⚠️ Could not extract S3 key from URL: {request.image_url}")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Error generating fresh presigned URL: {e}")
+                    logger.info(f"📋 Will attempt to use original URL anyway")
+            
+            # Step 2: Download original image
+            logger.info(f"📥 Downloading image from: {download_url}")
+            response = requests.get(download_url, stream=True, timeout=30)
             response.raise_for_status()
             
             with open(original_path, 'wb') as f:
@@ -65,7 +101,7 @@ async def create_watermark(request: WatermarkRequest):
             
             logger.info(f"✅ Downloaded image to: {original_path}")
             
-            # Step 2: Apply watermark
+            # Step 3: Apply watermark
             import cv2
             image = cv2.imread(original_path)
             if image is None:
@@ -88,14 +124,14 @@ async def create_watermark(request: WatermarkRequest):
             
             logger.info(f"✅ Watermark applied and saved to: {watermarked_path}")
             
-            # Step 3: Generate S3 key for watermarked image
+            # Step 4: Generate S3 key for watermarked image
             original_s3_key = extract_s3_key_from_url(request.image_url)
             if not original_s3_key:
                 raise HTTPException(status_code=400, detail="Could not extract S3 key from URL")
             
             watermarked_s3_key = generate_watermarked_s3_key(original_s3_key)
             
-            # Step 4: Upload to S3
+            # Step 5: Upload to S3
             logger.info(f"📤 Uploading to S3: {watermarked_s3_key}")
             
             with open(watermarked_path, 'rb') as f:

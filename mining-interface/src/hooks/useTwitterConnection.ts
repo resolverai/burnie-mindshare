@@ -8,13 +8,34 @@ interface TwitterConnectionStatus {
 }
 
 export function useTwitterConnection(walletAddress?: string) {
+  // Check if we're in dedicated miner mode
+  const isDedicatedMiner = process.env.NEXT_PUBLIC_MINER === '1'
+  
+  // Debug logging
+  console.log('🐦 useTwitterConnection Debug:', {
+    NEXT_PUBLIC_MINER: process.env.NEXT_PUBLIC_MINER,
+    isDedicatedMiner,
+    walletAddress
+  })
+
   const [status, setStatus] = useState<TwitterConnectionStatus>({
-    isConnected: false,
-    isLoading: true,
+    isConnected: isDedicatedMiner ? true : false, // Dedicated miners don't need Twitter
+    isLoading: isDedicatedMiner ? false : true,   // Skip loading for dedicated miners
     error: null
   })
 
   const checkTwitterConnection = async () => {
+    // Skip Twitter check for dedicated miners
+    if (isDedicatedMiner) {
+      setStatus({
+        isConnected: true, // Always "connected" for dedicated miners
+        isLoading: false,
+        error: null,
+        twitterUsername: 'dedicated-miner' // Placeholder username
+      })
+      return
+    }
+
     if (!walletAddress) {
       setStatus({
         isConnected: false,
@@ -58,7 +79,7 @@ export function useTwitterConnection(walletAddress?: string) {
 
   useEffect(() => {
     checkTwitterConnection()
-  }, [walletAddress])
+  }, [walletAddress, isDedicatedMiner])
 
   return {
     ...status,

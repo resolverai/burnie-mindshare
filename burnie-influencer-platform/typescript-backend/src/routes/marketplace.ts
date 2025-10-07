@@ -1629,17 +1629,30 @@ router.post('/approve', async (req, res) => {
       if (watermarkImageUrl) {
         existingContent.watermarkImage = watermarkImageUrl;
       }
-      // Update video fields
-      existingContent.isVideo = isVideo || false;
-      existingContent.videoUrl = videoUrl || null;
+      // Update video fields - preserve existing values if not provided
+      existingContent.isVideo = isVideo !== undefined ? isVideo : existingContent.isVideo;
+      if (videoUrl !== undefined) {
+        existingContent.videoUrl = videoUrl;
+      }
       if (watermarkVideoUrl) {
         existingContent.watermarkVideoUrl = watermarkVideoUrl;
       }
-      existingContent.videoDuration = videoDuration || null;
-      existingContent.subsequentFramePrompts = subsequentFramePrompts || null;
-      existingContent.clipPrompts = clipPrompts || null;
-      existingContent.audioPrompt = audioPrompt || null;
-      existingContent.audioPrompts = audioPrompts || null;
+      if (videoDuration !== undefined) {
+        existingContent.videoDuration = videoDuration;
+      }
+      // Only update video metadata fields if they are provided (not null/undefined)
+      if (subsequentFramePrompts !== undefined && subsequentFramePrompts !== null) {
+        existingContent.subsequentFramePrompts = subsequentFramePrompts;
+      }
+      if (clipPrompts !== undefined && clipPrompts !== null) {
+        existingContent.clipPrompts = clipPrompts;
+      }
+      if (audioPrompt !== undefined && audioPrompt !== null) {
+        existingContent.audioPrompt = audioPrompt;
+      }
+      if (audioPrompts !== undefined && audioPrompts !== null) {
+        existingContent.audioPrompts = audioPrompts;
+      }
       if (generationMetadata) {
         existingContent.generationMetadata = generationMetadata;
       }

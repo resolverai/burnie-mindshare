@@ -6,8 +6,6 @@ import os
 import requests
 import boto3
 from botocore.exceptions import ClientError
-import cv2
-import numpy as np
 from moviepy.editor import VideoFileClip, CompositeVideoClip, TextClip
 import logging
 from pathlib import Path
@@ -48,9 +46,45 @@ async def create_video_watermark(request: VideoWatermarkRequest):
             original_path = os.path.join(temp_dir, 'original.mp4')
             watermarked_path = os.path.join(temp_dir, 'watermarked.mp4')
             
-            # Step 1: Download original video
-            logger.info(f"📥 Downloading video from: {request.video_url}")
-            response = requests.get(request.video_url, stream=True, timeout=60)
+            # Step 1: Generate fresh presigned URL if this is an S3 URL
+            download_url = request.video_url
+            if 's3.amazonaws.com' in request.video_url:
+                logger.info(f"🔄 Detected S3 URL, generating fresh presigned URL...")
+                try:
+                    from urllib.parse import urlparse
+                    from app.services.s3_storage_service import get_s3_storage
+                    
+                    # Extract S3 key from URL
+                    parsed = urlparse(request.video_url)
+                    if '.s3.amazonaws.com' in parsed.netloc:
+                        # Format: https://bucket-name.s3.amazonaws.com/key/path
+                        s3_key = parsed.path.lstrip('/')  # Remove leading slash
+                    else:
+                        # Format: https://s3.amazonaws.com/bucket-name/key/path
+                        path_parts = parsed.path.lstrip('/').split('/', 1)
+                        s3_key = path_parts[1] if len(path_parts) > 1 else ''
+                    
+                    if s3_key:
+                        logger.info(f"🔑 Extracted S3 key: {s3_key}")
+                        s3_service = get_s3_storage()
+                        presigned_result = s3_service.generate_presigned_url(s3_key, expiration=3600)
+                        
+                        if presigned_result['success']:
+                            download_url = presigned_result['presigned_url']
+                            logger.info(f"✅ Generated fresh presigned URL for video watermarking")
+                        else:
+                            logger.warning(f"⚠️ Failed to generate fresh presigned URL: {presigned_result.get('error')}")
+                            logger.info(f"📋 Will attempt to use original URL anyway")
+                    else:
+                        logger.warning(f"⚠️ Could not extract S3 key from URL: {request.video_url}")
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Error generating fresh presigned URL: {e}")
+                    logger.info(f"📋 Will attempt to use original URL anyway")
+            
+            # Step 2: Download original video
+            logger.info(f"📥 Downloading video from: {download_url}")
+            response = requests.get(download_url, stream=True, timeout=60)
             response.raise_for_status()
             
             with open(original_path, 'wb') as f:
@@ -59,23 +93,23 @@ async def create_video_watermark(request: VideoWatermarkRequest):
             
             logger.info(f"✅ Downloaded video to: {original_path}")
             
-            # Step 2: Process video with watermarks
-            logger.info("🎬 Processing video with watermarks...")
-            success = await process_video_with_watermarks(original_path, watermarked_path)
+            # Step 3: Process video with watermarks using MoviePy
+            logger.info("🎬 Processing video with watermarks using MoviePy...")
+            success = process_video_with_watermarks_moviepy(original_path, watermarked_path)
             
             if not success:
                 raise HTTPException(status_code=500, detail="Failed to process video with watermarks")
             
             logger.info(f"✅ Video processed and saved to: {watermarked_path}")
             
-            # Step 3: Generate S3 key for watermarked video
+            # Step 4: Generate S3 key for watermarked video
             original_s3_key = extract_s3_key_from_url(request.video_url)
             if not original_s3_key:
                 raise HTTPException(status_code=400, detail="Could not extract S3 key from URL")
             
             watermarked_s3_key = generate_watermarked_video_s3_key(original_s3_key)
             
-            # Step 4: Upload to S3
+            # Step 5: Upload to S3
             logger.info(f"📤 Uploading watermarked video to S3: {watermarked_s3_key}")
             
             with open(watermarked_path, 'rb') as f:
@@ -124,109 +158,106 @@ async def create_video_watermark(request: VideoWatermarkRequest):
             error=f"Video watermarking failed: {str(e)}"
         )
 
-async def process_video_with_watermarks(input_path: str, output_path: str) -> bool:
+def process_video_with_watermarks_moviepy(input_path: str, output_path: str) -> bool:
     """
-    Process video to add watermarks to every 25th frame
+    Process video to add watermarks using MoviePy (preserves audio and uses proper H.264 encoding)
     """
     try:
-        # Open video
-        cap = cv2.VideoCapture(input_path)
-        if not cap.isOpened():
-            logger.error("❌ Failed to open video file")
-            return False
+        # Load the video clip
+        logger.info(f"📥 Loading video clip from: {input_path}")
+        video_clip = VideoFileClip(input_path)
         
         # Get video properties
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width, height = video_clip.size
+        duration = video_clip.duration
+        fps = video_clip.fps
         
-        logger.info(f"📊 Video properties: {width}x{height}, {fps} FPS, {total_frames} frames")
+        logger.info(f"📊 Video properties: {width}x{height}, {fps} FPS, {duration:.2f}s duration")
         
-        # Setup video writer
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        # Create watermark text clips
+        watermark_main = create_watermark_text("@burnieio", width, height, position='main')
+        watermark_sub = create_watermark_text("Buy to Access", width, height, position='sub')
         
-        frame_count = 0
-        watermarked_frames = 0
+        # Set duration for watermark clips to match video
+        watermark_main = watermark_main.set_duration(duration)
+        watermark_sub = watermark_sub.set_duration(duration)
         
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            
-            # Add watermark to every 25th frame
-            if frame_count % 25 == 0:
-                frame = add_watermark_to_frame(frame, width, height)
-                watermarked_frames += 1
-            
-            out.write(frame)
-            frame_count += 1
-            
-            # Log progress every 100 frames
-            if frame_count % 100 == 0:
-                logger.info(f"📊 Processed {frame_count}/{total_frames} frames")
+        # Create composite video with watermarks
+        logger.info("🎬 Compositing video with watermarks...")
+        final_video = CompositeVideoClip([
+            video_clip,
+            watermark_main,
+            watermark_sub
+        ])
         
-        # Release everything
-        cap.release()
-        out.release()
+        # Write the final video with proper H.264 encoding and preserve audio
+        logger.info(f"💾 Writing watermarked video to: {output_path}")
+        final_video.write_videofile(
+            output_path,
+            codec='libx264',           # Use H.264 codec (same as original videos)
+            audio_codec='aac',         # Preserve AAC audio
+            temp_audiofile='temp-audio.m4a',
+            remove_temp=True,
+            fps=fps,                   # Preserve original FPS
+            preset='medium',           # Good balance of quality and speed
+            ffmpeg_params=['-crf', '23']  # Good quality setting
+        )
         
-        logger.info(f"✅ Video processing complete: {watermarked_frames} frames watermarked out of {frame_count} total frames")
+        # Clean up
+        video_clip.close()
+        watermark_main.close()
+        watermark_sub.close()
+        final_video.close()
+        
+        logger.info("✅ Video watermarking completed successfully with MoviePy")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Error processing video: {e}")
+        logger.error(f"❌ Error processing video with MoviePy: {e}")
         return False
 
-def add_watermark_to_frame(frame: np.ndarray, width: int, height: int) -> np.ndarray:
+def create_watermark_text(text: str, video_width: int, video_height: int, position: str = 'main') -> TextClip:
     """
-    Add watermark to a single frame
+    Create a watermark text clip with proper positioning and styling
     """
     try:
-        # Create a copy of the frame
-        watermarked_frame = frame.copy()
+        # Define text properties based on position
+        if position == 'main':
+            fontsize = max(24, int(video_width * 0.03))  # Responsive font size
+            color = 'white'
+            stroke_color = 'black'
+            stroke_width = 2
+            # Position in bottom-right corner
+            pos_x = video_width - 20  # 20px padding from right
+            pos_y = video_height - 60  # 60px from bottom
+        else:  # sub text
+            fontsize = max(18, int(video_width * 0.022))  # Smaller font
+            color = 'white'
+            stroke_color = 'black'
+            stroke_width = 1
+            # Position below main text
+            pos_x = video_width - 20
+            pos_y = video_height - 30  # 30px from bottom
         
-        # Define watermark properties
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 1.0
-        color = (255, 255, 255)  # White text
-        thickness = 2
+        # Create text clip
+        txt_clip = TextClip(
+            text,
+            fontsize=fontsize,
+            color=color,
+            stroke_color=stroke_color,
+            stroke_width=stroke_width,
+            font='Arial-Bold'  # Use a common font
+        ).set_position((pos_x, pos_y), relative=False).set_opacity(0.9)
         
-        # Calculate text size
-        text = "@burnieio"
-        (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+        # Adjust position to be relative to text size (right-aligned)
+        txt_clip = txt_clip.set_position(lambda t: (pos_x - txt_clip.w, pos_y))
         
-        # Position watermark in bottom-right corner with padding
-        padding = 20
-        x = width - text_width - padding
-        y = height - padding
-        
-        # Add semi-transparent background rectangle
-        overlay = watermarked_frame.copy()
-        cv2.rectangle(overlay, (x - 10, y - text_height - 10), (x + text_width + 10, y + 10), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.7, watermarked_frame, 0.3, 0, watermarked_frame)
-        
-        # Add text
-        cv2.putText(watermarked_frame, text, (x, y), font, font_scale, color, thickness)
-        
-        # Add "Buy to Access" text below
-        buy_text = "Buy to Access"
-        (buy_width, buy_height), _ = cv2.getTextSize(buy_text, font, 0.6, 1)
-        buy_x = width - buy_width - padding
-        buy_y = y + 30
-        
-        # Add semi-transparent background for buy text
-        cv2.rectangle(overlay, (buy_x - 5, buy_y - buy_height - 5), (buy_x + buy_width + 5, buy_y + 5), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.7, watermarked_frame, 0.3, 0, watermarked_frame)
-        
-        # Add buy text
-        cv2.putText(watermarked_frame, buy_text, (buy_x, buy_y), font, 0.6, color, 1)
-        
-        return watermarked_frame
+        return txt_clip
         
     except Exception as e:
-        logger.error(f"❌ Error adding watermark to frame: {e}")
-        return frame
+        logger.error(f"❌ Error creating watermark text: {e}")
+        # Fallback to simple text clip
+        return TextClip(text, fontsize=24, color='white').set_position(('right', 'bottom'))
 
 def extract_s3_key_from_url(url: str) -> str:
     """Extract S3 key from URL"""

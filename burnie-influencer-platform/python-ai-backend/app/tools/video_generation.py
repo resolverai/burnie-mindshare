@@ -4,7 +4,7 @@ import requests
 import time
 import json
 from datetime import datetime
-from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, concatenate_audioclips
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, concatenate_audioclips, CompositeVideoClip
 import anthropic
 from xai_sdk import Client
 from xai_sdk.chat import user, system
@@ -157,7 +157,7 @@ class VideoGenerator:
             print(f"🎬 Using clip-based duration: {number_of_clips} clips × {clip_duration}s = {self.video_duration}s total")
         else:
             # Video duration mode
-            valid_durations = [10, 15, 20, 25]
+            valid_durations = [5, 10, 15, 20, 25]
             if video_duration not in valid_durations:
                 raise ValueError(f"Video duration must be one of {valid_durations} seconds, got: {video_duration}")
             self.video_duration = video_duration
@@ -252,15 +252,16 @@ class VideoGenerator:
         if hasattr(self, 'number_of_clips') and self.number_of_clips:
             # Clip-based mode: frames = clips + 1
             return self.number_of_clips + 1
-        else:
-            # Duration-based mode (original logic)
-            duration_mapping = {
-                10: 3,  # 10s -> 3 frames -> 2 clips
-                15: 4,  # 15s -> 4 frames -> 3 clips
-                20: 5,  # 20s -> 5 frames -> 4 clips
-                25: 6   # 25s -> 6 frames -> 5 clips
-            }
-            return duration_mapping.get(self.video_duration, 3)
+        
+        # Duration-based mode (original logic)
+        duration_mapping = {
+            5: 2,   # 5s -> 2 frames -> 1 clip
+            10: 3,  # 10s -> 3 frames -> 2 clips
+            15: 4,  # 15s -> 4 frames -> 3 clips
+            20: 5,  # 20s -> 5 frames -> 4 clips
+            25: 6   # 25s -> 6 frames -> 5 clips
+        }
+        return duration_mapping.get(self.video_duration, 3)
     
     def _get_character_instructions(self):
         """Generate character instructions based on no_characters, human_characters_only, and web3 flags."""
@@ -420,13 +421,13 @@ AUDIO NARRATIVE PROGRESSION:
         for i in range(2, self.frame_count + 1):  # Start from frame 2 (frame 1 is initial image)
             if self.video_duration >= 20:
                 # For longer videos, emphasize narrative flexibility
-                frame_prompts.append(f'    "frame{i}_prompt": "Describe the actual scene, characters, actions, and visual elements following real-world physics laws. For {self.video_duration}-second videos, you can use COMPLETELY DIFFERENT scenes, locations, and characters to create a compelling brand narrative. IMPORTANT: Generate a square (1:1 aspect ratio) image composition suitable for video transitions"')
+                frame_prompts.append(f'    "frame{i}_prompt": "Describe the actual scene, characters, actions, and visual elements following real-world physics laws. For {self.video_duration}-second videos, you can use COMPLETELY DIFFERENT scenes, locations, and characters to create a compelling brand narrative. IMPORTANT: Generate a landscape (16:9 aspect ratio) image composition suitable for video transitions"')
                 # Add prime frame prompt for dynamic scene generation
-                frame_prompts.append(f'    "frame{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene, setting, and characters while maintaining the same brand message, narrative coherence, and real-world physics laws. IMPORTANT: Generate a square (1:1 aspect ratio) image composition suitable for video transitions"')
+                frame_prompts.append(f'    "frame{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene, setting, and characters while maintaining the same brand message, narrative coherence, and real-world physics laws. IMPORTANT: Generate a landscape (16:9 aspect ratio) image composition suitable for video transitions"')
             else:
-                frame_prompts.append(f'    "frame{i}_prompt": "Describe the actual scene, characters, actions, and visual elements following real-world physics laws. IMPORTANT: Generate a square (1:1 aspect ratio) image composition suitable for video transitions"')
+                frame_prompts.append(f'    "frame{i}_prompt": "Describe the actual scene, characters, actions, and visual elements following real-world physics laws. IMPORTANT: Generate a landscape (16:9 aspect ratio) image composition suitable for video transitions"')
                 # Add prime frame prompt for dynamic scene generation
-                frame_prompts.append(f'    "frame{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene, setting, and characters while maintaining the same brand message, narrative coherence, and real-world physics laws. IMPORTANT: Generate a square (1:1 aspect ratio) image composition suitable for video transitions"')
+                frame_prompts.append(f'    "frame{i}_prime_prompt": "Create a COMPLETELY DIFFERENT scene, setting, and characters while maintaining the same brand message, narrative coherence, and real-world physics laws. IMPORTANT: Generate a landscape (16:9 aspect ratio) image composition suitable for video transitions"')
             # Add logo decision for each frame (restored)
             frame_prompts.append(f'    "frame{i}_logo_needed": true/false')
             frame_prompts.append(f'    "frame{i}_prime_logo_needed": true/false')
@@ -1266,7 +1267,9 @@ JSON only, no other text:"""
                 arguments = {
                     "prompt": prompt,
                     "num_images": 1,
-                    "output_format": "jpeg"
+                    "output_format": "jpeg",
+                    "aspect_ratio": "1:1",
+                    "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos"
                 }
                 
                 # Add reference images if provided
@@ -1284,7 +1287,9 @@ JSON only, no other text:"""
                     "prompt": prompt,
                     "num_images": 1,
                     "max_images": 1,
-                    "enable_safety_checker": True
+                    "enable_safety_checker": True,
+                    "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos",
+                    "image_size": "square_hd"
                 }
                 
                 # Add reference images if provided
@@ -1311,7 +1316,7 @@ JSON only, no other text:"""
                 local_path = os.path.join(self.project_folder, "frames", f"frame_{frame_number}.jpg")
                 
                 if self.download_file(image_url, local_path):
-                    # Upload to S3 and get presigned URL
+                    # Upload image to S3 and get presigned URL
                     s3_url = self.upload_to_s3_and_get_presigned_url(local_path, "image", "img")
                     if s3_url:
                         # Clean up local file
@@ -1330,10 +1335,57 @@ JSON only, no other text:"""
             print(f"Error generating image: {str(e)}")
             return None
 
-    def generate_clip(self, prompt, first_image_url, last_image_url, clip_number=1):
+    def generate_clip(self, prompt, first_image_url, last_image_url, clip_number=1, duration=None):
         """Generate video clip using fal.ai pixverse transition model."""
         try:
-            print(f"Generating Clip {clip_number}...")
+            # Use the instance clip_duration if duration not provided
+            actual_duration = duration if duration is not None else self.clip_duration
+            print(f"Generating Clip {clip_number} with duration {actual_duration} seconds...")
+            
+            # 🔍 DEBUG: Log Pixverse input parameters and check input image dimensions
+            print(f"📋 PIXVERSE INPUT PARAMETERS DEBUG:")
+            print(f"   🎯 Model: fal-ai/pixverse/v5/transition")
+            print(f"   📐 Aspect Ratio: 16:9")
+            print(f"   📺 Resolution: 720p")
+            print(f"   ⏱️  Duration: {actual_duration}s")
+            print(f"   🖼️  First Image: {first_image_url[:80]}...")
+            print(f"   🖼️  Last Image: {last_image_url[:80]}...")
+            print(f"   📝 Prompt: {prompt[:100]}...")
+            
+            # 🔍 DEBUG: Check input image dimensions if possible
+            try:
+                import requests
+                from PIL import Image
+                import io
+                
+                # Check first image dimensions
+                try:
+                    response = requests.get(first_image_url, timeout=10)
+                    if response.status_code == 200:
+                        img = Image.open(io.BytesIO(response.content))
+                        width, height = img.size
+                        aspect_ratio = width / height if height > 0 else 0
+                        print(f"   📏 First Image Dimensions: {width}x{height} (aspect: {aspect_ratio:.3f})")
+                        if abs(aspect_ratio - 1.0) > 0.1:
+                            print(f"   ⚠️  WARNING: First image is NOT 1:1 aspect ratio (will be cropped to 16:9 by Pixverse)!")
+                except Exception as e:
+                    print(f"   ❌ Could not check first image dimensions: {e}")
+                
+                # Check last image dimensions
+                try:
+                    response = requests.get(last_image_url, timeout=10)
+                    if response.status_code == 200:
+                        img = Image.open(io.BytesIO(response.content))
+                        width, height = img.size
+                        aspect_ratio = width / height if height > 0 else 0
+                        print(f"   📏 Last Image Dimensions: {width}x{height} (aspect: {aspect_ratio:.3f})")
+                        if abs(aspect_ratio - 1.0) > 0.1:
+                            print(f"   ⚠️  WARNING: Last image is NOT 1:1 aspect ratio (will be cropped to 16:9 by Pixverse)!")
+                except Exception as e:
+                    print(f"   ❌ Could not check last image dimensions: {e}")
+                    
+            except Exception as e:
+                print(f"   ❌ Could not analyze input images: {e}")
             
             def on_queue_update(update):
                 if isinstance(update, fal_client.InProgress):
@@ -1346,8 +1398,8 @@ JSON only, no other text:"""
                     "prompt": prompt,
                     "aspect_ratio": "16:9",
                     "resolution": "720p",
-                    "duration": "5",
-                    "negative_prompt": "blurry, low quality, low resolution, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra floating elements, extra text, extra characters",
+                    "duration": str(actual_duration),
+                    "negative_prompt": "blurry, low quality, low resolution, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra floating elements, extra text, extra characters, double logos",
                     "first_image_url": first_image_url,
                     "last_image_url": last_image_url
                 },
@@ -1360,6 +1412,33 @@ JSON only, no other text:"""
                 local_path = os.path.join(self.project_folder, "clips", f"clip_{clip_number}.mp4")
                 
                 if self.download_file(video_url, local_path):
+                    # 🔍 DEBUG: Check actual clip dimensions using MoviePy
+                    try:
+                        from moviepy.editor import VideoFileClip
+                        temp_clip = VideoFileClip(local_path)
+                        width, height = temp_clip.size
+                        duration = temp_clip.duration
+                        fps = temp_clip.fps
+                        aspect_ratio_actual = width / height if height > 0 else 0
+                        
+                        print(f"📐 PIXVERSE CLIP {clip_number} DIMENSIONS DEBUG:")
+                        print(f"   🎯 Requested: aspect_ratio='16:9', resolution='720p', duration='{actual_duration}s'")
+                        print(f"   📏 Actual: {width}x{height} (aspect ratio: {aspect_ratio_actual:.3f})")
+                        print(f"   ⏱️  Duration: {duration:.2f}s (requested: {actual_duration}s)")
+                        print(f"   🎬 FPS: {fps}")
+                        expected_ratio = 16.0 / 9.0  # 1.778
+                        print(f"   ✅ Expected 16:9 ratio: {abs(aspect_ratio_actual - expected_ratio) < 0.1}")
+                        
+                        # Check if aspect ratio is significantly off
+                        if abs(aspect_ratio_actual - expected_ratio) > 0.1:
+                            print(f"   ⚠️  WARNING: Clip {clip_number} aspect ratio {aspect_ratio_actual:.3f} is NOT 16:9 ({expected_ratio:.3f})!")
+                            print(f"   🔧 This will cause flickering during clip combination!")
+                        
+                        temp_clip.close()
+                        
+                    except Exception as debug_e:
+                        print(f"   ❌ Failed to analyze clip dimensions: {debug_e}")
+                    
                     # Upload to S3 and get presigned URL
                     s3_url = self.upload_to_s3_and_get_presigned_url(local_path, "video", "clip")
                     if s3_url:
@@ -1405,7 +1484,17 @@ JSON only, no other text:"""
                 
                 if self.download_file(video_url, local_path):
                     print(f"✅ Final video with audio downloaded: {local_path}")
-                    return local_path
+                    
+                    # Upload to S3 and get presigned URL
+                    s3_url = self.upload_to_s3_and_get_presigned_url(local_path, "video", "with_audio")
+                    if s3_url:
+                        # Clean up local file
+                        self.cleanup_local_file(local_path)
+                        print(f"✅ Final video with audio uploaded to S3")
+                        return s3_url
+                    else:
+                        print("❌ Failed to upload final video with audio to S3")
+                        return None
                 else:
                     print("❌ Failed to download final video with audio")
                     return None
@@ -1416,6 +1505,252 @@ JSON only, no other text:"""
         except Exception as e:
             print(f"Error generating audio: {str(e)}")
             return None
+    
+    def generate_voiceover(self, text, voiceover_number):
+        """Generate voiceover using ElevenLabs TTS."""
+        try:
+            print(f"🎤 Generating voiceover {voiceover_number}...")
+            
+            def on_queue_update(update):
+                if isinstance(update, fal_client.InProgress):
+                    for log in update.logs:
+                        print(log["message"])
+            
+            result = fal_client.subscribe(
+                "fal-ai/elevenlabs/tts/eleven-v3",
+                arguments={
+                    "text": text,
+                    "voice": "Charlie",
+                    "stability": 0.5,
+                    "similarity_boost": 0.75,
+                    "speed": 1,
+                    "style": 0.4
+                },
+                with_logs=True,
+                on_queue_update=on_queue_update,
+            )
+            
+            if result and 'audio' in result:
+                audio_url = result['audio']['url']
+                # Create voiceover directory if it doesn't exist
+                voiceover_dir = os.path.join(self.project_folder, "voiceover")
+                os.makedirs(voiceover_dir, exist_ok=True)
+                local_path = os.path.join(voiceover_dir, f"voiceover_{voiceover_number}.mp3")
+                
+                if self.download_file(audio_url, local_path):
+                    print(f"✅ Voiceover {voiceover_number} downloaded: {local_path}")
+                    return local_path
+                else:
+                    print(f"❌ Failed to download voiceover {voiceover_number}")
+                    return None
+            else:
+                print(f"❌ No audio found in voiceover result: {result}")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error generating voiceover: {str(e)}")
+            return None
+    
+    def get_voiceover_duration(self, voiceover_path):
+        """Get the duration of a voiceover audio file."""
+        try:
+            from moviepy.editor import AudioFileClip
+            audio_clip = AudioFileClip(voiceover_path)
+            duration = audio_clip.duration
+            audio_clip.close()
+            return duration
+        except Exception as e:
+            print(f"❌ Error getting voiceover duration: {str(e)}")
+            return 0
+    
+    
+    def combine_voiceovers(self, voiceover_paths):
+        """Combine multiple voiceover files into a single continuous audio file."""
+        try:
+            print("🎤 Combining multiple voiceovers into single audio file...")
+            
+            if not voiceover_paths:
+                print("⚠️ No voiceover paths provided for combination")
+                return None
+            
+            # Import MoviePy audio components
+            from moviepy.editor import AudioFileClip, concatenate_audioclips
+            
+            # Load all voiceover clips
+            voiceover_clips = []
+            for i, path in enumerate(voiceover_paths):
+                if path and os.path.exists(path):
+                    clip = AudioFileClip(path)
+                    voiceover_clips.append(clip)
+                    print(f"🎤 Loaded voiceover {i+1}: {clip.duration:.2f}s")
+                else:
+                    print(f"⚠️ Voiceover file not found or None: {path}")
+            
+            if not voiceover_clips:
+                print("❌ No valid voiceover clips found")
+                return None
+            
+            # Concatenate all voiceover clips
+            combined_voiceover = concatenate_audioclips(voiceover_clips)
+            total_duration = combined_voiceover.duration
+            print(f"🎤 Combined voiceover duration: {total_duration:.2f}s")
+            
+            # Save combined voiceover
+            combined_path = os.path.join(self.project_folder, "voiceover", "combined_voiceover.mp3")
+            os.makedirs(os.path.dirname(combined_path), exist_ok=True)
+            combined_voiceover.write_audiofile(combined_path, codec='mp3')
+            
+            # Clean up individual clips
+            for clip in voiceover_clips:
+                clip.close()
+            combined_voiceover.close()
+            
+            print(f"✅ Combined voiceover saved: {combined_path}")
+            return combined_path
+            
+        except Exception as e:
+            print(f"❌ Error combining voiceovers: {str(e)}")
+            return None
+    
+    def add_voiceover_to_video(self, video_s3_url, voiceover_paths):
+        """Add combined voiceover to video and upload to S3."""
+        try:
+            print("🎤 Adding voiceover to video...")
+            
+            # Combine all voiceovers first
+            combined_voiceover_path = self.combine_voiceovers(voiceover_paths)
+            if not combined_voiceover_path:
+                print("❌ Failed to combine voiceovers")
+                return None
+            
+            # Download video from S3
+            video_path = os.path.join(self.project_folder, "temp_video_for_voiceover.mp4")
+            if not self.download_file(video_s3_url, video_path):
+                print("❌ Failed to download video for voiceover")
+                return None
+            
+            # Load video and voiceover
+            from moviepy.editor import VideoFileClip, AudioFileClip, CompositeAudioClip
+            video_clip = VideoFileClip(video_path)
+            voiceover_clip = AudioFileClip(combined_voiceover_path)
+            
+            # Adjust voiceover to match video duration if needed
+            if voiceover_clip.duration > video_clip.duration:
+                voiceover_clip = voiceover_clip.subclip(0, video_clip.duration)
+            elif voiceover_clip.duration < video_clip.duration:
+                # Pad with silence if voiceover is shorter
+                from moviepy.audio.fx.audio_loop import audio_loop
+                voiceover_clip = voiceover_clip.set_duration(video_clip.duration)
+            
+            # Mix existing video audio with voiceover
+            if video_clip.audio:
+                # Adjust volumes: existing audio lower, voiceover higher
+                existing_audio = video_clip.audio.volumex(0.3)  # 30% volume for existing audio
+                voiceover_audio = voiceover_clip.volumex(0.8)   # 80% volume for voiceover
+                combined_audio = CompositeAudioClip([existing_audio, voiceover_audio])
+            else:
+                # No existing audio, just use voiceover
+                combined_audio = voiceover_clip.volumex(0.8)
+            
+            # Set combined audio to video
+            final_video = video_clip.set_audio(combined_audio)
+            
+            # Save final video locally
+            output_path = os.path.join(self.project_folder, "video_with_voiceover.mp4")
+            final_video.write_videofile(output_path, codec='libx264', audio_codec='aac')
+            
+            # Clean up
+            video_clip.close()
+            voiceover_clip.close()
+            final_video.close()
+            
+            # Clean up temp files
+            self.cleanup_local_file(video_path)
+            self.cleanup_local_file(combined_voiceover_path)
+            
+            # Upload to S3 and get presigned URL
+            s3_url = self.upload_to_s3_and_get_presigned_url(output_path, "video", "with_voiceover")
+            if s3_url:
+                # Clean up local file
+                self.cleanup_local_file(output_path)
+                print(f"✅ Video with voiceover uploaded to S3: {s3_url}")
+                return s3_url
+            else:
+                print(f"❌ Failed to upload video with voiceover to S3")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error adding voiceover to video: {str(e)}")
+            return None
+    
+    def mix_audio_with_voiceover(self, video_url, sound_effects_url, voiceover_path, clip_number):
+        """Mix video with sound effects and voiceover, with voiceover at higher volume."""
+        try:
+            print(f"🎵 Mixing audio with voiceover for clip {clip_number}...")
+            
+            # Download video and sound effects files
+            video_path = os.path.join(self.project_folder, f"temp_video_{clip_number}.mp4")
+            sound_effects_path = os.path.join(self.project_folder, f"temp_sound_{clip_number}.mp3")
+            
+            if not self.download_file(video_url, video_path):
+                print(f"❌ Failed to download video for clip {clip_number}")
+                return None
+                
+            if not self.download_file(sound_effects_url, sound_effects_path):
+                print(f"❌ Failed to download sound effects for clip {clip_number}")
+                return None
+            
+            # Check if all files exist
+            if not os.path.exists(video_path) or not os.path.exists(sound_effects_path) or not os.path.exists(voiceover_path):
+                print(f"❌ Required files not found for clip {clip_number}")
+                return None
+            
+            # Load video and audio files
+            from moviepy.editor import VideoFileClip, AudioFileClip, CompositeAudioClip
+            video_clip = VideoFileClip(video_path)
+            sound_effects_clip = AudioFileClip(sound_effects_path)
+            voiceover_clip = AudioFileClip(voiceover_path)
+            
+            # Adjust volumes: voiceover louder than sound effects
+            sound_effects_clip = sound_effects_clip.volumex(0.5)  # 50% volume for background
+            voiceover_clip = voiceover_clip.volumex(0.8)  # 80% volume for voiceover
+            
+            # Mix audio tracks together (play simultaneously)
+            combined_audio = CompositeAudioClip([sound_effects_clip, voiceover_clip])
+            
+            # Set audio to video
+            final_clip = video_clip.set_audio(combined_audio)
+            
+            # Save final clip locally
+            os.makedirs(os.path.join(self.project_folder, "clips"), exist_ok=True)
+            output_path = os.path.join(self.project_folder, "clips", f"clip_{clip_number}_with_audio.mp4")
+            final_clip.write_videofile(output_path, codec='libx264', audio_codec='aac')
+            
+            # Clean up
+            video_clip.close()
+            sound_effects_clip.close()
+            voiceover_clip.close()
+            final_clip.close()
+            
+            # Clean up temp files
+            self.cleanup_local_file(video_path)
+            self.cleanup_local_file(sound_effects_path)
+            
+            # Upload to S3 and get presigned URL
+            s3_url = self.upload_to_s3_and_get_presigned_url(output_path, "video", f"clip_{clip_number}_with_audio")
+            if s3_url:
+                # Clean up local file
+                self.cleanup_local_file(output_path)
+                print(f"✅ Clip {clip_number} with audio and voiceover uploaded to S3")
+                return s3_url
+            else:
+                print(f"❌ Failed to upload clip {clip_number} with audio and voiceover to S3")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error mixing audio with voiceover for clip {clip_number}: {str(e)}")
+            return None
+
 
     def cleanup_project_directory(self):
         """Clean up the entire project directory after successful video generation."""
@@ -1429,7 +1764,6 @@ JSON only, no other text:"""
                 print(f"🗑️ Removed entire project directory: {self.project_folder}")
                 print("✅ Complete cleanup completed!")
                 print("📁 All temporary files and directories removed")
-                print("📝 Only the final video in Downloads folder remains")
             else:
                 print("📁 Project directory not found - already cleaned up")
             
@@ -1438,9 +1772,9 @@ JSON only, no other text:"""
             print("📁 Project directory left intact for manual cleanup")
 
     def combine_clips_simple(self, clip_urls):
-        """Simple video combination without audio. Downloads clips, combines, uploads to S3."""
+        """Combine video clips with smooth crossfade transitions."""
         try:
-            print("Combining video clips...")
+            print("🎬 Combining video clips with smooth crossfade transitions...")
             
             # Download clips locally first
             local_clip_paths = []
@@ -1456,14 +1790,114 @@ JSON only, no other text:"""
                 print("No valid clips found!")
                 return None
             
-            # Combine clips
-            clips = [VideoFileClip(clip_path) for clip_path in local_clip_paths if os.path.exists(clip_path)]
-            
-            if not clips:
-                print("No valid clips found!")
+            if len(local_clip_paths) == 1:
+                # Single clip case - no transitions needed, just upload the single clip
+                print("📹 Single clip detected - no transitions needed")
+                single_clip_path = local_clip_paths[0]
+                
+                # Upload single clip to S3 as the final video
+                s3_url = self.upload_to_s3_and_get_presigned_url(single_clip_path, "video", "prefinal")
+                if s3_url:
+                    # Clean up local file
+                    self.cleanup_local_file(single_clip_path)
+                    print(f"✅ Single clip uploaded to S3: {s3_url}")
+                    return s3_url
+                else:
+                    print(f"❌ Failed to upload single clip to S3")
                 return None
             
-            final_clip = concatenate_videoclips(clips)
+            if len(local_clip_paths) < 2:
+                print("❌ Need at least 2 clips for transitions")
+                return None
+            
+            # Load all video clips
+            clips = [VideoFileClip(path) for path in local_clip_paths]
+            
+            # 🔍 DEBUG: Log dimensions of all clips before combining
+            print(f"📐 CLIP COMBINATION DIMENSIONS DEBUG:")
+            print(f"   📊 Total clips to combine: {len(clips)}")
+            
+            for i, clip in enumerate(clips):
+                width, height = clip.size
+                duration = clip.duration
+                fps = clip.fps
+                aspect_ratio = width / height if height > 0 else 0
+                
+                print(f"   📹 Clip {i+1}: {width}x{height} (aspect: {aspect_ratio:.3f}, duration: {duration:.2f}s, fps: {fps})")
+                
+                # Check if this clip's aspect ratio is different from expected 16:9
+                expected_ratio = 16.0 / 9.0  # 1.778
+                if abs(aspect_ratio - expected_ratio) > 0.1:
+                    print(f"   ⚠️  WARNING: Clip {i+1} has non-16:9 aspect ratio ({aspect_ratio:.3f}, expected: {expected_ratio:.3f})!")
+            
+            # Check if all clips have the same dimensions
+            first_size = clips[0].size
+            all_same_size = all(clip.size == first_size for clip in clips)
+            print(f"   🔧 All clips same dimensions: {all_same_size}")
+            
+            if not all_same_size:
+                print(f"   ❌ DIMENSION MISMATCH DETECTED - This will cause flickering!")
+                for i, clip in enumerate(clips):
+                    print(f"      Clip {i+1}: {clip.size}")
+            
+            # Ensure transition duration doesn't exceed any clip length
+            min_duration = min(clip.duration for clip in clips)
+            transition_duration = min(1.0, min_duration / 2)  # Use 1.0s or half of shortest clip
+            
+            print(f"📊 Using transition duration: {transition_duration:.2f}s")
+            
+            # Build the final video parts using proven crossfade logic
+            final_parts = []
+            
+            # Process each clip with proper crossfade transitions
+            for i, clip in enumerate(clips):
+                clip_duration = clip.duration
+                
+                if i == 0:
+                    # First clip: keep everything except last transition_duration
+                    main_part = clip.subclip(0, clip_duration - transition_duration)
+                    final_parts.append(main_part)
+                    
+                    # Create transition with next clip
+                    clip_fade_out = clip.subclip(clip_duration - transition_duration, clip_duration)
+                    next_clip_fade_in = clips[i + 1].subclip(0, transition_duration)
+                    
+                    # Apply crossfade effects
+                    clip_fade_out = clip_fade_out.crossfadeout(transition_duration)
+                    next_clip_fade_in = next_clip_fade_in.crossfadein(transition_duration)
+                    
+                    # Composite the transition (overlap with audio mixing)
+                    clip_fade_out = clip_fade_out.set_start(0)
+                    next_clip_fade_in = next_clip_fade_in.set_start(0)
+                    transition = CompositeVideoClip([clip_fade_out, next_clip_fade_in])
+                    final_parts.append(transition)
+                    
+                elif i == len(clips) - 1:
+                    # Last clip: skip first transition_duration (already in previous transition)
+                    main_part = clip.subclip(transition_duration, clip_duration)
+                    final_parts.append(main_part)
+                    
+                else:
+                    # Middle clips: skip first transition_duration, keep everything except last transition_duration
+                    main_part = clip.subclip(transition_duration, clip_duration - transition_duration)
+                    final_parts.append(main_part)
+                    
+                    # Create transition with next clip
+                    clip_fade_out = clip.subclip(clip_duration - transition_duration, clip_duration)
+                    next_clip_fade_in = clips[i + 1].subclip(0, transition_duration)
+                    
+                    # Apply crossfade effects
+                    clip_fade_out = clip_fade_out.crossfadeout(transition_duration)
+                    next_clip_fade_in = next_clip_fade_in.crossfadein(transition_duration)
+                    
+                    # Composite the transition (overlap with audio mixing)
+                    clip_fade_out = clip_fade_out.set_start(0)
+                    next_clip_fade_in = next_clip_fade_in.set_start(0)
+                    transition = CompositeVideoClip([clip_fade_out, next_clip_fade_in])
+                    final_parts.append(transition)
+            
+            # Concatenate all parts
+            final_clip = concatenate_videoclips(final_parts)
             local_output_path = os.path.join(self.project_folder, "prefinal_video.mp4")
             
             final_clip.write_videofile(
@@ -1497,7 +1931,7 @@ JSON only, no other text:"""
             return None
 
     def add_audio_to_video(self, video_url, audio_path):
-        """Add audio to combined video. Downloads video, combines with audio, saves to Downloads."""
+        """Add audio to combined video. Downloads video, combines with audio, uploads to S3."""
         try:
             print("Adding audio to video...")
             
@@ -1529,11 +1963,9 @@ JSON only, no other text:"""
             # Combine video and audio
             final_video = video_clip.set_audio(final_audio)
             
-            # Save to Downloads folder
-            downloads_path = "/Users/taran/Downloads"
-            os.makedirs(downloads_path, exist_ok=True)
+            # Save to project folder temporarily
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            final_output_path = os.path.join(downloads_path, f"final_video_{timestamp}.mp4")
+            final_output_path = os.path.join(self.project_folder, f"final_video_{timestamp}.mp4")
             
             final_video.write_videofile(
                 final_output_path,
@@ -1636,10 +2068,7 @@ JSON only, no other text:"""
             
             print("Generated prompts:")
             for key, value in prompts.items():
-                if isinstance(value, str):
-                    print(f"  {key}: {value[:100]}...")
-                else:
-                    print(f"  {key}: {value}")  # For boolean, int, or other non-string values
+                print(f"  {key}: {str(value)[:100]}...")
             
             # Step 3: Generate subsequent frames dynamically with logo decision logic
             frame_urls = [frame1_s3_url]  # Start with initial frame
@@ -1680,7 +2109,7 @@ JSON only, no other text:"""
                         return None
                     
                     frame_urls.append(frame_s3_url)
-                    
+                
                 except Exception as e:
                     print(f"❌ ERROR in frame generation loop: {str(e)}")
                     print(f"❌ ERROR type: {type(e)}")
@@ -1689,84 +2118,270 @@ JSON only, no other text:"""
                     traceback.print_exc()
                     return None
             
-            # Step 5: Generate video clips dynamically with fresh presigned URLs
+            # Step 5: Generate voiceover first to determine clip durations (if enabled)
+            voiceover_durations = []
+            voiceover_paths = []
+            if self.voiceover:
+                print("🎤 Generating voiceovers first to determine clip durations...")
+                for i in range(1, self.clip_count + 1):
+                    print(f"🎤 Generating voiceover for clip {i}...")
+                    
+                    # Use random decisions for dual-stream voiceover selection
+                    if hasattr(self, 'clip_random_numbers') and self.clip_random_numbers:
+                        use_prime = self.clip_random_numbers[i-1] >= 0.5
+                    else:
+                        use_prime = False
+                    
+                    voiceover_prompt_key = f"voiceover{i}_prompt" if not use_prime else f"voiceover{i}_prime_prompt"
+                    voiceover_prompt = prompts.get(voiceover_prompt_key, "")
+                    
+                    if voiceover_prompt:
+                        print(f"🎤 Using {'prime' if use_prime else 'regular'} voiceover for clip {i}")
+                        
+                        # Calculate character count excluding emotional brackets but keeping [pause] brackets
+                        import re
+                        voiceover_content = re.sub(r'\[(?!pause\]).*?\]', '', voiceover_prompt)
+                        char_count = len(voiceover_content.strip())
+                        print(f"🎤 Voiceover {i} character count: {char_count}")
+                        
+                        voiceover_path = self.generate_voiceover(voiceover_prompt, i)
+                        if voiceover_path:
+                            voiceover_duration = self.get_voiceover_duration(voiceover_path)
+                            voiceover_durations.append(voiceover_duration)
+                            voiceover_paths.append(voiceover_path)
+                            print(f"✅ Voiceover {i} duration: {voiceover_duration:.2f}s")
+                        else:
+                            print(f"❌ Failed to generate voiceover {i}, using default duration")
+                            voiceover_durations.append(self.clip_duration)
+                            voiceover_paths.append(None)
+                    else:
+                        print(f"⚠️ No voiceover prompt found for clip {i}")
+                        voiceover_durations.append(self.clip_duration)
+                        voiceover_paths.append(None)
+            else:
+                # No voiceover - use default clip durations
+                voiceover_durations = [self.clip_duration] * self.clip_count
+                voiceover_paths = [None] * self.clip_count
+            
+            # Step 6: Generate video clips with voiceover-adjusted durations and audio
             clip_urls = []
-            for i in range(1, self.clip_count + 1):
-                print(f"🎬 Generating clip {i}...")
-                clip_prompt_key = f"clip{i}_prompt"
+            
+            if self.clip_audio_prompts:
+                # Mode 1: Individual audio for each clip
+                print("🎵 Using individual audio prompts for each clip...")
+                for i in range(1, self.clip_count + 1):
+                    print(f"🎬 Generating clip {i}...")
+                    
+                    # Get voiceover info and duration
+                    if self.voiceover and voiceover_durations:
+                        voiceover_path, clip_duration = voiceover_paths[i-1], voiceover_durations[i-1]
+                        # Calculate clip duration: ceil(voiceover_duration + 1) capped to Pixverse limits
+                        calculated_duration = int(voiceover_durations[i-1] + 1) + (1 if voiceover_durations[i-1] % 1 > 0 else 0)
+                        if calculated_duration <= 5:
+                            clip_duration = 5
+                        else:
+                            clip_duration = 8  # Cap at 8 seconds for any duration > 5
+                        print(f"🎤 Clip {i} duration adjusted for voiceover: {clip_duration}s (voiceover: {voiceover_durations[i-1]:.2f}s)")
+                    else:
+                        voiceover_path = None
+                        clip_duration = min(self.clip_duration, 8)  # Ensure we don't exceed Pixverse limits
+                    
+                    # Use random decisions for dual-stream selection
+                    if hasattr(self, 'clip_random_numbers') and self.clip_random_numbers:
+                        use_prime = self.clip_random_numbers[i-1] >= 0.5
+                    else:
+                        use_prime = False
+                    
+                    clip_prompt_key = f"clip{i}_prompt" if not use_prime else f"clip{i}_prime_prompt"
+                    
+                    # Get the frame URLs for this clip
+                    first_frame_url = frame_urls[i - 1]
+                    last_frame_url = frame_urls[i]
                 
-                # Get the frame URLs for this clip
-                first_frame_url = frame_urls[i - 1]
-                last_frame_url = frame_urls[i]
+                    # Generate fresh presigned URLs for the frame images before clip generation
+                    print(f"🔄 Refreshing presigned URLs for clip {i} frame images...")
+                    fresh_first_frame_url = self.get_fresh_presigned_url_from_s3_url(first_frame_url)
+                    fresh_last_frame_url = self.get_fresh_presigned_url_from_s3_url(last_frame_url)
+                    
+                    if not fresh_first_frame_url or not fresh_last_frame_url:
+                        print(f"❌ Failed to refresh presigned URLs for clip {i} frames!")
+                        return None
+                    
+                    # Generate clip with dynamic duration
+                    clip_s3_url = self.generate_clip(prompts[clip_prompt_key], fresh_first_frame_url, fresh_last_frame_url, clip_number=i, duration=clip_duration)
+                    if not clip_s3_url:
+                        print(f"❌ Failed to generate clip {i}!")
+                        return None
                 
-                # Generate fresh presigned URLs for the frame images before clip generation
-                print(f"🔄 Refreshing presigned URLs for clip {i} frame images...")
-                fresh_first_frame_url = self.get_fresh_presigned_url_from_s3_url(first_frame_url)
-                fresh_last_frame_url = self.get_fresh_presigned_url_from_s3_url(last_frame_url)
+                    # Generate audio for this clip
+                    print(f"🎵 Generating audio for clip {i}...")
+                    audio_prompt_key = f"audio{i}_prompt" if not use_prime else f"audio{i}_prime_prompt"
+                    audio_prompt = prompts.get(audio_prompt_key, "")
+                    
+                    if audio_prompt:
+                        print(f"🎵 Using {'prime' if use_prime else 'regular'} audio for clip {i}")
+                        # Generate audio for this clip using pixverse sound-effects
+                        clip_with_audio_s3_url = self.generate_final_video_with_audio(audio_prompt, clip_s3_url)
+                        if not clip_with_audio_s3_url:
+                            print(f"❌ Failed to generate audio for clip {i}!")
+                            return None
+                        
+                        # Mix with voiceover if available
+                        if self.voiceover and voiceover_path:
+                            print(f"🎤 Mixing voiceover for clip {i}...")
+                            # Mix video with sound effects and voiceover
+                            mixed_clip_s3_url = self.mix_audio_with_voiceover(clip_s3_url, clip_with_audio_s3_url, voiceover_path, i)
+                            if not mixed_clip_s3_url:
+                                print(f"❌ Failed to mix audio with voiceover for clip {i}!")
+                                return None
+                            
+                            clip_urls.append(mixed_clip_s3_url)
+                            print(f"✅ Clip {i} with audio and voiceover uploaded to S3")
+                        else:
+                            print(f"🎵 No voiceover for clip {i}, using audio only")
+                            clip_urls.append(clip_with_audio_s3_url)
+                    else:
+                        print(f"⚠️ No audio prompt found for clip {i}, using video without audio")
+                        clip_urls.append(clip_s3_url)
+            
+            else:
+                # Mode 2: Single audio for entire video - generate clips without audio first
+                print("🎵 Using single audio prompt for entire video...")
+                video_only_clips = []
                 
-                if not fresh_first_frame_url or not fresh_last_frame_url:
-                    print(f"❌ Failed to refresh presigned URLs for clip {i} frames!")
+                for i in range(1, self.clip_count + 1):
+                    print(f"🎬 Generating clip {i} (video only)...")
+                    
+                    # Get voiceover info and duration
+                    if self.voiceover and voiceover_durations:
+                        voiceover_path = voiceover_paths[i-1]
+                        calculated_duration = int(voiceover_durations[i-1] + 1) + (1 if voiceover_durations[i-1] % 1 > 0 else 0)
+                        if calculated_duration <= 5:
+                            clip_duration = 5
+                        else:
+                            clip_duration = 8
+                        print(f"🎤 Clip {i} duration adjusted for voiceover: {clip_duration}s (voiceover: {voiceover_durations[i-1]:.2f}s)")
+                    else:
+                        voiceover_path = None
+                        clip_duration = min(self.clip_duration, 8)
+                    
+                    # Use random decisions for dual-stream selection
+                    if hasattr(self, 'clip_random_numbers') and self.clip_random_numbers:
+                        use_prime = self.clip_random_numbers[i-1] >= 0.5
+                    else:
+                        use_prime = False
+                    
+                    clip_prompt_key = f"clip{i}_prompt" if not use_prime else f"clip{i}_prime_prompt"
+                    
+                    # Get the frame URLs for this clip
+                    first_frame_url = frame_urls[i - 1]
+                    last_frame_url = frame_urls[i]
+                    
+                    # Generate fresh presigned URLs
+                    fresh_first_frame_url = self.get_fresh_presigned_url_from_s3_url(first_frame_url)
+                    fresh_last_frame_url = self.get_fresh_presigned_url_from_s3_url(last_frame_url)
+                    
+                    if not fresh_first_frame_url or not fresh_last_frame_url:
+                        print(f"❌ Failed to refresh presigned URLs for clip {i} frames!")
+                        return None
+                    
+                    # Generate clip with dynamic duration
+                    clip_s3_url = self.generate_clip(prompts[clip_prompt_key], fresh_first_frame_url, fresh_last_frame_url, clip_number=i, duration=clip_duration)
+                    if not clip_s3_url:
+                        print(f"❌ Failed to generate clip {i}!")
+                        return None
+                    
+                    video_only_clips.append({
+                        'clip_url': clip_s3_url,
+                        'voiceover_path': voiceover_path,
+                        'clip_number': i
+                    })
+                
+                # Combine video-only clips first
+                print("🔗 Combining video-only clips...")
+                video_only_urls = [clip['clip_url'] for clip in video_only_clips]
+                combined_video_s3_url = self.combine_clips_simple(video_only_urls)
+                if not combined_video_s3_url:
+                    print("❌ Failed to combine video clips!")
                     return None
-                
-                clip_s3_url = self.generate_clip(prompts[clip_prompt_key], fresh_first_frame_url, fresh_last_frame_url, clip_number=i)
-                if not clip_s3_url:
-                    print(f"❌ Failed to generate clip {i}!")
-                    return None
-                
-                clip_urls.append(clip_s3_url)
             
-            # Step 6: Combine video clips using S3 URLs
-            print("🔗 Combining video clips...")
-            combined_video_s3_url = self.combine_clips_simple(clip_urls)
-            if not combined_video_s3_url:
-                print("❌ Failed to combine video clips!")
-                return None
+                # Add single audio to combined video
+                single_audio_prompt = prompts.get("single_audio_prompt", prompts.get("audio_prompt", ""))
+                if single_audio_prompt:
+                    print("🎵 Adding single audio to combined video...")
+                    combined_video_with_audio_s3_url = self.generate_final_video_with_audio(single_audio_prompt, combined_video_s3_url)
+                    if combined_video_with_audio_s3_url:
+                        # Handle voiceover mixing if enabled
+                        if self.voiceover:
+                            print("🎤 Mixing voiceover with combined video...")
+                            all_voiceover_paths = [clip['voiceover_path'] for clip in video_only_clips if clip['voiceover_path']]
+                            if all_voiceover_paths:
+                                # Combine all voiceovers into one file
+                                combined_voiceover_path = self.combine_voiceovers(all_voiceover_paths)
+                                if combined_voiceover_path:
+                                    # Mix the combined video with audio and combined voiceover
+                                    mixed_final_s3_url = self.mix_audio_with_voiceover(combined_video_s3_url, combined_video_with_audio_s3_url, combined_voiceover_path, "final")
+                                    if mixed_final_s3_url:
+                                        clip_urls = [mixed_final_s3_url]
+                                        print("✅ Combined video with audio and voiceover created")
+                                    else:
+                                        print("⚠️ Failed to mix voiceover, using video with audio only")
+                                        clip_urls = [combined_video_with_audio_s3_url]
+                                else:
+                                    print("⚠️ Failed to combine voiceovers, using video with audio only")
+                                    clip_urls = [combined_video_with_audio_s3_url]
+                            else:
+                                print("🎵 No voiceovers to mix, using video with audio only")
+                                clip_urls = [combined_video_with_audio_s3_url]
+                        else:
+                            clip_urls = [combined_video_with_audio_s3_url]
+                    else:
+                        print("⚠️ Failed to add single audio, using combined video without audio")
+                        clip_urls = [combined_video_s3_url]
+                else:
+                    print("⚠️ No single audio prompt found, using combined video without audio")
+                    clip_urls = [combined_video_s3_url]
             
-            # Step 7: Generate final video with audio using S3 URL
-            print("🎵 Generating final video with audio...")
-            final_video_path = self.generate_final_video_with_audio(prompts["audio_prompt"], combined_video_s3_url)
-            
-            if final_video_path:
-                print(f"✅ Final video with audio created: {final_video_path}")
-
-                # Step 8: Upload final video to S3 and get presigned URL
-                print("📤 Uploading final video to S3 (final)...")
-                final_video_s3_url = self.upload_to_s3_and_get_presigned_url(final_video_path, "video", "final")
+            # Step 7: Final video combination (clips already have audio and voiceover if enabled)
+            if self.clip_audio_prompts:
+                # Mode 1: Clips already have audio and voiceover mixed - just combine them
+                print("🔗 Combining final video clips (already with audio and voiceover)...")
+                final_video_s3_url = self.combine_clips_simple(clip_urls)
                 if not final_video_s3_url:
-                    print("❌ Failed to upload final video to S3")
+                    print("❌ Failed to combine final video clips!")
+                    return None
+            else:
+                # Mode 2: Single audio mode - clip_urls already contains the final video with audio and voiceover
+                print("✅ Using single audio mode result...")
+                final_video_s3_url = clip_urls[0] if clip_urls else None
+                if not final_video_s3_url:
+                    print("❌ No final video URL available!")
                     return None
 
-                # Step 9: Extract video metadata for database storage
-                video_metadata = self.extract_video_metadata(prompts, frame_urls, clip_urls, combined_video_s3_url)
+            # Step 8: Extract video metadata for database storage
+            video_metadata = self.extract_video_metadata(prompts, frame_urls, clip_urls, final_video_s3_url)
 
-                # Save prompts for reference (before cleanup)
-                prompts_file = os.path.join(self.project_folder, "generated_prompts.json")
-                with open(prompts_file, 'w') as f:
-                    json.dump({
-                        "tweet_text": tweet_text,
-                        "initial_image_prompt": initial_image_prompt,
-                        "initial_image_path": initial_image_path,
-                        "logo_path": self.logo_path,
-                        "project_name": self.project_name,
-                        "llm_provider": self.llm_provider,
-                        "frame1_s3_url": frame1_s3_url,
-                        "logo_s3_url": logo_s3_url,
-                        "frame_urls": frame_urls,
-                        "clip_urls": clip_urls,
-                        "combined_video_s3_url": combined_video_s3_url,
-                        "video_metadata": video_metadata,
-                        **prompts
+            # Save prompts for reference (before cleanup)
+            prompts_file = os.path.join(self.project_folder, "generated_prompts.json")
+            with open(prompts_file, 'w') as f:
+                json.dump({
+                    "tweet_text": tweet_text,
+                    "initial_image_prompt": initial_image_prompt,
+                    "initial_image_path": initial_image_path,
+                    "logo_path": self.logo_path,
+                    "project_name": self.project_name,
+                    "llm_provider": self.llm_provider,
+                    "frame1_s3_url": frame1_s3_url,
+                    "logo_s3_url": logo_s3_url,
+                    "frame_urls": frame_urls,
+                    "clip_urls": clip_urls,
+                    "combined_video_s3_url": final_video_s3_url,
+                    "video_metadata": video_metadata,
+                    **prompts
                     }, f, indent=2)
 
-                # Clean up local final file first, then project directory
-                try:
-                    self.cleanup_local_file(final_video_path)
-                except Exception:
-                    pass
-                self.cleanup_project_directory()
-            else:
-                print("❌ Failed to generate final video with audio!")
-                return None
+            # Clean up project directory
+            self.cleanup_project_directory()
             
             print("="*60)
             print("🎉 VIRAL VIDEO GENERATION COMPLETED SUCCESSFULLY! 🎉")
@@ -1791,12 +2406,12 @@ JSON only, no other text:"""
                 pass
 
             return {
-                "video_path": final_video_path,
+                "video_path": final_video_s3_url,  # For crew flow, use S3 URL as the video path
                 "final_video_s3_url": final_video_s3_url,
                 "video_metadata": video_metadata,
                 "frame_urls": frame_urls,
                 "clip_urls": clip_urls,
-                "combined_video_s3_url": combined_video_s3_url
+                "combined_video_s3_url": final_video_s3_url  # Use final_video_s3_url consistently
             }
             
         except Exception as e:

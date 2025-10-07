@@ -923,17 +923,35 @@ export default function Mining() {
         qualityScore: reviewItem.content.quality_score || 0,
         generationMetadata: reviewItem.content.generation_metadata || {},
         askingPrice: 100, // Default asking price
-        // Video fields
+        // Video fields - preserve existing values, don't override with null
         isVideo: reviewItem.content.is_video || false,
         videoUrl: reviewItem.content.video_url || null,
         videoDuration: reviewItem.content.video_duration || null,
-        subsequentFramePrompts: reviewItem.content.subsequent_frame_prompts || null,
-        clipPrompts: reviewItem.content.clip_prompts || null,
-        audioPrompt: reviewItem.content.audio_prompt || null,
-        audioPrompts: reviewItem.content.audio_prompts || null,
+        // Only include video metadata fields if they exist and have content
+        ...(reviewItem.content.subsequent_frame_prompts && Object.keys(reviewItem.content.subsequent_frame_prompts).length > 0 && {
+          subsequentFramePrompts: reviewItem.content.subsequent_frame_prompts
+        }),
+        ...(reviewItem.content.clip_prompts && Object.keys(reviewItem.content.clip_prompts).length > 0 && {
+          clipPrompts: reviewItem.content.clip_prompts
+        }),
+        ...(reviewItem.content.audio_prompt && {
+          audioPrompt: reviewItem.content.audio_prompt
+        }),
+        ...(reviewItem.content.audio_prompts && Object.keys(reviewItem.content.audio_prompts).length > 0 && {
+          audioPrompts: reviewItem.content.audio_prompts
+        }),
         postType: reviewItem.content.post_type || 'thread'
       }
       
+      // Debug: Log the payload being sent to approve endpoint
+      console.log('🔍 Approval payload being sent:', {
+        ...payload,
+        contentText: payload.contentText?.substring(0, 100) + '...',
+        generationMetadata: payload.generationMetadata ? 'Present' : 'Missing',
+        subsequentFramePrompts: payload.subsequentFramePrompts ? 'Present' : 'Missing',
+        clipPrompts: payload.clipPrompts ? 'Present' : 'Missing',
+        audioPrompts: payload.audioPrompts ? 'Present' : 'Missing'
+      });
 
       // Use the original /approve endpoint that creates new records and handles watermarking
       const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/marketplace/approve`, {
