@@ -323,6 +323,22 @@ class DailyPointsCalculationScript {
   }
 
   /**
+   * Get user purchase count since a specific timestamp
+   */
+  async getUserPurchaseCountSince(walletAddress: string, sinceTimestamp: Date): Promise<number> {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM content_purchases
+      WHERE LOWER(buyer_wallet_address) = LOWER($1)
+        AND payment_status = 'completed'
+        AND created_at > $2
+    `;
+
+    const result = await this.dataSource.query(query, [walletAddress, sinceTimestamp]);
+    return parseInt(result[0]?.count || '0');
+  }
+
+  /**
    * Get all users referred by this user
    */
   async getUserReferrals(userId: number): Promise<UserReferral[]> {
@@ -353,6 +369,53 @@ class DailyPointsCalculationScript {
   }
 
   /**
+   * Get new referral points since a specific timestamp
+   */
+  async getNewReferralPointsSince(userId: number, sinceTimestamp: Date): Promise<{ newReferralPoints: number; activeReferrals: number }> {
+    // Get all referrals for this user
+    const referrals = await this.getUserReferrals(userId);
+    let newReferralPoints = 0;
+    let activeReferrals = 0;
+
+    for (const referral of referrals) {
+      // Check if this referral became qualified (2+ transactions) since the timestamp
+      const totalTransactions = await this.getReferralTransactionCount(referral.userId);
+      const transactionsSinceTimestamp = await this.getReferralTransactionCountSince(referral.userId, sinceTimestamp);
+      
+      const wasQualifiedBefore = (totalTransactions - transactionsSinceTimestamp) >= 2;
+      const isQualifiedNow = totalTransactions >= 2;
+      
+      if (isQualifiedNow) {
+        activeReferrals += 1;
+        
+        // If they weren't qualified before but are now, award points
+        if (!wasQualifiedBefore) {
+          newReferralPoints += 1000;
+        }
+      }
+    }
+
+    return { newReferralPoints, activeReferrals };
+  }
+
+  /**
+   * Get referral transaction count since a specific timestamp
+   */
+  async getReferralTransactionCountSince(referralUserId: number, sinceTimestamp: Date): Promise<number> {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM content_purchases cp
+      INNER JOIN users u ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
+      WHERE u.id = $1
+        AND cp.payment_status = 'completed'
+        AND cp.created_at > $2
+    `;
+
+    const result = await this.dataSource.query(query, [referralUserId, sinceTimestamp]);
+    return parseInt(result[0]?.count || '0');
+  }
+
+  /**
    * Calculate total referral transaction value (with price cap of 1999)
    */
   async calculateReferralTransactionValue(userId: number, userCreatedAt: Date): Promise<number> {
@@ -377,30 +440,36 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Calculate points for a user
+   * Calculate incremental points since last recorded entry
    */
-  async calculateUserPoints(user: User, twitterHandle?: string): Promise<{ totalPoints: number; mindsharePoints: number; activeReferrals: number; purchasePoints: number; milestonePoints: number; referralPoints: number }> {
-    // 1. Purchase points (100 per purchase)
-    const purchaseCount = await this.getUserPurchaseCount(user.walletAddress, user.createdAt);
-    const purchasePoints = purchaseCount * 100;
+  async calculateIncrementalPoints(user: User, twitterHandle?: string, lastRecordedEntry: UserDailyPoints | null): Promise<{ 
+    purchasePoints: number; 
+    milestonePoints: number; 
+    referralPoints: number; 
+    mindsharePoints: number;
+    activeReferrals: number;
+    totalIncrementalPoints: number;
+  }> {
+    const sinceTimestamp = lastRecordedEntry ? lastRecordedEntry.createdAt : user.createdAt;
+    
+    console.log(`  🔄 Calculating incremental points since: ${sinceTimestamp.toISOString()}`);
+    
+    // 1. Purchase points since last recorded entry
+    const newPurchaseCount = await this.getUserPurchaseCountSince(user.walletAddress, sinceTimestamp);
+    const purchasePoints = newPurchaseCount * 100;
 
-    // 2. Milestone points (10,000 per every 20 transactions)
-    const milestonePoints = Math.floor(purchaseCount / 20) * 10000;
+    // 2. Milestone points - calculate total milestones now vs. total milestones at last entry
+    const totalPurchaseCount = await this.getUserPurchaseCount(user.walletAddress, user.createdAt);
+    const currentMilestones = Math.floor(totalPurchaseCount / 20);
+    const previousMilestones = lastRecordedEntry ? Math.floor((totalPurchaseCount - newPurchaseCount) / 20) : 0;
+    const newMilestones = currentMilestones - previousMilestones;
+    const milestonePoints = newMilestones * 10000;
 
-    // 3. Referral points (1,000 per referral with 2+ transactions)
-    const referrals = await this.getUserReferrals(user.id);
-    let referralPoints = 0;
-    let activeReferrals = 0;
+    // 3. Referral points - check for new qualified referrals since last entry
+    const { newReferralPoints, activeReferrals } = await this.getNewReferralPointsSince(user.id, sinceTimestamp);
+    const referralPoints = newReferralPoints;
 
-    for (const referral of referrals) {
-      const transactionCount = await this.getReferralTransactionCount(referral.userId);
-      if (transactionCount >= 2) {
-        referralPoints += 1000;
-        activeReferrals += 1;
-      }
-    }
-
-    // 4. Mindshare points (from daily pool distribution)
+    // 4. Mindshare points (always current day's full allocation)
     let mindsharePoints = 0;
     if (twitterHandle) {
       const handleLower = twitterHandle.toLowerCase();
@@ -419,11 +488,23 @@ class DailyPointsCalculationScript {
       console.log(`  ⚠️ No Twitter handle found for user`);
     }
 
-    const totalPoints = purchasePoints + milestonePoints + referralPoints + mindsharePoints;
+    const totalIncrementalPoints = purchasePoints + milestonePoints + referralPoints + mindsharePoints;
 
-    console.log(`User ${user.walletAddress}: ${purchaseCount} purchases, ${purchasePoints + milestonePoints} purchase/milestone points, ${referralPoints} referral points (${activeReferrals} active), ${mindsharePoints} mindshare points, Total: ${totalPoints}`);
+    console.log(`  📊 Incremental Points Breakdown:`);
+    console.log(`    New Purchases: ${newPurchaseCount} = ${purchasePoints} points`);
+    console.log(`    New Milestones: ${newMilestones} = ${milestonePoints} points`);
+    console.log(`    New Referral Points: ${referralPoints} points (${activeReferrals} active referrals)`);
+    console.log(`    Today's Mindshare: ${mindsharePoints} points`);
+    console.log(`    Total Incremental: ${totalIncrementalPoints} points`);
 
-    return { totalPoints, mindsharePoints, activeReferrals, purchasePoints, milestonePoints, referralPoints };
+    return { 
+      purchasePoints, 
+      milestonePoints, 
+      referralPoints, 
+      mindsharePoints, 
+      activeReferrals,
+      totalIncrementalPoints 
+    };
   }
 
   /**
@@ -486,9 +567,9 @@ class DailyPointsCalculationScript {
   }
 
   /**
-   * Get user's previous daily points data
+   * Get user's last recorded entry from user_daily_points table
    */
-  async getPreviousDailyPointsData(walletAddress: string): Promise<{ totalPoints: number; mindshare: number }> {
+  async getLastRecordedEntry(walletAddress: string): Promise<UserDailyPoints | null> {
     const userDailyPointsRepo = this.dataSource.getRepository(UserDailyPoints);
     
     const latestEntry = await userDailyPointsRepo.findOne({
@@ -496,54 +577,14 @@ class DailyPointsCalculationScript {
       order: { createdAt: 'DESC' }
     });
 
-    const previousPoints = latestEntry ? parseFloat(latestEntry.totalPoints.toString()) : 0;
-    const previousMindshare = latestEntry ? parseFloat(latestEntry.mindshare.toString()) : 0;
+    console.log(`  📋 Last Recorded Entry: ${latestEntry ? `Found (${latestEntry.createdAt.toISOString()}) with ${latestEntry.totalPoints} total points` : 'None found (new user)'}`);
     
-    console.log(`  📋 Previous Record: ${latestEntry ? `Found (${latestEntry.createdAt.toISOString()}) with ${previousPoints} points (${previousMindshare} mindshare)` : 'None found (new user)'}`);
-    
-    return { totalPoints: previousPoints, mindshare: previousMindshare };
+    return latestEntry;
   }
 
-  /**
-   * Calculate daily points earned (handling fluctuating mindshare correctly)
-   */
-  calculateDailyPointsEarned(
-    currentTotalPoints: number, 
-    currentMindsharePoints: number,
-    previousTotalPoints: number, 
-    previousMindsharePoints: number
-  ): number {
-    // For new users (no previous record), all current points are "daily earned"
-    if (previousTotalPoints === 0) {
-      console.log(`  🧮 Daily Points Calculation (New User):`);
-      console.log(`    All points are new: ${currentTotalPoints}`);
-      return currentTotalPoints;
-    }
-    
-    // For existing users, calculate the change in each component
-    const currentNonMindsharePoints = currentTotalPoints - currentMindsharePoints;
-    const previousNonMindsharePoints = previousTotalPoints - previousMindsharePoints;
-    
-    // Calculate changes
-    const nonMindshareChange = currentNonMindsharePoints - previousNonMindsharePoints;
-    const mindshareChange = currentMindsharePoints - previousMindsharePoints;
-    
-    // Daily earned = (new non-mindshare activities, min 0) + (today's full mindshare points)
-    // This ensures daily earned is never less than today's mindshare points
-    const nonMindshareEarned = Math.max(0, nonMindshareChange);
-    const dailyEarned = nonMindshareEarned + currentMindsharePoints;
-    
-    console.log(`  🧮 Daily Points Calculation (Existing User):`);
-    console.log(`    Current Non-Mindshare: ${currentNonMindsharePoints} | Previous: ${previousNonMindsharePoints} | Change: ${nonMindshareChange}`);
-    console.log(`    Current Mindshare: ${currentMindsharePoints} | Previous: ${previousMindsharePoints} | Change: ${mindshareChange}`);
-    console.log(`    Non-Mindshare Earned: max(0, ${nonMindshareChange}) = ${nonMindshareEarned}`);
-    console.log(`    Daily Earned: ${nonMindshareEarned} + ${currentMindsharePoints} = ${dailyEarned}`);
-    
-    return dailyEarned;
-  }
 
   /**
-   * Process a single user
+   * Process a single user using incremental calculation approach
    */
   async processUser(user: User): Promise<UserCalculation> {
     console.log(`Processing user: ${user.walletAddress}`);
@@ -559,34 +600,26 @@ class DailyPointsCalculationScript {
     
     console.log(`  Twitter handle: ${twitterHandle || 'None'} (from DB: ${twitterConnection?.twitterUsername || 'None'})`);
     
-    // Calculate points (including mindshare points)
-    const pointsResult = await this.calculateUserPoints(user, twitterHandle);
-    const totalPoints = pointsResult.totalPoints;
-    const mindsharePoints = pointsResult.mindsharePoints;
-    const activeReferrals = pointsResult.activeReferrals;
-    const purchasePoints = pointsResult.purchasePoints;
-    const milestonePoints = pointsResult.milestonePoints;
-    const referralPoints = pointsResult.referralPoints;
+    // Get last recorded entry for this user
+    const lastRecordedEntry = await this.getLastRecordedEntry(user.walletAddress);
     
-    const previousData = await this.getPreviousDailyPointsData(user.walletAddress);
-    const previousTotalPoints = previousData.totalPoints;
-    const dailyPointsEarned = this.calculateDailyPointsEarned(
-      totalPoints, 
-      mindsharePoints, 
-      previousTotalPoints, 
-      previousData.mindshare
-    );
+    // Calculate incremental points since last recorded entry
+    const incrementalResult = await this.calculateIncrementalPoints(user, twitterHandle, lastRecordedEntry);
+    
+    // Calculate new totals
+    const previousTotalPoints = lastRecordedEntry ? parseFloat(lastRecordedEntry.totalPoints.toString()) : 0;
+    const dailyPointsEarned = incrementalResult.totalIncrementalPoints;
+    const newTotalPoints = previousTotalPoints + dailyPointsEarned;
     
     // Debug logging for points calculation flow
-    console.log(`  📊 Points Calculation Flow:`);
+    console.log(`  📊 Points Calculation Summary:`);
     console.log(`    Previous Total Points: ${previousTotalPoints}`);
-    console.log(`    New Total Points: ${totalPoints}`);
     console.log(`    Daily Points Earned: ${dailyPointsEarned}`);
-    console.log(`    Mindshare Points in Total: ${mindsharePoints}`);
+    console.log(`    New Total Points: ${newTotalPoints}`);
 
-    // Determine tier
+    // Determine tier based on new total points
     const currentTier = await this.getUserCurrentTier(user.walletAddress);
-    const newTier = await this.determineUserTier(user, totalPoints);
+    const newTier = await this.determineUserTier(user, newTotalPoints);
     const tierChanged = currentTier !== newTier;
 
     // Calculate referral transaction value
@@ -604,16 +637,16 @@ class DailyPointsCalculationScript {
       twitterHandle: twitterConnection?.twitterUsername,
       name: twitterConnection?.twitterDisplayName,
       totalReferrals: user.referralCount,
-      activeReferrals,
+      activeReferrals: incrementalResult.activeReferrals,
       totalReferralTransactionsValue,
       totalRoastEarned,
       mindshare,
-      mindsharePoints,
-      purchasePoints,
-      milestonePoints,
-      referralPoints,
+      mindsharePoints: incrementalResult.mindsharePoints,
+      purchasePoints: incrementalResult.purchasePoints,
+      milestonePoints: incrementalResult.milestonePoints,
+      referralPoints: incrementalResult.referralPoints,
       previousTotalPoints,
-      totalPoints,
+      totalPoints: newTotalPoints,
       dailyPointsEarned,
       dailyRewards: 0, // Will be calculated later for top 25 users
       currentTier,
@@ -623,8 +656,7 @@ class DailyPointsCalculationScript {
     
     console.log(`  💾 Final Calculation Result:`);
     console.log(`    Daily Points Earned: ${dailyPointsEarned}`);
-    console.log(`    Total Points: ${totalPoints}`);
-    console.log(`    Mindshare Points: ${mindsharePoints}`);
+    console.log(`    New Total Points: ${newTotalPoints}`);
     console.log(`    Will be saved to database: ${dailyPointsEarned > 0 ? 'YES' : 'NO (0 daily points)'}`);
     
     return calculation;
