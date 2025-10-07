@@ -524,15 +524,16 @@ class DailyPointsCalculationScript {
     const nonMindshareChange = currentNonMindsharePoints - previousNonMindsharePoints;
     const mindshareChange = currentMindsharePoints - previousMindsharePoints;
     
-    // Daily earned = change in non-mindshare + change in mindshare
-    // But ensure we don't go negative (user can't "lose" daily points)
-    const dailyEarned = Math.max(0, nonMindshareChange + mindshareChange);
+    // Daily earned = (new non-mindshare activities, min 0) + (today's full mindshare points)
+    // This ensures daily earned is never less than today's mindshare points
+    const nonMindshareEarned = Math.max(0, nonMindshareChange);
+    const dailyEarned = nonMindshareEarned + currentMindsharePoints;
     
     console.log(`  🧮 Daily Points Calculation (Existing User):`);
     console.log(`    Current Non-Mindshare: ${currentNonMindsharePoints} | Previous: ${previousNonMindsharePoints} | Change: ${nonMindshareChange}`);
     console.log(`    Current Mindshare: ${currentMindsharePoints} | Previous: ${previousMindsharePoints} | Change: ${mindshareChange}`);
-    console.log(`    Total Change: ${nonMindshareChange} + ${mindshareChange} = ${nonMindshareChange + mindshareChange}`);
-    console.log(`    Daily Earned (max 0): ${dailyEarned}`);
+    console.log(`    Non-Mindshare Earned: max(0, ${nonMindshareChange}) = ${nonMindshareEarned}`);
+    console.log(`    Daily Earned: ${nonMindshareEarned} + ${currentMindsharePoints} = ${dailyEarned}`);
     
     return dailyEarned;
   }
