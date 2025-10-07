@@ -64,6 +64,10 @@ interface UserCalculation {
   totalRoastEarned: number;
   mindshare: number;
   mindsharePoints: number;
+  purchasePoints: number;
+  milestonePoints: number;
+  referralPoints: number;
+  previousTotalPoints: number;
   totalPoints: number;
   dailyPointsEarned: number;
   dailyRewards: number;
@@ -375,7 +379,7 @@ class DailyPointsCalculationScript {
   /**
    * Calculate points for a user
    */
-  async calculateUserPoints(user: User, twitterHandle?: string): Promise<{ totalPoints: number; mindsharePoints: number; activeReferrals: number }> {
+  async calculateUserPoints(user: User, twitterHandle?: string): Promise<{ totalPoints: number; mindsharePoints: number; activeReferrals: number; purchasePoints: number; milestonePoints: number; referralPoints: number }> {
     // 1. Purchase points (100 per purchase)
     const purchaseCount = await this.getUserPurchaseCount(user.walletAddress, user.createdAt);
     const purchasePoints = purchaseCount * 100;
@@ -419,7 +423,7 @@ class DailyPointsCalculationScript {
 
     console.log(`User ${user.walletAddress}: ${purchaseCount} purchases, ${purchasePoints + milestonePoints} purchase/milestone points, ${referralPoints} referral points (${activeReferrals} active), ${mindsharePoints} mindshare points, Total: ${totalPoints}`);
 
-    return { totalPoints, mindsharePoints, activeReferrals };
+    return { totalPoints, mindsharePoints, activeReferrals, purchasePoints, milestonePoints, referralPoints };
   }
 
   /**
@@ -560,18 +564,22 @@ class DailyPointsCalculationScript {
     const totalPoints = pointsResult.totalPoints;
     const mindsharePoints = pointsResult.mindsharePoints;
     const activeReferrals = pointsResult.activeReferrals;
+    const purchasePoints = pointsResult.purchasePoints;
+    const milestonePoints = pointsResult.milestonePoints;
+    const referralPoints = pointsResult.referralPoints;
     
     const previousData = await this.getPreviousDailyPointsData(user.walletAddress);
+    const previousTotalPoints = previousData.totalPoints;
     const dailyPointsEarned = this.calculateDailyPointsEarned(
       totalPoints, 
       mindsharePoints, 
-      previousData.totalPoints, 
+      previousTotalPoints, 
       previousData.mindshare
     );
     
     // Debug logging for points calculation flow
     console.log(`  📊 Points Calculation Flow:`);
-    console.log(`    Previous Total Points: ${previousData.totalPoints}`);
+    console.log(`    Previous Total Points: ${previousTotalPoints}`);
     console.log(`    New Total Points: ${totalPoints}`);
     console.log(`    Daily Points Earned: ${dailyPointsEarned}`);
     console.log(`    Mindshare Points in Total: ${mindsharePoints}`);
@@ -601,6 +609,10 @@ class DailyPointsCalculationScript {
       totalRoastEarned,
       mindshare,
       mindsharePoints,
+      purchasePoints,
+      milestonePoints,
+      referralPoints,
+      previousTotalPoints,
       totalPoints,
       dailyPointsEarned,
       dailyRewards: 0, // Will be calculated later for top 25 users
@@ -709,16 +721,31 @@ class DailyPointsCalculationScript {
       return;
     }
 
-    console.log('\n' + '='.repeat(120));
+    console.log('\n' + '='.repeat(160));
     console.log('📊 [DRY RUN] FINAL SUMMARY - ALL PROCESSED USERS');
-    console.log('='.repeat(120));
+    console.log('='.repeat(160));
+    console.log('Rank | Wallet Address                             | Daily Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | Rewards | Referrals | ROAST    | Tier');
+    console.log('='.repeat(160));
     
     // Sort by daily points earned (descending) for better visibility
     const sortedCalculations = [...this.allCalculations].sort((a, b) => b.dailyPointsEarned - a.dailyPointsEarned);
     
     sortedCalculations.forEach((calc, index) => {
-      const tierInfo = calc.tierChanged ? ` → ${calc.newTier} (UPGRADED!)` : ` (${calc.currentTier})`;
-      console.log(`${(index + 1).toString().padStart(3, ' ')}. ${calc.walletAddress} | Daily: ${calc.dailyPointsEarned.toString().padStart(6, ' ')} pts | Total: ${calc.totalPoints.toString().padStart(8, ' ')} pts | Rewards: ${calc.dailyRewards.toString().padStart(6, ' ')} | Referrals: ${calc.totalReferrals.toString().padStart(2, ' ')}(${calc.activeReferrals.toString().padStart(2, ' ')}) | ROAST: ${calc.totalRoastEarned.toString().padStart(8, ' ')} | Mindshare: ${calc.mindsharePoints.toString().padStart(6, ' ')} | Tier${tierInfo}`);
+      const tierInfo = calc.tierChanged ? `→ ${calc.newTier} (UP!)` : `(${calc.currentTier})`;
+      const rank = (index + 1).toString().padStart(4, ' ');
+      const wallet = calc.walletAddress.padEnd(42, ' ');
+      const dailyPts = Math.round(calc.dailyPointsEarned).toString().padStart(9, ' ');
+      const prevTotal = calc.previousTotalPoints.toString().padStart(10, ' ');
+      const newTotal = calc.totalPoints.toString().padStart(9, ' ');
+      const purchase = calc.purchasePoints.toString().padStart(8, ' ');
+      const milestone = calc.milestonePoints.toString().padStart(9, ' ');
+      const referral = calc.referralPoints.toString().padStart(8, ' ');
+      const mindshare = calc.mindsharePoints.toString().padStart(9, ' ');
+      const rewards = calc.dailyRewards.toString().padStart(7, ' ');
+      const referrals = `${calc.totalReferrals}(${calc.activeReferrals})`.padStart(9, ' ');
+      const roast = Math.round(calc.totalRoastEarned).toString().padStart(8, ' ');
+      
+      console.log(`${rank} | ${wallet} | ${dailyPts} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${rewards} | ${referrals} | ${roast} | ${tierInfo}`);
     });
     
     // Summary statistics
@@ -726,10 +753,16 @@ class DailyPointsCalculationScript {
     const totalRewards = sortedCalculations.reduce((sum, calc) => sum + calc.dailyRewards, 0);
     const usersWithPoints = sortedCalculations.filter(calc => calc.dailyPointsEarned > 0).length;
     const tierUpgrades = sortedCalculations.filter(calc => calc.tierChanged).length;
+    const totalPurchasePoints = sortedCalculations.reduce((sum, calc) => sum + calc.purchasePoints, 0);
+    const totalMilestonePoints = sortedCalculations.reduce((sum, calc) => sum + calc.milestonePoints, 0);
+    const totalReferralPoints = sortedCalculations.reduce((sum, calc) => sum + calc.referralPoints, 0);
+    const totalMindsharePoints = sortedCalculations.reduce((sum, calc) => sum + calc.mindsharePoints, 0);
     
-    console.log('='.repeat(120));
-    console.log(`📈 SUMMARY STATS: ${sortedCalculations.length} users processed | ${usersWithPoints} earned points | ${tierUpgrades} tier upgrades | ${totalDailyPoints} total daily points | ${totalRewards} total rewards`);
-    console.log('='.repeat(120));
+    console.log('='.repeat(160));
+    console.log(`📈 SUMMARY STATS: ${sortedCalculations.length} users processed | ${usersWithPoints} earned points | ${tierUpgrades} tier upgrades`);
+    console.log(`💰 POINTS BREAKDOWN: ${Math.round(totalDailyPoints)} total daily | ${totalPurchasePoints} purchase | ${totalMilestonePoints} milestone | ${totalReferralPoints} referral | ${totalMindsharePoints} mindshare`);
+    console.log(`🎁 REWARDS: ${totalRewards} total rewards distributed`);
+    console.log('='.repeat(160));
   }
 
   /**
