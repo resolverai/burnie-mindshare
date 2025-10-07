@@ -442,7 +442,7 @@ class DailyPointsCalculationScript {
   /**
    * Calculate incremental points since last recorded entry
    */
-  async calculateIncrementalPoints(user: User, twitterHandle?: string, lastRecordedEntry: UserDailyPoints | null): Promise<{ 
+  async calculateIncrementalPoints(user: User, lastRecordedEntry: UserDailyPoints | null, twitterHandle?: string): Promise<{ 
     purchasePoints: number; 
     milestonePoints: number; 
     referralPoints: number; 
@@ -604,7 +604,7 @@ class DailyPointsCalculationScript {
     const lastRecordedEntry = await this.getLastRecordedEntry(user.walletAddress);
     
     // Calculate incremental points since last recorded entry
-    const incrementalResult = await this.calculateIncrementalPoints(user, twitterHandle, lastRecordedEntry);
+    const incrementalResult = await this.calculateIncrementalPoints(user, lastRecordedEntry, twitterHandle);
     
     // Calculate new totals
     const previousTotalPoints = lastRecordedEntry ? parseFloat(lastRecordedEntry.totalPoints.toString()) : 0;
