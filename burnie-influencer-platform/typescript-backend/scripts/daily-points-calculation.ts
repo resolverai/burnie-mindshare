@@ -769,11 +769,11 @@ class DailyPointsCalculationScript {
       return;
     }
 
-    console.log('\n' + '='.repeat(160));
+    console.log('\n' + '='.repeat(180));
     console.log('📊 [DRY RUN] FINAL SUMMARY - ALL PROCESSED USERS');
-    console.log('='.repeat(160));
-    console.log('Rank | Wallet Address                             | Daily Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | Rewards | Referrals | ROAST    | Tier');
-    console.log('='.repeat(160));
+    console.log('='.repeat(180));
+    console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | Rewards | Referrals | ROAST    | Tier');
+    console.log('='.repeat(180));
     
     // Sort by daily points earned (descending) for better visibility
     const sortedCalculations = [...this.allCalculations].sort((a, b) => b.dailyPointsEarned - a.dailyPointsEarned);
@@ -782,6 +782,7 @@ class DailyPointsCalculationScript {
       const tierInfo = calc.tierChanged ? `→ ${calc.newTier} (UP!)` : `(${calc.currentTier})`;
       const rank = (index + 1).toString().padStart(4, ' ');
       const wallet = calc.walletAddress.padEnd(42, ' ');
+      const twitterHandle = (calc.twitterHandle || 'N/A').padEnd(20, ' ');
       const dailyPts = Math.round(calc.dailyPointsEarned).toString().padStart(9, ' ');
       const prevTotal = calc.previousTotalPoints.toString().padStart(10, ' ');
       const newTotal = calc.totalPoints.toString().padStart(9, ' ');
@@ -793,7 +794,7 @@ class DailyPointsCalculationScript {
       const referrals = `${calc.totalReferrals}(${calc.activeReferrals})`.padStart(9, ' ');
       const roast = Math.round(calc.totalRoastEarned).toString().padStart(8, ' ');
       
-      console.log(`${rank} | ${wallet} | ${dailyPts} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${rewards} | ${referrals} | ${roast} | ${tierInfo}`);
+      console.log(`${rank} | ${wallet} | ${twitterHandle} | ${dailyPts} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${rewards} | ${referrals} | ${roast} | ${tierInfo}`);
     });
     
     // Summary statistics
@@ -806,11 +807,11 @@ class DailyPointsCalculationScript {
     const totalReferralPoints = sortedCalculations.reduce((sum, calc) => sum + calc.referralPoints, 0);
     const totalMindsharePoints = sortedCalculations.reduce((sum, calc) => sum + calc.mindsharePoints, 0);
     
-    console.log('='.repeat(160));
+    console.log('='.repeat(180));
     console.log(`📈 SUMMARY STATS: ${sortedCalculations.length} users processed | ${usersWithPoints} earned points | ${tierUpgrades} tier upgrades`);
     console.log(`💰 POINTS BREAKDOWN: ${Math.round(totalDailyPoints)} total daily | ${totalPurchasePoints} purchase | ${totalMilestonePoints} milestone | ${totalReferralPoints} referral | ${totalMindsharePoints} mindshare`);
     console.log(`🎁 REWARDS: ${totalRewards} total rewards distributed`);
-    console.log('='.repeat(160));
+    console.log('='.repeat(180));
   }
 
   /**
