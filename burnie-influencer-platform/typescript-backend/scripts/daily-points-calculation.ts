@@ -835,7 +835,7 @@ class DailyPointsCalculationScript {
   /**
    * Process users in batches
    */
-  async processUsersInBatches(users: User[], batchSize: number = 100): Promise<void> {
+  async processUsersInBatches(users: User[], batchSize: number = 100, dryRun: boolean = false): Promise<void> {
     console.log(`Processing ${users.length} users in batches of ${batchSize}`);
 
     for (let i = 0; i < users.length; i += batchSize) {
@@ -921,7 +921,7 @@ class DailyPointsCalculationScript {
         }
 
         // Process users in batches
-        await this.processUsersInBatches(users, 100);
+        await this.processUsersInBatches(users, 100, dryRun);
 
         // Calculate daily ranks and rewards (if not dry run)
         if (!dryRun) {
