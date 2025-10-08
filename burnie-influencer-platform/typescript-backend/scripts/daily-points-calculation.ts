@@ -87,7 +87,7 @@ const TIER_REQUIREMENTS = {
 };
 
 // Daily mindshare points pool
-const DAILY_MINDSHARE_POINTS_POOL = 100000;
+const DAILY_MINDSHARE_POINTS_POOL = 25000;
 const TOP_MINDSHARE_USERS_COUNT = 100;
 
 // Daily rewards pool
@@ -324,6 +324,25 @@ class DailyPointsCalculationScript {
   }
 
   /**
+   * Calculate direct referral purchase count (excluding zero-price purchases)
+   */
+  async getDirectReferralPurchaseCount(userId: number, userCreatedAt: Date): Promise<number> {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM content_purchases cp
+      INNER JOIN users u ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
+      INNER JOIN user_referrals ur ON ur."userId" = u.id
+      WHERE ur."directReferrerId" = $1
+        AND cp.payment_status = 'completed'
+        AND cp.created_at >= $2
+        AND cp.purchase_price > 0
+    `;
+
+    const result = await this.dataSource.query(query, [userId, userCreatedAt]);
+    return parseInt(result[0]?.count || '0');
+  }
+
+  /**
    * Get user purchase count since a specific timestamp (excluding zero-price purchases)
    */
   async getUserPurchaseCountSince(walletAddress: string, sinceTimestamp: Date): Promise<number> {
@@ -337,6 +356,25 @@ class DailyPointsCalculationScript {
     `;
 
     const result = await this.dataSource.query(query, [walletAddress, sinceTimestamp]);
+    return parseInt(result[0]?.count || '0');
+  }
+
+  /**
+   * Get direct referral purchase count since a specific timestamp (excluding zero-price purchases)
+   */
+  async getDirectReferralPurchaseCountSince(userId: number, sinceTimestamp: Date): Promise<number> {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM content_purchases cp
+      INNER JOIN users u ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
+      INNER JOIN user_referrals ur ON ur."userId" = u.id
+      WHERE ur."directReferrerId" = $1
+        AND cp.payment_status = 'completed'
+        AND cp.created_at > $2
+        AND cp.purchase_price > 0
+    `;
+
+    const result = await this.dataSource.query(query, [userId, sinceTimestamp]);
     return parseInt(result[0]?.count || '0');
   }
 
@@ -463,10 +501,11 @@ class DailyPointsCalculationScript {
     const newPurchaseCount = await this.getUserPurchaseCountSince(user.walletAddress, sinceTimestamp);
     const purchasePoints = newPurchaseCount * 100;
 
-    // 2. Milestone points - calculate total milestones now vs. total milestones at last entry
-    const totalPurchaseCount = await this.getUserPurchaseCount(user.walletAddress, user.createdAt);
-    const currentMilestones = Math.floor(totalPurchaseCount / 20);
-    const previousMilestones = lastRecordedEntry ? Math.floor((totalPurchaseCount - newPurchaseCount) / 20) : 0;
+    // 2. Milestone points - calculate total referral milestones now vs. total milestones at last entry
+    const totalReferralPurchaseCount = await this.getDirectReferralPurchaseCount(user.id, user.createdAt);
+    const newReferralPurchaseCount = await this.getDirectReferralPurchaseCountSince(user.id, sinceTimestamp);
+    const currentMilestones = Math.floor(totalReferralPurchaseCount / 20);
+    const previousMilestones = lastRecordedEntry ? Math.floor((totalReferralPurchaseCount - newReferralPurchaseCount) / 20) : 0;
     const newMilestones = currentMilestones - previousMilestones;
     const milestonePoints = newMilestones * 10000;
 
@@ -497,7 +536,7 @@ class DailyPointsCalculationScript {
 
     console.log(`  📊 Incremental Points Breakdown:`);
     console.log(`    New Purchases: ${newPurchaseCount} = ${purchasePoints} points`);
-    console.log(`    New Milestones: ${newMilestones} = ${milestonePoints} points`);
+    console.log(`    New Referral Milestones: ${newMilestones} (${newReferralPurchaseCount} new referral purchases, ${totalReferralPurchaseCount} total) = ${milestonePoints} points`);
     console.log(`    New Referral Points: ${referralPoints} points (${activeReferrals} active referrals)`);
     console.log(`    Today's Mindshare: ${mindsharePoints} points`);
     console.log(`    Total Incremental: ${totalIncrementalPoints} points`);
