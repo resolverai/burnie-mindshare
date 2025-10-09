@@ -36,7 +36,7 @@ export default function CampaignComponent({ mixpanel, onWalletConnect }: Campaig
         { title: "Content Purchase", description: "Purchase any content from marketplace", points: "100" },
         { title: "Referral System", description: "New user connects Twitter account and purchases minimum 2 tweets", points: "1,000" },
         { title: "Transaction Milestone", description: "Referrals total transactions cross multiples of 20 (20,40,60,80, etc)", points: "10,000" },
-        { title: "Mindshare Rewards", description: "Based on your mindshare % on Crypto Twitter among top 100 yappers", points: "100,000" },
+        { title: "Mindshare Rewards", description: "Based on your mindshare % on Crypto Twitter among top 100 yappers", points: "25,000" },
     ]
 
     const tiers = [
