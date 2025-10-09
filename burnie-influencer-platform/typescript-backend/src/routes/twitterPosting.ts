@@ -4,7 +4,10 @@ import { Repository } from 'typeorm';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
 import { UserTwitterPost, PostType, PlatformSource } from '../models/UserTwitterPost';
+import { YapperTwitterConnection } from '../models/YapperTwitterConnection';
+import { User } from '../models/User';
 import { logger } from '../config/logger';
+import { uploadVideoOAuth1 } from '../utils/oauth1Utils';
 
 // Helper function to extract S3 key from URL
 function extractS3KeyFromUrl(url: string): string | null {
@@ -41,15 +44,17 @@ async function generatePresignedUrlForTwitter(s3Key: string): Promise<string | n
 
     console.log(`🔗 Requesting presigned URL for S3 key: ${s3Key}`);
     
-    const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url`, {
+    // Python backend expects query parameters, not JSON body
+    const queryParams = new URLSearchParams({
+      s3_key: s3Key,
+      expiration: '3600' // 1 hour
+    });
+    
+    const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?${queryParams.toString()}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        s3_key: s3Key,
-        expiration: 3600 // 1 hour
-      }),
     });
 
     if (!response.ok) {
@@ -108,6 +113,7 @@ async function storeTwitterPostData(
   thread?: string[],
   mediaId?: string,
   imageUrl?: string,
+  videoUrl?: string,
   contentId?: number,
   platformSource: PlatformSource = 'other'
 ): Promise<UserTwitterPost | null> {
@@ -126,7 +132,7 @@ async function storeTwitterPostData(
       userTwitterPost.tweetThread = thread;
     }
     userTwitterPost.imageUrl = imageUrl || twitterImageUrl;
-    userTwitterPost.videoUrl = null; // Future implementation
+    userTwitterPost.videoUrl = videoUrl || null;
     userTwitterPost.engagementMetrics = {};
     userTwitterPost.postedAt = new Date();
     userTwitterPost.contentId = contentId || null;
@@ -150,23 +156,7 @@ async function storeTwitterPostData(
   }
 }
 
-// Import the YapperTwitterConnection model
-interface YapperTwitterConnection {
-  id: number;
-  userId: number;
-  twitterUserId: string;
-  twitterUsername: string;
-  twitterDisplayName: string;
-  accessToken: string;
-  refreshToken: string;
-  profileImageUrl?: string;
-  twitterFollowers?: number;
-  twitterFollowing?: number;
-  tokenExpiresAt?: Date;
-  isConnected: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-}
+// YapperTwitterConnection model is imported above
 
 // Helper function to refresh Twitter token
 const refreshTwitterToken = async (connection: YapperTwitterConnection): Promise<string | null> => {
@@ -179,7 +169,7 @@ const refreshTwitterToken = async (connection: YapperTwitterConnection): Promise
       },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
-        refresh_token: connection.refreshToken,
+        refresh_token: connection.refreshToken || '',
         client_id: process.env.TWITTER_CLIENT_ID!
       })
     });
@@ -206,10 +196,10 @@ const refreshTwitterToken = async (connection: YapperTwitterConnection): Promise
   }
 };
 
-// Upload media to Twitter
-const uploadMediaToTwitter = async (accessToken: string, imageUrl: string): Promise<string | null> => {
+// Upload image to Twitter
+const uploadImageToTwitter = async (accessToken: string, imageUrl: string): Promise<string | null> => {
   try {
-    console.log('🔍 Starting media upload for URL:', imageUrl);
+    console.log('🔍 Starting image upload for URL:', imageUrl);
     
     // Download the image
     const imageResponse = await fetch(imageUrl);
@@ -253,7 +243,7 @@ const uploadMediaToTwitter = async (accessToken: string, imageUrl: string): Prom
     
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      console.error('❌ Media upload failed with status:', uploadResponse.status);
+      console.error('❌ Image upload failed with status:', uploadResponse.status);
       console.error('❌ Error response:', errorText);
       
       // Try to parse the error response
@@ -266,25 +256,82 @@ const uploadMediaToTwitter = async (accessToken: string, imageUrl: string): Prom
       
       // Media upload API v2 authentication issue
       if (uploadResponse.status === 403) {
-        console.error('❌ Media upload 403: Check if user has media.write scope');
+        console.error('❌ Image upload 403: Check if user has media.write scope');
         console.error('🔧 May need to add media.write scope to OAuth request');
       }
       
       // Rate limit issue
       if (uploadResponse.status === 429) {
-        console.error('❌ Media upload 429: Rate limit exceeded');
+        console.error('❌ Image upload 429: Rate limit exceeded');
       }
       
       return null;
     }
 
     const uploadData = await uploadResponse.json() as any;
-    console.log('🔍 Media upload response:', uploadData);
+    console.log('🔍 Image upload response:', uploadData);
     
     // Twitter API v2 returns { data: { id: "media_id" } }
     return uploadData.data?.id || uploadData.media_id_string;
   } catch (error) {
-    console.error('Error uploading media:', error);
+    console.error('Error uploading image:', error);
+    return null;
+  }
+};
+
+// Upload video to Twitter using OAuth 1.0a (chunked upload process)
+const uploadVideoToTwitter = async (
+  walletAddress: string, 
+  videoUrl: string
+): Promise<string | null> => {
+  try {
+    console.log('🎬 Starting OAuth 1.0a video upload...');
+    
+    // Get user's OAuth 1.0a credentials
+    const userRepository = AppDataSource.getRepository(User);
+    const connectionRepository = AppDataSource.getRepository(YapperTwitterConnection);
+    
+    // Find user by wallet address
+    const user = await userRepository.findOne({ 
+      where: { walletAddress: walletAddress.toLowerCase() } 
+    });
+    
+    if (!user) {
+      console.error('❌ User not found for wallet:', walletAddress);
+      return null;
+    }
+    
+    // Find Twitter connection with OAuth 1.0a tokens
+    const connection = await connectionRepository.findOne({
+      where: { userId: user.id }
+    });
+    
+    if (!connection) {
+      console.error('❌ No Twitter connection found for user:', user.id);
+      return null;
+    }
+    
+    // Check if OAuth 1.0a tokens are available
+    if (!connection.canUploadVideos()) {
+      console.warn('⚠️ OAuth 1.0a tokens not available for video upload');
+      console.warn('⚠️ User needs to complete OAuth 1.0a flow for video uploads');
+      return null;
+    }
+    
+    console.log('✅ OAuth 1.0a credentials found, proceeding with video upload');
+    
+    // Upload video using OAuth 1.0a
+    const mediaId = await uploadVideoOAuth1(
+      videoUrl,
+      connection.oauth1AccessToken!,
+      connection.oauth1AccessTokenSecret!
+    );
+    
+    console.log('✅ Video uploaded successfully via OAuth 1.0a, media_id:', mediaId);
+    return mediaId;
+
+  } catch (error: any) {
+    console.error('❌ Error uploading video to Twitter:', error.message);
     return null;
   }
 };
@@ -340,7 +387,7 @@ const createTweet = async (accessToken: string, text: string, mediaId?: string, 
 // POST /api/twitter/post-thread
 router.post('/post-thread', async (req: Request, res: Response) => {
   try {
-    const { mainTweet, thread, imageUrl, contentId, platformSource } = req.body;
+    const { mainTweet, thread, imageUrl, videoUrl, contentId, platformSource } = req.body;
     const walletAddress = req.headers.authorization?.replace('Bearer ', '');
 
     if (!walletAddress) {
@@ -457,23 +504,61 @@ router.post('/post-thread', async (req: Request, res: Response) => {
       });
     }
 
-    // Upload media if image exists
+    // Upload media - prioritize video over image
     let mediaId: string | null = null;
-    console.log('🔍 Checking for image URL:', imageUrl);
-    if (imageUrl) {
-      console.log('🔍 Image URL found, attempting media upload...');
+    console.log('🔍 Checking for media URLs - Video:', !!videoUrl, 'Image:', !!imageUrl);
+    
+    if (videoUrl) {
+      console.log('🎬 Video URL found, attempting video upload...');
+      
+      // Generate fresh presigned URL for video if it's from S3
+      let freshVideoUrl = videoUrl;
+      if (videoUrl.includes('s3.amazonaws.com')) {
+        try {
+          console.log('🎬 Generating fresh presigned URL for Twitter video upload...');
+          const s3Key = extractS3KeyFromUrl(videoUrl);
+          if (s3Key) {
+            const presignedUrl = await generatePresignedUrlForTwitter(s3Key);
+            if (presignedUrl) {
+              freshVideoUrl = presignedUrl;
+              console.log('✅ Generated fresh presigned URL for Twitter video upload');
+            } else {
+              console.warn('⚠️ Failed to generate fresh presigned URL for video, using original URL');
+            }
+          } else {
+            console.warn('⚠️ Could not extract S3 key from video URL, using original URL');
+          }
+        } catch (error) {
+          console.error('❌ Error generating fresh presigned URL for video:', error);
+          console.warn('⚠️ Using original URL for video upload');
+        }
+      }
+      
+      mediaId = await uploadVideoToTwitter(walletAddress, freshVideoUrl);
+      if (!mediaId) {
+        console.error('❌ Video upload failed - no fallback to image upload');
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Video upload failed. Please try again or check if the video file is valid.',
+          requiresRetry: true 
+        });
+      } else {
+        console.log('✅ Video uploaded successfully, media ID:', mediaId);
+      }
+    } else if (imageUrl) {
+      console.log('🔍 Image URL found, attempting image upload...');
       
       // Generate fresh presigned URL before uploading to Twitter
       let freshImageUrl = imageUrl;
       if (imageUrl.includes('s3.amazonaws.com')) {
         try {
-          console.log('🔍 Generating fresh presigned URL for Twitter media upload...');
+          console.log('🔍 Generating fresh presigned URL for Twitter image upload...');
           const s3Key = extractS3KeyFromUrl(imageUrl);
           if (s3Key) {
             const presignedUrl = await generatePresignedUrlForTwitter(s3Key);
             if (presignedUrl) {
               freshImageUrl = presignedUrl;
-              console.log('✅ Generated fresh presigned URL for Twitter media upload');
+              console.log('✅ Generated fresh presigned URL for Twitter image upload');
             } else {
               console.warn('⚠️ Failed to generate fresh presigned URL, using original URL');
             }
@@ -486,14 +571,14 @@ router.post('/post-thread', async (req: Request, res: Response) => {
         }
       }
       
-      mediaId = await uploadMediaToTwitter(accessToken, freshImageUrl);
+      mediaId = await uploadImageToTwitter(accessToken, freshImageUrl);
       if (!mediaId) {
-        console.warn('⚠️ Failed to upload media, proceeding without image');
+        console.warn('⚠️ Failed to upload image, proceeding without media');
       } else {
-        console.log('✅ Media uploaded successfully, media ID:', mediaId);
+        console.log('✅ Image uploaded successfully, media ID:', mediaId);
       }
     } else {
-      console.log('🔍 No image URL provided, proceeding without media');
+      console.log('🔍 No media URLs provided, proceeding without media');
     }
 
     // Create main tweet
@@ -527,6 +612,7 @@ router.post('/post-thread', async (req: Request, res: Response) => {
       thread,
       mediaId || undefined,
       imageUrl,
+      videoUrl,
       contentId,
       (platformSource as PlatformSource) || 'other'
     );

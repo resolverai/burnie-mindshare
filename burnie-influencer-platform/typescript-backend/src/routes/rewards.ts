@@ -22,6 +22,7 @@ interface LeaderboardUser {
   totalPoints: number;
   totalRoastEarned: number;
   totalDailyRewards: number;
+  totalMilestonePoints?: number; // Only for 7D and 1M periods
   profileImageUrl?: string | undefined;
   isCurrentUser?: boolean;
 }
@@ -208,6 +209,11 @@ router.get('/leaderboard', async (req, res) => {
     }
 
     // Aggregate points based on period, but get latest referral values
+    // Include milestone points only for 7D and 1M periods
+    const milestonePointsSelect = (period === '7d' || period === '1m') 
+      ? ', SUM(udp."milestonePoints") as total_milestone_points' 
+      : ', 0 as total_milestone_points';
+    
     const aggregatedData = await userDailyPointsRepo.query(`
       WITH latest_referral_data AS (
         SELECT DISTINCT ON ("walletAddress")
@@ -229,6 +235,7 @@ router.get('/leaderboard', async (req, res) => {
         SUM(udp."dailyRewards") as total_daily_rewards,
         AVG(udp.mindshare) as avg_mindshare,
         MAX(udp."createdAt") as latest_created_at
+        ${milestonePointsSelect}
       FROM user_daily_points udp
       JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"
       WHERE 1=1 ${dateFilter}
@@ -255,7 +262,7 @@ router.get('/leaderboard', async (req, res) => {
         where: { twitterUsername: userData.twitter_handle }
       });
 
-      leaderboardUsers.push({
+      const leaderboardUser: LeaderboardUser = {
         rank: i + 1,
         walletAddress: userData.wallet_address,
         twitterHandle: userData.twitter_handle,
@@ -269,7 +276,14 @@ router.get('/leaderboard', async (req, res) => {
         totalDailyRewards: parseFloat(userData.total_daily_rewards) || 0,
         profileImageUrl: twitterConnection?.profileImageUrl || undefined,
         isCurrentUser: userData.wallet_address === currentUserWallet
-      });
+      };
+
+      // Add milestone points only for 7D and 1M periods
+      if (period === '7d' || period === '1m') {
+        leaderboardUser.totalMilestonePoints = parseFloat(userData.total_milestone_points) || 0;
+      }
+
+      leaderboardUsers.push(leaderboardUser);
     }
 
     res.json({
@@ -318,6 +332,11 @@ router.get('/leaderboard/top-three', async (req, res) => {
     }
 
     // Get top 3 users with latest referral values
+    // Include milestone points only for 7D and 1M periods
+    const milestonePointsSelectTop3 = (period === '7d' || period === '1m') 
+      ? ', SUM(udp."milestonePoints") as total_milestone_points' 
+      : ', 0 as total_milestone_points';
+    
     const topThreeData = await userDailyPointsRepo.query(`
       WITH latest_referral_data AS (
         SELECT DISTINCT ON ("walletAddress")
@@ -338,6 +357,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
         lrd."totalRoastEarned" as total_roast_earned,
         SUM(udp."dailyRewards") as total_daily_rewards,
         AVG(udp.mindshare) as avg_mindshare
+        ${milestonePointsSelectTop3}
       FROM user_daily_points udp
       JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"
       WHERE 1=1 ${dateFilter}
@@ -362,7 +382,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
         where: { twitterUsername: userData.twitter_handle }
       });
 
-      topThree.push({
+      const topThreeUser: LeaderboardUser = {
         rank: i + 1,
         walletAddress: userData.wallet_address,
         twitterHandle: userData.twitter_handle,
@@ -375,7 +395,14 @@ router.get('/leaderboard/top-three', async (req, res) => {
         totalRoastEarned: parseFloat(userData.total_roast_earned) || 0,
         totalDailyRewards: parseFloat(userData.total_daily_rewards) || 0,
         profileImageUrl: twitterConnection?.profileImageUrl || undefined
-      });
+      };
+
+      // Add milestone points only for 7D and 1M periods
+      if (period === '7d' || period === '1m') {
+        topThreeUser.totalMilestonePoints = parseFloat(userData.total_milestone_points) || 0;
+      }
+
+      topThree.push(topThreeUser);
     }
 
     res.json(topThree);

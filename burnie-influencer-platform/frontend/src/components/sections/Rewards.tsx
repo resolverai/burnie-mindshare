@@ -462,7 +462,7 @@ function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], 
 }
 
 // Leaderboard table component
-function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: LeaderboardUser[], loading: boolean }) {
+function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { leaderboardUsers: LeaderboardUser[], loading: boolean, activeTimePeriod: "now" | "7d" | "1m" }) {
   // Use API data only - no dummy data
   const users = leaderboardUsers;
   const currentUser = users.find(user => user.isCurrentUser);
@@ -491,9 +491,14 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
           <div className="text-left md:text-center text-white text-xs font-medium w-6">#</div>
           <div className="text-left text-white text-xs font-medium md:text-center md:w-40">TWITTER HANDLE</div>
           <div className="hidden md:block text-center text-white text-xs font-medium w-20">TIER</div>
-          <div className="hidden md:block text-center text-white text-xs font-medium w-24">MINDSHARE%</div>
+          {activeTimePeriod === 'now' && (
+            <div className="hidden md:block text-center text-white text-xs font-medium w-24">MINDSHARE%</div>
+          )}
           <div className="hidden md:block text-center text-white text-xs font-medium w-24">REFERRALS</div>
           <div className="text-right md:text-center text-white text-xs font-medium w-20">POINTS</div>
+          {(activeTimePeriod === '7d' || activeTimePeriod === '1m') && (
+            <div className="hidden md:block text-center text-white text-xs font-medium w-28">MILESTONE PTS</div>
+          )}
           <div className="hidden md:block text-center text-white text-xs font-medium w-32">REFERRAL EARNINGS ($ROAST)</div>
           <div className="hidden md:block text-center text-white text-xs font-medium w-28">REWARDS ($ROAST)</div>
         </div>
@@ -555,9 +560,16 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
                   currentUser?.tier === "PLATINUM" ? "bg-gray-500/20 text-gray-400" :
                     "bg-yellow-500/20 text-yellow-400"}`}>{currentUser?.tier}</span>
               </div>
-              <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.mindshare ? (currentUser.mindshare * 100).toFixed(1) : '0.0'}%</div>
+              {activeTimePeriod === 'now' && (
+                <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.mindshare ? (currentUser.mindshare * 100).toFixed(1) : '0.0'}%</div>
+              )}
               <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.activeReferrals?.toLocaleString() || '0'}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{currentUser?.totalPoints?.toLocaleString() || '0'}</div>
+              {(activeTimePeriod === '7d' || activeTimePeriod === '1m') && (
+                <div className="hidden md:block text-white text-center text-sm w-28">
+                  {currentUser?.totalMilestonePoints ? currentUser.totalMilestonePoints.toLocaleString() : '0'}
+                </div>
+              )}
               <div className="hidden md:block text-white text-center text-sm w-32">
                 {currentUser?.totalRoastEarned ? formatRoastValue(Number(currentUser.totalRoastEarned)) : '0'}
               </div>
@@ -592,9 +604,16 @@ function LeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: Lea
                   {user.tier}
                 </span>
               </div>
-              <div className="hidden md:block text-white text-center text-sm w-24">{(user.mindshare * 100).toFixed(1)}%</div>
+              {activeTimePeriod === 'now' && (
+                <div className="hidden md:block text-white text-center text-sm w-24">{(user.mindshare * 100).toFixed(1)}%</div>
+              )}
               <div className="hidden md:block text-white text-center text-sm w-24">{user.activeReferrals.toLocaleString()}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{user.totalPoints.toLocaleString()}</div>
+              {(activeTimePeriod === '7d' || activeTimePeriod === '1m') && (
+                <div className="hidden md:block text-white text-center text-sm w-28">
+                  {user.totalMilestonePoints ? user.totalMilestonePoints.toLocaleString() : '0'}
+                </div>
+              )}
               <div className="hidden md:block text-white text-center text-sm w-32">
                 {user.totalRoastEarned ? formatRoastValue(Number(user.totalRoastEarned)) : '0'}
               </div>
@@ -879,7 +898,7 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
 
           {/* Leaderboard Table */}
           <div className="flex justify-center">
-            <LeaderboardTable leaderboardUsers={leaderboardUsers} loading={loading} />
+            <LeaderboardTable leaderboardUsers={leaderboardUsers} loading={loading} activeTimePeriod={activeTimePeriod} />
           </div>
         </div>
       )}

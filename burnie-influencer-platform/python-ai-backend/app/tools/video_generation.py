@@ -2197,7 +2197,7 @@ JSON only, no other text:"""
                     # Get the frame URLs for this clip
                     first_frame_url = frame_urls[i - 1]
                     last_frame_url = frame_urls[i]
-                
+                    
                     # Generate fresh presigned URLs for the frame images before clip generation
                     print(f"🔄 Refreshing presigned URLs for clip {i} frame images...")
                     fresh_first_frame_url = self.get_fresh_presigned_url_from_s3_url(first_frame_url)

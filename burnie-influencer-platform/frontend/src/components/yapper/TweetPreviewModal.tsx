@@ -9,6 +9,7 @@ import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, ma
 import useMixpanel from '../../hooks/useMixpanel';
 import { EditText, ThreadItemEditor } from './EditComponents';
 import useTextEditing from '../../hooks/useTextEditing';
+import VideoPlayer from '../VideoPlayer';
 
 interface TweetPreviewModalProps {
     isOpen: boolean;
@@ -18,6 +19,11 @@ interface TweetPreviewModalProps {
         content_text: string;
         tweet_thread?: string[];
         content_images: string[];
+        // Video support fields
+        is_video?: boolean;
+        video_url?: string;
+        watermark_video_url?: string;
+        video_duration?: number;
         predicted_mindshare: number;
         quality_score: number;
         asking_price: number;
@@ -59,8 +65,13 @@ interface TweetPreviewModalProps {
 }
 
 const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true }: TweetPreviewModalProps) => {
+    console.log('🔍 TweetPreviewModal - Component rendered')
+    
     const { address } = useAccount();
-    const { twitter, isTwitterReady, connect, disconnect } = useTwitter();
+    console.log('🔍 TweetPreviewModal - Address from useAccount:', address)
+    
+    const { twitter, isTwitterReady, connect, disconnect, checkConnection } = useTwitter();
+    console.log('🔍 TweetPreviewModal - Twitter state from useTwitter:', twitter)
     const { status: twitterPostingStatus, refresh: refreshTwitterStatus } = useTwitterPosting();
     const mixpanel = useMixpanel();
     const [selectedVoiceTone, setSelectedVoiceTone] = useState("auto");
@@ -373,6 +384,13 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
         if (isOpen) {
             setIsPurchased(true);
             
+            // Refresh Twitter connection status when modal opens
+            // This ensures we have the latest OAuth 1.0a token status
+            if (address) {
+                console.log('🔄 TweetPreviewModal - Refreshing Twitter connection status...');
+                checkConnection();
+            }
+            
             // Debug: Log content data when modal opens
             if (contentData) {
                 console.log('🔍 TweetPreviewModal opened with content:', {
@@ -386,7 +404,7 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                 });
             }
         }
-    }, [isOpen, contentData]);
+    }, [isOpen, contentData, address]);
 
     // Helper function to detect mobile devices
     const isMobileDevice = () => {
@@ -455,6 +473,53 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
         }
     };
 
+    // Download video function
+    const downloadVideo = async (videoUrl: string, filename: string = 'tweet-video.mp4') => {
+        try {
+            // For mobile devices, use direct link approach to avoid blob URL issues
+            if (isMobileDevice()) {
+                console.log('📱 Mobile device detected, using direct download approach for video')
+                
+                // Create a temporary link with download attribute
+                const link = document.createElement('a')
+                link.href = videoUrl
+                link.download = filename
+                link.target = '_blank'
+                link.rel = 'noopener noreferrer'
+                
+                // Add to document, click, and remove
+                document.body.appendChild(link)
+                link.click()
+                document.body.removeChild(link)
+                
+                console.log('✅ Mobile video download initiated')
+                return
+            }
+            
+            // For desktop, use the blob approach (which works better on desktop)
+            const response = await fetch(videoUrl);
+            
+            if (!response.ok) {
+                throw new Error(`Download failed: ${response.status}`);
+            }
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            console.log('✅ Desktop video download initiated');
+        } catch (error) {
+            console.error('❌ Failed to download video:', error);
+            console.log('🔄 Falling back to opening video in new tab')
+            window.open(videoUrl, '_blank');
+        }
+    };
+
     // Twitter posting function
     const handlePostToTwitter = async () => {
         if (!contentData) return;
@@ -496,6 +561,7 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                 mainTweet: tweetText,
                 thread: processedThread,
                 imageUrl: displayImage,
+                videoUrl: displayVideo,
                 contentId: contentData?.id,
                 platformSource: 'TweetPreviewModal'
             };
@@ -645,13 +711,19 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
         ? contentData.content_images[0] 
         : extractedImageUrl;
 
+    // Determine if we should show video or image
+    const displayVideo = contentData?.is_video && contentData?.video_url ? contentData.video_url : null;
+
     // Prepare tweets for copy
     const tweetsData = [
         { 
             title: 'Tweet 1', 
             text: tweetText || 'Sample tweet content will appear here...' 
         },
-        ...(displayImage ? [{ 
+        ...(displayVideo ? [{ 
+            title: 'Tweet 1 (Video)', 
+            video: displayVideo 
+        }] : displayImage ? [{ 
             title: 'Tweet 1 (Image)', 
             image: displayImage 
         }] : []),
@@ -762,8 +834,19 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                                 />
                                             </div>
 
-                                            {/* Tweet Image */}
-                                            {displayImage && (
+                                            {/* Tweet Video/Image - Prioritize video over image */}
+                                            {contentData?.is_video && contentData?.video_url ? (
+                                                <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700">
+                                                    <VideoPlayer
+                                                        src={contentData.video_url}
+                                                        poster={displayImage || undefined}
+                                                        autoPlay={true}
+                                                        muted={false}
+                                                        controls={true}
+                                                        className="w-full h-auto"
+                                                    />
+                                                </div>
+                                            ) : displayImage ? (
                                                 <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700">
                                                     <Image
                                                         src={displayImage}
@@ -773,7 +856,7 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                                         className="w-full h-auto object-cover"
                                                     />
                                                 </div>
-                                            )}
+                                            ) : null}
                                         </div>
                                     </div>
                                 </div>
@@ -1051,7 +1134,25 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                             ) : postingMethod === 'twitter' ? (
                                 /* Twitter Posting Interface */
                                 <div className="flex flex-col h-full">
-                                    {twitter.isConnected && twitter.tokenStatus === 'valid' ? (
+                                    {(() => {
+                                      // Determine if reconnection is needed based on content type
+                                      const hasVideo = contentData?.is_video || contentData?.video_url;
+                                      const needsAuth = hasVideo 
+                                        ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                                        : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                                      
+                                      console.log('🔍 TweetPreviewModal - Content-Aware Button Logic:', {
+                                        hasVideo,
+                                        needsReconnection: twitter.capabilities?.needsReconnection,
+                                        needsVideoReconnection: twitter.capabilities?.needsVideoReconnection,
+                                        canUploadVideos: twitter.capabilities?.canUploadVideos,
+                                        oauth1Connected: twitter.oauth1Connected,
+                                        oauth1TokenStatus: twitter.oauth1TokenStatus,
+                                        finalNeedsAuth: needsAuth,
+                                        showTweetButton: !needsAuth
+                                      })
+                                      return !needsAuth
+                                    })() ? (
                                         /* Ready to Post - Show green messages */
                                         <div className="flex-1 flex flex-col justify-end">
                                             <div className="space-y-3 mb-6 px-4">
@@ -1089,7 +1190,23 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                     {/* Fixed Bottom Section */}
                                     <div className="pt-4">
                                         {/* Green checkmark messages - Only when auth is required and tweet not posted */}
-                                        {(!twitter.isConnected || twitter.tokenStatus !== 'valid') && !twitterPostingResult?.success && (
+                                        {(() => {
+                                          // Determine if reconnection is needed based on content type
+                                          const hasVideo = contentData?.is_video || contentData?.video_url;
+                                          const needsAuth = hasVideo 
+                                            ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                                            : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                                          
+                                          console.log('🔍 TweetPreviewModal - Grant Access Button Logic:', {
+                                            hasVideo,
+                                            needsReconnection: twitter.capabilities?.needsReconnection,
+                                            needsVideoReconnection: twitter.capabilities?.needsVideoReconnection,
+                                            twitterPostingSuccess: twitterPostingResult?.success,
+                                            finalNeedsAuth: needsAuth,
+                                            showGrantAccessButton: needsAuth && !twitterPostingResult?.success
+                                          })
+                                          return needsAuth && !twitterPostingResult?.success
+                                        })() && (
                                             <div className="space-y-2 mb-4 px-4">
                                                 <div className="flex items-center gap-3 text-green-400 text-sm">
                                                     <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -1119,7 +1236,13 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                                 onClick={handlePostToTwitter}
                                                 disabled={isPostingToTwitter}
                                                 className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                                style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
+                                                style={{ display: (() => {
+                                                  const hasVideo = contentData?.is_video || contentData?.video_url;
+                                                  const needsAuth = hasVideo 
+                                                    ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                                                    : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                                                  return !needsAuth ? 'block' : 'none';
+                                                })() }}
                                             >
                                                 {isPostingToTwitter ? (
                                                     <div className="flex items-center justify-center gap-2">
@@ -1137,7 +1260,13 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                             onClick={handleTwitterAuth}
                                             disabled={twitter.isLoading}
                                             className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
-                                            style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
+                                            style={{ display: (() => {
+                                              const hasVideo = contentData?.is_video || contentData?.video_url;
+                                              const needsAuth = hasVideo 
+                                                ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                                                : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                                              return needsAuth ? 'block' : 'none';
+                                            })() }}
                                         >
                                             {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
                                         </button>
@@ -1166,13 +1295,15 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                                             screenName: 'TweetPreviewModal'
                                                         });
                                                     }
+                                                } else if (section.video) {
+                                                    downloadVideo(String(section.video), `tweet-video-${idx + 1}.mp4`);
                                                 } else if (section.image) {
                                                     downloadImage(String(section.image), `tweet-image-${idx + 1}.png`);
                                                 }
                                             }}
                                             className="text-[#FD7A10] border border-[#FD7A10] rounded-sm px-2 py-1 text-xs flex flex-row gap-1 items-center cursor-pointer hover:bg-[#FD7A10] hover:text-white transition-colors"
                                         >
-                                            {section.image ? (
+                                            {section.video || section.image ? (
                                                 <>
                                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -1203,9 +1334,21 @@ const TweetPreviewModal = ({ isOpen, onClose, contentData, startPurchased = true
                                                     )}
                                                 </div>
                                     )}
-                                    {section.image && (
+                                    {section.video && (
                                         <div className="mt-3 rounded-md overflow-hidden">
-                                                    <img src={String(section.image)} alt="Tweet image" className="w-[50%] h-auto object-cover" />
+                                            <VideoPlayer
+                                                src={String(section.video)}
+                                                poster={displayImage || undefined}
+                                                autoPlay={true}
+                                                muted={false}
+                                                controls={true}
+                                                className="w-[50%] h-auto"
+                                            />
+                                        </div>
+                                    )}
+                                    {section.image && !section.video && (
+                                        <div className="mt-3 rounded-md overflow-hidden">
+                                            <img src={String(section.image)} alt="Tweet image" className="w-[50%] h-auto object-cover" />
                                         </div>
                                     )}
                                 </div>

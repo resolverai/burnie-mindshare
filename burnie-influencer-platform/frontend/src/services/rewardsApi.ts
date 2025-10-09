@@ -14,6 +14,7 @@ export interface LeaderboardUser {
   totalPoints: number;
   totalRoastEarned: number;
   totalDailyRewards: number;
+  totalMilestonePoints?: number; // Only for 7D and 1M periods
   profileImageUrl?: string;
   isCurrentUser?: boolean;
 }

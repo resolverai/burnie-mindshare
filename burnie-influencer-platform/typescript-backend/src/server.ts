@@ -22,6 +22,7 @@ import adminSnapshotsRoutes from './routes/adminSnapshots';
 import agentRoutes from './routes/agents';
 import twitterAuthRoutes from './routes/twitter-auth';
 import yapperTwitterAuthRoutes from './routes/yapper-twitter-auth';
+import oauth1AuthRoutes from './routes/oauth1Auth';
 import twitterQueueRoutes from './routes/twitterQueue';
 import yapperProfileRoutes from './routes/yapperProfiles';
 import leaderboardYapperRoutes from './routes/leaderboardYapper';
@@ -140,6 +141,7 @@ app.use('/api', twitterLearningAnalysisRoutes); // Twitter learning LLM analysis
 app.use('/api/agents', agentRoutes); // Agent routes
 app.use('/api/twitter-auth', twitterAuthRoutes); // Twitter auth routes for miners
 app.use('/api/yapper-twitter-auth', yapperTwitterAuthRoutes); // Twitter auth routes for yappers
+app.use('/api/auth/twitter/oauth1', oauth1AuthRoutes); // OAuth 1.0a routes for video uploads
 app.use('/api/carousel', carouselRoutes); // Carousel data for hero banner
 app.use('/api/filter-options', filterOptionsRoutes); // Filter options for platforms and projects
 app.use('/api/referrals', referralRoutes); // Referral system routes

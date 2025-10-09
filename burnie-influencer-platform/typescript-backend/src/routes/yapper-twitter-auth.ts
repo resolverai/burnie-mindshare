@@ -477,6 +477,9 @@ router.get('/twitter/status/:walletAddress', async (req: Request, res: Response)
     // Determine connection and token status
     const tokenStatus = twitterData.getTokenStatus();
     const isConnected = twitterData.isConnected && tokenStatus === 'valid';
+    
+    // Get comprehensive connection capabilities (includes OAuth 1.0a status)
+    const capabilities = twitterData.getConnectionCapabilities();
 
     return res.json({
       success: true,
@@ -489,7 +492,17 @@ router.get('/twitter/status/:walletAddress', async (req: Request, res: Response)
         profile_image_url: twitterData.profileImageUrl,
         last_sync: twitterData.lastSyncAt,
         token_expires_at: twitterData.tokenExpiresAt,
-        needs_reconnection: tokenStatus !== 'valid'
+        needs_reconnection: capabilities.needsReconnection,
+        // OAuth 1.0a capabilities for video uploads
+        oauth1_connected: twitterData.oauth1Connected,
+        oauth1_token_status: capabilities.oauth1Status,
+        capabilities: {
+          can_tweet: capabilities.canTweet,
+          can_upload_images: capabilities.canUploadImages,
+          can_upload_videos: capabilities.canUploadVideos,
+          needs_reconnection: capabilities.needsReconnection,
+          needs_video_reconnection: capabilities.needsVideoReconnection
+        }
       },
       timestamp: new Date().toISOString(),
     });

@@ -74,6 +74,10 @@ interface UserCalculation {
   currentTier: TierLevel;
   newTier: TierLevel;
   tierChanged: boolean;
+  // Daily component counts for detailed tracking
+  dailyPurchaseCount: number;
+  dailyMilestoneCount: number;
+  dailyNewQualifiedReferrals: number;
 }
 
 // Tier requirements
@@ -412,11 +416,12 @@ class DailyPointsCalculationScript {
   /**
    * Get new referral points since a specific timestamp
    */
-  async getNewReferralPointsSince(userId: number, sinceTimestamp: Date): Promise<{ newReferralPoints: number; activeReferrals: number }> {
+  async getNewReferralPointsSince(userId: number, sinceTimestamp: Date): Promise<{ newReferralPoints: number; activeReferrals: number; newQualifiedReferrals: number }> {
     // Get all referrals for this user
     const referrals = await this.getUserReferrals(userId);
     let newReferralPoints = 0;
     let activeReferrals = 0;
+    let newQualifiedReferrals = 0;
 
     for (const referral of referrals) {
       // Check if this referral became qualified (2+ transactions) since the timestamp
@@ -432,11 +437,12 @@ class DailyPointsCalculationScript {
         // If they weren't qualified before but are now, award points
         if (!wasQualifiedBefore) {
           newReferralPoints += 1000;
+          newQualifiedReferrals += 1;
         }
       }
     }
 
-    return { newReferralPoints, activeReferrals };
+    return { newReferralPoints, activeReferrals, newQualifiedReferrals };
   }
 
   /**
@@ -492,6 +498,9 @@ class DailyPointsCalculationScript {
     mindsharePoints: number;
     activeReferrals: number;
     totalIncrementalPoints: number;
+    dailyPurchaseCount: number;
+    dailyMilestoneCount: number;
+    dailyNewQualifiedReferrals: number;
   }> {
     const sinceTimestamp = lastRecordedEntry ? lastRecordedEntry.createdAt : user.createdAt;
     
@@ -510,7 +519,7 @@ class DailyPointsCalculationScript {
     const milestonePoints = newMilestones * 10000;
 
     // 3. Referral points - check for new qualified referrals since last entry
-    const { newReferralPoints, activeReferrals } = await this.getNewReferralPointsSince(user.id, sinceTimestamp);
+    const { newReferralPoints, activeReferrals, newQualifiedReferrals } = await this.getNewReferralPointsSince(user.id, sinceTimestamp);
     const referralPoints = newReferralPoints;
 
     // 4. Mindshare points (always current day's full allocation)
@@ -547,7 +556,10 @@ class DailyPointsCalculationScript {
       referralPoints, 
       mindsharePoints, 
       activeReferrals,
-      totalIncrementalPoints 
+      totalIncrementalPoints,
+      dailyPurchaseCount: newPurchaseCount,
+      dailyMilestoneCount: newMilestones,
+      dailyNewQualifiedReferrals: newQualifiedReferrals
     };
   }
 
@@ -706,7 +718,10 @@ class DailyPointsCalculationScript {
       dailyRewards: 0, // Will be calculated later for top 25 users
       currentTier,
       newTier,
-      tierChanged
+      tierChanged,
+      dailyPurchaseCount: incrementalResult.dailyPurchaseCount,
+      dailyMilestoneCount: incrementalResult.dailyMilestoneCount,
+      dailyNewQualifiedReferrals: incrementalResult.dailyNewQualifiedReferrals
     };
     
     console.log(`  💾 Final Calculation Result:`);
@@ -735,6 +750,15 @@ class DailyPointsCalculationScript {
     userDailyPoints.totalPoints = calculation.totalPoints;
     userDailyPoints.dailyPointsEarned = calculation.dailyPointsEarned;
     userDailyPoints.dailyRewards = calculation.dailyRewards;
+    
+    // Store detailed point components
+    userDailyPoints.purchasePoints = calculation.purchasePoints;
+    userDailyPoints.milestonePoints = calculation.milestonePoints;
+    userDailyPoints.referralPoints = calculation.referralPoints;
+    userDailyPoints.mindsharePoints = calculation.mindsharePoints;
+    userDailyPoints.dailyPurchaseCount = calculation.dailyPurchaseCount;
+    userDailyPoints.dailyMilestoneCount = calculation.dailyMilestoneCount;
+    userDailyPoints.dailyNewQualifiedReferrals = calculation.dailyNewQualifiedReferrals;
 
     await userDailyPointsRepo.save(userDailyPoints);
   }
@@ -808,11 +832,11 @@ class DailyPointsCalculationScript {
       return;
     }
 
-    console.log('\n' + '='.repeat(180));
+    console.log('\n' + '='.repeat(220));
     console.log('📊 [DRY RUN] FINAL SUMMARY - ALL PROCESSED USERS');
-    console.log('='.repeat(180));
-    console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | Rewards | Referrals | ROAST    | Tier');
-    console.log('='.repeat(180));
+    console.log('='.repeat(220));
+    console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | P.Count | M.Count | R.Count | Rewards | Referrals | ROAST    | Tier');
+    console.log('='.repeat(220));
     
     // Sort by daily points earned (descending) for better visibility
     const sortedCalculations = [...this.allCalculations].sort((a, b) => b.dailyPointsEarned - a.dailyPointsEarned);
@@ -829,11 +853,14 @@ class DailyPointsCalculationScript {
       const milestone = calc.milestonePoints.toString().padStart(9, ' ');
       const referral = calc.referralPoints.toString().padStart(8, ' ');
       const mindshare = calc.mindsharePoints.toString().padStart(9, ' ');
+      const pCount = calc.dailyPurchaseCount.toString().padStart(7, ' ');
+      const mCount = calc.dailyMilestoneCount.toString().padStart(7, ' ');
+      const rCount = calc.dailyNewQualifiedReferrals.toString().padStart(7, ' ');
       const rewards = calc.dailyRewards.toString().padStart(7, ' ');
       const referrals = `${calc.totalReferrals}(${calc.activeReferrals})`.padStart(9, ' ');
       const roast = Math.round(calc.totalRoastEarned).toString().padStart(8, ' ');
       
-      console.log(`${rank} | ${wallet} | ${twitterHandle} | ${dailyPts} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${rewards} | ${referrals} | ${roast} | ${tierInfo}`);
+      console.log(`${rank} | ${wallet} | ${twitterHandle} | ${dailyPts} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${pCount} | ${mCount} | ${rCount} | ${rewards} | ${referrals} | ${roast} | ${tierInfo}`);
     });
     
     // Summary statistics
@@ -845,12 +872,16 @@ class DailyPointsCalculationScript {
     const totalMilestonePoints = sortedCalculations.reduce((sum, calc) => sum + calc.milestonePoints, 0);
     const totalReferralPoints = sortedCalculations.reduce((sum, calc) => sum + calc.referralPoints, 0);
     const totalMindsharePoints = sortedCalculations.reduce((sum, calc) => sum + calc.mindsharePoints, 0);
+    const totalPurchaseCount = sortedCalculations.reduce((sum, calc) => sum + calc.dailyPurchaseCount, 0);
+    const totalMilestoneCount = sortedCalculations.reduce((sum, calc) => sum + calc.dailyMilestoneCount, 0);
+    const totalNewQualifiedReferrals = sortedCalculations.reduce((sum, calc) => sum + calc.dailyNewQualifiedReferrals, 0);
     
-    console.log('='.repeat(180));
+    console.log('='.repeat(220));
     console.log(`📈 SUMMARY STATS: ${sortedCalculations.length} users processed | ${usersWithPoints} earned points | ${tierUpgrades} tier upgrades`);
     console.log(`💰 POINTS BREAKDOWN: ${Math.round(totalDailyPoints)} total daily | ${totalPurchasePoints} purchase | ${totalMilestonePoints} milestone | ${totalReferralPoints} referral | ${totalMindsharePoints} mindshare`);
+    console.log(`📊 ACTIVITY COUNTS: ${totalPurchaseCount} purchases | ${totalMilestoneCount} milestones | ${totalNewQualifiedReferrals} new qualified referrals`);
     console.log(`🎁 REWARDS: ${totalRewards} total rewards distributed`);
-    console.log('='.repeat(180));
+    console.log('='.repeat(220));
   }
 
   /**

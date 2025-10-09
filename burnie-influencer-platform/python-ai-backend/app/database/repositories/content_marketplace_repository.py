@@ -31,7 +31,7 @@ class ContentMarketplaceRepository:
             logger.error(f"❌ Error updating content {content_id}: {e}")
             return False
     
-    def get_content_by_id(self, content_id: int) -> Optional[Dict[str, Any]]:
+    async def get_content_by_id(self, content_id: int) -> Optional[Dict[str, Any]]:
         """Get content record by ID from TypeScript backend"""
         try:
             import os
@@ -40,11 +40,15 @@ class ContentMarketplaceRepository:
             typescript_backend_url = os.getenv('TYPESCRIPT_BACKEND_URL', 'http://localhost:3001')
             
             logger.info(f"🔍 Getting content {content_id} from TypeScript backend")
+            logger.info(f"🌐 Using TypeScript backend URL: {typescript_backend_url}")
             
             # Call TypeScript backend to get actual content data
-            with httpx.Client() as client:
-                response = client.get(
-                    f"{typescript_backend_url}/api/marketplace/content/{content_id}",
+            full_url = f"{typescript_backend_url}/api/marketplace/content/{content_id}"
+            logger.info(f"🚀 Making request to: {full_url}")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    full_url,
                     timeout=30.0
                 )
                 

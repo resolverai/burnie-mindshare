@@ -65,6 +65,35 @@ export class UserDailyPoints {
   @Column({ type: 'decimal', precision: 18, scale: 8, default: 0 })
   dailyPointsEarned!: number;
 
+  // === DETAILED POINT COMPONENTS ===
+  // Points earned from purchases (100 points per purchase with purchase_price > 0)
+  @Column({ type: 'decimal', precision: 18, scale: 8, default: 0 })
+  purchasePoints!: number;
+
+  // Points earned from milestone achievements (10,000 points per 20 direct referral purchases)
+  @Column({ type: 'decimal', precision: 18, scale: 8, default: 0 })
+  milestonePoints!: number;
+
+  // Points earned from referral qualifications (1,000 points per qualified referral)
+  @Column({ type: 'decimal', precision: 18, scale: 8, default: 0 })
+  referralPoints!: number;
+
+  // Points earned from mindshare distribution (daily allocation from 25,000 pool)
+  @Column({ type: 'decimal', precision: 18, scale: 8, default: 0 })
+  mindsharePoints!: number;
+
+  // Purchase count for this day (incremental)
+  @Column({ type: 'integer', default: 0 })
+  dailyPurchaseCount!: number;
+
+  // Milestone count achieved this day (incremental)
+  @Column({ type: 'integer', default: 0 })
+  dailyMilestoneCount!: number;
+
+  // New qualified referrals this day (incremental)
+  @Column({ type: 'integer', default: 0 })
+  dailyNewQualifiedReferrals!: number;
+
   // Rank on this day (for faster leaderboard queries)
   @Column({ type: 'integer', nullable: true })
   dailyRank?: number;

@@ -335,6 +335,18 @@ export default function PurchaseContentModal({
          
          if (response.ok) {
           const data = await response.json();
+          
+          // Update localContent with the detailed content (including video fields)
+          if (data.success && data.data.content) {
+            console.log('🔄 Updating localContent with detailed content including video fields:', {
+              id: data.data.content.id,
+              is_video: data.data.content.is_video,
+              video_url: data.data.content.video_url?.substring(0, 100) + '...',
+              watermark_video_url: data.data.content.watermark_video_url?.substring(0, 100) + '...'
+            });
+            setLocalContent(data.data.content);
+          }
+          
           if (data.success && data.data.editContent) {
             setServerEditContent(data.data.editContent);
             console.log('📝 Found server edit content:', data.data.editContent);
@@ -409,38 +421,69 @@ export default function PurchaseContentModal({
       hasGeneratedContent: hasGeneratedContent,
       generatedContentId: generatedContent?.id,
       hasUpdatedTweet: localContent?.updatedTweet || generatedContent?.updatedTweet,
-      hasUpdatedThread: localContent?.updatedThread || generatedContent?.updatedThread
+      hasUpdatedThread: localContent?.updatedThread || generatedContent?.updatedThread,
+      // Video debug info
+      localContent_isVideo: localContent?.is_video,
+      localContent_hasVideoUrl: !!localContent?.video_url,
+      localContent_hasWatermarkVideoUrl: !!localContent?.watermark_video_url,
+      originalContent_isVideo: content?.is_video,
+      originalContent_hasVideoUrl: !!content?.video_url,
+      // Purchase state debug
+      isPurchased: isPurchased,
+      actualIsPurchased: isPurchased || !!purchasedContentDetails?.transactionHash,
+      hasPurchasedContentDetails: !!purchasedContentDetails,
+      transactionHash: purchasedContentDetails?.transactionHash?.substring(0, 20) + '...'
     });
     
     // First priority: Check if we have content with updated text (text-only regeneration)
     // Make sure the local content matches the current content ID
     if (localContent && localContent.id === content.id && (localContent.updatedTweet || localContent.updatedThread)) {
-      console.log('🔍 Using local content with updates');
+      console.log('🔍 Using local content with updates - Video fields:', {
+        is_video: localContent.is_video,
+        hasVideoUrl: !!localContent.video_url,
+        hasWatermarkVideoUrl: !!localContent.watermark_video_url
+      });
       return localContent
     }
     
     // Second priority: Check if generated content has updated text (text-only regeneration)
     // Make sure the generated content matches the current content ID
     if (hasGeneratedContent && generatedContent && generatedContent.id === content.id && (generatedContent.updatedTweet || generatedContent.updatedThread)) {
-      console.log('🔍 Using generated content with updates');
+      console.log('🔍 Using generated content with updates - Video fields:', {
+        is_video: generatedContent.is_video,
+        hasVideoUrl: !!generatedContent.video_url,
+        hasWatermarkVideoUrl: !!generatedContent.watermark_video_url
+      });
       return generatedContent
     }
     
     // Third priority: Check if we have generated content (full regeneration)
     // Make sure the generated content matches the current content ID
     if (hasGeneratedContent && generatedContent && generatedContent.id === content.id) {
-      console.log('🔍 Using generated content');
+      console.log('🔍 Using generated content - Video fields:', {
+        is_video: generatedContent.is_video,
+        hasVideoUrl: !!generatedContent.video_url,
+        hasWatermarkVideoUrl: !!generatedContent.watermark_video_url
+      });
       return generatedContent
     }
     
     // Fourth priority: Use local content if available and matches current content ID
     if (localContent && localContent.id === content.id) {
-      console.log('🔍 Using local content');
+      console.log('🔍 Using local content - Video fields:', {
+        is_video: localContent.is_video,
+        hasVideoUrl: !!localContent.video_url,
+        hasWatermarkVideoUrl: !!localContent.watermark_video_url
+      });
       return localContent
     }
     
     // Fallback: Use the current content prop
-    console.log('🔍 Using original content prop');
+    console.log('🔍 Using original content prop - Video fields:', {
+      is_video: content.is_video,
+      hasVideoUrl: !!content.video_url,
+      hasWatermarkVideoUrl: !!content.watermark_video_url
+    });
     return content
   }
 
@@ -528,10 +571,13 @@ export default function PurchaseContentModal({
       // For fusion mode, scroll to the Edit Tweet UI after a brief delay to ensure it's rendered
       setTimeout(() => {
         if (editTweetUIRef.current) {
+          // Check if we're on mobile/tablet (screen width < 1024px for lg breakpoint)
+          const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+          
           // Scroll to the Edit Tweet UI with smooth animation
           editTweetUIRef.current.scrollIntoView({
             behavior: 'smooth',
-            block: 'start',
+            block: isMobile ? 'center' : 'start', // Center on mobile, start on desktop
             inline: 'nearest'
           });
           
@@ -1628,8 +1674,24 @@ export default function PurchaseContentModal({
     // This prevents overwriting generated content (both text-only and full regeneration) with old content from props
     if (!hasGeneratedContent || !generatedContent) {
       console.log('🔄 Updating local content from prop (no generated content)')
-      setLocalContent(content)
-      setOriginalContent(content)
+      
+      // If we already have localContent with video fields, preserve them when updating from prop
+      if (localContent && localContent.id === content?.id && localContent.is_video && !content?.is_video) {
+        console.log('🛡️ Preserving video fields from existing localContent when updating from prop')
+        const updatedContent = {
+          ...content,
+          // Preserve video fields from existing localContent
+          is_video: localContent.is_video,
+          video_url: localContent.video_url,
+          watermark_video_url: localContent.watermark_video_url,
+          video_duration: localContent.video_duration
+        }
+        setLocalContent(updatedContent)
+        setOriginalContent(updatedContent)
+      } else {
+        setLocalContent(content)
+        setOriginalContent(content)
+      }
     } else {
       console.log('🛡️ Preserving generated content (not overwriting with prop)')
     }
@@ -1886,7 +1948,9 @@ export default function PurchaseContentModal({
       console.log('🔍 Before state update - isPurchased:', isPurchased);
       setIsPurchased(true)
       setShowTweetManagement(true)
-      console.log('✅ State update calls completed - isPurchased should now be true');
+      // Force contentData recalculation to show unwatermarked content
+      setContentUpdateTrigger(prev => prev + 1)
+      console.log('✅ State update calls completed - isPurchased should now be true, contentData will recalculate');
       
       // Refresh edit data after purchase to get unwatermarked URLs
       console.log('🔄 Refreshing edit data after purchase...')
@@ -1896,6 +1960,41 @@ export default function PurchaseContentModal({
       await new Promise(resolve => setTimeout(resolve, 3000))
       
       await refreshEditDataAfterPurchase(contentToPurchase.id)
+      
+      // Refresh main content data to get updated video URLs and purchase status
+      console.log('🔄 Refreshing main content data after purchase...')
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        
+        if (address) {
+          headers.Authorization = `Bearer ${address}`;
+        }
+        
+        const response = await fetch(`/api/marketplace/content/${contentToPurchase.id}`, {
+          method: 'GET',
+          headers
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data.content) {
+            console.log('🔄 Updating localContent with post-purchase content data:', {
+              id: data.data.content.id,
+              is_video: data.data.content.is_video,
+              video_url: data.data.content.video_url?.substring(0, 100) + '...',
+              watermark_video_url: data.data.content.watermark_video_url?.substring(0, 100) + '...'
+            });
+            setLocalContent(data.data.content);
+            console.log('✅ Main content data refreshed after purchase');
+          }
+        } else {
+          console.error('❌ Failed to refresh main content data after purchase');
+        }
+      } catch (error) {
+        console.error('❌ Error refreshing main content data after purchase:', error);
+      }
       
       // Track purchase completion
       mixpanel.purchaseCompleted({
@@ -1921,6 +2020,9 @@ export default function PurchaseContentModal({
         currency: currency,
         transactionHash: transactionHash || ''
       })
+      
+      // Force contentData recalculation again to ensure unwatermarked content shows
+      setContentUpdateTrigger(prev => prev + 1)
       
       console.log('✅ Purchase success state set - isPurchased:', true, 'showTweetManagement:', true)
       
@@ -2449,6 +2551,53 @@ export default function PurchaseContentModal({
     }
   }
 
+  // Download video function (from TweetPreviewModal)
+  const downloadVideo = async (videoUrl: string, filename: string = 'tweet-video.mp4') => {
+    try {
+      // For mobile devices, use direct link approach to avoid blob URL issues
+      if (isMobileDevice()) {
+        console.log('📱 Mobile device detected, using direct download approach for video')
+        
+        // Create a temporary link with download attribute
+        const link = document.createElement('a')
+        link.href = videoUrl
+        link.download = filename
+        link.target = '_blank'
+        link.rel = 'noopener noreferrer'
+        
+        // Add to document, click, and remove
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        
+        console.log('✅ Mobile video download initiated')
+        return
+      }
+      
+      // For desktop, use the blob approach (which works better on desktop)
+      const response = await fetch(videoUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.status}`);
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      console.log('✅ Desktop video download initiated');
+    } catch (error) {
+      console.error('❌ Failed to download video:', error);
+      console.log('🔄 Falling back to opening video in new tab')
+      window.open(videoUrl, '_blank');
+    }
+  }
+
   // Twitter posting function
   const handlePostToTwitter = async () => {
     const currentContent = getCurrentContent()
@@ -2474,35 +2623,52 @@ export default function PurchaseContentModal({
         extractedImageUrl = formatted.imageUrl
       }
       
-      // Determine the correct image URL to use for Twitter posting
+      // Determine the correct media URLs to use for Twitter posting
       let displayImage: string | null = null;
+      let displayVideo: string | null = null;
       const actualIsPurchased = isPurchased || !!purchasedContentDetails?.transactionHash;
       
-      // Priority 1: Use edited image if available
-      if (completedEdit?.newImageUrl || serverEditContent?.newImageUrl) {
+      // Video URL logic - prioritize video over image
+      if (currentContent.is_video) {
         if (actualIsPurchased) {
-          // Post-purchase: Use unwatermarked edited image
-          displayImage = completedEdit?.newImageUrl || serverEditContent?.newImageUrl;
-          console.log('🐦 Twitter posting: Using unwatermarked edited image (post-purchase):', displayImage?.substring(0, 100) + '...');
+          // Post-purchase: Use unwatermarked video
+          displayVideo = currentContent.video_url || null;
+          console.log('🎬 Twitter posting: Using unwatermarked video (post-purchase):', displayVideo?.substring(0, 100) + '...');
         } else {
-          // Pre-purchase: Use watermarked edited image
-          displayImage = completedEdit?.newWatermarkImageUrl || serverEditContent?.newWatermarkImageUrl || 
-                        completedEdit?.newImageUrl || serverEditContent?.newImageUrl;
-          console.log('🐦 Twitter posting: Using watermarked edited image (pre-purchase):', displayImage?.substring(0, 100) + '...');
+          // Pre-purchase: Use watermarked video, fallback to unwatermarked
+          displayVideo = currentContent.watermark_video_url || currentContent.video_url || null;
+          console.log('🎬 Twitter posting: Using watermarked video (pre-purchase):', displayVideo?.substring(0, 100) + '...');
         }
-      } else {
-        // Priority 2: Fall back to original content images
-        if (actualIsPurchased) {
-          // Post-purchase: Use original unwatermarked image
-          displayImage = currentContent.content_images && currentContent.content_images.length > 0 
-            ? currentContent.content_images[0] 
-            : extractedImageUrl;
-          console.log('🐦 Twitter posting: Using original unwatermarked image (post-purchase):', displayImage?.substring(0, 100) + '...');
+      }
+      
+      // Image URL logic - only if no video
+      if (!displayVideo) {
+        // Priority 1: Use edited image if available
+        if (completedEdit?.newImageUrl || serverEditContent?.newImageUrl) {
+          if (actualIsPurchased) {
+            // Post-purchase: Use unwatermarked edited image
+            displayImage = completedEdit?.newImageUrl || serverEditContent?.newImageUrl;
+            console.log('🐦 Twitter posting: Using unwatermarked edited image (post-purchase):', displayImage?.substring(0, 100) + '...');
+          } else {
+            // Pre-purchase: Use watermarked edited image
+            displayImage = completedEdit?.newWatermarkImageUrl || serverEditContent?.newWatermarkImageUrl || 
+                          completedEdit?.newImageUrl || serverEditContent?.newImageUrl;
+            console.log('🐦 Twitter posting: Using watermarked edited image (pre-purchase):', displayImage?.substring(0, 100) + '...');
+          }
         } else {
-          // Pre-purchase: Use watermarked original image
-          displayImage = currentContent.watermark_image || 
-                        (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl);
-          console.log('🐦 Twitter posting: Using watermarked original image (pre-purchase):', displayImage?.substring(0, 100) + '...');
+          // Priority 2: Fall back to original content images
+          if (actualIsPurchased) {
+            // Post-purchase: Use original unwatermarked image
+            displayImage = currentContent.content_images && currentContent.content_images.length > 0 
+              ? currentContent.content_images[0] 
+              : extractedImageUrl;
+            console.log('🐦 Twitter posting: Using original unwatermarked image (post-purchase):', displayImage?.substring(0, 100) + '...');
+          } else {
+            // Pre-purchase: Use watermarked original image
+            displayImage = currentContent.watermark_image || 
+                          (currentContent.content_images && currentContent.content_images.length > 0 ? currentContent.content_images[0] : extractedImageUrl);
+            console.log('🐦 Twitter posting: Using watermarked original image (pre-purchase):', displayImage?.substring(0, 100) + '...');
+          }
         }
       }
 
@@ -2519,6 +2685,7 @@ export default function PurchaseContentModal({
         mainTweet: tweetText,
         thread: processedThread,
         imageUrl: displayImage,
+        videoUrl: displayVideo,
         contentId: currentContent.id,
         platformSource: 'PurchaseContentModal'
       }
@@ -3390,7 +3557,16 @@ export default function PurchaseContentModal({
     const _ = contentUpdateTrigger; // Force recalculation
     
     const currentContent = getCurrentContent()
-    if (!currentContent) return { text: '', hashtags: [], characterCount: 0, imageUrl: '', shouldUseMarkdown: false }
+    if (!currentContent) return { 
+      text: '', 
+      hashtags: [], 
+      characterCount: 0, 
+      imageUrl: null, 
+      videoUrl: null, 
+      isVideo: false, 
+      videoDuration: null, 
+      shouldUseMarkdown: false 
+    }
     
     // Debug: Log the actual content state being used
     console.log('🔍 contentData - currentContent state:', {
@@ -3399,7 +3575,12 @@ export default function PurchaseContentModal({
       updatedTweet: currentContent.updatedTweet?.substring(0, 50) + '...',
       updatedThread: currentContent.updatedThread?.length || 0,
       hasUpdatedTweet: !!currentContent.updatedTweet,
-      hasUpdatedThread: !!currentContent.updatedThread
+      hasUpdatedThread: !!currentContent.updatedThread,
+      // Video debug info
+      is_video: currentContent.is_video,
+      video_url: currentContent.video_url?.substring(0, 100) + '...',
+      watermark_video_url: currentContent.watermark_video_url?.substring(0, 100) + '...',
+      video_duration: currentContent.video_duration
     });
     
     const shouldUseMarkdown = isMarkdownContent(currentContent.post_type)
@@ -3456,6 +3637,31 @@ export default function PurchaseContentModal({
     
     console.log('🎯 [contentData] FINAL imageUrl value:', imageUrl);
     
+    // Video URL logic - similar to image logic
+    let videoUrl: string | null = null;
+    if (currentContent?.is_video) {
+      console.log('🎬 [contentData] Video URL selection debug:', {
+        is_video: currentContent.is_video,
+        actualIsPurchased: actualIsPurchased,
+        video_url: currentContent.video_url?.substring(0, 100) + '...',
+        watermark_video_url: currentContent.watermark_video_url?.substring(0, 100) + '...',
+        isPurchased: isPurchased,
+        hasTransactionHash: !!purchasedContentDetails?.transactionHash,
+        transactionHash: purchasedContentDetails?.transactionHash?.substring(0, 20) + '...'
+      });
+      
+      if (actualIsPurchased) {
+        // Post-purchase: show unwatermarked video
+        videoUrl = currentContent.video_url || null;
+        console.log('🎬 [contentData] Using unwatermarked video (post-purchase):', videoUrl?.substring(0, 100) + '...');
+      } else {
+        // Pre-purchase: show watermarked video, fallback to unwatermarked
+        videoUrl = currentContent.watermark_video_url || currentContent.video_url || null;
+        console.log('🎬 [contentData] Using watermarked video (pre-purchase):', videoUrl?.substring(0, 100) + '...');
+      }
+    }
+    console.log('🎯 [contentData] FINAL videoUrl value:', videoUrl?.substring(0, 100) + '...');
+    
     const hashtags = extractHashtags(text)
     
     const result = {
@@ -3463,6 +3669,9 @@ export default function PurchaseContentModal({
       hashtags,
       characterCount: text?.length || 0,
       imageUrl,
+      videoUrl,
+      isVideo: currentContent?.is_video || false,
+      videoDuration: currentContent?.video_duration || null,
       shouldUseMarkdown: Boolean(shouldUseMarkdown || forceMarkdown)
     }
     
@@ -3471,7 +3680,12 @@ export default function PurchaseContentModal({
       trigger: contentUpdateTrigger,
       text: result.text?.substring(0, 100) + '...',
       hasUpdatedTweet: !!currentContent.updatedTweet,
-      hasUpdatedThread: !!currentContent.updatedThread
+      hasUpdatedThread: !!currentContent.updatedThread,
+      // Video debug info
+      isVideo: result.isVideo,
+      videoUrl: result.videoUrl?.substring(0, 100) + '...',
+      videoDuration: result.videoDuration,
+      imageUrl: result.imageUrl?.substring(0, 100) + '...'
     });
     
     return result
@@ -3621,19 +3835,10 @@ export default function PurchaseContentModal({
         <div className="flex flex-col lg:flex-row max-h-[90vh] gap-0 lg:gap-4 overflow-y-auto lg:overflow-hidden touch-pan-y">
           {/* Left Panel - Tweet Preview + Mobile Purchase Options Combined */}
             <div className="flex flex-col w-full lg:w-1/2 pt-12 pb-4 px-4 lg:p-8 bg-[#121418] rounded-none lg:rounded-2xl min-h-screen lg:min-h-0">
-            {/* Tweet Preview Header with Edit Options */}
+            {/* Tweet Preview Header */}
             <div className="flex items-center justify-between mb-4 lg:mb-6">
               <h2 className="text-white/80 text-base lg:text-lg font-medium">
                 Tweet preview
-                {address && (
-                  <TweetEditDropdown 
-                    contentId={content?.id || 0}
-                    isPurchased={!!content?.purchased_at}
-                    walletAddress={address}
-                    onEditSelect={handleEditSelect}
-                    refreshCredits={dropdownRefreshCredits}
-                  />
-                )}
               </h2>
             </div>
 
@@ -3710,24 +3915,46 @@ export default function PurchaseContentModal({
                       {/* For longposts: Image first, then content */}
                       {contentData.shouldUseMarkdown ? (
                         <>
-                          {/* Longpost Image at top */}
+                          {/* Longpost Video/Image at top */}
                           {(isGeneratingContent && !isTextOnlyGeneration) || (isProcessingEdit && !editError) ? (
                             <ImageShimmer />
-                          ) : (
-                            contentData.imageUrl ? (
-                            <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
-                              <Image
-                                src={contentData.imageUrl} 
-                                alt="Tweet content"
-                                width={500}
-                                height={300}
-                                className="w-full h-auto object-cover"
+                          ) : (() => {
+                            // Debug video display logic for longpost
+                            console.log('🎬 [Longpost Content] Video display check:', {
+                              isVideo: contentData.isVideo,
+                              hasVideoUrl: !!contentData.videoUrl,
+                              videoUrl: contentData.videoUrl?.substring(0, 100) + '...',
+                              hasImageUrl: !!contentData.imageUrl,
+                              imageUrl: contentData.imageUrl?.substring(0, 100) + '...',
+                              willShowVideo: contentData.isVideo && contentData.videoUrl,
+                              willShowImage: !contentData.isVideo || !contentData.videoUrl
+                            });
+                            
+                            // Video content handling for longpost - prioritize video over image
+                            return contentData.isVideo && contentData.videoUrl ? (
+                              <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
+                                <VideoPlayer
+                                  src={contentData.videoUrl}
+                                  poster={contentData.imageUrl || undefined}
+                                  autoPlay={true}
+                                  muted={false}
+                                  controls={true}
+                                  className="w-full h-auto"
+                                />
+                              </div>
+                            ) : contentData.imageUrl ? (
+                              <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
+                                <Image
+                                  src={contentData.imageUrl} 
+                                  alt="Tweet content"
+                                  width={500}
+                                  height={300}
+                                  className="w-full h-auto object-cover"
                                   unoptimized={isPresignedS3Url(contentData.imageUrl)}
-                              />
-
-                            </div>
-                            ) : null
-                          )}
+                                />
+                              </div>
+                            ) : null;
+                          })()}
                           
                           {/* Longpost Content with white text styling */}
                           <div className="text-white text-xs lg:text-sm leading-relaxed mb-3 pr-2">
@@ -3786,24 +4013,46 @@ export default function PurchaseContentModal({
                             )}
                           </div>
                           
-                          {/* Tweet Images for regular content */}
+                          {/* Tweet Video/Images for regular content */}
                           {(isGeneratingContent && !isTextOnlyGeneration) || (isProcessingEdit && !editError) ? (
                             <ImageShimmer />
-                          ) : (
-                            contentData.imageUrl ? (
-                            <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
-                              <Image
-                                src={contentData.imageUrl} 
-                                alt="Tweet content"
-                                width={500}
-                                height={300}
-                                className="w-full h-auto object-cover"
+                          ) : (() => {
+                            // Debug video display logic
+                            console.log('🎬 [Regular Content] Video display check:', {
+                              isVideo: contentData.isVideo,
+                              hasVideoUrl: !!contentData.videoUrl,
+                              videoUrl: contentData.videoUrl?.substring(0, 100) + '...',
+                              hasImageUrl: !!contentData.imageUrl,
+                              imageUrl: contentData.imageUrl?.substring(0, 100) + '...',
+                              willShowVideo: contentData.isVideo && contentData.videoUrl,
+                              willShowImage: !contentData.isVideo || !contentData.videoUrl
+                            });
+                            
+                            // Video content handling - prioritize video over image
+                            return contentData.isVideo && contentData.videoUrl ? (
+                              <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
+                                <VideoPlayer
+                                  src={contentData.videoUrl}
+                                  poster={contentData.imageUrl || undefined}
+                                  autoPlay={true}
+                                  muted={false}
+                                  controls={true}
+                                  className="w-full h-auto"
+                                />
+                              </div>
+                            ) : contentData.imageUrl ? (
+                              <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
+                                <Image
+                                  src={contentData.imageUrl} 
+                                  alt="Tweet content"
+                                  width={500}
+                                  height={300}
+                                  className="w-full h-auto object-cover"
                                   unoptimized={isPresignedS3Url(contentData.imageUrl)}
-                              />
-
-                            </div>
-                            ) : null
-                          )}
+                                />
+                              </div>
+                            ) : null;
+                          })()}
                         </>
                       )}
 
@@ -4447,6 +4696,20 @@ export default function PurchaseContentModal({
                   
 
 
+                  {/* Edit Tweet Button - Mobile/Tablet */}
+                  {address && !(() => {
+                    const currentContent = getCurrentContent();
+                    return currentContent?.is_video || currentContent?.video_url || currentContent?.watermark_video_url;
+                  })() && (
+                    <TweetEditDropdown 
+                      contentId={content?.id || 0}
+                      isPurchased={!!content?.purchased_at}
+                      walletAddress={address}
+                      onEditSelect={handleEditSelect}
+                      refreshCredits={dropdownRefreshCredits}
+                    />
+                  )}
+
                   {/* Action Button - Changes based on selected voice tone and generation state */}
                   {!isPurchased ? (
                     // Show Buy Tweet view when not purchased
@@ -4755,7 +5018,29 @@ export default function PurchaseContentModal({
                                     onClick={handlePostToTwitter}
                                     disabled={isPostingToTwitter}
                                     className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3"
-                                    style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
+                                  style={{ display: (() => {
+                                    const hasVideo = localContent?.is_video || localContent?.video_url;
+                                    const needsAuth = hasVideo 
+                                      ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                                      : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                                    
+                                    console.log('🔍 [PurchaseContentModal] Tweet button display logic:', {
+                                      hasVideo,
+                                      localContent_isVideo: localContent?.is_video,
+                                      localContent_hasVideoUrl: !!localContent?.video_url,
+                                      localContent_id: localContent?.id,
+                                      needsAuth,
+                                      capabilities: twitter.capabilities,
+                                      needsVideoReconnection: twitter.capabilities?.needsVideoReconnection,
+                                      needs_video_reconnection: twitter.capabilities?.needs_video_reconnection,
+                                      needsReconnection: twitter.capabilities?.needsReconnection,
+                                      needs_reconnection: twitter.capabilities?.needs_reconnection,
+                                      showTweetButton: !needsAuth,
+                                      logicPath: hasVideo ? 'VIDEO_PATH' : 'IMAGE_PATH'
+                                    });
+                                    
+                                    return !needsAuth ? 'block' : 'none';
+                                  })() }}
                                   >
                                     {isPostingToTwitter ? (
                                       <div className="flex items-center justify-center gap-2">
@@ -4773,7 +5058,29 @@ export default function PurchaseContentModal({
                                   onClick={handleTwitterAuth}
                                   disabled={twitter.isLoading}
                                   className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
-                                  style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
+                                style={{ display: (() => {
+                                  const hasVideo = localContent?.is_video || localContent?.video_url;
+                                  const needsAuth = hasVideo 
+                                    ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                                    : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                                  
+                                  console.log('🔍 [PurchaseContentModal] Grant Access button display logic:', {
+                                    hasVideo,
+                                    localContent_isVideo: localContent?.is_video,
+                                    localContent_hasVideoUrl: !!localContent?.video_url,
+                                    localContent_id: localContent?.id,
+                                    needsAuth,
+                                    capabilities: twitter.capabilities,
+                                    needsVideoReconnection: twitter.capabilities?.needsVideoReconnection,
+                                    needs_video_reconnection: twitter.capabilities?.needs_video_reconnection,
+                                    needsReconnection: twitter.capabilities?.needsReconnection,
+                                    needs_reconnection: twitter.capabilities?.needs_reconnection,
+                                    showGrantAccessButton: needsAuth,
+                                    logicPath: hasVideo ? 'VIDEO_PATH' : 'IMAGE_PATH'
+                                  });
+                                  
+                                  return needsAuth ? 'block' : 'none';
+                                })() }}
                                 >
                                   {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
                                 </button>
@@ -4861,19 +5168,29 @@ export default function PurchaseContentModal({
                                       title: 'Tweet 1', 
                                       text: tweetText || 'Sample tweet content will appear here...' 
                                   },
-                                  ...(displayImage ? [{ 
+                                  // Prioritize video over image - only show one
+                                  ...(currentContent.is_video ? (() => {
+                                    // Video logic: show watermarked before purchase, unwatermarked after purchase
+                                    let displayVideo: string | null = null;
+                                    
+                                    if (actualIsPurchased) {
+                                      // Post-purchase: show unwatermarked video
+                                      displayVideo = currentContent.video_url || null;
+                                      console.log('🎬 [Section 1] Using unwatermarked video (post-purchase):', displayVideo);
+                                    } else {
+                                      // Pre-purchase: show watermarked video, fallback to unwatermarked
+                                      displayVideo = currentContent.watermark_video_url || currentContent.video_url || null;
+                                      console.log('🎬 [Section 1] Using watermarked video (pre-purchase):', displayVideo);
+                                    }
+                                    
+                                    return displayVideo ? [{ 
+                                      title: 'Tweet 1 (Video)', 
+                                      video: displayVideo,
+                                      videoDuration: currentContent.video_duration
+                                    }] : [];
+                                  })() : displayImage ? [{ 
                                       title: 'Tweet 1 (Image)', 
                                       image: displayImage 
-                                  }] : []),
-                                  ...(currentContent.is_video && currentContent.watermark_video_url ? [{ 
-                                      title: 'Tweet 1 (Video)', 
-                                      video: currentContent.watermark_video_url,
-                                      videoDuration: currentContent.video_duration
-                                  }] : []),
-                                  ...(currentContent.is_video && !currentContent.watermark_video_url && currentContent.video_url ? [{ 
-                                      title: 'Tweet 1 (Video)', 
-                                      video: currentContent.video_url,
-                                      videoDuration: currentContent.video_duration
                                   }] : []),
                                   ...(processedThreadItems.map((tweet, idx) => ({ 
                                       title: `Tweet ${idx + 2}`, 
@@ -4888,15 +5205,17 @@ export default function PurchaseContentModal({
                                     <button
                                       type="button" 
                                       onClick={() => {
-                                        if (section.text) {
+                                        if ('text' in section && section.text) {
                                           navigator.clipboard?.writeText(section.text);
-                                        } else if (section.image) {
-                                          downloadImage(String(section.image), `tweet-image-${idx + 1}.png`);
+                                        } else if ('image' in section && (section as any).image) {
+                                          downloadImage(String((section as any).image), `tweet-image-${idx + 1}.png`);
+                                        } else if ('video' in section && (section as any).video) {
+                                          downloadVideo(String((section as any).video), `tweet-video-${idx + 1}.mp4`);
                                         }
                                       }}
                                       className="text-[#FD7A10] border border-[#FD7A10] rounded-sm px-2 py-1 text-xs flex flex-row gap-1 items-center cursor-pointer hover:bg-[#FD7A10] hover:text-white transition-colors"
                                     >
-                                      {section.image ? (
+                                      {(('image' in section && (section as any).image) || ('video' in section && (section as any).video)) ? (
                                         <>
                                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -4916,41 +5235,41 @@ export default function PurchaseContentModal({
                                       )}
                                     </button>
                                   </div>
-                                  {section.text && (
+                                  {('text' in section && section.text) && (
                                     <div className="text-white/80 text-sm leading-relaxed">
                                       {forceMarkdown ? (
                                         <div 
                                           className="markdown-content max-w-none"
                                           dangerouslySetInnerHTML={{ 
-                                            __html: markdownToHTML(section.text)
+                                            __html: markdownToHTML('text' in section ? section.text : '')
                                           }}
                                         />
                                       ) : (
-                                        section.text
+                                        'text' in section ? section.text : ''
                                       )}
                                     </div>
                                   )}
-                                  {section.image && (
+                                  {('image' in section && (section as any).image) && (
                                     <div className="mt-3">
                                       <img 
-                                        src={section.image} 
+                                        src={(section as any).image} 
                                         alt="Tweet image" 
                                         className="w-full h-auto rounded-md"
                                       />
                                     </div>
                                   )}
-                                  {section.video && (
+                                  {('video' in section && (section as any).video) && (
                                     <div className="mt-3">
                                       <VideoPlayer
-                                        src={section.video}
+                                        src={(section as any).video}
                                         autoPlay={true}
                                         muted={true}
                                         controls={true}
                                         className="w-full h-auto rounded-md"
                                       />
-                                      {section.videoDuration && (
+                                      {('videoDuration' in section && (section as any).videoDuration) && (
                                         <div className="mt-2 text-xs text-white/60">
-                                          Duration: {section.videoDuration}s
+                                          Duration: {(section as any).videoDuration}s
                                         </div>
                                       )}
                                     </div>
@@ -5177,7 +5496,26 @@ export default function PurchaseContentModal({
                                 onClick={handlePostToTwitter}
                                 disabled={isPostingToTwitter}
                                 className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed mb-3"
-                                style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
+                                style={{ display: (() => {
+                                  const hasVideo = localContent?.is_video || localContent?.video_url;
+                                  const needsAuth = hasVideo 
+                                    ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                                    : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                                  
+                                  console.log('🔍 [PurchaseContentModal] Tweet button #2 display logic:', {
+                                    hasVideo,
+                                    localContent_isVideo: localContent?.is_video,
+                                    localContent_hasVideoUrl: !!localContent?.video_url,
+                                    localContent_id: localContent?.id,
+                                    needsAuth,
+                                    capabilities: twitter.capabilities,
+                                    needsVideoReconnection: twitter.capabilities?.needsVideoReconnection,
+                                    showTweetButton: !needsAuth,
+                                    logicPath: hasVideo ? 'VIDEO_PATH' : 'IMAGE_PATH'
+                                  });
+                                  
+                                  return !needsAuth ? 'block' : 'none';
+                                })() }}
                               >
                                 {isPostingToTwitter ? (
                                   <div className="flex items-center justify-center gap-2">
@@ -5195,7 +5533,26 @@ export default function PurchaseContentModal({
                               onClick={handleTwitterAuth}
                               disabled={twitter.isLoading}
                               className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
-                              style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
+                              style={{ display: (() => {
+                                const hasVideo = localContent?.is_video || localContent?.video_url;
+                                const needsAuth = hasVideo 
+                                  ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                                  : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                                
+                                console.log('🔍 [PurchaseContentModal] Grant Access button #2 display logic:', {
+                                  hasVideo,
+                                  localContent_isVideo: localContent?.is_video,
+                                  localContent_hasVideoUrl: !!localContent?.video_url,
+                                  localContent_id: localContent?.id,
+                                  needsAuth,
+                                  capabilities: twitter.capabilities,
+                                  needsVideoReconnection: twitter.capabilities?.needsVideoReconnection,
+                                  showGrantAccessButton: needsAuth,
+                                  logicPath: hasVideo ? 'VIDEO_PATH' : 'IMAGE_PATH'
+                                });
+                                
+                                return needsAuth ? 'block' : 'none';
+                              })() }}
                             >
                               {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
                             </button>
@@ -5283,19 +5640,29 @@ export default function PurchaseContentModal({
                                   title: 'Tweet 1', 
                                   text: tweetText || 'Sample tweet content will appear here...' 
                               },
-                              ...(displayImage ? [{ 
+                              // Prioritize video over image - only show one
+                              ...(currentContent.is_video ? (() => {
+                                // Video logic: show watermarked before purchase, unwatermarked after purchase
+                                let displayVideo: string | null = null;
+                                
+                                if (actualIsPurchased) {
+                                  // Post-purchase: show unwatermarked video
+                                  displayVideo = currentContent.video_url || null;
+                                  console.log('🎬 [Section 2] Using unwatermarked video (post-purchase):', displayVideo);
+                                } else {
+                                  // Pre-purchase: show watermarked video, fallback to unwatermarked
+                                  displayVideo = currentContent.watermark_video_url || currentContent.video_url || null;
+                                  console.log('🎬 [Section 2] Using watermarked video (pre-purchase):', displayVideo);
+                                }
+                                
+                                return displayVideo ? [{ 
+                                  title: 'Tweet 1 (Video)', 
+                                  video: displayVideo,
+                                  videoDuration: currentContent.video_duration
+                                }] : [];
+                              })() : displayImage ? [{ 
                                   title: 'Tweet 1 (Image)', 
                                   image: displayImage 
-                              }] : []),
-                              ...(currentContent.is_video && currentContent.watermark_video_url ? [{ 
-                                  title: 'Tweet 1 (Video)', 
-                                  video: currentContent.watermark_video_url,
-                                  videoDuration: currentContent.video_duration
-                              }] : []),
-                              ...(currentContent.is_video && !currentContent.watermark_video_url && currentContent.video_url ? [{ 
-                                  title: 'Tweet 1 (Video)', 
-                                  video: currentContent.video_url,
-                                  videoDuration: currentContent.video_duration
                               }] : []),
                               ...(processedThreadItems.map((tweet, idx) => ({ 
                                   title: `Tweet ${idx + 2}`, 
@@ -5310,15 +5677,17 @@ export default function PurchaseContentModal({
                                 <button
                                   type="button" 
                                   onClick={() => {
-                                    if (section.text) {
+                                    if ('text' in section && section.text) {
                                       navigator.clipboard?.writeText(section.text);
-                                    } else if (section.image) {
-                                      downloadImage(String(section.image), `tweet-image-${idx + 1}.png`);
+                                    } else if ('image' in section && (section as any).image) {
+                                      downloadImage(String((section as any).image), `tweet-image-${idx + 1}.png`);
+                                    } else if ('video' in section && (section as any).video) {
+                                      downloadVideo(String((section as any).video), `tweet-video-${idx + 1}.mp4`);
                                     }
                                   }}
                                   className="text-[#FD7A10] border border-[#FD7A10] rounded-sm px-2 py-1 text-xs flex flex-row gap-1 items-center cursor-pointer hover:bg-[#FD7A10] hover:text-white transition-colors"
                                 >
-                                  {section.image ? (
+                                  {((section as any).image || (section as any).video) ? (
                                     <>
                                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -5338,41 +5707,41 @@ export default function PurchaseContentModal({
                                   )}
                                 </button>
                               </div>
-                              {section.text && (
+                              {('text' in section && section.text) && (
                                 <div className="text-white/80 text-sm leading-relaxed">
                                   {forceMarkdown ? (
                                     <div 
                                       className="markdown-content max-w-none"
                                       dangerouslySetInnerHTML={{ 
-                                        __html: markdownToHTML(section.text)
+                                        __html: markdownToHTML('text' in section ? section.text : '')
                                       }}
                                     />
                                   ) : (
-                                    section.text
+                                    'text' in section ? section.text : ''
                                   )}
                                 </div>
                               )}
-                              {section.image && (
+                              {(section as any).image && (
                                 <div className="mt-3">
                                   <img 
-                                    src={section.image} 
+                                    src={(section as any).image} 
                                     alt="Tweet image" 
                                     className="w-full h-auto rounded-md"
                                   />
                                 </div>
                               )}
-                              {section.video && (
+                              {(section as any).video && (
                                 <div className="mt-3">
                                   <VideoPlayer
-                                    src={section.video}
+                                    src={(section as any).video}
                                     autoPlay={true}
                                     muted={true}
                                     controls={true}
                                     className="w-full h-auto rounded-md"
                                   />
-                                  {section.videoDuration && (
+                                  {(section as any).videoDuration && (
                                     <div className="mt-2 text-xs text-white/60">
-                                      Duration: {section.videoDuration}s
+                                      Duration: {(section as any).videoDuration}s
                                     </div>
                                   )}
                                 </div>
@@ -5760,7 +6129,19 @@ export default function PurchaseContentModal({
                 </div>
               )}
               
-
+              {/* Edit Tweet Button - Desktop */}
+              {address && !(() => {
+                const currentContent = getCurrentContent();
+                return currentContent?.is_video || currentContent?.video_url || currentContent?.watermark_video_url;
+              })() && (
+                <TweetEditDropdown 
+                  contentId={content?.id || 0}
+                  isPurchased={!!content?.purchased_at}
+                  walletAddress={address}
+                  onEditSelect={handleEditSelect}
+                  refreshCredits={dropdownRefreshCredits}
+                />
+              )}
 
               <button
                 onClick={() => {
@@ -6091,7 +6472,26 @@ export default function PurchaseContentModal({
                             onClick={handlePostToTwitter}
                             disabled={isPostingToTwitter}
                             className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            style={{ display: (twitter.isConnected && twitter.tokenStatus === 'valid') ? 'block' : 'none' }}
+                            style={{ display: (() => {
+                              const hasVideo = localContent?.is_video || localContent?.video_url;
+                              const needsAuth = hasVideo 
+                                ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                                : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                              
+                              console.log('🔍 [PurchaseContentModal] Tweet button #3 display logic:', {
+                                hasVideo,
+                                localContent_isVideo: localContent?.is_video,
+                                localContent_hasVideoUrl: !!localContent?.video_url,
+                                localContent_id: localContent?.id,
+                                needsAuth,
+                                capabilities: twitter.capabilities,
+                                needsVideoReconnection: twitter.capabilities?.needsVideoReconnection,
+                                showTweetButton: !needsAuth,
+                                logicPath: hasVideo ? 'VIDEO_PATH' : 'IMAGE_PATH'
+                              });
+                              
+                              return !needsAuth ? 'block' : 'none';
+                            })() }}
                           >
                             {isPostingToTwitter ? (
                               <div className="flex items-center justify-center gap-2">
@@ -6109,7 +6509,26 @@ export default function PurchaseContentModal({
                           onClick={handleTwitterAuth}
                           disabled={twitter.isLoading}
                           className="w-full bg-[#FD7A10] text-white font-semibold py-4 rounded-sm hover:bg-[#e86d0f] transition-colors"
-                          style={{ display: (!twitter.isConnected || twitter.tokenStatus !== 'valid') ? 'block' : 'none' }}
+                          style={{ display: (() => {
+                            const hasVideo = localContent?.is_video || localContent?.video_url;
+                            const needsAuth = hasVideo 
+                              ? (twitter.capabilities?.needsVideoReconnection ?? twitter.capabilities?.needs_video_reconnection ?? true)
+                              : (twitter.capabilities?.needsReconnection ?? twitter.capabilities?.needs_reconnection ?? true);
+                            
+                            console.log('🔍 [PurchaseContentModal] Grant Access button #3 display logic:', {
+                              hasVideo,
+                              localContent_isVideo: localContent?.is_video,
+                              localContent_hasVideoUrl: !!localContent?.video_url,
+                              localContent_id: localContent?.id,
+                              needsAuth,
+                              capabilities: twitter.capabilities,
+                              needsVideoReconnection: twitter.capabilities?.needsVideoReconnection,
+                              showGrantAccessButton: needsAuth,
+                              logicPath: hasVideo ? 'VIDEO_PATH' : 'IMAGE_PATH'
+                            });
+                            
+                            return needsAuth ? 'block' : 'none';
+                          })() }}
                         >
                           {twitter.isLoading ? 'Connecting...' : 'Grant access on X'}
                         </button>
@@ -6155,21 +6574,25 @@ export default function PurchaseContentModal({
                       console.log('🔍 Image Display Debug - currentContent.watermark_image:', currentContent?.watermark_image);
                       console.log('🔍 Image Display Debug - currentContent.content_images:', currentContent?.content_images);
                       
+                      // Use actual purchase status from component state or transaction hash
+                      const actualIsPurchased = isPurchased || !!purchasedContentDetails?.transactionHash;
+                      console.log('🔍 [Section 3] Image Display Debug - actualIsPurchased:', actualIsPurchased);
+                      
                       if (hasEditContent) {
                         // Choose correct image based on purchase status
-                        const editImageUrl = isPurchased 
+                        const editImageUrl = actualIsPurchased 
                           ? (serverEditContent?.newImageUrl || completedEdit?.newImageUrl)           // Post-purchase: unwatermarked
                           : (serverEditContent?.newWatermarkImageUrl || completedEdit?.newWatermarkImageUrl || 
                              serverEditContent?.newImageUrl || completedEdit?.newImageUrl);          // Pre-purchase: watermarked (fallback to unwatermarked)
                         console.log('🔍 Image Display Debug - editImageUrl found:', editImageUrl);
-                        console.log('🔍 Image Display Debug - isPurchased:', isPurchased, 'choosing:', isPurchased ? 'newImageUrl' : 'newWatermarkImageUrl');
+                        console.log('🔍 [Section 3] Image Display Debug - actualIsPurchased:', actualIsPurchased, 'choosing:', actualIsPurchased ? 'newImageUrl' : 'newWatermarkImageUrl');
                         
                         if (editImageUrl) {
                           displayImage = editImageUrl;
-                          console.log(`🖼️ Using edit image (${isPurchased ? 'unwatermarked' : 'watermarked'}):`, displayImage);
+                          console.log(`🖼️ [Section 3] Using edit image (${actualIsPurchased ? 'unwatermarked' : 'watermarked'}):`, displayImage);
                         } else {
                           // Fallback to original image based on purchase status
-                          if (!isPurchased) {
+                          if (!actualIsPurchased) {
                             displayImage = currentContent?.watermark_image || null;
                             console.log('🖼️ Edit failed, using original watermark image:', displayImage);
                           } else {
@@ -6181,7 +6604,7 @@ export default function PurchaseContentModal({
                         }
                       } else {
                         // No edit content, show original images based on purchase status
-                        if (!isPurchased) {
+                        if (!actualIsPurchased) {
                           displayImage = currentContent?.watermark_image || null;
                           console.log('🖼️ Using original watermark image:', displayImage);
                         } else {
@@ -6208,19 +6631,29 @@ export default function PurchaseContentModal({
                               title: 'Tweet 1', 
                               text: tweetText || 'Sample tweet content will appear here...' 
                           },
-                          ...(displayImage ? [{ 
+                          // Prioritize video over image - only show one
+                          ...(currentContent.is_video ? (() => {
+                            // Video logic: show watermarked before purchase, unwatermarked after purchase
+                            let displayVideo: string | null = null;
+                            
+                            if (actualIsPurchased) {
+                              // Post-purchase: show unwatermarked video
+                              displayVideo = currentContent.video_url || null;
+                              console.log('🎬 [Section 3] Using unwatermarked video (post-purchase):', displayVideo);
+                            } else {
+                              // Pre-purchase: show watermarked video, fallback to unwatermarked
+                              displayVideo = currentContent.watermark_video_url || currentContent.video_url || null;
+                              console.log('🎬 [Section 3] Using watermarked video (pre-purchase):', displayVideo);
+                            }
+                            
+                            return displayVideo ? [{ 
+                              title: 'Tweet 1 (Video)', 
+                              video: displayVideo,
+                              videoDuration: currentContent.video_duration
+                            }] : [];
+                          })() : displayImage ? [{ 
                               title: 'Tweet 1 (Image)', 
                               image: displayImage 
-                          }] : []),
-                          ...(currentContent.is_video && currentContent.watermark_video_url ? [{ 
-                              title: 'Tweet 1 (Video)', 
-                              video: currentContent.watermark_video_url,
-                              videoDuration: currentContent.video_duration
-                          }] : []),
-                          ...(currentContent.is_video && !currentContent.watermark_video_url && currentContent.video_url ? [{ 
-                              title: 'Tweet 1 (Video)', 
-                              video: currentContent.video_url,
-                              videoDuration: currentContent.video_duration
                           }] : []),
                           ...(processedThreadItems.map((tweet, idx) => ({ 
                               title: `Tweet ${idx + 2}`, 
@@ -6235,15 +6668,17 @@ export default function PurchaseContentModal({
                             <button
                               type="button" 
                               onClick={() => {
-                                if (section.text) {
+                                if ('text' in section && section.text) {
                                   navigator.clipboard?.writeText(section.text);
-                                } else if (section.image) {
-                                  downloadImage(String(section.image), `tweet-image-${idx + 1}.png`);
+                                } else if ('image' in section && (section as any).image) {
+                                  downloadImage(String((section as any).image), `tweet-image-${idx + 1}.png`);
+                                } else if ('video' in section && (section as any).video) {
+                                  downloadVideo(String((section as any).video), `tweet-video-${idx + 1}.mp4`);
                                 }
                               }}
                               className="text-[#FD7A10] border border-[#FD7A10] rounded-sm px-2 py-1 text-xs flex flex-row gap-1 items-center cursor-pointer hover:bg-[#FD7A10] hover:text-white transition-colors"
                             >
-                              {section.image ? (
+                              {((section as any).image || (section as any).video) ? (
                                 <>
                                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -6263,7 +6698,7 @@ export default function PurchaseContentModal({
                               )}
                             </button>
                           </div>
-                          {section.text && (
+                          {('text' in section && section.text) && (
                             <div className="text-white/80 text-sm leading-relaxed">
                               {isProcessingEdit && !editError ? (
                                 <TextShimmer />
@@ -6271,37 +6706,37 @@ export default function PurchaseContentModal({
                                 <div 
                                   className="markdown-content max-w-none"
                                   dangerouslySetInnerHTML={{ 
-                                    __html: markdownToHTML(section.text)
+                                    __html: markdownToHTML('text' in section ? section.text : '')
                                   }}
                                 />
                               ) : (
-                                section.text
+                                'text' in section ? section.text : ''
                               )}
                             </div>
                           )}
-                          {section.image && (
+                          {(section as any).image && (
                             <div className="mt-3 rounded-md overflow-hidden">
                               {isProcessingEdit && !editError ? (
                                 <div className="w-[50%]">
                                   <ImageShimmer />
                                 </div>
                               ) : (
-                              <img src={String(section.image)} alt="Tweet image" className="w-[50%] h-auto object-cover" />
+                              <img src={String((section as any).image)} alt="Tweet image" className="w-[50%] h-auto object-cover" />
                               )}
                             </div>
                           )}
-                          {section.video && (
+                          {(section as any).video && (
                             <div className="mt-3 rounded-md overflow-hidden">
                               <VideoPlayer
-                                src={section.video}
+                                src={(section as any).video}
                                 autoPlay={true}
                                 muted={true}
                                 controls={true}
                                 className="w-[50%] h-auto"
                               />
-                              {section.videoDuration && (
+                              {(section as any).videoDuration && (
                                 <div className="mt-2 text-xs text-white/60">
-                                  Duration: {section.videoDuration}s
+                                  Duration: {(section as any).videoDuration}s
                                 </div>
                               )}
                             </div>

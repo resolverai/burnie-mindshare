@@ -1099,44 +1099,53 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
       logger.info(`   - newWatermarkImageUrl: ${newWatermarkImageUrl?.substring(0, 100)}...`);
     }
 
+    // Refresh expired URLs before formatting (including video URLs)
+    const refreshedContent = await refreshExpiredUrls(content);
+
     // Format content for frontend consumption (same as MarketplaceContentService)
     const formattedContent = {
-      id: content.id,
-      content_text: content.contentText,
-      tweet_thread: content.tweetThread || null,
-      content_images: content.contentImages || [],
-      watermark_image: content.watermarkImage || null,
-      predicted_mindshare: Number(content.predictedMindshare || 0),
-      quality_score: Number(content.qualityScore || 0),
-      asking_price: Number(content.biddingAskPrice || content.askingPrice || 0),
-      bidding_ask_price: Number(content.biddingAskPrice || content.askingPrice || 0),
-      post_type: content.postType || 'thread',
+      id: refreshedContent.id,
+      content_text: refreshedContent.contentText,
+      tweet_thread: refreshedContent.tweetThread || null,
+      content_images: refreshedContent.contentImages || [],
+      watermark_image: refreshedContent.watermarkImage || null,
+      predicted_mindshare: Number(refreshedContent.predictedMindshare || 0),
+      quality_score: Number(refreshedContent.qualityScore || 0),
+      asking_price: Number(refreshedContent.biddingAskPrice || refreshedContent.askingPrice || 0),
+      bidding_ask_price: Number(refreshedContent.biddingAskPrice || refreshedContent.askingPrice || 0),
+      post_type: refreshedContent.postType || 'thread',
       // Add text-only regeneration fields
-      updatedTweet: content.updatedTweet || null,
-      updatedThread: content.updatedThread || null,
-      imagePrompt: content.imagePrompt || null,
+      updatedTweet: refreshedContent.updatedTweet || null,
+      updatedThread: refreshedContent.updatedThread || null,
+      // Note: imagePrompt excluded from response (proprietary information)
+      // Video fields with fresh presigned URLs
+      is_video: refreshedContent.isVideo || false,
+      video_url: refreshedContent.videoUrl || null,
+      watermark_video_url: refreshedContent.watermarkVideoUrl || null,
+      video_duration: refreshedContent.videoDuration || null,
+      // Note: Proprietary prompt information (subsequent_frame_prompts, clip_prompts, audio_prompt, audio_prompts) excluded from response
       creator: {
-        id: content.creator?.id,
-        username: content.creator?.username || 'Anonymous',
-        reputation_score: Number(content.creator?.reputationScore || 0),
-        wallet_address: content.creator?.walletAddress
+        id: refreshedContent.creator?.id,
+        username: refreshedContent.creator?.username || 'Anonymous',
+        reputation_score: Number(refreshedContent.creator?.reputationScore || 0),
+        wallet_address: refreshedContent.creator?.walletAddress
       },
       campaign: {
-        id: content.campaign?.id,
-        title: content.campaign?.title || 'Unknown Campaign',
-        project_name: content.campaign?.projectName || content.campaign?.title || 'Unknown Project',
-        platform_source: content.campaign?.platformSource || 'unknown',
-        reward_token: content.campaign?.rewardToken || 'ROAST'
+        id: refreshedContent.campaign?.id,
+        title: refreshedContent.campaign?.title || 'Unknown Campaign',
+        project_name: refreshedContent.campaign?.projectName || refreshedContent.campaign?.title || 'Unknown Project',
+        platform_source: refreshedContent.campaign?.platformSource || 'unknown',
+        reward_token: refreshedContent.campaign?.rewardToken || 'ROAST'
       },
-      agent_name: content.agentName,
-      created_at: content.createdAt.toISOString(),
-      approved_at: content.approvedAt?.toISOString(),
-      bidding_enabled_at: content.biddingEnabledAt?.toISOString() || 
-        (content.isBiddable ? content.createdAt.toISOString() : null),
-      is_biddable: content.isBiddable,
-      is_available: content.isAvailable,
-      isAvailable: content.isAvailable, // Add this for frontend compatibility
-      approval_status: content.approvalStatus
+      agent_name: refreshedContent.agentName,
+      created_at: refreshedContent.createdAt.toISOString(),
+      approved_at: refreshedContent.approvedAt?.toISOString(),
+      bidding_enabled_at: refreshedContent.biddingEnabledAt?.toISOString() || 
+        (refreshedContent.isBiddable ? refreshedContent.createdAt.toISOString() : null),
+      is_biddable: refreshedContent.isBiddable,
+      is_available: refreshedContent.isAvailable,
+      isAvailable: refreshedContent.isAvailable, // Add this for frontend compatibility
+      approval_status: refreshedContent.approvalStatus
     };
 
     // Get current bids
@@ -2451,6 +2460,11 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
       tweet_thread: purchase.content.tweetThread || null,
       content_images: purchase.content.contentImages, // Use original images, not watermarked
       watermark_image: purchase.content.watermarkImage || null,
+      // Add video fields for purchased content (always unwatermarked since user owns it)
+      is_video: purchase.content.isVideo || false,
+      video_url: purchase.content.videoUrl || null,
+      watermark_video_url: purchase.content.watermarkVideoUrl || null,
+      video_duration: purchase.content.videoDuration || null,
       predicted_mindshare: Number(purchase.content.predictedMindshare),
       quality_score: Number(purchase.content.qualityScore),
       asking_price: Number(purchase.content.askingPrice),
@@ -2458,7 +2472,6 @@ router.get('/my-content/yapper/wallet/:walletAddress', async (req: Request, res:
       // Add text-only regeneration fields
       updatedTweet: purchase.content.updatedTweet || null,
       updatedThread: purchase.content.updatedThread || null,
-      imagePrompt: purchase.content.imagePrompt || null,
       creator: {
         username: purchase.content.creator?.username || 'Anonymous',
         reputation_score: purchase.content.creator?.reputationScore || 0

@@ -665,6 +665,25 @@ async def get_active_sessions():
         logger.error(f"❌ Error getting active sessions: {e}")
         raise HTTPException(status_code=500, detail="Failed to get active sessions")
 
+# Test connection to TypeScript backend
+@app.get("/api/avatar-fusion/test-connection")
+async def test_typescript_connection():
+    """Test connection to TypeScript backend"""
+    try:
+        from app.database.repositories.content_marketplace_repository import ContentMarketplaceRepository
+        repo = ContentMarketplaceRepository()
+        result = await repo.get_content_by_id(462)
+        return {
+            "success": True,
+            "content_found": result is not None,
+            "content_id": result.get('id') if result else None
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 # Avatar Fusion Processing endpoint
 @app.post("/api/avatar-fusion/process", response_model=dict)
 async def process_avatar_fusion(request: dict, background_tasks: BackgroundTasks):
@@ -1072,7 +1091,7 @@ async def run_avatar_fusion_processing(
         # Get content marketplace data to find original image URL
         from app.database.repositories.content_marketplace_repository import ContentMarketplaceRepository
         content_repo = ContentMarketplaceRepository()
-        content_data = content_repo.get_content_by_id(content_id)
+        content_data = await content_repo.get_content_by_id(content_id)
         
         logger.info(f"🔍 Content data retrieved: {content_data}")
         
@@ -1169,6 +1188,32 @@ async def run_avatar_fusion_processing(
                 logger.info(f"📋 Will attempt to use original URL anyway: {original_image_url}")
         else:
             logger.info(f"📋 Using original URL (not an S3 presigned URL): {original_image_url}")
+        
+        # Generate fresh presigned URL for avatar image if provided
+        if avatar_image_url:
+            logger.info(f"🔍 Processing avatar image URL: {avatar_image_url[:100]}...")
+            
+            # Check if avatar image URL is an S3 presigned URL and generate fresh one
+            parsed_avatar_url = urlparse(avatar_image_url)
+            if 's3.amazonaws.com' in parsed_avatar_url.netloc or 'amazonaws.com' in parsed_avatar_url.netloc:
+                # Extract S3 key from the avatar URL path
+                avatar_s3_key = parsed_avatar_url.path.lstrip('/')  # Remove leading slash
+                logger.info(f"🔑 Extracted avatar S3 key: {avatar_s3_key}")
+                
+                # Generate fresh presigned URL for avatar (reuse s3_service if already initialized)
+                if 's3_service' not in locals():
+                    from app.services.s3_storage_service import get_s3_storage
+                    s3_service = get_s3_storage()
+                avatar_presigned_result = s3_service.generate_presigned_url(avatar_s3_key, expiration=3600)
+                
+                if avatar_presigned_result['success']:
+                    avatar_image_url = avatar_presigned_result['presigned_url']
+                    logger.info(f"✅ Generated fresh presigned URL for avatar image")
+                else:
+                    logger.warning(f"⚠️ Failed to generate fresh presigned URL for avatar: {avatar_presigned_result.get('error')}")
+                    logger.info(f"📋 Will attempt to use original avatar URL anyway: {avatar_image_url}")
+            else:
+                logger.info(f"📋 Using original avatar URL (not an S3 presigned URL): {avatar_image_url}")
         
         # Download original image temporarily
         import tempfile
@@ -1376,6 +1421,7 @@ async def run_avatar_fusion_processing(
         # Update status to failed in TypeScript backend
         try:
             import httpx
+            import os  # Import os here for this scope
             typescript_backend_url = os.getenv('TYPESCRIPT_BACKEND_URL', 'http://localhost:3001')
             
             async with httpx.AsyncClient() as client:

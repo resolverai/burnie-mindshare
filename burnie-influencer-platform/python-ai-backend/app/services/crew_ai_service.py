@@ -3984,7 +3984,30 @@ Then extract ALL these fields and include them in your output.
                         logger.info(f"✅ Extracted thread_array: {len(tweet_thread) if tweet_thread else 0} tweets")
                         print(f"🎬 DEBUG: Extracted video_url: '{video_url}' (length: {len(video_url) if video_url else 0})")
                 except json.JSONDecodeError:
-                    logger.info("🔍 Direct JSON parse failed, trying regex extraction...")
+                    logger.info("🔍 Direct JSON parse failed, trying markdown JSON extraction...")
+                
+                # Approach 1.5: Try extracting JSON from markdown code blocks
+                if not json_found:
+                    markdown_json_match = re.search(r'```json\s*\n(.*?)\n```', raw_result, re.DOTALL)
+                    if markdown_json_match:
+                        try:
+                            json_str = markdown_json_match.group(1).strip()
+                            parsed_json = json.loads(json_str)
+                            if "main_tweet" in parsed_json:
+                                final_content = self._replace_em_dashes(parsed_json.get("main_tweet", ""))
+                                tweet_thread = self._replace_em_dashes_in_list(parsed_json.get("thread_array", []))
+                                video_url = parsed_json.get("video_url", "")
+                                json_found = True
+                                
+                                # ✅ SANITY CHECK: Ensure project handle is tagged in main_tweet
+                                final_content = self._ensure_project_handle_tagged(final_content)
+                                
+                                logger.info(f"✅ Successfully parsed orchestrator JSON output (markdown extraction)")
+                                logger.info(f"✅ Extracted main_tweet length: {len(str(final_content)) if final_content else 0} chars")
+                                logger.info(f"✅ Extracted thread_array: {len(tweet_thread) if tweet_thread else 0} tweets")
+                                print(f"🎬 DEBUG: Extracted video_url: '{video_url}' (length: {len(video_url) if video_url else 0})")
+                        except json.JSONDecodeError:
+                            logger.info("🔍 Markdown JSON extraction failed, trying regex extraction...")
                 
                 # Approach 2: Look for complete JSON object with main_tweet using regex
                 if not json_found:
@@ -4127,11 +4150,21 @@ Then extract ALL these fields and include them in your output.
                 try:
                     parsed = json.loads(raw_result.strip())
                 except json.JSONDecodeError:
-                    # Try regex extraction
-                    json_match = re.search(r'\{(?:[^{}]|{[^{}]*}|\[[^\]]*\])*"main_tweet"(?:[^{}]|{[^{}]*}|\[[^\]]*\])*\}', raw_result, re.DOTALL)
-                    if json_match:
-                        json_str = json_match.group(0)
-                        parsed = json.loads(json_str)
+                    # Try extracting JSON from markdown code blocks
+                    markdown_json_match = re.search(r'```json\s*\n(.*?)\n```', raw_result, re.DOTALL)
+                    if markdown_json_match:
+                        try:
+                            json_str = markdown_json_match.group(1).strip()
+                            parsed = json.loads(json_str)
+                        except json.JSONDecodeError:
+                            parsed = None
+                    
+                    # Fallback to regex extraction
+                    if not parsed:
+                        json_match = re.search(r'\{(?:[^{}]|{[^{}]*}|\[[^\]]*\])*"main_tweet"(?:[^{}]|{[^{}]*}|\[[^\]]*\])*\}', raw_result, re.DOTALL)
+                        if json_match:
+                            json_str = json_match.group(0)
+                            parsed = json.loads(json_str)
                 
                 if parsed:
                     # Extract ALL video-related fields from orchestrator output
