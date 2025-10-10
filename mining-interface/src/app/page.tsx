@@ -21,11 +21,16 @@ function HomePageContent() {
   // Check if we're in dedicated miner mode
   const isDedicatedMiner = process.env.NEXT_PUBLIC_MINER === '1'
   
+  // TEMPORARY: Skip Twitter for both regular and dedicated miners
+  // TODO: Re-enable Twitter requirement for regular miners later
+  const skipTwitter = true // Set to false to re-enable Twitter requirement
+  
   // Debug logging for environment variables
   useEffect(() => {
     console.log('🔧 Environment Debug:', {
       NEXT_PUBLIC_MINER: process.env.NEXT_PUBLIC_MINER,
       isDedicatedMiner,
+      skipTwitter,
       NODE_ENV: process.env.NODE_ENV
     })
   }, [])
@@ -53,12 +58,12 @@ function HomePageContent() {
     
     // If user is authenticated and we have finished checking Twitter status
     if (isAuthenticated && !isLoading && !isTwitterLoading) {
-      // For dedicated miners, skip Twitter requirement
-      if (isDedicatedMiner) {
-        console.log('✅ Dedicated miner authenticated (Twitter not required), redirecting to dashboard')
+      // TEMPORARY: Skip Twitter requirement for all miners
+      if (skipTwitter || isDedicatedMiner) {
+        console.log('✅ Miner authenticated (Twitter bypassed), redirecting to dashboard')
         router.push('/dashboard')
       } else {
-        // For regular miners, require Twitter connection
+        // For regular miners, require Twitter connection (when skipTwitter is false)
         if (isTwitterConnected) {
           console.log('✅ Regular miner fully authenticated with Twitter, redirecting to dashboard')
           router.push('/dashboard')
@@ -128,15 +133,16 @@ function HomePageContent() {
     )
   }
 
-  // Show Twitter connection screen if authenticated but no Twitter (only for regular miners)
-  if (isAuthenticated && !isDedicatedMiner && !isTwitterConnected) {
+  // Show Twitter connection screen if authenticated but no Twitter (only for regular miners when Twitter is not bypassed)
+  if (isAuthenticated && !skipTwitter && !isDedicatedMiner && !isTwitterConnected) {
     return <TwitterConnection onConnected={handleTwitterConnected} />
   }
 
   // Show mining dashboard if fully authenticated (fallback before redirect)
+  // TEMPORARY: Twitter bypassed for all miners
   // For dedicated miners: only wallet auth required
-  // For regular miners: both wallet auth and Twitter required
-  if (isAuthenticated && (isDedicatedMiner || isTwitterConnected)) {
+  // For regular miners: both wallet auth and Twitter required (when skipTwitter is false)
+  if (isAuthenticated && (skipTwitter || isDedicatedMiner || isTwitterConnected)) {
     return <MinerDashboard activeSection="dashboard" />
   }
 

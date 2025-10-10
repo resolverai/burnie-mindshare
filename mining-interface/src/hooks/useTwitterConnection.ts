@@ -11,27 +11,32 @@ export function useTwitterConnection(walletAddress?: string) {
   // Check if we're in dedicated miner mode
   const isDedicatedMiner = process.env.NEXT_PUBLIC_MINER === '1'
   
+  // TEMPORARY: Skip Twitter for both regular and dedicated miners
+  // TODO: Re-enable Twitter requirement for regular miners later
+  const skipTwitter = true // Set to false to re-enable Twitter requirement
+  
   // Debug logging
   console.log('🐦 useTwitterConnection Debug:', {
     NEXT_PUBLIC_MINER: process.env.NEXT_PUBLIC_MINER,
     isDedicatedMiner,
+    skipTwitter,
     walletAddress
   })
 
   const [status, setStatus] = useState<TwitterConnectionStatus>({
-    isConnected: isDedicatedMiner ? true : false, // Dedicated miners don't need Twitter
-    isLoading: isDedicatedMiner ? false : true,   // Skip loading for dedicated miners
+    isConnected: skipTwitter ? true : (isDedicatedMiner ? true : false), // Skip Twitter for all miners temporarily
+    isLoading: skipTwitter ? false : (isDedicatedMiner ? false : true),   // Skip loading when Twitter is bypassed
     error: null
   })
 
   const checkTwitterConnection = async () => {
-    // Skip Twitter check for dedicated miners
-    if (isDedicatedMiner) {
+    // TEMPORARY: Skip Twitter check for all miners when skipTwitter is true
+    if (skipTwitter || isDedicatedMiner) {
       setStatus({
-        isConnected: true, // Always "connected" for dedicated miners
+        isConnected: true, // Always "connected" when Twitter is skipped
         isLoading: false,
         error: null,
-        twitterUsername: 'dedicated-miner' // Placeholder username
+        twitterUsername: skipTwitter ? 'twitter-bypassed' : 'dedicated-miner' // Placeholder username
       })
       return
     }
