@@ -45,6 +45,10 @@ export class UserDailyPoints {
   @Column({ type: 'integer', default: 0 })
   dailyRewards!: number;
 
+  // Weekly rewards distributed to users (separate from daily rewards)
+  @Column({ type: 'integer', default: 0 })
+  weeklyRewards!: number;
+
   // Total transaction value from referrals (cumulative)
   @Column({ type: 'decimal', precision: 18, scale: 8, default: 0 })
   totalReferralTransactionsValue!: number;

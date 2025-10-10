@@ -85,9 +85,9 @@ router.get('/user-stats/:walletAddress', async (req, res) => {
     // Convert LeaderTier to TierLevel since they have the same string values
     const currentTier = currentTierRecord?.tier || (referralCode?.tier as unknown as TierLevel) || TierLevel.SILVER;
 
-    // Calculate total daily rewards earned by this user
+    // Calculate total daily rewards earned by this user (including weekly rewards)
     const dailyRewardsQuery = `
-      SELECT COALESCE(SUM("dailyRewards"), 0) as total_daily_rewards
+      SELECT COALESCE(SUM("dailyRewards" + "weeklyRewards"), 0) as total_daily_rewards
       FROM user_daily_points
       WHERE "walletAddress" = $1
     `;
@@ -214,6 +214,12 @@ router.get('/leaderboard', async (req, res) => {
       ? ', SUM(udp."milestonePoints") as total_milestone_points' 
       : ', 0 as total_milestone_points';
     
+    // For 7D and 1M periods, sum both dailyRewards and weeklyRewards
+    // For 'now' period, only sum dailyRewards
+    const rewardsSelect = (period === '7d' || period === '1m')
+      ? ', SUM(udp."dailyRewards" + udp."weeklyRewards") as total_daily_rewards'
+      : ', SUM(udp."dailyRewards") as total_daily_rewards';
+    
     const aggregatedData = await userDailyPointsRepo.query(`
       WITH latest_referral_data AS (
         SELECT DISTINCT ON ("walletAddress")
@@ -232,7 +238,7 @@ router.get('/leaderboard', async (req, res) => {
         lrd."totalReferrals" as total_referrals,
         lrd."activeReferrals" as active_referrals,
         lrd."totalRoastEarned" as total_roast_earned,
-        SUM(udp."dailyRewards") as total_daily_rewards,
+        ${rewardsSelect.substring(2)}, -- Remove leading comma and space
         AVG(udp.mindshare) as avg_mindshare,
         MAX(udp."createdAt") as latest_created_at
         ${milestonePointsSelect}
@@ -337,6 +343,12 @@ router.get('/leaderboard/top-three', async (req, res) => {
       ? ', SUM(udp."milestonePoints") as total_milestone_points' 
       : ', 0 as total_milestone_points';
     
+    // For 7D and 1M periods, sum both dailyRewards and weeklyRewards
+    // For 'now' period, only sum dailyRewards
+    const rewardsSelectTop3 = (period === '7d' || period === '1m')
+      ? ', SUM(udp."dailyRewards" + udp."weeklyRewards") as total_daily_rewards'
+      : ', SUM(udp."dailyRewards") as total_daily_rewards';
+    
     const topThreeData = await userDailyPointsRepo.query(`
       WITH latest_referral_data AS (
         SELECT DISTINCT ON ("walletAddress")
@@ -355,7 +367,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
         lrd."totalReferrals" as total_referrals,
         lrd."activeReferrals" as active_referrals,
         lrd."totalRoastEarned" as total_roast_earned,
-        SUM(udp."dailyRewards") as total_daily_rewards,
+        ${rewardsSelectTop3.substring(2)}, -- Remove leading comma and space
         AVG(udp.mindshare) as avg_mindshare
         ${milestonePointsSelectTop3}
       FROM user_daily_points udp

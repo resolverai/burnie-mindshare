@@ -71,6 +71,7 @@ interface UserCalculation {
   totalPoints: number;
   dailyPointsEarned: number;
   dailyRewards: number;
+  weeklyRewards: number;
   currentTier: TierLevel;
   newTier: TierLevel;
   tierChanged: boolean;
@@ -716,6 +717,7 @@ class DailyPointsCalculationScript {
       totalPoints: newTotalPoints,
       dailyPointsEarned,
       dailyRewards: 0, // Will be calculated later for top 25 users
+      weeklyRewards: 0, // Will be set separately for weekly reward distribution
       currentTier,
       newTier,
       tierChanged,
@@ -750,6 +752,7 @@ class DailyPointsCalculationScript {
     userDailyPoints.totalPoints = calculation.totalPoints;
     userDailyPoints.dailyPointsEarned = calculation.dailyPointsEarned;
     userDailyPoints.dailyRewards = calculation.dailyRewards;
+    userDailyPoints.weeklyRewards = calculation.weeklyRewards;
     
     // Store detailed point components
     userDailyPoints.purchasePoints = calculation.purchasePoints;

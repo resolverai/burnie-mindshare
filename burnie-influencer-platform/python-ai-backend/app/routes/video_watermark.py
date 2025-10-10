@@ -6,7 +6,7 @@ import os
 import requests
 import boto3
 from botocore.exceptions import ClientError
-from moviepy.editor import VideoFileClip, CompositeVideoClip, TextClip
+from moviepy.editor import VideoFileClip
 import logging
 from pathlib import Path
 
@@ -160,9 +160,13 @@ async def create_video_watermark(request: VideoWatermarkRequest):
 
 def process_video_with_watermarks_moviepy(input_path: str, output_path: str) -> bool:
     """
-    Process video to add watermarks using MoviePy (preserves audio and uses proper H.264 encoding)
+    Process video to add watermarks to ALL frames using OpenCV and PIL (same approach as image watermarking)
+    This avoids ImageMagick font issues and provides consistent watermarking with images
     """
     try:
+        import cv2
+        from app.ai.watermarks import BlendedTamperResistantWatermark
+        
         # Load the video clip
         logger.info(f"📥 Loading video clip from: {input_path}")
         video_clip = VideoFileClip(input_path)
@@ -171,28 +175,49 @@ def process_video_with_watermarks_moviepy(input_path: str, output_path: str) -> 
         width, height = video_clip.size
         duration = video_clip.duration
         fps = video_clip.fps
+        total_frames = int(fps * duration)
         
-        logger.info(f"📊 Video properties: {width}x{height}, {fps} FPS, {duration:.2f}s duration")
+        logger.info(f"📊 Video properties: {width}x{height}, {fps} FPS, {duration:.2f}s duration, {total_frames} total frames")
         
-        # Create watermark text clips
-        watermark_main = create_watermark_text("@burnieio", width, height, position='main')
-        watermark_sub = create_watermark_text("Buy to Access", width, height, position='sub')
+        # Initialize watermarker (same as image watermarking)
+        font_path = os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'NTBrickSans.ttf')
+        if os.path.exists(font_path):
+            watermarker = BlendedTamperResistantWatermark(font_path)
+            logger.info(f"✅ Using font: {font_path}")
+        else:
+            watermarker = BlendedTamperResistantWatermark()
+            logger.warning("⚠️ Using default font (NTBrickSans.ttf not found)")
         
-        # Set duration for watermark clips to match video
-        watermark_main = watermark_main.set_duration(duration)
-        watermark_sub = watermark_sub.set_duration(duration)
+        # Function to apply watermark to frame (all frames)
+        def apply_watermark_to_frame(get_frame, t):
+            frame = get_frame(t)
+            
+            # Apply watermark to all frames for complete protection
+            # Convert frame from RGB to BGR for OpenCV
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            
+            # Apply the same watermarking as images
+            watermarked_bgr = watermarker.add_robust_blended_watermark(
+                frame_bgr,
+                corner_text="@burnieio",
+                center_text="Buy to Access", 
+                center_text_2="@burnieio",
+                hidden_text="BURNIEIO_2024",
+                blend_mode='texture_aware'
+            )
+            
+            # Convert back to RGB for MoviePy
+            frame = cv2.cvtColor(watermarked_bgr, cv2.COLOR_BGR2RGB)
+            
+            return frame
         
-        # Create composite video with watermarks
-        logger.info("🎬 Compositing video with watermarks...")
-        final_video = CompositeVideoClip([
-            video_clip,
-            watermark_main,
-            watermark_sub
-        ])
+        # Create new video clip with watermarked frames
+        logger.info("🎬 Applying watermarks to all frames for complete protection...")
+        watermarked_clip = video_clip.fl(apply_watermark_to_frame, apply_to=['mask'])
         
         # Write the final video with proper H.264 encoding and preserve audio
         logger.info(f"💾 Writing watermarked video to: {output_path}")
-        final_video.write_videofile(
+        watermarked_clip.write_videofile(
             output_path,
             codec='libx264',           # Use H.264 codec (same as original videos)
             audio_codec='aac',         # Preserve AAC audio
@@ -205,59 +230,17 @@ def process_video_with_watermarks_moviepy(input_path: str, output_path: str) -> 
         
         # Clean up
         video_clip.close()
-        watermark_main.close()
-        watermark_sub.close()
-        final_video.close()
+        watermarked_clip.close()
         
-        logger.info("✅ Video watermarking completed successfully with MoviePy")
+        logger.info("✅ Video watermarking completed successfully using OpenCV/PIL approach")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Error processing video with MoviePy: {e}")
+        logger.error(f"❌ Error processing video with OpenCV/PIL watermarking: {e}")
         return False
 
-def create_watermark_text(text: str, video_width: int, video_height: int, position: str = 'main') -> TextClip:
-    """
-    Create a watermark text clip with proper positioning and styling
-    """
-    try:
-        # Define text properties based on position
-        if position == 'main':
-            fontsize = max(24, int(video_width * 0.03))  # Responsive font size
-            color = 'white'
-            stroke_color = 'black'
-            stroke_width = 2
-            # Position in bottom-right corner
-            pos_x = video_width - 20  # 20px padding from right
-            pos_y = video_height - 60  # 60px from bottom
-        else:  # sub text
-            fontsize = max(18, int(video_width * 0.022))  # Smaller font
-            color = 'white'
-            stroke_color = 'black'
-            stroke_width = 1
-            # Position below main text
-            pos_x = video_width - 20
-            pos_y = video_height - 30  # 30px from bottom
-        
-        # Create text clip
-        txt_clip = TextClip(
-            text,
-            fontsize=fontsize,
-            color=color,
-            stroke_color=stroke_color,
-            stroke_width=stroke_width,
-            font='Arial-Bold'  # Use a common font
-        ).set_position((pos_x, pos_y), relative=False).set_opacity(0.9)
-        
-        # Adjust position to be relative to text size (right-aligned)
-        txt_clip = txt_clip.set_position(lambda t: (pos_x - txt_clip.w, pos_y))
-        
-        return txt_clip
-        
-    except Exception as e:
-        logger.error(f"❌ Error creating watermark text: {e}")
-        # Fallback to simple text clip
-        return TextClip(text, fontsize=24, color='white').set_position(('right', 'bottom'))
+# Note: create_watermark_text function removed - now using OpenCV/PIL watermarking approach
+# which is consistent with image watermarking and avoids ImageMagick font issues
 
 def extract_s3_key_from_url(url: str) -> str:
     """Extract S3 key from URL"""

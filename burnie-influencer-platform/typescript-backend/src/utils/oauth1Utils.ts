@@ -40,16 +40,28 @@ export function generateOAuthSignature(
   consumerSecret: string, 
   tokenSecret: string = ''
 ): string {
+  // Parse URL to separate base URL and query parameters
+  const urlObj = new URL(url);
+  const baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+  
+  // Combine OAuth parameters with query parameters
+  const allParams = { ...params };
+  
+  // Add query parameters to the signature parameters
+  for (const [key, value] of urlObj.searchParams.entries()) {
+    allParams[key] = value;
+  }
+
   // Create parameter string
-  const sortedParams = Object.keys(params)
+  const sortedParams = Object.keys(allParams)
     .sort()
-    .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key] || '')}`)
+    .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(allParams[key] || '')}`)
     .join('&');
 
-  // Create signature base string
+  // Create signature base string using base URL (without query parameters)
   const signatureBaseString = [
     method.toUpperCase(),
-    encodeURIComponent(url),
+    encodeURIComponent(baseUrl),
     encodeURIComponent(sortedParams)
   ].join('&');
 
@@ -239,7 +251,15 @@ export async function uploadVideoOAuth1(
   initFormData.append('media_type', 'video/mp4');
   initFormData.append('media_category', 'tweet_video');
 
+  console.log('🔍 INIT request parameters:', {
+    command: 'INIT',
+    total_bytes: totalBytes,
+    media_type: 'video/mp4',
+    media_category: 'tweet_video'
+  });
+
   const initAuthHeader = generateOAuthHeader('POST', initUrl, accessToken, accessTokenSecret);
+  console.log('🔍 INIT auth header (first 50 chars):', initAuthHeader.substring(0, 50) + '...');
   
   const initResponse = await fetch(initUrl, {
     method: 'POST',
@@ -249,12 +269,17 @@ export async function uploadVideoOAuth1(
     body: initFormData
   });
 
+  console.log('🔍 INIT response status:', initResponse.status);
+  console.log('🔍 INIT response headers:', Object.fromEntries(initResponse.headers.entries()));
+
   if (!initResponse.ok) {
     const errorText = await initResponse.text();
+    console.error('❌ INIT failed with error:', errorText);
     throw new Error(`INIT failed: ${initResponse.status} - ${errorText}`);
   }
 
   const initData = await initResponse.json() as any;
+  console.log('🔍 INIT response data:', JSON.stringify(initData, null, 2));
   const mediaId = initData.media_id_string;
   console.log(`✅ Video upload initialized (Media ID: ${mediaId})`);
 
@@ -306,7 +331,13 @@ export async function uploadVideoOAuth1(
   finalizeFormData.append('command', 'FINALIZE');
   finalizeFormData.append('media_id', mediaId);
 
+  console.log('🔍 FINALIZE request parameters:', {
+    command: 'FINALIZE',
+    media_id: mediaId
+  });
+
   const finalizeAuthHeader = generateOAuthHeader('POST', initUrl, accessToken, accessTokenSecret);
+  console.log('🔍 FINALIZE auth header (first 50 chars):', finalizeAuthHeader.substring(0, 50) + '...');
   
   const finalizeResponse = await fetch(initUrl, {
     method: 'POST',
@@ -316,8 +347,12 @@ export async function uploadVideoOAuth1(
     body: finalizeFormData
   });
 
+  console.log('🔍 FINALIZE response status:', finalizeResponse.status);
+  console.log('🔍 FINALIZE response headers:', Object.fromEntries(finalizeResponse.headers.entries()));
+
   if (!finalizeResponse.ok) {
     const errorText = await finalizeResponse.text();
+    console.error('❌ FINALIZE failed with error:', errorText);
     throw new Error(`FINALIZE failed: ${finalizeResponse.status} - ${errorText}`);
   }
 
@@ -325,8 +360,11 @@ export async function uploadVideoOAuth1(
   console.log('✅ Video upload finalized successfully');
 
   // Step 4: Check processing status if needed
+  console.log('🔍 Finalize response data:', JSON.stringify(finalizeData, null, 2));
+  
   if (finalizeData.processing_info) {
     console.log('⏳ Video requires processing, waiting for completion...');
+    console.log('🔍 Processing info:', JSON.stringify(finalizeData.processing_info, null, 2));
     await waitForProcessing(mediaId, accessToken, accessTokenSecret);
   } else {
     console.log('🎬 Video ready immediately (no processing required)');
@@ -349,6 +387,8 @@ async function waitForProcessing(
   let attempts = 0;
 
   console.log('🔄 Monitoring video processing status...');
+  console.log('🔍 Media ID:', mediaId);
+  console.log('🔍 Access Token (first 10 chars):', accessToken.substring(0, 10) + '...');
 
   while (attempts < maxAttempts) {
     await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
@@ -357,7 +397,10 @@ async function waitForProcessing(
     console.log(`⏳ Checking processing status (attempt ${attempts}/${maxAttempts})...`);
 
     const statusUrl = `https://upload.twitter.com/1.1/media/upload.json?command=STATUS&media_id=${mediaId}`;
+    console.log('🔍 Status URL:', statusUrl);
+    
     const statusAuthHeader = generateOAuthHeader('GET', statusUrl, accessToken, accessTokenSecret);
+    console.log('🔍 Auth header (first 50 chars):', statusAuthHeader.substring(0, 50) + '...');
 
     try {
       const statusResponse = await fetch(statusUrl, {
@@ -367,12 +410,16 @@ async function waitForProcessing(
         }
       });
 
+      console.log('🔍 Status response status:', statusResponse.status);
+      console.log('🔍 Status response headers:', Object.fromEntries(statusResponse.headers.entries()));
+
       if (statusResponse.ok) {
         const statusData = await statusResponse.json() as any;
+        console.log('🔍 Full status response:', JSON.stringify(statusData, null, 2));
 
         if (!statusData.processing_info) {
           console.log('✅ Video processing completed (no processing info)');
-          break;
+          return; // Exit the function immediately when no processing needed
         }
 
         const state = statusData.processing_info.state;
@@ -382,16 +429,25 @@ async function waitForProcessing(
 
         if (state === 'succeeded') {
           console.log('🎉 Video processing completed successfully!');
-          break;
+          return; // Exit the function immediately when succeeded
         } else if (state === 'failed') {
           const error = statusData.processing_info.error?.message || 'Unknown error';
+          console.error('❌ Video processing failed with error:', JSON.stringify(statusData.processing_info.error, null, 2));
           throw new Error(`Video processing failed: ${error}`);
         } else if (state === 'in_progress') {
           console.log(`⏳ Video still processing... ${progress}% complete`);
+        } else {
+          console.warn('⚠️ Unknown processing state:', state);
         }
+      } else {
+        const errorText = await statusResponse.text();
+        console.error('❌ Status check HTTP error:', statusResponse.status, errorText);
+        console.warn('⚠️ Status check failed with HTTP error, continuing...');
       }
     } catch (error: any) {
-      console.warn('⚠️ Status check failed:', error.message);
+      console.error('❌ Status check exception:', error.message);
+      console.error('❌ Full error:', error);
+      console.warn('⚠️ Status check failed with exception, continuing...');
     }
   }
   
