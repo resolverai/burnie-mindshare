@@ -85,6 +85,8 @@ export default function MinerMyContent() {
   const [biddingAskPrice, setBiddingAskPrice] = useState('')
   const [biddingEndDate, setBiddingEndDate] = useState('')
   const [updatingContentId, setUpdatingContentId] = useState<number | null>(null)
+  const [approvingContentIds, setApprovingContentIds] = useState<Set<number>>(new Set())
+  const [rejectingContentIds, setRejectingContentIds] = useState<Set<number>>(new Set())
   const [showRejectModal, setShowRejectModal] = useState<{
     contentId: number
     contentTitle: string
@@ -655,14 +657,55 @@ export default function MinerMyContent() {
       
       return response.json()
     },
-    onSuccess: (data) => {
+    onMutate: async (contentId: number) => {
+      // Add this content ID to the approving set
+      setApprovingContentIds(prev => new Set(Array.from(prev).concat(contentId)))
+      
+      // Cancel any outgoing refetches to prevent race conditions
+      await queryClient.cancelQueries({ queryKey: ['miner-content'] })
+      
+      // Snapshot the previous value
+      const previousContent = queryClient.getQueryData(['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage])
+      
+      // Optimistically update the content status to prevent button from re-appearing
+      queryClient.setQueryData(['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage], (old: any) => {
+        if (!old || !old.data || !Array.isArray(old.data)) return old
+        
+        return {
+          ...old,
+          data: old.data.map((item: any) => 
+            item.id === contentId 
+              ? { ...item, status: 'approved', approvedAt: new Date().toISOString(), isAvailable: true }
+              : item
+          )
+        }
+      })
+      
+      return { previousContent }
+    },
+    onSuccess: (data, contentId) => {
       console.log('✅ Content approved successfully:', data)
       queryClient.invalidateQueries({ queryKey: ['miner-content'] })
       queryClient.invalidateQueries({ queryKey: ['miner-content-totals'] })
+      showToast('Content approved and published successfully!', 'success')
     },
-    onError: (error) => {
+    onError: (error, contentId, context) => {
       console.error('❌ Failed to approve content:', error)
-      alert(`Failed to approve content: ${error.message}`)
+      
+      // Revert optimistic update on error
+      if (context?.previousContent) {
+        queryClient.setQueryData(['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage], context.previousContent)
+      }
+      
+      showToast(`Failed to approve content: ${error.message}`, 'error')
+    },
+    onSettled: (data, error, contentId) => {
+      // Remove this content ID from the approving set
+      setApprovingContentIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(contentId)
+        return newSet
+      })
     }
   })
 
@@ -702,15 +745,55 @@ export default function MinerMyContent() {
       console.log('✅ Reject API success response:', result)
       return result
     },
-    onSuccess: (data, variables) => {
-      console.log('✅ Content rejected successfully:', { data, contentId: variables })
+    onMutate: async (contentId: number) => {
+      // Add this content ID to the rejecting set
+      setRejectingContentIds(prev => new Set(Array.from(prev).concat(contentId)))
+      
+      // Cancel any outgoing refetches to prevent race conditions
+      await queryClient.cancelQueries({ queryKey: ['miner-content'] })
+      
+      // Snapshot the previous value
+      const previousContent = queryClient.getQueryData(['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage])
+      
+      // Optimistically update the content status to prevent button from re-appearing
+      queryClient.setQueryData(['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage], (old: any) => {
+        if (!old || !old.data || !Array.isArray(old.data)) return old
+        
+        return {
+          ...old,
+          data: old.data.map((item: any) => 
+            item.id === contentId 
+              ? { ...item, status: 'rejected', rejectedAt: new Date().toISOString(), isAvailable: false }
+              : item
+          )
+        }
+      })
+      
+      return { previousContent }
+    },
+    onSuccess: (data, contentId) => {
+      console.log('✅ Content rejected successfully:', { data, contentId })
       queryClient.invalidateQueries({ queryKey: ['miner-content'] })
       queryClient.invalidateQueries({ queryKey: ['miner-content-totals'] })
       showToast('Content rejected successfully!', 'success')
     },
-    onError: (error, variables) => {
-      console.error('❌ Failed to reject content:', { error, contentId: variables })
+    onError: (error, contentId, context) => {
+      console.error('❌ Failed to reject content:', { error, contentId })
+      
+      // Revert optimistic update on error
+      if (context?.previousContent) {
+        queryClient.setQueryData(['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage], context.previousContent)
+      }
+      
       showToast(`Failed to reject content: ${error.message}`, 'error')
+    },
+    onSettled: (data, error, contentId) => {
+      // Remove this content ID from the rejecting set
+      setRejectingContentIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(contentId)
+        return newSet
+      })
     }
   })
 
@@ -1218,22 +1301,22 @@ export default function MinerMyContent() {
                               console.log('🔍 Approve button clicked for content ID:', item.id, 'with wallet:', address)
                               approveMutation.mutate(item.id)
                             }}
-                            disabled={approveMutation.isPending}
+                            disabled={approvingContentIds.has(item.id)}
                             className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50"
                           >
                             <CheckIcon className="h-5 w-5 mr-2" />
-                            {approveMutation.isPending ? 'Approving...' : 'Approve & Publish'}
+                            {approvingContentIds.has(item.id) ? 'Approving...' : 'Approve & Publish'}
                           </button>
                           <button
                             onClick={() => {
                               console.log('🔍 Reject button clicked for content ID:', item.id, 'with wallet:', address)
                               rejectMutation.mutate(item.id)
                             }}
-                            disabled={rejectMutation.isPending}
+                            disabled={rejectingContentIds.has(item.id)}
                             className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50"
                           >
                             <XMarkIcon className="h-5 w-5 mr-2" />
-                            {rejectMutation.isPending ? 'Rejecting...' : 'Reject'}
+                            {rejectingContentIds.has(item.id) ? 'Rejecting...' : 'Reject'}
                           </button>
                         </div>
                       </div>
@@ -1289,11 +1372,11 @@ export default function MinerMyContent() {
                                 })
                                 handleRejectContent(item.id, item.campaign.title)
                               }}
-                              disabled={rejectMutation.isPending}
+                              disabled={rejectingContentIds.has(item.id)}
                               className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                             >
                               <XMarkIcon className="h-4 w-4 mr-2" />
-                              {rejectMutation.isPending ? 'Rejecting...' : 'Reject Content'}
+                              {rejectingContentIds.has(item.id) ? 'Rejecting...' : 'Reject Content'}
                             </button>
                           </div>
                         )}
@@ -1501,10 +1584,10 @@ export default function MinerMyContent() {
                       setShowRejectModal(null)
                     }
                   }}
-                  disabled={rejectMutation.isPending}
+                  disabled={showRejectModal ? rejectingContentIds.has(showRejectModal.contentId) : false}
                   className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
                 >
-                  {rejectMutation.isPending ? 'Rejecting...' : 'Yes, Reject Content'}
+                  {showRejectModal && rejectingContentIds.has(showRejectModal.contentId) ? 'Rejecting...' : 'Yes, Reject Content'}
                 </button>
               </div>
             </div>

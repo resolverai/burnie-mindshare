@@ -814,13 +814,13 @@ ENSURE THEME CONSISTENCY:
             return f"""EXAMPLES OF PROFESSIONAL PROMPTS FOR {self.video_duration}-SECOND VIDEOS:
 - Instead of "Your detailed prompt for frame 2 here", write something like "A clean, professional chessboard scene with 2-3 comic meme characters (Pepe as knight, Wojak as opponent, etc.) elegantly composed, dramatic lighting, 8K resolution, cinematic quality, following real-world physics - you decide optimal character count"
 - For longer videos, you can use completely different scenes: "A bustling city street scene with different characters (HODL guy walking confidently, Diamond Hands checking phone) in outdoor setting, dramatic lighting, 8K resolution, cinematic quality, following real-world physics"
-- Instead of "Your detailed transition description here", write something like "Blockchain knight chess piece, Pepe and Wojak characters on chessboard, vibrant lighting, smooth camera dolly movement, slow-motion dramatic reveal, realistic physics, particle systems, professional cinematography"
+- Instead of "Your detailed transition description here", write something like "Blockchain knight chess piece, Pepe and Wojak characters on chessboard, vibrant lighting, smooth camera dolly movement, slow-motion dramatic reveal, realistic physics, clean professional cinematography"
 - For longer videos, transitions can connect different scenes: "Smooth transition from indoor office scene to outdoor street scene, slow-motion camera sweep, maintaining brand narrative, professional camera work, realistic physics"
 - Show scene diversity: "Different characters in different locations, maintaining brand story throughout" """
         else:
             return f"""EXAMPLES OF PROFESSIONAL PROMPTS FOR {self.video_duration}-SECOND VIDEOS:
 - Instead of "Your detailed prompt for frame 2 here", write something like "A clean, professional chessboard scene with 2-3 comic meme characters (Pepe as knight, Wojak as opponent, etc.) elegantly composed, dramatic lighting, 8K resolution, cinematic quality, following real-world physics - you decide optimal character count"
-- Instead of "Your detailed transition description here", write something like "Blockchain knight chess piece, Pepe and Wojak characters on chessboard, vibrant lighting, smooth camera dolly movement, slow-motion dramatic reveal, realistic physics, particle systems, professional cinematography"
+- Instead of "Your detailed transition description here", write something like "Blockchain knight chess piece, Pepe and Wojak characters on chessboard, vibrant lighting, smooth camera dolly movement, slow-motion dramatic reveal, realistic physics, clean professional cinematography"
 - Maintain consistency: "Same characters and location throughout, building focused brand narrative"
 - Keep visual continuity: "Consistent lighting and environment, professional camera work, realistic physics" """
 
@@ -1016,7 +1016,7 @@ Please provide EXACTLY the following in JSON format with ACTUAL detailed prompts
 FRAME PRODUCTION (Frames 2-{self.frame_count}):
 - Each frame must advance the brand narrative logically and professionally
 - Maintain REAL-WORLD PHYSICS: Characters must move naturally, objects must follow gravity, lighting must be consistent
-- Use PROFESSIONAL CAMERA WORK: Wide shots, close-ups, tracking shots, dolly movements, crane shots, handheld, Dutch angles, bird's eye view, worm's eye view, panning, tilting, zoom techniques, rack focus, Steadicam, gimbal work, slow-motion shots, time-lapse, macro photography, and creative angles
+- Use PROFESSIONAL CAMERA WORK: You are a master cinematographer with complete creative control. Choose camera angles, movements, and framing that create the most compelling visual story. Consider dramatic tension, character relationships, and brand impact when making cinematography decisions. Use elevated perspectives, dynamic movements, and creative framing that serves the narrative.
 - Ensure VISUAL CONTINUITY: Consistent lighting direction, color temperature, and visual style across all frames
 - Character decisions: You have FULL AUTONOMY to decide how many characters (0, 1, 2, 3, 4, or N) to include based on the brand story. If characters are included, use popular comic meme characters (Pepe, Wojak, Chad, Shiba Inu, Doge, Wojak variants, Distracted Boyfriend, Drake pointing, etc.) or Web3 meme characters (HODL guy, Diamond Hands, Paper Hands, Moon boy, etc.) - COMIC STYLE PREFERRED over actual humans
 - Focus on creating a clean, professional brand promotion video that tells a compelling story without visual clutter
@@ -1032,10 +1032,12 @@ FINAL FRAME (Frame {self.frame_count}):
 🎬 CLIP PRODUCTION REQUIREMENTS:
 - Each clip must be a CINEMATIC MASTERPIECE with Hollywood-level production quality
 - REAL-WORLD PHYSICS MANDATORY: All movements, transitions, and object interactions must follow realistic physics
-- PROFESSIONAL CAMERA WORK: Use proper camera movements (dolly, tracking, crane, handheld, Steadicam, gimbal, panning, tilting, zoom, rack focus) that serve the story
-- ADVANCED CINEMATOGRAPHY: Include slow-motion shots, time-lapse sequences, macro photography, extreme close-ups, Dutch angles, bird's eye view, worm's eye view, and dynamic camera movements
+- PROFESSIONAL CAMERA WORK: You have complete cinematographic autonomy. Select camera movements and angles that best enhance the visual narrative and emotional impact. Choose techniques that serve the story, create visual interest, and support the brand message.
+- ADVANCED CINEMATOGRAPHY: Use creative visual techniques that enhance the narrative impact. Apply dynamic visual effects and camera techniques that create engaging, professional content.
+- CAMERA TERMINOLOGY CLARIFICATION: For elevated camera angles, use terms like 'high angle shot', 'bird's eye view', 'overhead perspective', or 'elevated viewpoint' instead of 'crane shot' to avoid confusion with construction equipment in image generation.
 - SMOOTH TRANSITIONS: Create seamless, natural transitions between frames that feel organic and professional
 - VISUAL CONTINUITY: Maintain consistent lighting, color grading, and visual style throughout each clip
+- CLEAN VISUAL DESIGN: Avoid particle effects, floating elements, sparkles, glitter, magical dust, light rays, lens flares, or unnecessary visual noise. Focus on clean, professional compositions with solid objects and realistic lighting.
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
@@ -1068,11 +1070,12 @@ FINAL FRAME (Frame {self.frame_count}):
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
 - Draw inspiration from popular image memes, Web3 memes, and shitpost culture for maximum relatability and viral potential
 🎬 PROFESSIONAL VIDEO PRODUCTION CHECKLIST:
-- For clip prompts: Create SPECTACULAR sequences with dynamic visual effects, dramatic zooms, epic reveals, and viral-worthy moments that will make people stop and watch
+- For clip prompts: Create SPECTACULAR sequences with complete creative autonomy. Design visually compelling content that captures attention and drives engagement. Use your cinematographic expertise to create memorable, shareable moments.
 - REAL-WORLD PHYSICS COMPLIANCE: All character movements, object interactions, and camera movements must follow realistic physics
-- PROFESSIONAL CAMERA WORK: Use proper cinematography techniques - rule of thirds, leading lines, depth of field, proper framing, Dutch angles, bird's eye view, worm's eye view, slow-motion shots, time-lapse, macro shots, extreme close-ups, establishing shots, and dynamic camera movements
+- PROFESSIONAL CAMERA WORK: Apply advanced cinematography principles with complete creative freedom. Use composition techniques, depth of field, and dynamic framing that creates visual impact. Choose camera angles and movements that enhance storytelling and create memorable, shareable content.
 - SMOOTH TRANSITIONS: Ensure all transitions feel natural and professional, not jarring or unrealistic
 - VISUAL CONTINUITY: Maintain consistent lighting, shadows, and visual style throughout the entire video
+- CLEAN VISUAL DESIGN: Avoid particle effects, floating elements, sparkles, glitter, magical dust, light rays, lens flares, or unnecessary visual noise. Focus on clean, professional compositions with solid objects and realistic lighting.
 - BRAND STORY ARC: Build a compelling narrative that leads to a powerful brand revelation in the final frame
 
 {self._get_narrative_flexibility_instructions()}
@@ -1132,10 +1135,12 @@ Requirements:
 🎬 CLIP PRODUCTION REQUIREMENTS:
 - Each clip must be a CINEMATIC MASTERPIECE with Hollywood-level production quality
 - REAL-WORLD PHYSICS MANDATORY: All movements, transitions, and object interactions must follow realistic physics
-- PROFESSIONAL CAMERA WORK: Use proper camera movements (dolly, tracking, crane, handheld, Steadicam, gimbal, panning, tilting, zoom, rack focus) that serve the story
-- ADVANCED CINEMATOGRAPHY: Include slow-motion shots, time-lapse sequences, macro photography, extreme close-ups, Dutch angles, bird's eye view, worm's eye view, and dynamic camera movements
+- PROFESSIONAL CAMERA WORK: You have complete cinematographic autonomy. Select camera movements and angles that best enhance the visual narrative and emotional impact. Choose techniques that serve the story, create visual interest, and support the brand message.
+- ADVANCED CINEMATOGRAPHY: Use creative visual techniques that enhance the narrative impact. Apply dynamic visual effects and camera techniques that create engaging, professional content.
+- CAMERA TERMINOLOGY CLARIFICATION: For elevated camera angles, use terms like 'high angle shot', 'bird's eye view', 'overhead perspective', or 'elevated viewpoint' instead of 'crane shot' to avoid confusion with construction equipment in image generation.
 - SMOOTH TRANSITIONS: Create seamless, natural transitions between frames that feel organic and professional
 - VISUAL CONTINUITY: Maintain consistent lighting, color grading, and visual style throughout each clip
+- CLEAN VISUAL DESIGN: Avoid particle effects, floating elements, sparkles, glitter, magical dust, light rays, lens flares, or unnecessary visual noise. Focus on clean, professional compositions with solid objects and realistic lighting.
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - Audio should build from catchy hooks to EPIC, goosebump-inducing finale with appropriate ending effects (fade-out for subtle endings, crescendo for cosmic/dramatic scenes) for cinematic ending that will make people rewatch and share
@@ -1150,11 +1155,12 @@ Requirements:
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
 - Draw inspiration from popular image memes, Web3 memes, and shitpost culture for maximum relatability and viral potential
 🎬 PROFESSIONAL VIDEO PRODUCTION CHECKLIST:
-- For clip prompts: Create SPECTACULAR sequences with dynamic visual effects, dramatic zooms, epic reveals, and viral-worthy moments that will make people stop and watch
+- For clip prompts: Create SPECTACULAR sequences with complete creative autonomy. Design visually compelling content that captures attention and drives engagement. Use your cinematographic expertise to create memorable, shareable moments.
 - REAL-WORLD PHYSICS COMPLIANCE: All character movements, object interactions, and camera movements must follow realistic physics
-- PROFESSIONAL CAMERA WORK: Use proper cinematography techniques - rule of thirds, leading lines, depth of field, proper framing, Dutch angles, bird's eye view, worm's eye view, slow-motion shots, time-lapse, macro shots, extreme close-ups, establishing shots, and dynamic camera movements
+- PROFESSIONAL CAMERA WORK: Apply advanced cinematography principles with complete creative freedom. Use composition techniques, depth of field, and dynamic framing that creates visual impact. Choose camera angles and movements that enhance storytelling and create memorable, shareable content.
 - SMOOTH TRANSITIONS: Ensure all transitions feel natural and professional, not jarring or unrealistic
 - VISUAL CONTINUITY: Maintain consistent lighting, shadows, and visual style throughout the entire video
+- CLEAN VISUAL DESIGN: Avoid particle effects, floating elements, sparkles, glitter, magical dust, light rays, lens flares, or unnecessary visual noise. Focus on clean, professional compositions with solid objects and realistic lighting.
 - BRAND STORY ARC: Build a compelling narrative that leads to a powerful brand revelation in the final frame
 
 {self._get_narrative_flexibility_instructions()}
@@ -1285,7 +1291,7 @@ Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instruct
 FRAME PRODUCTION (Frames 2-{self.frame_count}):
 - Each frame must advance the brand narrative logically and professionally
 - Maintain REAL-WORLD PHYSICS: Characters must move naturally, objects must follow gravity, lighting must be consistent
-- Use PROFESSIONAL CAMERA WORK: Wide shots, close-ups, tracking shots, dolly movements, crane shots, handheld, Dutch angles, bird's eye view, worm's eye view, panning, tilting, zoom techniques, rack focus, Steadicam, gimbal work, slow-motion shots, time-lapse, macro photography, and creative angles
+- Use PROFESSIONAL CAMERA WORK: You are a master cinematographer with complete creative control. Choose camera angles, movements, and framing that create the most compelling visual story. Consider dramatic tension, character relationships, and brand impact when making cinematography decisions. Use elevated perspectives, dynamic movements, and creative framing that serves the narrative.
 - Ensure VISUAL CONTINUITY: Consistent lighting direction, color temperature, and visual style across all frames
 - Character decisions: You have FULL AUTONOMY to decide how many characters (0, 1, 2, 3, 4, or N) to include based on the brand story. If characters are included, use popular comic meme characters (Pepe, Wojak, Chad, Shiba Inu, Doge, Wojak variants, Distracted Boyfriend, Drake pointing, etc.) or Web3 meme characters (HODL guy, Diamond Hands, Paper Hands, Moon boy, etc.) - COMIC STYLE PREFERRED over actual humans
 - Focus on creating a clean, professional brand promotion video that tells a compelling story without visual clutter
@@ -1301,10 +1307,12 @@ FINAL FRAME (Frame {self.frame_count}):
 🎬 CLIP PRODUCTION REQUIREMENTS:
 - Each clip must be a CINEMATIC MASTERPIECE with Hollywood-level production quality
 - REAL-WORLD PHYSICS MANDATORY: All movements, transitions, and object interactions must follow realistic physics
-- PROFESSIONAL CAMERA WORK: Use proper camera movements (dolly, tracking, crane, handheld, Steadicam, gimbal, panning, tilting, zoom, rack focus) that serve the story
-- ADVANCED CINEMATOGRAPHY: Include slow-motion shots, time-lapse sequences, macro photography, extreme close-ups, Dutch angles, bird's eye view, worm's eye view, and dynamic camera movements
+- PROFESSIONAL CAMERA WORK: You have complete cinematographic autonomy. Select camera movements and angles that best enhance the visual narrative and emotional impact. Choose techniques that serve the story, create visual interest, and support the brand message.
+- ADVANCED CINEMATOGRAPHY: Use creative visual techniques that enhance the narrative impact. Apply dynamic visual effects and camera techniques that create engaging, professional content.
+- CAMERA TERMINOLOGY CLARIFICATION: For elevated camera angles, use terms like 'high angle shot', 'bird's eye view', 'overhead perspective', or 'elevated viewpoint' instead of 'crane shot' to avoid confusion with construction equipment in image generation.
 - SMOOTH TRANSITIONS: Create seamless, natural transitions between frames that feel organic and professional
 - VISUAL CONTINUITY: Maintain consistent lighting, color grading, and visual style throughout each clip
+- CLEAN VISUAL DESIGN: Avoid particle effects, floating elements, sparkles, glitter, magical dust, light rays, lens flares, or unnecessary visual noise. Focus on clean, professional compositions with solid objects and realistic lighting.
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
@@ -1337,11 +1345,12 @@ FINAL FRAME (Frame {self.frame_count}):
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
 - Draw inspiration from popular image memes, Web3 memes, and shitpost culture for maximum relatability and viral potential
 🎬 PROFESSIONAL VIDEO PRODUCTION CHECKLIST:
-- For clip prompts: Create SPECTACULAR sequences with dynamic visual effects, dramatic zooms, epic reveals, and viral-worthy moments that will make people stop and watch
+- For clip prompts: Create SPECTACULAR sequences with complete creative autonomy. Design visually compelling content that captures attention and drives engagement. Use your cinematographic expertise to create memorable, shareable moments.
 - REAL-WORLD PHYSICS COMPLIANCE: All character movements, object interactions, and camera movements must follow realistic physics
-- PROFESSIONAL CAMERA WORK: Use proper cinematography techniques - rule of thirds, leading lines, depth of field, proper framing, Dutch angles, bird's eye view, worm's eye view, slow-motion shots, time-lapse, macro shots, extreme close-ups, establishing shots, and dynamic camera movements
+- PROFESSIONAL CAMERA WORK: Apply advanced cinematography principles with complete creative freedom. Use composition techniques, depth of field, and dynamic framing that creates visual impact. Choose camera angles and movements that enhance storytelling and create memorable, shareable content.
 - SMOOTH TRANSITIONS: Ensure all transitions feel natural and professional, not jarring or unrealistic
 - VISUAL CONTINUITY: Maintain consistent lighting, shadows, and visual style throughout the entire video
+- CLEAN VISUAL DESIGN: Avoid particle effects, floating elements, sparkles, glitter, magical dust, light rays, lens flares, or unnecessary visual noise. Focus on clean, professional compositions with solid objects and realistic lighting.
 - BRAND STORY ARC: Build a compelling narrative that leads to a powerful brand revelation in the final frame
 
 {self._get_narrative_flexibility_instructions()}
@@ -1351,7 +1360,7 @@ FINAL FRAME (Frame {self.frame_count}):
 
 IMPORTANT: Replace the placeholder text in the JSON with ACTUAL detailed prompts. The LLM has FULL AUTONOMY to decide how many characters to include. If characters are used, prefer COMIC MEME CHARACTERS over actual humans. For example:
 - Instead of "Your detailed prompt for frame 2 here", write something like "A clean, professional chessboard scene with 2-3 comic meme characters (Pepe as knight, Wojak as opponent, etc.) elegantly composed, dramatic lighting, 8K resolution, cinematic quality - you decide optimal character count"
-- Instead of "Your detailed 5-second transition description here", write something like "Blockchain knight chess piece, Pepe and Wojak characters on chessboard, vibrant lighting, slow-motion dramatic camera movements, Dutch angle shot, particle systems, 5 seconds"
+- Instead of "Your detailed 5-second transition description here", write something like "Blockchain knight chess piece, Pepe and Wojak characters on chessboard, vibrant lighting, slow-motion dramatic camera movements, Dutch angle shot, clean professional composition, 5 seconds"
 - For audio prompts, include appropriate ending effects like "Upbeat electronic beats building to epic finale with smooth reverb fade-out, {self.video_duration} seconds" for subtle endings, or "Epic orchestral crescendo building to cosmic finale with dramatic volume increase, {self.video_duration} seconds" for cosmic scenes - avoid abrupt endings
 - AVOID starting with transition setup language like "Cinematic transition from...", "Epic transition from...", "Camera zooms...", "Pulling back to reveal..." - start directly with content description
 
@@ -1389,10 +1398,12 @@ Requirements:
 🎬 CLIP PRODUCTION REQUIREMENTS:
 - Each clip must be a CINEMATIC MASTERPIECE with Hollywood-level production quality
 - REAL-WORLD PHYSICS MANDATORY: All movements, transitions, and object interactions must follow realistic physics
-- PROFESSIONAL CAMERA WORK: Use proper camera movements (dolly, tracking, crane, handheld, Steadicam, gimbal, panning, tilting, zoom, rack focus) that serve the story
-- ADVANCED CINEMATOGRAPHY: Include slow-motion shots, time-lapse sequences, macro photography, extreme close-ups, Dutch angles, bird's eye view, worm's eye view, and dynamic camera movements
+- PROFESSIONAL CAMERA WORK: You have complete cinematographic autonomy. Select camera movements and angles that best enhance the visual narrative and emotional impact. Choose techniques that serve the story, create visual interest, and support the brand message.
+- ADVANCED CINEMATOGRAPHY: Use creative visual techniques that enhance the narrative impact. Apply dynamic visual effects and camera techniques that create engaging, professional content.
+- CAMERA TERMINOLOGY CLARIFICATION: For elevated camera angles, use terms like 'high angle shot', 'bird's eye view', 'overhead perspective', or 'elevated viewpoint' instead of 'crane shot' to avoid confusion with construction equipment in image generation.
 - SMOOTH TRANSITIONS: Create seamless, natural transitions between frames that feel organic and professional
 - VISUAL CONTINUITY: Maintain consistent lighting, color grading, and visual style throughout each clip
+- CLEAN VISUAL DESIGN: Avoid particle effects, floating elements, sparkles, glitter, magical dust, light rays, lens flares, or unnecessary visual noise. Focus on clean, professional compositions with solid objects and realistic lighting.
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - Audio should build from catchy hooks to EPIC, goosebump-inducing finale with appropriate ending effects (fade-out for subtle endings, crescendo for cosmic/dramatic scenes) for cinematic ending that will make people rewatch and share
@@ -1407,11 +1418,12 @@ Requirements:
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
 - Draw inspiration from popular image memes, Web3 memes, and shitpost culture for maximum relatability and viral potential
 🎬 PROFESSIONAL VIDEO PRODUCTION CHECKLIST:
-- For clip prompts: Create SPECTACULAR sequences with dynamic visual effects, dramatic zooms, epic reveals, and viral-worthy moments that will make people stop and watch
+- For clip prompts: Create SPECTACULAR sequences with complete creative autonomy. Design visually compelling content that captures attention and drives engagement. Use your cinematographic expertise to create memorable, shareable moments.
 - REAL-WORLD PHYSICS COMPLIANCE: All character movements, object interactions, and camera movements must follow realistic physics
-- PROFESSIONAL CAMERA WORK: Use proper cinematography techniques - rule of thirds, leading lines, depth of field, proper framing, Dutch angles, bird's eye view, worm's eye view, slow-motion shots, time-lapse, macro shots, extreme close-ups, establishing shots, and dynamic camera movements
+- PROFESSIONAL CAMERA WORK: Apply advanced cinematography principles with complete creative freedom. Use composition techniques, depth of field, and dynamic framing that creates visual impact. Choose camera angles and movements that enhance storytelling and create memorable, shareable content.
 - SMOOTH TRANSITIONS: Ensure all transitions feel natural and professional, not jarring or unrealistic
 - VISUAL CONTINUITY: Maintain consistent lighting, shadows, and visual style throughout the entire video
+- CLEAN VISUAL DESIGN: Avoid particle effects, floating elements, sparkles, glitter, magical dust, light rays, lens flares, or unnecessary visual noise. Focus on clean, professional compositions with solid objects and realistic lighting.
 - BRAND STORY ARC: Build a compelling narrative that leads to a powerful brand revelation in the final frame
 
 {self._get_narrative_flexibility_instructions()}
@@ -1421,7 +1433,7 @@ Requirements:
 
 IMPORTANT: Replace the placeholder text in the JSON with ACTUAL detailed prompts. The LLM has FULL AUTONOMY to decide how many characters to include. If characters are used, prefer COMIC MEME CHARACTERS over actual humans. For example:
 - Instead of "Your detailed prompt for frame 2 here", write something like "A clean, professional chessboard scene with 2-3 comic meme characters (Pepe as knight, Wojak as opponent, etc.) elegantly composed, dramatic lighting, 8K resolution, cinematic quality - you decide optimal character count"
-- Instead of "Your detailed 5-second transition description here", write something like "Blockchain knight chess piece, Pepe and Wojak characters on chessboard, vibrant lighting, slow-motion dramatic camera movements, Dutch angle shot, particle systems, 5 seconds"
+- Instead of "Your detailed 5-second transition description here", write something like "Blockchain knight chess piece, Pepe and Wojak characters on chessboard, vibrant lighting, slow-motion dramatic camera movements, Dutch angle shot, clean professional composition, 5 seconds"
 - For audio prompts, include appropriate ending effects like "Upbeat electronic beats building to epic finale with smooth reverb fade-out, {self.video_duration} seconds" for subtle endings, or "Epic orchestral crescendo building to cosmic finale with dramatic volume increase, {self.video_duration} seconds" for cosmic scenes - avoid abrupt endings
 - AVOID starting with transition setup language like "Cinematic transition from...", "Epic transition from...", "Camera zooms...", "Pulling back to reveal..." - start directly with content description
 

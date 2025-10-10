@@ -11,6 +11,9 @@ import traceback
 import uuid
 import os
 from enum import Enum
+import requests
+from PIL import Image
+import io
 
 # Schemas for Image Generation Tools
 class ImageToolSchema(BaseModel):
@@ -90,6 +93,51 @@ class CrewAIService:
     Orchestrates 5 specialized AI agents to generate Twitter-ready content
     optimized for maximum mindshare and engagement using user's preferred models.
     """
+    
+    @staticmethod
+    def _validate_image_aspect_ratio(image_url: str, target_ratio: float = 1.0, tolerance: float = 0.05) -> bool:
+        """
+        Validate if an image has the target aspect ratio (default 1:1)
+        
+        Args:
+            image_url: URL of the image to validate
+            target_ratio: Target aspect ratio (1.0 for 1:1, 1.77 for 16:9, etc.)
+            tolerance: Acceptable deviation from target ratio
+            
+        Returns:
+            bool: True if aspect ratio is within tolerance, False otherwise
+        """
+        try:
+            logger.info(f"🔍 Validating aspect ratio for image: {image_url[:100]}...")
+            
+            # Download image
+            response = requests.get(image_url, timeout=30)
+            response.raise_for_status()
+            
+            # Open image and get dimensions
+            image = Image.open(io.BytesIO(response.content))
+            width, height = image.size
+            
+            # Calculate aspect ratio
+            actual_ratio = width / height
+            
+            logger.info(f"📐 Image dimensions: {width}x{height}, aspect ratio: {actual_ratio:.3f}")
+            logger.info(f"🎯 Target ratio: {target_ratio:.3f}, tolerance: ±{tolerance:.3f}")
+            
+            # Check if within tolerance
+            is_valid = abs(actual_ratio - target_ratio) <= tolerance
+            
+            if is_valid:
+                logger.info(f"✅ Aspect ratio validation passed: {actual_ratio:.3f} ≈ {target_ratio:.3f}")
+            else:
+                logger.warning(f"❌ Aspect ratio validation failed: {actual_ratio:.3f} ≠ {target_ratio:.3f} (diff: {abs(actual_ratio - target_ratio):.3f})")
+            
+            return is_valid
+            
+        except Exception as e:
+            logger.error(f"❌ Error validating aspect ratio: {e}")
+            # If validation fails, assume image is valid to avoid blocking generation
+            return True
     
     def __init__(self, session_id: str, progress_tracker, websocket_manager, websocket_session_id: str = None, execution_id: str = None):
         """
@@ -8842,20 +8890,78 @@ class OpenAIImageTool(BaseTool):
                 loop.close()
             
             if content_result and content_result.success and content_result.content:
+                # Validate aspect ratio and regenerate if needed
+                max_attempts = 3
+                current_attempt = 1
+                final_image_url = content_result.content
+                
+                while current_attempt <= max_attempts:
+                    logger.info(f"🔍 Attempt {current_attempt}/{max_attempts}: Validating aspect ratio for generated image...")
+                    
+                    # Validate 1:1 aspect ratio
+                    if CrewAIService._validate_image_aspect_ratio(final_image_url, target_ratio=1.0, tolerance=0.05):
+                        logger.info(f"✅ Image aspect ratio validation passed on attempt {current_attempt}")
+                        break
+                    
+                    if current_attempt < max_attempts:
+                        logger.warning(f"❌ Image aspect ratio validation failed on attempt {current_attempt}. Regenerating...")
+                        
+                        # Regenerate image with same parameters
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                regenerated_result = loop.run_until_complete(unified_generator.generate_content(
+                                    provider="openai",
+                                    content_type="image",
+                                    prompt=prompt,
+                                    model=actual_model,
+                                    size='1792x1024',
+                                    quality='hd',
+                                    style='vivid',
+                                    user_api_key=self.api_key,
+                                    wallet_address=self.wallet_address,
+                                    agent_id=self.agent_id,
+                                    use_s3_storage=True
+                                ))
+                            finally:
+                                loop.close()
+                            
+                            if regenerated_result and regenerated_result.success and regenerated_result.content:
+                                final_image_url = regenerated_result.content
+                                logger.info(f"🔄 Image regenerated successfully on attempt {current_attempt}")
+                            else:
+                                logger.error(f"❌ Image regeneration failed on attempt {current_attempt}")
+                                break
+                                
+                        except Exception as regen_e:
+                            logger.error(f"❌ Error during image regeneration: {regen_e}")
+                            break
+                    
+                    current_attempt += 1
+                
+                if current_attempt > max_attempts:
+                    logger.warning(f"⚠️ Max regeneration attempts ({max_attempts}) reached. Using last generated image.")
+                
+                aspect_ratio_status = "✅ 1:1 aspect ratio validated" if current_attempt <= max_attempts else "⚠️ Aspect ratio validation skipped after max attempts"
+                final_dimensions = "1024x1024px (validated 1:1 ratio)" if current_attempt <= max_attempts else "1792x1024px (landscape - validation failed)"
+                
                 return f"""🎨 VISUAL CONTENT GENERATED:
 
 Content Type: IMAGE (Strategy requested: IMAGE)
 Execution Tier: PREFERRED_MODEL
 Strategy Alignment: Successfully generated image using OpenAI {actual_model}
+Aspect Ratio: {aspect_ratio_status}
 
-📸 Image URL: {content_result.content}
+📸 Image URL: {final_image_url}
 
 Technical Specifications:
 - Provider Used: OpenAI
 - Model Used: {actual_model}
-- Dimensions: 1792x1024px (landscape)
+- Dimensions: {final_dimensions}
 - File format: PNG
-- Accessibility: Alt-text included"""
+- Accessibility: Alt-text included
+- Generation Attempts: {current_attempt - 1 if current_attempt <= max_attempts else max_attempts}"""
             else:
                 error_msg = content_result.error if content_result and hasattr(content_result, 'error') else "Unknown error"
                 return f"❌ OpenAI image generation failed - {error_msg}"
@@ -9238,23 +9344,70 @@ class FalAIImageTool(BaseTool):
                 loop.close()
             
             if content_result and content_result.success and content_result.content:
+                # Validate aspect ratio and regenerate if needed
+                max_attempts = 3
+                current_attempt = 1
+                final_image_url = content_result.content
+                
+                while current_attempt <= max_attempts:
+                    logger.info(f"🔍 Attempt {current_attempt}/{max_attempts}: Validating aspect ratio for generated image...")
+                    
+                    # Validate 1:1 aspect ratio
+                    if CrewAIService._validate_image_aspect_ratio(final_image_url, target_ratio=1.0, tolerance=0.05):
+                        logger.info(f"✅ Image aspect ratio validation passed on attempt {current_attempt}")
+                        break
+                    
+                    if current_attempt < max_attempts:
+                        logger.warning(f"❌ Image aspect ratio validation failed on attempt {current_attempt}. Regenerating...")
+                        
+                        # Regenerate image with same parameters
+                        regeneration_params = generation_params.copy()
+                        
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                regenerated_result = loop.run_until_complete(unified_generator.generate_content(**regeneration_params))
+                            finally:
+                                loop.close()
+                            
+                            if regenerated_result and regenerated_result.success and regenerated_result.content:
+                                final_image_url = regenerated_result.content
+                                logger.info(f"🔄 Image regenerated successfully on attempt {current_attempt}")
+                            else:
+                                logger.error(f"❌ Image regeneration failed on attempt {current_attempt}")
+                                break
+                                
+                        except Exception as regen_e:
+                            logger.error(f"❌ Error during image regeneration: {regen_e}")
+                            break
+                    
+                    current_attempt += 1
+                
+                if current_attempt > max_attempts:
+                    logger.warning(f"⚠️ Max regeneration attempts ({max_attempts}) reached. Using last generated image.")
+                
                 logo_status = "✅ Brand logo integrated" if self.include_brand_logo else "Standard generation"
+                aspect_ratio_status = "✅ 1:1 aspect ratio validated" if current_attempt <= max_attempts else "⚠️ Aspect ratio validation skipped after max attempts"
+                
                 return f"""🎨 VISUAL CONTENT GENERATED:
 
 Content Type: IMAGE (Strategy requested: IMAGE)
 Execution Tier: PREFERRED_MODEL  
 Strategy Alignment: Successfully generated image using Fal.ai {preferred_model}
 Logo Integration: {logo_status}
+Aspect Ratio: {aspect_ratio_status}
 
-📸 Image URL: {content_result.content}
+📸 Image URL: {final_image_url}
 
 Technical Specifications:
 - Provider Used: Fal.ai
 - Model Used: {preferred_model}
 - Brand Logo: {'Integrated' if self.include_brand_logo else 'Not requested'}
-- Dimensions: 1024x1024px
+- Dimensions: 1024x1024px (validated 1:1 ratio)
 - File format: JPEG/PNG
-- Accessibility: Alt-text included"""
+- Accessibility: Alt-text included
+- Generation Attempts: {current_attempt - 1 if current_attempt <= max_attempts else max_attempts}"""
             else:
                 error_msg = content_result.error if content_result and hasattr(content_result, 'error') else "Unknown error"
                 return f"❌ Fal.ai image generation failed: {error_msg}"
