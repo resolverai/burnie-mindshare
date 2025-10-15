@@ -24,6 +24,7 @@ export interface AdvancedVideoOptions {
   // Model Options
   imageModel: 'nano-banana' | 'seedream'
   llmProvider: 'claude' | 'grok'
+  clipGenerationModel: 'pixverse' | 'sora' | 'kling'
   
   // Brand Integration
   useBrandAesthetics: boolean
@@ -49,8 +50,35 @@ const VIDEO_DURATION_OPTIONS = [
 
 const CLIP_DURATION_OPTIONS = [
   { value: 5, label: '5 seconds' },
-  { value: 8, label: '8 seconds' }
+  { value: 8, label: '8 seconds' },
+  { value: 4, label: '4 seconds' },
+  { value: 10, label: '10 seconds' },
+  { value: 12, label: '12 seconds' }
 ]
+
+// Model-specific valid durations
+const MODEL_VALID_DURATIONS: Record<string, number[]> = {
+  'pixverse': [5, 8],
+  'sora': [4, 8, 12],
+  'kling': [5, 10]
+}
+
+// Helper function to get valid durations for a model
+const getValidDurationsForModel = (model: string): number[] => {
+  return MODEL_VALID_DURATIONS[model] || [5, 8]
+}
+
+// Helper function to get closest valid duration for a model
+const getClosestValidDuration = (currentDuration: number, model: string): number => {
+  const validDurations = getValidDurationsForModel(model)
+  if (validDurations.includes(currentDuration)) {
+    return currentDuration
+  }
+  // Find closest valid duration
+  return validDurations.reduce((prev, curr) => 
+    Math.abs(curr - currentDuration) < Math.abs(prev - currentDuration) ? curr : prev
+  )
+}
 
 const CHARACTER_CONTROL_OPTIONS = [
   { 
@@ -98,6 +126,30 @@ const LLM_PROVIDER_OPTIONS = [
   { value: 'claude', label: '🧠 Claude', description: 'Anthropic Claude' }
 ]
 
+const CLIP_GENERATION_MODEL_OPTIONS = [
+  { 
+    value: 'pixverse', 
+    label: '🎬 Pixverse', 
+    description: 'Transition model (5 or 8s, 2 frames)',
+    durations: '5 or 8 seconds',
+    frameInfo: 'Uses 2 frames for transitions'
+  },
+  { 
+    value: 'sora', 
+    label: '🌟 Sora2', 
+    description: 'Image-to-video (4/8/12s, 1 frame)',
+    durations: '4, 8, or 12 seconds',
+    frameInfo: 'Generates from single frame'
+  },
+  { 
+    value: 'kling', 
+    label: '⚡ Kling 2.5', 
+    description: 'Image-to-video turbo (5/10s, 1 frame)',
+    durations: '5 or 10 seconds',
+    frameInfo: 'Generates from single frame'
+  }
+]
+
 export default function VideoOptions({
   includeVideo,
   videoDuration,
@@ -121,6 +173,7 @@ export default function VideoOptions({
     randomMode: 'all_regular' as const,              // ✅ Default: Unchecked randomize (was 'true_random')
     imageModel: 'nano-banana' as const,              // ✅ Default: Nano Banana (was 'seedream')
     llmProvider: 'grok' as const,                    // ✅ Default: Grok (already correct)
+    clipGenerationModel: 'kling' as const,           // ✅ Default: Kling 2.5 Turbo
     useBrandAesthetics: false,              // ✅ Default: Unchecked (already correct)
     includeProductImages: false
   })
@@ -157,6 +210,7 @@ export default function VideoOptions({
         randomMode: 'all_regular' as const,
         imageModel: 'nano-banana' as const,
         llmProvider: 'grok' as const,
+        clipGenerationModel: 'kling' as const,
         useBrandAesthetics: false,
         includeProductImages: false
       }
@@ -173,6 +227,19 @@ export default function VideoOptions({
     setAdvancedOptions(newOptions)
     onAdvancedOptionsChange?.(newOptions)
   }
+
+  // Validate clip duration when model changes
+  useEffect(() => {
+    const currentModel = advancedOptions.clipGenerationModel
+    const currentDuration = advancedOptions.clipDuration || 5
+    const validDurations = getValidDurationsForModel(currentModel)
+    
+    // If current duration is not valid for this model, adjust it
+    if (!validDurations.includes(currentDuration)) {
+      const closestValid = getClosestValidDuration(currentDuration, currentModel)
+      updateAdvancedOption('clipDuration', closestValid)
+    }
+  }, [advancedOptions.clipGenerationModel])
 
   const getFrameClipInfo = () => {
     if (advancedOptions.durationMode === 'clip_based' && advancedOptions.numberOfClips) {
@@ -307,12 +374,19 @@ export default function VideoOptions({
                         disabled={disabled}
                         className="w-full px-2 py-1 text-sm bg-gray-700 border border-gray-600 rounded text-white focus:ring-2 focus:ring-orange-500"
                       >
-                        {CLIP_DURATION_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
+                        {CLIP_DURATION_OPTIONS
+                          .filter(option => getValidDurationsForModel(advancedOptions.clipGenerationModel).includes(option.value))
+                          .map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
                       </select>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {advancedOptions.clipGenerationModel === 'pixverse' && '✅ Valid: 5 or 8 seconds'}
+                        {advancedOptions.clipGenerationModel === 'sora' && '✅ Valid: 4, 8, or 12 seconds'}
+                        {advancedOptions.clipGenerationModel === 'kling' && '✅ Valid: 5 or 10 seconds'}
+                      </p>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-400 mb-1">
@@ -482,7 +556,7 @@ export default function VideoOptions({
                   <div className="group relative">
                     <InformationCircleIcon className="h-4 w-4 text-gray-500 cursor-help" />
                     <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-64 z-10">
-                      Choose AI models for image generation and prompt creation
+                      Choose AI models for image generation, clip generation, and prompt creation
                     </div>
                   </div>
                 </div>
@@ -523,6 +597,31 @@ export default function VideoOptions({
                     </select>
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Clip Generation Model
+                  </label>
+                  <select
+                    value={advancedOptions.clipGenerationModel}
+                    onChange={(e) => updateAdvancedOption('clipGenerationModel', e.target.value as any)}
+                    disabled={disabled}
+                    className="w-full px-2 py-1 text-sm bg-gray-700 border border-gray-600 rounded text-white focus:ring-2 focus:ring-orange-500"
+                  >
+                    {CLIP_GENERATION_MODEL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {CLIP_GENERATION_MODEL_OPTIONS.find(opt => opt.value === advancedOptions.clipGenerationModel)?.description}
+                  </p>
+                  <div className="flex items-center space-x-4 mt-1 text-xs text-gray-500">
+                    <span>⏱️ {CLIP_GENERATION_MODEL_OPTIONS.find(opt => opt.value === advancedOptions.clipGenerationModel)?.durations}</span>
+                    <span>🖼️ {CLIP_GENERATION_MODEL_OPTIONS.find(opt => opt.value === advancedOptions.clipGenerationModel)?.frameInfo}</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -536,7 +635,7 @@ export default function VideoOptions({
               <li>• Audio: {AUDIO_SYSTEM_OPTIONS.find(opt => opt.value === advancedOptions.audioSystem)?.label}</li>
               <li>• Features: {advancedOptions.enableCrossfadeTransitions ? 'Crossfade Transitions' : 'Standard Cuts'}{advancedOptions.enableVoiceover ? ', AI Voiceover' : ''}</li>
               <li>• Variation: {advancedOptions.randomMode === 'true_random' ? 'Randomized content across clips' : 'Consistent style across clips'}</li>
-              <li>• Models: {advancedOptions.imageModel} + {advancedOptions.llmProvider}</li>
+              <li>• Models: {advancedOptions.imageModel} + {advancedOptions.llmProvider} + {CLIP_GENERATION_MODEL_OPTIONS.find(opt => opt.value === advancedOptions.clipGenerationModel)?.label.replace(/🎬|🌟|⚡/g, '').trim()}</li>
           </ul>
         </div>
         </>

@@ -34,6 +34,7 @@ class AdvancedVideoCreationToolSchema(BaseModel):
     random_mode: str = Field(default="true_random", description="Random mode: 'all_regular', 'all_prime', 'true_random'")
     use_brand_aesthetics: bool = Field(default=False, description="Use brand aesthetics integration")
     include_product_images: bool = Field(default=False, description="Include product images")
+    clip_generation_model: str = Field(default="kling", description="Clip generation model: 'pixverse', 'sora', or 'kling'")
 
 class CrewVideoCreationTool(BaseTool):
     """Enhanced CrewAI tool wrapper for advanced video creation"""
@@ -86,7 +87,8 @@ class CrewVideoCreationTool(BaseTool):
         enable_crossfade_transitions: bool = True,
         random_mode: str = "true_random",
         use_brand_aesthetics: bool = False,
-        include_product_images: bool = False
+        include_product_images: bool = False,
+        clip_generation_model: str = "kling"
     ) -> str:
         """
         Execute enhanced video creation using the VideoCreationTool with advanced options.
@@ -122,6 +124,7 @@ class CrewVideoCreationTool(BaseTool):
             actual_duration_mode = final_advanced_options.get('durationMode') or duration_mode
             actual_image_model = final_advanced_options.get('imageModel') or image_model
             actual_llm_provider = final_advanced_options.get('llmProvider') or llm_provider
+            actual_clip_generation_model = final_advanced_options.get('clipGenerationModel') or clip_generation_model
             
             # Update final_advanced_options with actual values
             final_advanced_options.update({
@@ -137,7 +140,8 @@ class CrewVideoCreationTool(BaseTool):
                 'imageModel': actual_image_model,
                 'llmProvider': actual_llm_provider,
                 'useBrandAesthetics': actual_use_brand_aesthetics,
-                'includeProductImages': actual_include_product_images
+                'includeProductImages': actual_include_product_images,
+                'clipGenerationModel': actual_clip_generation_model
             })
             
             # Log all arguments passed to the video creation tool
@@ -165,6 +169,7 @@ class CrewVideoCreationTool(BaseTool):
             print(f"   - random_mode: {random_mode}")
             print(f"   - use_brand_aesthetics: {use_brand_aesthetics}")
             print(f"   - include_product_images: {include_product_images}")
+            print(f"   - clip_generation_model: {clip_generation_model}")
             print("="*80)
             
             if self.logger:
@@ -235,7 +240,9 @@ class CrewVideoCreationTool(BaseTool):
                 'theme': None,  # Can be extended later
                 'product_images': None if not actual_include_product_images else [],  # Can be extended later
                 # NEW: Pass random_mode to enable dual-stream selection logic
-                'random_mode': actual_random_mode
+                'random_mode': actual_random_mode,
+                # NEW: Pass clip_generation_model to select clip generation method
+                'clip_generation_model': actual_clip_generation_model
             }
 
             print(f"🔧 Final video parameters: {video_params}")
@@ -290,7 +297,8 @@ class CrewVideoCreationTool(BaseTool):
                         "clip_duration": clip_duration,
                         "number_of_clips": number_of_clips,
                         "image_model": normalized_image_model,
-                        "llm_provider": normalized_llm_provider
+                        "llm_provider": normalized_llm_provider,
+                        "clip_generation_model": actual_clip_generation_model
                     },
                     
                     "metadata": meta,

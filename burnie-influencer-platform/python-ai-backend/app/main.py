@@ -200,6 +200,7 @@ class AdvancedVideoOptions(BaseModel):
     # Model Options
     imageModel: Optional[str] = None  # Remove default, let frontend control this
     llmProvider: Optional[str] = "grok"  # "claude" | "grok"
+    clipGenerationModel: Optional[str] = "kling"  # "pixverse" | "sora" | "kling"
     
     # Brand Integration
     useBrandAesthetics: Optional[bool] = False

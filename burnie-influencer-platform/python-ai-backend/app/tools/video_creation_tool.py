@@ -62,7 +62,9 @@ class VideoCreationTool:
         theme: Optional[str] = None,
         product_images: Optional[list] = None,
         # NEW: Random mode support
-        random_mode: str = "true_random"
+        random_mode: str = "true_random",
+        # NEW: Clip generation model selection
+        clip_generation_model: str = "kling"
     ) -> Dict[str, Any]:
         """
         Create a video using the enhanced video generation system with advanced options.
@@ -118,6 +120,7 @@ class VideoCreationTool:
             self._log(f"   - Audio System: {'Individual Clips' if clip_audio_prompts else 'Single Audio'}")
             self._log(f"   - Voiceover: {voiceover}")
             self._log(f"   - Random Mode: {random_mode}")
+            self._log(f"   - Clip Generation Model: {clip_generation_model}")
             self._log(f"   - Final Random Numbers: {[f'{val:.3f}' for val in final_clip_random_numbers]}")
             print("="*80)
             
@@ -144,6 +147,7 @@ class VideoCreationTool:
                 include_tweet_text=include_tweet_text,
                 initial_image_prompt=initial_image_prompt,
                 random_mode=random_mode,
+                clip_generation_model=clip_generation_model,
                 # NEW: Pass wallet and agent information for proper S3 organization
                 wallet_address=self.wallet_address,
                 agent_id=self.agent_id
@@ -171,6 +175,7 @@ class VideoCreationTool:
                     "number_of_clips": number_of_clips,
                     "llm_provider": llm_provider,
                     "image_model": image_model,
+                    "clip_generation_model": clip_generation_model,
                     "random_mode": random_mode,
                     "final_clip_random_numbers": final_clip_random_numbers,
                     # Advanced options metadata
@@ -225,6 +230,7 @@ class VideoCreationTool:
                             "random_mode": random_mode,
                             "image_model": image_model,
                             "llm_provider": llm_provider,
+                            "clip_generation_model": clip_generation_model,
                             "use_brand_aesthetics": use_brand_aesthetics,
                             "include_product_images": bool(product_images)
                         }
