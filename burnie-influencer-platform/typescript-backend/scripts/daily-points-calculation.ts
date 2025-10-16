@@ -847,14 +847,42 @@ class DailyPointsCalculationScript {
       return;
     }
 
+    // Debug: Check weekly points in allCalculations before displaying
+    const usersWithWeeklyPoints = this.allCalculations.filter(calc => calc.weeklyPoints > 0);
+    console.log(`🔍 DISPLAY DEBUG: ${usersWithWeeklyPoints.length} users have weeklyPoints > 0 in allCalculations (total: ${this.allCalculations.length})`);
+    console.log(`🔍 DISPLAY DEBUG: Is weekly calculation day? ${this.isWeeklyCalculationDay()}`);
+    
+    if (usersWithWeeklyPoints.length > 0) {
+      console.log(`🔍 DISPLAY DEBUG: First 3 users with weekly points:`);
+      usersWithWeeklyPoints.slice(0, 3).forEach(calc => {
+        console.log(`   ${calc.walletAddress}: weeklyPoints=${calc.weeklyPoints}, dailyPoints=${calc.dailyPointsEarned}`);
+      });
+    } else {
+      console.log(`🔍 DISPLAY DEBUG: No users with weekly points found. Sample of allCalculations:`);
+      this.allCalculations.slice(0, 3).forEach(calc => {
+        console.log(`   ${calc.walletAddress}: weeklyPoints=${calc.weeklyPoints}, dailyPoints=${calc.dailyPointsEarned}`);
+      });
+    }
+
     console.log('\n' + '='.repeat(200));
     console.log('📊 [DRY RUN] FINAL SUMMARY - ALL PROCESSED USERS');
     console.log('='.repeat(200));
     console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Weekly Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | P.Count | M.Count | R.Count | Referrals | ROAST    | Tier');
     console.log('='.repeat(200));
     
-    // Sort by daily points earned (descending) for better visibility
-    const sortedCalculations = [...this.allCalculations].sort((a, b) => b.dailyPointsEarned - a.dailyPointsEarned);
+    // Sort by weekly points if it's Thursday (weekly calculation day), otherwise by daily points
+    const sortedCalculations = [...this.allCalculations].sort((a, b) => {
+      if (this.isWeeklyCalculationDay()) {
+        // On Thursday, sort by weekly points first, then daily points
+        if (b.weeklyPoints !== a.weeklyPoints) {
+          return b.weeklyPoints - a.weeklyPoints;
+        }
+        return b.dailyPointsEarned - a.dailyPointsEarned;
+      } else {
+        // Other days, sort by daily points
+        return b.dailyPointsEarned - a.dailyPointsEarned;
+      }
+    });
     
     sortedCalculations.forEach((calc, index) => {
       const tierInfo = calc.tierChanged ? `→ ${calc.newTier} (UP!)` : `(${calc.currentTier})`;
@@ -1203,6 +1231,8 @@ class DailyPointsCalculationScript {
    * Calculate weekly points for dry-run mode (updates stored calculations for display)
    */
   async calculateWeeklyPointsForDryRun(): Promise<void> {
+    console.log(`🚀 STARTING calculateWeeklyPointsForDryRun - allCalculations has ${this.allCalculations.length} users`);
+    
     const { startDate, endDate } = this.getWeeklyCalculationWindow();
     console.log(`📅 Weekly calculation window: ${startDate.toISOString()} to ${endDate.toISOString()}`);
     
@@ -1310,13 +1340,13 @@ class DailyPointsCalculationScript {
           const proportion = weeklyPoints / totalWeeklyPoints;
           const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
           
-          let calculation = this.allCalculations.find(calc => calc.walletAddress === row.walletAddress);
+          let calculation = this.allCalculations.find(calc => calc.walletAddress.toLowerCase() === row.walletAddress.toLowerCase());
           if (calculation) {
             // Update existing calculation
             calculation.weeklyPoints = weeklyPoints;
             calculation.weeklyRank = weeklyRank;
             calculation.weeklyRewards = weeklyRewards;
-            console.log(`✅ Updated existing ${row.walletAddress}: weeklyPoints=${weeklyPoints}`);
+            console.log(`✅ Updated existing ${row.walletAddress}: weeklyPoints=${weeklyPoints}, was=${calculation.weeklyPoints}`);
           } else {
             // Create new calculation entry for users not processed today but have weekly points
             const newCalculation: UserCalculation = {
@@ -1356,7 +1386,44 @@ class DailyPointsCalculationScript {
         const updatedCount = this.allCalculations.filter(calc => calc.weeklyPoints > 0).length;
         console.log(`📊 Updated ${updatedCount} calculations with weekly data out of ${this.allCalculations.length} total calculations`);
         
+        // Debug: Show some examples of updated calculations
+        console.log(`🔍 Sample updated calculations:`);
+        this.allCalculations.filter(calc => calc.weeklyPoints > 0).slice(0, 3).forEach(calc => {
+          console.log(`   ${calc.walletAddress}: dailyPts=${calc.dailyPointsEarned}, weeklyPts=${calc.weeklyPoints}, weeklyRank=${calc.weeklyRank}`);
+        });
+        
         console.log('✅ Weekly points calculated from accumulated daily points');
+        
+        // Final verification: Check if weekly points were actually set
+        const finalCheck = this.allCalculations.filter(calc => calc.weeklyPoints > 0);
+        console.log(`🔍 FINAL CHECK: ${finalCheck.length} users in allCalculations have weeklyPoints > 0`);
+        finalCheck.slice(0, 3).forEach(calc => {
+          console.log(`   FINAL: ${calc.walletAddress} = ${calc.weeklyPoints} weekly points`);
+        });
+        
+        // BRUTE FORCE FIX: If no users have weekly points, force update all users
+        if (finalCheck.length === 0) {
+          console.log(`🔧 BRUTE FORCE: No users have weekly points, forcing update...`);
+          manualWeeklyResult.forEach((row: any, index: number) => {
+            const weeklyPoints = parseFloat(row.weeklyPoints);
+            const weeklyRank = index + 1;
+            const proportion = weeklyPoints / totalWeeklyPoints;
+            const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
+            
+            // Force update ALL matching users
+            this.allCalculations.forEach(calc => {
+              if (calc.walletAddress.toLowerCase() === row.walletAddress.toLowerCase()) {
+                calc.weeklyPoints = weeklyPoints;
+                calc.weeklyRank = weeklyRank;
+                calc.weeklyRewards = weeklyRewards;
+                console.log(`🔧 FORCE UPDATED: ${calc.walletAddress} = ${weeklyPoints} weekly points`);
+              }
+            });
+          });
+          
+          const afterForceCheck = this.allCalculations.filter(calc => calc.weeklyPoints > 0);
+          console.log(`🔧 AFTER FORCE UPDATE: ${afterForceCheck.length} users now have weeklyPoints > 0`);
+        }
       } else {
         console.log('⚠️ No weekly points found even with manual calculation - this might be the first week of data');
       }
