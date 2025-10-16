@@ -841,7 +841,7 @@ class DailyPointsCalculationScript {
   /**
    * Display final summary of all processed users (for dry-run mode)
    */
-  private displayFinalSummary(): void {
+  private async displayFinalSummary(): Promise<void> {
     if (this.allCalculations.length === 0) {
       console.log('\n📊 [DRY RUN] Final Summary: No users processed');
       return;
@@ -1713,7 +1713,7 @@ class DailyPointsCalculationScript {
         
         // Display final summary for dry-run mode
         if (dryRun) {
-          this.displayFinalSummary();
+          await this.displayFinalSummary();
         }
         
       } else {
@@ -1767,7 +1767,7 @@ class DailyPointsCalculationScript {
 
       // Display final summary for dry-run mode
       if (dryRun) {
-        this.displayFinalSummary();
+        await this.displayFinalSummary();
       }
 
     } catch (error) {
