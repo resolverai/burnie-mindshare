@@ -876,14 +876,32 @@ class DailyPointsCalculationScript {
         console.log(`🔧 REAL FIX: Found ${weeklyResults.length} users with real weekly points`);
         
         if (weeklyResults.length > 0) {
-          const totalWeeklyPoints = weeklyResults.reduce((sum: number, row: any) => sum + parseFloat(row.weeklyPoints), 0);
+          console.log(`🔍 First few raw results:`, weeklyResults.slice(0, 3));
+          
+          const totalWeeklyPoints = weeklyResults.reduce((sum: number, row: any) => {
+            const points = parseFloat(row.weeklypoints || row.weeklyPoints || '0');
+            return sum + (isNaN(points) ? 0 : points);
+          }, 0);
+          
+          console.log(`🔧 Total weekly points calculated: ${totalWeeklyPoints}`);
           
           // Apply real weekly points to allCalculations
           let updatedCount = 0;
           let addedCount = 0;
           
           weeklyResults.forEach((row: any, index: number) => {
-            const weeklyPoints = parseFloat(row.weeklyPoints);
+            // Debug: Check what we're actually getting from the database
+            console.log(`🔍 Raw database row:`, JSON.stringify(row));
+            console.log(`🔍 Raw weeklyPoints value:`, row.weeklyPoints, `Type:`, typeof row.weeklyPoints);
+            
+            const weeklyPoints = parseFloat(row.weeklypoints || row.weeklyPoints || '0'); // Try both cases
+            console.log(`🔍 Parsed weeklyPoints:`, weeklyPoints);
+            
+            if (isNaN(weeklyPoints)) {
+              console.log(`🚨 WARNING: weeklyPoints is NaN for ${row.walletAddress}`);
+              return; // Skip this user
+            }
+            
             const weeklyRank = index + 1;
             const proportion = weeklyPoints / totalWeeklyPoints;
             const weeklyRewards = Math.round(proportion * 500000); // WEEKLY_REWARDS_POOL
