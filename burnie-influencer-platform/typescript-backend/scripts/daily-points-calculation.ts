@@ -990,20 +990,20 @@ class DailyPointsCalculationScript {
             
             console.log(`🔧 Weekly rewards: ${usersWithWeeklyPoints.length} total users, ${eligibleUsers.length} eligible (${usersWithWeeklyPoints.length - eligibleUsers.length} excluded)`);
             
-            // Only distribute rewards to TOP 5 ELIGIBLE users
-            const top5EligibleUsers = eligibleUsers.slice(0, 5);
-            const top5TotalPoints = top5EligibleUsers.reduce((sum, calc) => sum + calc.weeklyPoints, 0);
+            // Only distribute rewards to TOP 10 ELIGIBLE users
+            const top10EligibleUsers = eligibleUsers.slice(0, 10);
+            const top10TotalPoints = top10EligibleUsers.reduce((sum, calc) => sum + calc.weeklyPoints, 0);
             
-            console.log(`🔧 Distributing 500K rewards among TOP 5 eligible users (total points: ${top5TotalPoints})`);
+            console.log(`🔧 Distributing 500K rewards among TOP 10 eligible users (total points: ${top10TotalPoints})`);
             
             let distributedRewards = 0;
             
-            // Distribute rewards proportionally among top 5 eligible users
-            top5EligibleUsers.forEach((calc, index) => {
-              if (index === 4) { // Last user gets remainder to ensure exact 500K total
+            // Distribute rewards proportionally among top 10 eligible users
+            top10EligibleUsers.forEach((calc, index) => {
+              if (index === 9) { // Last user gets remainder to ensure exact 500K total
                 calc.weeklyRewards = 500000 - distributedRewards;
               } else {
-                const proportion = calc.weeklyPoints / top5TotalPoints;
+                const proportion = calc.weeklyPoints / top10TotalPoints;
                 calc.weeklyRewards = Math.floor(proportion * 500000); // Use floor to prevent exceeding
                 distributedRewards += calc.weeklyRewards;
               }
@@ -1014,10 +1014,10 @@ class DailyPointsCalculationScript {
             // Set ranks for ALL users (including excluded ones, but they get 0 rewards)
             usersWithWeeklyPoints.forEach((calc, index) => {
               calc.weeklyRank = index + 1;
-              // Rewards already set above (0 for excluded/beyond top 5, actual values for top 5 eligible)
+              // Rewards already set above (0 for excluded/beyond top 10, actual values for top 10 eligible)
             });
             
-            console.log(`🔧 Total rewards distributed: ${top5EligibleUsers.reduce((sum, calc) => sum + calc.weeklyRewards, 0)} (should be exactly 500000)`);
+            console.log(`🔧 Total rewards distributed: ${top10EligibleUsers.reduce((sum, calc) => sum + calc.weeklyRewards, 0)} (should be exactly 500000)`);
           }
           
           const finalCheck = this.allCalculations.filter(calc => calc.weeklyPoints > 0);
@@ -1352,16 +1352,45 @@ class DailyPointsCalculationScript {
       return;
     }
     
+    // Filter out wallets excluded from rewards
+    const eligibleUsers = usersWeeklyPoints.filter(user => {
+      const isExcluded = this.isWalletExcludedFromRewards(user.walletAddress);
+      if (isExcluded) {
+        console.log(`🚫 Excluding ${user.walletAddress} from weekly rewards (in EXCLUDE_WALLET_REWARDS)`);
+      }
+      return !isExcluded;
+    });
+
+    console.log(`🔧 Weekly rewards: ${usersWeeklyPoints.length} total users, ${eligibleUsers.length} eligible (${usersWeeklyPoints.length - eligibleUsers.length} excluded)`);
+
+    // Only distribute rewards to TOP 10 ELIGIBLE users
+    const top10EligibleUsers = eligibleUsers.slice(0, 10);
+    
+    if (top10EligibleUsers.length === 0) {
+      console.log('ℹ️ No eligible users for weekly rewards');
+      return;
+    }
+
+    const top10TotalPoints = top10EligibleUsers.reduce((sum, user) => sum + user.weeklyPoints, 0);
+    console.log(`🔧 Distributing ${WEEKLY_REWARDS_POOL.toLocaleString()} weekly rewards among TOP ${top10EligibleUsers.length} eligible users`);
+
     console.log(`📊 Total weekly points: ${totalWeeklyPoints}`);
     console.log(`💰 Weekly rewards pool: ${WEEKLY_REWARDS_POOL.toLocaleString()}`);
     
     // Calculate rewards and ranks for each user
     const userRewards: Array<{walletAddress: string, weeklyPoints: number, weeklyRank: number, weeklyRewards: number}> = [];
     
+    // First, add all users with weekly points (for ranking purposes) 
     usersWeeklyPoints.forEach((user, index) => {
-      const proportion = user.weeklyPoints / totalWeeklyPoints;
-      const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
       const weeklyRank = index + 1; // Rank based on sorted order (highest points = rank 1)
+      
+      // Only give rewards to top 10 eligible users
+      let weeklyRewards = 0;
+      const eligibleIndex = eligibleUsers.findIndex(eu => eu.walletAddress === user.walletAddress);
+      if (eligibleIndex >= 0 && eligibleIndex < 10) {
+        const proportion = user.weeklyPoints / top10TotalPoints;
+        weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
+      }
       
       userRewards.push({
         walletAddress: user.walletAddress,
@@ -1370,7 +1399,9 @@ class DailyPointsCalculationScript {
         weeklyRewards
       });
       
-      console.log(`🏆 Rank ${weeklyRank}: ${user.walletAddress} - ${user.weeklyPoints} pts (${(proportion * 100).toFixed(2)}%) = ${weeklyRewards} rewards`);
+      if (weeklyRewards > 0) {
+        console.log(`🏆 Rank ${weeklyRank}: ${user.walletAddress} - ${user.weeklyPoints} pts (${((user.weeklyPoints / top10TotalPoints) * 100).toFixed(2)}%) = ${weeklyRewards} rewards`);
+      }
     });
     
     // Update today's user_daily_points entries with weekly data
