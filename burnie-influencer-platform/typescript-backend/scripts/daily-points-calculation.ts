@@ -852,19 +852,92 @@ class DailyPointsCalculationScript {
     console.log(`🔍 DISPLAY DEBUG: ${usersWithWeeklyPoints.length} users have weeklyPoints > 0 in allCalculations (total: ${this.allCalculations.length})`);
     console.log(`🔍 DISPLAY DEBUG: Is weekly calculation day? ${this.isWeeklyCalculationDay()}`);
     
-    // EMERGENCY FIX: If no weekly points, force set them for testing
+    // REAL FIX: Force apply weekly points from database if none found
     if (usersWithWeeklyPoints.length === 0 && this.isWeeklyCalculationDay()) {
-      console.log(`🚨 EMERGENCY: No weekly points found, forcing ALL users to have weekly points for testing`);
-      this.allCalculations.forEach((calc, index) => {
-        calc.weeklyPoints = Math.max(1000 - (index * 10), 10); // Decreasing points
-        calc.weeklyRank = index + 1;
-        calc.weeklyRewards = Math.max(10000 - (index * 100), 100);
-        if (index < 5) {
-          console.log(`🚨 FORCED: ${calc.walletAddress} = ${calc.weeklyPoints} weekly points`);
+      console.log(`🔧 REAL FIX: No weekly points found, applying real database values...`);
+      
+      // Re-run the weekly query to get fresh data
+      const { startDate, endDate } = this.getWeeklyCalculationWindow();
+      const weeklyQuery = `
+        SELECT 
+          u."walletAddress",
+          COALESCE(SUM(udp."dailyPointsEarned"), 0) as weeklyPoints
+        FROM users u
+        LEFT JOIN user_daily_points udp ON u."walletAddress" = udp."walletAddress"
+          AND udp."createdAt" >= $1 
+          AND udp."createdAt" < $2
+        GROUP BY u."walletAddress"
+        HAVING COALESCE(SUM(udp."dailyPointsEarned"), 0) > 0
+        ORDER BY weeklyPoints DESC
+      `;
+      
+      try {
+        const weeklyResults = await this.dataSource.query(weeklyQuery, [startDate, endDate]);
+        console.log(`🔧 REAL FIX: Found ${weeklyResults.length} users with real weekly points`);
+        
+        if (weeklyResults.length > 0) {
+          const totalWeeklyPoints = weeklyResults.reduce((sum: number, row: any) => sum + parseFloat(row.weeklyPoints), 0);
+          
+          // Apply real weekly points to allCalculations
+          weeklyResults.forEach((row: any, index: number) => {
+            const weeklyPoints = parseFloat(row.weeklyPoints);
+            const weeklyRank = index + 1;
+            const proportion = weeklyPoints / totalWeeklyPoints;
+            const weeklyRewards = Math.round(proportion * 500000); // WEEKLY_REWARDS_POOL
+            
+            // Find and update existing user
+            let found = false;
+            for (let i = 0; i < this.allCalculations.length; i++) {
+              const calc = this.allCalculations[i];
+              if (calc && calc.walletAddress.toLowerCase() === row.walletAddress.toLowerCase()) {
+                calc.weeklyPoints = weeklyPoints;
+                calc.weeklyRank = weeklyRank;
+                calc.weeklyRewards = weeklyRewards;
+                found = true;
+                break;
+              }
+            }
+            
+            // If not found, add new user
+            if (!found) {
+              const newCalculation = {
+                walletAddress: row.walletAddress,
+                twitterHandle: undefined,
+                name: undefined,
+                dailyPointsEarned: 0,
+                totalPoints: 0,
+                purchasePoints: 0,
+                milestonePoints: 0,
+                referralPoints: 0,
+                mindsharePoints: 0,
+                previousTotalPoints: 0,
+                totalReferrals: 0,
+                activeReferrals: 0,
+                totalReferralTransactionsValue: 0,
+                totalRoastEarned: 0,
+                mindshare: 0,
+                dailyPurchaseCount: 0,
+                dailyMilestoneCount: 0,
+                dailyNewQualifiedReferrals: 0,
+                dailyRewards: 0,
+                weeklyRewards: weeklyRewards,
+                weeklyPoints: weeklyPoints,
+                dailyRank: 0,
+                weeklyRank: weeklyRank,
+                currentTier: 'BRONZE' as any,
+                newTier: 'BRONZE' as any,
+                tierChanged: false
+              };
+              this.allCalculations.push(newCalculation as any);
+            }
+          });
+          
+          const finalCheck = this.allCalculations.filter(calc => calc.weeklyPoints > 0);
+          console.log(`🔧 REAL FIX SUCCESS: ${finalCheck.length} users now have real weekly points`);
         }
-      });
-      const afterEmergencyFix = this.allCalculations.filter(calc => calc.weeklyPoints > 0);
-      console.log(`🚨 After emergency fix: ${afterEmergencyFix.length} users now have weekly points`);
+      } catch (error) {
+        console.error(`🔧 REAL FIX ERROR:`, error);
+      }
     }
     
     if (usersWithWeeklyPoints.length > 0) {
