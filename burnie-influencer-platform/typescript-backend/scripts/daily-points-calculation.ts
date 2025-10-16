@@ -1293,6 +1293,11 @@ class DailyPointsCalculationScript {
       
       const manualWeeklyResult = await this.dataSource.query(manualWeeklyQuery, [startDate, endDate]);
       console.log(`📊 Manual weekly calculation found ${manualWeeklyResult.length} users with weekly points`);
+      console.log(`📊 allCalculations array has ${this.allCalculations.length} users`);
+      
+      // Debug: Show first few wallet addresses from both arrays
+      console.log(`🔍 First 5 weekly query wallets:`, manualWeeklyResult.slice(0, 5).map((r: any) => r.walletAddress));
+      console.log(`🔍 First 5 allCalculations wallets:`, this.allCalculations.slice(0, 5).map(c => c.walletAddress));
       
       if (manualWeeklyResult.length > 0) {
         const totalWeeklyPoints = manualWeeklyResult.reduce((sum: number, row: any) => sum + parseFloat(row.weeklyPoints), 0);
@@ -1305,13 +1310,45 @@ class DailyPointsCalculationScript {
           const proportion = weeklyPoints / totalWeeklyPoints;
           const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
           
-          const calculation = this.allCalculations.find(calc => calc.walletAddress === row.walletAddress);
+          let calculation = this.allCalculations.find(calc => calc.walletAddress === row.walletAddress);
           if (calculation) {
+            // Update existing calculation
             calculation.weeklyPoints = weeklyPoints;
             calculation.weeklyRank = weeklyRank;
             calculation.weeklyRewards = weeklyRewards;
+            console.log(`✅ Updated existing ${row.walletAddress}: weeklyPoints=${weeklyPoints}`);
+          } else {
+            // Create new calculation entry for users not processed today but have weekly points
+            const newCalculation = {
+              walletAddress: row.walletAddress,
+              twitterHandle: 'N/A',
+              dailyPointsEarned: 0, // They weren't processed today
+              totalPoints: 0,
+              purchasePoints: 0,
+              milestonePoints: 0,
+              referralPoints: 0,
+              mindsharePoints: 0,
+              previousTotalPoints: 0,
+              totalReferrals: 0,
+              activeReferrals: 0,
+              totalRoastEarned: 0,
+              dailyPurchaseCount: 0,
+              dailyMilestoneCount: 0,
+              dailyNewQualifiedReferrals: 0,
+              dailyRewards: 0,
+              weeklyRewards: weeklyRewards,
+              weeklyPoints: weeklyPoints,
+              dailyRank: 0,
+              weeklyRank: weeklyRank
+            };
+            this.allCalculations.push(newCalculation);
+            console.log(`✅ Added new calculation for ${row.walletAddress}: weeklyPoints=${weeklyPoints}`);
           }
         });
+        
+        // Debug: Check how many calculations were updated
+        const updatedCount = this.allCalculations.filter(calc => calc.weeklyPoints > 0).length;
+        console.log(`📊 Updated ${updatedCount} calculations with weekly data out of ${this.allCalculations.length} total calculations`);
         
         console.log('✅ Weekly points calculated from accumulated daily points');
       } else {
