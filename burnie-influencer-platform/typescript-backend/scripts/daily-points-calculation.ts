@@ -1052,30 +1052,34 @@ class DailyPointsCalculationScript {
    */
   private getWeeklyCalculationWindow(): { startDate: Date, endDate: Date } {
     const now = new Date();
+    console.log(`🔍 Debug - Current time (UTC): ${now.toISOString()}`);
+    console.log(`🔍 Debug - Current day of week: ${now.getDay()} (0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat)`);
     
-    // Convert current time to ET (UTC-5 in EST, UTC-4 in EDT)
-    // For simplicity, we'll use UTC-5 (EST) - in production you'd want proper timezone handling
-    const etOffset = -5; // Eastern Time offset from UTC
-    const nowET = new Date(now.getTime() + (etOffset * 60 * 60 * 1000));
+    // Since today is Thursday Oct 16, 2024, we want:
+    // Start: Wed Oct 9, 2024 10 PM ET = Thu Oct 10, 2024 3 AM UTC  
+    // End: Wed Oct 16, 2024 10 PM ET = Thu Oct 17, 2024 3 AM UTC
     
-    // Find the most recent Wednesday 10 PM ET
-    let recentWednesday = new Date(nowET);
+    // Find the most recent Wednesday (should be yesterday, Oct 15 for Thursday Oct 16)
+    let recentWednesday = new Date(now);
     
     // Go back to find the most recent Wednesday
     while (recentWednesday.getDay() !== 3) { // 3 = Wednesday
       recentWednesday.setDate(recentWednesday.getDate() - 1);
     }
     
-    // Set to 10 PM ET (22:00)
-    recentWednesday.setHours(22, 0, 0, 0);
+    console.log(`🔍 Debug - Found recent Wednesday: ${recentWednesday.toISOString()}`);
+    
+    // Set to 10 PM ET = 3 AM UTC next day (10 PM ET + 5 hours = 3 AM UTC)
+    const endDate = new Date(recentWednesday);
+    endDate.setUTCDate(endDate.getUTCDate() + 1); // Move to Thursday
+    endDate.setUTCHours(3, 0, 0, 0); // 3 AM UTC = 10 PM ET Wednesday
     
     // Calculate the previous Wednesday (7 days before)
-    const previousWednesday = new Date(recentWednesday);
-    previousWednesday.setDate(previousWednesday.getDate() - 7);
+    const startDate = new Date(endDate);
+    startDate.setUTCDate(startDate.getUTCDate() - 7);
     
-    // Convert back to UTC for database queries
-    const startDate = new Date(previousWednesday.getTime() - (etOffset * 60 * 60 * 1000));
-    const endDate = new Date(recentWednesday.getTime() - (etOffset * 60 * 60 * 1000));
+    console.log(`🔍 Debug - Weekly window: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+    console.log(`🔍 Debug - This covers: ${new Date(startDate.getTime() - 5*60*60*1000).toISOString()} ET to ${new Date(endDate.getTime() - 5*60*60*1000).toISOString()} ET`);
     
     return { startDate, endDate };
   }
@@ -1202,11 +1206,117 @@ class DailyPointsCalculationScript {
     const { startDate, endDate } = this.getWeeklyCalculationWindow();
     console.log(`📅 Weekly calculation window: ${startDate.toISOString()} to ${endDate.toISOString()}`);
     
+    // Debug: Check if there are any daily points in this date range
+    const debugQuery = `
+      SELECT COUNT(*) as total_records, 
+             SUM("dailyPointsEarned") as total_points,
+             MIN("createdAt") as earliest_date,
+             MAX("createdAt") as latest_date
+      FROM user_daily_points 
+      WHERE "createdAt" >= $1 AND "createdAt" < $2
+    `;
+    const debugResult = await this.dataSource.query(debugQuery, [startDate, endDate]);
+    console.log(`🔍 Debug - Records in date range:`, debugResult[0]);
+    
+    // Debug: Check what's actually in the database (all records)
+    const allRecordsQuery = `
+      SELECT COUNT(*) as total_records, 
+             SUM("dailyPointsEarned") as total_points,
+             MIN("createdAt") as earliest_date,
+             MAX("createdAt") as latest_date
+      FROM user_daily_points 
+      WHERE "dailyPointsEarned" > 0
+    `;
+    const allRecordsResult = await this.dataSource.query(allRecordsQuery);
+    console.log(`🔍 Debug - ALL records with points:`, allRecordsResult[0]);
+    
+    // Debug: Check recent records (last 7 days)
+    const recentQuery = `
+      SELECT "walletAddress", "dailyPointsEarned", "createdAt"
+      FROM user_daily_points 
+      WHERE "createdAt" >= NOW() - INTERVAL '7 days'
+        AND "dailyPointsEarned" > 0
+      ORDER BY "createdAt" DESC
+      LIMIT 10
+    `;
+    const recentResult = await this.dataSource.query(recentQuery);
+    console.log(`🔍 Debug - Recent records (last 7 days):`, recentResult);
+    
+    // Debug: Test the exact query we're using for weekly points
+    const testQuery = `
+      SELECT 
+        u.id as userId,
+        u."walletAddress",
+        COALESCE(SUM(udp."dailyPointsEarned"), 0) as weeklyPoints,
+        COUNT(udp.id) as record_count
+      FROM users u
+      LEFT JOIN user_daily_points udp ON u."walletAddress" = udp."walletAddress"
+        AND udp."createdAt" >= $1 
+        AND udp."createdAt" < $2
+      GROUP BY u.id, u."walletAddress"
+      HAVING COALESCE(SUM(udp."dailyPointsEarned"), 0) > 0
+      ORDER BY weeklyPoints DESC
+      LIMIT 5
+    `;
+    const testResult = await this.dataSource.query(testQuery, [startDate, endDate]);
+    console.log(`🔍 Debug - Test weekly query result:`, testResult);
+    
     // Get all users' weekly points for this period
     const usersWeeklyPoints = await this.getUsersWeeklyPoints(startDate, endDate);
     
     if (usersWeeklyPoints.length === 0) {
       console.log('⚠️ No users found with weekly points for calculation');
+      
+      // Debug: Check total users and total daily points records
+      const totalUsersQuery = `SELECT COUNT(*) as count FROM users`;
+      const totalPointsQuery = `SELECT COUNT(*) as count FROM user_daily_points WHERE "dailyPointsEarned" > 0`;
+      const totalUsers = await this.dataSource.query(totalUsersQuery);
+      const totalPoints = await this.dataSource.query(totalPointsQuery);
+      console.log(`🔍 Debug - Total users: ${totalUsers[0].count}, Total daily points records: ${totalPoints[0].count}`);
+      
+      // For dry-run, calculate weekly points manually by querying all daily points in the cycle
+      console.log('📊 Calculating weekly points manually for dry-run (no saved data found)...');
+      
+      // Get weekly points for each user by summing their daily points in the weekly window
+      const manualWeeklyQuery = `
+        SELECT 
+          u."walletAddress",
+          COALESCE(SUM(udp."dailyPointsEarned"), 0) as weeklyPoints
+        FROM users u
+        LEFT JOIN user_daily_points udp ON u."walletAddress" = udp."walletAddress"
+          AND udp."createdAt" >= $1 
+          AND udp."createdAt" < $2
+        GROUP BY u."walletAddress"
+        HAVING COALESCE(SUM(udp."dailyPointsEarned"), 0) > 0
+        ORDER BY weeklyPoints DESC
+      `;
+      
+      const manualWeeklyResult = await this.dataSource.query(manualWeeklyQuery, [startDate, endDate]);
+      console.log(`📊 Manual weekly calculation found ${manualWeeklyResult.length} users with weekly points`);
+      
+      if (manualWeeklyResult.length > 0) {
+        const totalWeeklyPoints = manualWeeklyResult.reduce((sum: number, row: any) => sum + parseFloat(row.weeklyPoints), 0);
+        console.log(`📊 Total weekly points from manual calculation: ${totalWeeklyPoints}`);
+        
+        // Update calculations with manual weekly data
+        manualWeeklyResult.forEach((row: any, index: number) => {
+          const weeklyPoints = parseFloat(row.weeklyPoints);
+          const weeklyRank = index + 1;
+          const proportion = weeklyPoints / totalWeeklyPoints;
+          const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
+          
+          const calculation = this.allCalculations.find(calc => calc.walletAddress === row.walletAddress);
+          if (calculation) {
+            calculation.weeklyPoints = weeklyPoints;
+            calculation.weeklyRank = weeklyRank;
+            calculation.weeklyRewards = weeklyRewards;
+          }
+        });
+        
+        console.log('✅ Weekly points calculated from accumulated daily points');
+      } else {
+        console.log('⚠️ No weekly points found even with manual calculation - this might be the first week of data');
+      }
       return;
     }
     
@@ -1215,6 +1325,11 @@ class DailyPointsCalculationScript {
     // Calculate total weekly points
     const totalWeeklyPoints = usersWeeklyPoints.reduce((sum, user) => sum + user.weeklyPoints, 0);
     console.log(`📊 Total weekly points: ${totalWeeklyPoints}`);
+    
+    if (totalWeeklyPoints === 0) {
+      console.log('⚠️ Total weekly points is 0 - no rewards to calculate');
+      return;
+    }
     
     // Sort users by weekly points (descending) and assign ranks
     usersWeeklyPoints.sort((a, b) => b.weeklyPoints - a.weeklyPoints);
