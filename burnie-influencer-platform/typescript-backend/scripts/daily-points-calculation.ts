@@ -1391,8 +1391,8 @@ class DailyPointsCalculationScript {
         });
         
         // Debug: Check how many calculations were updated
-        const updatedCount = this.allCalculations.filter(calc => calc.weeklyPoints > 0).length;
-        console.log(`📊 Updated ${updatedCount} calculations with weekly data out of ${this.allCalculations.length} total calculations`);
+        const initialUpdatedCount = this.allCalculations.filter(calc => calc.weeklyPoints > 0).length;
+        console.log(`📊 Updated ${initialUpdatedCount} calculations with weekly data out of ${this.allCalculations.length} total calculations`);
         
         // Debug: Show some examples of updated calculations
         console.log(`🔍 Sample updated calculations:`);
