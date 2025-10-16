@@ -1084,6 +1084,16 @@ class DailyPointsCalculationScript {
    * Get weekly points for all users in the calculation window
    */
   private async getUsersWeeklyPoints(startDate: Date, endDate: Date): Promise<Array<{userId: number, walletAddress: string, weeklyPoints: number}>> {
+    // Build WHERE clause conditionally based on whether there are excluded wallets
+    let whereClause = '';
+    let params: any[] = [startDate, endDate];
+    
+    if (EXCLUDED_WALLETS.length > 0) {
+      const placeholders = EXCLUDED_WALLETS.map((_, i) => `$${i + 3}`).join(',');
+      whereClause = `WHERE u."walletAddress" NOT IN (${placeholders})`;
+      params = [startDate, endDate, ...EXCLUDED_WALLETS];
+    }
+    
     const query = `
       SELECT 
         u.id as userId,
@@ -1093,13 +1103,12 @@ class DailyPointsCalculationScript {
       LEFT JOIN user_daily_points udp ON u."walletAddress" = udp."walletAddress"
         AND udp."createdAt" >= $1 
         AND udp."createdAt" < $2
-      WHERE u."walletAddress" NOT IN (${EXCLUDED_WALLETS.map((_, i) => `$${i + 3}`).join(',')})
+      ${whereClause}
       GROUP BY u.id, u."walletAddress"
       HAVING COALESCE(SUM(udp."dailyPointsEarned"), 0) > 0
       ORDER BY weeklyPoints DESC
     `;
     
-    const params = [startDate, endDate, ...EXCLUDED_WALLETS];
     const result = await this.dataSource.query(query, params);
     
     return result.map((row: any) => ({
