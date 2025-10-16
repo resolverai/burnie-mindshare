@@ -1333,6 +1333,11 @@ class DailyPointsCalculationScript {
         const totalWeeklyPoints = manualWeeklyResult.reduce((sum: number, row: any) => sum + parseFloat(row.weeklyPoints), 0);
         console.log(`📊 Total weekly points from manual calculation: ${totalWeeklyPoints}`);
         
+        // Debug: Show what we're trying to match
+        console.log(`🔍 Trying to match ${manualWeeklyResult.length} weekly results with ${this.allCalculations.length} calculations`);
+        console.log(`🔍 First 3 weekly results:`, manualWeeklyResult.slice(0, 3).map((r: any) => r.walletAddress));
+        console.log(`🔍 First 3 allCalculations:`, this.allCalculations.slice(0, 3).map(c => c.walletAddress));
+        
         // Update calculations with manual weekly data
         manualWeeklyResult.forEach((row: any, index: number) => {
           const weeklyPoints = parseFloat(row.weeklyPoints);
@@ -1341,12 +1346,15 @@ class DailyPointsCalculationScript {
           const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
           
           let calculation = this.allCalculations.find(calc => calc.walletAddress.toLowerCase() === row.walletAddress.toLowerCase());
+          console.log(`🔍 Looking for ${row.walletAddress} in allCalculations: ${calculation ? 'FOUND' : 'NOT FOUND'}`);
+          
           if (calculation) {
             // Update existing calculation
+            const oldWeeklyPoints = calculation.weeklyPoints;
             calculation.weeklyPoints = weeklyPoints;
             calculation.weeklyRank = weeklyRank;
             calculation.weeklyRewards = weeklyRewards;
-            console.log(`✅ Updated existing ${row.walletAddress}: weeklyPoints=${weeklyPoints}, was=${calculation.weeklyPoints}`);
+            console.log(`✅ Updated existing ${row.walletAddress}: weeklyPoints=${weeklyPoints} (was ${oldWeeklyPoints})`);
           } else {
             // Create new calculation entry for users not processed today but have weekly points
             const newCalculation: UserCalculation = {
@@ -1401,29 +1409,70 @@ class DailyPointsCalculationScript {
           console.log(`   FINAL: ${calc.walletAddress} = ${calc.weeklyPoints} weekly points`);
         });
         
-        // BRUTE FORCE FIX: If no users have weekly points, force update all users
-        if (finalCheck.length === 0) {
-          console.log(`🔧 BRUTE FORCE: No users have weekly points, forcing update...`);
-          manualWeeklyResult.forEach((row: any, index: number) => {
-            const weeklyPoints = parseFloat(row.weeklyPoints);
-            const weeklyRank = index + 1;
-            const proportion = weeklyPoints / totalWeeklyPoints;
-            const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
-            
-            // Force update ALL matching users
-            this.allCalculations.forEach(calc => {
-              if (calc.walletAddress.toLowerCase() === row.walletAddress.toLowerCase()) {
-                calc.weeklyPoints = weeklyPoints;
-                calc.weeklyRank = weeklyRank;
-                calc.weeklyRewards = weeklyRewards;
-                console.log(`🔧 FORCE UPDATED: ${calc.walletAddress} = ${weeklyPoints} weekly points`);
-              }
-            });
+        // BRUTE FORCE FIX: Ensure ALL weekly users are in allCalculations
+        console.log(`🔧 ENSURING ALL WEEKLY USERS ARE IN ALLCALCULATIONS...`);
+        let addedCount = 0;
+        let updatedCount = 0;
+        
+        manualWeeklyResult.forEach((row: any, index: number) => {
+          const weeklyPoints = parseFloat(row.weeklyPoints);
+          const weeklyRank = index + 1;
+          const proportion = weeklyPoints / totalWeeklyPoints;
+          const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
+          
+          // Try to find existing user
+          let found = false;
+          this.allCalculations.forEach(calc => {
+            if (calc.walletAddress.toLowerCase() === row.walletAddress.toLowerCase()) {
+              calc.weeklyPoints = weeklyPoints;
+              calc.weeklyRank = weeklyRank;
+              calc.weeklyRewards = weeklyRewards;
+              found = true;
+              updatedCount++;
+              console.log(`🔧 UPDATED: ${calc.walletAddress} = ${weeklyPoints} weekly points`);
+            }
           });
           
-          const afterForceCheck = this.allCalculations.filter(calc => calc.weeklyPoints > 0);
-          console.log(`🔧 AFTER FORCE UPDATE: ${afterForceCheck.length} users now have weeklyPoints > 0`);
-        }
+          // If not found, add new user
+          if (!found) {
+            const newCalculation: UserCalculation = {
+              walletAddress: row.walletAddress,
+              twitterHandle: undefined,
+              name: undefined,
+              dailyPointsEarned: 0,
+              totalPoints: 0,
+              purchasePoints: 0,
+              milestonePoints: 0,
+              referralPoints: 0,
+              mindsharePoints: 0,
+              previousTotalPoints: 0,
+              totalReferrals: 0,
+              activeReferrals: 0,
+              totalReferralTransactionsValue: 0,
+              totalRoastEarned: 0,
+              mindshare: 0,
+              dailyPurchaseCount: 0,
+              dailyMilestoneCount: 0,
+              dailyNewQualifiedReferrals: 0,
+              dailyRewards: 0,
+              weeklyRewards: weeklyRewards,
+              weeklyPoints: weeklyPoints,
+              dailyRank: 0,
+              weeklyRank: weeklyRank,
+              currentTier: 'BRONZE' as TierLevel,
+              newTier: 'BRONZE' as TierLevel,
+              tierChanged: false
+            };
+            this.allCalculations.push(newCalculation);
+            addedCount++;
+            console.log(`🔧 ADDED: ${row.walletAddress} = ${weeklyPoints} weekly points`);
+          }
+        });
+        
+        console.log(`🔧 SUMMARY: Updated ${updatedCount} existing users, added ${addedCount} new users`);
+        const finalFinalCheck = this.allCalculations.filter(calc => calc.weeklyPoints > 0);
+        console.log(`🔧 FINAL RESULT: ${finalFinalCheck.length} users now have weeklyPoints > 0 out of ${this.allCalculations.length} total`);
+        
       } else {
         console.log('⚠️ No weekly points found even with manual calculation - this might be the first week of data');
       }
