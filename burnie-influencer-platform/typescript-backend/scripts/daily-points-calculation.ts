@@ -1443,7 +1443,7 @@ class DailyPointsCalculationScript {
           let found = false;
           for (let i = 0; i < this.allCalculations.length; i++) {
             const calc = this.allCalculations[i];
-            if (calc.walletAddress.toLowerCase() === row.walletAddress.toLowerCase()) {
+            if (calc && calc.walletAddress.toLowerCase() === row.walletAddress.toLowerCase()) {
               console.log(`🔧 FOUND EXISTING: ${calc.walletAddress}, updating weeklyPoints from ${calc.weeklyPoints} to ${weeklyPoints}`);
               calc.weeklyPoints = weeklyPoints;
               calc.weeklyRank = weeklyRank;
