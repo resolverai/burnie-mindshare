@@ -847,11 +847,11 @@ class DailyPointsCalculationScript {
       return;
     }
 
-    console.log('\n' + '='.repeat(280));
+    console.log('\n' + '='.repeat(200));
     console.log('📊 [DRY RUN] FINAL SUMMARY - ALL PROCESSED USERS');
-    console.log('='.repeat(280));
-    console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Daily Rnk | Weekly Pts | Weekly Rnk | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | P.Count | M.Count | R.Count | Daily Rwd | Weekly Rwd | Referrals | ROAST    | Tier');
-    console.log('='.repeat(280));
+    console.log('='.repeat(200));
+    console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Weekly Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | P.Count | M.Count | R.Count | Referrals | ROAST    | Tier');
+    console.log('='.repeat(200));
     
     // Sort by daily points earned (descending) for better visibility
     const sortedCalculations = [...this.allCalculations].sort((a, b) => b.dailyPointsEarned - a.dailyPointsEarned);
@@ -862,9 +862,7 @@ class DailyPointsCalculationScript {
       const wallet = calc.walletAddress.padEnd(42, ' ');
       const twitterHandle = (calc.twitterHandle || 'N/A').padEnd(20, ' ');
       const dailyPts = Math.round(calc.dailyPointsEarned).toString().padStart(9, ' ');
-      const dailyRank = (calc.dailyRank || 0).toString().padStart(9, ' ');
       const weeklyPts = this.isWeeklyCalculationDay() ? Math.round(calc.weeklyPoints).toString().padStart(10, ' ') : 'TBD'.padStart(10, ' ');
-      const weeklyRank = this.isWeeklyCalculationDay() ? (calc.weeklyRank || 0).toString().padStart(10, ' ') : 'TBD'.padStart(10, ' ');
       const prevTotal = calc.previousTotalPoints.toString().padStart(10, ' ');
       const newTotal = calc.totalPoints.toString().padStart(9, ' ');
       const purchase = calc.purchasePoints.toString().padStart(8, ' ');
@@ -874,12 +872,10 @@ class DailyPointsCalculationScript {
       const pCount = calc.dailyPurchaseCount.toString().padStart(7, ' ');
       const mCount = calc.dailyMilestoneCount.toString().padStart(7, ' ');
       const rCount = calc.dailyNewQualifiedReferrals.toString().padStart(7, ' ');
-      const dailyRewards = calc.dailyRewards.toString().padStart(9, ' ');
-      const weeklyRewards = this.isWeeklyCalculationDay() ? calc.weeklyRewards.toString().padStart(10, ' ') : 'TBD'.padStart(10, ' ');
       const referrals = `${calc.totalReferrals}(${calc.activeReferrals})`.padStart(9, ' ');
       const roast = Math.round(calc.totalRoastEarned).toString().padStart(8, ' ');
       
-      console.log(`${rank} | ${wallet} | ${twitterHandle} | ${dailyPts} | ${dailyRank} | ${weeklyPts} | ${weeklyRank} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${pCount} | ${mCount} | ${rCount} | ${dailyRewards} | ${weeklyRewards} | ${referrals} | ${roast} | ${tierInfo}`);
+      console.log(`${rank} | ${wallet} | ${twitterHandle} | ${dailyPts} | ${weeklyPts} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${pCount} | ${mCount} | ${rCount} | ${referrals} | ${roast} | ${tierInfo}`);
     });
     
     // Summary statistics
@@ -897,17 +893,16 @@ class DailyPointsCalculationScript {
     const totalMilestoneCount = sortedCalculations.reduce((sum, calc) => sum + calc.dailyMilestoneCount, 0);
     const totalNewQualifiedReferrals = sortedCalculations.reduce((sum, calc) => sum + calc.dailyNewQualifiedReferrals, 0);
     
-    console.log('='.repeat(280));
+    console.log('='.repeat(200));
     console.log(`📈 SUMMARY STATS: ${sortedCalculations.length} users processed | ${usersWithPoints} earned points | ${tierUpgrades} tier upgrades`);
     console.log(`💰 POINTS BREAKDOWN: ${Math.round(totalDailyPoints)} total daily | ${totalPurchasePoints} purchase | ${totalMilestonePoints} milestone | ${totalReferralPoints} referral | ${totalMindsharePoints} mindshare`);
     console.log(`📊 ACTIVITY COUNTS: ${totalPurchaseCount} purchases | ${totalMilestoneCount} milestones | ${totalNewQualifiedReferrals} new qualified referrals`);
-    console.log(`🎁 DAILY REWARDS: ${totalDailyRewards} total daily rewards distributed`);
     if (this.isWeeklyCalculationDay()) {
-      console.log(`🏆 WEEKLY REWARDS: ${totalWeeklyRewards} total weekly rewards distributed | ${Math.round(totalWeeklyPoints)} total weekly points`);
+      console.log(`🏆 WEEKLY SUMMARY: ${Math.round(totalWeeklyPoints)} total weekly points | ${totalWeeklyRewards} weekly rewards calculated`);
     } else {
-      console.log(`🏆 WEEKLY REWARDS: TBD (calculated on Thursdays only)`);
+      console.log(`🏆 WEEKLY SUMMARY: TBD (calculated on Thursdays only)`);
     }
-    console.log('='.repeat(280));
+    console.log('='.repeat(200));
   }
 
   /**
@@ -1192,6 +1187,48 @@ class DailyPointsCalculationScript {
   }
 
   /**
+   * Calculate weekly points for dry-run mode (updates stored calculations for display)
+   */
+  async calculateWeeklyPointsForDryRun(): Promise<void> {
+    const { startDate, endDate } = this.getWeeklyCalculationWindow();
+    console.log(`📅 Weekly calculation window: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+    
+    // Get all users' weekly points for this period
+    const usersWeeklyPoints = await this.getUsersWeeklyPoints(startDate, endDate);
+    
+    if (usersWeeklyPoints.length === 0) {
+      console.log('⚠️ No users found with weekly points for calculation');
+      return;
+    }
+    
+    console.log(`📊 Found ${usersWeeklyPoints.length} users with weekly points`);
+    
+    // Calculate total weekly points
+    const totalWeeklyPoints = usersWeeklyPoints.reduce((sum, user) => sum + user.weeklyPoints, 0);
+    console.log(`📊 Total weekly points: ${totalWeeklyPoints}`);
+    
+    // Sort users by weekly points (descending) and assign ranks
+    usersWeeklyPoints.sort((a, b) => b.weeklyPoints - a.weeklyPoints);
+    
+    // Update the stored calculations with weekly data
+    usersWeeklyPoints.forEach((weeklyUser, index) => {
+      const weeklyRank = index + 1;
+      const proportion = weeklyUser.weeklyPoints / totalWeeklyPoints;
+      const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
+      
+      // Find and update the corresponding calculation in allCalculations
+      const calculation = this.allCalculations.find(calc => calc.walletAddress === weeklyUser.walletAddress);
+      if (calculation) {
+        calculation.weeklyPoints = weeklyUser.weeklyPoints;
+        calculation.weeklyRank = weeklyRank;
+        calculation.weeklyRewards = weeklyRewards;
+      }
+      
+      console.log(`🏆 Rank ${weeklyRank}: ${weeklyUser.walletAddress} - ${weeklyUser.weeklyPoints} pts (${(proportion * 100).toFixed(2)}%) = ${weeklyRewards} rewards`);
+    });
+  }
+
+  /**
    * Process users in batches
    */
   async processUsersInBatches(users: User[], batchSize: number = 100, dryRun: boolean = false): Promise<void> {
@@ -1323,13 +1360,14 @@ class DailyPointsCalculationScript {
           console.log(`   🚫 Excluded wallets from rewards: ${EXCLUDE_WALLET_REWARDS.length} wallet(s)`);
           console.log(`   ℹ️  Note: Individual reward amounts shown above in per-user calculations`);
           
-          // Show weekly calculation info in dry-run mode
+          // Calculate weekly points in dry-run mode for display purposes
           if (this.isWeeklyCalculationDay()) {
             console.log(`\n🗓️ [DRY RUN] Weekly Rewards Summary:`);
-            console.log(`   📅 Today is Thursday - weekly rewards would be calculated`);
+            console.log(`   📅 Today is Thursday - calculating weekly points for display...`);
+            await this.calculateWeeklyPointsForDryRun();
             console.log(`   💰 Weekly rewards pool (500,000) would be distributed proportionally`);
-            console.log(`   📊 Weekly points would be calculated from last Wed 10 PM ET to recent Wed 10 PM ET`);
-            console.log(`   🏆 Weekly ranks would be assigned based on weekly points`);
+            console.log(`   📊 Weekly points calculated from last Wed 10 PM ET to recent Wed 10 PM ET`);
+            console.log(`   🏆 Weekly ranks assigned based on weekly points`);
           } else {
             console.log(`\n🗓️ [DRY RUN] Weekly Rewards Info:`);
             console.log(`   📅 Today is not Thursday - no weekly rewards calculation`);
