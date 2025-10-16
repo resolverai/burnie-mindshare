@@ -1319,9 +1319,10 @@ class DailyPointsCalculationScript {
             console.log(`✅ Updated existing ${row.walletAddress}: weeklyPoints=${weeklyPoints}`);
           } else {
             // Create new calculation entry for users not processed today but have weekly points
-            const newCalculation = {
+            const newCalculation: UserCalculation = {
               walletAddress: row.walletAddress,
-              twitterHandle: 'N/A',
+              twitterHandle: undefined,
+              name: undefined,
               dailyPointsEarned: 0, // They weren't processed today
               totalPoints: 0,
               purchasePoints: 0,
@@ -1331,7 +1332,9 @@ class DailyPointsCalculationScript {
               previousTotalPoints: 0,
               totalReferrals: 0,
               activeReferrals: 0,
+              totalReferralTransactionsValue: 0,
               totalRoastEarned: 0,
+              mindshare: 0,
               dailyPurchaseCount: 0,
               dailyMilestoneCount: 0,
               dailyNewQualifiedReferrals: 0,
@@ -1339,7 +1342,10 @@ class DailyPointsCalculationScript {
               weeklyRewards: weeklyRewards,
               weeklyPoints: weeklyPoints,
               dailyRank: 0,
-              weeklyRank: weeklyRank
+              weeklyRank: weeklyRank,
+              currentTier: 'BRONZE' as TierLevel,
+              newTier: 'BRONZE' as TierLevel,
+              tierChanged: false
             };
             this.allCalculations.push(newCalculation);
             console.log(`✅ Added new calculation for ${row.walletAddress}: weeklyPoints=${weeklyPoints}`);
