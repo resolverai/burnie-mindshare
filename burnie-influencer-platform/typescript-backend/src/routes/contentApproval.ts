@@ -64,16 +64,11 @@ router.post('/approve/:contentId', async (req, res) => {
         }
       }
       
-      // Handle video watermarking
+      // Handle video watermarking - start background task
       if (content.isVideo && content.videoUrl) {
-        logger.info(`🎬 Creating watermark for video in content ${contentId}`);
-        const watermarkVideoUrl = await VideoWatermarkService.createWatermarkForVideo(content.videoUrl, s3Bucket);
-        if (watermarkVideoUrl) {
-          content.watermarkVideoUrl = watermarkVideoUrl;
-          logger.info(`✅ Video watermark created: ${watermarkVideoUrl}`);
-        } else {
-          logger.warn(`⚠️ Failed to create video watermark for content ${contentId}`);
-        }
+        logger.info(`🎬 Starting background video watermarking for content ${contentId}`);
+        await VideoWatermarkService.createWatermarkForVideo(content.videoUrl, s3Bucket, parseInt(contentId));
+        logger.info(`✅ Video watermarking task queued in background for content ${contentId}`);
       }
       
     } catch (error) {

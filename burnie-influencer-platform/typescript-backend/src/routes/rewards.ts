@@ -10,6 +10,46 @@ import { ReferralCode, LeaderTier } from '../models/ReferralCode';
 
 const router = express.Router();
 
+/**
+ * Helper function to determine if weekly rewards should be displayed or show "TBD"
+ * Weekly rewards are visible only from Thursday (after calculation) until Thursday 10 PM ET
+ */
+function shouldShowWeeklyRewards(): boolean {
+  const now = new Date();
+  
+  // Convert to ET (UTC-5 in EST, UTC-4 in EDT)
+  // For simplicity, using UTC-5 (EST) - in production you'd want proper timezone handling
+  const etOffset = -5; // Eastern Time offset from UTC
+  const nowET = new Date(now.getTime() + (etOffset * 60 * 60 * 1000));
+  
+  const dayOfWeek = nowET.getDay(); // 0 = Sunday, 4 = Thursday
+  const hour = nowET.getHours();
+  
+  // Show weekly rewards only on Thursday before 10 PM ET
+  return dayOfWeek === 4 && hour < 22;
+}
+
+/**
+ * Helper function to check if any weekly rewards have been distributed for the current week
+ */
+async function hasWeeklyRewardsBeenDistributed(): Promise<boolean> {
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const todayEnd = new Date(todayStart);
+  todayEnd.setDate(todayEnd.getDate() + 1);
+  
+  const query = `
+    SELECT COUNT(*) as count
+    FROM user_daily_points
+    WHERE "createdAt" >= $1 
+      AND "createdAt" < $2
+      AND "weeklyRewards" > 0
+  `;
+  
+  const result = await AppDataSource.query(query, [todayStart, todayEnd]);
+  return parseInt(result[0]?.count || '0') > 0;
+}
+
 interface LeaderboardUser {
   rank: number;
   walletAddress: string;
@@ -21,7 +61,7 @@ interface LeaderboardUser {
   activeReferrals: number;
   totalPoints: number;
   totalRoastEarned: number;
-  totalDailyRewards: number;
+  totalDailyRewards: number | string; // Can be number or "TBD"
   totalMilestonePoints?: number; // Only for 7D and 1M periods
   profileImageUrl?: string | undefined;
   isCurrentUser?: boolean;
@@ -214,11 +254,19 @@ router.get('/leaderboard', async (req, res) => {
       ? ', SUM(udp."milestonePoints") as total_milestone_points' 
       : ', 0 as total_milestone_points';
     
-    // For 7D and 1M periods, sum both dailyRewards and weeklyRewards
+    // For 7D and 1M periods, handle rewards based on weekly calculation schedule
     // For 'now' period, only sum dailyRewards
-    const rewardsSelect = (period === '7d' || period === '1m')
-      ? ', SUM(udp."dailyRewards" + udp."weeklyRewards") as total_daily_rewards'
-      : ', SUM(udp."dailyRewards") as total_daily_rewards';
+    let rewardsSelect: string;
+    if (period === '7d') {
+      // For 7D, show weeklyRewards only (not sum) when appropriate, otherwise will be handled as "TBD"
+      rewardsSelect = ', SUM(udp."weeklyRewards") as total_daily_rewards';
+    } else if (period === '1m') {
+      // For 1M, always show "TBD" for now
+      rewardsSelect = ', 0 as total_daily_rewards'; // Will be overridden to "TBD"
+    } else {
+      // For 'now' period, only sum dailyRewards
+      rewardsSelect = ', SUM(udp."dailyRewards") as total_daily_rewards';
+    }
     
     const aggregatedData = await userDailyPointsRepo.query(`
       WITH latest_referral_data AS (
@@ -254,6 +302,19 @@ router.get('/leaderboard', async (req, res) => {
     const userTiersRepo: Repository<UserTiers> = AppDataSource.getRepository(UserTiers);
     const leaderboardUsers: LeaderboardUser[] = [];
 
+    // Determine rewards display logic
+    let shouldShowRewards = false;
+    if (period === '7d') {
+      // For 7D, show rewards only on Thursday before 10 PM ET and if rewards have been distributed
+      shouldShowRewards = shouldShowWeeklyRewards() && await hasWeeklyRewardsBeenDistributed();
+    } else if (period === '1m') {
+      // For 1M, always show "TBD" for now
+      shouldShowRewards = false;
+    } else {
+      // For 'now' period, always show daily rewards
+      shouldShowRewards = true;
+    }
+
     for (let i = 0; i < aggregatedData.length; i++) {
       const userData = aggregatedData[i];
       
@@ -268,6 +329,14 @@ router.get('/leaderboard', async (req, res) => {
         where: { twitterUsername: userData.twitter_handle }
       });
 
+      // Calculate rewards display value
+      let rewardsValue: number | string;
+      if (shouldShowRewards) {
+        rewardsValue = parseFloat(userData.total_daily_rewards) || 0;
+      } else {
+        rewardsValue = "TBD";
+      }
+
       const leaderboardUser: LeaderboardUser = {
         rank: i + 1,
         walletAddress: userData.wallet_address,
@@ -279,7 +348,7 @@ router.get('/leaderboard', async (req, res) => {
         activeReferrals: parseInt(userData.active_referrals) || 0,
         totalPoints: parseFloat(userData.total_points) || 0,
         totalRoastEarned: parseFloat(userData.total_roast_earned) || 0,
-        totalDailyRewards: parseFloat(userData.total_daily_rewards) || 0,
+        totalDailyRewards: rewardsValue,
         profileImageUrl: twitterConnection?.profileImageUrl || undefined,
         isCurrentUser: userData.wallet_address === currentUserWallet
       };
@@ -343,11 +412,19 @@ router.get('/leaderboard/top-three', async (req, res) => {
       ? ', SUM(udp."milestonePoints") as total_milestone_points' 
       : ', 0 as total_milestone_points';
     
-    // For 7D and 1M periods, sum both dailyRewards and weeklyRewards
+    // For 7D and 1M periods, handle rewards based on weekly calculation schedule
     // For 'now' period, only sum dailyRewards
-    const rewardsSelectTop3 = (period === '7d' || period === '1m')
-      ? ', SUM(udp."dailyRewards" + udp."weeklyRewards") as total_daily_rewards'
-      : ', SUM(udp."dailyRewards") as total_daily_rewards';
+    let rewardsSelectTop3: string;
+    if (period === '7d') {
+      // For 7D, show weeklyRewards only (not sum) when appropriate, otherwise will be handled as "TBD"
+      rewardsSelectTop3 = ', SUM(udp."weeklyRewards") as total_daily_rewards';
+    } else if (period === '1m') {
+      // For 1M, always show "TBD" for now
+      rewardsSelectTop3 = ', 0 as total_daily_rewards'; // Will be overridden to "TBD"
+    } else {
+      // For 'now' period, only sum dailyRewards
+      rewardsSelectTop3 = ', SUM(udp."dailyRewards") as total_daily_rewards';
+    }
     
     const topThreeData = await userDailyPointsRepo.query(`
       WITH latest_referral_data AS (
@@ -382,6 +459,19 @@ router.get('/leaderboard/top-three', async (req, res) => {
     const userTiersRepo: Repository<UserTiers> = AppDataSource.getRepository(UserTiers);
     const topThree: LeaderboardUser[] = [];
 
+    // Determine rewards display logic (same as main leaderboard)
+    let shouldShowRewardsTop3 = false;
+    if (period === '7d') {
+      // For 7D, show rewards only on Thursday before 10 PM ET and if rewards have been distributed
+      shouldShowRewardsTop3 = shouldShowWeeklyRewards() && await hasWeeklyRewardsBeenDistributed();
+    } else if (period === '1m') {
+      // For 1M, always show "TBD" for now
+      shouldShowRewardsTop3 = false;
+    } else {
+      // For 'now' period, always show daily rewards
+      shouldShowRewardsTop3 = true;
+    }
+
     for (let i = 0; i < topThreeData.length; i++) {
       const userData = topThreeData[i];
       
@@ -394,6 +484,14 @@ router.get('/leaderboard/top-three', async (req, res) => {
         where: { twitterUsername: userData.twitter_handle }
       });
 
+      // Calculate rewards display value
+      let rewardsValueTop3: number | string;
+      if (shouldShowRewardsTop3) {
+        rewardsValueTop3 = parseFloat(userData.total_daily_rewards) || 0;
+      } else {
+        rewardsValueTop3 = "TBD";
+      }
+
       const topThreeUser: LeaderboardUser = {
         rank: i + 1,
         walletAddress: userData.wallet_address,
@@ -405,7 +503,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
         activeReferrals: parseInt(userData.active_referrals) || 0,
         totalPoints: parseFloat(userData.total_points) || 0,
         totalRoastEarned: parseFloat(userData.total_roast_earned) || 0,
-        totalDailyRewards: parseFloat(userData.total_daily_rewards) || 0,
+        totalDailyRewards: rewardsValueTop3,
         profileImageUrl: twitterConnection?.profileImageUrl || undefined
       };
 

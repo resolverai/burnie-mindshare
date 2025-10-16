@@ -973,11 +973,18 @@ export default function Mining() {
         agent: reviewItem.agent.name,
         contentId: reviewItem.content.id,
         databaseId: result.data?.id,
-        approvedAt: result.data?.approvedAt
+        approvedAt: result.data?.approvedAt,
+        hasVideo: reviewItem.content.is_video || false
       })
 
       // Show success notification with actual database ID
-      alert(`✅ Content approved! Content ID: ${result.data?.id || reviewItem.content.id}`)
+      const contentId = result.data?.id || reviewItem.content.id
+      const hasVideo = reviewItem.content.is_video || false
+      const successMessage = hasVideo 
+        ? `✅ Content approved! Content ID: ${contentId}\n🎬 Video watermarking in progress...`
+        : `✅ Content approved! Content ID: ${contentId}`
+      
+      alert(successMessage)
       
     } catch (error) {
       console.error('❌ Failed to approve content:', error)

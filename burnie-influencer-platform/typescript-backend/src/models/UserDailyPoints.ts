@@ -102,6 +102,14 @@ export class UserDailyPoints {
   @Column({ type: 'integer', nullable: true })
   dailyRank?: number;
 
+  // Weekly points accumulated for the week (Wed 10 PM ET to Wed 10 PM ET)
+  @Column({ type: 'decimal', precision: 18, scale: 8, default: 0 })
+  weeklyPoints!: number;
+
+  // Weekly rank based on weekly points (calculated on Thursdays)
+  @Column({ type: 'integer', default: 0 })
+  weeklyRank!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 

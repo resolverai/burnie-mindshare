@@ -424,13 +424,27 @@ async function refreshUrlsForMinerContent(content: any): Promise<any> {
     }
   }
 
-  // For MinerMyContent, we DON'T process watermarked content (images or videos)
-  // The user should see their original unwatermarked content
-  // Remove watermarked URLs to avoid confusion
-  content.watermarkImage = null;
-  content.watermark_image = null;
-  content.watermarkVideoUrl = null;
-  content.watermark_video_url = null;
+  // For MinerMyContent, we need to keep watermark URLs for status display
+  // But we refresh the presigned URLs if they exist
+  const watermarkVideoUrl = content.watermarkVideoUrl || content.watermark_video_url;
+  if (watermarkVideoUrl && typeof watermarkVideoUrl === 'string') {
+    logger.info(`🎬 Generating fresh presigned URL for watermarked video in content ${content.id}`);
+    
+    const s3Key = extractS3KeyFromUrl(watermarkVideoUrl);
+    if (s3Key) {
+      const freshUrl = await generatePresignedUrl(s3Key);
+      if (freshUrl) {
+        // Update both possible field names
+        if (content.watermarkVideoUrl) {
+          content.watermarkVideoUrl = freshUrl;
+        }
+        if (content.watermark_video_url) {
+          content.watermark_video_url = freshUrl;
+        }
+        logger.info(`🔄 Generated fresh presigned URL for watermarked video in content ${content.id}`);
+      }
+    }
+  }
 
   return content;
 }
@@ -1615,16 +1629,16 @@ router.post('/approve', async (req, res) => {
         }
       }
 
-      // Generate watermarked video if content has video
-      let watermarkVideoUrl: string | null = null;
+      // Start background video watermarking if content has video (non-blocking)
       if (isVideo && videoUrl) {
         try {
-          console.log('🎬 Starting video watermarking for existing content update. Video URL:', videoUrl);
+          console.log('🎬 Starting background video watermarking for content:', existingContent.id, 'Video URL:', videoUrl);
           const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
-          watermarkVideoUrl = await VideoWatermarkService.createWatermarkForVideo(videoUrl, s3Bucket);
-          console.log('✅ Watermarked video created:', watermarkVideoUrl);
+          // Start background task - don't wait for completion
+          await VideoWatermarkService.createWatermarkForVideo(videoUrl, s3Bucket, existingContent.id);
+          console.log('✅ Video watermarking task queued in background for content:', existingContent.id);
         } catch (error) {
-          console.error('❌ Failed to create video watermark:', error);
+          console.error('❌ Failed to start video watermarking task:', error);
           // Log the full error for debugging
           if (error instanceof Error) {
             console.error('❌ Video watermarking error details:', error.message, error.stack);
@@ -1643,9 +1657,8 @@ router.post('/approve', async (req, res) => {
       if (videoUrl !== undefined) {
         existingContent.videoUrl = videoUrl;
       }
-      if (watermarkVideoUrl) {
-        existingContent.watermarkVideoUrl = watermarkVideoUrl;
-      }
+      // Don't set watermarkVideoUrl here - it will be set later via callback
+      existingContent.watermarkVideoUrl = null; // Reset to null, will be updated by background task
       if (videoDuration !== undefined) {
         existingContent.videoDuration = videoDuration;
       }
@@ -1987,8 +2000,8 @@ router.get('/my-content/miner/wallet/:walletAddress/totals', async (req: Request
       // Video fields - add missing video data for consistency with Mining screen
       is_video: content.isVideo || false,
       video_url: content.videoUrl || null,
-      // Don't send watermarked video URLs for MinerMyContent - user should see original content
-      // watermark_video_url: null,
+      // Send watermarked video URL for status display (watermarking progress badge)
+      watermark_video_url: content.watermarkVideoUrl || null,
       video_duration: content.videoDuration || null,
       subsequent_frame_prompts: content.subsequentFramePrompts || null,
       clip_prompts: content.clipPrompts || null,
@@ -2149,8 +2162,8 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       // Video fields - add missing video data for consistency with Mining screen
       is_video: content.isVideo || false,
       video_url: content.videoUrl || null,
-      // Don't send watermarked video URLs for MinerMyContent - user should see original content
-      // watermark_video_url: null,
+      // Send watermarked video URL for status display (watermarking progress badge)
+      watermark_video_url: content.watermarkVideoUrl || null,
       video_duration: content.videoDuration || null,
       subsequent_frame_prompts: content.subsequentFramePrompts || null,
       clip_prompts: content.clipPrompts || null,
@@ -5360,16 +5373,16 @@ router.post('/approve-content', async (req: Request, res: Response) => {
       }
     }
 
-    // Generate watermarked video if content has video
-    let watermarkVideoUrl: string | null = null;
+    // Start background video watermarking if content has video (non-blocking)
     if (content.isVideo && content.videoUrl) {
       try {
-        console.log('🎬 Starting video watermarking for content:', content.id, 'Video URL:', content.videoUrl);
+        console.log('🎬 Starting background video watermarking for content:', content.id, 'Video URL:', content.videoUrl);
         const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
-        watermarkVideoUrl = await VideoWatermarkService.createWatermarkForVideo(content.videoUrl, s3Bucket);
-        console.log('✅ Watermarked video created:', watermarkVideoUrl);
+        // Start background task - don't wait for completion
+        await VideoWatermarkService.createWatermarkForVideo(content.videoUrl, s3Bucket, content.id);
+        console.log('✅ Video watermarking task queued in background for content:', content.id);
       } catch (error) {
-        console.error('❌ Failed to create video watermark for content', content.id, ':', error);
+        console.error('❌ Failed to start video watermarking task for content', content.id, ':', error);
         // Log the full error for debugging
         if (error instanceof Error) {
           console.error('❌ Video watermarking error details:', error.message, error.stack);
@@ -5391,11 +5404,10 @@ router.post('/approve-content', async (req: Request, res: Response) => {
       console.log('⚠️ Content', content.id, 'has images but no watermarked image was created');
     }
     
-    if (watermarkVideoUrl) {
-      content.watermarkVideoUrl = watermarkVideoUrl;
-      console.log('💾 Saving watermarked video URL for content', content.id, ':', watermarkVideoUrl);
-    } else if (content.isVideo && content.videoUrl) {
-      console.log('⚠️ Content', content.id, 'has video but no watermarked video was created');
+    // Don't set watermarkVideoUrl here - it will be set later via callback
+    if (content.isVideo && content.videoUrl) {
+      content.watermarkVideoUrl = null; // Reset to null, will be updated by background task
+      console.log('🎬 Video watermark URL will be set via callback for content', content.id);
     }
 
     const updatedContent = await contentRepository.save(content);
@@ -5424,6 +5436,77 @@ router.post('/approve-content', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to approve content'
+    });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/video-watermark-complete
+ * @desc Callback endpoint for Python backend to update watermarked video URL
+ */
+router.post('/video-watermark-complete', async (req: Request, res: Response) => {
+  try {
+    const { content_id, success, watermark_video_url, error } = req.body;
+
+    console.log('📞 Received video watermark callback:', {
+      content_id,
+      success,
+      watermark_video_url: watermark_video_url ? watermark_video_url.substring(0, 100) + '...' : null,
+      error
+    });
+
+    if (!content_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required field: content_id'
+      });
+    }
+
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+
+    // Find the content
+    const content = await contentRepository.findOne({
+      where: { id: content_id }
+    });
+
+    if (!content) {
+      console.error('❌ Content not found for watermark callback:', content_id);
+      return res.status(404).json({
+        success: false,
+        error: 'Content not found'
+      });
+    }
+
+    if (success && watermark_video_url) {
+      // Update watermarked video URL
+      content.watermarkVideoUrl = watermark_video_url;
+      await contentRepository.save(content);
+      
+      console.log('✅ Video watermark URL updated for content:', {
+        id: content.id,
+        watermarkVideoUrl: watermark_video_url.substring(0, 100) + '...'
+      });
+
+      return res.json({
+        success: true,
+        message: 'Watermark video URL updated successfully'
+      });
+    } else {
+      // Log error but don't fail - content is already approved
+      console.error('❌ Video watermarking failed for content:', content_id, 'Error:', error);
+      
+      return res.json({
+        success: true,
+        message: 'Watermarking failed but content remains approved',
+        error
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error in video watermark callback:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to process watermark callback'
     });
   }
 });

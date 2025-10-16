@@ -72,6 +72,8 @@ interface UserCalculation {
   dailyPointsEarned: number;
   dailyRewards: number;
   weeklyRewards: number;
+  weeklyPoints: number;
+  weeklyRank: number;
   currentTier: TierLevel;
   newTier: TierLevel;
   tierChanged: boolean;
@@ -98,6 +100,9 @@ const TOP_MINDSHARE_USERS_COUNT = 100;
 // Daily rewards pool
 const DAILY_REWARDS_POOL = 200000;
 const TOP_REWARDS_USERS_COUNT = 25;
+
+// Weekly rewards pool (distributed on Thursdays)
+const WEEKLY_REWARDS_POOL = 500000;
 
 // Excluded wallets (lowercase) - these wallets will be skipped from points calculation
 const EXCLUDED_WALLETS: string[] = [
@@ -718,6 +723,8 @@ class DailyPointsCalculationScript {
       dailyPointsEarned,
       dailyRewards: 0, // Will be calculated later for top 25 users
       weeklyRewards: 0, // Will be set separately for weekly reward distribution
+      weeklyPoints: 0, // Will be calculated during weekly calculation
+      weeklyRank: 0, // Will be calculated during weekly calculation
       currentTier,
       newTier,
       tierChanged,
@@ -753,6 +760,8 @@ class DailyPointsCalculationScript {
     userDailyPoints.dailyPointsEarned = calculation.dailyPointsEarned;
     userDailyPoints.dailyRewards = calculation.dailyRewards;
     userDailyPoints.weeklyRewards = calculation.weeklyRewards;
+    userDailyPoints.weeklyPoints = calculation.weeklyPoints;
+    userDailyPoints.weeklyRank = calculation.weeklyRank;
     
     // Store detailed point components
     userDailyPoints.purchasePoints = calculation.purchasePoints;
@@ -835,11 +844,11 @@ class DailyPointsCalculationScript {
       return;
     }
 
-    console.log('\n' + '='.repeat(220));
+    console.log('\n' + '='.repeat(280));
     console.log('📊 [DRY RUN] FINAL SUMMARY - ALL PROCESSED USERS');
-    console.log('='.repeat(220));
-    console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | P.Count | M.Count | R.Count | Rewards | Referrals | ROAST    | Tier');
-    console.log('='.repeat(220));
+    console.log('='.repeat(280));
+    console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Daily Rnk | Weekly Pts | Weekly Rnk | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | P.Count | M.Count | R.Count | Daily Rwd | Weekly Rwd | Referrals | ROAST    | Tier');
+    console.log('='.repeat(280));
     
     // Sort by daily points earned (descending) for better visibility
     const sortedCalculations = [...this.allCalculations].sort((a, b) => b.dailyPointsEarned - a.dailyPointsEarned);
@@ -850,6 +859,9 @@ class DailyPointsCalculationScript {
       const wallet = calc.walletAddress.padEnd(42, ' ');
       const twitterHandle = (calc.twitterHandle || 'N/A').padEnd(20, ' ');
       const dailyPts = Math.round(calc.dailyPointsEarned).toString().padStart(9, ' ');
+      const dailyRank = (calc.dailyRank || 0).toString().padStart(9, ' ');
+      const weeklyPts = this.isWeeklyCalculationDay() ? Math.round(calc.weeklyPoints).toString().padStart(10, ' ') : 'TBD'.padStart(10, ' ');
+      const weeklyRank = this.isWeeklyCalculationDay() ? (calc.weeklyRank || 0).toString().padStart(10, ' ') : 'TBD'.padStart(10, ' ');
       const prevTotal = calc.previousTotalPoints.toString().padStart(10, ' ');
       const newTotal = calc.totalPoints.toString().padStart(9, ' ');
       const purchase = calc.purchasePoints.toString().padStart(8, ' ');
@@ -859,16 +871,19 @@ class DailyPointsCalculationScript {
       const pCount = calc.dailyPurchaseCount.toString().padStart(7, ' ');
       const mCount = calc.dailyMilestoneCount.toString().padStart(7, ' ');
       const rCount = calc.dailyNewQualifiedReferrals.toString().padStart(7, ' ');
-      const rewards = calc.dailyRewards.toString().padStart(7, ' ');
+      const dailyRewards = calc.dailyRewards.toString().padStart(9, ' ');
+      const weeklyRewards = this.isWeeklyCalculationDay() ? calc.weeklyRewards.toString().padStart(10, ' ') : 'TBD'.padStart(10, ' ');
       const referrals = `${calc.totalReferrals}(${calc.activeReferrals})`.padStart(9, ' ');
       const roast = Math.round(calc.totalRoastEarned).toString().padStart(8, ' ');
       
-      console.log(`${rank} | ${wallet} | ${twitterHandle} | ${dailyPts} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${pCount} | ${mCount} | ${rCount} | ${rewards} | ${referrals} | ${roast} | ${tierInfo}`);
+      console.log(`${rank} | ${wallet} | ${twitterHandle} | ${dailyPts} | ${dailyRank} | ${weeklyPts} | ${weeklyRank} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${pCount} | ${mCount} | ${rCount} | ${dailyRewards} | ${weeklyRewards} | ${referrals} | ${roast} | ${tierInfo}`);
     });
     
     // Summary statistics
     const totalDailyPoints = sortedCalculations.reduce((sum, calc) => sum + calc.dailyPointsEarned, 0);
-    const totalRewards = sortedCalculations.reduce((sum, calc) => sum + calc.dailyRewards, 0);
+    const totalDailyRewards = sortedCalculations.reduce((sum, calc) => sum + calc.dailyRewards, 0);
+    const totalWeeklyRewards = sortedCalculations.reduce((sum, calc) => sum + calc.weeklyRewards, 0);
+    const totalWeeklyPoints = sortedCalculations.reduce((sum, calc) => sum + calc.weeklyPoints, 0);
     const usersWithPoints = sortedCalculations.filter(calc => calc.dailyPointsEarned > 0).length;
     const tierUpgrades = sortedCalculations.filter(calc => calc.tierChanged).length;
     const totalPurchasePoints = sortedCalculations.reduce((sum, calc) => sum + calc.purchasePoints, 0);
@@ -879,12 +894,17 @@ class DailyPointsCalculationScript {
     const totalMilestoneCount = sortedCalculations.reduce((sum, calc) => sum + calc.dailyMilestoneCount, 0);
     const totalNewQualifiedReferrals = sortedCalculations.reduce((sum, calc) => sum + calc.dailyNewQualifiedReferrals, 0);
     
-    console.log('='.repeat(220));
+    console.log('='.repeat(280));
     console.log(`📈 SUMMARY STATS: ${sortedCalculations.length} users processed | ${usersWithPoints} earned points | ${tierUpgrades} tier upgrades`);
     console.log(`💰 POINTS BREAKDOWN: ${Math.round(totalDailyPoints)} total daily | ${totalPurchasePoints} purchase | ${totalMilestonePoints} milestone | ${totalReferralPoints} referral | ${totalMindsharePoints} mindshare`);
     console.log(`📊 ACTIVITY COUNTS: ${totalPurchaseCount} purchases | ${totalMilestoneCount} milestones | ${totalNewQualifiedReferrals} new qualified referrals`);
-    console.log(`🎁 REWARDS: ${totalRewards} total rewards distributed`);
-    console.log('='.repeat(220));
+    console.log(`🎁 DAILY REWARDS: ${totalDailyRewards} total daily rewards distributed`);
+    if (this.isWeeklyCalculationDay()) {
+      console.log(`🏆 WEEKLY REWARDS: ${totalWeeklyRewards} total weekly rewards distributed | ${Math.round(totalWeeklyPoints)} total weekly points`);
+    } else {
+      console.log(`🏆 WEEKLY REWARDS: TBD (calculated on Thursdays only)`);
+    }
+    console.log('='.repeat(280));
   }
 
   /**
@@ -1022,6 +1042,153 @@ class DailyPointsCalculationScript {
   }
 
   /**
+   * Check if today is Thursday (weekly calculation day)
+   */
+  private isWeeklyCalculationDay(): boolean {
+    const today = new Date();
+    return today.getDay() === 4; // Thursday = 4 (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+  }
+
+  /**
+   * Get the weekly calculation window (last Wednesday 10 PM ET to recent Wednesday 10 PM ET)
+   */
+  private getWeeklyCalculationWindow(): { startDate: Date, endDate: Date } {
+    const now = new Date();
+    
+    // Convert current time to ET (UTC-5 in EST, UTC-4 in EDT)
+    // For simplicity, we'll use UTC-5 (EST) - in production you'd want proper timezone handling
+    const etOffset = -5; // Eastern Time offset from UTC
+    const nowET = new Date(now.getTime() + (etOffset * 60 * 60 * 1000));
+    
+    // Find the most recent Wednesday 10 PM ET
+    let recentWednesday = new Date(nowET);
+    
+    // Go back to find the most recent Wednesday
+    while (recentWednesday.getDay() !== 3) { // 3 = Wednesday
+      recentWednesday.setDate(recentWednesday.getDate() - 1);
+    }
+    
+    // Set to 10 PM ET (22:00)
+    recentWednesday.setHours(22, 0, 0, 0);
+    
+    // Calculate the previous Wednesday (7 days before)
+    const previousWednesday = new Date(recentWednesday);
+    previousWednesday.setDate(previousWednesday.getDate() - 7);
+    
+    // Convert back to UTC for database queries
+    const startDate = new Date(previousWednesday.getTime() - (etOffset * 60 * 60 * 1000));
+    const endDate = new Date(recentWednesday.getTime() - (etOffset * 60 * 60 * 1000));
+    
+    return { startDate, endDate };
+  }
+
+  /**
+   * Get weekly points for all users in the calculation window
+   */
+  private async getUsersWeeklyPoints(startDate: Date, endDate: Date): Promise<Array<{userId: number, walletAddress: string, weeklyPoints: number}>> {
+    const query = `
+      SELECT 
+        u.id as userId,
+        u."walletAddress",
+        COALESCE(SUM(udp."dailyPointsEarned"), 0) as weeklyPoints
+      FROM users u
+      LEFT JOIN user_daily_points udp ON u."walletAddress" = udp."walletAddress"
+        AND udp."createdAt" >= $1 
+        AND udp."createdAt" < $2
+      WHERE u."walletAddress" NOT IN (${EXCLUDED_WALLETS.map((_, i) => `$${i + 3}`).join(',')})
+      GROUP BY u.id, u."walletAddress"
+      HAVING COALESCE(SUM(udp."dailyPointsEarned"), 0) > 0
+      ORDER BY weeklyPoints DESC
+    `;
+    
+    const params = [startDate, endDate, ...EXCLUDED_WALLETS];
+    const result = await this.dataSource.query(query, params);
+    
+    return result.map((row: any) => ({
+      userId: row.userId,
+      walletAddress: row.walletAddress,
+      weeklyPoints: parseFloat(row.weeklyPoints || '0')
+    }));
+  }
+
+  /**
+   * Calculate and distribute weekly rewards (called on Thursdays)
+   */
+  async calculateWeeklyRewards(): Promise<void> {
+    console.log('🗓️ Calculating weekly rewards (Thursday calculation)...');
+    
+    const { startDate, endDate } = this.getWeeklyCalculationWindow();
+    console.log(`📅 Weekly calculation window: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+    
+    // Get all users' weekly points for this period
+    const usersWeeklyPoints = await this.getUsersWeeklyPoints(startDate, endDate);
+    
+    if (usersWeeklyPoints.length === 0) {
+      console.log('⚠️ No users found with weekly points for rewards calculation');
+      return;
+    }
+    
+    console.log(`📊 Found ${usersWeeklyPoints.length} users with weekly points`);
+    
+    // Calculate total weekly points
+    const totalWeeklyPoints = usersWeeklyPoints.reduce((sum, user) => sum + user.weeklyPoints, 0);
+    
+    if (totalWeeklyPoints === 0) {
+      console.log('⚠️ Total weekly points is 0, no rewards to distribute');
+      return;
+    }
+    
+    console.log(`📊 Total weekly points: ${totalWeeklyPoints}`);
+    console.log(`💰 Weekly rewards pool: ${WEEKLY_REWARDS_POOL.toLocaleString()}`);
+    
+    // Calculate rewards and ranks for each user
+    const userRewards: Array<{walletAddress: string, weeklyPoints: number, weeklyRank: number, weeklyRewards: number}> = [];
+    
+    usersWeeklyPoints.forEach((user, index) => {
+      const proportion = user.weeklyPoints / totalWeeklyPoints;
+      const weeklyRewards = Math.round(proportion * WEEKLY_REWARDS_POOL);
+      const weeklyRank = index + 1; // Rank based on sorted order (highest points = rank 1)
+      
+      userRewards.push({
+        walletAddress: user.walletAddress,
+        weeklyPoints: user.weeklyPoints,
+        weeklyRank,
+        weeklyRewards
+      });
+      
+      console.log(`🏆 Rank ${weeklyRank}: ${user.walletAddress} - ${user.weeklyPoints} pts (${(proportion * 100).toFixed(2)}%) = ${weeklyRewards} rewards`);
+    });
+    
+    // Update today's user_daily_points entries with weekly data
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+    
+    for (const reward of userRewards) {
+      const updateQuery = `
+        UPDATE user_daily_points
+        SET "weeklyRewards" = $1, "weeklyPoints" = $2, "weeklyRank" = $3
+        WHERE "walletAddress" = $4 
+          AND "createdAt" >= $5 
+          AND "createdAt" < $6
+      `;
+      
+      await this.dataSource.query(updateQuery, [
+        reward.weeklyRewards,
+        reward.weeklyPoints,
+        reward.weeklyRank,
+        reward.walletAddress,
+        todayStart,
+        todayEnd
+      ]);
+    }
+    
+    console.log(`✅ Weekly rewards calculated and distributed to ${userRewards.length} users`);
+    console.log(`✅ Total weekly rewards distributed: ${WEEKLY_REWARDS_POOL.toLocaleString()}`);
+  }
+
+  /**
    * Process users in batches
    */
   async processUsersInBatches(users: User[], batchSize: number = 100, dryRun: boolean = false): Promise<void> {
@@ -1139,6 +1306,12 @@ class DailyPointsCalculationScript {
         if (!dryRun) {
       await this.calculateDailyRanks();
           await this.calculateDailyRewards();
+          
+          // Calculate weekly rewards if it's Thursday
+          if (this.isWeeklyCalculationDay()) {
+            console.log('\n🗓️ Thursday detected - calculating weekly rewards...');
+            await this.calculateWeeklyRewards();
+          }
         } else {
           // In dry-run mode, show what daily rewards calculation would have done
           console.log(`\n📊 [DRY RUN] Daily Rewards Summary:`);
@@ -1146,6 +1319,19 @@ class DailyPointsCalculationScript {
           console.log(`   💰 Daily rewards pool (200,000) would be distributed among top users`);
           console.log(`   🚫 Excluded wallets from rewards: ${EXCLUDE_WALLET_REWARDS.length} wallet(s)`);
           console.log(`   ℹ️  Note: Individual reward amounts shown above in per-user calculations`);
+          
+          // Show weekly calculation info in dry-run mode
+          if (this.isWeeklyCalculationDay()) {
+            console.log(`\n🗓️ [DRY RUN] Weekly Rewards Summary:`);
+            console.log(`   📅 Today is Thursday - weekly rewards would be calculated`);
+            console.log(`   💰 Weekly rewards pool (500,000) would be distributed proportionally`);
+            console.log(`   📊 Weekly points would be calculated from last Wed 10 PM ET to recent Wed 10 PM ET`);
+            console.log(`   🏆 Weekly ranks would be assigned based on weekly points`);
+          } else {
+            console.log(`\n🗓️ [DRY RUN] Weekly Rewards Info:`);
+            console.log(`   📅 Today is not Thursday - no weekly rewards calculation`);
+            console.log(`   ℹ️  Weekly rewards are calculated and distributed only on Thursdays`);
+          }
         }
 
         console.log(`🎉 Daily Points Calculation Script completed successfully!${dryRun ? ' [DRY RUN MODE]' : ''}`);

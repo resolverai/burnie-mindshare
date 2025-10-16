@@ -1229,6 +1229,18 @@ export default function MinerMyContent() {
                                   Duration: {item.video_duration}s
                                 </div>
                               )}
+                              {/* Video Watermark Status Badge - Only show for approved content */}
+                              {(item.status === 'approved' || !item.status) && item.video_url && !item.watermark_video_url ? (
+                                <div className="mt-2 flex items-center justify-center space-x-2 bg-orange-900/20 border border-orange-600/30 rounded-lg p-2">
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
+                                  <span className="text-xs text-orange-400 font-medium">🎬 Video watermarking in progress...</span>
+                                </div>
+                              ) : (item.status === 'approved' || !item.status) && item.video_url && item.watermark_video_url ? (
+                                <div className="mt-2 flex items-center justify-center space-x-2 bg-green-900/20 border border-green-600/30 rounded-lg p-2">
+                                  <CheckIcon className="h-4 w-4 text-green-400" />
+                                  <span className="text-xs text-green-400 font-medium">✅ Video watermark ready</span>
+                                </div>
+                              ) : null}
                             </div>
                           ) : imageUrl && (
                             <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
@@ -1266,6 +1278,22 @@ export default function MinerMyContent() {
                             video_duration={item.video_duration}
                             autoPlay={false} // Don't autoplay videos in MinerMyContent
                           />
+                          {/* Video Watermark Status Badge for TweetThreadDisplay - Only show for approved content */}
+                          {videoUrl && (item.status === 'approved' || !item.status) && (
+                            <div className="mt-3">
+                              {item.video_url && !item.watermark_video_url ? (
+                                <div className="flex items-center justify-center space-x-2 bg-orange-900/20 border border-orange-600/30 rounded-lg p-2">
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
+                                  <span className="text-xs text-orange-400 font-medium">🎬 Video watermarking in progress...</span>
+                                </div>
+                              ) : item.video_url && item.watermark_video_url ? (
+                                <div className="flex items-center justify-center space-x-2 bg-green-900/20 border border-green-600/30 rounded-lg p-2">
+                                  <CheckIcon className="h-4 w-4 text-green-400" />
+                                  <span className="text-xs text-green-400 font-medium">✅ Video watermark ready</span>
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
                         </div>
                       )}
                       

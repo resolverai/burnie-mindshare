@@ -13,7 +13,7 @@ export interface LeaderboardUser {
   activeReferrals: number;
   totalPoints: number;
   totalRoastEarned: number;
-  totalDailyRewards: number;
+  totalDailyRewards: number | string; // Can be number or "TBD"
   totalMilestonePoints?: number; // Only for 7D and 1M periods
   profileImageUrl?: string;
   isCurrentUser?: boolean;

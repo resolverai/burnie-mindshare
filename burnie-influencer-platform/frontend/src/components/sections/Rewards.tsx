@@ -32,7 +32,7 @@ const normalizeUser = (user: any): LeaderboardUser => ({
   activeReferrals: user.activeReferrals || 0,
   totalPoints: user.totalPoints || user.points || 0,
   totalRoastEarned: user.totalRoastEarned || 0,
-  totalDailyRewards: user.totalDailyRewards || 0,
+  totalDailyRewards: user.totalDailyRewards === 'TBD' ? 'TBD' : (user.totalDailyRewards || 0),
   profileImageUrl: user.profileImageUrl || user.avatar,
   isCurrentUser: user.isCurrentUser || false
 });
@@ -574,7 +574,8 @@ function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { lea
                 {currentUser?.totalRoastEarned ? formatRoastValue(Number(currentUser.totalRoastEarned)) : '0'}
               </div>
               <div className="hidden md:block text-white text-center text-sm w-28">
-                {currentUser?.totalDailyRewards ? formatRoastValue(Number(currentUser.totalDailyRewards)) : '0'}
+                {currentUser?.totalDailyRewards === 'TBD' ? 'TBD' : 
+                 currentUser?.totalDailyRewards ? formatRoastValue(Number(currentUser.totalDailyRewards)) : '0'}
               </div>
             </div>
           )}
@@ -618,7 +619,8 @@ function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { lea
                 {user.totalRoastEarned ? formatRoastValue(Number(user.totalRoastEarned)) : '0'}
               </div>
               <div className="hidden md:block text-white text-center text-sm w-28">
-                {user.totalDailyRewards ? formatRoastValue(Number(user.totalDailyRewards)) : '0'}
+                {user.totalDailyRewards === 'TBD' ? 'TBD' : 
+                 user.totalDailyRewards ? formatRoastValue(Number(user.totalDailyRewards)) : '0'}
               </div>
             </div>
           ))}
