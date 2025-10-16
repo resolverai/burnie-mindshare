@@ -1403,6 +1403,65 @@ class DailyPointsCalculationScript {
   }
 
   /**
+   * Calculate daily rewards for dry-run mode (updates stored calculations for display)
+   */
+  async calculateDailyRewardsForDryRun(): Promise<void> {
+    console.log('🏆 [DRY RUN] Calculating daily rewards for display...');
+    
+    // Get users sorted by daily points (same logic as live calculation)
+    const usersWithDailyPoints = this.allCalculations
+      .filter(calc => calc.dailyPointsEarned > 0)
+      .sort((a, b) => b.dailyPointsEarned - a.dailyPointsEarned);
+
+    if (usersWithDailyPoints.length === 0) {
+      console.log('ℹ️  No users with daily points for rewards calculation');
+      return;
+    }
+
+    // Filter out wallets excluded from rewards (same as live calculation)
+    const eligibleUsers = usersWithDailyPoints.filter(calc => {
+      const isExcluded = this.isWalletExcludedFromRewards(calc.walletAddress);
+      if (isExcluded) {
+        console.log(`🚫 Excluding ${calc.walletAddress} from daily rewards (in EXCLUDE_WALLET_REWARDS)`);
+      }
+      return !isExcluded;
+    });
+
+    console.log(`🔧 Daily rewards: ${usersWithDailyPoints.length} total users, ${eligibleUsers.length} eligible (${usersWithDailyPoints.length - eligibleUsers.length} excluded)`);
+
+    // Distribute to top 25 eligible users (same as live calculation)
+    const DAILY_REWARDS_POOL = 200000;
+    const top25EligibleUsers = eligibleUsers.slice(0, 25);
+    
+    if (top25EligibleUsers.length === 0) {
+      console.log('ℹ️  No eligible users for daily rewards');
+      return;
+    }
+
+    const top25TotalPoints = top25EligibleUsers.reduce((sum, calc) => sum + calc.dailyPointsEarned, 0);
+    console.log(`🔧 Distributing ${DAILY_REWARDS_POOL.toLocaleString()} daily rewards among TOP ${top25EligibleUsers.length} eligible users`);
+
+    let distributedRewards = 0;
+
+    // Calculate proportional rewards for top 25 eligible users
+    top25EligibleUsers.forEach((calc, index) => {
+      if (index === top25EligibleUsers.length - 1) { // Last user gets remainder
+        calc.dailyRewards = DAILY_REWARDS_POOL - distributedRewards;
+      } else {
+        const proportion = calc.dailyPointsEarned / top25TotalPoints;
+        calc.dailyRewards = Math.floor(proportion * DAILY_REWARDS_POOL);
+        distributedRewards += calc.dailyRewards;
+      }
+
+      if (index < 3) {
+        console.log(`🔧 Daily Rank ${index + 1}: ${calc.walletAddress} - ${calc.dailyPointsEarned} pts = ${calc.dailyRewards} rewards`);
+      }
+    });
+
+    console.log(`🔧 Total daily rewards distributed: ${top25EligibleUsers.reduce((sum, calc) => sum + calc.dailyRewards, 0)} (should be exactly ${DAILY_REWARDS_POOL})`);
+  }
+
+  /**
    * Calculate weekly points for dry-run mode (updates stored calculations for display)
    */
   async calculateWeeklyPointsForDryRun(): Promise<void> {
@@ -1827,12 +1886,8 @@ class DailyPointsCalculationScript {
             await this.calculateWeeklyRewards();
           }
         } else {
-          // In dry-run mode, show what daily rewards calculation would have done
-          console.log(`\n📊 [DRY RUN] Daily Rewards Summary:`);
-          console.log(`   🏆 Daily ranks would be calculated and updated`);
-          console.log(`   💰 Daily rewards pool (200,000) would be distributed among top users`);
-          console.log(`   🚫 Excluded wallets from rewards: ${EXCLUDE_WALLET_REWARDS.length} wallet(s)`);
-          console.log(`   ℹ️  Note: Individual reward amounts shown above in per-user calculations`);
+          // In dry-run mode, calculate daily rewards for display purposes
+          await this.calculateDailyRewardsForDryRun();
           
           // Calculate weekly points in dry-run mode for display purposes
           if (this.isWeeklyCalculationDay()) {
