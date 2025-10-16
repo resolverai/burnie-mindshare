@@ -1051,7 +1051,7 @@ class DailyPointsCalculationScript {
     console.log('\n' + '='.repeat(200));
     console.log('📊 [DRY RUN] FINAL SUMMARY - ALL PROCESSED USERS');
     console.log('='.repeat(200));
-    console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Weekly Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | P.Count | M.Count | R.Count | Referrals | ROAST    | Tier');
+    console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Weekly Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | P.Count | M.Count | R.Count | Daily Rwd | Weekly Rwd | Tier');
     console.log('='.repeat(200));
     
     // Sort by daily points earned (descending) for better visibility - ALWAYS sort by daily points
@@ -1073,10 +1073,10 @@ class DailyPointsCalculationScript {
       const pCount = calc.dailyPurchaseCount.toString().padStart(7, ' ');
       const mCount = calc.dailyMilestoneCount.toString().padStart(7, ' ');
       const rCount = calc.dailyNewQualifiedReferrals.toString().padStart(7, ' ');
-      const referrals = `${calc.totalReferrals}(${calc.activeReferrals})`.padStart(9, ' ');
-      const roast = Math.round(calc.totalRoastEarned).toString().padStart(8, ' ');
+      const dailyRwd = calc.dailyRewards.toString().padStart(9, ' ');
+      const weeklyRwd = calc.weeklyRewards.toString().padStart(10, ' ');
       
-      console.log(`${rank} | ${wallet} | ${twitterHandle} | ${dailyPts} | ${weeklyPts} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${pCount} | ${mCount} | ${rCount} | ${referrals} | ${roast} | ${tierInfo}`);
+      console.log(`${rank} | ${wallet} | ${twitterHandle} | ${dailyPts} | ${weeklyPts} | ${prevTotal} | ${newTotal} | ${purchase} | ${milestone} | ${referral} | ${mindshare} | ${pCount} | ${mCount} | ${rCount} | ${dailyRwd} | ${weeklyRwd} | ${tierInfo}`);
     });
     
     // Summary statistics
