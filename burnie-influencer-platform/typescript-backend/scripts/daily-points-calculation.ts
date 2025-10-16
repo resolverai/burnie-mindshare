@@ -879,27 +879,37 @@ class DailyPointsCalculationScript {
           const totalWeeklyPoints = weeklyResults.reduce((sum: number, row: any) => sum + parseFloat(row.weeklyPoints), 0);
           
           // Apply real weekly points to allCalculations
+          let updatedCount = 0;
+          let addedCount = 0;
+          
           weeklyResults.forEach((row: any, index: number) => {
             const weeklyPoints = parseFloat(row.weeklyPoints);
             const weeklyRank = index + 1;
             const proportion = weeklyPoints / totalWeeklyPoints;
             const weeklyRewards = Math.round(proportion * 500000); // WEEKLY_REWARDS_POOL
             
-            // Find and update existing user
+            console.log(`🔧 Processing ${row.walletAddress} with ${weeklyPoints} weekly points`);
+            
+            // Find and update existing user with more robust matching
             let found = false;
+            const targetWallet = row.walletAddress.toLowerCase().trim();
+            
             for (let i = 0; i < this.allCalculations.length; i++) {
               const calc = this.allCalculations[i];
-              if (calc && calc.walletAddress.toLowerCase() === row.walletAddress.toLowerCase()) {
+              if (calc && calc.walletAddress.toLowerCase().trim() === targetWallet) {
+                console.log(`🔧 MATCH FOUND: ${calc.walletAddress} matches ${row.walletAddress}`);
                 calc.weeklyPoints = weeklyPoints;
                 calc.weeklyRank = weeklyRank;
                 calc.weeklyRewards = weeklyRewards;
                 found = true;
+                updatedCount++;
                 break;
               }
             }
             
             // If not found, add new user
             if (!found) {
+              console.log(`🔧 NO MATCH: Adding new user ${row.walletAddress}`);
               const newCalculation = {
                 walletAddress: row.walletAddress,
                 twitterHandle: undefined,
@@ -929,11 +939,21 @@ class DailyPointsCalculationScript {
                 tierChanged: false
               };
               this.allCalculations.push(newCalculation as any);
+              addedCount++;
             }
           });
           
+          console.log(`🔧 REAL FIX RESULT: Updated ${updatedCount} users, added ${addedCount} users`);
           const finalCheck = this.allCalculations.filter(calc => calc.weeklyPoints > 0);
           console.log(`🔧 REAL FIX SUCCESS: ${finalCheck.length} users now have real weekly points`);
+          
+          // Debug: Show first few users with weekly points
+          if (finalCheck.length > 0) {
+            console.log(`🔧 Sample users with weekly points after real fix:`);
+            finalCheck.slice(0, 3).forEach(calc => {
+              console.log(`   ${calc.walletAddress}: ${calc.weeklyPoints} weekly points`);
+            });
+          }
         }
       } catch (error) {
         console.error(`🔧 REAL FIX ERROR:`, error);
@@ -958,19 +978,8 @@ class DailyPointsCalculationScript {
     console.log('Rank | Wallet Address                             | Twitter Handle       | Daily Pts | Weekly Pts | Prev Total | New Total | Purchase | Milestone | Referral | Mindshare | P.Count | M.Count | R.Count | Referrals | ROAST    | Tier');
     console.log('='.repeat(200));
     
-    // Sort by weekly points if it's Thursday (weekly calculation day), otherwise by daily points
-    const sortedCalculations = [...this.allCalculations].sort((a, b) => {
-      if (this.isWeeklyCalculationDay()) {
-        // On Thursday, sort by weekly points first, then daily points
-        if (b.weeklyPoints !== a.weeklyPoints) {
-          return b.weeklyPoints - a.weeklyPoints;
-        }
-        return b.dailyPointsEarned - a.dailyPointsEarned;
-      } else {
-        // Other days, sort by daily points
-        return b.dailyPointsEarned - a.dailyPointsEarned;
-      }
-    });
+    // Sort by daily points earned (descending) for better visibility - ALWAYS sort by daily points
+    const sortedCalculations = [...this.allCalculations].sort((a, b) => b.dailyPointsEarned - a.dailyPointsEarned);
     
     sortedCalculations.forEach((calc, index) => {
       const tierInfo = calc.tierChanged ? `→ ${calc.newTier} (UP!)` : `(${calc.currentTier})`;
