@@ -51,6 +51,10 @@ import twitterHandlesRoutes from './routes/twitterHandles';
 import editTweetRoutes from './routes/editTweet';
 import userTwitterPostsRoutes from './routes/userTwitterPosts';
 import videoAnalyticsRoutes from './routes/videoAnalytics';
+import web2AuthRoutes from './routes/web2Auth';
+import web2AccountsRoutes from './routes/web2Accounts';
+import web2BrandContextRoutes from './routes/web2BrandContext';
+import web2SocialConnectionsRoutes from './routes/web2SocialConnections';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -161,6 +165,10 @@ app.use('/api/admin/twitter-handles', twitterHandlesRoutes); // Twitter handles 
 app.use('/api/edit-tweet', editTweetRoutes); // Edit tweet functionality with avatar fusion
 app.use('/api/user-twitter-posts', userTwitterPostsRoutes); // User Twitter posts tracking and engagement
 app.use('/api', videoAnalyticsRoutes); // Video analytics and performance metrics
+app.use('/api/web2-auth', web2AuthRoutes); // Web2 authentication (Twitter OAuth)
+app.use('/api/web2-accounts', web2AccountsRoutes); // Web2 account management
+app.use('/api/web2-brand-context', web2BrandContextRoutes); // Web2 brand context management
+app.use('/api/web2-social', web2SocialConnectionsRoutes); // Web2 social media connections
 
 // Start server
 const startServer = async () => {

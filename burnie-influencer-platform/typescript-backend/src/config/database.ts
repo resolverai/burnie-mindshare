@@ -73,6 +73,16 @@ import { UserTwitterPost } from '../models/UserTwitterPost';
 // Import video analytics entity
 import { VideoAnalytics } from '../models/VideoAnalytics';
 
+// Import Web2 entities
+import { Account } from '../models/Account';
+import { AccountUser } from '../models/AccountUser';
+import { AccountClient } from '../models/AccountClient';
+import { BrandContext } from '../models/BrandContext';
+import { AccountSocialMediaConnection } from '../models/AccountSocialMediaConnection';
+import { AutomationSettings } from '../models/AutomationSettings';
+import { Web2GeneratedContent } from '../models/Web2GeneratedContent';
+import { ScheduledPost } from '../models/ScheduledPost';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -148,6 +158,15 @@ export const AppDataSource = new DataSource({
     UserTwitterPost,
     // Video analytics entity
     VideoAnalytics,
+    // Web2 entities
+    Account,
+    AccountUser,
+    AccountClient,
+    BrandContext,
+    AccountSocialMediaConnection,
+    AutomationSettings,
+    Web2GeneratedContent,
+    ScheduledPost,
   ],
   migrations: [],
   subscribers: [],

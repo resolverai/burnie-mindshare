@@ -50,6 +50,31 @@ async function hasWeeklyRewardsBeenDistributed(): Promise<boolean> {
   return parseInt(result[0]?.count || '0') > 0;
 }
 
+/**
+ * Helper function to get the weekly calculation window (same logic as the script)
+ * Returns the date range from last Wednesday 10 PM ET to recent Wednesday 10 PM ET
+ */
+function getWeeklyCalculationWindow(): { startDate: Date, endDate: Date } {
+  const now = new Date();
+  
+  // Find the most recent Wednesday
+  let recentWednesday = new Date(now);
+  while (recentWednesday.getDay() !== 3) { // 3 = Wednesday
+    recentWednesday.setDate(recentWednesday.getDate() - 1);
+  }
+  
+  // Set to 10 PM ET = 3 AM UTC next day (10 PM ET + 5 hours = 3 AM UTC)
+  const endDate = new Date(recentWednesday);
+  endDate.setUTCDate(endDate.getUTCDate() + 1); // Move to Thursday
+  endDate.setUTCHours(3, 0, 0, 0); // 3 AM UTC = 10 PM ET Wednesday
+  
+  // Calculate the previous Wednesday (7 days before)
+  const startDate = new Date(endDate);
+  startDate.setUTCDate(startDate.getUTCDate() - 7);
+  
+  return { startDate, endDate };
+}
+
 interface LeaderboardUser {
   rank: number;
   walletAddress: string;
@@ -230,9 +255,9 @@ router.get('/leaderboard', async (req, res) => {
     
     switch (period) {
       case '7d':
-        const sevenDaysAgo = new Date(today);
-        sevenDaysAgo.setDate(today.getDate() - 7);
-        dateFilter = `AND "createdAt" >= '${sevenDaysAgo.toISOString()}'`;
+        // Use the same weekly calculation window as the script
+        const { startDate, endDate } = getWeeklyCalculationWindow();
+        dateFilter = `AND "createdAt" >= '${startDate.toISOString()}' AND "createdAt" < '${endDate.toISOString()}'`;
         break;
       case '1m':
         const oneMonthAgo = new Date(today);
@@ -388,9 +413,9 @@ router.get('/leaderboard/top-three', async (req, res) => {
     
     switch (period) {
       case '7d':
-        const sevenDaysAgo = new Date(today);
-        sevenDaysAgo.setDate(today.getDate() - 7);
-        dateFilter = `AND "createdAt" >= '${sevenDaysAgo.toISOString()}'`;
+        // Use the same weekly calculation window as the script
+        const { startDate, endDate } = getWeeklyCalculationWindow();
+        dateFilter = `AND "createdAt" >= '${startDate.toISOString()}' AND "createdAt" < '${endDate.toISOString()}'`;
         break;
       case '1m':
         const oneMonthAgo = new Date(today);

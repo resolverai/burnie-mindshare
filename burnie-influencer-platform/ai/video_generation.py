@@ -145,9 +145,9 @@ class VideoGenerator:
             
         elif video_duration is not None:
             # Mode 2: Use video_duration (backward compatibility)
-        valid_durations = [10, 15, 20, 25]
-        if video_duration not in valid_durations:
-            raise ValueError(f"Video duration must be one of {valid_durations} seconds, got: {video_duration}")
+            valid_durations = [10, 15, 20, 25]
+            if video_duration not in valid_durations:
+                raise ValueError(f"Video duration must be one of {valid_durations} seconds, got: {video_duration}")
             
             self.video_duration = video_duration
             self.clip_duration = 5  # Default clip duration for video_duration mode
@@ -240,12 +240,12 @@ class VideoGenerator:
         """Calculate number of frames based on the selected mode and clip generation model."""
         if self.mode == "video_duration":
             # Original mapping for backward compatibility
-        duration_mapping = {
-            10: 3,  # 10s -> 3 frames -> 2 clips
-            15: 4,  # 15s -> 4 frames -> 3 clips
-            20: 5,  # 20s -> 5 frames -> 4 clips
-            25: 6   # 25s -> 6 frames -> 5 clips
-        }
+            duration_mapping = {
+                10: 3,  # 10s -> 3 frames -> 2 clips
+                15: 4,  # 15s -> 4 frames -> 3 clips
+                20: 5,  # 20s -> 5 frames -> 4 clips
+                25: 6   # 25s -> 6 frames -> 5 clips
+            }
             base_frames = duration_mapping[self.video_duration]
         else:
             # clip_duration mode: calculate based on clip generation model
@@ -336,8 +336,8 @@ class VideoGenerator:
             # Add audio prompts based on clip_audio_prompts flag (always generate for Pixverse audio)
             if self.clip_audio_prompts:
                 # Individual audio prompts for each clip (current behavior)
-            clip_prompts.append(f'    "audio{i}_prompt": "Create continuous background music and musical composition that enhances the visual narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements. NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC."')
-            clip_prompts.append(f'    "audio{i}_prime_prompt": "Create continuous background music and musical composition that enhances the visual narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements. NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC."')
+                clip_prompts.append(f'    "audio{i}_prompt": "Create continuous background music and musical composition that enhances the visual narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements. NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC."')
+                clip_prompts.append(f'    "audio{i}_prime_prompt": "Create continuous background music and musical composition that enhances the visual narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements. NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC."')
             
             # Add individual voiceover prompts for each clip
             clip_prompts.append(f'    "voiceover{i}_prompt": "Break down the tweet text (or generated brand messaging) into this clip\'s portion with emotions, expressions, feelings, pauses, tone changes. Generate natural, flowing voiceover text. MUST START WITH [pause 1 second]. MAXIMUM 80 CHARACTERS. NO HASHTAGS. Break down or modify the original text if needed to preserve the core message while staying within character limit."')
@@ -1642,7 +1642,7 @@ JSON only, no other text:"""
                         raise ValueError("No valid JSON found in response")
                 
                 prompts = json.loads(json_content)
-            return prompts
+                return prompts
                 
             except json.JSONDecodeError as e:
                 print(f"❌ Error parsing JSON response from Grok: {str(e)}")
@@ -1804,7 +1804,7 @@ JSON only, no other text:"""
                 
         except Exception as e:
             print(f"❌ Failed to generate clip {clip_number}: {str(e)}")
-                        return None
+            return None
         
         return None
 
@@ -1843,7 +1843,7 @@ JSON only, no other text:"""
                         self.cleanup_local_file(local_path)
                         print(f"✅ Sora2 Clip {clip_number} generated successfully")
                         return s3_url
-                else:
+                    else:
                         print(f"❌ Failed to upload Sora2 clip {clip_number} to S3")
                 else:
                     print(f"❌ Failed to download Sora2 clip {clip_number}")
@@ -1852,9 +1852,9 @@ JSON only, no other text:"""
                 
         except Exception as e:
             print(f"❌ Failed to generate Sora2 clip {clip_number}: {str(e)}")
-                    return None
-            
             return None
+        
+        return None
 
     def generate_clip_with_kling(self, prompt, image_url, clip_number=1, duration=5):
         """Generate video clip using fal.ai kling-video v2.5-turbo image-to-video model."""
@@ -2529,7 +2529,7 @@ JSON only, no other text:"""
                     logo_needed = True
                     print(f"🎯 Frame {i} logo ENFORCED for brand closure (USE_BRAND_AESTHETICS=True)")
                 else:
-                print(f"🎯 Frame {i} logo needed: {logo_needed} (raw: {logo_needed_raw})")
+                    print(f"🎯 Frame {i} logo needed: {logo_needed} (raw: {logo_needed_raw})")
                 
                 # Prepare reference images based on LLM decision
                 reference_images = [frame_urls[-1]]  # Always include previous frame
@@ -2634,14 +2634,14 @@ JSON only, no other text:"""
                         if self.clip_generation_model == "pixverse":
                             # Pixverse supports 5 or 8 seconds
                             if calculated_duration <= 5:
-                            clip_duration = 5
+                                clip_duration = 5
                             else:
-                            clip_duration = 8
+                                clip_duration = 8
                         elif self.clip_generation_model == "kling":
                             # Kling supports 5 or 10 seconds
                             if calculated_duration <= 5:
                                 clip_duration = 5
-                        else:
+                            else:
                                 clip_duration = 10
                         elif self.clip_generation_model == "sora":
                             # Sora supports 4, 8, or 12 seconds
@@ -2664,7 +2664,7 @@ JSON only, no other text:"""
                             # Pixverse supports 5 or 8 seconds
                             if self.clip_duration <= 5:
                                 safe_clip_duration = 5
-            else:
+                            else:
                                 safe_clip_duration = 8
                         elif self.clip_generation_model == "kling":
                             # Kling supports 5 or 10 seconds
@@ -2744,18 +2744,18 @@ JSON only, no other text:"""
                     print(f"🎬 Using REGULAR frames for clip {i} (Random: {decision['random_value']:.2f})")
                     # Use regular frames
                     first_frame_url = frame_urls[i-1]
-                        # For the last clip, use the last available frame
-                        last_frame_url = frame_urls[min(i, len(frame_urls)-1)]
-                clip_prompt_key = f"clip{i}_prompt"
-                clip_logo_key = f"clip{i}_logo_needed"
+                    # For the last clip, use the last available frame
+                    last_frame_url = frame_urls[min(i, len(frame_urls)-1)]
+                    clip_prompt_key = f"clip{i}_prompt"
+                    clip_logo_key = f"clip{i}_logo_needed"
                 
                 # Generate clip with dynamic duration (logo already handled at frame level)
-                    if self.clip_generation_model == "pixverse":
-                clip_s3_url = self.generate_clip(prompts[clip_prompt_key], first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
-                    elif self.clip_generation_model == "sora":
-                        clip_s3_url = self.generate_clip_with_sora2(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
-                    else:  # kling
-                        clip_s3_url = self.generate_clip_with_kling(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
+                if self.clip_generation_model == "pixverse":
+                    clip_s3_url = self.generate_clip(prompts[clip_prompt_key], first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
+                elif self.clip_generation_model == "sora":
+                    clip_s3_url = self.generate_clip_with_sora2(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
+                else:  # kling
+                    clip_s3_url = self.generate_clip_with_kling(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
                     
                 if not clip_s3_url:
                     print(f"❌ Failed to generate clip {i}!")
@@ -2784,9 +2784,9 @@ JSON only, no other text:"""
                             return None
                         
                         clip_urls.append(mixed_clip_s3_url)
-                            print(f"✅ Clip {i} with Pixverse audio and voiceover uploaded to S3: {mixed_clip_s3_url}")
+                        print(f"✅ Clip {i} with Pixverse audio and voiceover uploaded to S3: {mixed_clip_s3_url}")
                     else:
-                            print(f"🎵 No voiceover for clip {i}, using Pixverse audio only")
+                        print(f"🎵 No voiceover for clip {i}, using Pixverse audio only")
                         clip_urls.append(clip_with_audio_s3_url)
                 else:
                     print(f"⚠️ No audio prompt found for clip {i}, using video without audio")
@@ -2980,11 +2980,11 @@ JSON only, no other text:"""
             # Step 7: Handle final video combination based on audio mode
             if self.clip_audio_prompts:
                 # Individual audio mode: Combine clips that already have audio
-            print("🔗 Combining video clips with audio and voiceover...")
-            combined_video_s3_url = self.combine_clips_simple(clip_urls)
-            if not combined_video_s3_url:
-                print("❌ Failed to combine video clips!")
-                return None
+                print("🔗 Combining video clips with audio and voiceover...")
+                combined_video_s3_url = self.combine_clips_simple(clip_urls)
+                if not combined_video_s3_url:
+                    print("❌ Failed to combine video clips!")
+                    return None
                 final_video_s3_url = combined_video_s3_url
             else:
                 # Single audio mode: We already have the final combined video
@@ -3065,7 +3065,7 @@ def main():
     # ========================================
     # CONFIGURATION - MODIFY THESE VALUES
     # ========================================
-    PROJECT_NAME = "vapepalace"  # Change this for different projects
+    PROJECT_NAME = "fovus"  # Change this for different projects
     LLM_PROVIDER = "grok"        # Change to "grok" to use Grok instead
     # LLM_PROVIDER = "grok"        # Uncomment this line to use Grok
     
@@ -3081,7 +3081,7 @@ def main():
     
     # Mode 2: Use clip_duration + number_of_clips (preferred mode)
     CLIP_DURATION = 10  # Duration of each clip in seconds
-    NUMBER_OF_CLIPS = 2  # Number of clips to generate
+    NUMBER_OF_CLIPS = 3  # Number of clips to generate
     
     # Note: If both are provided, clip_duration + number_of_clips takes preference
     # If only VIDEO_DURATION is set, clips are calculated by dividing by 5
@@ -3111,9 +3111,9 @@ def main():
     INCLUDE_TWEET_TEXT = False  # Set to True to include tweet text in prompt generation, False to use only initial image prompt
     
     # Character and brand aesthetics control
-    HUMAN_CHARACTERS_ONLY = False  # Set to True to use only human characters (no meme characters)
+    HUMAN_CHARACTERS_ONLY = True  # Set to True to use only human characters (no meme characters)
     WEB3 = False  # Set to True for Web3/crypto meme characters, False for unlimited creative characters
-    NO_CHARACTERS = True  # Set to True for pure product showcase with NO characters of any kind (overrides all other character flags)
+    NO_CHARACTERS = False  # Set to True for pure product showcase with NO characters of any kind (overrides all other character flags)
     USE_BRAND_AESTHETICS = True   # Set to True to incorporate brand-specific aesthetic guidelines
     
     # Audio control
@@ -3144,9 +3144,9 @@ def main():
     # THEME = "Launch of Audi's new electric SUV, targeting young professionals who want luxury without compromising on sustainability"
     # THEME = "Celebrate Audi's racing heritage and how it translates to everyday driving excellence for the modern driver"
     # THEME = "Audi as the symbol of achieved success and refined taste for entrepreneurs who have made it"
-    THEME = "20,000 Puffs Visualized - Open with single high-capacity disposable device in clean, minimalist setting. Visual counter appears showing '20,000' prominently. Camera circles the device, highlighting premium build quality and sleek design. Transition to abstract visual metaphor: vapor clouds continuously forming, suggesting longevity and endurance. Show the device from multiple angles, emphasizing compact size despite massive capacity. Include close-ups of quality indicators - premium materials, precise manufacturing, professional finish. Contrast implied through editing: one device outlasting multiple competitors (shown through minimal visual suggestion, not explicit comparison). End with device in hero shot, capacity number prominent, Vape Palace branding clear. Message: exceptional value and convenience in premium compact form. Adult sophistication meets practical engineering. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
+    THEME = "The Cost Revelation: Open with ascending cost graph - cloud HPC expenses climbing dangerously into red zone. Numbers spinning upward, budget alarms flashing. Dollar signs multiplying across screen. Executive dashboard showing concerning financial trajectory. Then Fovus logo appears. Graph reverses direction dramatically - costs plummeting 2X, 4X, 7X. Show specific savings: '$100K monthly spend drops to $14K' (visual example). Money flowing back into budget. Red zones turning green. Cost meters dropping satisfyingly. Include visual comparisons: traditional cloud bill (massive stack of papers) versus Fovus-optimized bill (single sheet). Show ROI calculator spinning positive. Savings compounding over time visualization. End with clean dashboard showing 7X cost reduction achieved, Fovus attribution clear. Message: stop overpaying for cloud compute. AI optimization delivers quantifiable savings immediately. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
     
-    LOGO_PATH = "/Users/taran/Downloads/vapepalace-logo.jpeg"  # MUST SET THIS - always required
+    LOGO_PATH = "/Users/taran/Downloads/fovus-logo.jpeg"  # MUST SET THIS - always required
     
     # Product images for frame generation alignment
     PRODUCT_IMAGES = [
@@ -3208,21 +3208,21 @@ def main():
     try:
         if VIDEO_DURATION is not None:
             # Video duration mode
-        generator = VideoGenerator(
-            logo_path=LOGO_PATH,
-            project_name=PROJECT_NAME,
-            output_dir="output", 
-            llm_provider=LLM_PROVIDER,
-            image_model=IMAGE_MODEL,
-            video_duration=VIDEO_DURATION,
-            human_characters_only=HUMAN_CHARACTERS_ONLY,
+            generator = VideoGenerator(
+                logo_path=LOGO_PATH,
+                project_name=PROJECT_NAME,
+                output_dir="output", 
+                llm_provider=LLM_PROVIDER,
+                image_model=IMAGE_MODEL,
+                video_duration=VIDEO_DURATION,
+                human_characters_only=HUMAN_CHARACTERS_ONLY,
                 web3=WEB3,
                 no_characters=NO_CHARACTERS,
-            use_brand_aesthetics=USE_BRAND_AESTHETICS,
-            clip_random_numbers=CLIP_RANDOM_NUMBERS,
-            voiceover=VOICEOVER,
+                use_brand_aesthetics=USE_BRAND_AESTHETICS,
+                clip_random_numbers=CLIP_RANDOM_NUMBERS,
+                voiceover=VOICEOVER,
                 clip_audio_prompts=CLIP_AUDIO_PROMPTS,
-            theme=THEME,
+                theme=THEME,
                 product_images=PRODUCT_IMAGES,
                 clip_generation_model=CLIP_GENERATION_MODEL,
                 viral_trends=VIRAL_TRENDS
@@ -3314,21 +3314,21 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
     
     if video_duration is not None:
         # Video duration mode
-    generator = VideoGenerator(
-        logo_path=logo_path,
-        project_name=project_name,
-        output_dir=output_dir,
-        llm_provider=llm_provider,
-        image_model=image_model,
-        video_duration=video_duration,
-        human_characters_only=human_characters_only,
+        generator = VideoGenerator(
+            logo_path=logo_path,
+            project_name=project_name,
+            output_dir=output_dir,
+            llm_provider=llm_provider,
+            image_model=image_model,
+            video_duration=video_duration,
+            human_characters_only=human_characters_only,
             web3=web3,
             no_characters=no_characters,
-        use_brand_aesthetics=use_brand_aesthetics,
-        clip_random_numbers=None,  # Default to None for external calls
-        voiceover=voiceover,
+            use_brand_aesthetics=use_brand_aesthetics,
+            clip_random_numbers=None,  # Default to None for external calls
+            voiceover=voiceover,
             clip_audio_prompts=clip_audio_prompts,
-        theme=theme,
+            theme=theme,
             product_images=product_images,
             clip_generation_model=clip_generation_model,
             viral_trends=viral_trends

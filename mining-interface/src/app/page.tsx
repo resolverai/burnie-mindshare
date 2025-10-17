@@ -17,6 +17,8 @@ function HomePageContent() {
   const { isAuthenticated, isLoading, error, clearError, address, needsSignature, signIn } = useAuth()
   const { isConnected: isTwitterConnected, isLoading: isTwitterLoading, refetch: refetchTwitterStatus } = useTwitterConnection(address)
   const router = useRouter()
+  const [showFlowChoice, setShowFlowChoice] = useState(false)
+  const [selectedFlow, setSelectedFlow] = useState<'web3' | 'web2' | null>(null)
 
   // Check if we're in dedicated miner mode
   const isDedicatedMiner = process.env.NEXT_PUBLIC_MINER === '1'
@@ -24,6 +26,20 @@ function HomePageContent() {
   // TEMPORARY: Skip Twitter for both regular and dedicated miners
   // TODO: Re-enable Twitter requirement for regular miners later
   const skipTwitter = true // Set to false to re-enable Twitter requirement
+  
+  // Check if user has already created an account (only then lock the flow)
+  useEffect(() => {
+    const web3Auth = localStorage.getItem('burnie_auth_token') // Web3 auth token
+    const web2Auth = localStorage.getItem('burnie_web2_auth') // Web2 auth token
+    
+    // Only lock the flow if user has actually authenticated
+    if (web3Auth) {
+      setSelectedFlow('web3')
+    } else if (web2Auth) {
+      setSelectedFlow('web2')
+    }
+    // Otherwise, let them choose freely (don't load from localStorage)
+  }, [])
   
   // Debug logging for environment variables
   useEffect(() => {
@@ -146,6 +162,133 @@ function HomePageContent() {
     return <MinerDashboard activeSection="dashboard" />
   }
 
+  // Handle flow selection
+  const handleFlowSelection = (flow: 'web3' | 'web2') => {
+    setSelectedFlow(flow)
+    // Don't save to localStorage yet - only save after actual authentication
+    
+    if (flow === 'web3') {
+      // For Web3, show the wallet connection
+      setShowFlowChoice(false)
+    } else {
+      // For Web2, redirect to Twitter auth
+      router.push('/web2/auth')
+    }
+  }
+
+  // Allow user to change their path (reset selection)
+  const handleResetPath = () => {
+    setSelectedFlow(null)
+    setShowFlowChoice(false)
+    // Don't clear auth tokens - only clear the temporary selection
+  }
+
+  // Show flow choice modal for regular miners (MINER=0)
+  if (!isDedicatedMiner && showFlowChoice && !selectedFlow) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 flex items-center justify-center">
+        <div className="max-w-5xl mx-auto px-6">
+          {/* Header */}
+          <div className="text-center mb-12">
+            <div className="flex items-center justify-center space-x-3 mb-6">
+              <div className="w-16 h-16 bg-gradient-to-r from-orange-500 to-red-500 rounded-xl flex items-center justify-center">
+                <BoltIcon className="h-10 w-10 text-white" />
+              </div>
+              <h1 className="text-4xl font-bold text-white">BURNIE</h1>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Choose Your <span className="gradient-text">Content Journey</span>
+            </h2>
+            <p className="text-xl text-gray-300">
+              Select the experience that fits your needs
+            </p>
+          </div>
+
+          {/* Flow Choice Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Web3 Miner Card */}
+            <div 
+              onClick={() => handleFlowSelection('web3')}
+              className="glass p-8 rounded-2xl border-2 border-gray-700 hover:border-orange-500 transition-all cursor-pointer hover:scale-105 transform"
+            >
+              <div className="text-center">
+                <div className="w-20 h-20 bg-gradient-to-r from-orange-500 to-red-500 rounded-xl flex items-center justify-center mx-auto mb-6">
+                  <CpuChipIcon className="h-12 w-12 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-4">🌐 Web3 Miner</h3>
+                <ul className="text-left space-y-3 mb-6">
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-green-400 mr-2">✓</span>
+                    <span>Mine ROAST tokens by generating content</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-green-400 mr-2">✓</span>
+                    <span>Participate in platform campaigns</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-green-400 mr-2">✓</span>
+                    <span>Wallet-based authentication</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-green-400 mr-2">✓</span>
+                    <span>Earn rewards for quality content</span>
+                  </li>
+                </ul>
+                <button className="btn-primary w-full">
+                  Start Mining →
+                </button>
+              </div>
+            </div>
+
+            {/* Web2 Business Card */}
+            <div 
+              onClick={() => handleFlowSelection('web2')}
+              className="glass p-8 rounded-2xl border-2 border-gray-700 hover:border-blue-500 transition-all cursor-pointer hover:scale-105 transform"
+            >
+              <div className="text-center">
+                <div className="w-20 h-20 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl flex items-center justify-center mx-auto mb-6">
+                  <SparklesIcon className="h-12 w-12 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-4">💼 Web2 Business</h3>
+                <ul className="text-left space-y-3 mb-6">
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-blue-400 mr-2">✓</span>
+                    <span>AI-powered social media automation</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-blue-400 mr-2">✓</span>
+                    <span>Brand-specific content generation</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-blue-400 mr-2">✓</span>
+                    <span>Multi-platform publishing</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-blue-400 mr-2">✓</span>
+                    <span>Perfect for agencies & businesses</span>
+                  </li>
+                </ul>
+                     <button className="bg-black hover:bg-gray-900 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 w-full">
+                       Start Journey →
+                     </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Back button */}
+          <div className="text-center mt-8">
+            <button
+              onClick={() => setShowFlowChoice(false)}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              ← Back to Home
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // Show public landing page (with wallet connection)
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800">
@@ -159,7 +302,26 @@ function HomePageContent() {
             <h1 className="text-2xl font-bold text-white">BURNIE</h1>
           </div>
           <div className="flex items-center space-x-4">
-            <ConnectButton />
+            {!isDedicatedMiner && (
+              <>
+                {selectedFlow ? (
+                  <button
+                    onClick={handleResetPath}
+                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
+                  >
+                    ← Change Path
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowFlowChoice(true)}
+                    className="btn-secondary"
+                  >
+                    Get Started
+                  </button>
+                )}
+              </>
+            )}
+            {selectedFlow === 'web3' && <ConnectButton />}
           </div>
         </div>
       </header>
@@ -182,71 +344,89 @@ function HomePageContent() {
               </div>
             </div>
 
-            <h1 className="text-6xl md:text-8xl font-black mb-8">
-              <span className="gradient-text">NEURAL</span><br />
-              <span className="text-white">CONTENT</span><br />
-              <span className="gradient-text">MINING</span>
+            <h1 className="text-5xl md:text-7xl font-black mb-6">
+              <span className="gradient-text">AI-POWERED</span><br />
+              <span className="text-white">CONTENT CREATION</span><br />
+              <span className="gradient-text">FOR EVERYONE</span>
             </h1>
             
-            <p className="text-xl md:text-2xl text-gray-300 mb-8 max-w-4xl mx-auto leading-relaxed">
-              We understand what drives mindshare on cookie.fun, Kaito yaps, and other attention economy platforms. 
-              Our personalized agents synthesize content precisely engineered to maximize your mindshare using proprietary AI models.
+            <p className="text-xl md:text-2xl text-gray-300 mb-12 max-w-4xl mx-auto leading-relaxed">
+              Whether you're a <strong className="text-white">Web3 miner</strong>, <strong className="text-white">business owner</strong>, 
+              <strong className="text-white"> social media manager</strong>, <strong className="text-white">design agency</strong>, 
+              or <strong className="text-white">influencer</strong> — create viral content with AI in seconds.
             </p>
 
-            {/* Key Value Props */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 max-w-4xl mx-auto">
-              <div className="glass p-6 rounded-xl">
-                <CpuChipIcon className="h-8 w-8 text-orange-500 mx-auto mb-3" />
-                <h3 className="text-lg font-bold text-white mb-2">Mindshare Algorithms</h3>
-                <p className="text-gray-400 text-sm">Proprietary AI analyzes attention patterns on cookie.fun, Kaito yaps to maximize mindshare</p>
+            {/* Use Cases */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12 max-w-6xl mx-auto">
+              <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                <div className="text-4xl mb-3">🚀</div>
+                <h3 className="text-lg font-bold text-white mb-2">Web3 Miners</h3>
+                <p className="text-gray-400 text-sm">Mine ROAST tokens by generating viral content for campaigns</p>
               </div>
-              <div className="glass p-6 rounded-xl">
-                <SparklesIcon className="h-8 w-8 text-blue-500 mx-auto mb-3" />
-                <h3 className="text-lg font-bold text-white mb-2">Precision Synthesis</h3>
-                <p className="text-gray-400 text-sm">AI agents create content scientifically engineered to dominate attention economy platforms</p>
+              <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                <div className="text-4xl mb-3">🏢</div>
+                <h3 className="text-lg font-bold text-white mb-2">Businesses</h3>
+                <p className="text-gray-400 text-sm">Automate social media with AI-powered brand content</p>
               </div>
-              <div className="glass p-6 rounded-xl">
-                <TrophyIcon className="h-8 w-8 text-yellow-500 mx-auto mb-3" />
-                <h3 className="text-lg font-bold text-white mb-2">Passive Income</h3>
-                <p className="text-gray-400 text-sm">Earn ROAST tokens while your AI generates viral content that captures mindshare</p>
+              <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                <div className="text-4xl mb-3">🎨</div>
+                <h3 className="text-lg font-bold text-white mb-2">Design Agencies</h3>
+                <p className="text-gray-400 text-sm">Create stunning visuals for multiple clients instantly</p>
+              </div>
+              <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                <div className="text-4xl mb-3">📱</div>
+                <h3 className="text-lg font-bold text-white mb-2">Influencers</h3>
+                <p className="text-gray-400 text-sm">Generate engaging content for all your social channels</p>
               </div>
             </div>
 
-            {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12 max-w-4xl mx-auto">
-              <div className="text-center">
-                <div className="text-3xl font-black text-orange-500 mb-1">24/7</div>
-                <div className="text-gray-400 text-sm">Autonomous Mining</div>
+            {/* What We Offer */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 max-w-5xl mx-auto">
+              <div className="glass p-6 rounded-xl">
+                <SparklesIcon className="h-8 w-8 text-orange-500 mx-auto mb-3" />
+                <h3 className="text-lg font-bold text-white mb-2">AI Content Generation</h3>
+                <p className="text-gray-400 text-sm">Images, videos, and text optimized for maximum engagement across all platforms</p>
               </div>
-              <div className="text-center">
-                <div className="text-3xl font-black text-blue-500 mb-1">5X</div>
-                <div className="text-gray-400 text-sm">Faster Than Manual</div>
+              <div className="glass p-6 rounded-xl">
+                <CpuChipIcon className="h-8 w-8 text-blue-500 mx-auto mb-3" />
+                <h3 className="text-lg font-bold text-white mb-2">Brand Intelligence</h3>
+                <p className="text-gray-400 text-sm">AI learns your brand voice and creates on-brand content automatically</p>
               </div>
-              <div className="text-center">
-                <div className="text-3xl font-black text-green-500 mb-1">$0.01</div>
-                <div className="text-gray-400 text-sm">Avg Gas Fee</div>
-              </div>
-              <div className="text-center">
-                <div className="text-3xl font-black text-purple-500 mb-1">AI</div>
-                <div className="text-gray-400 text-sm">Multi-Modal</div>
+              <div className="glass p-6 rounded-xl">
+                <TrophyIcon className="h-8 w-8 text-green-500 mx-auto mb-3" />
+                <h3 className="text-lg font-bold text-white mb-2">Multi-Platform</h3>
+                <p className="text-gray-400 text-sm">Publish directly to Twitter, LinkedIn, YouTube, and more</p>
               </div>
             </div>
             
-            {/* Connection Flow */}
-            <div className="glass p-8 rounded-2xl max-w-lg mx-auto mb-12">
-              <h3 className="text-2xl font-bold text-white mb-6">Start Mining in 3 Steps</h3>
-              <div className="space-y-4 text-left">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center text-white font-bold text-sm">1</div>
-                  <span className="text-gray-300">Connect your wallet (MetaMask, Phantom, etc.)</span>
+            {/* CTA Section */}
+            <div className="glass p-8 rounded-2xl max-w-2xl mx-auto mb-12">
+              <h3 className="text-2xl font-bold text-white mb-4 text-center">Choose Your Path</h3>
+              <p className="text-gray-400 mb-6 text-center">
+                Select the experience that matches your needs
+              </p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-700/30 rounded-lg border border-gray-600">
+                  <div className="text-3xl mb-2">🌐</div>
+                  <h4 className="text-white font-bold mb-1">Web3 Miner</h4>
+                  <p className="text-gray-400 text-sm mb-3">Generate content for campaigns and earn ROAST tokens</p>
+                  <ul className="text-xs text-gray-400 space-y-1">
+                    <li>✓ Wallet-based auth</li>
+                    <li>✓ Campaign participation</li>
+                    <li>✓ Token rewards</li>
+                  </ul>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm">2</div>
-                  <span className="text-gray-300">Connect Twitter for AI personalization</span>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-sm">3</div>
-                  <span className="text-gray-300">Deploy AI agents and start earning</span>
+                
+                <div className="p-4 bg-gray-700/30 rounded-lg border border-gray-600">
+                  <div className="text-3xl mb-2">💼</div>
+                  <h4 className="text-white font-bold mb-1">Web2 Business</h4>
+                  <p className="text-gray-400 text-sm mb-3">Automate content creation for your brand or clients</p>
+                  <ul className="text-xs text-gray-400 space-y-1">
+                    <li>✓ Social media automation</li>
+                    <li>✓ Brand-specific content</li>
+                    <li>✓ Multi-platform publishing</li>
+                  </ul>
                 </div>
               </div>
             </div>
@@ -267,70 +447,136 @@ function HomePageContent() {
 
             {/* Call to Action */}
             <div className="text-center">
-              <p className="text-gray-400 text-sm mb-4">
-                🔐 Secure wallet authentication • 🌐 Base Network • 💰 ROAST Rewards
-              </p>
-              <ConnectButton.Custom>
-                {({ account, chain, openConnectModal, mounted }) => {
-                  const ready = mounted
-                  const connected = ready && account && chain
+              {!selectedFlow ? (
+                <>
+                  <button
+                    onClick={() => setShowFlowChoice(true)}
+                    className="btn-primary text-lg px-12 py-4 mb-4"
+                  >
+                    🚀 Get Started Now
+                  </button>
+                  <p className="text-gray-400 text-sm">
+                    No credit card required • Start creating in minutes
+                  </p>
+                </>
+              ) : selectedFlow === 'web3' ? (
+                <ConnectButton.Custom>
+                  {({ account, chain, openConnectModal, mounted }) => {
+                    const ready = mounted
+                    const connected = ready && account && chain
 
-                  if (!ready) return null
+                    if (!ready) return null
 
-                  if (!connected) {
+                    if (!connected) {
+                      return (
+                        <button
+                          onClick={openConnectModal}
+                          className="btn-primary text-lg px-8 py-4"
+                        >
+                          🚀 Connect Wallet to Start
+                        </button>
+                      )
+                    }
+
                     return (
-                      <button
-                        onClick={openConnectModal}
-                        className="btn-primary text-lg px-8 py-4"
-                      >
-                        🚀 Start Mining Now
-                      </button>
-                    )
-                  }
-
-                  return (
-                    <div className="text-center">
-                      <div className="text-green-400 font-medium mb-2">✅ Wallet Connected</div>
-                      <div className="text-gray-400 text-sm">
-                        {isLoading ? 'Please sign the message in your wallet...' : 'Setting up your mining interface...'}
+                      <div className="text-center">
+                        <div className="text-green-400 font-medium mb-2">✅ Wallet Connected</div>
+                        <div className="text-gray-400 text-sm">
+                          {isLoading ? 'Please sign the message in your wallet...' : 'Setting up your mining interface...'}
+                        </div>
                       </div>
-                    </div>
-                  )
-                }}
-              </ConnectButton.Custom>
+                    )
+                  }}
+                </ConnectButton.Custom>
+              ) : (
+                <button
+                  onClick={() => router.push('/web2/auth')}
+                  className="bg-black hover:bg-gray-900 text-white font-bold text-lg px-12 py-4 rounded-xl transition-all duration-300 transform hover:scale-105"
+                >
+                  <span className="flex items-center justify-center space-x-2">
+                    <span>Sign in with</span>
+                    <span className="font-black">𝕏</span>
+                  </span>
+                </button>
+              )}
             </div>
           </div>
         </div>
       </main>
 
-      {/* Attention Economy Intelligence Section */}
+      {/* Use Cases Section */}
       <section className="py-20 bg-gradient-to-r from-orange-900/20 to-red-900/20">
         <div className="max-w-6xl mx-auto px-6 text-center">
           <h2 className="text-4xl font-bold text-white mb-6">
-            Master the <span className="gradient-text">Attention Economy</span>
+            Built For <span className="gradient-text">Every Creator</span>
           </h2>
           <p className="text-xl text-gray-300 mb-12 max-w-4xl mx-auto">
-            While others guess, we <strong>know</strong>. Our proprietary algorithms decode the mindshare mechanics 
-            of cookie.fun, Kaito yaps, and emerging attention platforms to engineer viral content.
+            From Web3 miners to Fortune 500 brands, our AI adapts to your unique needs
           </p>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            <div className="glass p-8 rounded-xl">
-              <div className="text-3xl mb-4">🧠</div>
-              <h3 className="text-xl font-bold text-white mb-4">Platform Intelligence</h3>
-              <p className="text-gray-300">
-                Deep analysis of viral patterns, trending mechanisms, and engagement drivers across 
-                cookie.fun, Kaito yaps, and other mindshare platforms.
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            <div className="glass p-8 rounded-xl text-left">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="text-3xl">📱</div>
+                <h3 className="text-xl font-bold text-white">Social Media Managers</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Schedule weeks of content in minutes. Our AI learns your brand voice and creates 
+                approval-ready posts for Twitter, LinkedIn, YouTube, and Instagram.
               </p>
+              <ul className="text-sm text-gray-400 space-y-2">
+                <li>✓ Automated daily content suggestions</li>
+                <li>✓ Multi-platform scheduling</li>
+                <li>✓ Performance analytics</li>
+              </ul>
             </div>
             
-            <div className="glass p-8 rounded-xl">
-              <div className="text-3xl mb-4">⚡</div>
-              <h3 className="text-xl font-bold text-white mb-4">Precision Targeting</h3>
-              <p className="text-gray-300">
-                AI agents synthesize content with surgical precision, maximizing mindshare capture 
-                using proprietary models trained on attention economy data.
+            <div className="glass p-8 rounded-xl text-left">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="text-3xl">🎨</div>
+                <h3 className="text-xl font-bold text-white">Design Agencies</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Manage multiple clients with ease. Generate stunning visuals and videos for each 
+                brand while maintaining their unique identity and style.
               </p>
+              <ul className="text-sm text-gray-400 space-y-2">
+                <li>✓ Per-client brand contexts</li>
+                <li>✓ Team collaboration tools</li>
+                <li>✓ Bulk content generation</li>
+              </ul>
+            </div>
+
+            <div className="glass p-8 rounded-xl text-left">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="text-3xl">👔</div>
+                <h3 className="text-xl font-bold text-white">Fashion & E-commerce</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Generate product photos with models, create promotional videos, and showcase your 
+                products in stunning AI-generated scenes.
+              </p>
+              <ul className="text-sm text-gray-400 space-y-2">
+                <li>✓ Product visualization</li>
+                <li>✓ Model integration</li>
+                <li>✓ Lifestyle scenes</li>
+              </ul>
+            </div>
+            
+            <div className="glass p-8 rounded-xl text-left">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="text-3xl">⛏️</div>
+                <h3 className="text-xl font-bold text-white">Web3 Content Miners</h3>
+              </div>
+              <p className="text-gray-300 mb-4">
+                Generate viral content for cookie.fun, Kaito yaps, and other Web3 platforms. 
+                Earn ROAST tokens while your AI creates mindshare-optimized content.
+              </p>
+              <ul className="text-sm text-gray-400 space-y-2">
+                <li>✓ Campaign participation</li>
+                <li>✓ Token rewards</li>
+                <li>✓ Mindshare optimization</li>
+              </ul>
             </div>
           </div>
         </div>
