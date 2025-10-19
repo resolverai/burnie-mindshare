@@ -15,10 +15,15 @@ const router = Router();
 router.get('/:accountId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'Account ID is required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
 
     const accountRepo = AppDataSource.getRepository(Account);
     const account = await accountRepo.findOne({
-      where: { id: accountId as string },
+      where: { id: accountIdNum },
       relations: ['account_users', 'account_clients', 'brand_contexts']
     });
 
@@ -51,10 +56,24 @@ router.get('/:accountId', async (req: Request, res: Response): Promise<void> => 
 router.put('/:accountId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'Account ID is required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
     const { account_type, business_name, industry, use_case, subscription_tier } = req.body;
 
+    // Validate account_type if provided
+    if (account_type !== undefined && !['individual', 'business', 'agency'].includes(account_type)) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid account_type. Must be one of: individual, business, agency'
+      });
+      return;
+    }
+
     const accountRepo = AppDataSource.getRepository(Account);
-    const account = await accountRepo.findOne({ where: { id: accountId as string } });
+    const account = await accountRepo.findOne({ where: { id: accountIdNum } });
 
     if (!account) {
       res.status(404).json({
@@ -64,14 +83,19 @@ router.put('/:accountId', async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-    // Update fields
-    if (account_type) account.account_type = account_type;
-    if (business_name) account.business_name = business_name;
-    if (industry) account.industry = industry;
-    if (use_case) account.use_case = use_case;
-    if (subscription_tier) account.subscription_tier = subscription_tier;
+    // Update fields (only if provided in request)
+    if (account_type !== undefined) {
+      logger.info(`Updating account ${accountIdNum} type from ${account.account_type} to ${account_type}`);
+      account.account_type = account_type;
+    }
+    if (business_name !== undefined) account.business_name = business_name;
+    if (industry !== undefined) account.industry = industry;
+    if (use_case !== undefined) account.use_case = use_case;
+    if (subscription_tier !== undefined) account.subscription_tier = subscription_tier;
 
     await accountRepo.save(account);
+    
+    logger.info(`Account ${accountIdNum} updated successfully. Type: ${account.account_type}`);
 
     res.json({
       success: true,
@@ -94,10 +118,15 @@ router.put('/:accountId', async (req: Request, res: Response): Promise<void> => 
 router.get('/:accountId/users', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'Account ID is required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
 
     const accountUserRepo = AppDataSource.getRepository(AccountUser);
     const users = await accountUserRepo.find({
-      where: { account_id: accountId as string },
+      where: { account_id: accountIdNum },
       select: ['id', 'email', 'full_name', 'role', 'is_primary', 'status', 'last_login', 'created_at']
     });
 
@@ -122,6 +151,11 @@ router.get('/:accountId/users', async (req: Request, res: Response): Promise<voi
 router.post('/:accountId/users', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'Account ID is required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
     const { email, full_name, role } = req.body;
 
     if (!email || !full_name || !role) {
@@ -134,7 +168,7 @@ router.post('/:accountId/users', async (req: Request, res: Response): Promise<vo
 
     // Check if account exists
     const accountRepo = AppDataSource.getRepository(Account);
-    const account = await accountRepo.findOne({ where: { id: accountId as string } });
+    const account = await accountRepo.findOne({ where: { id: accountIdNum } });
 
     if (!account) {
       res.status(404).json({
@@ -156,7 +190,7 @@ router.post('/:accountId/users', async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const newUser = accountUserRepo.create({ account_id: accountId as string,
+    const newUser = accountUserRepo.create({ account_id: accountIdNum,
       email,
       full_name,
       role,
@@ -193,10 +227,15 @@ router.post('/:accountId/users', async (req: Request, res: Response): Promise<vo
 router.get('/:accountId/clients', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'Account ID is required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
 
     const accountClientRepo = AppDataSource.getRepository(AccountClient);
     const clients = await accountClientRepo.find({
-      where: { account_id: accountId as string },
+      where: { account_id: accountIdNum },
       relations: ['brand_contexts']
     });
 
@@ -221,6 +260,11 @@ router.get('/:accountId/clients', async (req: Request, res: Response): Promise<v
 router.post('/:accountId/clients', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'Account ID is required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
     const { client_name, client_industry } = req.body;
 
     if (!client_name) {
@@ -233,7 +277,7 @@ router.post('/:accountId/clients', async (req: Request, res: Response): Promise<
 
     // Check if account exists and is an agency
     const accountRepo = AppDataSource.getRepository(Account);
-    const account = await accountRepo.findOne({ where: { id: accountId as string } });
+    const account = await accountRepo.findOne({ where: { id: accountIdNum } });
 
     if (!account) {
       res.status(404).json({
@@ -252,7 +296,7 @@ router.post('/:accountId/clients', async (req: Request, res: Response): Promise<
     }
 
     const accountClientRepo = AppDataSource.getRepository(AccountClient);
-    const newClient = accountClientRepo.create({ account_id: accountId as string,
+    const newClient = accountClientRepo.create({ account_id: accountIdNum,
       client_name,
       client_industry,
       status: 'active'
@@ -281,11 +325,17 @@ router.post('/:accountId/clients', async (req: Request, res: Response): Promise<
 router.put('/:accountId/clients/:clientId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId, clientId } = req.params;
+    if (!accountId || !clientId) {
+      res.status(400).json({ success: false, error: 'Account ID and Client ID are required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
+    const clientIdNum = parseInt(clientId, 10);
     const { client_name, client_industry, status } = req.body;
 
     const accountClientRepo = AppDataSource.getRepository(AccountClient);
     const client = await accountClientRepo.findOne({
-      where: { id: clientId as string, account_id: accountId as string }
+      where: { id: clientIdNum, account_id: accountIdNum }
     });
 
     if (!client) {
@@ -323,10 +373,16 @@ router.put('/:accountId/clients/:clientId', async (req: Request, res: Response):
 router.delete('/:accountId/clients/:clientId', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId, clientId } = req.params;
+    if (!accountId || !clientId) {
+      res.status(400).json({ success: false, error: 'Account ID and Client ID are required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
+    const clientIdNum = parseInt(clientId, 10);
 
     const accountClientRepo = AppDataSource.getRepository(AccountClient);
     const client = await accountClientRepo.findOne({
-      where: { id: clientId as string, account_id: accountId as string }
+      where: { id: clientIdNum, account_id: accountIdNum }
     });
 
     if (!client) {

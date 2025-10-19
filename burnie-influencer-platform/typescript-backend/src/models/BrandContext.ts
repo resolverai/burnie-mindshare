@@ -4,16 +4,19 @@ import { AccountClient } from './AccountClient';
 
 @Entity('brand_context')
 export class BrandContext {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn()
+  id!: number;
 
-  @Column({ type: 'uuid', nullable: true })
-  @Index()
-  account_id!: string;
+  @Column({ type: 'uuid', unique: true, nullable: true })
+  uuid?: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'int', nullable: true })
   @Index()
-  account_client_id!: string;
+  account_id?: number;
+
+  @Column({ type: 'int', nullable: true })
+  @Index()
+  account_client_id?: number;
 
   @Column({ type: 'text' })
   brand_name!: string;
@@ -51,6 +54,9 @@ export class BrandContext {
 
   @Column({ type: 'text', nullable: true })
   brand_aesthetics?: string;
+
+  @Column({ type: 'text', nullable: true })
+  industry?: string;
 
   @Column({ type: 'jsonb', nullable: true })
   industry_specific_context?: Record<string, any>;

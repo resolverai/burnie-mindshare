@@ -6,12 +6,15 @@ export type ConnectionStatus = 'active' | 'expired' | 'revoked';
 
 @Entity('account_social_media_connections')
 export class AccountSocialMediaConnection {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn()
+  id!: number;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', unique: true, nullable: true })
+  uuid?: string;
+
+  @Column({ type: 'int' })
   @Index()
-  account_id!: string;
+  account_id!: number;
 
   @Column({
     type: 'enum',

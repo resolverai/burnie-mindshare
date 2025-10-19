@@ -19,6 +19,8 @@ function HomePageContent() {
   const router = useRouter()
   const [showFlowChoice, setShowFlowChoice] = useState(false)
   const [selectedFlow, setSelectedFlow] = useState<'web3' | 'web2' | null>(null)
+  const [web2HasValidSession, setWeb2HasValidSession] = useState(false)
+  const [checkingWeb2Session, setCheckingWeb2Session] = useState(false)
 
   // Check if we're in dedicated miner mode
   const isDedicatedMiner = process.env.NEXT_PUBLIC_MINER === '1'
@@ -27,6 +29,58 @@ function HomePageContent() {
   // TODO: Re-enable Twitter requirement for regular miners later
   const skipTwitter = true // Set to false to re-enable Twitter requirement
   
+  // Check Web2 session status when selectedFlow is web2 or on initial load
+  useEffect(() => {
+    const web2Auth = localStorage.getItem('burnie_web2_auth')
+    if ((selectedFlow === 'web2' || web2Auth) && !web2HasValidSession && !checkingWeb2Session) {
+      checkWeb2Session()
+    }
+  }, [selectedFlow])
+
+  const checkWeb2Session = async () => {
+    setCheckingWeb2Session(true)
+    try {
+      // Check localStorage first for quick check
+      const web2Auth = localStorage.getItem('burnie_web2_auth')
+      const web2AccountId = localStorage.getItem('burnie_web2_account_id')
+      const web2Username = localStorage.getItem('burnie_web2_username')
+      
+      if (web2Auth && web2AccountId && web2Username) {
+        // Verify with backend and check if profile is completed
+        const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
+        const response = await fetch(`${apiUrl}/web2-auth/check-session?twitter_username=${encodeURIComponent(web2Username)}`)
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.hasValidSession) {
+            // Only set valid session if user has completed profile
+            if (data.data?.hasCompletedProfile) {
+              setWeb2HasValidSession(true)
+              console.log('✅ Web2 has valid session with completed profile')
+            } else {
+              // User has valid tokens but hasn't completed profile
+              setWeb2HasValidSession(false)
+              console.log('⚠️ Web2 session exists but profile not completed')
+            }
+          } else {
+            // Clear invalid session data
+            localStorage.removeItem('burnie_web2_auth')
+            localStorage.removeItem('burnie_web2_account_id')
+            localStorage.removeItem('burnie_web2_username')
+            setWeb2HasValidSession(false)
+          }
+        }
+      } else {
+        setWeb2HasValidSession(false)
+      }
+    } catch (error) {
+      console.error('Error checking Web2 session:', error)
+      setWeb2HasValidSession(false)
+    } finally {
+      setCheckingWeb2Session(false)
+    }
+  }
+
   // Check if user has already created an account (only then lock the flow)
   useEffect(() => {
     const web3Auth = localStorage.getItem('burnie_auth_token') // Web3 auth token
@@ -171,8 +225,14 @@ function HomePageContent() {
       // For Web3, show the wallet connection
       setShowFlowChoice(false)
     } else {
-      // For Web2, redirect to Twitter auth
-      router.push('/web2/auth')
+      // For Web2, check if session exists
+      if (web2HasValidSession) {
+        // User has valid session, go directly to dashboard
+        router.push('/web2/dashboard')
+      } else {
+        // No valid session, redirect to Twitter auth
+        router.push('/web2/auth')
+      }
     }
   }
 
@@ -268,8 +328,11 @@ function HomePageContent() {
                     <span>Perfect for agencies & businesses</span>
                   </li>
                 </ul>
-                     <button className="bg-black hover:bg-gray-900 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 w-full">
-                       Start Journey →
+                     <button 
+                       className="bg-black hover:bg-gray-900 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 w-full"
+                       disabled={checkingWeb2Session}
+                     >
+                       {checkingWeb2Session ? 'Checking...' : web2HasValidSession ? 'Go To Dashboard →' : 'Start Journey →'}
                      </button>
               </div>
             </div>
@@ -304,24 +367,86 @@ function HomePageContent() {
           <div className="flex items-center space-x-4">
             {!isDedicatedMiner && (
               <>
-                {selectedFlow ? (
-                  <button
-                    onClick={handleResetPath}
-                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
-                  >
-                    ← Change Path
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setShowFlowChoice(true)}
-                    className="btn-secondary"
-                  >
-                    Get Started
-                  </button>
-                )}
+                {(() => {
+                  const web3Auth = typeof window !== 'undefined' ? localStorage.getItem('burnie_auth_token') : null
+                  const web2Auth = typeof window !== 'undefined' ? localStorage.getItem('burnie_web2_auth') : null
+                  
+                  if (web3Auth) {
+                    // Web3 user is logged in
+                    return (
+                      <>
+                        <button
+                          onClick={() => router.push('/dashboard')}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
+                        >
+                          Go to Dashboard
+                        </button>
+                        <button
+                          onClick={() => {
+                            localStorage.removeItem('burnie_auth_token')
+                            window.location.reload()
+                          }}
+                          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
+                        >
+                          Logout
+                        </button>
+                      </>
+                    )
+                  } else if (web2Auth) {
+                    // Web2 user is logged in
+                    return (
+                      <>
+                        <button
+                          onClick={() => router.push('/web2/dashboard')}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
+                        >
+                          Go to Dashboard
+                        </button>
+                        <button
+                          onClick={async () => {
+                            // Call backend logout endpoint
+                            try {
+                              const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
+                              const accountId = localStorage.getItem('burnie_web2_account_id')
+                              await fetch(`${apiUrl}/web2-auth/logout`, {
+                                method: 'POST',
+                                headers: {
+                                  'Authorization': `Bearer ${web2Auth}`,
+                                  'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ account_id: accountId })
+                              })
+                            } catch (error) {
+                              console.error('Logout error:', error)
+                            }
+                            
+                            // Clear localStorage
+                            localStorage.removeItem('burnie_web2_auth')
+                            localStorage.removeItem('burnie_web2_account_id')
+                            localStorage.removeItem('burnie_web2_username')
+                            window.location.reload()
+                          }}
+                          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
+                        >
+                          Logout
+                        </button>
+                      </>
+                    )
+                  } else {
+                    // No user logged in - show Get Started button
+                    return (
+                      <button
+                        onClick={() => setShowFlowChoice(true)}
+                        className="btn-secondary"
+                      >
+                        Get Started
+                      </button>
+                    )
+                  }
+                })()}
               </>
             )}
-            {selectedFlow === 'web3' && <ConnectButton />}
+            {selectedFlow === 'web3' && !localStorage.getItem('burnie_auth_token') && <ConnectButton />}
           </div>
         </div>
       </header>
@@ -447,19 +572,45 @@ function HomePageContent() {
 
             {/* Call to Action */}
             <div className="text-center">
-              {!selectedFlow ? (
-                <>
-                  <button
-                    onClick={() => setShowFlowChoice(true)}
-                    className="btn-primary text-lg px-12 py-4 mb-4"
-                  >
-                    🚀 Get Started Now
-                  </button>
-                  <p className="text-gray-400 text-sm">
-                    No credit card required • Start creating in minutes
-                  </p>
-                </>
-              ) : selectedFlow === 'web3' ? (
+              {(() => {
+                const web3Auth = typeof window !== 'undefined' ? localStorage.getItem('burnie_auth_token') : null
+                const web2Auth = typeof window !== 'undefined' ? localStorage.getItem('burnie_web2_auth') : null
+                
+                // If user is already logged in, show dashboard button
+                if (web3Auth) {
+                  return (
+                    <button
+                      onClick={() => router.push('/dashboard')}
+                      className="btn-primary text-lg px-12 py-4 mb-4"
+                    >
+                      🚀 Go to Web3 Dashboard
+                    </button>
+                  )
+                } else if (web2Auth) {
+                  return (
+                    <button
+                      onClick={() => router.push('/web2/dashboard')}
+                      className="btn-primary text-lg px-12 py-4 mb-4"
+                    >
+                      🚀 Go to Web2 Dashboard
+                    </button>
+                  )
+                }
+                
+                // Otherwise show the flow selection
+                return !selectedFlow ? (
+                  <>
+                    <button
+                      onClick={() => setShowFlowChoice(true)}
+                      className="btn-primary text-lg px-12 py-4 mb-4"
+                    >
+                      🚀 Get Started Now
+                    </button>
+                    <p className="text-gray-400 text-sm">
+                      No credit card required • Start creating in minutes
+                    </p>
+                  </>
+                ) : selectedFlow === 'web3' ? (
                 <ConnectButton.Custom>
                   {({ account, chain, openConnectModal, mounted }) => {
                     const ready = mounted
@@ -488,17 +639,31 @@ function HomePageContent() {
                     )
                   }}
                 </ConnectButton.Custom>
-              ) : (
-                <button
-                  onClick={() => router.push('/web2/auth')}
-                  className="bg-black hover:bg-gray-900 text-white font-bold text-lg px-12 py-4 rounded-xl transition-all duration-300 transform hover:scale-105"
-                >
-                  <span className="flex items-center justify-center space-x-2">
-                    <span>Sign in with</span>
-                    <span className="font-black">𝕏</span>
-                  </span>
-                </button>
-              )}
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (web2HasValidSession) {
+                        router.push('/web2/dashboard')
+                      } else {
+                        router.push('/web2/auth')
+                      }
+                    }}
+                    disabled={checkingWeb2Session}
+                    className="bg-black hover:bg-gray-900 text-white font-bold text-lg px-12 py-4 rounded-xl transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {checkingWeb2Session ? (
+                      <span>Checking session...</span>
+                    ) : web2HasValidSession ? (
+                      <span>Go To Dashboard</span>
+                    ) : (
+                      <span className="flex items-center justify-center space-x-2">
+                        <span>Sign in with</span>
+                        <span className="font-black">𝕏</span>
+                      </span>
+                    )}
+                  </button>
+                )
+              })()}
             </div>
           </div>
         </div>

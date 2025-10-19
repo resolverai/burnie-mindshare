@@ -25,6 +25,8 @@ export default function BrandProfilePage() {
     target_audience: '',
     
     // Step 3: Visual Identity
+    logo_file: null as File | null,
+    logo_url: '',
     color_palette: {
       primary: '#000000',
       secondary: '#ffffff',
@@ -38,6 +40,9 @@ export default function BrandProfilePage() {
     posting_frequency: 'daily',
     preferred_platforms: [] as string[]
   })
+
+  const [logoPreview, setLogoPreview] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
 
   useEffect(() => {
     // Check authentication
@@ -123,6 +128,100 @@ export default function BrandProfilePage() {
     if (step > 1) setStep(step - 1)
   }
 
+  const validateAndSetLogo = (file: File) => {
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file')
+      return false
+    }
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Logo file size must be less than 5MB')
+      return false
+    }
+    
+    // Set file and create preview
+    setFormData(prev => ({ ...prev, logo_file: file }))
+    
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setLogoPreview(reader.result as string)
+    }
+    reader.readAsDataURL(file)
+    return true
+  }
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      validateAndSetLogo(file)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    const file = e.dataTransfer.files?.[0]
+    if (file) {
+      validateAndSetLogo(file)
+    }
+  }
+
+  const handleRemoveLogo = () => {
+    setFormData(prev => ({ ...prev, logo_file: null }))
+    setLogoPreview(null)
+  }
+
+  const uploadLogoToS3 = async (accountId: string): Promise<string | null> => {
+    if (!formData.logo_file) return null
+
+    try {
+      const formDataUpload = new FormData()
+      formDataUpload.append('logo', formData.logo_file)
+      formDataUpload.append('account_id', accountId)
+
+      // Upload to backend which will handle S3 upload
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/web2-account-context/upload-logo`,
+        {
+          method: 'POST',
+          body: formDataUpload
+        }
+      )
+
+      if (response.ok) {
+        const result = await response.json()
+        // Return the s3_url (non-presigned format: s3://bucket/key)
+        // This will be stored in database and presigned URLs generated when needed
+        return result.data.s3_url
+      } else {
+        const errorData = await response.json()
+        console.error('Logo upload failed:', errorData.error)
+        alert(`Failed to upload logo: ${errorData.error || 'Unknown error'}`)
+        return null
+      }
+    } catch (error) {
+      console.error('Error uploading logo:', error)
+      alert('Failed to upload logo. Please try again.')
+      return null
+    }
+  }
+
   const handleSubmit = async () => {
     setIsSaving(true)
     
@@ -130,8 +229,17 @@ export default function BrandProfilePage() {
       const web2Auth = localStorage.getItem('burnie_web2_auth')
       const accountId = localStorage.getItem('burnie_web2_account_id')
 
+      // Upload logo first if provided
+      let logoUrl = formData.logo_url
+      if (formData.logo_file && accountId) {
+        const uploadedLogoUrl = await uploadLogoToS3(accountId)
+        if (uploadedLogoUrl) {
+          logoUrl = uploadedLogoUrl
+        }
+      }
+
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/web2-brand-context`,
+        `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/web2-account-context/account/${accountId}`,
         {
           method: 'POST',
           headers: {
@@ -139,8 +247,22 @@ export default function BrandProfilePage() {
             'Authorization': `Bearer ${web2Auth}`
           },
           body: JSON.stringify({
-            ...formData,
-            account_id: accountId
+            industry: formData.industry,
+            brand_name: formData.account_name,
+            brand_tagline: formData.account_tagline,
+            brand_description: formData.account_description,
+            brand_values: formData.account_values,
+            target_audience: formData.target_audience,
+            tone_of_voice: formData.tone_of_voice,
+            logo_url: logoUrl,
+            color_palette: formData.color_palette,
+            typography_preferences: formData.typography_preferences,
+            brand_aesthetics: formData.visual_aesthetics,
+            content_preferences: {
+              content_types: formData.content_types,
+              posting_frequency: formData.posting_frequency,
+              preferred_platforms: formData.preferred_platforms
+            }
           })
         }
       )
@@ -150,11 +272,11 @@ export default function BrandProfilePage() {
         router.push('/web2/dashboard')
       } else {
         const errorData = await response.json()
-        alert(`Error: ${errorData.error || 'Failed to save brand profile'}`)
+        alert(`Error: ${errorData.error || 'Failed to save account profile'}`)
       }
     } catch (error) {
-      console.error('Error saving brand profile:', error)
-      alert('Failed to save brand profile. Please try again.')
+      console.error('Error saving account profile:', error)
+      alert('Failed to save account profile. Please try again.')
     } finally {
       setIsSaving(false)
     }
@@ -302,28 +424,6 @@ export default function BrandProfilePage() {
               
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-3">
-                  Account Values (Select all that apply)
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {['Innovation', 'Quality', 'Sustainability', 'Affordability', 'Luxury', 'Transparency', 'Community', 'Excellence'].map(value => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => handleArrayToggle('account_values', value.toLowerCase())}
-                      className={`px-4 py-2 rounded-lg border transition-colors ${
-                        formData.account_values.includes(value.toLowerCase())
-                          ? 'bg-orange-500 border-orange-500 text-white'
-                          : 'bg-gray-700 border-gray-600 text-gray-300 hover:border-orange-500'
-                      }`}
-                    >
-                      {value}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-3">
                   Tone of Voice (Select all that apply)
                 </label>
                 <div className="grid grid-cols-2 gap-3">
@@ -365,6 +465,96 @@ export default function BrandProfilePage() {
           {step === 3 && (
             <div className="space-y-6">
               <h2 className="text-2xl font-bold text-white mb-6">Visual Identity</h2>
+              
+              {/* Logo Upload */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-3">
+                  Account Logo
+                </label>
+                
+                {/* Drag and Drop Area */}
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`relative border-2 border-dashed rounded-xl p-8 transition-all ${
+                    isDragging 
+                      ? 'border-orange-500 bg-orange-500/10' 
+                      : 'border-gray-600 bg-gray-700/30'
+                  }`}
+                >
+                  {logoPreview ? (
+                    /* Logo Preview with Remove Button */
+                    <div className="flex items-center space-x-6">
+                      <div className="relative w-32 h-32 bg-gray-700/50 rounded-lg border-2 border-gray-600 flex items-center justify-center overflow-hidden group">
+                        <img src={logoPreview} alt="Logo preview" className="w-full h-full object-contain" />
+                        <button
+                          onClick={handleRemoveLogo}
+                          className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                          type="button"
+                        >
+                          <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-green-400 font-medium mb-1">
+                          ✓ {formData.logo_file?.name}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {formData.logo_file && (formData.logo_file.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                        <button
+                          onClick={handleRemoveLogo}
+                          className="mt-2 text-sm text-red-400 hover:text-red-300"
+                          type="button"
+                        >
+                          Remove logo
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Upload Prompt */
+                    <div className="text-center">
+                      <svg
+                        className={`mx-auto h-16 w-16 mb-4 ${isDragging ? 'text-orange-500' : 'text-gray-500'}`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                        />
+                      </svg>
+                      <div className="mb-4">
+                        <input
+                          type="file"
+                          id="logo-upload"
+                          accept="image/*"
+                          onChange={handleLogoUpload}
+                          className="hidden"
+                        />
+                        <label
+                          htmlFor="logo-upload"
+                          className="inline-block px-6 py-3 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-lg cursor-pointer transition-colors font-medium"
+                        >
+                          Choose Logo
+                        </label>
+                      </div>
+                      <p className="text-sm text-gray-400 mb-1">
+                        or drag and drop your logo here
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        PNG, JPG, or SVG • Max size: 5MB
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-3">

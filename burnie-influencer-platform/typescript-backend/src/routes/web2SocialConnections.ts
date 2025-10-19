@@ -14,10 +14,15 @@ const router = Router();
 router.get('/:accountId/connections', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'Account ID is required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
 
     const connectionRepo = AppDataSource.getRepository(AccountSocialMediaConnection);
     const connections = await connectionRepo.find({
-      where: { account_id: accountId as string },
+      where: { account_id: accountIdNum },
       select: ['id', 'platform', 'platform_username', 'status', 'connected_at', 'last_used_at', 'token_expires_at']
     });
 
@@ -42,11 +47,16 @@ router.get('/:accountId/connections', async (req: Request, res: Response): Promi
 router.post('/:accountId/connect/linkedin', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'Account ID is required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
     const { code, redirect_uri } = req.body;
 
     // Verify account exists
     const accountRepo = AppDataSource.getRepository(Account);
-    const account = await accountRepo.findOne({ where: { id: accountId as string } });
+    const account = await accountRepo.findOne({ where: { id: accountIdNum } });
 
     if (!account) {
       res.status(404).json({
@@ -116,7 +126,7 @@ router.post('/:accountId/connect/linkedin', async (req: Request, res: Response):
     
     // Check if connection already exists
     let connection = await connectionRepo.findOne({
-      where: { account_id: accountId as string, platform: 'linkedin' }
+      where: { account_id: accountIdNum, platform: 'linkedin' }
     });
 
     if (connection) {
@@ -126,7 +136,7 @@ router.post('/:accountId/connect/linkedin', async (req: Request, res: Response):
       connection.platform_username = platform_username;
       connection.status = 'active';
     } else {
-      connection = connectionRepo.create({ account_id: accountId as string,
+      connection = connectionRepo.create({ account_id: accountIdNum,
         platform: 'linkedin',
         platform_user_id,
         platform_username,
@@ -164,11 +174,16 @@ router.post('/:accountId/connect/linkedin', async (req: Request, res: Response):
 router.post('/:accountId/connect/youtube', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId } = req.params;
+    if (!accountId) {
+      res.status(400).json({ success: false, error: 'Account ID is required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
     const { code, redirect_uri } = req.body;
 
     // Verify account exists
     const accountRepo = AppDataSource.getRepository(Account);
-    const account = await accountRepo.findOne({ where: { id: accountId as string } });
+    const account = await accountRepo.findOne({ where: { id: accountIdNum } });
 
     if (!account) {
       res.status(404).json({
@@ -248,7 +263,7 @@ router.post('/:accountId/connect/youtube', async (req: Request, res: Response): 
     const connectionRepo = AppDataSource.getRepository(AccountSocialMediaConnection);
     
     let connection = await connectionRepo.findOne({
-      where: { account_id: accountId as string, platform: 'youtube' }
+      where: { account_id: accountIdNum, platform: 'youtube' }
     });
 
     if (connection) {
@@ -259,7 +274,7 @@ router.post('/:accountId/connect/youtube', async (req: Request, res: Response): 
       connection.platform_username = platform_username;
       connection.status = 'active';
     } else {
-      connection = connectionRepo.create({ account_id: accountId as string,
+      connection = connectionRepo.create({ account_id: accountIdNum,
         platform: 'youtube',
         platform_user_id,
         platform_username,
@@ -298,10 +313,15 @@ router.post('/:accountId/connect/youtube', async (req: Request, res: Response): 
 router.delete('/:accountId/disconnect/:platform', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId, platform } = req.params;
+    if (!accountId || !platform) {
+      res.status(400).json({ success: false, error: 'Account ID and Platform are required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
 
     const connectionRepo = AppDataSource.getRepository(AccountSocialMediaConnection);
     const connection = await connectionRepo.findOne({
-      where: { account_id: accountId as string, platform: platform as any }
+      where: { account_id: accountIdNum, platform: platform as any }
     });
 
     if (!connection) {
@@ -335,10 +355,15 @@ router.delete('/:accountId/disconnect/:platform', async (req: Request, res: Resp
 router.post('/:accountId/refresh/:platform', async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountId, platform } = req.params;
+    if (!accountId || !platform) {
+      res.status(400).json({ success: false, error: 'Account ID and Platform are required' });
+      return;
+    }
+    const accountIdNum = parseInt(accountId, 10);
 
     const connectionRepo = AppDataSource.getRepository(AccountSocialMediaConnection);
     const connection = await connectionRepo.findOne({
-      where: { account_id: accountId as string, platform: platform as any }
+      where: { account_id: accountIdNum, platform: platform as any }
     });
 
     if (!connection || !connection.refresh_token) {

@@ -2,17 +2,21 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 import { Account } from './Account';
 import { BrandContext } from './BrandContext';
 import { AutomationSettings } from './AutomationSettings';
+import { Web2GeneratedContent } from './Web2GeneratedContent';
 
 export type AccountClientStatus = 'active' | 'inactive';
 
 @Entity('account_clients')
 export class AccountClient {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn()
+  id!: number;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', unique: true, nullable: true })
+  uuid?: string;
+
+  @Column({ type: 'int' })
   @Index()
-  account_id!: string;
+  account_id!: number;
 
   @Column({ type: 'text' })
   client_name!: string;
@@ -43,5 +47,8 @@ export class AccountClient {
 
   @OneToMany(() => AutomationSettings, settings => settings.account_client)
   automation_settings!: AutomationSettings[];
+
+  @OneToMany(() => Web2GeneratedContent, content => content.account_client)
+  generated_contents!: Web2GeneratedContent[];
 }
 

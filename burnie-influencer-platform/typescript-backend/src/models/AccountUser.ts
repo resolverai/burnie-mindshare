@@ -6,12 +6,15 @@ export type AccountUserStatus = 'active' | 'inactive';
 
 @Entity('account_users')
 export class AccountUser {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn()
+  id!: number;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', unique: true, nullable: true })
+  uuid?: string;
+
+  @Column({ type: 'int' })
   @Index()
-  account_id!: string;
+  account_id!: number;
 
   @Column({ type: 'text', unique: true })
   @Index()

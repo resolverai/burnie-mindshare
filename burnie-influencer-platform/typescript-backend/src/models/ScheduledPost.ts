@@ -5,12 +5,15 @@ export type ScheduledPostStatus = 'scheduled' | 'published' | 'failed' | 'cancel
 
 @Entity('scheduled_posts')
 export class ScheduledPost {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn()
+  id!: number;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', unique: true, nullable: true })
+  uuid?: string;
+
+  @Column({ type: 'int' })
   @Index()
-  generated_content_id!: string;
+  generated_content_id!: number;
 
   @Column({ type: 'simple-array' })
   platforms!: string[];

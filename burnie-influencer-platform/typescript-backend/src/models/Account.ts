@@ -4,14 +4,18 @@ import { AccountClient } from './AccountClient';
 import { BrandContext } from './BrandContext';
 import { AccountSocialMediaConnection } from './AccountSocialMediaConnection';
 import { AutomationSettings } from './AutomationSettings';
+import { Web2GeneratedContent } from './Web2GeneratedContent';
 
 export type AccountType = 'individual' | 'business' | 'agency';
 export type AccountStatus = 'active' | 'inactive' | 'suspended';
 
 @Entity('accounts')
 export class Account {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn()
+  id!: number;
+
+  @Column({ type: 'uuid', unique: true, nullable: true })
+  uuid?: string;
 
   @Column({
     type: 'enum',
@@ -60,5 +64,8 @@ export class Account {
 
   @OneToMany(() => AutomationSettings, settings => settings.account)
   automation_settings!: AutomationSettings[];
+
+  @OneToMany(() => Web2GeneratedContent, content => content.account)
+  generated_contents!: Web2GeneratedContent[];
 }
 

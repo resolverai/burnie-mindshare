@@ -8,6 +8,8 @@ export default function Web2OnboardingPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
   const [accountData, setAccountData] = useState<any>(null)
+  const [accountType, setAccountType] = useState<'individual' | 'business'>('individual')
+  const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
     // Check if user is authenticated
@@ -35,6 +37,8 @@ export default function Web2OnboardingPage() {
         if (response.ok) {
           const data = await response.json()
           setAccountData(data.data)
+          // Set account type from fetched data
+          setAccountType(data.data.user?.account?.account_type || 'individual')
         } else {
           const errorData = await response.json()
           
@@ -66,6 +70,42 @@ export default function Web2OnboardingPage() {
 
     fetchAccountData()
   }, [router])
+
+  const handleAccountTypeChange = async (newType: 'individual' | 'business') => {
+    setAccountType(newType)
+    setIsSaving(true)
+
+    try {
+      const web2Auth = localStorage.getItem('burnie_web2_auth')
+      const accountId = localStorage.getItem('burnie_web2_account_id')
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/web2-accounts/${accountId}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${web2Auth}`
+          },
+          body: JSON.stringify({
+            account_type: newType
+          })
+        }
+      )
+
+      if (!response.ok) {
+        console.error('Failed to update account type')
+        // Revert on error
+        setAccountType(accountData.user?.account?.account_type || 'individual')
+      }
+    } catch (error) {
+      console.error('Error updating account type:', error)
+      // Revert on error
+      setAccountType(accountData.user?.account?.account_type || 'individual')
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -109,7 +149,22 @@ export default function Web2OnboardingPage() {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">Account Type:</span>
-                <span className="text-white font-medium capitalize">{accountData.user?.account?.account_type}</span>
+                <div className="relative">
+                  <select
+                    value={accountType}
+                    onChange={(e) => handleAccountTypeChange(e.target.value as 'individual' | 'business')}
+                    disabled={isSaving}
+                    className="px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-orange-500 appearance-none cursor-pointer pr-10"
+                  >
+                    <option value="individual" className="bg-gray-800">Individual</option>
+                    <option value="business" className="bg-gray-800">Business</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-400">
+                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
+                    </svg>
+                  </div>
+                </div>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-gray-400">Role:</span>
@@ -128,8 +183,8 @@ export default function Web2OnboardingPage() {
                 1
               </div>
               <div>
-                <p className="text-white font-medium">Complete Your Brand Profile</p>
-                <p className="text-sm text-gray-400">Tell us about your brand, products, and target audience</p>
+                <p className="text-white font-medium">Complete Your Account Profile</p>
+                <p className="text-sm text-gray-400">Tell us about your account, products, and target audience</p>
               </div>
             </div>
             
@@ -149,7 +204,7 @@ export default function Web2OnboardingPage() {
               </div>
               <div>
                 <p className="text-white font-medium">Generate Your First Content</p>
-                <p className="text-sm text-gray-400">Create AI-powered images and videos for your brand</p>
+                <p className="text-sm text-gray-400">Create AI-powered images and videos for your account</p>
               </div>
             </div>
           </div>
@@ -159,12 +214,12 @@ export default function Web2OnboardingPage() {
         <div className="text-center">
           <button
             onClick={() => {
-              // Navigate to brand profile setup
-              router.push('/web2/brand-profile')
+              // Navigate to account profile setup
+              router.push('/web2/account-profile')
             }}
             className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105"
           >
-            Complete Brand Profile →
+            Complete Account Profile →
           </button>
           
           <p className="text-gray-400 text-sm mt-4">

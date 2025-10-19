@@ -49,6 +49,7 @@ from app.routes.training_data_population import router as training_data_router
 from app.routes.watermark import router as watermark_router
 from app.routes.video_watermark import router as video_watermark_router
 from app.routes.twitter_handles import router as twitter_handles_router
+from app.routes.web2_content_generation import router as web2_content_router
 
 # Setup logging
 logger = setup_logger(__name__)
@@ -133,6 +134,7 @@ app.include_router(realtime_predictions_router)
 app.include_router(training_data_router)
 app.include_router(watermark_router, prefix="/api", tags=["watermark"])
 app.include_router(video_watermark_router, prefix="/api", tags=["video-watermark"])
+app.include_router(web2_content_router, prefix="/api/web2", tags=["web2-content"])
 
 
 # Global progress tracker

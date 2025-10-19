@@ -143,6 +143,8 @@ function Web2TwitterCallbackPageContent() {
             type: 'WEB2_TWITTER_AUTH_SUCCESS',
             token: result.token,
             accountId: result.accountId,
+            username: result.username || result.data?.user?.username,
+            hasCompletedProfile: result.hasCompletedProfile,
             data: result
           }, window.location.origin)
         }

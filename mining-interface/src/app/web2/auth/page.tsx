@@ -17,13 +17,40 @@ export default function Web2AuthPage() {
   const router = useRouter()
   const connectingRef = useRef(false)
 
-  // Check if user is already authenticated
+  // Check if user has valid session
   useEffect(() => {
-    const web2Auth = localStorage.getItem('burnie_web2_auth')
-    if (web2Auth) {
-      // User is already authenticated, redirect to onboarding or dashboard
-      router.push('/web2/onboarding')
+    const checkSession = async () => {
+      const web2Auth = localStorage.getItem('burnie_web2_auth')
+      const web2AccountId = localStorage.getItem('burnie_web2_account_id')
+      const web2Username = localStorage.getItem('burnie_web2_username')
+      
+      if (web2Auth && web2AccountId) {
+        // Verify session with backend
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
+          const response = await fetch(`${apiUrl}/web2-auth/check-session?twitter_username=${encodeURIComponent(web2Username || '')}`)
+          
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success && data.hasValidSession) {
+              // User has valid session, redirect to dashboard
+              console.log('✅ Valid Web2 session found, redirecting to dashboard')
+              router.push('/web2/dashboard')
+              return
+            }
+          }
+          
+          // Invalid session, clear data
+          localStorage.removeItem('burnie_web2_auth')
+          localStorage.removeItem('burnie_web2_account_id')
+          localStorage.removeItem('burnie_web2_username')
+        } catch (error) {
+          console.error('Error checking session:', error)
+        }
+      }
     }
+    
+    checkSession()
   }, [router])
 
   const handleTwitterConnect = async () => {
@@ -81,18 +108,29 @@ export default function Web2AuthPage() {
             connectingRef.current = false
             setIsConnecting(false)
             
-            // Store auth token and account info
+            // Store auth token and account info (separate from Web3)
             if (event.data.token) {
               localStorage.setItem('burnie_web2_auth', event.data.token)
             }
             if (event.data.accountId) {
               localStorage.setItem('burnie_web2_account_id', event.data.accountId)
             }
+            if (event.data.username) {
+              localStorage.setItem('burnie_web2_username', event.data.username)
+            }
             
-            // Navigate to onboarding
+            // Check if user has completed profile
+            const hasCompletedProfile = event.data.hasCompletedProfile || event.data.data?.hasCompletedProfile
+            
+            // Navigate based on profile completion status
             setTimeout(() => {
-              console.log('🚀 Twitter auth success - navigating to onboarding')
-              router.push('/web2/onboarding')
+              if (hasCompletedProfile) {
+                console.log('🚀 Returning user - navigating to dashboard')
+                router.push('/web2/dashboard')
+              } else {
+                console.log('🚀 New user - navigating to onboarding')
+                router.push('/web2/onboarding')
+              }
             }, 500)
           } else if (event.data.type === 'WEB2_TWITTER_AUTH_ERROR') {
             messageReceived = true

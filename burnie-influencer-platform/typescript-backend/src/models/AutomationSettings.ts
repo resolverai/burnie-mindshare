@@ -6,16 +6,19 @@ export type AutomationFrequency = 'daily' | 'weekly' | 'custom';
 
 @Entity('automation_settings')
 export class AutomationSettings {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn()
+  id!: number;
 
-  @Column({ type: 'uuid' })
-  @Index()
-  account_id!: string;
+  @Column({ type: 'uuid', unique: true, nullable: true })
+  uuid?: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'int' })
   @Index()
-  account_client_id?: string;
+  account_id!: number;
+
+  @Column({ type: 'int', nullable: true })
+  @Index()
+  account_client_id?: number;
 
   @Column({ type: 'boolean', default: false })
   enabled!: boolean;

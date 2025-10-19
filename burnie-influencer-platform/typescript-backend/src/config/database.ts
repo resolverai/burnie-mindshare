@@ -82,6 +82,7 @@ import { AccountSocialMediaConnection } from '../models/AccountSocialMediaConnec
 import { AutomationSettings } from '../models/AutomationSettings';
 import { Web2GeneratedContent } from '../models/Web2GeneratedContent';
 import { ScheduledPost } from '../models/ScheduledPost';
+import { AccountConfiguration } from '../models/AccountConfiguration';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -167,6 +168,7 @@ export const AppDataSource = new DataSource({
     AutomationSettings,
     Web2GeneratedContent,
     ScheduledPost,
+    AccountConfiguration,
   ],
   migrations: [],
   subscribers: [],

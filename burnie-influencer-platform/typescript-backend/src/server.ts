@@ -55,6 +55,8 @@ import web2AuthRoutes from './routes/web2Auth';
 import web2AccountsRoutes from './routes/web2Accounts';
 import web2BrandContextRoutes from './routes/web2BrandContext';
 import web2SocialConnectionsRoutes from './routes/web2SocialConnections';
+import web2AccountConfigurationsRoutes from './routes/web2AccountConfigurations';
+import web2AccountConnectionsRoutes from './routes/web2AccountConnections';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -167,8 +169,10 @@ app.use('/api/user-twitter-posts', userTwitterPostsRoutes); // User Twitter post
 app.use('/api', videoAnalyticsRoutes); // Video analytics and performance metrics
 app.use('/api/web2-auth', web2AuthRoutes); // Web2 authentication (Twitter OAuth)
 app.use('/api/web2-accounts', web2AccountsRoutes); // Web2 account management
-app.use('/api/web2-brand-context', web2BrandContextRoutes); // Web2 brand context management
+app.use('/api/web2-account-context', web2BrandContextRoutes); // Web2 account context management
 app.use('/api/web2-social', web2SocialConnectionsRoutes); // Web2 social media connections
+app.use('/api/web2-account-configurations', web2AccountConfigurationsRoutes); // Web2 account configuration settings
+app.use('/api/web2-account-connections', web2AccountConnectionsRoutes); // Web2 social media connection management
 
 // Start server
 const startServer = async () => {

@@ -102,8 +102,8 @@ export const authMiddlewareWeb2 = async (req: Request, res: Response, next: Next
 
     // Attach user info to request
     req.web2User = {
-      userId: accountUser.id,
-      accountId: accountUser.account_id,
+      userId: accountUser.id.toString(),
+      accountId: accountUser.account_id.toString(),
       email: accountUser.email || '',
       role: accountUser.role,
       twitterUserId: twitter_user_id,

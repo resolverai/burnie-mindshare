@@ -239,31 +239,40 @@ def process_video_with_watermarks_moviepy(input_path: str, output_path: str) -> 
             watermarker = BlendedTamperResistantWatermark()
             logger.warning("⚠️ Using default font (NTBrickSans.ttf not found)")
         
-        # Function to apply watermark to frame (all frames)
+        # Function to apply watermark to frame (optimized pattern - every other 24 frames)
         def apply_watermark_to_frame(get_frame, t):
             frame = get_frame(t)
             
-            # Apply watermark to all frames for complete protection
-            # Convert frame from RGB to BGR for OpenCV
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            # Calculate current frame number
+            current_frame = int(t * fps)
             
-            # Apply the same watermarking as images
-            watermarked_bgr = watermarker.add_robust_blended_watermark(
-                frame_bgr,
-                corner_text="@burnieio",
-                center_text="Buy to Access", 
-                center_text_2="@burnieio",
-                hidden_text="BURNIEIO_2024",
-                blend_mode='texture_aware'
-            )
+            # Optimized watermarking pattern: watermark 24 frames, skip 24 frames, repeat
+            # This reduces resource consumption by ~50% while maintaining protection
+            frame_position_in_cycle = current_frame % 48  # 48 = 24 watermarked + 24 skipped
+            should_watermark = frame_position_in_cycle < 24  # First 24 frames in each 48-frame cycle
             
-            # Convert back to RGB for MoviePy
-            frame = cv2.cvtColor(watermarked_bgr, cv2.COLOR_BGR2RGB)
+            if should_watermark:
+                # Convert frame from RGB to BGR for OpenCV
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                
+                # Apply the same watermarking as images
+                watermarked_bgr = watermarker.add_robust_blended_watermark(
+                    frame_bgr,
+                    corner_text="@burnieio",
+                    center_text="Buy to Access", 
+                    center_text_2="@burnieio",
+                    hidden_text="BURNIEIO_2024",
+                    blend_mode='texture_aware'
+                )
+                
+                # Convert back to RGB for MoviePy
+                frame = cv2.cvtColor(watermarked_bgr, cv2.COLOR_BGR2RGB)
             
+            # Return frame (watermarked or original depending on cycle position)
             return frame
         
-        # Create new video clip with watermarked frames
-        logger.info("🎬 Applying watermarks to all frames for complete protection...")
+        # Create new video clip with watermarked frames (optimized pattern)
+        logger.info("🎬 Applying watermarks with optimized pattern (24 frames on, 24 frames off) for resource efficiency...")
         watermarked_clip = video_clip.fl(apply_watermark_to_frame, apply_to=['mask'])
         
         # Write the final video with proper H.264 encoding and preserve audio

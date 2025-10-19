@@ -1,81 +1,139 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Account } from './Account';
 import { AccountClient } from './AccountClient';
-import { AccountUser } from './AccountUser';
-
-export type Web2ContentType = 'image' | 'video';
-export type Web2ContentStatus = 'draft' | 'pending_approval' | 'approved' | 'published' | 'rejected';
 
 @Entity('web2_generated_content')
 export class Web2GeneratedContent {
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
+  @PrimaryGeneratedColumn()
+  id!: number;
 
-  @Column({ type: 'uuid' })
+  @Column({ type: 'uuid', unique: true, nullable: false })
+  uuid!: string;
+
+  @Column({ type: 'int' })
   @Index()
-  account_id!: string;
+  account_id!: number;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'int', nullable: true })
   @Index()
-  account_client_id?: string;
+  account_client_id?: number;
 
-  @Column({ type: 'uuid' })
+  // Content type
+  @Column({ type: 'varchar', length: 50 })
   @Index()
-  created_by_user_id!: string;
+  content_type!: string; // 'image', 'video', 'audio', 'voiceover', 'tweet'
 
-  @Column({
-    type: 'enum',
-    enum: ['image', 'video']
-  })
-  content_type!: Web2ContentType;
-
-  @Column({ type: 'text' })
-  prompt!: string;
-
-  @Column({ type: 'text' })
-  generated_url!: string;
+  // Generation parameters
+  @Column({ type: 'text', nullable: true })
+  image_model?: string; // 'flux-pro-kontext', 'seedream', 'nano-banana'
 
   @Column({ type: 'text', nullable: true })
-  thumbnail_url?: string;
+  video_model?: string; // 'pixverse', 'sora', 'kling'
 
-  @Column({ type: 'jsonb', nullable: true })
-  generation_metadata?: Record<string, any>;
+  @Column({ type: 'int', nullable: true })
+  clip_duration?: number; // Duration in seconds for clips
+
+  // User inputs
+  @Column({ type: 'text', nullable: true })
+  user_prompt?: string; // User's high-level instructions
+
+  @Column({ type: 'simple-array', nullable: true })
+  user_images?: string[]; // S3 URLs of user-uploaded reference images
 
   @Column({ type: 'text', nullable: true })
-  caption?: string;
+  theme?: string; // Theme or campaign context
 
-  @Column({
-    type: 'enum',
-    enum: ['draft', 'pending_approval', 'approved', 'published', 'rejected'],
-    default: 'draft'
-  })
+  @Column({ type: 'text', nullable: true })
+  workflow_type?: string; // 'social_post', 'ad_campaign', 'product_showcase', etc.
+
+  @Column({ type: 'text', nullable: true })
+  target_platform?: string; // 'twitter', 'linkedin', 'youtube', 'instagram'
+
+  // Flags
+  @Column({ type: 'boolean', default: false })
+  include_logo!: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  no_characters!: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  human_characters_only!: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  web3_characters!: boolean;
+
+  @Column({ type: 'boolean', default: true })
+  use_brand_aesthetics!: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  viral_trends!: boolean;
+
+  // Generated prompts (from Grok)
+  @Column({ type: 'text', nullable: true })
+  image_prompt?: string; // Generated prompt for image generation
+
+  @Column({ type: 'text', nullable: true })
+  clip_prompt?: string; // Generated prompt for video generation
+
+  @Column({ type: 'text', nullable: true })
+  tweet_text?: string; // Generated tweet or message text
+
+  @Column({ type: 'text', nullable: true })
+  audio_prompt?: string; // Generated prompt for audio/music
+
+  @Column({ type: 'text', nullable: true })
+  voiceover_prompt?: string; // Generated prompt for voiceover
+
+  // Generated content URLs (stored in S3)
+  @Column({ type: 'simple-array', nullable: true })
+  generated_image_urls?: string[]; // S3 URLs of generated images
+
+  @Column({ type: 'text', nullable: true })
+  generated_video_url?: string; // S3 URL of generated video/clip
+
+  @Column({ type: 'text', nullable: true })
+  generated_audio_url?: string; // S3 URL of generated audio
+
+  @Column({ type: 'text', nullable: true })
+  generated_voiceover_url?: string; // S3 URL of generated voiceover
+
+  // Final composition
+  @Column({ type: 'text', nullable: true })
+  final_content_url?: string; // S3 URL of final composed content (if applicable)
+
+  // Status
+  @Column({ type: 'varchar', length: 50, default: 'generating' })
   @Index()
-  status!: Web2ContentStatus;
+  status!: string; // 'generating', 'completed', 'failed', 'scheduled', 'posted'
 
-  @Column({ type: 'uuid', nullable: true })
-  approved_by_user_id?: string;
+  @Column({ type: 'text', nullable: true })
+  error_message?: string; // Error message if generation failed
+
+  // Posting information
+  @Column({ type: 'boolean', default: false })
+  auto_post!: boolean; // Whether to auto-post this content
 
   @Column({ type: 'timestamp', nullable: true })
-  approved_at?: Date;
+  scheduled_post_time?: Date; // When to post if scheduled
+
+  @Column({ type: 'timestamp', nullable: true })
+  posted_at?: Date; // When this content was actually posted
+
+  @Column({ type: 'jsonb', nullable: true })
+  post_metadata?: Record<string, any>; // Platform-specific post metadata (tweet ID, etc.)
 
   @CreateDateColumn()
   created_at!: Date;
 
+  @UpdateDateColumn()
+  updated_at!: Date;
+
   // Relations
-  @ManyToOne(() => Account)
+  @ManyToOne(() => Account, account => account.generated_contents, { nullable: false })
   @JoinColumn({ name: 'account_id' })
   account!: Account;
 
-  @ManyToOne(() => AccountClient, { nullable: true })
+  @ManyToOne(() => AccountClient, accountClient => accountClient.generated_contents, { nullable: true })
   @JoinColumn({ name: 'account_client_id' })
   account_client?: AccountClient;
-
-  @ManyToOne(() => AccountUser)
-  @JoinColumn({ name: 'created_by_user_id' })
-  created_by_user!: AccountUser;
-
-  @ManyToOne(() => AccountUser, { nullable: true })
-  @JoinColumn({ name: 'approved_by_user_id' })
-  approved_by_user?: AccountUser;
 }
-
