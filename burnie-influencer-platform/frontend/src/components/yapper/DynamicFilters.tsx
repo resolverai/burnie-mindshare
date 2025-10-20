@@ -12,9 +12,11 @@ interface DynamicFiltersProps {
   selectedPlatform: string
   selectedProject: string
   selectedPostType: string
+  videoOnly?: boolean
   onPlatformChange: (platform: string) => void
   onProjectChange: (project: string) => void
   onPostTypeChange: (postType: string) => void
+  onVideoOnlyChange?: (videoOnly: boolean) => void
   searchTerm?: string
   onSearchChange?: (e: React.ChangeEvent<HTMLInputElement>) => void
 
@@ -24,9 +26,11 @@ export default function DynamicFilters({
   selectedPlatform,
   selectedProject,
   selectedPostType,
+  videoOnly = false,
   onPlatformChange,
   onProjectChange,
   onPostTypeChange,
+  onVideoOnlyChange,
   searchTerm,
   onSearchChange
 }: DynamicFiltersProps) {
@@ -249,6 +253,21 @@ export default function DynamicFilters({
           </div>
         </div>
 
+        {/* Video Only Checkbox - Mobile */}
+        {onVideoOnlyChange && (
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={videoOnly}
+                onChange={(e) => onVideoOnlyChange(e.target.checked)}
+                className="w-4 h-4 rounded border-white/20 bg-white/10 text-orange-600 focus:ring-orange-500 focus:ring-offset-0 cursor-pointer"
+              />
+              <span className="text-sm text-white/80">Video posts only</span>
+            </label>
+          </div>
+        )}
+
         {/* Search Bar */}
         {onSearchChange && (
           <div className="w-full">
@@ -413,7 +432,7 @@ export default function DynamicFilters({
         <div className="flex">
           <span className="text-sm font-medium tracking-wide text-white/80 mr-1">Post Type</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* All Button */}
           <button 
             onClick={() => onPostTypeChange('all')}
@@ -473,6 +492,19 @@ export default function DynamicFilters({
               </div>
             )}
           </div>
+
+          {/* Video Only Checkbox - Desktop */}
+          {onVideoOnlyChange && (
+            <label className="flex items-center gap-2 cursor-pointer badge-yapper">
+              <input
+                type="checkbox"
+                checked={videoOnly}
+                onChange={(e) => onVideoOnlyChange(e.target.checked)}
+                className="w-4 h-4 rounded border-white/20 bg-white/10 text-orange-600 focus:ring-orange-500 focus:ring-offset-0 cursor-pointer"
+              />
+              <span className="text-sm">Video posts</span>
+            </label>
+          )}
         </div>
       </div>
 

@@ -133,6 +133,7 @@ export default function BiddingInterface() {
   const [selectedPlatform, setSelectedPlatform] = useState('all')
   const [selectedProject, setSelectedProject] = useState('all')
   const [selectedPostType, setSelectedPostType] = useState('all')
+  const [videoOnly, setVideoOnly] = useState(false)
   const [sortBy, setSortBy] = useState<'bidding_enabled' | 'mindshare' | 'quality' | 'price_low' | 'price_high' | 'newest'>('bidding_enabled')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [showPurchaseModal, setShowPurchaseModal] = useState<ContentItem | null>(null)
@@ -234,6 +235,7 @@ export default function BiddingInterface() {
     platform_source: selectedPlatform !== 'all' ? selectedPlatform : undefined,
     project_name: selectedProject !== 'all' ? selectedProject : undefined,
     post_type: selectedPostType !== 'all' ? selectedPostType : undefined,
+    video_only: videoOnly,
     sort_by: sortBy,
     limit: 18,
     walletAddress: address // Pass wallet address for personalization
@@ -663,14 +665,16 @@ export default function BiddingInterface() {
         selectedPlatform={selectedPlatform}
         selectedProject={selectedProject}
         selectedPostType={selectedPostType}
+        videoOnly={videoOnly}
         onPlatformChange={handlePlatformChange}
         onProjectChange={handleProjectChange}
         onPostTypeChange={handlePostTypeChange}
+        onVideoOnlyChange={setVideoOnly}
         searchTerm={searchTerm}
         onSearchChange={handleSearchChange}
       />
     </div>
-  ), [searchTerm, selectedPlatform, selectedProject, selectedPostType, handleSearchChange, handlePlatformChange, handleProjectChange, handlePostTypeChange])
+  ), [searchTerm, selectedPlatform, selectedProject, selectedPostType, videoOnly, handleSearchChange, handlePlatformChange, handleProjectChange, handlePostTypeChange])
 
   return (
     <div className="relative" onClick={handleOutsideClick}>

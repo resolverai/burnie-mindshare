@@ -8,6 +8,7 @@ export interface MarketplaceContentFilters {
   platform_source?: string;
   project_name?: string;
   post_type?: string;
+  video_only?: boolean;
   sort_by?: string;
   page?: number;
   limit?: number;
@@ -40,12 +41,13 @@ export class MarketplaceContentService {
         platform_source,
         project_name,
         post_type,
+        video_only,
         sort_by = 'bidding_enabled',
         page = 1,
         limit = 18
       } = filters;
 
-      logger.info(`🔍 Fetching marketplace content: page=${page}, limit=${limit}, search="${search}"`);
+      logger.info(`🔍 Fetching marketplace content: page=${page}, limit=${limit}, search="${search}", video_only=${video_only}`);
 
       // Build base query
       let query = this.contentRepository
@@ -77,6 +79,15 @@ export class MarketplaceContentService {
 
       if (post_type) {
         query = query.andWhere('content.postType = :postType', { postType: post_type });
+      }
+
+      // Video posts only filter
+      if (video_only === true) {
+        query = query
+          .andWhere('content.isVideo = :isVideo', { isVideo: true })
+          .andWhere('content.videoUrl IS NOT NULL')
+          .andWhere('content.watermarkVideoUrl IS NOT NULL');
+        logger.info('🎬 Applied video-only filter: isVideo=true, videoUrl IS NOT NULL, watermarkVideoUrl IS NOT NULL');
       }
 
       // Enhanced search covering multiple fields including platform source

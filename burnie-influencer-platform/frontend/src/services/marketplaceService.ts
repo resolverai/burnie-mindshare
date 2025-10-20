@@ -60,6 +60,7 @@ export interface MarketplaceParams {
   platform_source?: string
   project_name?: string
   post_type?: string
+  video_only?: boolean
   sort_by?: string
   page?: number
   limit?: number

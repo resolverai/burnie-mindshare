@@ -7,6 +7,7 @@ interface UseInfiniteMarketplaceOptions {
   platform_source?: string
   project_name?: string
   post_type?: string
+  video_only?: boolean
   sort_by?: string
   limit?: number
   walletAddress?: string // Add wallet address for personalization
@@ -18,6 +19,7 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
     platform_source,
     project_name,
     post_type,
+    video_only,
     sort_by = 'bidding_enabled',
     limit = 18,
     walletAddress // Extract wallet address
@@ -33,7 +35,7 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
     error,
     refetch
   } = useInfiniteQuery({
-    queryKey: ['marketplace', search, platform_source, project_name, post_type, sort_by, limit, walletAddress],
+    queryKey: ['marketplace', search, platform_source, project_name, post_type, video_only, sort_by, limit, walletAddress],
     queryFn: async ({ pageParam = 1 }) => {
       const params: MarketplaceParams = {
         page: pageParam,
@@ -45,6 +47,7 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
       if (platform_source && platform_source !== 'all') params.platform_source = platform_source
       if (project_name && project_name !== 'all') params.project_name = project_name
       if (post_type && post_type !== 'all') params.post_type = post_type
+      if (video_only) params.video_only = video_only
 
       return marketplaceService.getContent(params, walletAddress)
     },
@@ -88,7 +91,7 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
   // Reset when search/filters change
   useEffect(() => {
     refetch()
-  }, [search, platform_source, project_name, post_type, sort_by, refetch])
+  }, [search, platform_source, project_name, post_type, video_only, sort_by, refetch])
 
   return {
     content: allContent,

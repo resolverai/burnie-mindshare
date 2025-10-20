@@ -644,6 +644,7 @@ router.get('/content', async (req, res) => {
       platform_source,
       project_name,
       post_type,
+      video_only,
       sort_by = 'bidding_enabled',
       page = 1,
       limit = 18 
@@ -661,6 +662,7 @@ router.get('/content', async (req, res) => {
       platform_source: platform_source as string,
       project_name: project_name as string,
       post_type: post_type as string,
+      video_only: video_only === 'true',
       sort_by: sort_by as string,
       page: Number(page),
       limit: Number(limit)
