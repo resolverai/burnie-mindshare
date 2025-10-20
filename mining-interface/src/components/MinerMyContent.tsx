@@ -797,6 +797,61 @@ export default function MinerMyContent() {
     }
   })
 
+  // Retry video watermarking mutation
+  const [retryingWatermarkIds, setRetryingWatermarkIds] = useState<Set<number>>(new Set())
+  
+  const retryWatermarkMutation = useMutation({
+    mutationFn: async (contentId: number) => {
+      console.log('🔄 Retrying video watermarking for content ID:', contentId)
+      
+      if (!contentId || isNaN(contentId)) {
+        throw new Error(`Invalid content ID: ${contentId}`)
+      }
+      
+      const response = await fetch(buildApiUrl('marketplace/retry-watermark'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contentId
+        }),
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('❌ Retry watermark API error:', errorData)
+        throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`)
+      }
+      
+      const result = await response.json()
+      console.log('✅ Retry watermark API success:', result)
+      return result
+    },
+    onMutate: async (contentId: number) => {
+      setRetryingWatermarkIds(prev => new Set(Array.from(prev).concat(contentId)))
+    },
+    onSuccess: (data, contentId) => {
+      console.log('✅ Watermarking retry initiated:', { data, contentId })
+      showToast('Video watermarking restarted! Please wait...', 'success')
+      // Refresh content after a few seconds to check for watermark completion
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['miner-content'] })
+      }, 5000)
+    },
+    onError: (error, contentId) => {
+      console.error('❌ Failed to retry watermarking:', { error, contentId })
+      showToast(`Failed to retry watermarking: ${error.message}`, 'error')
+    },
+    onSettled: (data, error, contentId) => {
+      setRetryingWatermarkIds(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(contentId)
+        return newSet
+      })
+    }
+  })
+
   const handleEnableBidding = () => {
     if (!showBiddingModal) return
 
@@ -1231,9 +1286,20 @@ export default function MinerMyContent() {
                               )}
                               {/* Video Watermark Status Badge - Only show for approved video content */}
                               {(item.status === 'approved' || !item.status) && item.is_video && item.video_url && !item.watermark_video_url ? (
-                                <div className="mt-2 flex items-center justify-center space-x-2 bg-orange-900/20 border border-orange-600/30 rounded-lg p-2">
-                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
-                                  <span className="text-xs text-orange-400 font-medium">🎬 Video watermarking in progress...</span>
+                                <div className="mt-2 flex items-center justify-between space-x-2 bg-orange-900/20 border border-orange-600/30 rounded-lg p-2">
+                                  <div className="flex items-center space-x-2">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
+                                    <span className="text-xs text-orange-400 font-medium">🎬 Video watermarking in progress...</span>
+                                  </div>
+                                  <button
+                                    onClick={() => retryWatermarkMutation.mutate(item.id)}
+                                    disabled={retryingWatermarkIds.has(item.id)}
+                                    className="ml-2 px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 flex items-center space-x-1"
+                                    title="Retry watermarking if stuck or failed"
+                                  >
+                                    <span>🔄</span>
+                                    <span>{retryingWatermarkIds.has(item.id) ? 'Retrying...' : 'Retry'}</span>
+                                  </button>
                                 </div>
                               ) : (item.status === 'approved' || !item.status) && item.is_video && item.video_url && item.watermark_video_url ? (
                                 <div className="mt-2 flex items-center justify-center space-x-2 bg-green-900/20 border border-green-600/30 rounded-lg p-2">
@@ -1282,9 +1348,20 @@ export default function MinerMyContent() {
                           {videoUrl && (item.status === 'approved' || !item.status) && item.is_video && (
                             <div className="mt-3">
                               {item.video_url && !item.watermark_video_url ? (
-                                <div className="flex items-center justify-center space-x-2 bg-orange-900/20 border border-orange-600/30 rounded-lg p-2">
-                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
-                                  <span className="text-xs text-orange-400 font-medium">🎬 Video watermarking in progress...</span>
+                                <div className="flex items-center justify-between space-x-2 bg-orange-900/20 border border-orange-600/30 rounded-lg p-2">
+                                  <div className="flex items-center space-x-2">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-500"></div>
+                                    <span className="text-xs text-orange-400 font-medium">🎬 Video watermarking in progress...</span>
+                                  </div>
+                                  <button
+                                    onClick={() => retryWatermarkMutation.mutate(item.id)}
+                                    disabled={retryingWatermarkIds.has(item.id)}
+                                    className="ml-2 px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 flex items-center space-x-1"
+                                    title="Retry watermarking if stuck or failed"
+                                  >
+                                    <span>🔄</span>
+                                    <span>{retryingWatermarkIds.has(item.id) ? 'Retrying...' : 'Retry'}</span>
+                                  </button>
                                 </div>
                               ) : item.video_url && item.watermark_video_url ? (
                                 <div className="flex items-center justify-center space-x-2 bg-green-900/20 border border-green-600/30 rounded-lg p-2">

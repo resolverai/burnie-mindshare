@@ -3,14 +3,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including FFmpeg with H.264 support
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     ffmpeg \
+    libx264-dev \
     libffi-dev \
     imagemagick \
     && rm -rf /var/lib/apt/lists/*
+
+# Verify FFmpeg has libx264 encoder (fail build if missing)
+RUN ffmpeg -encoders 2>&1 | grep -q libx264 || \
+    (echo "ERROR: FFmpeg build missing libx264 encoder!" && exit 1)
 
 # Copy requirements first for dependency caching
 COPY requirements.txt .

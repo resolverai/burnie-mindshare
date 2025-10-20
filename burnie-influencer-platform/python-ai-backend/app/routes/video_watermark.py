@@ -6,7 +6,7 @@ import os
 import requests
 import boto3
 from botocore.exceptions import ClientError
-from moviepy.editor import VideoFileClip
+import subprocess
 import logging
 from pathlib import Path
 
@@ -94,12 +94,12 @@ def process_video_watermark_background(
             
             logger.info(f"✅ Downloaded video to: {original_path}")
             
-            # Step 3: Process video with watermarks using MoviePy
-            logger.info("🎬 Processing video with watermarks using MoviePy...")
-            success = process_video_with_watermarks_moviepy(original_path, watermarked_path)
+            # Step 3: Process video with watermark using FFmpeg (fast and simple)
+            logger.info("🎬 Processing video with watermark using FFmpeg...")
+            success = process_video_with_ffmpeg_watermark(original_path, watermarked_path)
             
             if not success:
-                raise Exception("Failed to process video with watermarks")
+                raise Exception("Failed to process video with watermark")
             
             logger.info(f"✅ Video processed and saved to: {watermarked_path}")
             
@@ -209,98 +209,78 @@ async def create_video_watermark(request: VideoWatermarkRequest, background_task
             error=f"Failed to start video watermarking: {str(e)}"
         )
 
-def process_video_with_watermarks_moviepy(input_path: str, output_path: str) -> bool:
+def process_video_with_ffmpeg_watermark(input_path: str, output_path: str) -> bool:
     """
-    Process video to add watermarks to ALL frames using OpenCV and PIL (same approach as image watermarking)
-    This avoids ImageMagick font issues and provides consistent watermarking with images
+    Process video to add a simple text watermark using FFmpeg - fast and doesn't corrupt video
+    Adds "Buy to Access '@burnieio'" at bottom right corner
     """
     try:
-        import cv2
-        from app.ai.watermarks import BlendedTamperResistantWatermark
+        # FFmpeg command to add text overlay at bottom right
+        # Using drawtext filter for simple, fast watermarking
+        # Use h264_videotoolbox for macOS (hardware accelerated) or fallback to libopenh264
+        watermark_text = "Buy to Access @burnieio"
         
-        # Load the video clip
-        logger.info(f"📥 Loading video clip from: {input_path}")
-        video_clip = VideoFileClip(input_path)
+        # Detect platform and choose appropriate encoder
+        import platform
+        is_mac = platform.system() == 'Darwin'
         
-        # Get video properties
-        width, height = video_clip.size
-        duration = video_clip.duration
-        fps = video_clip.fps
-        total_frames = int(fps * duration)
-        
-        logger.info(f"📊 Video properties: {width}x{height}, {fps} FPS, {duration:.2f}s duration, {total_frames} total frames")
-        
-        # Initialize watermarker (same as image watermarking)
-        font_path = os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'NTBrickSans.ttf')
-        if os.path.exists(font_path):
-            watermarker = BlendedTamperResistantWatermark(font_path)
-            logger.info(f"✅ Using font: {font_path}")
+        if is_mac:
+            # Use VideoToolbox (hardware accelerated) on macOS
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-vf', 
+                f"drawtext=text='{watermark_text}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=10:x=w-tw-20:y=h-th-20",
+                '-c:v', 'h264_videotoolbox',  # Hardware accelerated H.264 on macOS
+                '-b:v', '5M',                  # Target bitrate 5 Mbps (good quality)
+                '-c:a', 'copy',                # Copy audio without re-encoding (fast!)
+                '-movflags', '+faststart',     # Enable progressive playback
+                '-y',                          # Overwrite output file
+                output_path
+            ]
+            encoder_name = 'h264_videotoolbox (hardware)'
         else:
-            watermarker = BlendedTamperResistantWatermark()
-            logger.warning("⚠️ Using default font (NTBrickSans.ttf not found)")
+            # Use libx264 on Linux (available in Docker via apt ffmpeg package)
+            # This is better quality and faster than libopenh264
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-vf', 
+                f"drawtext=text='{watermark_text}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=10:x=w-tw-20:y=h-th-20",
+                '-c:v', 'libx264',             # libx264 encoder (available in Docker)
+                '-crf', '23',                  # Quality setting (23 = default, good)
+                '-c:a', 'copy',                # Copy audio without re-encoding (fast!)
+                '-movflags', '+faststart',     # Enable progressive playback
+                '-y',                          # Overwrite output file
+                output_path
+            ]
+            encoder_name = 'libx264 (software)'
+        logger.info(f"🎬 Running FFmpeg watermark command with {encoder_name}...")
+        logger.info(f"📝 Watermark text: {watermark_text}")
+        logger.info(f"📝 FFmpeg command: {' '.join(ffmpeg_cmd)}")
         
-        # Function to apply watermark to frame (optimized pattern - every other 24 frames)
-        def apply_watermark_to_frame(get_frame, t):
-            frame = get_frame(t)
-            
-            # Calculate current frame number
-            current_frame = int(t * fps)
-            
-            # Optimized watermarking pattern: watermark 24 frames, skip 24 frames, repeat
-            # This reduces resource consumption by ~50% while maintaining protection
-            frame_position_in_cycle = current_frame % 48  # 48 = 24 watermarked + 24 skipped
-            should_watermark = frame_position_in_cycle < 24  # First 24 frames in each 48-frame cycle
-            
-            if should_watermark:
-                # Convert frame from RGB to BGR for OpenCV
-                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-                
-                # Apply the same watermarking as images
-                watermarked_bgr = watermarker.add_robust_blended_watermark(
-                    frame_bgr,
-                    corner_text="@burnieio",
-                    center_text="Buy to Access", 
-                    center_text_2="@burnieio",
-                    hidden_text="BURNIEIO_2024",
-                    blend_mode='texture_aware'
-                )
-                
-                # Convert back to RGB for MoviePy
-                frame = cv2.cvtColor(watermarked_bgr, cv2.COLOR_BGR2RGB)
-            
-            # Return frame (watermarked or original depending on cycle position)
-            return frame
-        
-        # Create new video clip with watermarked frames (optimized pattern)
-        logger.info("🎬 Applying watermarks with optimized pattern (24 frames on, 24 frames off) for resource efficiency...")
-        watermarked_clip = video_clip.fl(apply_watermark_to_frame, apply_to=['mask'])
-        
-        # Write the final video with proper H.264 encoding and preserve audio
-        logger.info(f"💾 Writing watermarked video to: {output_path}")
-        watermarked_clip.write_videofile(
-            output_path,
-            codec='libx264',           # Use H.264 codec (same as original videos)
-            audio_codec='aac',         # Preserve AAC audio
-            temp_audiofile='temp-audio.m4a',
-            remove_temp=True,
-            fps=fps,                   # Preserve original FPS
-            preset='medium',           # Good balance of quality and speed
-            ffmpeg_params=['-crf', '23']  # Good quality setting
+        # Run FFmpeg
+        result = subprocess.run(
+            ffmpeg_cmd,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
         )
         
-        # Clean up
-        video_clip.close()
-        watermarked_clip.close()
-        
-        logger.info("✅ Video watermarking completed successfully using OpenCV/PIL approach")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Error processing video with OpenCV/PIL watermarking: {e}")
+        if result.returncode == 0:
+            logger.info(f"✅ FFmpeg watermarking completed successfully with {encoder_name}")
+            return True
+        else:
+            logger.error(f"❌ FFmpeg failed with return code {result.returncode}")
+            logger.error(f"❌ FFmpeg stderr: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        logger.error("❌ FFmpeg watermarking timed out after 5 minutes")
         return False
-
-# Note: create_watermark_text function removed - now using OpenCV/PIL watermarking approach
-# which is consistent with image watermarking and avoids ImageMagick font issues
+    except Exception as e:
+        logger.error(f"❌ Error processing video with FFmpeg: {e}")
+        return False
 
 def extract_s3_key_from_url(url: str) -> str:
     """Extract S3 key from URL"""

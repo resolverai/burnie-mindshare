@@ -911,6 +911,9 @@ export default function Mining() {
       const reviewItem = contentReviewItems[index]
       
       // Use the original /approve endpoint that creates a new record with full content data
+      // Determine if content is video based on video_url presence
+      const hasVideoUrl = !!reviewItem.content.video_url
+      
       const payload = {
         campaignId: reviewItem.campaign.id,
         agentId: reviewItem.agent.id,
@@ -923,21 +926,21 @@ export default function Mining() {
         qualityScore: reviewItem.content.quality_score || 0,
         generationMetadata: reviewItem.content.generation_metadata || {},
         askingPrice: 100, // Default asking price
-        // Video fields - preserve existing values, don't override with null
-        isVideo: reviewItem.content.is_video || false,
-        videoUrl: reviewItem.content.video_url || null,
-        videoDuration: reviewItem.content.video_duration || null,
-        // Only include video metadata fields if they exist and have content
-        ...(reviewItem.content.subsequent_frame_prompts && Object.keys(reviewItem.content.subsequent_frame_prompts).length > 0 && {
+        // Video fields - isVideo should be true if video_url exists, false otherwise
+        isVideo: hasVideoUrl,
+        videoUrl: hasVideoUrl ? reviewItem.content.video_url : null,
+        videoDuration: hasVideoUrl ? (reviewItem.content.video_duration || null) : null,
+        // Only include video metadata fields if video exists and they have content
+        ...(hasVideoUrl && reviewItem.content.subsequent_frame_prompts && Object.keys(reviewItem.content.subsequent_frame_prompts).length > 0 && {
           subsequentFramePrompts: reviewItem.content.subsequent_frame_prompts
         }),
-        ...(reviewItem.content.clip_prompts && Object.keys(reviewItem.content.clip_prompts).length > 0 && {
+        ...(hasVideoUrl && reviewItem.content.clip_prompts && Object.keys(reviewItem.content.clip_prompts).length > 0 && {
           clipPrompts: reviewItem.content.clip_prompts
         }),
-        ...(reviewItem.content.audio_prompt && {
+        ...(hasVideoUrl && reviewItem.content.audio_prompt && {
           audioPrompt: reviewItem.content.audio_prompt
         }),
-        ...(reviewItem.content.audio_prompts && Object.keys(reviewItem.content.audio_prompts).length > 0 && {
+        ...(hasVideoUrl && reviewItem.content.audio_prompts && Object.keys(reviewItem.content.audio_prompts).length > 0 && {
           audioPrompts: reviewItem.content.audio_prompts
         }),
         postType: reviewItem.content.post_type || 'thread'

@@ -9,6 +9,7 @@ import anthropic
 from xai_sdk import Client
 from xai_sdk.chat import user, system
 from pathlib import Path
+import uuid
 
 # Import required modules
 import boto3
@@ -199,7 +200,9 @@ class VideoGenerator:
         self.llm_provider = llm_provider.lower()
         self.image_model = image_model.lower()
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.project_folder = os.path.join(output_dir, f"project_{self.timestamp}")
+        # Use UUID to ensure unique project folder even for simultaneous generations
+        self.unique_id = str(uuid.uuid4())[:8]  # Short UUID for readability
+        self.project_folder = os.path.join(output_dir, f"project_{self.timestamp}_{self.unique_id}")
         
         print(f"🎬 Advanced Video Options:")
         print(f"   - Character Control: {'Human Only' if self.human_characters_only else 'Web3' if self.web3 else 'No Characters' if self.no_characters else 'Unlimited'}")
@@ -2678,24 +2681,32 @@ JSON only, no other text:"""
             # Step 8: Extract video metadata for database storage
             video_metadata = self.extract_video_metadata(prompts, frame_urls, clip_urls, final_video_s3_url)
 
-            # Save prompts for reference (before cleanup)
-            prompts_file = os.path.join(self.project_folder, "generated_prompts.json")
-            with open(prompts_file, 'w') as f:
-                json.dump({
-                    "tweet_text": tweet_text,
-                    "initial_image_prompt": initial_image_prompt,
-                    "initial_image_path": initial_image_path,
-                    "logo_path": self.logo_path,
-                    "project_name": self.project_name,
-                    "llm_provider": self.llm_provider,
-                    "frame1_s3_url": frame1_s3_url,
-                    "logo_s3_url": logo_s3_url,
-                    "frame_urls": frame_urls,
-                    "clip_urls": clip_urls,
-                    "combined_video_s3_url": final_video_s3_url,
-                    "video_metadata": video_metadata,
-                    **prompts
-                }, f, indent=2)
+            # Save prompts for reference (before cleanup) - but don't fail if directory doesn't exist
+            try:
+                # Ensure project folder exists
+                os.makedirs(self.project_folder, exist_ok=True)
+                prompts_file = os.path.join(self.project_folder, "generated_prompts.json")
+                with open(prompts_file, 'w') as f:
+                    json.dump({
+                        "tweet_text": tweet_text,
+                        "initial_image_prompt": initial_image_prompt,
+                        "initial_image_path": initial_image_path,
+                        "logo_path": self.logo_path,
+                        "project_name": self.project_name,
+                        "llm_provider": self.llm_provider,
+                        "frame1_s3_url": frame1_s3_url,
+                        "logo_s3_url": logo_s3_url,
+                        "frame_urls": frame_urls,
+                        "clip_urls": clip_urls,
+                        "combined_video_s3_url": final_video_s3_url,
+                        "video_metadata": video_metadata,
+                        **prompts
+                    }, f, indent=2)
+                print(f"✅ Prompts saved to: {prompts_file}")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not save prompts file: {e}")
+                # Don't fail the entire video generation if prompt saving fails
+                pass
 
             # Clean up project directory
             self.cleanup_project_directory()

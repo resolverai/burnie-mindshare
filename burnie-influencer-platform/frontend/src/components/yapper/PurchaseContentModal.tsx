@@ -104,6 +104,16 @@ export default function PurchaseContentModal({
   const dropdownRefreshCredits = useRef<(() => void) | null>(null) // Ref to TweetEditDropdown refresh function
   const editTweetUIRef = useRef<HTMLDivElement | null>(null) // Ref to Edit Tweet UI section for scrolling
   
+  // Video loading state - track if watermarked video fails to load
+  const [watermarkVideoLoadError, setWatermarkVideoLoadError] = useState(false)
+  
+  // Video URL refresh state - track retry attempts to avoid infinite loops
+  const [videoRefreshAttempts, setVideoRefreshAttempts] = useState(0)
+  const [isRefreshingVideoUrls, setIsRefreshingVideoUrls] = useState(false)
+  const [lastRefreshTimestamp, setLastRefreshTimestamp] = useState(0)
+  const MAX_VIDEO_REFRESH_ATTEMPTS = 2
+  const REFRESH_DEBOUNCE_MS = 3000 // Don't refresh more than once every 3 seconds
+  
   // Text editing hook
   const { saveTextChanges, isSaving, getCharacterLimit, canEditThread } = useTextEditing({
     contentId: content?.id || 0,
@@ -150,6 +160,14 @@ export default function PurchaseContentModal({
       // Reset purchase-related states
       setIsPurchased(false);
       setPurchasedContentDetails(null);
+      
+      // Reset video error state
+      setWatermarkVideoLoadError(false);
+      
+      // Reset video URL refresh state
+      setVideoRefreshAttempts(0);
+      setIsRefreshingVideoUrls(false);
+      setLastRefreshTimestamp(0);
       
       // Reset Twitter posting states
       setIsPostingToTwitter(false);
@@ -367,6 +385,79 @@ export default function PurchaseContentModal({
 
       fetchContentWithEdits();
    }, [content?.id, address]); // Fetch when content ID or wallet address changes
+
+  // Helper to detect if video error might be due to expired S3 URL
+  const isLikelyExpiredUrl = (error: any): boolean => {
+    // S3 presigned URLs expire, causing 403 Forbidden or network errors
+    // We'll attempt refresh for any video load error, but limit attempts
+    return true; // Always try to refresh, but limited by MAX_VIDEO_REFRESH_ATTEMPTS
+  };
+
+  // Function to refresh video URLs (for expired S3 presigned URLs)
+  const refreshVideoUrls = async () => {
+    const now = Date.now();
+    const timeSinceLastRefresh = now - lastRefreshTimestamp;
+    
+    if (!content?.id || isRefreshingVideoUrls || videoRefreshAttempts >= MAX_VIDEO_REFRESH_ATTEMPTS || timeSinceLastRefresh < REFRESH_DEBOUNCE_MS) {
+      console.log('⏭️ Skipping video URL refresh:', {
+        hasContentId: !!content?.id,
+        isRefreshing: isRefreshingVideoUrls,
+        attempts: videoRefreshAttempts,
+        maxAttempts: MAX_VIDEO_REFRESH_ATTEMPTS,
+        timeSinceLastRefresh,
+        debounceMs: REFRESH_DEBOUNCE_MS
+      });
+      return;
+    }
+
+    try {
+      setIsRefreshingVideoUrls(true);
+      setVideoRefreshAttempts(prev => prev + 1);
+      setLastRefreshTimestamp(now); // Set timestamp to prevent duplicate refreshes
+      
+      console.log('🔄 Refreshing video URLs due to possible S3 expiration (attempt ' + (videoRefreshAttempts + 1) + ')');
+      
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (address) {
+        headers.Authorization = `Bearer ${address}`;
+      }
+      
+      const response = await fetch(`/api/marketplace/content/${content.id}`, {
+        method: 'GET',
+        headers
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.success && data.data.content) {
+          console.log('✅ Refreshed video URLs:', {
+            id: data.data.content.id,
+            video_url: data.data.content.video_url?.substring(0, 100) + '...',
+            watermark_video_url: data.data.content.watermark_video_url?.substring(0, 100) + '...'
+          });
+          
+          // Update localContent with fresh URLs
+          setLocalContent(data.data.content);
+          
+          // Keep trying with watermarked video after URL refresh - only fallback after max attempts
+          // Don't reset the error flag here, let the max attempts limit control the fallback
+          
+          // Force contentData recalculation
+          setContentUpdateTrigger(prev => prev + 1);
+        }
+      } else {
+        console.error('❌ Failed to refresh video URLs:', response.status);
+      }
+    } catch (error) {
+      console.error('❌ Error refreshing video URLs:', error);
+    } finally {
+      setIsRefreshingVideoUrls(false);
+    }
+  };
 
   // Track purchase modal opened
   // Note: purchaseModalOpened tracking removed - now handled by contentItemClicked in BiddingInterface
@@ -3474,7 +3565,18 @@ export default function PurchaseContentModal({
     const currentContent = getCurrentContent()
     if (!currentContent) {
       console.log('⚠️ getContentData called with null currentContent, returning empty data')
-      return { text: '', hashtags: [], characterCount: 0, imageUrl: null, shouldUseMarkdown: false }
+      return { 
+        text: '', 
+        hashtags: [], 
+        characterCount: 0, 
+        imageUrl: null, 
+        videoUrl: null,
+        watermarkVideoUrl: null,
+        unwatermarkedVideoUrl: null,
+        isVideo: false,
+        videoDuration: null,
+        shouldUseMarkdown: false 
+      }
     }
 
     // Check if this is a longpost that should be rendered as markdown
@@ -3563,6 +3665,8 @@ export default function PurchaseContentModal({
       characterCount: 0, 
       imageUrl: null, 
       videoUrl: null, 
+      watermarkVideoUrl: null,
+      unwatermarkedVideoUrl: null,
       isVideo: false, 
       videoDuration: null, 
       shouldUseMarkdown: false 
@@ -3655,9 +3759,16 @@ export default function PurchaseContentModal({
         videoUrl = currentContent.video_url || null;
         console.log('🎬 [contentData] Using unwatermarked video (post-purchase):', videoUrl?.substring(0, 100) + '...');
       } else {
-        // Pre-purchase: show watermarked video, fallback to unwatermarked
-        videoUrl = currentContent.watermark_video_url || currentContent.video_url || null;
-        console.log('🎬 [contentData] Using watermarked video (pre-purchase):', videoUrl?.substring(0, 100) + '...');
+        // Pre-purchase: show watermarked video if available and no load error, otherwise fallback to unwatermarked
+        if (watermarkVideoLoadError || !currentContent.watermark_video_url) {
+          // If watermark video failed to load or doesn't exist, use unwatermarked
+          videoUrl = currentContent.video_url || null;
+          console.log('🎬 [contentData] Using unwatermarked video (pre-purchase) - watermark unavailable or failed:', videoUrl?.substring(0, 100) + '...');
+        } else {
+          // Try watermarked video first
+          videoUrl = currentContent.watermark_video_url || null;
+          console.log('🎬 [contentData] Using watermarked video (pre-purchase):', videoUrl?.substring(0, 100) + '...');
+        }
       }
     }
     console.log('🎯 [contentData] FINAL videoUrl value:', videoUrl?.substring(0, 100) + '...');
@@ -3670,6 +3781,8 @@ export default function PurchaseContentModal({
       characterCount: text?.length || 0,
       imageUrl,
       videoUrl,
+      watermarkVideoUrl: currentContent?.watermark_video_url || null,
+      unwatermarkedVideoUrl: currentContent?.video_url || null,
       isVideo: currentContent?.is_video || false,
       videoDuration: currentContent?.video_duration || null,
       shouldUseMarkdown: Boolean(shouldUseMarkdown || forceMarkdown)
@@ -3934,12 +4047,23 @@ export default function PurchaseContentModal({
                             return contentData.isVideo && contentData.videoUrl ? (
                               <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
                                 <VideoPlayer
+                                  key={`longpost-video-${content?.id}-${contentUpdateTrigger}`}
                                   src={contentData.videoUrl}
                                   poster={contentData.imageUrl || undefined}
                                   autoPlay={true}
                                   muted={false}
                                   controls={true}
                                   className="w-full h-auto"
+                                  onError={async (e) => {
+                                    console.error('🎬 Longpost video failed to load, falling back to unwatermarked:', e);
+                                    
+                                    // If currently showing watermarked video and unwatermarked is available, fallback immediately
+                                    if (!watermarkVideoLoadError && contentData.videoUrl === contentData.watermarkVideoUrl && contentData.unwatermarkedVideoUrl) {
+                                      console.log('🎬 Watermarked video failed, immediately using unwatermarked video');
+                                      setWatermarkVideoLoadError(true);
+                                      setContentUpdateTrigger(prev => prev + 1); // Force remount with new URL
+                                    }
+                                  }}
                                 />
                               </div>
                             ) : contentData.imageUrl ? (
@@ -4032,12 +4156,23 @@ export default function PurchaseContentModal({
                             return contentData.isVideo && contentData.videoUrl ? (
                               <div className="rounded-2xl overflow-hidden mb-3 border border-gray-700 relative">
                                 <VideoPlayer
+                                  key={`thread-video-${content?.id}-${contentUpdateTrigger}`}
                                   src={contentData.videoUrl}
                                   poster={contentData.imageUrl || undefined}
                                   autoPlay={true}
                                   muted={false}
                                   controls={true}
                                   className="w-full h-auto"
+                                  onError={async (e) => {
+                                    console.error('🎬 Regular thread video failed to load, falling back to unwatermarked:', e);
+                                    
+                                    // If currently showing watermarked video and unwatermarked is available, fallback immediately
+                                    if (!watermarkVideoLoadError && contentData.videoUrl === contentData.watermarkVideoUrl && contentData.unwatermarkedVideoUrl) {
+                                      console.log('🎬 Watermarked video failed, immediately using unwatermarked video');
+                                      setWatermarkVideoLoadError(true);
+                                      setContentUpdateTrigger(prev => prev + 1); // Force remount with new URL
+                                    }
+                                  }}
                                 />
                               </div>
                             ) : contentData.imageUrl ? (
@@ -5261,11 +5396,22 @@ export default function PurchaseContentModal({
                                   {('video' in section && (section as any).video) && (
                                     <div className="mt-3">
                                       <VideoPlayer
+                                        key={`section-video-1-${content?.id}-${contentUpdateTrigger}`}
                                         src={(section as any).video}
                                         autoPlay={true}
                                         muted={true}
                                         controls={true}
                                         className="w-full h-auto rounded-md"
+                                        onError={async (e) => {
+                                          console.error('🎬 Thread section video failed to load, falling back to unwatermarked:', e);
+                                          
+                                          // If currently showing watermarked video and unwatermarked is available, fallback immediately
+                                          if (!watermarkVideoLoadError && contentData.videoUrl === contentData.watermarkVideoUrl && contentData.unwatermarkedVideoUrl) {
+                                            console.log('🎬 Watermarked video failed, immediately using unwatermarked video');
+                                            setWatermarkVideoLoadError(true);
+                                            setContentUpdateTrigger(prev => prev + 1); // Force remount with new URL
+                                          }
+                                        }}
                                       />
                                       {('videoDuration' in section && (section as any).videoDuration) && (
                                         <div className="mt-2 text-xs text-white/60">
@@ -5733,11 +5879,22 @@ export default function PurchaseContentModal({
                               {(section as any).video && (
                                 <div className="mt-3">
                                   <VideoPlayer
+                                    key={`section-video-2-${content?.id}-${contentUpdateTrigger}`}
                                     src={(section as any).video}
                                     autoPlay={true}
                                     muted={true}
                                     controls={true}
                                     className="w-full h-auto rounded-md"
+                                    onError={async (e) => {
+                                      console.error('🎬 Thread section video #2 failed to load, falling back to unwatermarked:', e);
+                                      
+                                      // If currently showing watermarked video and unwatermarked is available, fallback immediately
+                                      if (!watermarkVideoLoadError && contentData.videoUrl === contentData.watermarkVideoUrl && contentData.unwatermarkedVideoUrl) {
+                                        console.log('🎬 Watermarked video failed, immediately using unwatermarked video');
+                                        setWatermarkVideoLoadError(true);
+                                        setContentUpdateTrigger(prev => prev + 1); // Force remount with new URL
+                                      }
+                                    }}
                                   />
                                   {(section as any).videoDuration && (
                                     <div className="mt-2 text-xs text-white/60">
@@ -6728,11 +6885,22 @@ export default function PurchaseContentModal({
                           {(section as any).video && (
                             <div className="mt-3 rounded-md overflow-hidden">
                               <VideoPlayer
+                                key={`section-video-3-${content?.id}-${contentUpdateTrigger}`}
                                 src={(section as any).video}
                                 autoPlay={true}
                                 muted={true}
                                 controls={true}
                                 className="w-[50%] h-auto"
+                                onError={async (e) => {
+                                  console.error('🎬 Thread section video #3 failed to load, falling back to unwatermarked:', e);
+                                  
+                                  // If currently showing watermarked video and unwatermarked is available, fallback immediately
+                                  if (!watermarkVideoLoadError && contentData.videoUrl === contentData.watermarkVideoUrl && contentData.unwatermarkedVideoUrl) {
+                                    console.log('🎬 Watermarked video failed, immediately using unwatermarked video');
+                                    setWatermarkVideoLoadError(true);
+                                    setContentUpdateTrigger(prev => prev + 1); // Force remount with new URL
+                                  }
+                                }}
                               />
                               {(section as any).videoDuration && (
                                 <div className="mt-2 text-xs text-white/60">

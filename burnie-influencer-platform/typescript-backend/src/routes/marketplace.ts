@@ -1616,6 +1616,20 @@ router.post('/approve', async (req, res) => {
       if (walletAddress) {
         existingContent.walletAddress = walletAddress;
       }
+      
+      // Determine if content has video based on videoUrl presence
+      // IMPORTANT: Validate that videoUrl is actually a video, not an image
+      const hasVideoUrl = videoUrl && videoUrl.trim() !== '';
+      const isActuallyVideo = hasVideoUrl && !videoUrl.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i);
+      
+      // If videoUrl contains an image extension, it's not a video - clear it
+      if (hasVideoUrl && !isActuallyVideo) {
+        console.log('⚠️ WARNING: video_url contains an image URL, clearing it for content approval:', {
+          videoUrl: videoUrl.substring(0, 100),
+          willClearVideoFields: true
+        });
+      }
+      
       // Generate watermarked image if content has images
       let watermarkImageUrl: string | null = null;
       if (contentImages) {
@@ -1630,12 +1644,12 @@ router.post('/approve', async (req, res) => {
       }
 
       // Start background video watermarking if content has video (non-blocking)
-      if (isVideo && videoUrl) {
+      if (isActuallyVideo) {
         try {
           console.log('🎬 Starting background video watermarking for content:', existingContent.id, 'Video URL:', videoUrl);
           const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
           // Start background task - don't wait for completion
-          await VideoWatermarkService.createWatermarkForVideo(videoUrl, s3Bucket, existingContent.id);
+          await VideoWatermarkService.createWatermarkForVideo(videoUrl!, s3Bucket, existingContent.id);
           console.log('✅ Video watermarking task queued in background for content:', existingContent.id);
         } catch (error) {
           console.error('❌ Failed to start video watermarking task:', error);
@@ -1644,6 +1658,8 @@ router.post('/approve', async (req, res) => {
             console.error('❌ Video watermarking error details:', error.message, error.stack);
           }
         }
+      } else {
+        console.log('⏭️ Skipping video watermarking - no valid video URL present for content:', existingContent.id);
       }
 
       // Always update contentImages and tweetThread regardless of value (null, array, etc.)
@@ -1652,28 +1668,43 @@ router.post('/approve', async (req, res) => {
       if (watermarkImageUrl) {
         existingContent.watermarkImage = watermarkImageUrl;
       }
-      // Update video fields - preserve existing values if not provided
-      existingContent.isVideo = isVideo !== undefined ? isVideo : existingContent.isVideo;
-      if (videoUrl !== undefined) {
-        existingContent.videoUrl = videoUrl;
+      // Update video fields - enforce consistency: isVideo should match ACTUAL video presence (not image URLs)
+      existingContent.isVideo = isActuallyVideo;
+      existingContent.videoUrl = isActuallyVideo ? videoUrl : null;
+      
+      // Don't set watermarkVideoUrl here - it will be set later via callback (only if actual video exists)
+      if (isActuallyVideo) {
+        existingContent.watermarkVideoUrl = null; // Reset to null, will be updated by background task
+      } else {
+        existingContent.watermarkVideoUrl = null; // Clear if no video or if image URL was in video_url
       }
-      // Don't set watermarkVideoUrl here - it will be set later via callback
-      existingContent.watermarkVideoUrl = null; // Reset to null, will be updated by background task
-      if (videoDuration !== undefined) {
-        existingContent.videoDuration = videoDuration;
-      }
-      // Only update video metadata fields if they are provided (not null/undefined)
-      if (subsequentFramePrompts !== undefined && subsequentFramePrompts !== null) {
+      
+      // Video duration should only exist if actual video exists
+      existingContent.videoDuration = isActuallyVideo && videoDuration !== undefined ? videoDuration : null;
+      
+      // Only update video metadata fields if actual video exists and they are provided (not null/undefined)
+      if (isActuallyVideo && subsequentFramePrompts !== undefined && subsequentFramePrompts !== null) {
         existingContent.subsequentFramePrompts = subsequentFramePrompts;
+      } else if (!isActuallyVideo) {
+        existingContent.subsequentFramePrompts = null; // Clear if no video
       }
-      if (clipPrompts !== undefined && clipPrompts !== null) {
+      
+      if (isActuallyVideo && clipPrompts !== undefined && clipPrompts !== null) {
         existingContent.clipPrompts = clipPrompts;
+      } else if (!isActuallyVideo) {
+        existingContent.clipPrompts = null; // Clear if no video
       }
-      if (audioPrompt !== undefined && audioPrompt !== null) {
+      
+      if (isActuallyVideo && audioPrompt !== undefined && audioPrompt !== null) {
         existingContent.audioPrompt = audioPrompt;
+      } else if (!isActuallyVideo) {
+        existingContent.audioPrompt = null; // Clear if no video
       }
-      if (audioPrompts !== undefined && audioPrompts !== null) {
+      
+      if (isActuallyVideo && audioPrompts !== undefined && audioPrompts !== null) {
         existingContent.audioPrompts = audioPrompts;
+      } else if (!isActuallyVideo) {
+        existingContent.audioPrompts = null; // Clear if no video
       }
       if (generationMetadata) {
         existingContent.generationMetadata = generationMetadata;
@@ -5360,6 +5391,40 @@ router.post('/approve-content', async (req: Request, res: Response) => {
       });
     }
 
+    // Enforce consistency: isVideo should match videoUrl presence (fix any legacy inconsistencies)
+    // IMPORTANT: Validate that videoUrl is actually a video, not an image
+    const hasVideoUrl = !!(content.videoUrl && content.videoUrl.trim() !== '');
+    const isActuallyVideo = hasVideoUrl && content.videoUrl !== null && !content.videoUrl.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i);
+    
+    // If videoUrl contains an image extension, it's not a video - clear it
+    if (hasVideoUrl && !isActuallyVideo && content.videoUrl) {
+      console.log('⚠️ WARNING: video_url contains an image URL, clearing it for content', content.id, ':', {
+        videoUrl: content.videoUrl.substring(0, 100),
+        willClearVideoFields: true
+      });
+    }
+    
+    if (content.isVideo !== isActuallyVideo) {
+      console.log('⚠️ Fixing video field inconsistency for content', content.id, ':', {
+        wasIsVideo: content.isVideo,
+        hasVideoUrl: hasVideoUrl,
+        isActuallyVideo: isActuallyVideo,
+        fixingTo: isActuallyVideo
+      });
+      content.isVideo = isActuallyVideo;
+      
+      // If no actual video, clear all video-related fields
+      if (!isActuallyVideo) {
+        content.videoUrl = null;
+        content.watermarkVideoUrl = null;
+        content.videoDuration = null;
+        content.subsequentFramePrompts = null;
+        content.clipPrompts = null;
+        content.audioPrompt = null;
+        content.audioPrompts = null;
+      }
+    }
+    
     // Generate watermarked image if content has images
     let watermarkImageUrl: string | null = null;
     if (content.contentImages) {
@@ -5374,7 +5439,7 @@ router.post('/approve-content', async (req: Request, res: Response) => {
     }
 
     // Start background video watermarking if content has video (non-blocking)
-    if (content.isVideo && content.videoUrl) {
+    if (isActuallyVideo && content.videoUrl) {
       try {
         console.log('🎬 Starting background video watermarking for content:', content.id, 'Video URL:', content.videoUrl);
         const s3Bucket = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
@@ -5388,6 +5453,8 @@ router.post('/approve-content', async (req: Request, res: Response) => {
           console.error('❌ Video watermarking error details:', error.message, error.stack);
         }
       }
+    } else {
+      console.log('⏭️ Skipping video watermarking - no valid video URL present for content:', content.id);
     }
 
     // Update content to approved and set wallet address for ownership verification
@@ -5405,9 +5472,12 @@ router.post('/approve-content', async (req: Request, res: Response) => {
     }
     
     // Don't set watermarkVideoUrl here - it will be set later via callback
-    if (content.isVideo && content.videoUrl) {
+    if (isActuallyVideo) {
       content.watermarkVideoUrl = null; // Reset to null, will be updated by background task
       console.log('🎬 Video watermark URL will be set via callback for content', content.id);
+    } else {
+      content.watermarkVideoUrl = null; // Ensure it's null if no video or if image URL was in video_url
+      console.log('⏭️ No valid video present, watermarkVideoUrl set to null for content', content.id);
     }
 
     const updatedContent = await contentRepository.save(content);
@@ -6127,6 +6197,85 @@ router.get('/referral-payouts/failed', async (req: Request, res: Response): Prom
       success: false,
       message: 'Failed to get failed referral payouts',
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route POST /api/marketplace/retry-watermark
+ * @desc Retry video watermarking for a content item
+ */
+router.post('/retry-watermark', async (req: Request, res: Response) => {
+  try {
+    const { contentId } = req.body;
+
+    console.log('🔄 Retrying video watermarking for content:', contentId);
+
+    if (!contentId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required field: contentId'
+      });
+    }
+
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+
+    // Find the content
+    const content = await contentRepository.findOne({
+      where: { id: contentId }
+    });
+
+    if (!content) {
+      console.error('❌ Content not found for watermark retry:', contentId);
+      return res.status(404).json({
+        success: false,
+        error: 'Content not found'
+      });
+    }
+
+    // Check if content has video
+    if (!content.isVideo || !content.videoUrl) {
+      console.error('❌ Content does not have a video:', contentId);
+      return res.status(400).json({
+        success: false,
+        error: 'Content does not have a video'
+      });
+    }
+
+    // Reset watermark URL to null to trigger retry
+    content.watermarkVideoUrl = null;
+    await contentRepository.save(content);
+
+    console.log('🔄 Reset watermark URL for content:', contentId);
+
+    // Trigger watermarking again
+    const s3Bucket = process.env.S3_BUCKET_NAME || '';
+    
+    try {
+      await VideoWatermarkService.createWatermarkForVideo(content.videoUrl, s3Bucket, content.id);
+      
+      console.log('✅ Watermarking retry initiated for content:', contentId);
+
+      return res.json({
+        success: true,
+        message: 'Video watermarking retry initiated successfully'
+      });
+    } catch (watermarkError) {
+      console.error('❌ Failed to initiate watermarking retry:', watermarkError);
+      
+      // Even if watermarking fails to start, return success since we reset the URL
+      return res.json({
+        success: true,
+        message: 'Watermark URL reset, but failed to initiate retry',
+        error: watermarkError instanceof Error ? watermarkError.message : 'Unknown error'
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error in retry watermark endpoint:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Internal server error'
     });
   }
 });

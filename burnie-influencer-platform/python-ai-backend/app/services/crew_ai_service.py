@@ -570,7 +570,7 @@ class CrewAIService:
                 tasks=list(self.tasks.values()),
                 process=Process.sequential,  # Sequential execution for better control
                 verbose=True,
-                max_execution_time=600,  # 10 minutes global timeout
+                max_execution_time=3600,  # 10 minutes global timeout
                 memory=False  # Disable memory to prevent context conflicts
             )
             
@@ -1733,9 +1733,9 @@ class CrewAIService:
         
         # Set timeout based on post type - longposts need much more time
         if post_type == 'longpost':
-            max_execution_time = 600  # 10 minutes for longposts
+            max_execution_time = 3600  # 10 minutes for longposts
         else:
-            max_execution_time = 180  # 3 minutes for other post types
+            max_execution_time = 600  # 3 minutes for other post types
         
         # Generate post-type specific backstory
         backstory = self._get_posttype_specific_backstory(post_type, text_provider, text_model, user_style, agent_config, twitter_context)
@@ -4900,6 +4900,22 @@ No image generated
             extracted_video_url = getattr(content, 'video_url', '')
             print(f"🎬 DEBUG: Extracted video_url for marketplace: '{extracted_video_url}' (length: {len(extracted_video_url) if extracted_video_url else 0})")
             
+            # CRITICAL: Validate that video_url is actually a video, not an image
+            import re
+            is_actually_video = False
+            if extracted_video_url:
+                # Check if URL has image extension (jpg, jpeg, png, gif, webp)
+                has_image_extension = bool(re.search(r'\.(jpg|jpeg|png|gif|webp)(\?|$)', extracted_video_url, re.IGNORECASE))
+                is_actually_video = not has_image_extension
+                
+                if has_image_extension:
+                    logger.warning(f"⚠️ WARNING: video_url contains an IMAGE URL, not a video! Clearing video_url field.")
+                    logger.warning(f"   Image URL found: {extracted_video_url[:100]}")
+                    extracted_video_url = ''  # Clear the image URL from video_url field
+                    print(f"⚠️ REJECTED image URL in video_url field, cleared to prevent database corruption")
+                else:
+                    logger.info(f"✅ Validated video_url is actually a video (no image extension found)")
+            
             content_data = {
                 "content_text": processed_content_text,
                 "tweet_thread": self._replace_em_dashes_in_list(getattr(content, 'tweet_thread', None) or []),  # Include tweet thread if available
@@ -4909,14 +4925,15 @@ No image generated
                 "generation_metadata": content.generation_metadata,
                 "post_type": getattr(mining_session, 'post_type', 'thread'),  # Include post type from mining session
                 "imagePrompt": getattr(self, 'stored_image_prompt', ''),  # Include captured image prompt
-                "is_video": bool(extracted_video_url),  # True if we have a video URL
-                "video_url": extracted_video_url,  # Include video URL if available
-                "video_duration": int(video_meta.get("video_duration") or getattr(mining_session, 'video_duration', 10)),
-                "subsequent_frame_prompts": video_meta.get("subsequent_frame_prompts"),
-                "clip_prompts": video_meta.get("clip_prompts"),
-                "audio_prompt": video_meta.get("audio_prompt"),
+                "is_video": is_actually_video,  # True ONLY if we have a valid video URL (not image)
+                "video_url": extracted_video_url if is_actually_video else '',  # Include video URL only if it's actually a video
+                # Only include video metadata if it's actually a video
+                "video_duration": int(video_meta.get("video_duration") or getattr(mining_session, 'video_duration', 10)) if is_actually_video else None,
+                "subsequent_frame_prompts": video_meta.get("subsequent_frame_prompts") if is_actually_video else None,
+                "clip_prompts": video_meta.get("clip_prompts") if is_actually_video else None,
+                "audio_prompt": video_meta.get("audio_prompt") if is_actually_video else None,
                 # NEW: Enhanced audio prompts with dual-stream support - check nested structure first
-                "audio_prompts": nested_video_meta.get("audio_prompts") or video_meta.get("audio_prompts"),
+                "audio_prompts": (nested_video_meta.get("audio_prompts") or video_meta.get("audio_prompts")) if is_actually_video else None,
                 "advanced_video_metadata": self.advanced_video_options.__dict__ if self.advanced_video_options else None
             }
 
