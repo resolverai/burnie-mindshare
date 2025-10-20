@@ -17,8 +17,10 @@ export class VideoWatermarkService {
       const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
       
       // Get TypeScript backend URL for callback
-      const typescriptBackendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+      const typescriptBackendUrl = process.env.TYPESCRIPT_BACKEND_URL || process.env.BACKEND_URL || 'http://localhost:3001';
       const callbackUrl = `${typescriptBackendUrl}/api/marketplace/video-watermark-complete`;
+      
+      console.log('🔗 Using callback URL for watermarking:', callbackUrl);
       
       const response = await fetch(`${pythonBackendUrl}/api/video-watermark`, {
         method: 'POST',
