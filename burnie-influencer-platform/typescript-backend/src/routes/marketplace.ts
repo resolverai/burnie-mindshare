@@ -374,13 +374,18 @@ async function refreshUrlsForMinerContent(content: any): Promise<any> {
   // For MinerMyContent, we ALWAYS want fresh presigned URLs and NEVER watermarked content
   // This is the user's own content, so they should see the original unwatermarked version
   
-  // Process content images - ALWAYS generate fresh presigned URLs
+  // Process content images - only generate fresh presigned URLs if needed
   const contentImages = content.contentImages || content.content_images;
   if (contentImages) {
     if (Array.isArray(contentImages)) {
       const updatedImages = await Promise.all(
         contentImages.map(async (imageUrl: string) => {
           if (typeof imageUrl === 'string') {
+            // Check if URL is already a presigned URL and not expired
+            if (imageUrl.includes('X-Amz-Signature') && !isUrlExpired(imageUrl)) {
+              return imageUrl; // Use existing presigned URL if not expired
+            }
+            
             const s3Key = extractS3KeyFromUrl(imageUrl);
             if (s3Key) {
               const freshUrl = await generatePresignedUrl(s3Key);
@@ -403,45 +408,57 @@ async function refreshUrlsForMinerContent(content: any): Promise<any> {
     }
   }
 
-  // Process video URL - ALWAYS generate fresh presigned URL for original (unwatermarked) video
+  // Process video URL - only generate fresh presigned URL if needed
   const videoUrl = content.videoUrl || content.video_url;
   if (videoUrl && typeof videoUrl === 'string') {
-    logger.info(`🎬 Generating fresh presigned URL for video in content ${content.id}`);
-    
-    const s3Key = extractS3KeyFromUrl(videoUrl);
-    if (s3Key) {
-      const freshUrl = await generatePresignedUrl(s3Key);
-      if (freshUrl) {
-        // Update both possible field names
-        if (content.videoUrl) {
-          content.videoUrl = freshUrl;
+    // Check if URL is already a presigned URL and not expired
+    if (videoUrl.includes('X-Amz-Signature') && !isUrlExpired(videoUrl)) {
+      // URL is still valid, no need to regenerate
+      logger.info(`🎬 Using existing presigned URL for video in content ${content.id}`);
+    } else {
+      logger.info(`🎬 Generating fresh presigned URL for video in content ${content.id}`);
+      
+      const s3Key = extractS3KeyFromUrl(videoUrl);
+      if (s3Key) {
+        const freshUrl = await generatePresignedUrl(s3Key);
+        if (freshUrl) {
+          // Update both possible field names
+          if (content.videoUrl) {
+            content.videoUrl = freshUrl;
+          }
+          if (content.video_url) {
+            content.video_url = freshUrl;
+          }
+          logger.info(`🔄 Generated fresh presigned URL for video in content ${content.id}`);
         }
-        if (content.video_url) {
-          content.video_url = freshUrl;
-        }
-        logger.info(`🔄 Generated fresh presigned URL for video in content ${content.id}`);
       }
     }
   }
 
   // For MinerMyContent, we need to keep watermark URLs for status display
-  // But we refresh the presigned URLs if they exist
+  // But we refresh the presigned URLs if they exist and are expired
   const watermarkVideoUrl = content.watermarkVideoUrl || content.watermark_video_url;
   if (watermarkVideoUrl && typeof watermarkVideoUrl === 'string') {
-    logger.info(`🎬 Generating fresh presigned URL for watermarked video in content ${content.id}`);
-    
-    const s3Key = extractS3KeyFromUrl(watermarkVideoUrl);
-    if (s3Key) {
-      const freshUrl = await generatePresignedUrl(s3Key);
-      if (freshUrl) {
-        // Update both possible field names
-        if (content.watermarkVideoUrl) {
-          content.watermarkVideoUrl = freshUrl;
+    // Check if URL is already a presigned URL and not expired
+    if (watermarkVideoUrl.includes('X-Amz-Signature') && !isUrlExpired(watermarkVideoUrl)) {
+      // URL is still valid, no need to regenerate
+      logger.info(`🎬 Using existing presigned URL for watermarked video in content ${content.id}`);
+    } else {
+      logger.info(`🎬 Generating fresh presigned URL for watermarked video in content ${content.id}`);
+      
+      const s3Key = extractS3KeyFromUrl(watermarkVideoUrl);
+      if (s3Key) {
+        const freshUrl = await generatePresignedUrl(s3Key);
+        if (freshUrl) {
+          // Update both possible field names
+          if (content.watermarkVideoUrl) {
+            content.watermarkVideoUrl = freshUrl;
+          }
+          if (content.watermark_video_url) {
+            content.watermark_video_url = freshUrl;
+          }
+          logger.info(`🔄 Generated fresh presigned URL for watermarked video in content ${content.id}`);
         }
-        if (content.watermark_video_url) {
-          content.watermark_video_url = freshUrl;
-        }
-        logger.info(`🔄 Generated fresh presigned URL for watermarked video in content ${content.id}`);
       }
     }
   }
@@ -2175,6 +2192,8 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       .getMany();
 
     // Refresh URLs for miner content - use unwatermarked URLs with fresh presigned URLs
+    // Only process the paginated content items (not all content in database)
+    logger.info(`🔄 Refreshing URLs for ${contents.length} content items (page ${pageNum}, limit ${limitNum})`);
     const refreshedContents = await Promise.all(
       contents.map(content => refreshUrlsForMinerContent(content))
     );

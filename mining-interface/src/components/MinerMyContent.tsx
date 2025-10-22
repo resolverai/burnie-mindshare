@@ -317,6 +317,7 @@ export default function MinerMyContent() {
     if (isMinerMode && address && miningStatus.isRunning && !manuallyStopped) {
       const intervalId = setInterval(() => {
         // Only refresh content data if not currently generating to avoid confusion
+        // Reduce frequency to prevent excessive API calls
         if (!miningStatus.currentCampaign) {
           queryClient.invalidateQueries({
             queryKey: ['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage]
@@ -573,9 +574,13 @@ export default function MinerMyContent() {
     },
     onSettled: () => {
       console.log(`🏁 Bidding mutation settled, clearing loading state`)
-      // Always refetch after mutation settles
-      queryClient.invalidateQueries({ queryKey: ['miner-content'] })
-      queryClient.invalidateQueries({ queryKey: ['miner-content-totals'] })
+      // Only invalidate specific content queries, not all content
+      queryClient.invalidateQueries({ 
+        queryKey: ['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage] 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['miner-content-totals', address, searchTerm, statusFilter, biddingFilter, availabilityFilter] 
+      })
       setUpdatingContentId(null) // Clear updating state after mutation settles
     },
     onSuccess: (data, variables) => {
@@ -685,8 +690,12 @@ export default function MinerMyContent() {
     },
     onSuccess: (data, contentId) => {
       console.log('✅ Content approved successfully:', data)
-      queryClient.invalidateQueries({ queryKey: ['miner-content'] })
-      queryClient.invalidateQueries({ queryKey: ['miner-content-totals'] })
+      queryClient.invalidateQueries({ 
+        queryKey: ['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage] 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['miner-content-totals', address, searchTerm, statusFilter, biddingFilter, availabilityFilter] 
+      })
       showToast('Content approved and published successfully!', 'success')
     },
     onError: (error, contentId, context) => {
@@ -773,8 +782,12 @@ export default function MinerMyContent() {
     },
     onSuccess: (data, contentId) => {
       console.log('✅ Content rejected successfully:', { data, contentId })
-      queryClient.invalidateQueries({ queryKey: ['miner-content'] })
-      queryClient.invalidateQueries({ queryKey: ['miner-content-totals'] })
+      queryClient.invalidateQueries({ 
+        queryKey: ['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage] 
+      })
+      queryClient.invalidateQueries({ 
+        queryKey: ['miner-content-totals', address, searchTerm, statusFilter, biddingFilter, availabilityFilter] 
+      })
       showToast('Content rejected successfully!', 'success')
     },
     onError: (error, contentId, context) => {
@@ -836,7 +849,9 @@ export default function MinerMyContent() {
       showToast('Video watermarking restarted! Please wait...', 'success')
       // Refresh content after a few seconds to check for watermark completion
       setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['miner-content'] })
+        queryClient.invalidateQueries({ 
+          queryKey: ['miner-content', address, searchTerm, statusFilter, biddingFilter, availabilityFilter, currentPage] 
+        })
       }, 5000)
     },
     onError: (error, contentId) => {
