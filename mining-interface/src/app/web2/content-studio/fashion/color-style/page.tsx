@@ -1,9 +1,12 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import Image from 'next/image'
+import PlatformSelector from '@/components/web2/PlatformSelector'
+import ProgressOverlay from '@/components/web2/ProgressOverlay'
+import PlatformText from '@/components/web2/PlatformText'
 
 interface CollapsibleSection {
   id: string
@@ -36,47 +39,87 @@ export default function ColorStylePage() {
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
-  const [productImage, setProductImage] = useState<File | null>(null)
-  const [productImagePreview, setProductImagePreview] = useState<string | null>(null)
+  const [productImages, setProductImages] = useState<File[]>([])
+  const [productImagePreviews, setProductImagePreviews] = useState<string[]>([])
   const [productCategory, setProductCategory] = useState('')
+  const [customProductCategory, setCustomProductCategory] = useState('')
+  const [showCustomCategory, setShowCustomCategory] = useState(false)
+  const [numVariations, setNumVariations] = useState(1)
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set())
+  const [customColors, setCustomColors] = useState<string[]>([])
+  const [newCustomColor, setNewCustomColor] = useState('')
   const [selectedStyles, setSelectedStyles] = useState<Set<string>>(new Set())
+  const [customStyle, setCustomStyle] = useState('')
   const [includeLogo, setIncludeLogo] = useState(true)
   const [additionalInstructions, setAdditionalInstructions] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<string[]>([])
   const [generatedCaption, setGeneratedCaption] = useState('')
+  const [selectedImageModal, setSelectedImageModal] = useState<string | null>(null)
+  
+  // New state for unified generation
+  const [generationState, setGenerationState] = useState<'idle' | 'generating' | 'complete'>('idle')
+  const [progressMessage, setProgressMessage] = useState('')
+  const [progressPercent, setProgressPercent] = useState(0)
+  const [selectedPlatform, setSelectedPlatform] = useState<'twitter' | 'youtube' | 'instagram' | 'linkedin'>('twitter')
+  const [platformTexts, setPlatformTexts] = useState<any>({})
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [sections, setSections] = useState<CollapsibleSection[]>([
-    { id: 'upload', title: '1. Upload Product Image', isOpen: true },
+    { id: 'upload', title: '1. Upload Product Images', isOpen: true },
     { id: 'category', title: '2. Product Category', isOpen: true },
-    { id: 'colors', title: '3. Color Variations', isOpen: false },
-    { id: 'styles', title: '4. Style Variations', isOpen: false },
-    { id: 'options', title: '5. Additional Options', isOpen: false }
+    { id: 'variations', title: '3. Number of Variations', isOpen: true },
+    { id: 'colors', title: '4. Color Variations', isOpen: false },
+    { id: 'styles', title: '5. Style Variations', isOpen: false },
+    { id: 'options', title: '6. Additional Options', isOpen: false }
   ])
 
   const productCategories = [
     'Dress', 'Shirt', 'Pants', 'Shoes', 'Jacket', 'Skirt',
-    'Accessories', 'Bag', 'Hat', 'Jewelry', 'Watch', 'Sunglasses'
+    'Accessories', 'Bag', 'Hat', 'Jewelry', 'Watch', 'Sunglasses', 'Other'
   ]
 
-  const handleFileSelect = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file')
-      return
-    }
+  const handleFileSelect = (files: FileList | File[]) => {
+    const fileArray = Array.from(files)
+    const validFiles = fileArray.filter(file => {
+      if (!file.type.startsWith('image/')) {
+        alert(`${file.name} is not an image file`)
+        return false
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`${file.name} is larger than 10MB`)
+        return false
+      }
+      return true
+    })
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert('File size must be less than 10MB')
-      return
-    }
+    if (validFiles.length === 0) return
 
-    setProductImage(file)
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      setProductImagePreview(e.target?.result as string)
+    setProductImages(prev => [...prev, ...validFiles])
+    
+    // Generate previews for new files
+    validFiles.forEach(file => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setProductImagePreviews(prev => [...prev, e.target?.result as string])
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const removeProductImage = (index: number) => {
+    setProductImages(prev => prev.filter((_, i) => i !== index))
+    setProductImagePreviews(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const handleCategoryChange = (category: string) => {
+    setProductCategory(category)
+    if (category === 'Other') {
+      setShowCustomCategory(true)
+    } else {
+      setShowCustomCategory(false)
+      setCustomProductCategory('')
     }
-    reader.readAsDataURL(file)
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -92,9 +135,9 @@ export default function ColorStylePage() {
     e.preventDefault()
     setIsDragging(false)
     
-    const file = e.dataTransfer.files[0]
-    if (file) {
-      handleFileSelect(file)
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      handleFileSelect(files)
     }
   }
 
@@ -127,8 +170,8 @@ export default function ColorStylePage() {
   }
 
   const handleGenerate = async () => {
-    if (!productImage) {
-      alert('Please upload a product image')
+    if (productImages.length === 0) {
+      alert('Please upload at least one product image')
       return
     }
 
@@ -146,24 +189,29 @@ export default function ColorStylePage() {
     setGeneratedImages([])
 
     try {
-      const formData = new FormData()
-      formData.append('file', productImage)
-      formData.append('account_id', localStorage.getItem('burnie_web2_account_id') || '')
+      // Upload all product images
+      const uploadPromises = productImages.map(async (file) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('account_id', localStorage.getItem('burnie_web2_account_id') || '')
 
-      const uploadResponse = await fetch(
-        (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/upload-user-file',
-        {
-          method: 'POST',
-          body: formData
+        const uploadResponse = await fetch(
+          (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/upload-user-file',
+          {
+            method: 'POST',
+            body: formData
+          }
+        )
+
+        if (!uploadResponse.ok) {
+          throw new Error('Failed to upload product image')
         }
-      )
 
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload product image')
-      }
+        const uploadData = await uploadResponse.json()
+        return uploadData.s3_url
+      })
 
-      const uploadData = await uploadResponse.json()
-      const productImageUrl = uploadData.s3_url
+      const productImageUrls = await Promise.all(uploadPromises)
 
       const colorsArray = Array.from(selectedColors)
       const stylesArray = Array.from(selectedStyles)
@@ -175,8 +223,8 @@ export default function ColorStylePage() {
         prompt_types: ['image', 'tweet'],
         num_prompts: { image: numImages, tweet: 1 },
         theme: 'Color and style variations: ' + productCategory,
-        user_prompt: 'Create variations of this ' + productCategory + ' in different colors (' + colorsArray.join(', ') + ') and styles (' + stylesArray.join(', ') + '). ' + additionalInstructions,
-        user_images: [productImageUrl],
+        user_prompt: 'Create variations of this ' + (productCategory === 'Other' ? customProductCategory : productCategory) + ' in different colors (' + colorsArray.join(', ') + ') and styles (' + stylesArray.join(', ') + '). ' + additionalInstructions,
+        user_images: productImageUrls,
         workflow_type: 'fashion_color_style',
         target_platform: 'instagram',
         no_characters: false,
@@ -215,7 +263,7 @@ export default function ColorStylePage() {
           prompt: imagePrompt,
           num_images: 1,
           include_logo: includeLogo,
-          user_images: [productImageUrl],
+          user_images: productImageUrls,
           image_model: 'nano-banana'
         }
 
@@ -264,7 +312,41 @@ export default function ColorStylePage() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-900">
+    <>
+
+      <style jsx>{`
+        .slider::-webkit-slider-thumb {
+          appearance: none;
+          height: 20px;
+          width: 20px;
+          border-radius: 50%;
+          background: #3b82f6;
+          cursor: pointer;
+          border: 2px solid #1f2937;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .slider::-moz-range-thumb {
+          height: 20px;
+          width: 20px;
+          border-radius: 50%;
+          background: #3b82f6;
+          cursor: pointer;
+          border: 2px solid #1f2937;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .slider::-webkit-slider-track {
+          height: 8px;
+          border-radius: 4px;
+        }
+        
+        .slider::-moz-range-track {
+          height: 8px;
+          border-radius: 4px;
+        }
+      `}</style>
+      <div className="flex h-screen bg-gray-900">
       <Web2Sidebar isExpanded={sidebarExpanded} onToggle={() => setSidebarExpanded(!sidebarExpanded)} />
 
       <div className={'flex-1 flex flex-col overflow-hidden transition-all duration-300 ' + (sidebarExpanded ? 'ml-64' : 'ml-20')}>
@@ -294,7 +376,7 @@ export default function ColorStylePage() {
                   onClick={() => toggleSection('upload')}
                   className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-700/30 transition-colors rounded-lg"
                 >
-                  <h2 className="text-base font-bold text-white">1. Upload Product Image</h2>
+                  <h2 className="text-base font-bold text-white">1. Upload Product Images</h2>
                   <svg
                     className={'w-5 h-5 text-gray-400 transition-transform ' + (sections.find(s => s.id === 'upload')?.isOpen ? 'rotate-180' : '')}
                     fill="none"
@@ -314,26 +396,47 @@ export default function ColorStylePage() {
                       onClick={() => fileInputRef.current?.click()}
                       className={'border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all ' + 
                         (isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-gray-600 hover:border-gray-500') +
-                        (productImagePreview ? ' border-green-500' : '')}
+                        (productImagePreviews.length > 0 ? ' border-green-500' : '')}
                     >
-                      {productImagePreview ? (
+                      {productImagePreviews.length > 0 ? (
                         <div className="space-y-3">
-                          <div className="relative w-32 h-32 mx-auto">
-                            <Image
-                              src={productImagePreview}
-                              alt="Product preview"
-                              fill
-                              className="object-contain rounded-lg"
-                            />
+                          <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto">
+                            {productImagePreviews.map((preview, index) => (
+                              <div key={index} className="relative w-20 h-20 group">
+                                <div 
+                                  className="relative w-full h-full cursor-pointer"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedImageModal(preview)
+                                  }}
+                                >
+                                  <Image
+                                    src={preview}
+                                    alt={`Product preview ${index + 1}`}
+                                    fill
+                                    className="object-cover rounded-lg hover:opacity-80 transition-opacity"
+                                  />
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      removeProductImage(index)
+                                    }}
+                                    className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                          <p className="text-xs text-gray-400">Click to change</p>
+                          <p className="text-xs text-gray-400">Click to add more images</p>
                         </div>
                       ) : (
                         <div className="space-y-3">
                           <div className="text-4xl">📸</div>
                           <div>
-                            <p className="text-white font-medium mb-1 text-sm">Drop image or click to browse</p>
-                            <p className="text-xs text-gray-400">JPG, PNG, GIF, WebP (max 10MB)</p>
+                            <p className="text-white font-medium mb-1 text-sm">Drop images or click to browse</p>
+                            <p className="text-xs text-gray-400">JPG, PNG, GIF, WebP (max 10MB each)</p>
                           </div>
                         </div>
                       )}
@@ -342,7 +445,8 @@ export default function ColorStylePage() {
                       ref={fileInputRef}
                       type="file"
                       accept="image/*"
-                      onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+                      multiple
+                      onChange={(e) => e.target.files && handleFileSelect(e.target.files)}
                       className="hidden"
                     />
                   </div>
@@ -372,7 +476,7 @@ export default function ColorStylePage() {
                       {productCategories.map((category) => (
                         <button
                           key={category}
-                          onClick={() => setProductCategory(category)}
+                          onClick={() => handleCategoryChange(category)}
                           className={'px-3 py-2 rounded-lg text-sm font-medium transition-all ' +
                             (productCategory === category
                               ? 'bg-blue-600 text-white'
@@ -382,11 +486,67 @@ export default function ColorStylePage() {
                         </button>
                       ))}
                     </div>
+                    {showCustomCategory && (
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Custom Product Category
+                        </label>
+                        <input
+                          type="text"
+                          value={customProductCategory}
+                          onChange={(e) => setCustomProductCategory(e.target.value)}
+                          placeholder="Enter your custom product category"
+                          className="w-full bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* Section 3: Colors */}
+              {/* Section 3: Number of Variations */}
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg border border-gray-700/50">
+                <button
+                  onClick={() => toggleSection('variations')}
+                  className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-700/30 transition-colors rounded-lg"
+                >
+                  <h2 className="text-base font-bold text-white">3. Number of Variations</h2>
+                  <svg
+                    className={'w-5 h-5 text-gray-400 transition-transform ' + (sections.find(s => s.id === 'variations')?.isOpen ? 'rotate-180' : '')}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                
+                {sections.find(s => s.id === 'variations')?.isOpen && (
+                  <div className="p-4 border-t border-gray-700">
+                    <div className="flex items-center space-x-4">
+                      <input
+                        type="range"
+                        min="1"
+                        max="5"
+                        value={numVariations}
+                        onChange={(e) => setNumVariations(parseInt(e.target.value))}
+                        className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                        style={{
+                          background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((numVariations - 1) / (5 - 1)) * 100}%, #374151 ${((numVariations - 1) / (5 - 1)) * 100}%, #374151 100%)`
+                        }}
+                      />
+                      <span className="text-2xl font-bold text-blue-400 min-w-[40px] text-center">
+                        {numVariations}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">
+                      Generate 1-5 variations
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Section 4: Colors */}
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg border border-gray-700/50">
                 <button
                   onClick={() => toggleSection('colors')}
@@ -407,23 +567,70 @@ export default function ColorStylePage() {
                 
                 {sections.find(s => s.id === 'colors')?.isOpen && (
                   <div className="p-4 border-t border-gray-700">
-                    <div className="grid grid-cols-4 gap-3">
-                      {colorOptions.map((color) => (
-                        <button
-                          key={color.id}
-                          onClick={() => toggleColor(color.id)}
-                          className={'p-3 rounded-lg text-center transition-all border-2 ' +
-                            (selectedColors.has(color.id)
-                              ? 'border-blue-500 shadow-lg'
-                              : 'border-transparent hover:border-gray-600')}
-                        >
-                          <div
-                            className="w-12 h-12 rounded-full mx-auto mb-2"
-                            style={{ backgroundColor: color.hex, border: color.id === 'white' ? '2px solid #4B5563' : 'none' }}
-                          />
-                          <div className="text-xs text-gray-300">{color.name}</div>
-                        </button>
-                      ))}
+                    <div className="space-y-4">
+                      {/* Color Picker */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Select Colors</label>
+                        <div className="space-y-3">
+                          {/* Custom Color Input */}
+                          <div className="flex gap-2">
+                            <input
+                              type="color"
+                              value={newCustomColor || '#000000'}
+                              onChange={(e) => setNewCustomColor(e.target.value)}
+                              className="w-12 h-8 rounded border border-gray-600 cursor-pointer"
+                            />
+                            <input
+                              type="text"
+                              value={newCustomColor}
+                              onChange={(e) => setNewCustomColor(e.target.value)}
+                              placeholder="Enter color name or hex code"
+                              className="flex-1 bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                              onClick={() => {
+                                if (newCustomColor.trim()) {
+                                  setCustomColors(prev => [...prev, newCustomColor])
+                                  setSelectedColors(prev => new Set([...Array.from(prev), newCustomColor]))
+                                  setNewCustomColor('')
+                                }
+                              }}
+                              disabled={!newCustomColor.trim()}
+                              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Add
+                            </button>
+                          </div>
+                          
+                          {/* Selected Colors Display */}
+                          {customColors.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {customColors.map((color, index) => (
+                                <div key={index} className="flex items-center gap-2 bg-gray-700/50 rounded-lg px-3 py-2">
+                                  <div 
+                                    className="w-4 h-4 rounded border border-gray-600"
+                                    style={{ backgroundColor: color }}
+                                  ></div>
+                                  <span className="text-sm text-white">{color}</span>
+                                  <button
+                                    onClick={() => {
+                                      setCustomColors(prev => prev.filter((_, i) => i !== index))
+                                      setSelectedColors(prev => {
+                                        const newSet = new Set(Array.from(prev))
+                                        newSet.delete(color)
+                                        return newSet
+                                      })
+                                    }}
+                                    className="text-red-400 hover:text-red-300 text-sm"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -463,7 +670,54 @@ export default function ColorStylePage() {
                           {style}
                         </button>
                       ))}
+                      <button
+                        onClick={() => {
+                          if (customStyle.trim()) {
+                            setSelectedStyles(prev => new Set([...Array.from(prev), customStyle]))
+                            setCustomStyle('')
+                          }
+                        }}
+                        disabled={!customStyle.trim()}
+                        className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-600 text-white hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        + Add Custom
+                      </button>
                     </div>
+                    <input
+                      type="text"
+                      value={customStyle}
+                      onChange={(e) => setCustomStyle(e.target.value)}
+                      placeholder="Enter custom style"
+                      className="w-full mt-2 bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    {/* Display selected custom styles */}
+                    {Array.from(selectedStyles).filter(style => !styleOptions.includes(style)).length > 0 && (
+                      <div className="mt-2">
+                        <div className="text-xs text-gray-400 mb-1">Custom styles:</div>
+                        <div className="flex flex-wrap gap-1">
+                          {Array.from(selectedStyles).filter(style => !styleOptions.includes(style)).map((style, index) => (
+                            <span
+                              key={index}
+                              className="px-2 py-1 bg-purple-600 text-white text-xs rounded-lg flex items-center gap-1"
+                            >
+                              {style}
+                              <button
+                                onClick={() => {
+                                  setSelectedStyles(prev => {
+                                    const newSet = new Set(Array.from(prev))
+                                    newSet.delete(style)
+                                    return newSet
+                                  })
+                                }}
+                                className="text-purple-200 hover:text-white"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -516,7 +770,7 @@ export default function ColorStylePage() {
               {/* Generate Button */}
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || !productImage || !productCategory || (selectedColors.size === 0 && selectedStyles.size === 0)}
+                disabled={isGenerating || productImages.length === 0 || !productCategory || (selectedColors.size === 0 && selectedStyles.size === 0)}
                 className="w-full px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
               >
                 {isGenerating ? (
@@ -537,42 +791,33 @@ export default function ColorStylePage() {
           </div>
 
           {/* Right Panel */}
-          <div className="w-1/2 p-6 flex flex-col">
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6 flex-1 flex flex-col">
-              <h2 className="text-xl font-bold text-white mb-4">Generated Images</h2>
-              
-              <div className="flex-1 flex items-center justify-center">
-                {isGenerating ? (
-                  <div className="text-center space-y-4">
-                    <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500 mx-auto"></div>
-                    <p className="text-white font-medium">Generating your images...</p>
-                    <p className="text-sm text-gray-400">This may take a minute</p>
-                  </div>
-                ) : generatedImages.length > 0 ? (
-                  <div className="w-full space-y-4">
-                    <div className="grid grid-cols-2 gap-4 max-h-[500px] overflow-y-auto">
-                      {generatedImages.map((imageUrl, index) => (
-                        <div
-                          key={index}
-                          className="relative aspect-square rounded-lg overflow-hidden border-2 border-gray-700 hover:border-blue-500 transition-all"
-                        >
-                          <Image
-                            src={imageUrl}
-                            alt={'Generated image ' + (index + 1)}
-                            fill
-                            className="object-cover"
-                          />
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="mt-6 pt-6 border-t border-gray-700">
-                      <button
-                        onClick={handleSaveAndContinue}
-                        className="w-full px-6 py-3 bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-500 hover:to-teal-500 text-white rounded-lg font-bold transition-all flex items-center justify-center space-x-2"
-                      >
-                        <span>→ Continue to Post</span>
-                      </button>
+          <div className="w-1/2 flex flex-col">
+            <PlatformSelector
+              platforms={['twitter', 'youtube', 'instagram', 'linkedin']}
+              selected={selectedPlatform}
+              onChange={(platform) => setSelectedPlatform(platform as any)}
+              disabled={generationState !== 'complete'}
+            />
+            <div className="flex-1 p-6 overflow-hidden flex flex-col">
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 flex-1 flex items-center justify-center relative">
+                {generationState === 'generating' ? (
+                  <ProgressOverlay
+                    message={progressMessage}
+                    percent={progressPercent}
+                  />
+                ) : generationState === 'complete' && generatedImages.length > 0 ? (
+                  <div className="relative w-full h-full p-4">
+                    {generatedImages.length > 1 && (
+                      <div className="absolute top-4 left-0 right-0 flex items-center justify-center space-x-2 z-10">
+                        <button onClick={() => setCurrentImageIndex(Math.max(0, currentImageIndex - 1))} disabled={currentImageIndex === 0} className="px-3 py-1 bg-gray-900/80 text-white rounded-lg disabled:opacity-50">←</button>
+                        <span className="px-3 py-1 bg-gray-900/80 text-white rounded-lg text-sm">{currentImageIndex + 1} of {generatedImages.length}</span>
+                        <button onClick={() => setCurrentImageIndex(Math.min(generatedImages.length - 1, currentImageIndex + 1))} disabled={currentImageIndex === generatedImages.length - 1} className="px-3 py-1 bg-gray-900/80 text-white rounded-lg disabled:opacity-50">→</button>
+                      </div>
+                    )}
+                    <div className="w-full h-full flex items-center justify-center">
+                      <div className="relative max-w-full max-h-full">
+                        <Image src={generatedImages[currentImageIndex]} alt={'Generated image ' + (currentImageIndex + 1)} width={800} height={800} className="object-contain rounded-lg" />
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -584,10 +829,34 @@ export default function ColorStylePage() {
                 )}
               </div>
             </div>
+            {generationState === 'complete' && platformTexts[selectedPlatform] && (
+              <PlatformText text={platformTexts[selectedPlatform]} platform={selectedPlatform} onCopy={() => console.log('Text copied')} onPost={() => console.log('Posting to ' + selectedPlatform)} />
+            )}
           </div>
         </main>
       </div>
     </div>
+
+    {/* Image Modal */}
+    {selectedImageModal && (
+      <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setSelectedImageModal(null)}>
+        <div className="relative max-w-4xl max-h-[90vh] p-4" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => setSelectedImageModal(null)}
+            className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center text-lg hover:bg-red-600 transition-colors z-10"
+          >
+            ×
+          </button>
+          <Image
+            src={selectedImageModal}
+            alt="Full size preview"
+            width={800}
+            height={600}
+            className="max-w-full max-h-[80vh] object-contain rounded-lg"
+          />
+        </div>
+      </div>
+    )}
+    </>
   )
 }
-

@@ -57,6 +57,8 @@ import web2BrandContextRoutes from './routes/web2BrandContext';
 import web2SocialConnectionsRoutes from './routes/web2SocialConnections';
 import web2AccountConfigurationsRoutes from './routes/web2AccountConfigurations';
 import web2AccountConnectionsRoutes from './routes/web2AccountConnections';
+import web2ContextManagementRoutes from './routes/web2ContextManagement';
+const web2GeneratedContentRoutes = require('./routes/web2GeneratedContent');
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -170,9 +172,11 @@ app.use('/api', videoAnalyticsRoutes); // Video analytics and performance metric
 app.use('/api/web2-auth', web2AuthRoutes); // Web2 authentication (Twitter OAuth)
 app.use('/api/web2-accounts', web2AccountsRoutes); // Web2 account management
 app.use('/api/web2-account-context', web2BrandContextRoutes); // Web2 account context management
+app.use('/api/web2-context', web2ContextManagementRoutes); // Web2 context management (new comprehensive system)
 app.use('/api/web2-social', web2SocialConnectionsRoutes); // Web2 social media connections
 app.use('/api/web2-account-configurations', web2AccountConfigurationsRoutes); // Web2 account configuration settings
 app.use('/api/web2-account-connections', web2AccountConnectionsRoutes); // Web2 social media connection management
+app.use('/api/web2-generated-content', web2GeneratedContentRoutes); // Web2 generated content management
 
 // Start server
 const startServer = async () => {

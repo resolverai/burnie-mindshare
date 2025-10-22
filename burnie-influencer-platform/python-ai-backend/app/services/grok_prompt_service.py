@@ -107,6 +107,18 @@ FOCUS EXCLUSIVELY ON {brand_name} - DO NOT generate content for any other brand.
         # Build user prompt with all context
         user_prompt = self._build_user_prompt(context, prompt_types, num_prompts)
         
+        # LOG GROK PROMPT SERVICE INPUT
+        print("=" * 80)
+        print("🤖 GROK PROMPT SERVICE INPUT")
+        print("=" * 80)
+        print(f"🏢 Brand Name: {brand_name}")
+        print(f"📝 Prompt Types: {prompt_types}")
+        print(f"📝 Number of Prompts: {num_prompts}")
+        print(f"📝 Use Live Search: {use_live_search}")
+        print(f"📝 Context Keys: {list(context.keys())}")
+        print(f"📝 User Prompt: {user_prompt}")
+        print("=" * 80)
+        
         chat.append(user(user_prompt))
         
         # Get response from Grok
@@ -178,6 +190,10 @@ FOCUS EXCLUSIVELY ON {brand_name} - DO NOT generate content for any other brand.
         
         prompt += "\n🎯 YOUR MISSION: Create PROFESSIONAL, ENGAGING content that will drive engagement and effectively communicate the brand message.\n\n"
         
+        # Add visual pattern analysis if available
+        if context.get('visual_analysis'):
+            prompt += self._format_visual_analysis(context['visual_analysis'])
+        
         # Add user-provided content context
         if user_images:
             prompt += f"""🖼️ USER-PROVIDED REFERENCE IMAGES:
@@ -232,14 +248,18 @@ FOCUS EXCLUSIVELY ON {brand_name} - DO NOT generate content for any other brand.
             count = num_prompts.get('image', 1)
             for i in range(1, count + 1):
                 json_fields.append(f'    "image_prompt_{i}": "Create a cinematic, professional image that... (your detailed image generation prompt here)"')
+                # Add platform texts for each image
+                json_fields.append(f'    "image_{i}_platform_texts": {{\n        "twitter": "280 char max tweet with hashtags",\n        "youtube": "Detailed YouTube description with SEO",\n        "instagram": "Visual storytelling caption with emojis and hashtags",\n        "linkedin": "Professional thought-leadership post"\n    }}')
         
         # Clip prompts
         if 'clip' in prompt_types:
             count = num_prompts.get('clip', 1)
             for i in range(1, count + 1):
                 json_fields.append(f'    "clip_prompt_{i}": "Create smooth, professional video content that... (your detailed clip generation prompt here)"')
+                # Add platform texts for each clip
+                json_fields.append(f'    "clip_{i}_platform_texts": {{\n        "twitter": "280 char max tweet with hashtags",\n        "youtube": "Detailed YouTube description with SEO",\n        "instagram": "Visual storytelling caption with emojis and hashtags",\n        "linkedin": "Professional thought-leadership post"\n    }}')
         
-        # Tweet/message text
+        # Tweet/message text (legacy, may be deprecated in favor of platform_texts)
         if 'tweet' in prompt_types:
             json_fields.append(f'    "tweet_text": "Create compelling brand messaging suitable for {context.get("target_platform", "social media")}"')
         
@@ -257,6 +277,10 @@ FOCUS EXCLUSIVELY ON {brand_name} - DO NOT generate content for any other brand.
         
         prompt += ',\n'.join(json_fields)
         prompt += '\n}\n\n'
+        
+        # Add platform-specific text generation instructions
+        if 'image' in prompt_types or 'clip' in prompt_types:
+            prompt += self._get_platform_text_instructions(context)
         
         # Add specific instructions based on prompt types
         if 'image' in prompt_types:
@@ -390,6 +414,118 @@ JSON only, no other text:"""
             instructions += "- Image-to-video generation from single frame\n"
         
         instructions += "\n"
+        return instructions
+    
+    def _format_visual_analysis(self, visual_analysis: Dict) -> str:
+        """Format visual analysis results for inclusion in prompt"""
+        if not visual_analysis:
+            return ""
+        
+        formatted = """
+🔍 VISUAL PATTERN ANALYSIS INSIGHTS:
+Based on analysis of uploaded visual references, maintain these patterns:
+
+"""
+        
+        if visual_analysis.get('products_identified'):
+            formatted += "📦 PRODUCTS IDENTIFIED:\n"
+            for i, product in enumerate(visual_analysis['products_identified'], 1):
+                formatted += f"  Product {i}:\n"
+                if product.get('description'):
+                    formatted += f"    - Description: {product['description']}\n"
+                if product.get('key_features'):
+                    formatted += f"    - Key Features: {product['key_features']}\n"
+                if product.get('best_angles'):
+                    formatted += f"    - Best Angles: {product['best_angles']}\n"
+                if product.get('styling_notes'):
+                    formatted += f"    - Styling: {product['styling_notes']}\n"
+            formatted += "\n"
+        
+        if visual_analysis.get('color_palette'):
+            formatted += f"🎨 COLOR PALETTE: {visual_analysis['color_palette']}\n\n"
+        
+        if visual_analysis.get('visual_style'):
+            formatted += f"✨ VISUAL STYLE: {visual_analysis['visual_style']}\n\n"
+        
+        if visual_analysis.get('composition_patterns'):
+            formatted += f"📐 COMPOSITION: {visual_analysis['composition_patterns']}\n\n"
+        
+        if visual_analysis.get('mood'):
+            formatted += f"😊 MOOD: {visual_analysis['mood']}\n\n"
+        
+        if visual_analysis.get('lighting_style'):
+            formatted += f"💡 LIGHTING: {visual_analysis['lighting_style']}\n\n"
+        
+        if visual_analysis.get('text_elements'):
+            formatted += f"📝 TEXT ELEMENTS: {visual_analysis['text_elements']}\n\n"
+        
+        if visual_analysis.get('background_aesthetics'):
+            formatted += f"🖼️  BACKGROUNDS: {visual_analysis['background_aesthetics']}\n\n"
+        
+        if visual_analysis.get('industry_insights'):
+            formatted += f"🏢 INDUSTRY INSIGHTS: {visual_analysis['industry_insights']}\n\n"
+        
+        if visual_analysis.get('workflow_recommendations'):
+            formatted += f"💡 WORKFLOW RECOMMENDATIONS: {visual_analysis['workflow_recommendations']}\n\n"
+        
+        formatted += """
+⚠️ CRITICAL: Your generated prompts MUST align with these visual patterns to maintain consistency with uploaded references.
+
+"""
+        return formatted
+    
+    def _get_platform_text_instructions(self, context: Dict) -> str:
+        """Generate instructions for platform-specific text generation"""
+        brand_name = context.get('brand_name', 'the brand')
+        
+        instructions = f"""
+📱 PLATFORM-SPECIFIC TEXT GENERATION:
+For EACH piece of content (image or clip), generate promotional text optimized for ALL 4 platforms:
+
+1. TWITTER/X (280 characters max):
+   - Concise, punchy messaging
+   - 2-3 relevant hashtags maximum
+   - Emoji for visual appeal (1-2 only)
+   - Clear call-to-action
+   - Engaging and shareable
+   - Brand voice: match {brand_name}'s tone
+
+2. YOUTUBE (Detailed description):
+   - Compelling title-style first line
+   - Detailed description (3-5 paragraphs)
+   - SEO-optimized with relevant keywords
+   - Bullet points for key features/benefits
+   - Call-to-action with placeholder link
+   - 5-8 hashtags for discovery
+   - Professional yet engaging tone
+
+3. INSTAGRAM (Visual storytelling):
+   - Emotive, aspirational language
+   - Visual storytelling approach
+   - Emojis throughout for engagement
+   - 10-15 relevant hashtags
+   - Engagement prompts ("tag us", "share your story", "double tap if...")
+   - Line breaks for readability
+   - Brand personality shines through
+
+4. LINKEDIN (Professional tone):
+   - Professional, thought-leadership angle
+   - Industry insights or business perspective
+   - Strategic/marketing angle when relevant
+   - No excessive emojis (1-2 max if any)
+   - Conversation starters
+   - Value proposition clear
+   - Appropriate for professional network
+
+CRITICAL REQUIREMENTS:
+- Each platform text must be UNIQUE and optimized for that platform
+- All texts promote the SAME content but with platform-appropriate messaging
+- Maintain {brand_name} brand voice across all platforms
+- Texts should work standalone without needing the image/video (but complement it)
+- Include specific details about what the content shows
+- Drive engagement appropriate to each platform
+
+"""
         return instructions
 
 

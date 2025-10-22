@@ -3,6 +3,7 @@ import { Account } from './Account';
 import { BrandContext } from './BrandContext';
 import { AutomationSettings } from './AutomationSettings';
 import { Web2GeneratedContent } from './Web2GeneratedContent';
+import { ContextManagement } from './ContextManagement';
 
 export type AccountClientStatus = 'active' | 'inactive';
 
@@ -50,5 +51,8 @@ export class AccountClient {
 
   @OneToMany(() => Web2GeneratedContent, content => content.account_client)
   generated_contents!: Web2GeneratedContent[];
+
+  @OneToMany(() => ContextManagement, context => context.account_client)
+  context_management!: ContextManagement[];
 }
 

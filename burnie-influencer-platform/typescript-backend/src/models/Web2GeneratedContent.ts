@@ -37,7 +37,7 @@ export class Web2GeneratedContent {
   @Column({ type: 'text', nullable: true })
   user_prompt?: string; // User's high-level instructions
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
   user_images?: string[]; // S3 URLs of user-uploaded reference images
 
   @Column({ type: 'text', nullable: true })
@@ -84,6 +84,19 @@ export class Web2GeneratedContent {
   @Column({ type: 'text', nullable: true })
   voiceover_prompt?: string; // Generated prompt for voiceover
 
+  // Platform-specific promotional texts (NEW)
+  @Column({ type: 'text', nullable: true })
+  twitter_text?: string; // Twitter/X promotional text (280 chars)
+
+  @Column({ type: 'text', nullable: true })
+  youtube_description?: string; // YouTube description (detailed)
+
+  @Column({ type: 'text', nullable: true })
+  instagram_caption?: string; // Instagram caption (with emojis/hashtags)
+
+  @Column({ type: 'text', nullable: true })
+  linkedin_post?: string; // LinkedIn post (professional tone)
+
   // Generated content URLs (stored in S3)
   @Column({ type: 'simple-array', nullable: true })
   generated_image_urls?: string[]; // S3 URLs of generated images
@@ -121,6 +134,22 @@ export class Web2GeneratedContent {
 
   @Column({ type: 'jsonb', nullable: true })
   post_metadata?: Record<string, any>; // Platform-specific post metadata (tweet ID, etc.)
+
+  // Workflow-specific metadata
+  @Column({ type: 'jsonb', nullable: true })
+  workflow_metadata?: Record<string, any>; // All workflow-specific form data (product categories, colors, styles, contexts, etc.)
+
+  @Column({ type: 'jsonb', nullable: true })
+  visual_analysis?: Record<string, any>; // Results from Grok visual pattern analysis
+
+  @Column({ type: 'int', nullable: true })
+  num_variations?: number; // Number of variations requested (1-5)
+
+  @Column({ type: 'text', nullable: true })
+  industry?: string; // Account industry for context
+
+  @Column({ type: 'jsonb', nullable: true })
+  brand_context?: Record<string, any>; // Brand context data used for generation
 
   @CreateDateColumn()
   created_at!: Date;

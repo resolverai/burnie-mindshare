@@ -5,6 +5,7 @@ import { BrandContext } from './BrandContext';
 import { AccountSocialMediaConnection } from './AccountSocialMediaConnection';
 import { AutomationSettings } from './AutomationSettings';
 import { Web2GeneratedContent } from './Web2GeneratedContent';
+import { ContextManagement } from './ContextManagement';
 
 export type AccountType = 'individual' | 'business' | 'agency';
 export type AccountStatus = 'active' | 'inactive' | 'suspended';
@@ -67,5 +68,8 @@ export class Account {
 
   @OneToMany(() => Web2GeneratedContent, content => content.account)
   generated_contents!: Web2GeneratedContent[];
+
+  @OneToMany(() => ContextManagement, context => context.account)
+  context_management!: ContextManagement[];
 }
 

@@ -4,6 +4,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import { ChevronDownIcon, ChevronUpIcon, SparklesIcon, CameraIcon } from '@heroicons/react/24/outline'
+import PlatformSelector from '@/components/web2/PlatformSelector'
+import ProgressOverlay from '@/components/web2/ProgressOverlay'
+import PlatformText from '@/components/web2/PlatformText'
+import Image from 'next/image'
 
 export default function BehindScenesPage() {
   const router = useRouter()
@@ -19,6 +23,14 @@ export default function BehindScenesPage() {
   const [expandedSections, setExpandedSections] = useState({ basic: true, advanced: false, options: false })
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<string[]>([])
+  
+  // New state for unified generation
+  const [generationState, setGenerationState] = useState<'idle' | 'generating' | 'complete'>('idle')
+  const [progressMessage, setProgressMessage] = useState('')
+  const [progressPercent, setProgressPercent] = useState(0)
+  const [selectedPlatform, setSelectedPlatform] = useState<'twitter' | 'youtube' | 'instagram' | 'linkedin'>('twitter')
+  const [platformTexts, setPlatformTexts] = useState<any>({})
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
 
   const toggleSection = (section: 'basic' | 'advanced' | 'options') => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))
@@ -225,34 +237,81 @@ export default function BehindScenesPage() {
             </div>
           </div>
 
-          <div className="w-1/2 flex items-center justify-center p-6 bg-gray-900/50">
-            <div className="w-full max-w-2xl">
-              {isGenerating ? (
-                <div className="flex flex-col items-center justify-center space-y-4">
-                  <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-gray-400 text-lg">Creating authentic content...</p>
-                </div>
-              ) : generatedImages.length > 0 ? (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-white mb-4">Generated Content</h3>
-                  <div className="grid grid-cols-1 gap-4">
-                    {generatedImages.map((url, idx) => (
-                      <div key={idx} className="relative group">
-                        <img src={url} alt={'Generated ' + (idx + 1)} className="w-full rounded-lg border border-gray-700 group-hover:border-purple-500 transition-colors" />
-                        <div className="absolute top-2 right-2 bg-gray-900/80 px-2 py-1 rounded text-xs text-white">Variation {idx + 1}</div>
+          {/* Right Panel - Output Preview (50%) */}
+          <div className="w-1/2 flex flex-col">
+            {/* Platform Selector - Top */}
+            <PlatformSelector
+              platforms={['twitter', 'youtube', 'instagram', 'linkedin']}
+              selected={selectedPlatform}
+              onChange={(platform) => setSelectedPlatform(platform as any)}
+              disabled={generationState !== 'complete'}
+            />
+            
+            {/* Content Area - Middle */}
+            <div className="flex-1 p-6 overflow-hidden flex flex-col">
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 flex-1 flex items-center justify-center relative">
+                {generationState === 'generating' ? (
+                  <ProgressOverlay
+                    message={progressMessage}
+                    percent={progressPercent}
+                  />
+                ) : generationState === 'complete' && generatedImages.length > 0 ? (
+                  <div className="relative w-full h-full p-4">
+                    {/* Image navigation if multiple */}
+                    {generatedImages.length > 1 && (
+                      <div className="absolute top-4 left-0 right-0 flex items-center justify-center space-x-2 z-10">
+                        <button
+                          onClick={() => setCurrentImageIndex(Math.max(0, currentImageIndex - 1))}
+                          disabled={currentImageIndex === 0}
+                          className="px-3 py-1 bg-gray-900/80 text-white rounded-lg disabled:opacity-50"
+                        >
+                          ←
+                        </button>
+                        <span className="px-3 py-1 bg-gray-900/80 text-white rounded-lg text-sm">
+                          {currentImageIndex + 1} of {generatedImages.length}
+                        </span>
+                        <button
+                          onClick={() => setCurrentImageIndex(Math.min(generatedImages.length - 1, currentImageIndex + 1))}
+                          disabled={currentImageIndex === generatedImages.length - 1}
+                          className="px-3 py-1 bg-gray-900/80 text-white rounded-lg disabled:opacity-50"
+                        >
+                          →
+                        </button>
                       </div>
-                    ))}
+                    )}
+                    
+                    {/* Current image */}
+                    <div className="w-full h-full flex items-center justify-center">
+                      <div className="relative max-w-full max-h-full">
+                        <Image
+                          src={generatedImages[currentImageIndex]}
+                          alt={'Generated image ' + (currentImageIndex + 1)}
+                          width={800}
+                          height={800}
+                          className="object-contain rounded-lg"
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center text-center space-y-4 py-12">
-                  <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center">
-                    <CameraIcon className="w-12 h-12 text-gray-600" />
+                ) : (
+                  <div className="text-center space-y-4">
+                    <div className="text-6xl opacity-20">📸</div>
+                    <p className="text-gray-400">Your generated content will appear here</p>
+                    <p className="text-sm text-gray-500">Fill the form and click Generate</p>
                   </div>
-                  <p className="text-gray-400 text-lg">No content generated yet</p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
+            
+            {/* Platform Text - Bottom */}
+            {generationState === 'complete' && platformTexts[selectedPlatform] && (
+              <PlatformText
+                text={platformTexts[selectedPlatform]}
+                platform={selectedPlatform}
+                onCopy={() => console.log('Text copied')}
+                onPost={() => console.log('Posting to ' + selectedPlatform)}
+              />
+            )}
           </div>
         </div>
       </div>

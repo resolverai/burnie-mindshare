@@ -160,6 +160,123 @@ export class S3Service {
       throw error;
     }
   }
+
+  /**
+   * Upload file for Context Management with organized folder structure
+   * Structure: web2/accounts/{accountId}/context/{tab}/{filename}
+   */
+  async uploadContextFile(
+    fileBuffer: Buffer,
+    fileName: string,
+    contentType: string,
+    accountId: number,
+    tab: 'brand_assets' | 'visual_references' | 'text_content' | 'platform_handles',
+    clientId?: number
+  ): Promise<{ s3Url: string; s3Key: string }> {
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const safeName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
+      
+      let s3Key: string;
+      if (clientId) {
+        s3Key = `web2/accounts/${accountId}/clients/${clientId}/context/${tab}/${timestamp}_${safeName}`;
+      } else {
+        s3Key = `web2/accounts/${accountId}/context/${tab}/${timestamp}_${safeName}`;
+      }
+
+      const uploadParams = {
+        Bucket: this.bucketName,
+        Key: s3Key,
+        Body: fileBuffer,
+        ContentType: contentType,
+        ACL: 'private'
+      };
+
+      const result = await this.s3.upload(uploadParams).promise();
+      
+      logger.info(`✅ Context file uploaded to S3: ${s3Key}`);
+      
+      return {
+        s3Url: result.Location,
+        s3Key: s3Key
+      };
+    } catch (error) {
+      logger.error(`❌ Context file S3 upload failed: ${error}`);
+      throw new Error(`Context file S3 upload failed: ${error}`);
+    }
+  }
+
+  /**
+   * List all files in a specific context tab folder
+   */
+  async listContextFiles(
+    accountId: number,
+    tab: 'brand_assets' | 'visual_references' | 'text_content' | 'platform_handles',
+    clientId?: number
+  ): Promise<string[]> {
+    try {
+      const prefix = clientId
+        ? `web2/accounts/${accountId}/clients/${clientId}/context/${tab}/`
+        : `web2/accounts/${accountId}/context/${tab}/`;
+
+      const params = {
+        Bucket: this.bucketName,
+        Prefix: prefix
+      };
+
+      const result = await this.s3.listObjectsV2(params).promise();
+      return result.Contents?.map(obj => obj.Key!) || [];
+    } catch (error) {
+      logger.error(`❌ Failed to list context files: ${error}`);
+      return [];
+    }
+  }
+
+  /**
+   * Download file from S3 to buffer (for text extraction)
+   */
+  async downloadFile(s3Key: string): Promise<Buffer> {
+    try {
+      const params = {
+        Bucket: this.bucketName,
+        Key: s3Key
+      };
+
+      const result = await this.s3.getObject(params).promise();
+      return result.Body as Buffer;
+    } catch (error) {
+      logger.error(`❌ Failed to download file ${s3Key}: ${error}`);
+      throw new Error(`Failed to download file: ${error}`);
+    }
+  }
+
+  /**
+   * Extract S3 key from S3 URL or presigned URL
+   */
+  extractS3Key(url: string): string {
+    // Handle s3://bucket/key format
+    if (url.startsWith('s3://')) {
+      const parts = url.replace('s3://', '').split('/');
+      return parts.slice(1).join('/');
+    }
+    
+    // Handle https://bucket.s3.region.amazonaws.com/key format
+    if (url.includes('.s3.') && url.includes('.amazonaws.com/')) {
+      const keyStart = url.indexOf('.amazonaws.com/') + '.amazonaws.com/'.length;
+      const key = url.substring(keyStart).split('?')[0]; // Remove query params if presigned
+      return key || '';
+    }
+    
+    // Handle direct S3 URL format
+    if (url.includes('s3.amazonaws.com/')) {
+      const keyStart = url.indexOf('s3.amazonaws.com/') + 's3.amazonaws.com/'.length;
+      const key = url.substring(keyStart).split('?')[0];
+      return key || '';
+    }
+    
+    // Assume it's already a key
+    return url;
+  }
 }
 
 // Export singleton instance

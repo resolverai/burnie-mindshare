@@ -4,6 +4,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import { ChevronDownIcon, ChevronUpIcon, SparklesIcon, MegaphoneIcon } from '@heroicons/react/24/outline'
+import PlatformSelector from '@/components/web2/PlatformSelector'
+import ProgressOverlay from '@/components/web2/ProgressOverlay'
+import PlatformText from '@/components/web2/PlatformText'
+import Image from 'next/image'
 
 export default function MarketingCampaignPage() {
   const router = useRouter()
@@ -21,6 +25,14 @@ export default function MarketingCampaignPage() {
   const [expandedSections, setExpandedSections] = useState({ basic: true, advanced: false, options: false })
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<string[]>([])
+  
+  // New state for unified generation
+  const [generationState, setGenerationState] = useState<'idle' | 'generating' | 'complete'>('idle')
+  const [progressMessage, setProgressMessage] = useState('')
+  const [progressPercent, setProgressPercent] = useState(0)
+  const [selectedPlatform, setSelectedPlatform] = useState<'twitter' | 'youtube' | 'instagram' | 'linkedin'>('twitter')
+  const [platformTexts, setPlatformTexts] = useState<any>({})
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
 
   const toggleSection = (section: 'basic' | 'advanced' | 'options') => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))

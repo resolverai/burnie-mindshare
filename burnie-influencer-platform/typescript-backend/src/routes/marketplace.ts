@@ -1671,7 +1671,7 @@ router.post('/approve', async (req, res) => {
         existingContent.watermarkImage = watermarkImageUrl;
       }
       // Update video fields - enforce consistency: isVideo should match ACTUAL video presence (not image URLs)
-      existingContent.isVideo = isActuallyVideo;
+      existingContent.isVideo = Boolean(isActuallyVideo);
       existingContent.videoUrl = isActuallyVideo ? videoUrl : null;
       
       // Don't set watermarkVideoUrl here - it will be set later via callback (only if actual video exists)
@@ -5413,7 +5413,7 @@ router.post('/approve-content', async (req: Request, res: Response) => {
         isActuallyVideo: isActuallyVideo,
         fixingTo: isActuallyVideo
       });
-      content.isVideo = isActuallyVideo;
+      content.isVideo = Boolean(isActuallyVideo);
       
       // If no actual video, clear all video-related fields
       if (!isActuallyVideo) {

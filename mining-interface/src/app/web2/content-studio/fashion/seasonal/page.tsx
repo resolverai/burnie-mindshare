@@ -4,6 +4,9 @@ import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import Image from 'next/image'
+import PlatformSelector from '@/components/web2/PlatformSelector'
+import ProgressOverlay from '@/components/web2/ProgressOverlay'
+import PlatformText from '@/components/web2/PlatformText'
 
 interface CollapsibleSection {
   id: string
@@ -33,19 +36,33 @@ export default function SeasonalCampaignPage() {
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
-  const [productImage, setProductImage] = useState<File | null>(null)
-  const [productImagePreview, setProductImagePreview] = useState<string | null>(null)
+  const [productImages, setProductImages] = useState<File[]>([])
+  const [productImagePreviews, setProductImagePreviews] = useState<string[]>([])
   const [productCategory, setProductCategory] = useState('')
+  const [customProductCategory, setCustomProductCategory] = useState('')
+  const [showCustomCategory, setShowCustomCategory] = useState(false)
+  const [numVariations, setNumVariations] = useState(1)
   const [selectedSeason, setSelectedSeason] = useState('')
+  const [customSeason, setCustomSeason] = useState('')
   const [selectedStyle, setSelectedStyle] = useState('')
+  const [customStyle, setCustomStyle] = useState('')
   const [selectedOccasions, setSelectedOccasions] = useState<Set<string>>(new Set())
-  const [numVariations, setNumVariations] = useState(3)
+  const [customOccasion, setCustomOccasion] = useState('')
   const [includeLogo, setIncludeLogo] = useState(true)
   const [additionalInstructions, setAdditionalInstructions] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<string[]>([])
   const [generatedCaption, setGeneratedCaption] = useState('')
+  const [selectedImageModal, setSelectedImageModal] = useState<string | null>(null)
+  
+  // New state for unified generation
+  const [generationState, setGenerationState] = useState<'idle' | 'generating' | 'complete'>('idle')
+  const [progressMessage, setProgressMessage] = useState('')
+  const [progressPercent, setProgressPercent] = useState(0)
+  const [selectedPlatform, setSelectedPlatform] = useState<'twitter' | 'youtube' | 'instagram' | 'linkedin'>('twitter')
+  const [platformTexts, setPlatformTexts] = useState<any>({})
+  const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [sections, setSections] = useState<CollapsibleSection[]>([
     { id: 'upload', title: '1. Upload Product Image', isOpen: true },
     { id: 'category', title: '2. Product Category', isOpen: true },
@@ -58,26 +75,50 @@ export default function SeasonalCampaignPage() {
 
   const productCategories = [
     'Dress', 'Shirt', 'Pants', 'Shoes', 'Jacket', 'Skirt',
-    'Accessories', 'Bag', 'Hat', 'Jewelry', 'Watch', 'Sunglasses'
+    'Accessories', 'Bag', 'Hat', 'Jewelry', 'Watch', 'Sunglasses', 'Other'
   ]
 
-  const handleFileSelect = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file')
-      return
-    }
+  const handleFileSelect = (files: FileList | File[]) => {
+    const fileArray = Array.from(files)
+    const validFiles = fileArray.filter(file => {
+      if (!file.type.startsWith('image/')) {
+        alert(`${file.name} is not an image file`)
+        return false
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`${file.name} is larger than 10MB`)
+        return false
+      }
+      return true
+    })
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert('File size must be less than 10MB')
-      return
-    }
+    if (validFiles.length === 0) return
 
-    setProductImage(file)
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      setProductImagePreview(e.target?.result as string)
+    setProductImages(prev => [...prev, ...validFiles])
+    
+    // Generate previews for new files
+    validFiles.forEach(file => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        setProductImagePreviews(prev => [...prev, e.target?.result as string])
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const removeProductImage = (index: number) => {
+    setProductImages(prev => prev.filter((_, i) => i !== index))
+    setProductImagePreviews(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const handleCategoryChange = (category: string) => {
+    setProductCategory(category)
+    if (category === 'Other') {
+      setShowCustomCategory(true)
+    } else {
+      setShowCustomCategory(false)
+      setCustomProductCategory('')
     }
-    reader.readAsDataURL(file)
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -93,9 +134,9 @@ export default function SeasonalCampaignPage() {
     e.preventDefault()
     setIsDragging(false)
     
-    const file = e.dataTransfer.files[0]
-    if (file) {
-      handleFileSelect(file)
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      handleFileSelect(files)
     }
   }
 
@@ -118,8 +159,8 @@ export default function SeasonalCampaignPage() {
   }
 
   const handleGenerate = async () => {
-    if (!productImage) {
-      alert('Please upload a product image')
+    if (productImages.length === 0) {
+      alert('Please upload at least one product image')
       return
     }
 
@@ -142,24 +183,29 @@ export default function SeasonalCampaignPage() {
     setGeneratedImages([])
 
     try {
-      const formData = new FormData()
-      formData.append('file', productImage)
-      formData.append('account_id', localStorage.getItem('burnie_web2_account_id') || '')
+      // Upload all product images
+      const uploadPromises = productImages.map(async (file) => {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('account_id', localStorage.getItem('burnie_web2_account_id') || '')
 
-      const uploadResponse = await fetch(
-        (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/upload-user-file',
-        {
-          method: 'POST',
-          body: formData
+        const uploadResponse = await fetch(
+          (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/upload-user-file',
+          {
+            method: 'POST',
+            body: formData
+          }
+        )
+
+        if (!uploadResponse.ok) {
+          throw new Error('Failed to upload product image')
         }
-      )
 
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload product image')
-      }
+        const uploadData = await uploadResponse.json()
+        return uploadData.s3_url
+      })
 
-      const uploadData = await uploadResponse.json()
-      const productImageUrl = uploadData.s3_url
+      const productImageUrls = await Promise.all(uploadPromises)
 
       const occasionsArray = Array.from(selectedOccasions)
       const selectedSeasonObj = seasons.find(s => s.id === selectedSeason)
@@ -169,8 +215,8 @@ export default function SeasonalCampaignPage() {
         prompt_types: ['image', 'tweet'],
         num_prompts: { image: numVariations, tweet: 1 },
         theme: (selectedSeasonObj?.name || selectedSeason) + ' seasonal campaign - ' + selectedStyle + ' style',
-        user_prompt: 'Create ' + (selectedSeasonObj?.name || selectedSeason) + ' seasonal campaign images for this ' + productCategory + ' in ' + selectedStyle + ' style. Target occasions: ' + (occasionsArray.length > 0 ? occasionsArray.join(', ') : 'general season') + '. ' + additionalInstructions,
-        user_images: [productImageUrl],
+        user_prompt: 'Create ' + (selectedSeasonObj?.name || selectedSeason) + ' seasonal campaign images for this ' + (productCategory === 'Other' ? customProductCategory : productCategory) + ' in ' + selectedStyle + ' style. Target occasions: ' + (occasionsArray.length > 0 ? occasionsArray.join(', ') : 'general season') + '. ' + additionalInstructions,
+        user_images: productImageUrls,
         workflow_type: 'fashion_seasonal_campaign',
         target_platform: 'instagram',
         no_characters: false,
@@ -209,7 +255,7 @@ export default function SeasonalCampaignPage() {
           prompt: imagePrompt,
           num_images: 1,
           include_logo: includeLogo,
-          user_images: [productImageUrl],
+          user_images: productImageUrls,
           image_model: 'nano-banana'
         }
 
@@ -259,7 +305,41 @@ export default function SeasonalCampaignPage() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-900">
+    <>
+
+      <style jsx>{`
+        .slider::-webkit-slider-thumb {
+          appearance: none;
+          height: 20px;
+          width: 20px;
+          border-radius: 50%;
+          background: #3b82f6;
+          cursor: pointer;
+          border: 2px solid #1f2937;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .slider::-moz-range-thumb {
+          height: 20px;
+          width: 20px;
+          border-radius: 50%;
+          background: #3b82f6;
+          cursor: pointer;
+          border: 2px solid #1f2937;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .slider::-webkit-slider-track {
+          height: 8px;
+          border-radius: 4px;
+        }
+        
+        .slider::-moz-range-track {
+          height: 8px;
+          border-radius: 4px;
+        }
+      `}</style>
+      <div className="flex h-screen bg-gray-900">
       <Web2Sidebar isExpanded={sidebarExpanded} onToggle={() => setSidebarExpanded(!sidebarExpanded)} />
 
       <div className={'flex-1 flex flex-col overflow-hidden transition-all duration-300 ' + (sidebarExpanded ? 'ml-64' : 'ml-20')}>
@@ -289,7 +369,7 @@ export default function SeasonalCampaignPage() {
                   onClick={() => toggleSection('upload')}
                   className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-700/30 transition-colors rounded-lg"
                 >
-                  <h2 className="text-base font-bold text-white">1. Upload Product Image</h2>
+                  <h2 className="text-base font-bold text-white">1. Upload Product Images</h2>
                   <svg
                     className={'w-5 h-5 text-gray-400 transition-transform ' + (sections.find(s => s.id === 'upload')?.isOpen ? 'rotate-180' : '')}
                     fill="none"
@@ -309,26 +389,47 @@ export default function SeasonalCampaignPage() {
                       onClick={() => fileInputRef.current?.click()}
                       className={'border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all ' + 
                         (isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-gray-600 hover:border-gray-500') +
-                        (productImagePreview ? ' border-green-500' : '')}
+                        (productImagePreviews.length > 0 ? ' border-green-500' : '')}
                     >
-                      {productImagePreview ? (
+                      {productImagePreviews.length > 0 ? (
                         <div className="space-y-3">
-                          <div className="relative w-32 h-32 mx-auto">
-                            <Image
-                              src={productImagePreview}
-                              alt="Product preview"
-                              fill
-                              className="object-contain rounded-lg"
-                            />
+                          <div className="grid grid-cols-3 gap-2 max-h-32 overflow-y-auto">
+                            {productImagePreviews.map((preview, index) => (
+                              <div key={index} className="relative w-20 h-20 group">
+                                <div 
+                                  className="relative w-full h-full cursor-pointer"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedImageModal(preview)
+                                  }}
+                                >
+                                  <Image
+                                    src={preview}
+                                    alt={`Product preview ${index + 1}`}
+                                    fill
+                                    className="object-cover rounded-lg hover:opacity-80 transition-opacity"
+                                  />
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      removeProductImage(index)
+                                    }}
+                                    className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
-                          <p className="text-xs text-gray-400">Click to change</p>
+                          <p className="text-xs text-gray-400">Click to add more images</p>
                         </div>
                       ) : (
                         <div className="space-y-3">
                           <div className="text-4xl">📸</div>
                           <div>
-                            <p className="text-white font-medium mb-1 text-sm">Drop image or click to browse</p>
-                            <p className="text-xs text-gray-400">JPG, PNG, GIF, WebP (max 10MB)</p>
+                            <p className="text-white font-medium mb-1 text-sm">Drop images or click to browse</p>
+                            <p className="text-xs text-gray-400">JPG, PNG, GIF, WebP (max 10MB each)</p>
                           </div>
                         </div>
                       )}
@@ -337,7 +438,8 @@ export default function SeasonalCampaignPage() {
                       ref={fileInputRef}
                       type="file"
                       accept="image/*"
-                      onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+                      multiple
+                      onChange={(e) => e.target.files && handleFileSelect(e.target.files)}
                       className="hidden"
                     />
                   </div>
@@ -367,7 +469,7 @@ export default function SeasonalCampaignPage() {
                       {productCategories.map((category) => (
                         <button
                           key={category}
-                          onClick={() => setProductCategory(category)}
+                          onClick={() => handleCategoryChange(category)}
                           className={'px-3 py-2 rounded-lg text-sm font-medium transition-all ' +
                             (productCategory === category
                               ? 'bg-blue-600 text-white'
@@ -377,6 +479,20 @@ export default function SeasonalCampaignPage() {
                         </button>
                       ))}
                     </div>
+                    {showCustomCategory && (
+                      <div className="mt-4">
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Custom Product Category
+                        </label>
+                        <input
+                          type="text"
+                          value={customProductCategory}
+                          onChange={(e) => setCustomProductCategory(e.target.value)}
+                          placeholder="Enter your custom product category"
+                          className="w-full bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -418,6 +534,46 @@ export default function SeasonalCampaignPage() {
                         </button>
                       ))}
                     </div>
+                    <div className="mt-4">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={customSeason}
+                          onChange={(e) => setCustomSeason(e.target.value)}
+                          placeholder="Enter custom season"
+                          className="flex-1 bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                          onClick={() => {
+                            if (customSeason.trim()) {
+                              setSelectedSeason(customSeason)
+                              setCustomSeason('')
+                            }
+                          }}
+                          disabled={!customSeason.trim()}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Add Custom
+                        </button>
+                      </div>
+                    </div>
+                    {/* Display selected custom season */}
+                    {selectedSeason && !seasons.map(s => s.id).includes(selectedSeason) && (
+                      <div className="mt-2">
+                        <div className="text-xs text-gray-400 mb-1">Custom season:</div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded-lg flex items-center gap-1">
+                            {selectedSeason}
+                            <button
+                              onClick={() => setSelectedSeason('')}
+                              className="text-blue-200 hover:text-white"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -455,6 +611,46 @@ export default function SeasonalCampaignPage() {
                         </button>
                       ))}
                     </div>
+                    <div className="mt-4">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={customStyle}
+                          onChange={(e) => setCustomStyle(e.target.value)}
+                          placeholder="Enter custom campaign style"
+                          className="flex-1 bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                          onClick={() => {
+                            if (customStyle.trim()) {
+                              setSelectedStyle(customStyle)
+                              setCustomStyle('')
+                            }
+                          }}
+                          disabled={!customStyle.trim()}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Add Custom
+                        </button>
+                      </div>
+                    </div>
+                    {/* Display selected custom campaign style */}
+                    {selectedStyle && !campaignStyles.includes(selectedStyle) && (
+                      <div className="mt-2">
+                        <div className="text-xs text-gray-400 mb-1">Custom campaign style:</div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded-lg flex items-center gap-1">
+                            {selectedStyle}
+                            <button
+                              onClick={() => setSelectedStyle('')}
+                              className="text-purple-200 hover:text-white"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -494,6 +690,57 @@ export default function SeasonalCampaignPage() {
                         </button>
                       ))}
                     </div>
+                    <div className="mt-4">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={customOccasion}
+                          onChange={(e) => setCustomOccasion(e.target.value)}
+                          placeholder="Enter custom occasion"
+                          className="flex-1 bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button
+                          onClick={() => {
+                            if (customOccasion.trim()) {
+                              setSelectedOccasions(prev => new Set([...Array.from(prev), customOccasion]))
+                              setCustomOccasion('')
+                            }
+                          }}
+                          disabled={!customOccasion.trim()}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Add Custom
+                        </button>
+                      </div>
+                    </div>
+                    {/* Display selected custom occasions */}
+                    {Array.from(selectedOccasions).filter(occasion => !occasions.includes(occasion)).length > 0 && (
+                      <div className="mt-2">
+                        <div className="text-xs text-gray-400 mb-1">Custom occasions:</div>
+                        <div className="flex flex-wrap gap-1">
+                          {Array.from(selectedOccasions).filter(occasion => !occasions.includes(occasion)).map((occasion, index) => (
+                            <span
+                              key={index}
+                              className="px-2 py-1 bg-green-600 text-white text-xs rounded-lg flex items-center gap-1"
+                            >
+                              {occasion}
+                              <button
+                                onClick={() => {
+                                  setSelectedOccasions(prev => {
+                                    const newSet = new Set(Array.from(prev))
+                                    newSet.delete(occasion)
+                                    return newSet
+                                  })
+                                }}
+                                className="text-green-200 hover:text-white"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -520,8 +767,7 @@ export default function SeasonalCampaignPage() {
                     <div className="flex items-center space-x-4">
                       <input
                         type="range"
-                        min="2"
-                        max="5"
+                        min="1" max="5"
                         value={numVariations}
                         onChange={(e) => setNumVariations(parseInt(e.target.value))}
                         className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
@@ -585,7 +831,7 @@ export default function SeasonalCampaignPage() {
               {/* Generate Button */}
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || !productImage || !productCategory || !selectedSeason || !selectedStyle}
+                disabled={isGenerating || productImages.length === 0 || !productCategory || !selectedSeason || !selectedStyle}
                 className="w-full px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
               >
                 {isGenerating ? (
@@ -605,58 +851,106 @@ export default function SeasonalCampaignPage() {
             </div>
           </div>
 
-          {/* Right Panel */}
-          <div className="w-1/2 p-6 flex flex-col">
-            <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 p-6 flex-1 flex flex-col">
-              <h2 className="text-xl font-bold text-white mb-4">Generated Campaign Images</h2>
-              
-              <div className="flex-1 flex items-center justify-center">
-                {isGenerating ? (
-                  <div className="text-center space-y-4">
-                    <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500 mx-auto"></div>
-                    <p className="text-white font-medium">Generating your campaign images...</p>
-                    <p className="text-sm text-gray-400">This may take a minute</p>
-                  </div>
-                ) : generatedImages.length > 0 ? (
-                  <div className="w-full space-y-4">
-                    <div className="grid grid-cols-2 gap-4 max-h-[500px] overflow-y-auto">
-                      {generatedImages.map((imageUrl, index) => (
-                        <div
-                          key={index}
-                          className="relative aspect-square rounded-lg overflow-hidden border-2 border-gray-700 hover:border-blue-500 transition-all"
+          {/* Right Panel - Output Preview (50%) */}
+          <div className="w-1/2 flex flex-col">
+            {/* Platform Selector - Top */}
+            <PlatformSelector
+              platforms={['twitter', 'youtube', 'instagram', 'linkedin']}
+              selected={selectedPlatform}
+              onChange={(platform) => setSelectedPlatform(platform as any)}
+              disabled={generationState !== 'complete'}
+            />
+            
+            {/* Content Area - Middle */}
+            <div className="flex-1 p-6 overflow-hidden flex flex-col">
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl border border-gray-700/50 flex-1 flex items-center justify-center relative">
+                {generationState === 'generating' ? (
+                  <ProgressOverlay
+                    message={progressMessage}
+                    percent={progressPercent}
+                  />
+                ) : generationState === 'complete' && generatedImages.length > 0 ? (
+                  <div className="relative w-full h-full p-4">
+                    {/* Image navigation if multiple */}
+                    {generatedImages.length > 1 && (
+                      <div className="absolute top-4 left-0 right-0 flex items-center justify-center space-x-2 z-10">
+                        <button
+                          onClick={() => setCurrentImageIndex(Math.max(0, currentImageIndex - 1))}
+                          disabled={currentImageIndex === 0}
+                          className="px-3 py-1 bg-gray-900/80 text-white rounded-lg disabled:opacity-50"
                         >
-                          <Image
-                            src={imageUrl}
-                            alt={'Generated campaign image ' + (index + 1)}
-                            fill
-                            className="object-cover"
-                          />
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="mt-6 pt-6 border-t border-gray-700">
-                      <button
-                        onClick={handleSaveAndContinue}
-                        className="w-full px-6 py-3 bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-500 hover:to-teal-500 text-white rounded-lg font-bold transition-all flex items-center justify-center space-x-2"
-                      >
-                        <span>→ Continue to Post</span>
-                      </button>
+                          ←
+                        </button>
+                        <span className="px-3 py-1 bg-gray-900/80 text-white rounded-lg text-sm">
+                          {currentImageIndex + 1} of {generatedImages.length}
+                        </span>
+                        <button
+                          onClick={() => setCurrentImageIndex(Math.min(generatedImages.length - 1, currentImageIndex + 1))}
+                          disabled={currentImageIndex === generatedImages.length - 1}
+                          className="px-3 py-1 bg-gray-900/80 text-white rounded-lg disabled:opacity-50"
+                        >
+                          →
+                        </button>
+                      </div>
+                    )}
+                    
+                    {/* Current image */}
+                    <div className="w-full h-full flex items-center justify-center">
+                      <div className="relative max-w-full max-h-full">
+                        <Image
+                          src={generatedImages[currentImageIndex]}
+                          alt={'Generated image ' + (currentImageIndex + 1)}
+                          width={800}
+                          height={800}
+                          className="object-contain rounded-lg"
+                        />
+                      </div>
                     </div>
                   </div>
                 ) : (
                   <div className="text-center space-y-4">
                     <div className="text-6xl opacity-20">🖼️</div>
-                    <p className="text-gray-400">Your campaign images will appear here</p>
-                    <p className="text-sm text-gray-500">Fill the form and click Generate Campaign Images</p>
+                    <p className="text-gray-400">Your generated images will appear here</p>
+                    <p className="text-sm text-gray-500">Fill the form and click Generate Images</p>
                   </div>
                 )}
               </div>
             </div>
+            
+            {/* Platform Text - Bottom */}
+            {generationState === 'complete' && platformTexts[selectedPlatform] && (
+              <PlatformText
+                text={platformTexts[selectedPlatform]}
+                platform={selectedPlatform}
+                onCopy={() => console.log('Text copied')}
+                onPost={() => console.log('Posting to ' + selectedPlatform)}
+              />
+            )}
           </div>
         </main>
       </div>
     </div>
+
+    {/* Image Modal */}
+    {selectedImageModal && (
+      <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setSelectedImageModal(null)}>
+        <div className="relative max-w-4xl max-h-[90vh] p-4" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => setSelectedImageModal(null)}
+            className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center text-lg hover:bg-red-600 transition-colors z-10"
+          >
+            ×
+          </button>
+          <Image
+            src={selectedImageModal}
+            alt="Full size preview"
+            width={800}
+            height={600}
+            className="max-w-full max-h-[80vh] object-contain rounded-lg"
+          />
+        </div>
+      </div>
+    )}
+    </>
   )
 }
-

@@ -956,23 +956,57 @@ Based on the brand context, apply these specific validation rules:
             return ""
         
         return f"""
-🎯 THEME-BASED CONTENT GENERATION:
+🎯 ⭐ MANDATORY THEME ALIGNMENT - CRITICAL PRIORITY ⭐ 🎯
 
 THEME: "{self.theme}"
 
-THEME INTEGRATION REQUIREMENTS:
-- Use this theme to guide ALL content generation: tweet text, image prompts, frame prompts, clip prompts, audio prompts, and voiceover prompts
-- Ensure thematic consistency across all generated content
-- The theme should influence the overall narrative direction and messaging
-- Maintain brand focus while incorporating the theme elements
+🚨 CRITICAL THEME ENFORCEMENT:
+- THIS THEME IS THE PRIMARY DIRECTIVE for ALL content generation
+- EVERY SINGLE frame prompt, clip prompt, audio prompt, and voiceover prompt MUST directly reflect this theme
+- The theme is NOT a suggestion - it is a MANDATORY requirement that overrides generic creative choices
+- If a prompt doesn't clearly relate to this theme, it MUST be regenerated
 
-THEME INFLUENCE GUIDELINES:
-- Tweet Text: Should reflect the theme's core message and narrative direction
-- Initial Image Prompt: Should establish the theme visually and set the scene
-- Frame Prompts: Should advance the theme's story through visual progression
-- Clip Prompts: Should maintain thematic continuity in transitions and scenes
-- Audio Prompts: Should support the theme's emotional tone and narrative arc
-- Voiceover Prompts: Should deliver the theme's message with appropriate emotional guidance
+📋 THEME INTEGRATION REQUIREMENTS (MANDATORY):
+- Tweet Text: MUST reflect the theme's core message and narrative direction
+- Initial Image Prompt: MUST establish the theme visually as the opening scene
+- Frame Prompts (ALL frames): Each frame MUST advance the theme's specific story elements
+  * Frame 2: Should escalate the theme's narrative with thematic visual elements
+  * Frame 3+: Should continue developing the theme's story with specific thematic details
+  * Final Frame: Should conclude the theme's narrative with powerful thematic closure
+- Clip Prompts (ALL clips): MUST maintain thematic continuity in transitions and actions
+  * Every clip transition should show progression of the theme's story
+  * Visual actions and movements should align with theme elements
+  * Camera work should emphasize thematic moments and details
+- Audio Prompts: MUST support the theme's emotional tone and cultural/narrative context
+  * Musical style should match the theme's atmosphere (festive, dramatic, celebratory, etc.)
+  * Sound effects should enhance thematic moments
+- Voiceover Prompts: MUST deliver the theme's message with culturally appropriate emotional guidance
+
+🎬 FRAME-BY-FRAME THEME REQUIREMENTS:
+- Each frame should introduce or develop specific elements mentioned in the theme
+- Visual details (characters, objects, settings, actions) should come directly from theme description
+- Character interactions and activities should reflect the theme's scenario
+- Environmental details (decorations, lighting, atmosphere) should match theme specifications
+- Emotional tone of each frame should align with the theme's intended mood
+
+🎥 CLIP-BY-CLIP THEME REQUIREMENTS:
+- Transitions should show natural progression of theme's story elements
+- Camera movements should highlight thematic details and moments
+- Visual pacing should match the theme's emotional rhythm
+- Actions and movements should be specific to the theme's scenario
+
+🏷️ LOGO INTEGRATION WITH THEME:
+- The {self.project_name} logo should be intelligently embedded within the theme context
+- Logo placement must feel natural and organic to the theme scenario
+- Consider theme-appropriate contexts for logo appearance:
+  * Cultural celebrations: Logo on products, decorations, packaging, banners
+  * Character interactions: Logo on clothing, accessories, props that characters use
+  * Environmental integration: Logo on signage, screens, branded items in the scene
+  * Product showcase: Logo naturally visible on the products being featured
+- Logo should enhance rather than disrupt the thematic narrative
+- For final frames: Logo can be more prominent as part of the theme's conclusion
+- Avoid forcing logo into every frame - use strategic, theme-appropriate moments
+- Logo decisions should align with both theme context AND brand moment relevance
 
 COMPETITIVE THEME GUIDELINES (if applicable):
 - NEVER mention specific competitor names (Mercedes, BMW, Lexus, etc.)
@@ -981,18 +1015,20 @@ COMPETITIVE THEME GUIDELINES (if applicable):
 - Maintain professional brand communication standards
 - Position {self.project_name} as the superior choice through differentiation, not comparison
 
-THEME EXAMPLES AND APPROACHES:
-- Historical/Evolution Theme: Focus on progression, heritage, technological advancement
-- Competitive Theme: Emphasize superiority, innovation, value without naming competitors
-- Launch Theme: Highlight innovation, target audience, future-forward messaging
-- Heritage Theme: Celebrate legacy, racing DNA, performance excellence
-- Success Theme: Focus on achievement, aspiration, refined taste, entrepreneurial journey
+THEME VALIDATION CHECKLIST (Apply to EVERY prompt):
+✓ Does this prompt contain specific elements from the theme description?
+✓ Would someone reading this prompt understand the thematic context?
+✓ Are characters, objects, and settings aligned with theme specifications?
+✓ Does the visual/audio progression follow the theme's narrative?
+✓ Is the emotional tone appropriate for this theme?
 
-ENSURE THEME CONSISTENCY:
-- All prompts should align with the theme's core message
-- Maintain emotional arc that supports the theme
-- Use appropriate tone and pacing for the theme type
-- Create cohesive narrative that reinforces the theme throughout
+If ANY checklist item fails, the prompt MUST be regenerated with stronger thematic alignment.
+
+ENSURE THEME DOMINANCE:
+- The theme is the PRIMARY creative constraint - not a secondary consideration
+- Generic creative choices should be replaced with theme-specific choices
+- Every visual, audio, and narrative element should serve the theme
+- Brand message should be delivered THROUGH the theme, not despite it
 """
     
     def _get_examples_instructions(self):
@@ -1139,14 +1175,24 @@ ENSURE THEME CONSISTENCY:
                 else:
                     image_section = f'Generate a compelling initial image prompt for {self.project_name} brand. Create a cinematic, professional scene that establishes the brand context and visual narrative. Include specific details about lighting, composition, and visual elements that will create an impactful first frame.'
                 
-                prompt = f"""You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion videos. Your mission is to create a PROFESSIONAL, CINEMATIC MASTERPIECE that will dominate social media and deliver a compelling brand narrative. Think like a creative director at a top advertising agency - every frame, every transition, every camera movement must serve the brand story.
+                prompt = f"""🚨 CRITICAL: You are creating content EXCLUSIVELY for {self.project_name}. DO NOT generate content for any other brand or product.
+
+🏢 MANDATORY BRAND CONTEXT:
+- BRAND NAME: {self.project_name}
+- THEME: {self.theme if self.theme else 'Brand showcase and promotion'}
+- YOU MUST FOCUS EXCLUSIVELY ON THIS BRAND AND THEME
+- ALL prompts must be directly related to {self.project_name} and the specified theme
+
+{self._get_theme_instructions()}
+
+You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion videos. Your mission is to create a PROFESSIONAL, CINEMATIC MASTERPIECE that will dominate social media and deliver a compelling brand narrative for {self.project_name}. Think like a creative director at a top advertising agency - every frame, every transition, every camera movement must serve the {self.project_name} brand story.
 
 🎬 CREATIVE DIRECTOR BRIEFING:
-- You are directing a {self.video_duration}-second brand promotion video
-- Goal: Create a cohesive, professional narrative that effectively promotes the brand
+- You are directing a {self.video_duration}-second brand promotion video for {self.project_name}
+- Goal: Create a cohesive, professional narrative that effectively promotes {self.project_name}
 - Style: Cinematic quality with viral potential
 - Audience: Web3/crypto community with high engagement expectations
-- Brand Focus: Every element must reinforce the core brand message
+- Brand Focus: Every element must reinforce the {self.project_name} brand message
 
 🎥 PROFESSIONAL VIDEO PRODUCTION REQUIREMENTS:
 - REAL-WORLD PHYSICS: All character movements, object interactions, and transitions must follow realistic physics
@@ -1229,8 +1275,6 @@ FINAL FRAME (Frame {self.frame_count}):
 {self._get_category_based_validation_rules()}
 
 {self._get_audio_continuity_instructions()}
-
-{self._get_theme_instructions()}
 
 - PROFESSIONAL PRODUCTION: Every element must feel like it was created by a professional creative team at a top advertising agency
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
@@ -1419,6 +1463,8 @@ Respond ONLY with the JSON object, no other text."""
 - YOU MUST FOCUS EXCLUSIVELY ON THIS BRAND AND THEME
 - ALL prompts must be directly related to {self.project_name} and the specified theme
 
+{self._get_theme_instructions()}
+
 You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion videos. Your mission is to create a PROFESSIONAL, CINEMATIC MASTERPIECE that will dominate social media and deliver a compelling brand narrative for {self.project_name}. Think like a creative director at a top advertising agency - every frame, every transition, every camera movement must serve the {self.project_name} brand story.
 
 🎬 CREATIVE DIRECTOR BRIEFING:
@@ -1511,8 +1557,6 @@ FINAL FRAME (Frame {self.frame_count}):
 
 {self._get_audio_continuity_instructions()}
 
-{self._get_theme_instructions()}
-
 - PROFESSIONAL PRODUCTION: Every element must feel like it was created by a professional creative team at a top advertising agency
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
 - AUDIO STYLE AUTONOMY: You have FULL AUTONOMY to decide the audio ending style - use fade-out for subtle endings, crescendo/fade-in for dramatic scenes, or any other appropriate ending that matches the visual theme and brand message
@@ -1541,7 +1585,16 @@ IMPORTANT: Replace the placeholder text in the JSON with ACTUAL detailed prompts
 
 JSON only, no other text:"""
             else:
-                prompt = f"""Create a VIRAL MASTERPIECE that will dominate social media! Generate content that will get millions of views, shares, and engagement.
+                prompt = f"""🚨 CRITICAL: You are creating content EXCLUSIVELY for {self.project_name}. DO NOT generate content for any other brand or product.
+
+🏢 MANDATORY BRAND CONTEXT:
+- BRAND NAME: {self.project_name}
+- THEME: {self.theme if self.theme else 'Brand showcase and promotion'}
+- YOU MUST FOCUS EXCLUSIVELY ON THIS BRAND AND THEME
+
+{self._get_theme_instructions()}
+
+Create a VIRAL MASTERPIECE that will dominate social media! Generate content that will get millions of views, shares, and engagement.
 
 Initial Image Prompt: "{initial_image_prompt}"
 
@@ -3065,12 +3118,12 @@ def main():
     # ========================================
     # CONFIGURATION - MODIFY THESE VALUES
     # ========================================
-    PROJECT_NAME = "fovus"  # Change this for different projects
+    PROJECT_NAME = "burnie"  # Change this for different projects
     LLM_PROVIDER = "grok"        # Change to "grok" to use Grok instead
     # LLM_PROVIDER = "grok"        # Uncomment this line to use Grok
     
     # Image generation model
-    IMAGE_MODEL = "nano-banana"  # Change to "seedream" to use ByteDance Seedream model
+    IMAGE_MODEL = "seedream"  # Change to "seedream" to use ByteDance Seedream model
     # IMAGE_MODEL = "seedream"     # Uncomment this line to use Seedream
     
     # ========================================
@@ -3111,10 +3164,10 @@ def main():
     INCLUDE_TWEET_TEXT = False  # Set to True to include tweet text in prompt generation, False to use only initial image prompt
     
     # Character and brand aesthetics control
-    HUMAN_CHARACTERS_ONLY = True  # Set to True to use only human characters (no meme characters)
+    HUMAN_CHARACTERS_ONLY = False  # Set to True to use only human characters (no meme characters)
     WEB3 = False  # Set to True for Web3/crypto meme characters, False for unlimited creative characters
     NO_CHARACTERS = False  # Set to True for pure product showcase with NO characters of any kind (overrides all other character flags)
-    USE_BRAND_AESTHETICS = True   # Set to True to incorporate brand-specific aesthetic guidelines
+    USE_BRAND_AESTHETICS = False   # Set to True to incorporate brand-specific aesthetic guidelines
     
     # Audio control
     CLIP_AUDIO_PROMPTS = False  # Set to True for individual audio per clip, False for single audio for entire video
@@ -3144,9 +3197,9 @@ def main():
     # THEME = "Launch of Audi's new electric SUV, targeting young professionals who want luxury without compromising on sustainability"
     # THEME = "Celebrate Audi's racing heritage and how it translates to everyday driving excellence for the modern driver"
     # THEME = "Audi as the symbol of achieved success and refined taste for entrepreneurs who have made it"
-    THEME = "The Cost Revelation: Open with ascending cost graph - cloud HPC expenses climbing dangerously into red zone. Numbers spinning upward, budget alarms flashing. Dollar signs multiplying across screen. Executive dashboard showing concerning financial trajectory. Then Fovus logo appears. Graph reverses direction dramatically - costs plummeting 2X, 4X, 7X. Show specific savings: '$100K monthly spend drops to $14K' (visual example). Money flowing back into budget. Red zones turning green. Cost meters dropping satisfyingly. Include visual comparisons: traditional cloud bill (massive stack of papers) versus Fovus-optimized bill (single sheet). Show ROI calculator spinning positive. Savings compounding over time visualization. End with clean dashboard showing 7X cost reduction achieved, Fovus attribution clear. Message: stop overpaying for cloud compute. AI optimization delivers quantifiable savings immediately. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
+    THEME = "Diwali Celebration with Burnie and Animated Sweet Characters: Open with vibrant Diwali diyas glowing warmly, colorful rangoli patterns. Burnie character appears alongside anthropomorphized Indian sweets as comic characters - cheerful Ladoo characters (round, golden, smiling faces), dancing Jalebi characters (spiral-shaped, orange, energetic), elegant Barfi characters (square, colorful, graceful), and jolly Gulab Jamun characters (round, brown, happy expressions). These sweet characters and Burnie celebrating together, lighting sparklers and small firecrackers creating golden sparks. Indian families in festive traditional attire watching in delight as Burnie and the animated sweet characters perform - Ladoo characters rolling joyfully, Jalebi characters doing spiral dances, Barfi characters stacking playfully, Gulab Jamun characters bouncing happily. Children laughing and clapping as sweet characters interact with Burnie, sharing high-fives and dancing together. Sweet characters helping Burnie light diyas, their comic faces glowing with excitement. Families joining the celebration - young and old gathering around Burnie and the sweet characters, everyone dancing together under colorful decorations - marigold garlands, paper lanterns, toran hangings. Community doing aarti ceremony with Burnie and sweet characters participating reverently. Animated sweets and Burnie in the center of festivities, connecting people through joy and laughter. Fireworks illuminate night sky with reds, golds, greens while sweet characters and Burnie celebrate with the community. End with entire scene - Burnie, anthropomorphized sweet characters, and Indian diaspora families standing together under fireworks, holding diyas, embodying togetherness, cultural celebration, and pure joy. Comic-style sweet characters with expressive faces, warm golden lighting, festive atmosphere, emphasis on magical celebration where sweets come alive to celebrate Diwali with Burnie and community. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
     
-    LOGO_PATH = "/Users/taran/Downloads/fovus-logo.jpeg"  # MUST SET THIS - always required
+    LOGO_PATH = "/Users/taran/Downloads/burnie-logo.png"  # MUST SET THIS - always required
     
     # Product images for frame generation alignment
     PRODUCT_IMAGES = [
