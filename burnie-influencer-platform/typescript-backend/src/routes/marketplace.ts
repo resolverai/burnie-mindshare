@@ -138,38 +138,63 @@ async function generatePresignedUrl(s3Key: string): Promise<string | null> {
     return generatePresignedUrlLocal(s3Key);
   }
 
-  try {
-    logger.info(`🔗 Requesting presigned URL for S3 key: ${s3Key}`);
-    
-    const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+  // Retry mechanism with exponential backoff
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      logger.info(`🔗 Requesting presigned URL for S3 key: ${s3Key} (attempt ${attempt}/${maxRetries})`);
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Python backend responded with ${response.status}`);
       }
-    });
 
-    if (!response.ok) {
-      throw new Error(`Python backend responded with ${response.status}`);
+      const result = await response.json() as {
+        status: string;
+        presigned_url?: string;
+        error?: string;
+      };
+
+      if (result.status === 'success' && result.presigned_url) {
+        logger.info(`✅ Generated presigned URL for S3 key: ${s3Key}`);
+        return result.presigned_url;
+      } else {
+        throw new Error(`Failed to generate presigned URL: ${result.error}`);
+      }
+      
+    } catch (error) {
+      lastError = error as Error;
+      logger.error(`Error generating presigned URL for S3 key: ${s3Key} (attempt ${attempt}/${maxRetries})`, error);
+      
+      // If this is the last attempt, fallback to local generation
+      if (attempt === maxRetries) {
+        logger.info(`🔄 All attempts failed, falling back to local generation for S3 key: ${s3Key}`);
+        return generatePresignedUrlLocal(s3Key);
+      }
+      
+      // Wait before retrying (exponential backoff)
+      const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5 seconds
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
-
-    const result = await response.json() as {
-      status: string;
-      presigned_url?: string;
-      error?: string;
-    };
-
-    if (result.status === 'success' && result.presigned_url) {
-      logger.info(`✅ Generated presigned URL for S3 key: ${s3Key}`);
-      return result.presigned_url;
-    } else {
-      logger.error(`Failed to generate presigned URL: ${result.error}`);
-      return null;
-    }
-  } catch (error) {
-    logger.error(`Error generating presigned URL for S3 key: ${s3Key}`, error);
-    // Fallback to local generation
-    return generatePresignedUrlLocal(s3Key);
   }
+
+  // This should never be reached, but just in case
+  return generatePresignedUrlLocal(s3Key);
 }
 
 /**
@@ -378,26 +403,36 @@ async function refreshUrlsForMinerContent(content: any): Promise<any> {
   const contentImages = content.contentImages || content.content_images;
   if (contentImages) {
     if (Array.isArray(contentImages)) {
-      const updatedImages = await Promise.all(
-        contentImages.map(async (imageUrl: string) => {
-          if (typeof imageUrl === 'string') {
-            // Check if URL is already a presigned URL and not expired
-            if (imageUrl.includes('X-Amz-Signature') && !isUrlExpired(imageUrl)) {
-              return imageUrl; // Use existing presigned URL if not expired
-            }
-            
+      // Process images sequentially to prevent connection exhaustion
+      const updatedImages = [];
+      for (const imageUrl of contentImages) {
+        if (typeof imageUrl === 'string') {
+          // Check if URL is already a presigned URL and not expired
+          if (imageUrl.includes('X-Amz-Signature') && !isUrlExpired(imageUrl)) {
+            updatedImages.push(imageUrl); // Use existing presigned URL if not expired
+          } else {
             const s3Key = extractS3KeyFromUrl(imageUrl);
             if (s3Key) {
-              const freshUrl = await generatePresignedUrl(s3Key);
-              if (freshUrl) {
-                logger.info(`🔄 Generated fresh presigned URL for image in content ${content.id}`);
-                return freshUrl;
+              try {
+                const freshUrl = await generatePresignedUrl(s3Key);
+                if (freshUrl) {
+                  logger.info(`🔄 Generated fresh presigned URL for image in content ${content.id}`);
+                  updatedImages.push(freshUrl);
+                } else {
+                  updatedImages.push(imageUrl); // Fallback to original
+                }
+              } catch (error) {
+                logger.error(`Error generating presigned URL for image in content ${content.id}:`, error);
+                updatedImages.push(imageUrl); // Fallback to original
               }
+            } else {
+              updatedImages.push(imageUrl); // Fallback to original
             }
           }
-          return imageUrl;
-        })
-      );
+        } else {
+          updatedImages.push(imageUrl);
+        }
+      }
       // Update both possible field names
       if (content.contentImages) {
         content.contentImages = updatedImages;
@@ -420,16 +455,20 @@ async function refreshUrlsForMinerContent(content: any): Promise<any> {
       
       const s3Key = extractS3KeyFromUrl(videoUrl);
       if (s3Key) {
-        const freshUrl = await generatePresignedUrl(s3Key);
-        if (freshUrl) {
-          // Update both possible field names
-          if (content.videoUrl) {
-            content.videoUrl = freshUrl;
+        try {
+          const freshUrl = await generatePresignedUrl(s3Key);
+          if (freshUrl) {
+            // Update both possible field names
+            if (content.videoUrl) {
+              content.videoUrl = freshUrl;
+            }
+            if (content.video_url) {
+              content.video_url = freshUrl;
+            }
+            logger.info(`🔄 Generated fresh presigned URL for video in content ${content.id}`);
           }
-          if (content.video_url) {
-            content.video_url = freshUrl;
-          }
-          logger.info(`🔄 Generated fresh presigned URL for video in content ${content.id}`);
+        } catch (error) {
+          logger.error(`Error generating video URL for content ${content.id}:`, error);
         }
       }
     }
@@ -448,16 +487,20 @@ async function refreshUrlsForMinerContent(content: any): Promise<any> {
       
       const s3Key = extractS3KeyFromUrl(watermarkVideoUrl);
       if (s3Key) {
-        const freshUrl = await generatePresignedUrl(s3Key);
-        if (freshUrl) {
-          // Update both possible field names
-          if (content.watermarkVideoUrl) {
-            content.watermarkVideoUrl = freshUrl;
+        try {
+          const freshUrl = await generatePresignedUrl(s3Key);
+          if (freshUrl) {
+            // Update both possible field names
+            if (content.watermarkVideoUrl) {
+              content.watermarkVideoUrl = freshUrl;
+            }
+            if (content.watermark_video_url) {
+              content.watermark_video_url = freshUrl;
+            }
+            logger.info(`🔄 Generated fresh presigned URL for watermarked video in content ${content.id}`);
           }
-          if (content.watermark_video_url) {
-            content.watermark_video_url = freshUrl;
-          }
-          logger.info(`🔄 Generated fresh presigned URL for watermarked video in content ${content.id}`);
+        } catch (error) {
+          logger.error(`Error generating watermark video URL for content ${content.id}:`, error);
         }
       }
     }
@@ -2030,9 +2073,23 @@ router.get('/my-content/miner/wallet/:walletAddress/totals', async (req: Request
       .getMany();
 
     // Refresh URLs for miner content - use unwatermarked URLs with fresh presigned URLs
-    const refreshedContents = await Promise.all(
-      contents.map(content => refreshUrlsForMinerContent(content))
-    );
+    // Process content sequentially to prevent connection exhaustion
+    const refreshedContents = [];
+    for (let i = 0; i < contents.length; i++) {
+      const content = contents[i];
+      try {
+        const refreshedContent = await refreshUrlsForMinerContent(content);
+        refreshedContents.push(refreshedContent);
+        
+        // Add small delay between content items to prevent overwhelming the system
+        if (i < contents.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      } catch (error) {
+        logger.error(`Error refreshing URLs for content ${content?.id || 'unknown'}:`, error);
+        refreshedContents.push(content); // Use original content if refresh fails
+      }
+    }
 
     const formattedContents = refreshedContents.map(content => ({
       id: content.id,
@@ -2194,9 +2251,24 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
     // Refresh URLs for miner content - use unwatermarked URLs with fresh presigned URLs
     // Only process the paginated content items (not all content in database)
     logger.info(`🔄 Refreshing URLs for ${contents.length} content items (page ${pageNum}, limit ${limitNum})`);
-    const refreshedContents = await Promise.all(
-      contents.map(content => refreshUrlsForMinerContent(content))
-    );
+    
+    // Process content sequentially to prevent connection exhaustion
+    const refreshedContents = [];
+    for (let i = 0; i < contents.length; i++) {
+      const content = contents[i];
+      try {
+        const refreshedContent = await refreshUrlsForMinerContent(content);
+        refreshedContents.push(refreshedContent);
+        
+        // Add small delay between content items to prevent overwhelming the system
+        if (i < contents.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      } catch (error) {
+        logger.error(`Error refreshing URLs for content ${content?.id || 'unknown'}:`, error);
+        refreshedContents.push(content); // Use original content if refresh fails
+      }
+    }
 
     const formattedContents = refreshedContents.map(content => ({
       id: content.id,
