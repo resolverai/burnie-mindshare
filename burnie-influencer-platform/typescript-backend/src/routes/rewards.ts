@@ -287,10 +287,7 @@ router.get('/leaderboard', async (req, res) => {
     let latestWeeklyRewardsCTE: string;
     
     if (period === '7d') {
-      // For 7D, get the latest weeklyRewards value for each user from current weekly cycle
-      // Get the weekly calculation window (same logic as in daily-points-calculation.ts)
-      const { startDate, endDate } = getWeeklyCalculationWindow();
-      
+      // For 7D, get the latest weeklyRewards value for each user (most recent calculation)
       latestWeeklyRewardsCTE = `,
         latest_weekly_rewards AS (
           SELECT DISTINCT ON ("walletAddress")
@@ -298,8 +295,6 @@ router.get('/leaderboard', async (req, res) => {
             "weeklyRewards"
           FROM user_daily_points
           WHERE "weeklyRewards" > 0
-            AND "createdAt" >= '${startDate.toISOString()}'
-            AND "createdAt" < '${endDate.toISOString()}'
           ORDER BY "walletAddress", "createdAt" DESC
         )`;
       rewardsSelect = ', lwr."weeklyRewards" as total_daily_rewards';
@@ -337,7 +332,7 @@ router.get('/leaderboard', async (req, res) => {
         ${milestonePointsSelect}
       FROM user_daily_points udp
       JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"${period === '7d' ? '\n      LEFT JOIN latest_weekly_rewards lwr ON udp."walletAddress" = lwr."walletAddress"' : ''}
-      WHERE 1=1 ${dateFilter}
+      WHERE 1=1 ${period === '7d' ? '' : dateFilter}
       GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"${period === '7d' ? ', lwr."weeklyRewards"' : ''}
       ORDER BY total_points DESC, avg_mindshare DESC
       LIMIT ${limit} OFFSET ${((page as number) - 1) * (limit as number)}
@@ -463,10 +458,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
     let latestWeeklyRewardsCTETop3: string;
     
     if (period === '7d') {
-      // For 7D, get the latest weeklyRewards value for each user from current weekly cycle
-      // Get the weekly calculation window (same logic as in daily-points-calculation.ts)
-      const { startDate, endDate } = getWeeklyCalculationWindow();
-      
+      // For 7D, get the latest weeklyRewards value for each user (most recent calculation)
       latestWeeklyRewardsCTETop3 = `,
         latest_weekly_rewards AS (
           SELECT DISTINCT ON ("walletAddress")
@@ -474,8 +466,6 @@ router.get('/leaderboard/top-three', async (req, res) => {
             "weeklyRewards"
           FROM user_daily_points
           WHERE "weeklyRewards" > 0
-            AND "createdAt" >= '${startDate.toISOString()}'
-            AND "createdAt" < '${endDate.toISOString()}'
           ORDER BY "walletAddress", "createdAt" DESC
         )`;
       rewardsSelectTop3 = ', lwr."weeklyRewards" as total_daily_rewards';
@@ -512,7 +502,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
         ${milestonePointsSelectTop3}
       FROM user_daily_points udp
       JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"${period === '7d' ? '\n      LEFT JOIN latest_weekly_rewards lwr ON udp."walletAddress" = lwr."walletAddress"' : ''}
-      WHERE 1=1 ${dateFilter}
+      WHERE 1=1 ${period === '7d' ? '' : dateFilter}
       GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"${period === '7d' ? ', lwr."weeklyRewards"' : ''}
       ORDER BY total_points DESC, avg_mindshare DESC
       LIMIT 3
