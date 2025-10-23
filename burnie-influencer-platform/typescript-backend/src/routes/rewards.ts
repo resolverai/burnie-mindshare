@@ -285,7 +285,7 @@ router.get('/leaderboard', async (req, res) => {
     let latestWeeklyRewardsCTE: string;
     
     if (period === '7d') {
-      // For 7D, get the latest weeklyRewards value for each user
+      // For 7D, get the latest weeklyRewards value for each user from current weekly cycle
       // Get the weekly calculation window (same logic as in daily-points-calculation.ts)
       const { startDate, endDate } = getWeeklyCalculationWindow();
       
@@ -461,7 +461,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
     let latestWeeklyRewardsCTETop3: string;
     
     if (period === '7d') {
-      // For 7D, get the latest weeklyRewards value for each user
+      // For 7D, get the latest weeklyRewards value for each user from current weekly cycle
       // Get the weekly calculation window (same logic as in daily-points-calculation.ts)
       const { startDate, endDate } = getWeeklyCalculationWindow();
       
