@@ -315,7 +315,7 @@ router.get('/leaderboard', async (req, res) => {
           "totalRoastEarned"
         FROM user_daily_points
         ORDER BY "walletAddress", "createdAt" DESC
-      )${latestWeeklyRewardsCTE}
+      )${latestWeeklyRewardsCTE ? ',' + latestWeeklyRewardsCTE : ''}
       SELECT 
         udp."walletAddress" as wallet_address,
         udp."twitterHandle" as twitter_handle,
@@ -486,7 +486,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
           "totalRoastEarned"
         FROM user_daily_points
         ORDER BY "walletAddress", "createdAt" DESC
-      )${latestWeeklyRewardsCTETop3}
+      )${latestWeeklyRewardsCTETop3 ? ',' + latestWeeklyRewardsCTETop3 : ''}
       SELECT 
         udp."walletAddress" as wallet_address,
         udp."twitterHandle" as twitter_handle,
