@@ -286,7 +286,7 @@ router.get('/leaderboard', async (req, res) => {
     
     if (period === '7d') {
       // For 7D, get the latest weeklyRewards value for each user
-      latestWeeklyRewardsCTE = `
+      latestWeeklyRewardsCTE = `,
         latest_weekly_rewards AS (
           SELECT DISTINCT ON ("walletAddress")
             "walletAddress",
@@ -294,7 +294,7 @@ router.get('/leaderboard', async (req, res) => {
           FROM user_daily_points
           WHERE "weeklyRewards" > 0
           ORDER BY "walletAddress", "createdAt" DESC
-        ),`;
+        )`;
       rewardsSelect = ', lwr."weeklyRewards" as total_daily_rewards';
     } else if (period === '1m') {
       // For 1M, always show "TBD" for now
@@ -315,7 +315,7 @@ router.get('/leaderboard', async (req, res) => {
           "totalRoastEarned"
         FROM user_daily_points
         ORDER BY "walletAddress", "createdAt" DESC
-      )${latestWeeklyRewardsCTE ? ',' + latestWeeklyRewardsCTE : ''}
+      )${latestWeeklyRewardsCTE}
       SELECT 
         udp."walletAddress" as wallet_address,
         udp."twitterHandle" as twitter_handle,
@@ -457,7 +457,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
     
     if (period === '7d') {
       // For 7D, get the latest weeklyRewards value for each user
-      latestWeeklyRewardsCTETop3 = `
+      latestWeeklyRewardsCTETop3 = `,
         latest_weekly_rewards AS (
           SELECT DISTINCT ON ("walletAddress")
             "walletAddress",
@@ -465,7 +465,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
           FROM user_daily_points
           WHERE "weeklyRewards" > 0
           ORDER BY "walletAddress", "createdAt" DESC
-        ),`;
+        )`;
       rewardsSelectTop3 = ', lwr."weeklyRewards" as total_daily_rewards';
     } else if (period === '1m') {
       // For 1M, always show "TBD" for now
@@ -486,7 +486,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
           "totalRoastEarned"
         FROM user_daily_points
         ORDER BY "walletAddress", "createdAt" DESC
-      )${latestWeeklyRewardsCTETop3 ? ',' + latestWeeklyRewardsCTETop3 : ''}
+      )${latestWeeklyRewardsCTETop3}
       SELECT 
         udp."walletAddress" as wallet_address,
         udp."twitterHandle" as twitter_handle,
