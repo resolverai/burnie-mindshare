@@ -282,14 +282,27 @@ router.get('/leaderboard', async (req, res) => {
     // For 7D and 1M periods, handle rewards based on weekly calculation schedule
     // For 'now' period, only sum dailyRewards
     let rewardsSelect: string;
+    let latestWeeklyRewardsCTE: string;
+    
     if (period === '7d') {
-      // For 7D, show weeklyRewards only (not sum) when appropriate, otherwise will be handled as "TBD"
-      rewardsSelect = ', SUM(udp."weeklyRewards") as total_daily_rewards';
+      // For 7D, get the latest weeklyRewards value for each user
+      latestWeeklyRewardsCTE = `
+        latest_weekly_rewards AS (
+          SELECT DISTINCT ON ("walletAddress")
+            "walletAddress",
+            "weeklyRewards"
+          FROM user_daily_points
+          WHERE "weeklyRewards" > 0
+          ORDER BY "walletAddress", "createdAt" DESC
+        ),`;
+      rewardsSelect = ', lwr."weeklyRewards" as total_daily_rewards';
     } else if (period === '1m') {
       // For 1M, always show "TBD" for now
+      latestWeeklyRewardsCTE = '';
       rewardsSelect = ', 0 as total_daily_rewards'; // Will be overridden to "TBD"
     } else {
       // For 'now' period, only sum dailyRewards
+      latestWeeklyRewardsCTE = '';
       rewardsSelect = ', SUM(udp."dailyRewards") as total_daily_rewards';
     }
     
@@ -302,7 +315,7 @@ router.get('/leaderboard', async (req, res) => {
           "totalRoastEarned"
         FROM user_daily_points
         ORDER BY "walletAddress", "createdAt" DESC
-      )
+      )${latestWeeklyRewardsCTE}
       SELECT 
         udp."walletAddress" as wallet_address,
         udp."twitterHandle" as twitter_handle,
@@ -316,9 +329,9 @@ router.get('/leaderboard', async (req, res) => {
         MAX(udp."createdAt") as latest_created_at
         ${milestonePointsSelect}
       FROM user_daily_points udp
-      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"
+      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"${period === '7d' ? '\n      LEFT JOIN latest_weekly_rewards lwr ON udp."walletAddress" = lwr."walletAddress"' : ''}
       WHERE 1=1 ${dateFilter}
-      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"
+      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"${period === '7d' ? ', lwr."weeklyRewards"' : ''}
       ORDER BY total_points DESC, avg_mindshare DESC
       LIMIT ${limit} OFFSET ${((page as number) - 1) * (limit as number)}
     `);
@@ -440,14 +453,27 @@ router.get('/leaderboard/top-three', async (req, res) => {
     // For 7D and 1M periods, handle rewards based on weekly calculation schedule
     // For 'now' period, only sum dailyRewards
     let rewardsSelectTop3: string;
+    let latestWeeklyRewardsCTETop3: string;
+    
     if (period === '7d') {
-      // For 7D, show weeklyRewards only (not sum) when appropriate, otherwise will be handled as "TBD"
-      rewardsSelectTop3 = ', SUM(udp."weeklyRewards") as total_daily_rewards';
+      // For 7D, get the latest weeklyRewards value for each user
+      latestWeeklyRewardsCTETop3 = `
+        latest_weekly_rewards AS (
+          SELECT DISTINCT ON ("walletAddress")
+            "walletAddress",
+            "weeklyRewards"
+          FROM user_daily_points
+          WHERE "weeklyRewards" > 0
+          ORDER BY "walletAddress", "createdAt" DESC
+        ),`;
+      rewardsSelectTop3 = ', lwr."weeklyRewards" as total_daily_rewards';
     } else if (period === '1m') {
       // For 1M, always show "TBD" for now
+      latestWeeklyRewardsCTETop3 = '';
       rewardsSelectTop3 = ', 0 as total_daily_rewards'; // Will be overridden to "TBD"
     } else {
       // For 'now' period, only sum dailyRewards
+      latestWeeklyRewardsCTETop3 = '';
       rewardsSelectTop3 = ', SUM(udp."dailyRewards") as total_daily_rewards';
     }
     
@@ -460,7 +486,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
           "totalRoastEarned"
         FROM user_daily_points
         ORDER BY "walletAddress", "createdAt" DESC
-      )
+      )${latestWeeklyRewardsCTETop3}
       SELECT 
         udp."walletAddress" as wallet_address,
         udp."twitterHandle" as twitter_handle,
@@ -473,9 +499,9 @@ router.get('/leaderboard/top-three', async (req, res) => {
         AVG(udp.mindshare) as avg_mindshare
         ${milestonePointsSelectTop3}
       FROM user_daily_points udp
-      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"
+      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"${period === '7d' ? '\n      LEFT JOIN latest_weekly_rewards lwr ON udp."walletAddress" = lwr."walletAddress"' : ''}
       WHERE 1=1 ${dateFilter}
-      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"
+      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"${period === '7d' ? ', lwr."weeklyRewards"' : ''}
       ORDER BY total_points DESC, avg_mindshare DESC
       LIMIT 3
     `);
