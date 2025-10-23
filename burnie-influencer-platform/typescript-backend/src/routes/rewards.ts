@@ -64,15 +64,31 @@ function getWeeklyCalculationWindow(): { startDate: Date, endDate: Date } {
   }
   
   // Set to 10 PM ET = 3 AM UTC next day (10 PM ET + 5 hours = 3 AM UTC)
-  const endDate = new Date(recentWednesday);
+  let endDate = new Date(recentWednesday);
   endDate.setUTCDate(endDate.getUTCDate() + 1); // Move to Thursday
   endDate.setUTCHours(3, 0, 0, 0); // 3 AM UTC = 10 PM ET Wednesday
   
-  // Calculate the previous Wednesday (7 days before)
-  const startDate = new Date(endDate);
-  startDate.setUTCDate(startDate.getUTCDate() - 7);
+  // If we're past the current week's end date, we need to look at the current week
+  // Check if we're in the current weekly cycle (after the most recent Wednesday 10 PM ET)
+  const currentWeekStart = new Date(endDate);
+  currentWeekStart.setUTCDate(currentWeekStart.getUTCDate() - 7);
   
-  return { startDate, endDate };
+  // If current time is after the end of the previous week, we're in the current week
+  if (now >= endDate) {
+    // We're in the current week, so look for weekly rewards from the current week
+    // The current week started at the previous endDate
+    const startDate = new Date(endDate);
+    endDate = new Date(startDate);
+    endDate.setUTCDate(endDate.getUTCDate() + 7); // Next Wednesday 10 PM ET
+    
+    return { startDate, endDate };
+  } else {
+    // We're still in the previous week, use the previous week's window
+    const startDate = new Date(endDate);
+    startDate.setUTCDate(startDate.getUTCDate() - 7);
+    
+    return { startDate, endDate };
+  }
 }
 
 interface LeaderboardUser {
