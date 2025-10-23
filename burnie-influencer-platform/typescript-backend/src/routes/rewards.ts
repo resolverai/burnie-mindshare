@@ -286,6 +286,9 @@ router.get('/leaderboard', async (req, res) => {
     
     if (period === '7d') {
       // For 7D, get the latest weeklyRewards value for each user
+      // Get the weekly calculation window (same logic as in daily-points-calculation.ts)
+      const { startDate, endDate } = getWeeklyCalculationWindow();
+      
       latestWeeklyRewardsCTE = `,
         latest_weekly_rewards AS (
           SELECT DISTINCT ON ("walletAddress")
@@ -293,6 +296,8 @@ router.get('/leaderboard', async (req, res) => {
             "weeklyRewards"
           FROM user_daily_points
           WHERE "weeklyRewards" > 0
+            AND "createdAt" >= '${startDate.toISOString()}'
+            AND "createdAt" < '${endDate.toISOString()}'
           ORDER BY "walletAddress", "createdAt" DESC
         )`;
       rewardsSelect = ', lwr."weeklyRewards" as total_daily_rewards';
@@ -457,6 +462,9 @@ router.get('/leaderboard/top-three', async (req, res) => {
     
     if (period === '7d') {
       // For 7D, get the latest weeklyRewards value for each user
+      // Get the weekly calculation window (same logic as in daily-points-calculation.ts)
+      const { startDate, endDate } = getWeeklyCalculationWindow();
+      
       latestWeeklyRewardsCTETop3 = `,
         latest_weekly_rewards AS (
           SELECT DISTINCT ON ("walletAddress")
@@ -464,6 +472,8 @@ router.get('/leaderboard/top-three', async (req, res) => {
             "weeklyRewards"
           FROM user_daily_points
           WHERE "weeklyRewards" > 0
+            AND "createdAt" >= '${startDate.toISOString()}'
+            AND "createdAt" < '${endDate.toISOString()}'
           ORDER BY "walletAddress", "createdAt" DESC
         )`;
       rewardsSelectTop3 = ', lwr."weeklyRewards" as total_daily_rewards';
