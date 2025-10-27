@@ -15,7 +15,7 @@ import {
   CheckIcon
 } from '@heroicons/react/24/outline'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const API_BASE = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
 
 interface FileData {
   filename: string
@@ -131,7 +131,7 @@ export default function ContextPage() {
   const fetchContextData = async (accId: number) => {
     setIsLoading(true)
     try {
-      const response = await fetch(API_BASE + '/api/web2-context/' + accId)
+      const response = await fetch(API_BASE + '/web2-context/' + accId)
       const result = await response.json()
       
       if (result.success && result.data) {
@@ -167,7 +167,7 @@ export default function ContextPage() {
       formData.append('file', file)
       formData.append('tab', tab)
       
-      const response = await fetch(API_BASE + '/api/web2-context/' + accountId + '/upload-file', {
+      const response = await fetch(API_BASE + '/web2-context/' + accountId + '/upload-file', {
         method: 'POST',
         body: formData
       })
@@ -275,7 +275,7 @@ export default function ContextPage() {
       }
       
       // Save to backend
-      const response = await fetch(API_BASE + '/api/web2-context/' + accountId, {
+      const response = await fetch(API_BASE + '/web2-context/' + accountId, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
@@ -321,7 +321,7 @@ export default function ContextPage() {
     if (!accountId || !confirm('Are you sure you want to delete this file?')) return
     
     try {
-      await fetch(API_BASE + '/api/web2-context/' + accountId + '/files', {
+      await fetch(API_BASE + '/web2-context/' + accountId + '/files', {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json'

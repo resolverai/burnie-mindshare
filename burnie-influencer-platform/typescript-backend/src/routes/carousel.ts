@@ -5,6 +5,7 @@ import { ContentMarketplace } from '../models/ContentMarketplace';
 import { AppDataSource } from '../config/database';
 import { logger } from '../config/logger';
 import AWS from 'aws-sdk';
+import { UrlCacheService } from '../services/UrlCacheService';
 
 const router = express.Router();
 
@@ -47,21 +48,30 @@ async function generatePresignedUrlLocal(s3Key: string): Promise<string | null> 
   }
 }
 
-// Helper function to generate presigned URL (fallback to Python backend for content images)
+// Helper function to generate presigned URL (fallback to Python backend for content images) with caching
 async function generatePresignedUrl(s3Key: string): Promise<string | null> {
   // For campaign banners, use local generation (same as admin dashboard)
   if (s3Key.startsWith('campaign_banners/') || s3Key.startsWith('brand_logos/')) {
     return generatePresignedUrlLocal(s3Key);
   }
   
-  // For AI-generated content images, use Python backend
-  const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
-  if (!pythonBackendUrl) {
-    logger.error('PYTHON_AI_BACKEND_URL environment variable is not set, falling back to local generation');
-    return generatePresignedUrlLocal(s3Key);
-  }
-
   try {
+    // First, check if Redis is available and try to get cached URL
+    const isRedisAvailable = await UrlCacheService.isRedisAvailable();
+    if (isRedisAvailable) {
+      const cachedUrl = await UrlCacheService.getCachedUrl(s3Key);
+      if (cachedUrl) {
+        return cachedUrl;
+      }
+    }
+
+    // If not cached or Redis unavailable, generate new presigned URL
+    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
+    if (!pythonBackendUrl) {
+      logger.error('PYTHON_AI_BACKEND_URL environment variable is not set, falling back to local generation');
+      return generatePresignedUrlLocal(s3Key);
+    }
+
     logger.info(`🔗 Requesting presigned URL for S3 key: ${s3Key}`);
     
     const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
@@ -83,6 +93,12 @@ async function generatePresignedUrl(s3Key: string): Promise<string | null> {
 
     if (result.status === 'success' && result.presigned_url) {
       logger.info(`✅ Generated presigned URL for S3 key: ${s3Key}`);
+      
+      // Cache the new URL if Redis is available
+      if (isRedisAvailable) {
+        await UrlCacheService.cacheUrl(s3Key, result.presigned_url, 3300); // 55 minutes TTL
+      }
+      
       return result.presigned_url;
     } else {
       logger.error(`Failed to generate presigned URL: ${result.error}`);

@@ -17,6 +17,7 @@ import { VideoWatermarkService } from '../services/VideoWatermarkService';
 import { createPublicClient, http, parseUnits, formatUnits } from 'viem';
 import { base } from 'viem/chains';
 import { MarketplaceContentService } from '../services/MarketplaceContentService';
+import { UrlCacheService } from '../services/UrlCacheService';
 const AWS = require('aws-sdk');
 
 const router = Router();
@@ -128,73 +129,93 @@ function extractS3KeyFromUrl(preSignedUrl: string): string | null {
 }
 
 /**
- * Generate presigned URL using Python backend (same as carousel route)
+ * Generate presigned URL using Python backend (same as carousel route) with caching
  */
 async function generatePresignedUrl(s3Key: string): Promise<string | null> {
-  // For watermark images, use Python backend (same as AI-generated content)
-  const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
-  if (!pythonBackendUrl) {
-    logger.error('PYTHON_AI_BACKEND_URL environment variable is not set, falling back to local generation');
+  try {
+    // First, check if Redis is available and try to get cached URL
+    const isRedisAvailable = await UrlCacheService.isRedisAvailable();
+    if (isRedisAvailable) {
+      const cachedUrl = await UrlCacheService.getCachedUrl(s3Key);
+      if (cachedUrl) {
+        return cachedUrl;
+      }
+    }
+
+    // If not cached or Redis unavailable, generate new presigned URL
+    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
+    if (!pythonBackendUrl) {
+      logger.error('PYTHON_AI_BACKEND_URL environment variable is not set, falling back to local generation');
+      return generatePresignedUrlLocal(s3Key);
+    }
+
+    // Retry mechanism with exponential backoff
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`🔗 Requesting presigned URL for S3 key: ${s3Key} (attempt ${attempt}/${maxRetries})`);
+        
+        // Create AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`Python backend responded with ${response.status}`);
+        }
+
+        const result = await response.json() as {
+          status: string;
+          presigned_url?: string;
+          error?: string;
+        };
+
+        if (result.status === 'success' && result.presigned_url) {
+          logger.info(`✅ Generated presigned URL for S3 key: ${s3Key}`);
+          
+          // Cache the new URL if Redis is available
+          if (isRedisAvailable) {
+            await UrlCacheService.cacheUrl(s3Key, result.presigned_url, 3300); // 55 minutes TTL
+          }
+          
+          return result.presigned_url;
+        } else {
+          throw new Error(`Failed to generate presigned URL: ${result.error}`);
+        }
+        
+      } catch (error) {
+        lastError = error as Error;
+        logger.error(`Error generating presigned URL for S3 key: ${s3Key} (attempt ${attempt}/${maxRetries})`, error);
+        
+        // If this is the last attempt, fallback to local generation
+        if (attempt === maxRetries) {
+          logger.info(`🔄 All attempts failed, falling back to local generation for S3 key: ${s3Key}`);
+          return generatePresignedUrlLocal(s3Key);
+        }
+        
+        // Wait before retrying (exponential backoff)
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5 seconds
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    // This should never be reached, but just in case
+    return generatePresignedUrlLocal(s3Key);
+  } catch (error) {
+    logger.error(`❌ Unexpected error in generatePresignedUrl for S3 key: ${s3Key}`, error);
     return generatePresignedUrlLocal(s3Key);
   }
-
-  // Retry mechanism with exponential backoff
-  const maxRetries = 3;
-  let lastError: Error | null = null;
-
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      logger.info(`🔗 Requesting presigned URL for S3 key: ${s3Key} (attempt ${attempt}/${maxRetries})`);
-      
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
-      const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`Python backend responded with ${response.status}`);
-      }
-
-      const result = await response.json() as {
-        status: string;
-        presigned_url?: string;
-        error?: string;
-      };
-
-      if (result.status === 'success' && result.presigned_url) {
-        logger.info(`✅ Generated presigned URL for S3 key: ${s3Key}`);
-        return result.presigned_url;
-      } else {
-        throw new Error(`Failed to generate presigned URL: ${result.error}`);
-      }
-      
-    } catch (error) {
-      lastError = error as Error;
-      logger.error(`Error generating presigned URL for S3 key: ${s3Key} (attempt ${attempt}/${maxRetries})`, error);
-      
-      // If this is the last attempt, fallback to local generation
-      if (attempt === maxRetries) {
-        logger.info(`🔄 All attempts failed, falling back to local generation for S3 key: ${s3Key}`);
-        return generatePresignedUrlLocal(s3Key);
-      }
-      
-      // Wait before retrying (exponential backoff)
-      const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5 seconds
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-
-  // This should never be reached, but just in case
-  return generatePresignedUrlLocal(s3Key);
 }
 
 /**

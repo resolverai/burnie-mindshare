@@ -7,6 +7,7 @@ import boto3
 from botocore.exceptions import ClientError
 from urllib.parse import urlparse
 from app.config.settings import settings
+from app.services.redis_url_cache_service import redis_url_cache_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -140,7 +141,7 @@ class Web2S3Helper:
     
     def generate_presigned_url(self, s3_key: str, expiration: int = 3600) -> str:
         """
-        Generate presigned URL for S3 object
+        Generate presigned URL for S3 object with Redis caching
         
         Args:
             s3_key: S3 object key (path)
@@ -150,6 +151,13 @@ class Web2S3Helper:
             Presigned URL
         """
         try:
+            # First, check if Redis is available and try to get cached URL
+            if redis_url_cache_service.is_redis_available():
+                cached_url = redis_url_cache_service.get_cached_url(s3_key)
+                if cached_url:
+                    return cached_url
+            
+            # If not cached or Redis unavailable, generate new presigned URL
             logger.info(f"🔗 Generating presigned URL for: {s3_key}")
             
             presigned_url = self.s3_client.generate_presigned_url(
@@ -162,6 +170,13 @@ class Web2S3Helper:
             )
             
             logger.info(f"✅ Generated presigned URL (expires in {expiration}s)")
+            
+            # Cache the new URL if Redis is available
+            if redis_url_cache_service.is_redis_available():
+                # Cache with 5 minutes less than expiration to avoid edge cases
+                cache_ttl = max(expiration - 300, 300)  # At least 5 minutes
+                redis_url_cache_service.cache_url(s3_key, presigned_url, cache_ttl)
+            
             return presigned_url
             
         except ClientError as e:

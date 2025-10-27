@@ -10,6 +10,7 @@ ARG NEXT_PUBLIC_MINER=1
 # These can be overridden by docker-compose or build args if needed
 ENV NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io/api
 ENV NEXT_PUBLIC_AI_API_URL=https://attentionai.burnie.io
+ENV NEXT_PUBLIC_BURNIE_AI_API_URL=https://attentionai.burnie.io
 ENV NEXT_PUBLIC_BURNIE_WS_URL=wss://attentionai.burnie.io
 ENV NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=05882002bee82f700cdbcfb99c981fdd
 ENV NEXT_PUBLIC_DEFAULT_CHAIN_ID=8453

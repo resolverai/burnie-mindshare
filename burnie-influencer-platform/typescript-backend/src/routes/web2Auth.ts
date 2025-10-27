@@ -26,7 +26,7 @@ router.get('/twitter/login', async (req: Request, res: Response): Promise<void> 
 
     // Twitter OAuth 2.0 configuration
     const clientId = process.env.TWITTER_CLIENT_ID;
-    const callbackUrl = (redirect_uri as string) || process.env.TWITTER_CALLBACK_URL_WEB2 || 'http://localhost:3000/web2/twitter-callback';
+    const callbackUrl = (redirect_uri as string) || process.env.TWITTER_CALLBACK_URL_WEB2 || 'https://mining.burnie.io/web2/twitter-callback';
 
     if (!clientId) {
       res.status(500).json({
@@ -102,7 +102,7 @@ const handleTwitterCallback = async (req: Request, res: Response): Promise<void>
     // Exchange code for access token
     const clientId = process.env.TWITTER_CLIENT_ID;
     const clientSecret = process.env.TWITTER_CLIENT_SECRET;
-    const callbackUrl = process.env.TWITTER_CALLBACK_URL_WEB2 || 'http://localhost:3000/web2/twitter-callback';
+    const callbackUrl = process.env.TWITTER_CALLBACK_URL_WEB2 || 'https://mining.burnie.io/web2/twitter-callback';
 
     if (!clientId || !clientSecret) {
       res.status(500).json({
@@ -639,7 +639,7 @@ router.get('/linkedin/login', async (req: Request, res: Response): Promise<void>
     const { redirect_uri } = req.query;
     
     const clientId = process.env.LINKEDIN_CLIENT_ID;
-    const callbackUrl = (redirect_uri as string) || process.env.LINKEDIN_CALLBACK_URL_WEB2 || 'http://localhost:3000/web2/linkedin-callback';
+    const callbackUrl = (redirect_uri as string) || process.env.LINKEDIN_CALLBACK_URL_WEB2 || 'https://mining.burnie.io/web2/linkedin-callback';
     
     if (!clientId) {
       res.status(500).json({
@@ -695,7 +695,7 @@ router.post('/linkedin/callback', async (req: Request, res: Response): Promise<v
     
     const clientId = process.env.LINKEDIN_CLIENT_ID;
     const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-    const callbackUrl = process.env.LINKEDIN_CALLBACK_URL_WEB2 || 'http://localhost:3000/web2/linkedin-callback';
+    const callbackUrl = process.env.LINKEDIN_CALLBACK_URL_WEB2 || 'https://mining.burnie.io/web2/linkedin-callback';
     
     if (!clientId || !clientSecret) {
       res.status(500).json({
@@ -816,7 +816,7 @@ router.get('/youtube/login', async (req: Request, res: Response): Promise<void> 
     const { redirect_uri } = req.query;
     
     const clientId = process.env.GOOGLE_CLIENT_ID;
-    const callbackUrl = (redirect_uri as string) || process.env.YOUTUBE_CALLBACK_URL_WEB2 || 'http://localhost:3000/web2/youtube-callback';
+    const callbackUrl = (redirect_uri as string) || process.env.YOUTUBE_CALLBACK_URL_WEB2 || 'https://mining.burnie.io/web2/youtube-callback';
     
     if (!clientId) {
       res.status(500).json({
@@ -874,7 +874,7 @@ router.post('/youtube/callback', async (req: Request, res: Response): Promise<vo
     
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const callbackUrl = process.env.YOUTUBE_CALLBACK_URL_WEB2 || 'http://localhost:3000/web2/youtube-callback';
+    const callbackUrl = process.env.YOUTUBE_CALLBACK_URL_WEB2 || 'https://mining.burnie.io/web2/youtube-callback';
     
     if (!clientId || !clientSecret) {
       res.status(500).json({

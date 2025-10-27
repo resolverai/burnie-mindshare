@@ -8,7 +8,7 @@ import compression from 'compression';
 import { env } from './config/env';
 import { logger } from './config/logger';
 import { initializeDatabase, closeDatabase, startDatabaseKeepalive } from './config/database';
-// import { initializeRedis, closeRedis } from './config/redis';
+import { initializeRedis, closeRedis } from './config/redis';
 import { healthRoutes } from './routes/health';
 import { minerRoutes } from './routes/miners';
 import { campaignRoutes } from './routes/campaigns';
@@ -59,6 +59,7 @@ import web2AccountConfigurationsRoutes from './routes/web2AccountConfigurations'
 import web2AccountConnectionsRoutes from './routes/web2AccountConnections';
 import web2ContextManagementRoutes from './routes/web2ContextManagement';
 const web2GeneratedContentRoutes = require('./routes/web2GeneratedContent');
+import cacheRoutes from './routes/cache';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -177,6 +178,7 @@ app.use('/api/web2-social', web2SocialConnectionsRoutes); // Web2 social media c
 app.use('/api/web2-account-configurations', web2AccountConfigurationsRoutes); // Web2 account configuration settings
 app.use('/api/web2-account-connections', web2AccountConnectionsRoutes); // Web2 social media connection management
 app.use('/api/web2-generated-content', web2GeneratedContentRoutes); // Web2 generated content management
+app.use('/api/cache', cacheRoutes); // Redis URL cache management
 
 // Start server
 const startServer = async () => {
@@ -237,7 +239,7 @@ const startServer = async () => {
 
     startPurchaseFlowCleanup();
     
-    // await initializeRedis();
+    await initializeRedis();
     
     // Initialize mining service (but don't start it automatically to prevent high CPU usage)
     const { MiningService } = await import('./services/MiningService');
@@ -310,6 +312,9 @@ const gracefulShutdown = async (signal: string) => {
     
     // Close database connection
     await closeDatabase();
+    
+    // Close Redis connection
+    await closeRedis();
     
     logger.info('✅ Graceful shutdown completed');
     process.exit(0);

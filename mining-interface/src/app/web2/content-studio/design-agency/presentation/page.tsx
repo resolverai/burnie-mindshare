@@ -68,7 +68,7 @@ export default function PresentationPage() {
       }
 
       const promptResponse = await fetch(
-        (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/generate-prompts',
+        (process.env.NEXT_PUBLIC_BURNIE_AI_API_URL || 'http://localhost:8000') + '/api/web2/generate-prompts',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + web2Auth },
