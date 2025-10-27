@@ -7,7 +7,7 @@ import Web2Sidebar from '@/components/Web2Sidebar'
 export default function SchedulePage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
-  const [sidebarExpanded, setSidebarExpanded] = useState(true)
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
 
   useEffect(() => {
     const web2Auth = localStorage.getItem('burnie_web2_auth')

@@ -15,7 +15,7 @@ interface GeneratedResult {
 
 export default function ResultsPage() {
   const router = useRouter()
-  const [sidebarExpanded, setSidebarExpanded] = useState(true)
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [results, setResults] = useState<GeneratedResult | null>(null)
   const [selectedImages, setSelectedImages] = useState<Set<number>>(new Set())
   const [editedCaption, setEditedCaption] = useState('')

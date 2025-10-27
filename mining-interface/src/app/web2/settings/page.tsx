@@ -15,7 +15,7 @@ interface AccountConfiguration {
 export default function SettingsPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
-  const [sidebarExpanded, setSidebarExpanded] = useState(true)
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [accountId, setAccountId] = useState<number | null>(null)
   

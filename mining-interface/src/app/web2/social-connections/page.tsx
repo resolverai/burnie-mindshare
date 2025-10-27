@@ -14,7 +14,7 @@ type ConnectionStatus = {
 export default function SocialConnectionsPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
-  const [sidebarExpanded, setSidebarExpanded] = useState(true)
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [connections, setConnections] = useState<ConnectionStatus[]>([])
   const [accountId, setAccountId] = useState<number | null>(null)
 

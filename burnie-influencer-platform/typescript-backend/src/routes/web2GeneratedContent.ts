@@ -305,7 +305,7 @@ router.get('/:account_id', async (req: Request, res: Response) => {
 
     const [content, total] = await queryBuilder.getManyAndCount();
 
-    // Generate presigned URLs for generated images before sending to frontend
+    // Generate presigned URLs for generated images and user images before sending to frontend
     const contentWithPresignedUrls = await Promise.all(content.map(async (item) => {
       const updatedItem = { ...item };
       
@@ -325,7 +325,28 @@ router.get('/:account_id', async (req: Request, res: Response) => {
           // Filter out null values
           updatedItem.generated_image_urls = presignedUrls.filter((url): url is string => url !== null);
         } catch (error) {
-          console.error('Error generating presigned URLs for images:', error);
+          console.error('Error generating presigned URLs for generated images:', error);
+          // Keep original URLs if presigned URL generation fails
+        }
+      }
+
+      // Generate presigned URLs for user images (input images)
+      if (item.user_images && item.user_images.length > 0) {
+        try {
+          const presignedUrls = await Promise.all(
+            item.user_images.map(async (url: string) => {
+              if (url.startsWith('s3://')) {
+                // Extract S3 key from S3 URL
+                const s3Key = url.replace('s3://burnie-mindshare-content-staging/', '');
+                return await generatePresignedUrl(s3Key);
+              }
+              return url; // Already a presigned URL
+            })
+          );
+          // Filter out null values
+          updatedItem.user_images = presignedUrls.filter((url): url is string => url !== null);
+        } catch (error) {
+          console.error('Error generating presigned URLs for user images:', error);
           // Keep original URLs if presigned URL generation fails
         }
       }

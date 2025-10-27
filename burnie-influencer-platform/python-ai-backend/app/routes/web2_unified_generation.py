@@ -373,7 +373,8 @@ async def fetch_account_configuration(account_id: int) -> Dict:
             
             if response.status_code == 200:
                 data = response.json()
-                return data.get('data', {})
+                # TypeScript backend returns the data directly, not wrapped in 'data' field
+                return data if isinstance(data, dict) else {}
             else:
                 print(f"⚠️  Failed to fetch account configuration: {response.status_code}")
                 return {}
@@ -413,12 +414,13 @@ async def fetch_brand_context_data(account_id: int) -> Dict:
         
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{typescript_backend_url}/api/web2-brand-context/account/{account_id}",
+                f"{typescript_backend_url}/api/web2-account-context/account/{account_id}",
                 timeout=10.0
             )
             
             if response.status_code == 200:
                 data = response.json()
+                # TypeScript backend returns the data wrapped in 'data' field for brand context
                 brand_data = data.get('data', {})
                 print(f"🔍 DEBUG: Brand context fetched: {brand_data}")
                 print(f"🔍 DEBUG: Brand context keys: {list(brand_data.keys()) if brand_data else 'Empty'}")

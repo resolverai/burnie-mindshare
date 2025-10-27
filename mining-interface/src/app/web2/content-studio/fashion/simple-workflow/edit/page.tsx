@@ -973,7 +973,7 @@ export default function EditWorkflowPage() {
           >
             <button
               onClick={closeModal}
-              className="absolute -top-2 -right-2 w-8 h-8 bg-red-600 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-lg z-20"
+              className="absolute top-4 right-4 w-8 h-8 bg-red-600 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-lg z-20"
             >
               ×
             </button>

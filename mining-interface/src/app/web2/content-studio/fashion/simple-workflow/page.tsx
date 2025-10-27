@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useGenerationPolling } from '@/hooks/useGenerationPolling'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import Image from 'next/image'
@@ -17,6 +17,7 @@ interface CollapsibleSection {
 
 export default function SimpleWorkflowPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { startPolling, stopPolling } = useGenerationPolling()
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -55,6 +56,24 @@ export default function SimpleWorkflowPage() {
   // Modal state
   const [modalImage, setModalImage] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+
+  // Handle edit flow parameters from Step 3
+  useEffect(() => {
+    const jobId = searchParams.get('job_id')
+    const editMode = searchParams.get('edit_mode')
+    
+    if (jobId && editMode === 'true') {
+      console.log('🔄 Edit flow detected, starting polling for job:', jobId)
+      setGenerationState('generating')
+      setProgressPercent(0)
+      setProgressMessage('Generating edit variations...')
+      
+      // Start polling for the edit job
+      setTimeout(() => {
+        startPolling(jobId, handleProgress, handleComplete, handleError)
+      }, 1000)
+    }
+  }, [searchParams])
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -705,7 +724,7 @@ export default function SimpleWorkflowPage() {
           >
             <button
               onClick={closeModal}
-              className="absolute -top-2 -right-2 bg-gray-800 hover:bg-gray-700 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg z-20"
+              className="absolute top-4 right-4 bg-gray-800 hover:bg-gray-700 text-white rounded-full w-8 h-8 flex items-center justify-center text-lg z-20"
             >
               ×
             </button>

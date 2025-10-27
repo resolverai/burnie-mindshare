@@ -9,7 +9,7 @@ export default function Web2DashboardPage() {
   const router = useRouter()
   const [accountData, setAccountData] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [sidebarExpanded, setSidebarExpanded] = useState(true)
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [isUploadingLogo, setIsUploadingLogo] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
