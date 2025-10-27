@@ -46,7 +46,7 @@ services:
     env_file:
       - ./burnie-influencer-platform/typescript-backend/.env
     environment:
-      - REDIS_HOST=host.docker.internal
+      - REDIS_HOST=172.17.0.1
       - REDIS_PORT=6379
       - REDIS_PASSWORD=
     networks:
@@ -64,7 +64,7 @@ services:
     env_file:
       - ./burnie-influencer-platform/python-ai-backend/.env
     environment:
-      - REDIS_HOST=host.docker.internal
+      - REDIS_HOST=172.17.0.1
       - REDIS_PORT=6379
       - REDIS_PASSWORD=
     networks:

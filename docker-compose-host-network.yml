@@ -1,0 +1,40 @@
+# Alternative Docker Compose Configuration for Redis Connection Issues
+# Use this if 172.17.0.1 doesn't work in your environment
+
+version: '3.8'
+
+services:
+  # TypeScript Backend with host network mode
+  typescript-backend-host:
+    build:
+      context: ./burnie-influencer-platform/typescript-backend
+      dockerfile: Dockerfile
+    container_name: burnie-typescript-backend-host
+    network_mode: host
+    env_file:
+      - ./burnie-influencer-platform/typescript-backend/.env
+    environment:
+      - REDIS_HOST=localhost
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+    restart: unless-stopped
+
+  # Python AI Backend with host network mode
+  python-ai-backend-host:
+    build:
+      context: ./burnie-influencer-platform/python-ai-backend
+      dockerfile: Dockerfile
+    container_name: burnie-python-ai-backend-host
+    network_mode: host
+    env_file:
+      - ./burnie-influencer-platform/python-ai-backend/.env
+    environment:
+      - REDIS_HOST=localhost
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+    volumes:
+      - models:/app/models
+    restart: unless-stopped
+
+volumes:
+  models:
