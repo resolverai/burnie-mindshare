@@ -66,7 +66,7 @@ describe("ContentRegistry", function () {
       const content = await contentRegistry.getContent(CONTENT_ID);
       expect(content.contentId).to.equal(CONTENT_ID);
       expect(content.creator).to.equal(user1.address);
-      expect(content.currentOwner).to.equal(ethers.ZeroAddress); // No ownership until approved
+      expect(content.currentOwner).to.equal(user1.address); // Creator is the initial owner
       expect(content.contentHash).to.equal(CONTENT_HASH);
       expect(content.contentType).to.equal(CONTENT_TYPE);
       expect(content.isAvailable).to.be.false;
@@ -252,8 +252,8 @@ describe("ContentRegistry", function () {
     });
     
     it("Should return correct content owner", async function () {
-      // Before approval, owner should be zero address
-      expect(await contentRegistry.getContentOwner(CONTENT_ID)).to.equal(ethers.ZeroAddress);
+      // Before approval, owner should be creator
+      expect(await contentRegistry.getContentOwner(CONTENT_ID)).to.equal(user1.address);
       
       // After approval, owner should be creator
       await contentRegistry.connect(owner).approveContent(CONTENT_ID, CONTENT_PRICE);

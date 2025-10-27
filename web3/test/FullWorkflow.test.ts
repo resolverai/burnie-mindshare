@@ -65,8 +65,8 @@ describe("Full Content Marketplace Workflow", function () {
     await toastToken.connect(owner).transfer(directReferrer.address, ethers.parseEther("10000"));
     await toastToken.connect(owner).transfer(grandReferrer.address, ethers.parseEther("10000"));
 
-    // Give reward distribution contract tokens to distribute
-    await toastToken.connect(owner).transfer(await rewardDistribution.getAddress(), ethers.parseEther("100000"));
+    // No need to pre-fund reward distribution contract
+    // It will receive tokens from content purchases automatically
 
     console.log("✅ Setup complete!");
   });

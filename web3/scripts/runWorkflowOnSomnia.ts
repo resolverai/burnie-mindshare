@@ -1,10 +1,14 @@
 import { ethers } from "hardhat";
 import { ContentRegistry, ContentRewardDistribution, TOASTToken } from "../typechain-types";
 
-// Contract addresses on Somnia testnet
-const TOAST_TOKEN_ADDRESS = "0x883bA39bA9b2d9724cC42715d6A105C3FA3A7578";
-const CONTENT_REGISTRY_ADDRESS = "0xAdA5eCdFEA08f640019deEafb74DD098aa9aaA8c";
-const REWARD_DISTRIBUTION_ADDRESS = "0x35Bc90D9e86D6f3d4eC018d499b68d738FBBD2a1";
+// Contract addresses on Somnia testnet (from environment or fallback)
+const TOAST_TOKEN_ADDRESS = process.env.TOAST_TOKEN_ADDRESS || "0x883bA39bA9b2d9724cC42715d6A105C3FA3A7578";
+const CONTENT_REGISTRY_ADDRESS = process.env.CONTENT_REGISTRY_ADDRESS || "0xfc5FA67c369626c390dF165bED5D1aD60C9f4262";
+const REWARD_DISTRIBUTION_ADDRESS = process.env.REWARD_DISTRIBUTION_ADDRESS || "0x76237519643E2361FE197Ff255FbB5F2e4b48F7e";
+
+// Treasury addresses (from environment or fallback)
+const EVALUATOR_TREASURY = process.env.EVALUATOR_TREASURY || "0xDAFF70E39711564549C49b5CbD9F7938E709e03d";
+const PLATFORM_TREASURY = process.env.PLATFORM_TREASURY || "0xDAFF70E39711564549C49b5CbD9F7938E709e03d";
 
 // Test parameters - use random ID to avoid conflicts
 const CONTENT_ID = Math.floor(Math.random() * 1000000) + 1000000;
@@ -21,17 +25,15 @@ async function main() {
   const signers = await ethers.getSigners();
   const owner = signers[0];
   
-  // Create different addresses for different roles to avoid conflicts
-  const contentCreator = owner;
+  // Use different signers for different roles (if available)
+  const contentCreator = signers[1] || owner; // Use user1 if available, fallback to owner
+  const contentBuyer = signers[2] || owner;   // Use user2 if available, fallback to owner
+  const directReferrer = signers[3] || owner; // Use user3 if available, fallback to owner
+  const grandReferrer = signers[4] || owner;  // Use user4 if available, fallback to owner
   
-  // Use same address as buyer since we removed the restriction
-  const contentBuyer = owner;
-  
-  // Create different addresses for referral chain (using owner for demo)
-  const directReferrer = owner;
-  const grandReferrer = owner;
-  const evaluatorTreasury = owner;
-  const platformTreasury = owner;
+  // Use treasury addresses from environment (with fallback to hardcoded addresses for demo)
+  const evaluatorTreasury = EVALUATOR_TREASURY || "0xDAFF70E39711564549C49b5CbD9F7938E709e03d";
+  const platformTreasury = PLATFORM_TREASURY || "0xDAFF70E39711564549C49b5CbD9F7938E709e03d";
 
   console.log("👥 Test Participants:");
   console.log("   Owner (Backend):", owner.address);
@@ -39,8 +41,8 @@ async function main() {
   console.log("   Content Buyer:", contentBuyer.address);
   console.log("   Direct Referrer:", directReferrer.address);
   console.log("   Grand Referrer:", grandReferrer.address);
-  console.log("   Evaluator Treasury:", evaluatorTreasury.address);
-  console.log("   Platform Treasury:", platformTreasury.address);
+  console.log("   Evaluator Treasury:", evaluatorTreasury);
+  console.log("   Platform Treasury:", platformTreasury);
 
   // Connect to deployed contracts
   console.log("\n🔗 Connecting to deployed contracts...");
@@ -60,10 +62,14 @@ async function main() {
     console.log("   Current reward distribution address:", currentRewardDistribution);
     
     if (currentRewardDistribution === "0x0000000000000000000000000000000000000000") {
-      console.log("   No reward distribution address set - keeping it unset for manual processing");
+      console.log("   No reward distribution address set - setting it now for automatic processing");
     } else {
-      console.log("   Reward distribution address already set:", currentRewardDistribution);
+      console.log("   Reward distribution address already set - updating to new contract");
     }
+    
+    // Always set the reward distribution address to the new contract
+    await contentRegistry.connect(owner).setRewardDistribution(REWARD_DISTRIBUTION_ADDRESS);
+    console.log("   ✅ Reward distribution address set to:", REWARD_DISTRIBUTION_ADDRESS);
   } catch (error) {
     console.log("   Could not check/set reward distribution address:", error);
   }
@@ -90,8 +96,8 @@ async function main() {
   const initialBuyerBalance = await toastToken.balanceOf(contentBuyer.address);
   const initialDirectBalance = await toastToken.balanceOf(directReferrer.address);
   const initialGrandBalance = await toastToken.balanceOf(grandReferrer.address);
-  const initialEvaluatorBalance = await toastToken.balanceOf(evaluatorTreasury.address);
-  const initialPlatformBalance = await toastToken.balanceOf(platformTreasury.address);
+  const initialEvaluatorBalance = await toastToken.balanceOf(evaluatorTreasury);
+  const initialPlatformBalance = await toastToken.balanceOf(platformTreasury);
 
   console.log("   Owner TOAST:", ethers.formatEther(initialOwnerBalance));
   console.log("   Creator TOAST:", ethers.formatEther(initialCreatorBalance));
@@ -142,19 +148,10 @@ async function main() {
     console.log("⚠️ Could not approve ContentRegistry:", error);
   }
 
-  // Give reward distribution contract tokens to distribute
-  console.log("\n💰 Funding reward distribution contract...");
-  try {
-    const rewardDistributionBalance = await toastToken.balanceOf(REWARD_DISTRIBUTION_ADDRESS);
-    if (rewardDistributionBalance < ethers.parseEther("100000")) {
-      await toastToken.connect(owner).transfer(REWARD_DISTRIBUTION_ADDRESS, ethers.parseEther("100000"));
-      console.log("✅ Reward distribution contract funded");
-    } else {
-      console.log("✅ Reward distribution contract already has sufficient funds");
-    }
-  } catch (error) {
-    console.log("⚠️ Could not fund reward distribution contract:", error);
-  }
+  // No need to pre-fund reward distribution contract
+  // It will receive tokens from content purchases automatically
+  console.log("\n💰 Reward Distribution Contract:");
+  console.log("   ✅ Will receive tokens automatically from content purchases");
 
   // ========== STEP 1: REGISTER REFERRALS ==========
   console.log("\n1️⃣ REGISTERING REFERRALS");
@@ -226,8 +223,8 @@ async function main() {
     const initialCreatorBalance = await toastToken.balanceOf(contentCreator.address);
     const initialDirectBalance = await toastToken.balanceOf(directReferrer.address);
     const initialGrandBalance = await toastToken.balanceOf(grandReferrer.address);
-    const initialEvaluatorBalance = await toastToken.balanceOf(evaluatorTreasury.address);
-    const initialPlatformBalance = await toastToken.balanceOf(platformTreasury.address);
+    const initialEvaluatorBalance = await toastToken.balanceOf(evaluatorTreasury);
+    const initialPlatformBalance = await toastToken.balanceOf(platformTreasury);
 
     console.log("💰 Pre-Purchase Balances:");
     console.log("   Buyer TOAST:", ethers.formatEther(await toastToken.balanceOf(contentBuyer.address)));
@@ -296,23 +293,16 @@ async function main() {
   console.log("-".repeat(30));
   
   try {
-    // Backend manually processes the purchase and distributes rewards
-    const payoutTx = await rewardDistribution.connect(owner).processContentPurchase(
-      CONTENT_ID,
-      contentBuyer.address,
-      contentCreator.address, // miner/creator
-      PURCHASE_AMOUNT
-    );
-    await payoutTx.wait();
-    console.log("✅ Rewards distributed by backend");
-    console.log("🔗 Transaction:", `https://somnia.w3us.site/tx/${payoutTx.hash}`);
+    // Since we set up automatic reward processing, the rewards should have been distributed automatically
+    // during the purchase. Let's verify the balances to confirm.
+    console.log("✅ Rewards should have been distributed automatically during purchase");
 
     // Check final balances
     const finalCreatorBalance = await toastToken.balanceOf(contentCreator.address);
     const finalDirectBalance = await toastToken.balanceOf(directReferrer.address);
     const finalGrandBalance = await toastToken.balanceOf(grandReferrer.address);
-    const finalEvaluatorBalance = await toastToken.balanceOf(evaluatorTreasury.address);
-    const finalPlatformBalance = await toastToken.balanceOf(platformTreasury.address);
+    const finalEvaluatorBalance = await toastToken.balanceOf(evaluatorTreasury);
+    const finalPlatformBalance = await toastToken.balanceOf(platformTreasury);
 
     console.log("💰 Final Balances:");
     console.log("   Creator TOAST:", ethers.formatEther(finalCreatorBalance));
@@ -401,7 +391,7 @@ async function main() {
   console.log("   ✅ Content created and approved");
     console.log("   ✅ Content purchased with TOAST tokens");
   console.log("   ✅ Ownership transferred to buyer");
-  console.log("   ✅ Rewards distributed to all parties");
+  console.log("   ✅ Rewards distributed automatically to all parties");
   console.log("   ✅ Content personalized by new owner");
   console.log("   ✅ All state changes verified");
   

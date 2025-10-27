@@ -124,7 +124,7 @@ contract ContentRewardDistribution is Ownable, ReentrancyGuard, Pausable {
         address _buyer,
         address _miner,
         uint256 _totalAmount
-    ) external onlyOwner nonReentrant whenNotPaused returns (bool) {
+    ) external nonReentrant whenNotPaused returns (bool) {
         require(_buyer != address(0), "Invalid buyer address");
         require(_miner != address(0), "Invalid miner address");
         require(_totalAmount > 0, "Invalid amount");

@@ -223,8 +223,8 @@ describe("ContentRewardDistribution", function () {
         0 // SILVER tier
       );
       
-      // Give the reward distribution contract tokens to distribute
-      await toastToken.connect(owner).transfer(await rewardDistribution.getAddress(), ethers.parseEther("100000"));
+    // Fund reward distribution contract for testing
+    await toastToken.connect(owner).transfer(await rewardDistribution.getAddress(), PURCHASE_AMOUNT);
     });
     
     it("Should process content purchase with all payouts", async function () {

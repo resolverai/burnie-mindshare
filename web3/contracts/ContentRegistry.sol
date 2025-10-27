@@ -115,7 +115,7 @@ contract ContentRegistry is Ownable, ReentrancyGuard, Pausable {
         contents[_contentId] = Content({
             contentId: _contentId,
             creator: _creator,
-            currentOwner: address(0), // No ownership until approved
+            currentOwner: _creator, // Creator is the initial owner
             contentHash: _contentHash,
             personalizedHash: "",
             price: 0,
