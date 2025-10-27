@@ -201,8 +201,8 @@ export default function LifestyleContextPage() {
           prompt: imagePrompt,
           num_images: 1,
           include_logo: includeLogo,
-          user_images: [productImageUrl],
-          image_model: 'nano-banana'
+          user_images: [productImageUrl]
+          // image_model will be fetched from account_configurations
         }
 
         imageGenerationPromises.push(

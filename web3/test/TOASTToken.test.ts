@@ -20,7 +20,7 @@ describe("TOASTToken", function () {
     
     // Deploy contract
     const TOASTTokenFactory = await ethers.getContractFactory("TOASTToken");
-    toastToken = await TOASTTokenFactory.deploy(owner.address) as TOASTToken;
+    toastToken = await TOASTTokenFactory.deploy(owner.address) as unknown as TOASTToken;
     await toastToken.waitForDeployment();
   });
   

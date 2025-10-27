@@ -4,6 +4,47 @@ import { Web2GeneratedContent } from '../models/Web2GeneratedContent';
 import { Account } from '../models/Account';
 import { v4 as uuidv4 } from 'uuid';
 
+// Helper function to generate presigned URL for AI-generated content
+async function generatePresignedUrl(s3Key: string): Promise<string | null> {
+  const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
+  if (!pythonBackendUrl) {
+    console.error('PYTHON_AI_BACKEND_URL environment variable is not set');
+    return null;
+  }
+
+  try {
+    console.log(`🔗 Requesting presigned URL for S3 key: ${s3Key}`);
+    
+    const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Python backend responded with ${response.status}`);
+    }
+
+    const result = await response.json() as {
+      status: string;
+      presigned_url?: string;
+      error?: string;
+    };
+
+    if (result.status === 'success' && result.presigned_url) {
+      console.log(`✅ Generated presigned URL for S3 key: ${s3Key}`);
+      return result.presigned_url;
+    } else {
+      console.error(`Failed to generate presigned URL: ${result.error}`);
+      return null;
+    }
+  } catch (error) {
+    console.error(`Error generating presigned URL for S3 key: ${s3Key}`, error);
+    return null;
+  }
+}
+
 const router = require('express').Router();
 
 /**
@@ -40,6 +81,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       instagram_caption,
       linkedin_post,
       generated_image_urls,
+      generated_prompts,
+      product_categories,
       generated_video_url,
       generated_audio_url,
       generated_voiceover_url,
@@ -110,6 +153,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       instagram_caption,
       linkedin_post,
       generated_image_urls,
+      generated_prompts,
+      product_categories,
       generated_video_url,
       generated_audio_url,
       generated_voiceover_url,
@@ -124,7 +169,11 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       visual_analysis,
       num_variations,
       industry,
-      brand_context
+      brand_context,
+      job_id: req.body.job_id,
+      progress_percent: req.body.progress_percent || 0,
+      progress_message: req.body.progress_message || '',
+      current_step: req.body.current_step || 'initializing'
     });
 
     const savedContent = await generatedContentRepository.save(generatedContent);
@@ -137,6 +186,86 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
   } catch (error) {
     console.error('Error saving generated content:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route GET /api/web2/generated-content/job/:jobId
+ * @desc Get generated content by job ID
+ */
+router.get('/job/:jobId', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { jobId } = req.params;
+
+    if (!jobId) {
+      res.status(400).json({
+        success: false,
+        message: 'Job ID is required'
+      });
+      return;
+    }
+
+    const generatedContentRepository = AppDataSource.getRepository(Web2GeneratedContent);
+    const content = await generatedContentRepository.findOne({ 
+      where: { job_id: jobId },
+      order: { created_at: 'DESC' }
+    });
+
+    if (!content) {
+      res.status(404).json({
+        success: false,
+        message: 'Generated content not found for this job ID'
+      });
+      return;
+    }
+
+    // Generate presigned URLs for generated images before sending to frontend
+    let contentWithPresignedUrls = { ...content };
+    
+    // Generate presigned URLs for generated images
+    if (content.generated_image_urls) {
+      try {
+        // Handle backward compatibility: convert string to array if needed
+        let imageUrls: string[] = [];
+        if (Array.isArray(content.generated_image_urls)) {
+          imageUrls = content.generated_image_urls;
+        } else if (typeof content.generated_image_urls === 'string') {
+          // Handle legacy string format
+          imageUrls = content.generated_image_urls ? [content.generated_image_urls] : [];
+        }
+        
+        if (imageUrls.length > 0) {
+          const presignedUrls = await Promise.all(
+            imageUrls.map(async (url: string) => {
+              if (url && url.startsWith('s3://')) {
+                // Extract S3 key from S3 URL
+                const s3Key = url.replace('s3://burnie-mindshare-content-staging/', '');
+                return await generatePresignedUrl(s3Key);
+              }
+              return url; // Already a presigned URL
+            })
+          );
+          // Filter out null values
+          contentWithPresignedUrls.generated_image_urls = presignedUrls.filter((url): url is string => url !== null);
+        }
+      } catch (error) {
+        console.error('Error generating presigned URLs for images:', error);
+        // Keep original URLs if presigned URL generation fails
+      }
+    }
+
+    res.json({
+      success: true,
+      data: contentWithPresignedUrls
+    });
+
+  } catch (error) {
+    console.error('Error fetching content by job ID:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
@@ -176,9 +305,37 @@ router.get('/:account_id', async (req: Request, res: Response) => {
 
     const [content, total] = await queryBuilder.getManyAndCount();
 
+    // Generate presigned URLs for generated images before sending to frontend
+    const contentWithPresignedUrls = await Promise.all(content.map(async (item) => {
+      const updatedItem = { ...item };
+      
+      // Generate presigned URLs for generated images
+      if (item.generated_image_urls && item.generated_image_urls.length > 0) {
+        try {
+          const presignedUrls = await Promise.all(
+            item.generated_image_urls.map(async (url: string) => {
+              if (url.startsWith('s3://')) {
+                // Extract S3 key from S3 URL
+                const s3Key = url.replace('s3://burnie-mindshare-content-staging/', '');
+                return await generatePresignedUrl(s3Key);
+              }
+              return url; // Already a presigned URL
+            })
+          );
+          // Filter out null values
+          updatedItem.generated_image_urls = presignedUrls.filter((url): url is string => url !== null);
+        } catch (error) {
+          console.error('Error generating presigned URLs for images:', error);
+          // Keep original URLs if presigned URL generation fails
+        }
+      }
+      
+      return updatedItem;
+    }));
+
     res.json({
       success: true,
-      data: content,
+      data: contentWithPresignedUrls,
       pagination: {
         page: Number(page),
         limit: Number(limit),
@@ -189,6 +346,110 @@ router.get('/:account_id', async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Error fetching generated content:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route PUT /api/web2/generated-content/:id
+ * @desc Update generated content record
+ */
+router.put('/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: 'Content ID is required'
+      });
+      return;
+    }
+
+    const generatedContentRepository = AppDataSource.getRepository(Web2GeneratedContent);
+    const content = await generatedContentRepository.findOne({ where: { id: parseInt(id) } });
+
+    if (!content) {
+      res.status(404).json({
+        success: false,
+        message: 'Generated content not found'
+      });
+      return;
+    }
+
+    // Update the content with provided data
+    Object.assign(content, updateData);
+    await generatedContentRepository.save(content);
+
+    res.json({
+      success: true,
+      message: 'Content updated successfully',
+      data: content
+    });
+
+  } catch (error) {
+    console.error('Error updating content:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route PUT /api/web2/generated-content/:id/progress
+ * @desc Update progress for generated content
+ */
+router.put('/:id/progress', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { progress_percent, progress_message, current_step } = req.body;
+
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: 'Content ID is required'
+      });
+      return;
+    }
+
+    const generatedContentRepository = AppDataSource.getRepository(Web2GeneratedContent);
+    const content = await generatedContentRepository.findOne({ where: { id: parseInt(id) } });
+
+    if (!content) {
+      res.status(404).json({
+        success: false,
+        message: 'Generated content not found'
+      });
+      return;
+    }
+
+    // Update progress fields
+    content.progress_percent = progress_percent || 0;
+    content.progress_message = progress_message || '';
+    content.current_step = current_step || 'processing';
+
+    await generatedContentRepository.save(content);
+
+    res.json({
+      success: true,
+      message: 'Progress updated successfully',
+      data: {
+        id: content.id,
+        progress_percent: content.progress_percent,
+        progress_message: content.progress_message,
+        current_step: content.current_step
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating progress:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

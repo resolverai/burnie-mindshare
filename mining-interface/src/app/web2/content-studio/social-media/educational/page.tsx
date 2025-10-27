@@ -317,10 +317,10 @@ export default function EducationalPage() {
 
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || !contentTopic.trim()}
+                disabled={generationState === 'generating' || !contentTopic.trim()}
                 className="w-full py-4 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center space-x-2"
               >
-                {isGenerating ? (
+                {generationState === 'generating' ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     <span>Generating Content...</span>
@@ -338,7 +338,7 @@ export default function EducationalPage() {
           {/* Right Panel */}
           <div className="w-1/2 flex items-center justify-center p-6 bg-gray-900/50">
             <div className="w-full max-w-2xl">
-              {isGenerating ? (
+              {generationState === 'generating' ? (
                 <div className="flex flex-col items-center justify-center space-y-4">
                   <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
                   <p className="text-gray-400 text-lg">Generating educational content...</p>

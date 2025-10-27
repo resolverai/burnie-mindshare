@@ -98,8 +98,14 @@ export class Web2GeneratedContent {
   linkedin_post?: string; // LinkedIn post (professional tone)
 
   // Generated content URLs (stored in S3)
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
   generated_image_urls?: string[]; // S3 URLs of generated images
+
+  @Column({ type: 'jsonb', nullable: true })
+  generated_prompts?: string[]; // Individual prompts used for each generated image
+
+  @Column({ type: 'jsonb', nullable: true })
+  product_categories?: string[]; // Product categories for each generated image
 
   @Column({ type: 'text', nullable: true })
   generated_video_url?: string; // S3 URL of generated video/clip
@@ -150,6 +156,19 @@ export class Web2GeneratedContent {
 
   @Column({ type: 'jsonb', nullable: true })
   brand_context?: Record<string, any>; // Brand context data used for generation
+
+  // Progress tracking
+  @Column({ type: 'int', default: 0 })
+  progress_percent!: number; // Progress percentage (0-100)
+
+  @Column({ type: 'text', nullable: true })
+  progress_message?: string; // Current progress message
+
+  @Column({ type: 'varchar', length: 100, default: 'initializing' })
+  current_step?: string; // Current step in generation process
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  job_id?: string; // Job ID for tracking specific generation
 
   @CreateDateColumn()
   created_at!: Date;

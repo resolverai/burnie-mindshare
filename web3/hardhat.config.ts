@@ -35,6 +35,7 @@ const config: HardhatUserConfig = {
         enabled: true,
         runs: 200,
       },
+      viaIR: true,
     },
   },
   networks: {
@@ -61,7 +62,7 @@ const config: HardhatUserConfig = {
       url: process.env.SOMNIA_TESTNET_RPC_URL || "https://dream-rpc.somnia.network",
       accounts: validatedAccounts,
       chainId: 50312, // Correct Somnia testnet chain ID
-      gasPrice: 8000000000, // 8 gwei (higher than current network requirement of ~6 gwei)
+      gasPrice: 6000000000, // 6 gwei (network requirement)
     },
     // Somnia Mainnet Configuration (for future use)
     somniaMainnet: {

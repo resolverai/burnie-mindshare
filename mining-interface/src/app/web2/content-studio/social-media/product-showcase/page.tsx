@@ -242,10 +242,10 @@ export default function ProductShowcasePage() {
 
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || !productName.trim()}
+                disabled={generationState === 'generating' || !productName.trim()}
                 className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center space-x-2"
               >
-                {isGenerating ? (
+                {generationState === 'generating' ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     <span>Generating...</span>
@@ -262,7 +262,7 @@ export default function ProductShowcasePage() {
 
           <div className="w-1/2 flex items-center justify-center p-6 bg-gray-900/50">
             <div className="w-full max-w-2xl">
-              {isGenerating ? (
+              {generationState === 'generating' ? (
                 <div className="flex flex-col items-center justify-center space-y-4">
                   <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin" />
                   <p className="text-gray-400 text-lg">Creating product showcase...</p>

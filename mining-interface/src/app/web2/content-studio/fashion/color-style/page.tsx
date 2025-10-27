@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useGenerationPolling } from '@/hooks/useGenerationPolling'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import Image from 'next/image'
 import PlatformSelector from '@/components/web2/PlatformSelector'
@@ -36,6 +37,7 @@ const styleOptions = [
 
 export default function ColorStylePage() {
   const router = useRouter()
+  const { startPolling, stopPolling } = useGenerationPolling()
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
@@ -78,6 +80,13 @@ export default function ColorStylePage() {
     'Dress', 'Shirt', 'Pants', 'Shoes', 'Jacket', 'Skirt',
     'Accessories', 'Bag', 'Hat', 'Jewelry', 'Watch', 'Sunglasses', 'Other'
   ]
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      stopPolling()
+    }
+  }, [])
 
   const handleFileSelect = (files: FileList | File[]) => {
     const fileArray = Array.from(files)
@@ -169,6 +178,56 @@ export default function ColorStylePage() {
     setSelectedStyles(newStyles)
   }
 
+  
+  const handleProgress = (progress: any) => {
+    setProgressMessage(progress.progress_message || 'Processing...')
+    setProgressPercent(progress.progress_percent || 0)
+    
+    // Update generated images progressively as they come in
+    if (progress.generated_image_urls && progress.generated_image_urls.length > 0) {
+      console.log('🖼️ Progressive image update:', progress.generated_image_urls)
+      setGeneratedImages(progress.generated_image_urls)
+    }
+    
+    // Update platform texts progressively
+    if (progress.twitter_text || progress.youtube_description || progress.instagram_caption || progress.linkedin_post) {
+      const platformTexts: any = {}
+      if (progress.twitter_text) platformTexts.twitter = progress.twitter_text
+      if (progress.youtube_description) platformTexts.youtube = progress.youtube_description
+      if (progress.instagram_caption) platformTexts.instagram = progress.instagram_caption
+      if (progress.linkedin_post) platformTexts.linkedin = progress.linkedin_post
+      
+      setPlatformTexts(platformTexts)
+    }
+  }
+
+  const handleComplete = (progress: any) => {
+    setGenerationState('complete')
+    setProgressMessage('Generation complete!')
+    setProgressPercent(100)
+    
+    // Extract generated images
+    if (progress.generated_image_urls && progress.generated_image_urls.length > 0) {
+      setGeneratedImages(progress.generated_image_urls)
+    }
+    
+    // Extract platform texts
+    const platformTexts: any = {}
+    if (progress.twitter_text) platformTexts.twitter = progress.twitter_text
+    if (progress.youtube_description) platformTexts.youtube = progress.youtube_description
+    if (progress.instagram_caption) platformTexts.instagram = progress.instagram_caption
+    if (progress.linkedin_post) platformTexts.linkedin = progress.linkedin_post
+    
+    setPlatformTexts(platformTexts)
+  }
+
+  const handleError = (error: string) => {
+    setGenerationState('idle')
+    setProgressMessage('')
+    setProgressPercent(0)
+    alert('Generation failed: ' + error)
+  }
+
   const handleGenerate = async () => {
     if (productImages.length === 0) {
       alert('Please upload at least one product image')
@@ -185,7 +244,9 @@ export default function ColorStylePage() {
       return
     }
 
-    setIsGenerating(true)
+    setGenerationState('generating')
+    setProgressMessage('Starting unified generation...')
+    setProgressPercent(0)
     setGeneratedImages([])
 
     try {
@@ -218,83 +279,69 @@ export default function ColorStylePage() {
       const totalVariations = Math.max(colorsArray.length, stylesArray.length, colorsArray.length + stylesArray.length > 0 ? colorsArray.length + stylesArray.length : 1)
       const numImages = Math.min(totalVariations, 5)
 
-      const promptRequest = {
+      // Prepare workflow inputs
+      const workflowInputs = {
+        productCategory: productCategory === 'Other' ? customProductCategory : productCategory,
+        selectedColors: colorsArray,
+        selectedStyles: stylesArray,
+        additionalInstructions,
+        includeLogo
+      }
+
+      // Call unified generation endpoint
+      const unifiedRequest = {
         account_id: parseInt(localStorage.getItem('burnie_web2_account_id') || '0'),
-        prompt_types: ['image', 'tweet'],
-        num_prompts: { image: numImages, tweet: 1 },
+        content_type: 'image',
+        industry: 'Fashion',
+        workflow_type: 'Color & Style Variations',
         theme: 'Color and style variations: ' + productCategory,
+        workflow_inputs: workflowInputs,
+        user_uploaded_images: productImageUrls,
         user_prompt: 'Create variations of this ' + (productCategory === 'Other' ? customProductCategory : productCategory) + ' in different colors (' + colorsArray.join(', ') + ') and styles (' + stylesArray.join(', ') + '). ' + additionalInstructions,
-        user_images: productImageUrls,
-        workflow_type: 'fashion_color_style',
-        target_platform: 'instagram',
+        num_variations: numImages,
+        include_logo: includeLogo,
         no_characters: false,
         human_characters_only: true,
         web3_characters: false,
         use_brand_aesthetics: true,
-        viral_trends: false,
-        include_logo: includeLogo
+        viral_trends: false
       }
 
-      const promptResponse = await fetch(
-        (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/generate-prompts',
+      console.log('🚀 Starting unified generation for Color & Style workflow')
+      console.log('🔍 Job ID will be received from response')
+
+      const unifiedResponse = await fetch(
+        (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/unified-generation',
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(promptRequest)
+          body: JSON.stringify(unifiedRequest)
         }
       )
 
-      if (!promptResponse.ok) {
-        throw new Error('Failed to generate prompts')
+      if (!unifiedResponse.ok) {
+        throw new Error('Failed to start unified generation')
       }
 
-      const promptData = await promptResponse.json()
-      setGeneratedCaption(promptData.prompts.tweet_text)
+      const unifiedData = await unifiedResponse.json()
+      const jobId = unifiedData.job_id
 
-      const imageGenerationPromises = []
-      for (let i = 1; i <= numImages; i++) {
-        const promptKey = 'image_prompt_' + i
-        const imagePrompt = promptData.prompts[promptKey]
-        
-        const imageRequest = {
-          account_id: parseInt(localStorage.getItem('burnie_web2_account_id') || '0'),
-          prompt: imagePrompt,
-          num_images: 1,
-          include_logo: includeLogo,
-          user_images: productImageUrls,
-          image_model: 'nano-banana'
-        }
+      console.log('✅ Unified generation started')
+      console.log('🔍 Job ID:', jobId)
 
-        imageGenerationPromises.push(
-          fetch(
-            (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/generate-image',
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(imageRequest)
-            }
-          )
-        )
-      }
-
-      const imageResponses = await Promise.all(imageGenerationPromises)
-      const imageResults = await Promise.all(imageResponses.map(r => r.json()))
-
-      const imageUrls = imageResults
-        .filter(result => result.success)
-        .map(result => result.content_url)
-
-      setGeneratedImages(imageUrls)
+      // Start polling for progress updates
+      setTimeout(() => {
+        startPolling(jobId, handleProgress, handleComplete, handleError)
+      }, 1000)
 
     } catch (error) {
       console.error('Generation error:', error)
+      setGenerationState('idle')
+      setProgressMessage('')
+      setProgressPercent(0)
       alert('Error generating images: ' + (error instanceof Error ? error.message : 'Unknown error'))
-    } finally {
-      setIsGenerating(false)
     }
   }
 
@@ -770,10 +817,10 @@ export default function ColorStylePage() {
               {/* Generate Button */}
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || productImages.length === 0 || !productCategory || (selectedColors.size === 0 && selectedStyles.size === 0)}
+                disabled={generationState === 'generating' || productImages.length === 0 || !productCategory || (selectedColors.size === 0 && selectedStyles.size === 0)}
                 className="w-full px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
               >
-                {isGenerating ? (
+                {generationState === 'generating' ? (
                   <>
                     <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>

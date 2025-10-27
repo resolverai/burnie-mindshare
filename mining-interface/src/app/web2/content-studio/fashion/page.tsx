@@ -16,6 +16,20 @@ interface WorkflowOption {
 
 const fashionWorkflows: WorkflowOption[] = [
   {
+    id: 'simple-workflow',
+    title: 'Simple Workflow',
+    description: 'Upload your entire inventory and get AI-generated variations for all products in one go',
+    icon: '🚀',
+    color: 'from-indigo-500 to-purple-500',
+    features: [
+      'Bulk inventory processing',
+      'AI-powered categorization',
+      'Intelligent styling decisions',
+      'Perfect for entire collections'
+    ],
+    recommended: true
+  },
+  {
     id: 'model-diversity',
     title: 'Model Diversity Showcase',
     description: 'Show your product on diverse models to appeal to a wider audience',
@@ -26,8 +40,7 @@ const fashionWorkflows: WorkflowOption[] = [
       'Diverse ethnicities & body types',
       'Professional photography style',
       'Perfect for inclusivity campaigns'
-    ],
-    recommended: true
+    ]
   },
   {
     id: 'lifestyle-context',

@@ -182,9 +182,9 @@ OUTPUT FORMAT (JSON only):
   "mood": "Overall emotional tone and atmosphere",
   "lighting_style": "Lighting techniques observed",
   "text_elements": "Typography and text overlay patterns (if present)",
-  "background_aesthetics": "Background styles and treatments",
+  "background_aesthetics": "Background styles and treatments (for Simple Workflow: suggest diverse, creative backgrounds)",
   "industry_insights": "Industry-specific observations",
-  "workflow_recommendations": "Specific recommendations for this workflow"
+  "workflow_recommendations": "Specific recommendations for this workflow (for Simple Workflow: emphasize creative, engaging contexts over plain backgrounds)"
 }
 """
         
@@ -215,6 +215,8 @@ OUTPUT FORMAT (JSON only):
    - How do these images inform the specific workflow goals?
    - What visual patterns should be maintained or enhanced?
    - Product display strategies for this workflow
+   - For Simple Workflow: Focus on diverse, engaging backgrounds and creative contexts
+   - For Simple Workflow: Avoid recommending white/plain backgrounds - suggest creative alternatives
 """
     
     def _get_social_media_analysis_focus(self, workflow_type: str) -> str:

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useGenerationPolling } from '@/hooks/useGenerationPolling'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import Image from 'next/image'
 import PlatformSelector from '@/components/web2/PlatformSelector'
@@ -23,7 +24,15 @@ interface CollapsibleSection {
 
 export default function ModelDiversityPage() {
   const router = useRouter()
+  const { startPolling, stopPolling } = useGenerationPolling()
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      stopPolling()
+    }
+  }, [])
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   // Form state
@@ -206,6 +215,62 @@ export default function ModelDiversityPage() {
     ))
   }
 
+  const handleProgress = (progress: any) => {
+    console.log('🎯 Frontend progress update:', {
+      progress_percent: progress.progress_percent,
+      progress_message: progress.progress_message,
+      status: progress.status,
+      generated_image_urls: progress.generated_image_urls?.length || 0
+    })
+    console.log('🎯 Updating UI with progress:', progress.progress_percent + '%')
+    setProgressMessage(progress.progress_message || 'Processing...')
+    setProgressPercent(progress.progress_percent || 0)
+    
+    // Update generated images progressively as they come in
+    if (progress.generated_image_urls && progress.generated_image_urls.length > 0) {
+      console.log('🖼️ Progressive image update:', progress.generated_image_urls)
+      setGeneratedImages(progress.generated_image_urls)
+    }
+    
+    // Update platform texts progressively
+    if (progress.twitter_text || progress.youtube_description || progress.instagram_caption || progress.linkedin_post) {
+      const platformTexts: any = {}
+      if (progress.twitter_text) platformTexts.twitter = progress.twitter_text
+      if (progress.youtube_description) platformTexts.youtube = progress.youtube_description
+      if (progress.instagram_caption) platformTexts.instagram = progress.instagram_caption
+      if (progress.linkedin_post) platformTexts.linkedin = progress.linkedin_post
+      
+      setPlatformTexts(platformTexts)
+    }
+  }
+
+  const handleComplete = (progress: any) => {
+    setGenerationState('complete')
+    setProgressMessage('Generation complete!')
+    setProgressPercent(100)
+    
+    // Extract generated images
+    if (progress.generated_image_urls && progress.generated_image_urls.length > 0) {
+      setGeneratedImages(progress.generated_image_urls)
+    }
+    
+    // Extract platform texts
+    const platformTexts: any = {}
+    if (progress.twitter_text) platformTexts.twitter = progress.twitter_text
+    if (progress.youtube_description) platformTexts.youtube = progress.youtube_description
+    if (progress.instagram_caption) platformTexts.instagram = progress.instagram_caption
+    if (progress.linkedin_post) platformTexts.linkedin = progress.linkedin_post
+    
+    setPlatformTexts(platformTexts)
+  }
+
+  const handleError = (error: string) => {
+    setGenerationState('idle')
+    setProgressMessage('')
+    setProgressPercent(0)
+    alert('Generation failed: ' + error)
+  }
+
   const handleGenerate = async () => {
     if (productImages.length === 0) {
       alert('Please upload at least one product image')
@@ -217,16 +282,23 @@ export default function ModelDiversityPage() {
       return
     }
 
-    if (modelPreferences.ethnicities.length === 0) {
-      alert('Please select at least one ethnicity preference')
+    if (modelPreferences.ethnicities.length === 0 && !modelImage) {
+      alert('Please select at least one ethnicity preference or upload a model image')
       return
     }
 
-    setIsGenerating(true)
+    // Set generation state
+    setGenerationState('generating')
+    setProgressMessage('Starting generation...')
+    setProgressPercent(0)
     setGeneratedImages([])
+    setPlatformTexts({})
 
     try {
       // Step 1: Upload all product images
+      setProgressMessage('Uploading product images...')
+      setProgressPercent(10)
+      
       const uploadPromises = productImages.map(async (file) => {
         const formData = new FormData()
         formData.append('file', file)
@@ -250,91 +322,119 @@ export default function ModelDiversityPage() {
 
       const productImageUrls = await Promise.all(uploadPromises)
 
-      // Step 2: Generate prompt using Grok
-      const promptRequest = {
-        account_id: parseInt(localStorage.getItem('burnie_web2_account_id') || '0'),
-        prompt_types: ['image', 'tweet'],
-        num_prompts: { image: numVariations, tweet: 1 },
-        theme: 'Product showcase: ' + (productCategory === 'Other' ? customProductCategory : productCategory),
-        user_prompt: 'Show this ' + (productCategory === 'Other' ? customProductCategory : productCategory) + ' on diverse models. ' + 
+      // Step 2: Upload model image if provided
+      let modelImageUrl = null
+      if (modelImage) {
+        setProgressMessage('Uploading model image...')
+        setProgressPercent(15)
+        
+        const modelFormData = new FormData()
+        modelFormData.append('file', modelImage)
+        modelFormData.append('account_id', localStorage.getItem('burnie_web2_account_id') || '')
+
+        const modelUploadResponse = await fetch(
+          (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/upload-user-file',
+          {
+            method: 'POST',
+            body: modelFormData
+          }
+        )
+
+        if (!modelUploadResponse.ok) {
+          throw new Error('Failed to upload model image')
+        }
+
+        const modelUploadData = await modelUploadResponse.json()
+        modelImageUrl = modelUploadData.s3_url
+      }
+
+      // Step 3: Use unified generation endpoint
+      setProgressMessage('Starting unified generation...')
+      setProgressPercent(0)
+
+      // Generate user prompt based on whether model image is provided
+      let userPrompt
+      if (modelImageUrl) {
+        // When model image is provided, override all preferences
+        userPrompt = 'Show this ' + (productCategory === 'Other' ? customProductCategory : productCategory) + 
+          ' on the specific model provided in the model image. ' +
+          'Use the exact model from the uploaded image for the product showcase. ' +
+          'Setting: ' + (setting === 'Other' ? customSetting : setting) + 
+          '. ' + additionalInstructions
+      } else {
+        // Use model preferences when no specific model image
+        userPrompt = 'Show this ' + (productCategory === 'Other' ? customProductCategory : productCategory) + ' on diverse models. ' + 
           'Model preferences: Ethnicities: ' + modelPreferences.ethnicities.join(', ') + 
           ', Body Types: ' + modelPreferences.bodyTypes.join(', ') + 
           ', Age Ranges: ' + modelPreferences.ageRanges.join(', ') + 
           ', Genders: ' + modelPreferences.genders.join(', ') + 
           '. Setting: ' + (setting === 'Other' ? customSetting : setting) + 
-          '. ' + additionalInstructions,
-        user_images: productImageUrls,
-        workflow_type: 'fashion_model_diversity',
-        target_platform: 'instagram',
+          '. ' + additionalInstructions
+      }
+
+      const unifiedRequest = {
+        account_id: parseInt(localStorage.getItem('burnie_web2_account_id') || '0'),
+        content_type: 'image',
+        industry: 'Fashion',
+        workflow_type: 'Model Diversity Showcase',
+        theme: 'Product showcase: ' + (productCategory === 'Other' ? customProductCategory : productCategory),
+        user_prompt: userPrompt,
+        user_uploaded_images: productImageUrls,
+        model_image_url: modelImageUrl, // Add model image URL
+        num_images: numVariations,
+        target_platform: selectedPlatform,
         no_characters: false,
         human_characters_only: true,
         web3_characters: false,
         use_brand_aesthetics: true,
         viral_trends: false,
-        include_logo: includeLogo
+        include_logo: includeLogo,
+        workflow_inputs: {
+          productCategory: productCategory === 'Other' ? customProductCategory : productCategory,
+          modelPreferences: modelImageUrl ? null : modelPreferences, // Override with null if model image provided
+          modelImageProvided: !!modelImageUrl,
+          setting: setting === 'Other' ? customSetting : setting,
+          additionalInstructions
+        }
       }
 
-      const promptResponse = await fetch(
-        (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/generate-prompts',
+      // Start generation and get job ID
+      const response = await fetch(
+        (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/unified-generation',
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(promptRequest)
+          body: JSON.stringify(unifiedRequest)
         }
       )
 
-      if (!promptResponse.ok) {
-        throw new Error('Failed to generate prompts')
+      if (!response.ok) {
+        throw new Error('Failed to start generation')
       }
 
-      const promptData = await promptResponse.json()
-      setGeneratedCaption(promptData.prompts.tweet_text)
-
-      // Step 3: Generate images with the prompts
-      const imageGenerationPromises = []
-      for (let i = 1; i <= numVariations; i++) {
-        const promptKey = 'image_prompt_' + i
-        const imagePrompt = promptData.prompts[promptKey]
-        
-        const imageRequest = {
-          account_id: parseInt(localStorage.getItem('burnie_web2_account_id') || '0'),
-          prompt: imagePrompt,
-          num_images: 1,
-          include_logo: includeLogo,
-          user_images: productImageUrls,
-          image_model: 'nano-banana'
-        }
-
-        imageGenerationPromises.push(
-          fetch(
-            (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/generate-image',
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(imageRequest)
-            }
-          )
-        )
+      const { job_id } = await response.json()
+      
+      // Start polling for progress after a short delay to ensure initial record is created
+      console.log('🔍 Job ID for polling:', job_id)
+      if (job_id) {
+        console.log('⏰ Setting timeout to start polling in 1 second...')
+        setTimeout(() => {
+          console.log('🚀 Starting polling for job:', job_id)
+          console.log('🚀 Polling callbacks:', { handleProgress: !!handleProgress, handleComplete: !!handleComplete, handleError: !!handleError })
+          startPolling(job_id, handleProgress, handleComplete, handleError)
+        }, 1000) // 1 second delay
+      } else {
+        console.error('❌ No job ID received from backend')
       }
-
-      const imageResponses = await Promise.all(imageGenerationPromises)
-      const imageResults = await Promise.all(imageResponses.map(r => r.json()))
-
-      const imageUrls = imageResults
-        .filter(result => result.success)
-        .map(result => result.content_url)
-
-      setGeneratedImages(imageUrls)
 
     } catch (error) {
       console.error('Generation error:', error)
+      setGenerationState('idle')
+      setProgressMessage('')
+      setProgressPercent(0)
       alert('Error generating images: ' + (error instanceof Error ? error.message : 'Unknown error'))
-    } finally {
-      setIsGenerating(false)
     }
   }
 
@@ -610,7 +710,7 @@ export default function ModelDiversityPage() {
                     {/* Ethnicities */}
                     <div>
                       <label className="block text-xs font-medium text-gray-300 mb-2">
-                        Ethnicities <span className="text-red-400">*</span>
+                        Ethnicities {!modelImage && <span className="text-red-400">*</span>}
                       </label>
                       <div className="flex flex-wrap gap-2">
                         {ethnicityOptions.map((option) => (
@@ -824,19 +924,31 @@ export default function ModelDiversityPage() {
                       >
                         {modelImagePreview ? (
                           <div className="space-y-2">
-                            <div 
-                              className="relative w-24 h-24 mx-auto cursor-pointer"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedImageModal(modelImagePreview)
-                              }}
-                            >
-                              <Image
-                                src={modelImagePreview}
-                                alt="Model preview"
-                                fill
-                                className="object-cover rounded-lg hover:opacity-80 transition-opacity"
-                              />
+                            <div className="relative w-24 h-24 mx-auto group">
+                              <div 
+                                className="relative w-full h-full cursor-pointer"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedImageModal(modelImagePreview)
+                                }}
+                              >
+                                <Image
+                                  src={modelImagePreview}
+                                  alt="Model preview"
+                                  fill
+                                  className="object-cover rounded-lg hover:opacity-80 transition-opacity"
+                                />
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setModelImage(null)
+                                    setModelImagePreview(null)
+                                  }}
+                                  className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                >
+                                  ×
+                                </button>
+                              </div>
                             </div>
                             <p className="text-xs text-gray-400">Click to view/change model image</p>
                           </div>
@@ -952,10 +1064,10 @@ export default function ModelDiversityPage() {
               {/* Generate Button */}
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || productImages.length === 0 || !productCategory || modelPreferences.ethnicities.length === 0}
+                disabled={generationState === 'generating' || productImages.length === 0 || !productCategory || (modelPreferences.ethnicities.length === 0 && !modelImage)}
                 className="w-full px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-lg font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
               >
-                {isGenerating ? (
+                {generationState === 'generating' ? (
                   <>
                     <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>

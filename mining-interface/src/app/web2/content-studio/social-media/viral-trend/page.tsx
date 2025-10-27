@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useGenerationPolling } from '@/hooks/useGenerationPolling'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import { ChevronDownIcon, ChevronUpIcon, SparklesIcon, FireIcon } from '@heroicons/react/24/outline'
 import PlatformSelector from '@/components/web2/PlatformSelector'
@@ -11,6 +12,7 @@ import Image from 'next/image'
 
 export default function ViralTrendPage() {
   const router = useRouter()
+  const { startPolling, stopPolling } = useGenerationPolling()
   const [sidebarExpanded, setSidebarExpanded] = useState(false)
   
   // Form state
@@ -39,8 +41,46 @@ export default function ViralTrendPage() {
   const [platformTexts, setPlatformTexts] = useState<any>({})
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
 
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      stopPolling()
+    }
+  }, [])
+
   const toggleSection = (section: 'basic' | 'advanced' | 'options') => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))
+  }
+
+  const handleProgress = (progress: any) => {
+    setProgressMessage(progress.progress_message || 'Generating...')
+    setProgressPercent(progress.progress_percent || 0)
+  }
+
+  const handleComplete = (progress: any) => {
+    setGenerationState('complete')
+    setProgressMessage('Generation complete!')
+    setProgressPercent(100)
+    
+    if (progress.generated_image_urls) {
+      setGeneratedImages(progress.generated_image_urls)
+    }
+    
+    // Extract platform texts
+    const platformTexts: any = {}
+    if (progress.twitter_text) platformTexts.twitter = progress.twitter_text
+    if (progress.youtube_description) platformTexts.youtube = progress.youtube_description
+    if (progress.instagram_caption) platformTexts.instagram = progress.instagram_caption
+    if (progress.linkedin_post) platformTexts.linkedin = progress.linkedin_post
+    
+    setPlatformTexts(platformTexts)
+  }
+
+  const handleError = (error: string) => {
+    setGenerationState('idle')
+    setProgressMessage('')
+    setProgressPercent(0)
+    alert('Generation failed: ' + error)
   }
 
   const handleGenerate = async () => {
@@ -50,7 +90,9 @@ export default function ViralTrendPage() {
       return
     }
 
-    setIsGenerating(true)
+    setGenerationState('generating')
+    setProgressMessage('Starting unified generation...')
+    setProgressPercent(0)
     setGeneratedImages([])
 
     try {
@@ -63,82 +105,69 @@ export default function ViralTrendPage() {
         return
       }
 
-      // Step 1: Generate prompts using Grok
-      const promptRequest = {
-        account_id: parseInt(accountId),
-        content_type: 'image',
-        workflow_type: 'viral_trend',
-        target_platform: platform,
-        theme: 'Viral trend: ' + trendTopic,
-        user_prompt: 'Create engaging social media content about ' + trendTopic + '. Goal: ' + contentGoal + '. Tone: ' + toneStyle + '. ' + additionalContext,
-        num_prompts: numVariations,
-        enable_live_search: true
+      // Prepare workflow inputs
+      const workflowInputs = {
+        trendTopic,
+        platform,
+        contentGoal,
+        toneStyle,
+        additionalContext,
+        includeLogo
       }
 
-      const promptResponse = await fetch(
-        (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/generate-prompts',
+      // Call unified generation endpoint
+      const unifiedRequest = {
+        account_id: parseInt(accountId),
+        content_type: 'image',
+        industry: 'Social Media Management',
+        workflow_type: 'Viral Trend Content',
+        theme: 'Viral trend: ' + trendTopic,
+        workflow_inputs: workflowInputs,
+        user_prompt: 'Create engaging social media content about ' + trendTopic + '. Goal: ' + contentGoal + '. Tone: ' + toneStyle + '. ' + additionalContext,
+        num_variations: numVariations,
+        include_logo: includeLogo,
+        no_characters: false,
+        human_characters_only: true,
+        web3_characters: false,
+        use_brand_aesthetics: true,
+        viral_trends: true
+      }
+
+      console.log('🚀 Starting unified generation for Viral Trend workflow')
+      console.log('🔍 Job ID will be received from response')
+
+      const unifiedResponse = await fetch(
+        (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/unified-generation',
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + web2Auth
           },
-          body: JSON.stringify(promptRequest)
+          body: JSON.stringify(unifiedRequest)
         }
       )
 
-      if (!promptResponse.ok) {
-        throw new Error('Failed to generate prompts')
+      if (!unifiedResponse.ok) {
+        throw new Error('Failed to start unified generation')
       }
 
-      const promptData = await promptResponse.json()
+      const unifiedData = await unifiedResponse.json()
+      const jobId = unifiedData.job_id
 
-      // Step 2: Generate images for each prompt
-      const imageGenerationPromises = []
-      for (let i = 1; i <= numVariations; i++) {
-        const promptKey = 'image_prompt_' + i
-        const imagePrompt = promptData[promptKey] || promptData.image_prompt_1
+      console.log('✅ Unified generation started')
+      console.log('🔍 Job ID:', jobId)
 
-        const imageRequest = {
-          account_id: parseInt(accountId),
-          prompt: imagePrompt,
-          include_logo: includeLogo,
-          num_images: 1
-        }
-
-        imageGenerationPromises.push(
-          fetch(
-            (process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000') + '/api/web2/generate-image',
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + web2Auth
-              },
-              body: JSON.stringify(imageRequest)
-            }
-          )
-        )
-      }
-
-      const imageResponses = await Promise.all(imageGenerationPromises)
-      const imageUrls: string[] = []
-
-      for (const response of imageResponses) {
-        if (response.ok) {
-          const data = await response.json()
-          if (data.content_urls && data.content_urls.length > 0) {
-            imageUrls.push(data.content_urls[0])
-          }
-        }
-      }
-
-      setGeneratedImages(imageUrls)
+      // Start polling for progress updates
+      setTimeout(() => {
+        startPolling(jobId, handleProgress, handleComplete, handleError)
+      }, 1000)
     } catch (error) {
       console.error('Error generating content:', error)
+      setGenerationState('idle')
+      setProgressMessage('')
+      setProgressPercent(0)
       alert('Error generating content: ' + (error instanceof Error ? error.message : 'Unknown error'))
-    } finally {
-      setIsGenerating(false)
     }
   }
 
@@ -342,10 +371,10 @@ export default function ViralTrendPage() {
               {/* Generate Button */}
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || !trendTopic.trim()}
+                disabled={generationState === 'generating' || !trendTopic.trim()}
                 className="w-full py-4 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 disabled:from-gray-600 disabled:to-gray-700 text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center space-x-2"
               >
-                {isGenerating ? (
+                {generationState === 'generating' ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     <span>Generating Content...</span>

@@ -190,9 +190,13 @@ FOCUS EXCLUSIVELY ON {brand_name} - DO NOT generate content for any other brand.
         
         prompt += "\n🎯 YOUR MISSION: Create PROFESSIONAL, ENGAGING content that will drive engagement and effectively communicate the brand message.\n\n"
         
-        # Add visual pattern analysis if available
-        if context.get('visual_analysis'):
+        # Add visual pattern analysis if available (skip for Simple Workflow)
+        if context.get('visual_analysis') and context.get('workflow_type') != 'Simple Workflow':
             prompt += self._format_visual_analysis(context['visual_analysis'])
+        elif context.get('workflow_type') == 'Simple Workflow' and context.get('visual_analysis', {}).get('inventory_analysis'):
+            # For Simple Workflow, only use inventory analysis
+            inventory_analysis = context['visual_analysis']['inventory_analysis']
+            prompt += self._format_inventory_analysis(inventory_analysis)
         
         # Add user-provided content context
         if user_images:
@@ -210,6 +214,132 @@ FOCUS EXCLUSIVELY ON {brand_name} - DO NOT generate content for any other brand.
 - Incorporate user's specific instructions into generated prompts
 - Enhance and expand on user's vision
 - Maintain alignment with user's intent
+
+"""
+        
+        # Handle model image override for Fashion workflows
+        workflow_inputs = context.get('workflow_inputs', {})
+        model_image_url = context.get('model_image_url')
+        
+        # Check if model image is provided (either through workflow_inputs or direct context)
+        if model_image_url:
+            prompt += f"""👤 SPECIFIC MODEL OVERRIDE:
+- User has provided a specific model image that MUST be used
+- IGNORE all ethnicity, body type, age, and gender preferences
+- Generate prompts that specifically mention using the provided model image
+- Focus on showcasing the product on this exact model
+- The model image will be passed to the image generation model
+- DO NOT include the model image URL in your generated prompts - just refer to "the provided model" or "the uploaded model"
+
+🎨 AUTONOMOUS STYLING PERMUTATIONS FOR SIMPLE WORKFLOW:
+- Generate 4 variations per product with INTELLIGENT, CREATIVE combinations
+- BE FULLY AUTONOMOUS - don't limit yourself to predefined options
+- INVENT and choose from infinite possibilities:
+  * Seasons: Create contextually appropriate seasonal settings (beyond basic seasons)
+  * Campaign Styles: Invent unique style approaches that work for each product
+  * Target Occasions: Think of creative, specific occasions that showcase the product best
+  * Settings/Context: Design unique environments and scenarios that enhance the product
+  * Styling Enhancements: Create innovative styling approaches beyond basic layering
+- USE YOUR CREATIVITY to come up with unique combinations that work best for each specific product
+- Create VARIETY in backgrounds: textured, colored, environmental, lifestyle, abstract, artistic
+- Each variation should feel UNIQUE and COMPELLING with its own creative vision
+- AVOID WHITE BACKGROUNDS - use diverse, engaging backgrounds and creative contexts
+- BE BOLD and INNOVATIVE - create variations that stand out and tell a story
+
+"""
+        elif workflow_inputs.get('modelPreferences') and context.get('workflow_type') == 'Model Diversity Showcase':
+            model_prefs = workflow_inputs.get('modelPreferences', {})
+            prompt += f"""👥 MODEL DIVERSITY REQUIREMENTS:
+- Ethnicities: {', '.join(model_prefs.get('ethnicities', []))}
+- Body Types: {', '.join(model_prefs.get('bodyTypes', []))}
+- Age Ranges: {', '.join(model_prefs.get('ageRanges', []))}
+- Genders: {', '.join(model_prefs.get('genders', []))}
+- Generate diverse model representations based on these preferences
+
+"""
+        elif context.get('workflow_type') == 'Simple Workflow' and not model_image_url:
+            # For Simple Workflow without model image, use intelligent model selection
+            prompt += f"""👥 INTELLIGENT MODEL SELECTION FOR SIMPLE WORKFLOW:
+- NO specific model image provided - use your creativity to select appropriate models
+- Choose models that best showcase each specific product
+- Consider diverse representations that appeal to the target audience
+- Use your knowledge of fashion and demographics to select appropriate models
+- Create variety across the 4 variations per product
+- Focus on models that enhance the product's appeal and marketability
+- Be inclusive and representative in your model choices
+
+🎨 AUTONOMOUS STYLING PERMUTATIONS FOR SIMPLE WORKFLOW:
+- Generate 4 variations per product with INTELLIGENT, CREATIVE combinations
+- BE FULLY AUTONOMOUS - don't limit yourself to predefined options
+- INVENT and choose from infinite possibilities:
+  * Seasons: Create contextually appropriate seasonal settings (beyond basic seasons)
+  * Campaign Styles: Invent unique style approaches that work for each product
+  * Target Occasions: Think of creative, specific occasions that showcase the product best
+  * Settings/Context: Design unique environments and scenarios that enhance the product
+  * Styling Enhancements: Create innovative styling approaches beyond basic layering
+- USE YOUR CREATIVITY to come up with unique combinations that work best for each specific product
+- Create VARIETY in backgrounds: textured, colored, environmental, lifestyle, abstract, artistic
+- Each variation should feel UNIQUE and COMPELLING with its own creative vision
+- AVOID WHITE BACKGROUNDS - use diverse, engaging backgrounds and creative contexts
+- BE BOLD and INNOVATIVE - create variations that stand out and tell a story
+
+"""
+        elif context.get('workflow_type') == 'Simple Workflow':
+            prompt += f"""🚀 SIMPLE WORKFLOW REQUIREMENTS:
+- Generate 4 variations per product with INTELLIGENT STYLING DECISIONS
+- Use diverse, engaging backgrounds and creative contexts
+- BE FULLY AUTONOMOUS in creative decisions - don't limit yourself to predefined options
+- INVENT unique combinations beyond any provided examples
+- FOCUS EXCLUSIVELY on the uploaded product images - ignore any brand context images
+- Use ONLY the inventory analysis insights for product-specific styling decisions
+
+🎨 CREATIVE EXAMPLES TO INSPIRE YOUR VARIATIONS (NOT LIMITATIONS):
+
+SEASONS (beyond basic seasons):
+- "Golden Hour Autumn with falling leaves"
+- "Crisp Winter Morning with frost details"
+- "Lush Spring Garden with blooming flowers"
+- "Sultry Summer Evening with warm lighting"
+- "Misty Rainy Day with urban reflections"
+
+CAMPAIGN STYLES (invent unique approaches):
+- "Artisanal Craftsmanship with hand-tooled details"
+- "Urban Explorer with street art backgrounds"
+- "Minimalist Zen with clean geometric lines"
+- "Vintage Americana with retro diner vibes"
+- "Modern Nomad with travel-inspired elements"
+- "Industrial Chic with exposed brick and metal"
+
+TARGET OCCASIONS (creative specific scenarios):
+- "Weekend Farmers Market with organic textures"
+- "Late Night Coffee Shop with warm ambient lighting"
+- "Art Gallery Opening with sophisticated minimalism"
+- "Music Festival with vibrant energy and crowds"
+- "Cozy Bookstore Reading with soft natural light"
+- "Rooftop Garden Party with city skyline views"
+
+SETTINGS/CONTEXTS (unique environments):
+- "Industrial Loft with exposed beams and natural light"
+- "Cozy Bookstore Corner with vintage furniture"
+- "Urban Rooftop with cityscape backdrop"
+- "Art Studio with paint-splattered easels"
+- "Modern Kitchen with marble countertops"
+- "Vintage Train Station with architectural details"
+
+STYLING ENHANCEMENTS (innovative approaches):
+- "Layered textures with denim, leather, and knit"
+- "Color-blocked accessories with contrasting elements"
+- "Mixed patterns with stripes, plaids, and solids"
+- "Texture play with smooth and rough materials"
+- "Asymmetrical styling with unexpected proportions"
+
+- USE THESE EXAMPLES as inspiration to create your own unique combinations
+- GO BEYOND these examples - invent your own creative approaches
+- Each variation should feel UNIQUE and COMPELLING with its own creative vision
+- Focus on PRODUCT-SPECIFIC styling decisions based on inventory analysis
+- Generate prompts that showcase products in DIVERSE, ENGAGING, and CREATIVE contexts
+- BE BOLD and INNOVATIVE - create variations that stand out and tell a story
+- INVENT unique combinations that go beyond any provided examples
 
 """
         
@@ -344,7 +474,7 @@ JSON only, no other text:"""
     
     def _get_brand_aesthetics_instructions(self, context: Dict) -> str:
         """Generate brand aesthetics instructions"""
-        brand_name = context.get('brand_name', 'the brand')
+        brand_name = context.get('brand_name') or 'the brand'
         
         instructions = f"""🎨 BRAND AESTHETICS REQUIREMENTS ({brand_name.upper()}):
 - Follow {brand_name} brand guidelines and visual identity
@@ -474,6 +604,50 @@ Based on analysis of uploaded visual references, maintain these patterns:
 """
         return formatted
     
+    def _format_inventory_analysis(self, inventory_analysis: Dict) -> str:
+        """Format inventory analysis results for inclusion in prompt"""
+        if not inventory_analysis:
+            return ""
+        
+        formatted = """
+📦 INVENTORY ANALYSIS INSIGHTS:
+Based on analysis of uploaded product images, use these specific product details:
+
+"""
+        
+        for image_key, product_data in inventory_analysis.items():
+            if isinstance(product_data, dict):
+                formatted += f"🛍️ {product_data.get('category', 'Product')}:\n"
+                
+                if product_data.get('features'):
+                    formatted += f"  - Features: {', '.join(product_data['features'])}\n"
+                
+                if product_data.get('target_audience'):
+                    formatted += f"  - Target Audience: {product_data['target_audience']}\n"
+                
+                if product_data.get('styling'):
+                    formatted += f"  - Styling Notes: {product_data['styling']}\n"
+                
+                if product_data.get('season'):
+                    formatted += f"  - Season: {product_data['season']}\n"
+                
+                if product_data.get('price_point'):
+                    formatted += f"  - Price Point: {product_data['price_point']}\n"
+                
+                formatted += "\n"
+        
+        formatted += """
+🎯 CRITICAL INSTRUCTIONS:
+- Generate prompts for the ACTUAL products analyzed above
+- Use the specific product categories, features, and styling notes provided
+- Create variations that showcase each product's unique characteristics
+- Focus on the target audience and styling recommendations
+- DO NOT invent or assume different products - use only what was analyzed
+
+"""
+        
+        return formatted
+    
     def _get_platform_text_instructions(self, context: Dict) -> str:
         """Generate instructions for platform-specific text generation"""
         brand_name = context.get('brand_name', 'the brand')
@@ -527,6 +701,299 @@ CRITICAL REQUIREMENTS:
 
 """
         return instructions
+
+    def analyze_inventory(self, product_images: List[str], industry: str = "Fashion") -> Dict:
+        """
+        Analyze uploaded product images and categorize them using Grok vision capabilities.
+        
+        Args:
+            product_images: List of S3 URLs of uploaded product images
+            industry: Industry context for better categorization
+            
+        Returns:
+            Dict with image_uuid: category mapping
+        """
+        try:
+            print(f"🔍 Starting inventory analysis for {len(product_images)} products in {industry} industry")
+            print(f"🔍 Product images to analyze: {product_images}")
+            
+            # Prepare the analysis prompt
+            analysis_prompt = f"""
+You are an expert product analyst specializing in {industry} industry. Your task is to analyze the uploaded product images and categorize each one.
+
+For each image, provide:
+1. Product category (e.g., "T-Shirt", "Dress", "Sneakers", "Handbag", "Jeans", etc.)
+2. Key product features (color, style, material, design elements)
+3. Target audience/demographic
+4. Styling recommendations
+5. Seasonal appropriateness
+6. Price point estimation (budget, mid-range, premium, luxury)
+
+IMPORTANT: Return ONLY a JSON object with this exact format:
+{{
+  "image_1": {{
+    "category": "Product Category",
+    "features": ["feature1", "feature2", "feature3"],
+    "target_audience": "Target demographic",
+    "styling": "Styling recommendations",
+    "season": "Season/occasion",
+    "price_point": "budget/mid-range/premium/luxury"
+  }},
+  "image_2": {{
+    "category": "Product Category",
+    "features": ["feature1", "feature2", "feature3"],
+    "target_audience": "Target demographic", 
+    "styling": "Styling recommendations",
+    "season": "Season/occasion",
+    "price_point": "budget/mid-range/premium/luxury"
+  }}
+}}
+
+Use "image_1", "image_2", etc. as keys corresponding to the order of images provided.
+Be specific and detailed in your analysis. Consider current fashion trends and market positioning.
+"""
+
+            # Call Grok with vision capabilities (using same pattern as visual analysis)
+            print(f"🤖 Calling Grok for inventory analysis...")
+            print(f"🤖 Grok client available: {self.client is not None}")
+            
+            # Create chat with same model as visual analysis
+            chat = self.client.chat.create(model="grok-4-latest")
+            print(f"🤖 Chat object created: {chat is not None}")
+            
+            # Add system message
+            chat.append(system(
+                "You are Grok, an expert product analyst. Analyze product images and provide "
+                "detailed categorization and insights in structured JSON format. Focus on "
+                "product-specific features, target audience, and styling recommendations."
+            ))
+            print(f"🤖 System message appended")
+            
+            # Build user prompt with images (same pattern as visual analysis)
+            prompt = f"""
+{analysis_prompt}
+
+Analyze the following {len(product_images)} product images and provide detailed categorization.
+Output ONLY valid JSON with the structure specified above. No markdown, no extra text.
+"""
+            
+            # Create image objects with high detail (same as visual analysis)
+            from xai_sdk.chat import image
+            image_objects = [image(image_url=url, detail="high") for url in product_images]
+            print(f"🤖 Created {len(image_objects)} image objects with high detail")
+            
+            # Append user message with images (same pattern as visual analysis)
+            chat.append(user(prompt, *image_objects))
+            print(f"🤖 User message with images appended")
+            
+            # Get response
+            print(f"🤖 Getting response from Grok...")
+            response = chat.sample()
+            analysis_text = response.content
+            print(f"📊 Grok analysis result: {analysis_text}")
+            
+            # Parse JSON response
+            try:
+                # Clean the response text to extract JSON
+                response_text = analysis_text.strip()
+                
+                # Find JSON content between ```json and ``` or just the JSON itself
+                if "```json" in response_text:
+                    json_start = response_text.find("```json") + 7
+                    json_end = response_text.find("```", json_start)
+                    json_content = response_text[json_start:json_end].strip()
+                elif response_text.startswith("{") and response_text.endswith("}"):
+                    json_content = response_text
+                else:
+                    # Try to find JSON-like content
+                    start_idx = response_text.find("{")
+                    end_idx = response_text.rfind("}") + 1
+                    if start_idx != -1 and end_idx > start_idx:
+                        json_content = response_text[start_idx:end_idx]
+                    else:
+                        raise ValueError("No valid JSON found in response")
+                
+                analysis_result = json.loads(json_content)
+                print(f"✅ Successfully parsed inventory analysis: {len(analysis_result)} products analyzed")
+                return analysis_result
+            except (json.JSONDecodeError, ValueError) as e:
+                print(f"❌ Failed to parse JSON from Grok response: {e}")
+                print(f"Raw response: {analysis_text}")
+                # Return a fallback structure
+                fallback = {}
+                for i in range(len(product_images)):
+                    fallback[f"image_{i+1}"] = {
+                        "category": "General Product",
+                        "features": ["versatile", "stylish"],
+                        "target_audience": "general consumers",
+                        "styling": "casual to smart casual",
+                        "season": "all-season",
+                        "price_point": "mid-range"
+                    }
+                return fallback
+                
+        except Exception as e:
+            print(f"❌ Error in inventory analysis: {e}")
+            print(f"❌ Exception type: {type(e).__name__}")
+            import traceback
+            print(f"❌ Full traceback: {traceback.format_exc()}")
+            # Return fallback analysis
+            fallback = {}
+            for i in range(len(product_images)):
+                fallback[f"image_{i+1}"] = {
+                    "category": "General Product",
+                    "features": ["versatile", "stylish"],
+                    "target_audience": "general consumers", 
+                    "styling": "casual to smart casual",
+                    "season": "all-season",
+                    "price_point": "mid-range"
+                }
+            print(f"❌ Returning fallback analysis: {fallback}")
+            return fallback
+
+    def generate_edit_prompts(self, original_prompt: str, product_category: str, num_variations: int, 
+                             permutation_context: Dict, additional_instructions: str, 
+                             industry: str, context: Dict) -> Dict:
+        """
+        Generate refined prompts for edit flow using original prompt and user permutations.
+        """
+        try:
+            print(f"🎨 Generating {num_variations} edit prompts for {product_category}")
+            print(f"📝 Original prompt: {original_prompt}")
+            print(f"🔄 Permutation context: {permutation_context}")
+            
+            # Build edit-specific prompt
+            edit_prompt = f"""
+You are an expert fashion content creator specializing in {industry} industry. Your task is to refine and enhance an existing product image prompt by incorporating specific user-selected permutations and styling directions.
+
+ORIGINAL PROMPT TO REFINE:
+"{original_prompt}"
+
+PRODUCT CONTEXT:
+- Product Category: {product_category}
+- Industry: {industry}
+- Reference Image: Available for visual context
+
+USER-SELECTED PERMUTATIONS TO INCORPORATE:
+"""
+            
+            # Add permutation instructions
+            if permutation_context.get('model_preferences'):
+                prefs = permutation_context['model_preferences']
+                edit_prompt += f"""
+👥 MODEL PREFERENCES:
+- Ethnicities: {', '.join(prefs.get('ethnicities', []))}
+- Body Types: {', '.join(prefs.get('bodyTypes', []))}
+- Age Ranges: {', '.join(prefs.get('ageRanges', []))}
+- Genders: {', '.join(prefs.get('genders', []))}
+"""
+            
+            if permutation_context.get('target_occasions'):
+                edit_prompt += f"""
+🎯 TARGET OCCASIONS: {', '.join(permutation_context['target_occasions'])}
+"""
+            
+            if permutation_context.get('settings_context'):
+                edit_prompt += f"""
+🏞️ SETTINGS/CONTEXT: {', '.join(permutation_context['settings_context'])}
+"""
+            
+            if permutation_context.get('styling_enhancements'):
+                edit_prompt += f"""
+✨ STYLING ENHANCEMENTS: {', '.join(permutation_context['styling_enhancements'])}
+"""
+            
+            if permutation_context.get('color_variations'):
+                edit_prompt += f"""
+🎨 COLOR VARIATIONS: {', '.join(permutation_context['color_variations'])}
+"""
+            
+            if permutation_context.get('style_variations'):
+                edit_prompt += f"""
+👗 STYLE VARIATIONS: {', '.join(permutation_context['style_variations'])}
+"""
+            
+            if permutation_context.get('seasons'):
+                edit_prompt += f"""
+🍂 SEASONS: {', '.join(permutation_context['seasons'])}
+"""
+            
+            if permutation_context.get('campaign_styles'):
+                edit_prompt += f"""
+📸 CAMPAIGN STYLES: {', '.join(permutation_context['campaign_styles'])}
+"""
+            
+            # Add additional instructions
+            if additional_instructions:
+                edit_prompt += f"""
+💬 ADDITIONAL USER INSTRUCTIONS:
+"{additional_instructions}"
+"""
+            
+            # Add generation instructions
+            edit_prompt += f"""
+🎯 GENERATION REQUIREMENTS:
+- Generate {num_variations} refined prompts
+- Each prompt should be a complete, detailed description
+- Incorporate ALL selected permutations naturally
+- Maintain product focus and brand consistency
+- Create diverse, engaging variations
+- Use creative, compelling language
+- Focus on visual storytelling
+
+OUTPUT FORMAT:
+Return ONLY a JSON object with this structure:
+{{
+  "prompt_1": "Complete refined prompt incorporating all permutations...",
+  "prompt_2": "Complete refined prompt incorporating all permutations...",
+  "prompt_3": "Complete refined prompt incorporating all permutations...",
+  "prompt_4": "Complete refined prompt incorporating all permutations..."
+}}
+
+Be creative, specific, and ensure each prompt tells a compelling visual story.
+"""
+            
+            # Call Grok
+            chat = self.client.chat.create(model="grok-4-latest")
+            chat.append(system(
+                "You are an expert fashion content creator and prompt engineer. "
+                "Your task is to refine existing prompts by incorporating user-selected "
+                "permutations while maintaining creative excellence and brand consistency."
+            ))
+            chat.append(user(edit_prompt))
+            
+            response = chat.sample()
+            response_text = response.content.strip()
+            
+            # Parse JSON response
+            try:
+                if "```json" in response_text:
+                    json_start = response_text.find("```json") + 7
+                    json_end = response_text.find("```", json_start)
+                    json_content = response_text[json_start:json_end].strip()
+                else:
+                    json_content = response_text
+                
+                prompts = json.loads(json_content)
+                print(f"✅ Successfully generated {len(prompts)} edit prompts")
+                return prompts
+                
+            except json.JSONDecodeError as e:
+                print(f"❌ Failed to parse Grok response: {e}")
+                print(f"Raw response: {response_text}")
+                # Return fallback prompts
+                fallback_prompts = {}
+                for i in range(num_variations):
+                    fallback_prompts[f"prompt_{i+1}"] = f"Refined {product_category} styling with selected permutations - variation {i+1}"
+                return fallback_prompts
+                
+        except Exception as e:
+            print(f"❌ Error in edit prompt generation: {str(e)}")
+            # Return fallback prompts
+            fallback_prompts = {}
+            for i in range(num_variations):
+                fallback_prompts[f"prompt_{i+1}"] = f"Enhanced {product_category} styling - variation {i+1}"
+            return fallback_prompts
 
 
 # Create singleton instance
