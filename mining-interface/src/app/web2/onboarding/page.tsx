@@ -12,13 +12,17 @@ export default function Web2OnboardingPage() {
   const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
+    let isMounted = true
+    
     // Check if user is authenticated
     const web2Auth = localStorage.getItem('burnie_web2_auth')
     const accountId = localStorage.getItem('burnie_web2_account_id')
 
     if (!web2Auth || !accountId) {
       // Not authenticated, redirect to auth page
-      router.push('/web2/auth')
+      if (isMounted) {
+        router.push('/web2/auth')
+      }
       return
     }
 
@@ -69,7 +73,11 @@ export default function Web2OnboardingPage() {
     }
 
     fetchAccountData()
-  }, [router])
+    
+    return () => {
+      isMounted = false
+    }
+  }, []) // Empty dependency array to run only once
 
   const handleAccountTypeChange = async (newType: 'individual' | 'business') => {
     setAccountType(newType)

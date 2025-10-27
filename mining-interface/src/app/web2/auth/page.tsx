@@ -19,39 +19,65 @@ export default function Web2AuthPage() {
 
   // Check if user has valid session
   useEffect(() => {
+    let isMounted = true
+    
     const checkSession = async () => {
       const web2Auth = localStorage.getItem('burnie_web2_auth')
       const web2AccountId = localStorage.getItem('burnie_web2_account_id')
       const web2Username = localStorage.getItem('burnie_web2_username')
       
-      if (web2Auth && web2AccountId) {
-        // Verify session with backend
-        try {
-          const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
-          const response = await fetch(`${apiUrl}/web2-auth/check-session?twitter_username=${encodeURIComponent(web2Username || '')}`)
-          
-          if (response.ok) {
-            const data = await response.json()
-            if (data.success && data.hasValidSession) {
-              // User has valid session, redirect to dashboard
-              console.log('✅ Valid Web2 session found, redirecting to dashboard')
-              router.push('/web2/dashboard')
-              return
-            }
+      if (!web2Auth || !web2AccountId) {
+        return // No auth data, stay on auth page
+      }
+      
+      // Verify session with backend
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
+        const response = await fetch(`${apiUrl}/web2-auth/check-session?twitter_username=${encodeURIComponent(web2Username || '')}`)
+        
+        if (!isMounted) return // Component unmounted, don't proceed
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.hasValidSession) {
+            // User has valid session, redirect to dashboard
+            console.log('✅ Valid Web2 session found, redirecting to dashboard')
+            router.push('/web2/dashboard')
+            return
           }
-          
-          // Invalid session, clear data
+        }
+        
+        // Invalid session, clear data
+        if (isMounted) {
           localStorage.removeItem('burnie_web2_auth')
           localStorage.removeItem('burnie_web2_account_id')
           localStorage.removeItem('burnie_web2_username')
-        } catch (error) {
-          console.error('Error checking session:', error)
+        }
+      } catch (error) {
+        console.error('Error checking session:', error)
+        if (isMounted) {
+          // Clear potentially corrupted auth data
+          localStorage.removeItem('burnie_web2_auth')
+          localStorage.removeItem('burnie_web2_account_id')
+          localStorage.removeItem('burnie_web2_username')
         }
       }
     }
     
     checkSession()
-  }, [router])
+    
+    return () => {
+      isMounted = false
+    }
+  }, []) // Empty dependency array to run only once
+
+  // Cleanup function to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      // Clean up any pending auth state
+      connectingRef.current = false
+    }
+  }, [])
 
   const handleTwitterConnect = async () => {
     // Prevent multiple simultaneous connections

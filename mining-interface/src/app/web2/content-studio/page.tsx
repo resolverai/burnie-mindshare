@@ -12,12 +12,16 @@ export default function ContentStudioPage() {
   const [industry, setIndustry] = useState<string>('')
 
   useEffect(() => {
+    let isMounted = true
+    
     // Check authentication
     const web2Auth = localStorage.getItem('burnie_web2_auth')
     const accountId = localStorage.getItem('burnie_web2_account_id')
     
     if (!web2Auth || !accountId) {
-      router.push('/web2/auth')
+      if (isMounted) {
+        router.push('/web2/auth')
+      }
       return
     }
 
@@ -47,7 +51,11 @@ export default function ContentStudioPage() {
     }
 
     fetchIndustry()
-  }, [router])
+    
+    return () => {
+      isMounted = false
+    }
+  }, []) // Empty dependency array to run only once
 
   if (isLoading) {
     return (

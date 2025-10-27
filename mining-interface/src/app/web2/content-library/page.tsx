@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import Image from 'next/image'
-import { ChevronDownIcon, ChevronUpIcon, XMarkIcon, EyeIcon, PencilIcon, ShareIcon } from '@heroicons/react/24/outline'
+import { ChevronDownIcon, ChevronUpIcon, XMarkIcon, EyeIcon, PencilIcon, ShareIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
 interface GeneratedJob {
@@ -18,6 +18,8 @@ interface GeneratedJob {
   generated_video_urls?: string[]
   user_images?: string[]
   workflow_metadata?: any
+  product_categories?: string[]
+  user_prompt?: string
   progress_percent?: number
   progress_message?: string
 }
@@ -34,15 +36,30 @@ export default function ContentLibraryPage() {
   const [modalImageIndex, setModalImageIndex] = useState(0)
   const [selectedPlatform, setSelectedPlatform] = useState<'twitter' | 'instagram' | 'linkedin'>('twitter')
   const [showInputImages, setShowInputImages] = useState(false)
+  const [currentInputImageIndex, setCurrentInputImageIndex] = useState(0)
+  const [currentOutputImageIndex, setCurrentOutputImageIndex] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const jobsPerPage = 12
 
   useEffect(() => {
+    let isMounted = true
+    
     const web2Auth = localStorage.getItem('burnie_web2_auth')
     if (!web2Auth) {
-      router.push('/web2/auth')
+      if (isMounted) {
+        router.push('/web2/auth')
+      }
       return
     }
+    
     fetchJobs()
-  }, [router])
+    
+    return () => {
+      isMounted = false
+    }
+  }, []) // Empty dependency array to run only once
 
   const fetchJobs = async () => {
     try {
@@ -76,12 +93,28 @@ export default function ContentLibraryPage() {
   }
 
   useEffect(() => {
-    if (selectedFilter === 'all') {
-      setFilteredJobs(jobs)
-    } else {
-      setFilteredJobs(jobs.filter(job => job.content_type === selectedFilter))
+    let filtered = jobs
+    
+    // Apply content type filter
+    if (selectedFilter !== 'all') {
+      filtered = filtered.filter(job => job.content_type === selectedFilter)
     }
-  }, [selectedFilter, jobs])
+    
+    // Apply search filter
+    filtered = searchJobs(filtered, searchQuery)
+    
+    // Update filtered jobs
+    setFilteredJobs(filtered)
+    
+    // Calculate total pages
+    const totalPagesCount = Math.ceil(filtered.length / jobsPerPage)
+    setTotalPages(totalPagesCount)
+    
+    // Reset to page 1 if current page exceeds total pages
+    if (currentPage > totalPagesCount) {
+      setCurrentPage(1)
+    }
+  }, [selectedFilter, jobs, searchQuery, currentPage])
 
   const openModal = (job: GeneratedJob, imageIndex: number = 0, isInputImage: boolean = false) => {
     setModalJob(job)
@@ -97,16 +130,20 @@ export default function ContentLibraryPage() {
     setShowInputImages(false)
   }
 
-  const handleEdit = (job: GeneratedJob) => {
+  const handleEdit = (job: GeneratedJob, imageIndex?: number) => {
     if (!job.generated_image_urls || job.generated_image_urls.length === 0) {
       toast.error('No images available for editing')
       return
     }
 
-    // Get the first image for editing
-    const imageUrl = job.generated_image_urls[0]
+    // Use the provided imageIndex or default to 0
+    const selectedIndex = imageIndex !== undefined ? imageIndex : 0
+    const imageUrl = job.generated_image_urls[selectedIndex]
     const originalPrompt = job.workflow_metadata?.original_prompt || 'Generated content'
-    const productCategory = job.workflow_metadata?.product_category || 'Unknown'
+    // Get product category from the first item in product_categories array
+    const productCategory = job.product_categories && job.product_categories.length > 0 
+      ? job.product_categories[0] 
+      : 'Unknown'
 
     const params = new URLSearchParams({
       imageUrl,
@@ -146,6 +183,53 @@ export default function ContentLibraryPage() {
     return workflowNames[workflowType] || workflowType
   }
 
+  const searchJobs = (jobs: GeneratedJob[], query: string) => {
+    if (!query.trim()) return jobs
+    
+    const lowercaseQuery = query.toLowerCase()
+    
+    return jobs.filter(job => {
+      // Search in workflow type
+      if (job.workflow_type?.toLowerCase().includes(lowercaseQuery)) return true
+      
+      // Search in industry
+      if (job.workflow_metadata?.industry?.toLowerCase().includes(lowercaseQuery)) return true
+      
+      // Search in product categories
+      if (job.product_categories?.some(category => 
+        category.toLowerCase().includes(lowercaseQuery)
+      )) return true
+      
+      // Search in generated prompts
+      if (job.workflow_metadata?.generated_prompts?.some((prompt: string) => 
+        prompt.toLowerCase().includes(lowercaseQuery)
+      )) return true
+      
+      // Search in original prompt
+      if (job.workflow_metadata?.original_prompt?.toLowerCase().includes(lowercaseQuery)) return true
+      
+      // Search in user prompt
+      if (job.user_prompt?.toLowerCase().includes(lowercaseQuery)) return true
+      
+      return false
+    })
+  }
+
+  const paginateJobs = (jobs: GeneratedJob[], page: number) => {
+    const startIndex = (page - 1) * jobsPerPage
+    const endIndex = startIndex + jobsPerPage
+    return jobs.slice(startIndex, endIndex)
+  }
+
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query)
+    setCurrentPage(1) // Reset to first page when searching
+  }
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-screen">
@@ -166,8 +250,30 @@ export default function ContentLibraryPage() {
       <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${
         sidebarExpanded ? 'ml-64' : 'ml-20'
       }`}>
-        <header className="h-16 bg-gray-900/50 backdrop-blur-sm border-b border-gray-800 flex items-center px-6 flex-shrink-0">
+        <header className="h-16 bg-gray-900/50 backdrop-blur-sm border-b border-gray-800 flex items-center justify-between px-6 flex-shrink-0">
           <h1 className="text-xl font-semibold text-white">Content Library</h1>
+          
+          {/* Search Bar */}
+          <div className="flex items-center space-x-4">
+            <div className="relative">
+              <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Search jobs, prompts, categories..."
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                className="w-96 pl-10 pr-10 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => handleSearchChange('')}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto">
@@ -183,7 +289,7 @@ export default function ContentLibraryPage() {
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                   }`}
                 >
-                  All ({jobs.length})
+                  All ({searchJobs(jobs, searchQuery).length})
                 </button>
                 <button
                   onClick={() => setSelectedFilter('image')}
@@ -193,7 +299,7 @@ export default function ContentLibraryPage() {
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                   }`}
                 >
-                  Images ({jobs.filter(j => j.content_type === 'image').length})
+                  Images ({searchJobs(jobs, searchQuery).filter(j => j.content_type === 'image').length})
                 </button>
                 <button
                   onClick={() => setSelectedFilter('video')}
@@ -203,7 +309,7 @@ export default function ContentLibraryPage() {
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                   }`}
                 >
-                  Videos ({jobs.filter(j => j.content_type === 'video').length})
+                  Videos ({searchJobs(jobs, searchQuery).filter(j => j.content_type === 'video').length})
                 </button>
               </div>
             </div>
@@ -218,7 +324,7 @@ export default function ContentLibraryPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {filteredJobs.map((job) => (
+                {paginateJobs(filteredJobs, currentPage).map((job) => (
                   <div key={job.id} className="bg-gray-800/50 rounded-lg overflow-hidden border border-gray-700/50">
                     <div className="p-4">
                       <div className="flex items-center justify-between mb-3">
@@ -252,9 +358,22 @@ export default function ContentLibraryPage() {
                       {/* Input Images Section */}
                       {job.user_images && job.user_images.length > 0 && (
                         <div className="mb-3">
-                          <div className="text-xs text-gray-400 mb-2 flex items-center">
-                            <EyeIcon className="w-3 h-3 mr-1" />
-                            Input Images ({job.user_images.length})
+                          <div className="text-xs text-gray-400 mb-2 flex items-center justify-between">
+                            <div className="flex items-center">
+                              <EyeIcon className="w-3 h-3 mr-1" />
+                              Input Images ({job.user_images.length})
+                            </div>
+                            {job.user_images.length > 2 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openModal(job, 0, true)
+                                }}
+                                className="text-blue-400 hover:text-blue-300 text-xs underline"
+                              >
+                                View All
+                              </button>
+                            )}
                           </div>
                           <div className="grid grid-cols-2 gap-1">
                             {job.user_images.slice(0, 2).map((imageUrl, index) => (
@@ -284,7 +403,20 @@ export default function ContentLibraryPage() {
 
                       {/* Output Images Section */}
                       <div className="mb-4">
-                        <div className="text-xs text-gray-400 mb-2">Generated Images</div>
+                        <div className="text-xs text-gray-400 mb-2 flex items-center justify-between">
+                          <span>Generated Images</span>
+                          {job.content_type === 'image' && job.generated_image_urls && job.generated_image_urls.length > 4 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openModal(job, 0, false)
+                              }}
+                              className="text-blue-400 hover:text-blue-300 text-xs underline"
+                            >
+                              View All ({job.generated_image_urls.length})
+                            </button>
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
                           {job.content_type === 'image' && job.generated_image_urls ? (
                             job.generated_image_urls.slice(0, 4).map((imageUrl, index) => (
@@ -340,9 +472,9 @@ export default function ContentLibraryPage() {
                                 {job.workflow_metadata.industry}
                               </span>
                             )}
-                            {job.workflow_metadata.product_category && (
-                              <span className="px-2 py-1 bg-gray-700 rounded">
-                                {job.workflow_metadata.product_category}
+                            {job.product_categories && job.product_categories.length > 0 && (
+                              <span className="px-2 py-1 bg-blue-700 rounded">
+                                {job.product_categories[0]}
                               </span>
                             )}
                           </div>
@@ -353,6 +485,66 @@ export default function ContentLibraryPage() {
                 ))}
               </div>
             )}
+            
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center mt-8 space-x-2">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-2 bg-gray-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors"
+                >
+                  Previous
+                </button>
+                
+                <div className="flex space-x-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => handlePageChange(pageNum)}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          currentPage === pageNum
+                            ? 'bg-orange-600 text-white'
+                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-2 bg-gray-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600 transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+            
+            {/* Results Summary */}
+            <div className="text-center mt-4 text-gray-400 text-sm">
+              Showing {Math.min((currentPage - 1) * jobsPerPage + 1, filteredJobs.length)}-{Math.min(currentPage * jobsPerPage, filteredJobs.length)} of {filteredJobs.length} jobs
+              {searchQuery && (
+                <span className="ml-2">
+                  for "{searchQuery}"
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -375,7 +567,59 @@ export default function ContentLibraryPage() {
             </button>
             
             {/* Image/Video Section */}
-            <div className="flex-1 flex items-center justify-center p-4">
+            <div className="flex-1 flex items-center justify-center p-4 relative">
+              {/* Navigation Arrows */}
+              {showInputImages && modalJob.user_images && modalJob.user_images.length > 1 && (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const newIndex = modalImageIndex > 0 ? modalImageIndex - 1 : modalJob.user_images!.length - 1
+                      setModalImageIndex(newIndex)
+                    }}
+                    className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-gray-800 hover:bg-gray-700 text-white rounded-full w-10 h-10 flex items-center justify-center text-lg z-20"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const newIndex = modalImageIndex < modalJob.user_images!.length - 1 ? modalImageIndex + 1 : 0
+                      setModalImageIndex(newIndex)
+                    }}
+                    className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-gray-800 hover:bg-gray-700 text-white rounded-full w-10 h-10 flex items-center justify-center text-lg z-20"
+                  >
+                    ›
+                  </button>
+                </>
+              )}
+              
+              {!showInputImages && modalJob.content_type === 'image' && modalJob.generated_image_urls && modalJob.generated_image_urls.length > 1 && (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const newIndex = modalImageIndex > 0 ? modalImageIndex - 1 : modalJob.generated_image_urls!.length - 1
+                      setModalImageIndex(newIndex)
+                    }}
+                    className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-gray-800 hover:bg-gray-700 text-white rounded-full w-10 h-10 flex items-center justify-center text-lg z-20"
+                  >
+                    ‹
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const newIndex = modalImageIndex < modalJob.generated_image_urls!.length - 1 ? modalImageIndex + 1 : 0
+                      setModalImageIndex(newIndex)
+                    }}
+                    className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-gray-800 hover:bg-gray-700 text-white rounded-full w-10 h-10 flex items-center justify-center text-lg z-20"
+                  >
+                    ›
+                  </button>
+                </>
+              )}
+
+              {/* Image Display */}
               {showInputImages && modalJob.user_images ? (
                 <Image
                   src={modalJob.user_images[modalImageIndex]}
@@ -395,6 +639,14 @@ export default function ContentLibraryPage() {
               ) : (
                 <div className="w-full h-96 bg-gray-700 rounded-lg flex items-center justify-center">
                   <span className="text-gray-400">Video content</span>
+                </div>
+              )}
+
+              {/* Image Counter */}
+              {((showInputImages && modalJob.user_images && modalJob.user_images.length > 1) || 
+                (!showInputImages && modalJob.content_type === 'image' && modalJob.generated_image_urls && modalJob.generated_image_urls.length > 1)) && (
+                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800 bg-opacity-75 text-white px-3 py-1 rounded-full text-sm">
+                  {modalImageIndex + 1} / {showInputImages ? modalJob.user_images!.length : modalJob.generated_image_urls!.length}
                 </div>
               )}
             </div>
@@ -427,7 +679,7 @@ export default function ContentLibraryPage() {
               {!showInputImages && (
                 <div className="space-y-3">
                   <button
-                    onClick={() => handleEdit(modalJob)}
+                    onClick={() => handleEdit(modalJob, modalImageIndex)}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors flex items-center justify-center space-x-2"
                   >
                     <PencilIcon className="w-4 h-4" />

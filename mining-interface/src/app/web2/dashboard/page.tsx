@@ -15,12 +15,16 @@ export default function Web2DashboardPage() {
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
 
   useEffect(() => {
+    let isMounted = true
+    
     // Check authentication
     const web2Auth = localStorage.getItem('burnie_web2_auth')
     const accountId = localStorage.getItem('burnie_web2_account_id')
 
     if (!web2Auth || !accountId) {
-      router.push('/web2/auth')
+      if (isMounted) {
+        router.push('/web2/auth')
+      }
       return
     }
 
@@ -110,7 +114,11 @@ export default function Web2DashboardPage() {
     }
 
     fetchData()
-  }, [router])
+    
+    return () => {
+      isMounted = false
+    }
+  }, []) // Empty dependency array to run only once
 
   const handleLogoUpload = async (file: File) => {
     const web2Auth = localStorage.getItem('burnie_web2_auth')
