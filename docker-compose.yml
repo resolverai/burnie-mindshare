@@ -41,16 +41,13 @@ services:
       context: ./burnie-influencer-platform/typescript-backend
       dockerfile: Dockerfile
     container_name: burnie-typescript-backend
-    ports:
-      - "3001:3001"
+    network_mode: host
     env_file:
       - ./burnie-influencer-platform/typescript-backend/.env
     environment:
-      - REDIS_HOST=172.17.0.1
+      - REDIS_HOST=localhost
       - REDIS_PORT=6379
       - REDIS_PASSWORD=
-    networks:
-      - burnie-network
     restart: unless-stopped
 
   # Python AI Backend
@@ -59,16 +56,13 @@ services:
       context: ./burnie-influencer-platform/python-ai-backend
       dockerfile: Dockerfile
     container_name: burnie-python-ai-backend
-    ports:
-      - "8000:8000"
+    network_mode: host
     env_file:
       - ./burnie-influencer-platform/python-ai-backend/.env
     environment:
-      - REDIS_HOST=172.17.0.1
+      - REDIS_HOST=localhost
       - REDIS_PORT=6379
       - REDIS_PASSWORD=
-    networks:
-      - burnie-network
     volumes:
       - models:/app/models
     restart: unless-stopped
