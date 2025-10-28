@@ -100,6 +100,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       generated_image_urls,
       generated_prompts,
       product_categories,
+      per_image_metadata,
       generated_video_url,
       generated_audio_url,
       generated_voiceover_url,
@@ -172,6 +173,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       generated_image_urls,
       generated_prompts,
       product_categories,
+      per_image_metadata,
       generated_video_url,
       generated_audio_url,
       generated_voiceover_url,
@@ -488,6 +490,78 @@ router.put('/:id/progress', async (req: Request, res: Response): Promise<void> =
 
   } catch (error) {
     console.error('Error updating progress:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @route GET /api/web2/generated-content/:id/per-image-data
+ * @desc Get per-image data for a specific generated content
+ */
+router.get('/:id/per-image-data', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: 'Content ID is required'
+      });
+      return;
+    }
+
+    const generatedContentRepository = AppDataSource.getRepository(Web2GeneratedContent);
+    const content = await generatedContentRepository.findOne({ 
+      where: { id: parseInt(id) },
+      select: ['id', 'generated_image_urls', 'generated_prompts', 'product_categories', 'per_image_metadata', 'twitter_text', 'instagram_caption', 'linkedin_post']
+    });
+
+    if (!content) {
+      res.status(404).json({
+        success: false,
+        message: 'Generated content not found'
+      });
+      return;
+    }
+
+    // Structure the per-image data
+    const perImageData = [];
+    const imageUrls = content.generated_image_urls || [];
+    const prompts = content.generated_prompts || [];
+    const categories = content.product_categories || [];
+    const perImageMetadata = content.per_image_metadata || {};
+
+    for (let i = 0; i < imageUrls.length; i++) {
+      const imageKey = `image_${i + 1}`;
+      const metadata = perImageMetadata[imageKey] || {};
+      
+      perImageData.push({
+        imageIndex: i,
+        imageUrl: imageUrls[i],
+        prompt: prompts[i] || metadata.prompt || '',
+        productCategory: categories[i] || metadata.product_category || 'Unknown',
+        platformTexts: metadata.platform_texts || {
+          twitter: content.twitter_text || '',
+          instagram: content.instagram_caption || '',
+          linkedin: content.linkedin_post || ''
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        contentId: content.id,
+        perImageData
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching per-image data:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

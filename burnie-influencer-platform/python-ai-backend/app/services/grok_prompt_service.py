@@ -853,7 +853,7 @@ Output ONLY valid JSON with the structure specified above. No markdown, no extra
 
     def generate_edit_prompts(self, original_prompt: str, product_category: str, num_variations: int, 
                              permutation_context: Dict, additional_instructions: str, 
-                             industry: str, context: Dict) -> Dict:
+                             industry: str, context: Dict, original_platform_texts: Dict = None) -> Dict:
         """
         Generate refined prompts for edit flow using original prompt and user permutations.
         """
@@ -862,130 +862,150 @@ Output ONLY valid JSON with the structure specified above. No markdown, no extra
             print(f"📝 Original prompt: {original_prompt}")
             print(f"🔄 Permutation context: {permutation_context}")
             
-            # Build edit-specific prompt
-            edit_prompt = f"""
-You are an expert fashion content creator specializing in {industry} industry. Your task is to refine and enhance an existing product image prompt by incorporating specific user-selected permutations and styling directions.
+            # Prepare original platform texts section for Grok
+            original_platform_texts_section = ""
+            if original_platform_texts:
+                original_platform_texts_section = f"""
+📱 ORIGINAL PLATFORM TEXTS (for reference and inspiration):
+- Twitter: "{original_platform_texts.get('twitter', 'N/A')}"
+- Instagram: "{original_platform_texts.get('instagram', 'N/A')}"
+- LinkedIn: "{original_platform_texts.get('linkedin', 'N/A')}"
+- YouTube: "{original_platform_texts.get('youtube', 'N/A')}"
 
-ORIGINAL PROMPT TO REFINE:
+Use these as inspiration to create NEW platform texts that align with the refined image variations.
+"""
+            
+            # Construct dynamic output format example for Grok
+            output_format_examples = []
+            for i in range(1, num_variations + 1):
+                output_format_examples.append(f"""  "prompt_{i}": "Complete refined prompt incorporating all permutations...",
+  "image_{i}_platform_texts": {{
+    "twitter": "Adapted Twitter text for image {i}...",
+    "instagram": "Adapted Instagram caption for image {i}...",
+    "linkedin": "Adapted LinkedIn post for image {i}...",
+    "youtube": "Adapted YouTube description for image {i}..."
+  }}""")
+            dynamic_output_format = ",\n".join(output_format_examples)
+
+            edit_prompt = f"""
+You are an expert creative director and content strategist for a fashion brand. Your task is to generate EXACTLY {num_variations} refined image prompts and corresponding platform-specific texts for social media, based on an original image prompt, product category, and specific user-defined permutations for an "Edit Flow".
+
+The goal is to create new variations of an existing image, ensuring the new content aligns with the brand's aesthetic and target audience, while incorporating the requested changes.
+
+📝 ORIGINAL IMAGE PROMPT:
 "{original_prompt}"
 
-PRODUCT CONTEXT:
-- Product Category: {product_category}
-- Industry: {industry}
-- Reference Image: Available for visual context
+📦 PRODUCT CATEGORY:
+"{product_category}"
 
-USER-SELECTED PERMUTATIONS TO INCORPORATE:
-"""
-            
-            # Add permutation instructions
-            if permutation_context.get('model_preferences'):
-                prefs = permutation_context['model_preferences']
-                edit_prompt += f"""
-👥 MODEL PREFERENCES:
-- Ethnicities: {', '.join(prefs.get('ethnicities', []))}
-- Body Types: {', '.join(prefs.get('bodyTypes', []))}
-- Age Ranges: {', '.join(prefs.get('ageRanges', []))}
-- Genders: {', '.join(prefs.get('genders', []))}
-"""
-            
-            if permutation_context.get('target_occasions'):
-                edit_prompt += f"""
-🎯 TARGET OCCASIONS: {', '.join(permutation_context['target_occasions'])}
-"""
-            
-            if permutation_context.get('settings_context'):
-                edit_prompt += f"""
-🏞️ SETTINGS/CONTEXT: {', '.join(permutation_context['settings_context'])}
-"""
-            
-            if permutation_context.get('styling_enhancements'):
-                edit_prompt += f"""
-✨ STYLING ENHANCEMENTS: {', '.join(permutation_context['styling_enhancements'])}
-"""
-            
-            if permutation_context.get('color_variations'):
-                edit_prompt += f"""
-🎨 COLOR VARIATIONS: {', '.join(permutation_context['color_variations'])}
-"""
-            
-            if permutation_context.get('style_variations'):
-                edit_prompt += f"""
-👗 STYLE VARIATIONS: {', '.join(permutation_context['style_variations'])}
-"""
-            
-            if permutation_context.get('seasons'):
-                edit_prompt += f"""
-🍂 SEASONS: {', '.join(permutation_context['seasons'])}
-"""
-            
-            if permutation_context.get('campaign_styles'):
-                edit_prompt += f"""
-📸 CAMPAIGN STYLES: {', '.join(permutation_context['campaign_styles'])}
-"""
-            
-            # Add additional instructions
-            if additional_instructions:
-                edit_prompt += f"""
+🔄 PERMUTATION CONTEXT (incorporate these changes into the new prompts and texts):
+{json.dumps(permutation_context, indent=2)}
+
+{original_platform_texts_section}
+
 💬 ADDITIONAL USER INSTRUCTIONS:
 "{additional_instructions}"
-"""
-            
-            # Add generation instructions
-            edit_prompt += f"""
-🎯 GENERATION REQUIREMENTS:
-- Generate {num_variations} refined prompts
-- Each prompt should be a complete, detailed description
-- Incorporate ALL selected permutations naturally
-- Maintain product focus and brand consistency
-- Create diverse, engaging variations
-- Use creative, compelling language
-- Focus on visual storytelling
+
+🎯 CRITICAL GENERATION REQUIREMENTS:
+- Generate EXACTLY {num_variations} refined image prompts (no more, no less).
+- For each refined image prompt, generate platform-specific texts for Twitter, Instagram, LinkedIn, and YouTube.
+- The platform texts should be inspired by the `original_platform_texts` (if provided) but adapted to the new image prompt and permutations.
+- Each prompt should be a complete, detailed description for image generation.
+- Incorporate ALL selected permutations naturally.
+- Maintain product focus and brand consistency.
+- Create diverse, engaging variations.
+- Use creative, compelling language.
+- Focus on visual storytelling.
+- CRITICAL: All text content must be properly escaped for JSON. Replace all newlines with \\n and all quotes with \\".
 
 OUTPUT FORMAT:
-Return ONLY a JSON object with this structure:
+Return ONLY a valid JSON object with this EXACT structure (generate only {num_variations} items):
 {{
-  "prompt_1": "Complete refined prompt incorporating all permutations...",
-  "prompt_2": "Complete refined prompt incorporating all permutations...",
-  "prompt_3": "Complete refined prompt incorporating all permutations...",
-  "prompt_4": "Complete refined prompt incorporating all permutations..."
+{dynamic_output_format}
 }}
 
-Be creative, specific, and ensure each prompt tells a compelling visual story.
+IMPORTANT: Ensure the JSON is valid and contains exactly {num_variations} prompts and {num_variations} platform text objects.
 """
             
-            # Call Grok
-            chat = self.client.chat.create(model="grok-4-latest")
-            chat.append(system(
-                "You are an expert fashion content creator and prompt engineer. "
-                "Your task is to refine existing prompts by incorporating user-selected "
-                "permutations while maintaining creative excellence and brand consistency."
-            ))
-            chat.append(user(edit_prompt))
-            
-            response = chat.sample()
-            response_text = response.content.strip()
-            
-            # Parse JSON response
+            # LOG GROK EDIT PROMPT SERVICE INPUT (same pattern as regular flow)
+            print("=" * 80)
+            print("🤖 GROK EDIT PROMPT SERVICE INPUT")
+            print("=" * 80)
+            print(f"📝 Original Prompt: {original_prompt}")
+            print(f"📦 Product Category: {product_category}")
+            print(f"🔢 Number of Variations: {num_variations}")
+            print(f"🔄 Permutation Context: {permutation_context}")
+            print(f"💬 Additional Instructions: {additional_instructions}")
+            print(f"🏭 Industry: {industry}")
+            print(f"🎯 Context Keys: {list(context.keys())}")
+            print(f"📝 Edit Prompt: {edit_prompt}")
+            print("=" * 80)
+
             try:
-                if "```json" in response_text:
-                    json_start = response_text.find("```json") + 7
-                    json_end = response_text.find("```", json_start)
-                    json_content = response_text[json_start:json_end].strip()
-                else:
-                    json_content = response_text
+                # Use the same robust Grok client pattern as regular flow
+                print(f"🤖 Using Grok for edit prompt generation...")
+                chat = self.client.chat.create(model="grok-4-latest")
                 
-                prompts = json.loads(json_content)
-                print(f"✅ Successfully generated {len(prompts)} edit prompts")
-                return prompts
+                # Build system message (same pattern as regular flow)
+                brand_name = context.get('brand_name', 'the brand')
+                system_message = f"""You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral content creation for {brand_name}. 
+You respond ONLY with valid JSON objects, no extra text or formatting. 
+Every prompt you generate must follow real-world physics and professional production standards. 
+FOCUS EXCLUSIVELY ON {brand_name} - DO NOT generate content for any other brand.
+Your task is to generate refined image prompts and corresponding platform-specific texts for social media, 
+based on an original image prompt, product category, and specific user-defined permutations for an 'Edit Flow'."""
                 
-            except json.JSONDecodeError as e:
-                print(f"❌ Failed to parse Grok response: {e}")
-                print(f"Raw response: {response_text}")
-                # Return fallback prompts
-                fallback_prompts = {}
-                for i in range(num_variations):
-                    fallback_prompts[f"prompt_{i+1}"] = f"Refined {product_category} styling with selected permutations - variation {i+1}"
-                return fallback_prompts
+                chat.append(system(system_message))
+                chat.append(user(edit_prompt))
+                
+                # Get response from Grok (same pattern as regular flow)
+                response = chat.sample()
+                
+                # Parse JSON response (same robust parsing as regular flow)
+                try:
+                    response_text = response.content.strip()
+                    print("🤖 GROK OUTPUT:")
+                    print(response_text)
+                    
+                    # Find JSON content between ```json and ``` or just the JSON itself
+                    if "```json" in response_text:
+                        json_start = response_text.find("```json") + 7
+                        json_end = response_text.find("```", json_start)
+                        json_content = response_text[json_start:json_end].strip()
+                    elif response_text.startswith("{") and response_text.endswith("}"):
+                        json_content = response_text
+                    else:
+                        # Try to find JSON-like content
+                        start_idx = response_text.find("{")
+                        end_idx = response_text.rfind("}") + 1
+                        if start_idx != -1 and end_idx > start_idx:
+                            json_content = response_text[start_idx:end_idx]
+                        else:
+                            raise ValueError("No valid JSON found in response")
+                    
+                    grok_response = json.loads(json_content)
+                    print(f"✅ Generated {len(grok_response)} edit prompts with Grok")
+                    
+                except json.JSONDecodeError as e:
+                    print(f"❌ Error parsing JSON response from Grok: {str(e)}")
+                    print(f"Raw response: {response.content[:500]}...")
+                    raise ValueError(f"Failed to parse Grok response: {str(e)}")
+                
+                edit_prompts = {}
+                for i in range(1, num_variations + 1):
+                    prompt_key = f"prompt_{i}"
+                    platform_texts_key = f"image_{i}_platform_texts"
+                    
+                    if prompt_key in grok_response:
+                        edit_prompts[prompt_key] = grok_response[prompt_key]
+                    if platform_texts_key in grok_response:
+                        edit_prompts[platform_texts_key] = grok_response[platform_texts_key]
+                
+                print(f"✅ Generated {len(edit_prompts)} edit prompts")
+                return edit_prompts
+            except Exception as e:
+                print(f"❌ Error generating edit prompts with Grok: {e}")
+                raise
                 
         except Exception as e:
             print(f"❌ Error in edit prompt generation: {str(e)}")

@@ -555,7 +555,7 @@ async def run_visual_analysis(request: UnifiedContentGenerationRequest, context:
     return visual_analysis
 
 
-async def save_progressive_image_to_db(request: UnifiedContentGenerationRequest, image_url: str, platform_texts: Dict, image_index: int):
+async def save_progressive_image_to_db(request: UnifiedContentGenerationRequest, image_url: str, platform_texts: Dict, image_index: int, prompts: Dict = None, product_categories: List[str] = None):
     """Save individual generated image to database progressively"""
     try:
         import httpx
@@ -571,7 +571,8 @@ async def save_progressive_image_to_db(request: UnifiedContentGenerationRequest,
             if find_response.status_code == 200:
                 existing_data = find_response.json()
                 content_id = existing_data['data']['id']
-                existing_urls = existing_data['data'].get('generated_image_urls', [])
+                existing_record = existing_data['data']  # ✅ Define existing_record
+                existing_urls = existing_record.get('generated_image_urls', [])
                 
                 # Add new image URL to existing array
                 if isinstance(existing_urls, str):
@@ -581,16 +582,43 @@ async def save_progressive_image_to_db(request: UnifiedContentGenerationRequest,
                 
                 existing_urls.append(image_url)
                 
-                # Update with new image URL and platform texts
+                # Get existing per_image_metadata or initialize empty
+                existing_per_image_metadata = existing_record.get('per_image_metadata', {})
+                if not isinstance(existing_per_image_metadata, dict):
+                    existing_per_image_metadata = {}
+                
+                # Create/update the specific image metadata
+                image_key = f"image_{image_index + 1}"
+                existing_per_image_metadata[image_key] = {
+                    "image_url": image_url,
+                    "prompt": prompts.get('image_prompt', '') if prompts else '',
+                    "platform_texts": platform_texts,
+                    "product_category": product_categories[image_index] if product_categories and image_index < len(product_categories) else "Unknown",
+                    "image_index": image_index
+                }
+                
+                print(f"🔍 DEBUG: Updated per_image_metadata for {image_key}: {platform_texts}")
+                print(f"🔍 DEBUG: Progressive save - existing_record found, content_id: {content_id}")
+                
+                # Update with new image URL, per_image_metadata, and platform texts
                 update_data = {
                     "generated_image_urls": existing_urls,
-                    "twitter_text": platform_texts.get('twitter', ''),
-                    "youtube_description": platform_texts.get('youtube', ''),
-                    "instagram_caption": platform_texts.get('instagram', ''),
-                    "linkedin_post": platform_texts.get('linkedin', ''),
+                    "per_image_metadata": existing_per_image_metadata,
                     "progress_percent": min(90, 10 + (image_index * 20)),  # Progressive progress
-                    "progress_message": f"Generated {image_index} of {request.num_images} images"
+                    "progress_message": f"Generated {image_index + 1} of {request.num_images} images"
                 }
+                
+                # Only update global platform texts if this is the first image (to avoid overriding per-image texts)
+                if image_index == 0:
+                    print(f"🔍 DEBUG: Setting global platform texts for first image (index {image_index})")
+                    update_data.update({
+                        "twitter_text": platform_texts.get('twitter', ''),
+                        "youtube_description": platform_texts.get('youtube', ''),
+                        "instagram_caption": platform_texts.get('instagram', ''),
+                        "linkedin_post": platform_texts.get('linkedin', '')
+                    })
+                else:
+                    print(f"🔍 DEBUG: Skipping global platform texts update for image {image_index} to preserve per-image texts")
                 
                 # Update the record
                 update_response = await client.put(
@@ -671,8 +699,16 @@ async def save_generated_content_to_db(request: UnifiedContentGenerationRequest,
             # Extract individual prompts for each image
             individual_prompts = [img.get('prompt', '') for img in generated_images if img.get('prompt')]
             
-            # Extract platform texts from the first image (they should be the same for all)
-            platform_texts = generated_images[0].get('platform_texts', {}) if generated_images else {}
+            # Extract platform texts for each image individually from prompts
+            per_image_platform_texts = []
+            for i in range(1, len(image_urls) + 1):
+                platform_texts_key = f'image_{i}_platform_texts'
+                image_platform_texts = prompts.get(platform_texts_key, {})
+                per_image_platform_texts.append(image_platform_texts)
+                print(f"🔍 DEBUG: Image {i} platform texts: {image_platform_texts}")
+            
+            # For backward compatibility, also extract from first image
+            platform_texts = per_image_platform_texts[0] if per_image_platform_texts else {}
             
             # Extract product categories from inventory analysis
             product_categories = []
@@ -705,11 +741,27 @@ async def save_generated_content_to_db(request: UnifiedContentGenerationRequest,
             print(f"🔍 DEBUG: Saving to database - product_categories: {product_categories}")
             print(f"🔍 DEBUG: Saving to database - platform_texts: {platform_texts}")
             
+            # Create per-image metadata structure
+            per_image_metadata = {}
+            if individual_prompts and per_image_platform_texts:
+                for i, (image_url, prompt) in enumerate(zip(image_urls, individual_prompts)):
+                    image_key = f"image_{i + 1}"
+                    per_image_metadata[image_key] = {
+                        "image_url": image_url,
+                        "prompt": prompt,
+                        "platform_texts": per_image_platform_texts[i] if i < len(per_image_platform_texts) else {},
+                        "product_category": product_categories[i] if i < len(product_categories) else "Unknown",
+                        "image_index": i
+                    }
+            
+            print(f"🔍 DEBUG: Saving per_image_metadata: {per_image_metadata}")
+            
             db_data.update({
                 "image_prompt": prompts.get('image_prompt', ''),
                 "generated_image_urls": image_urls,
                 "generated_prompts": individual_prompts,  # Store individual prompts for each image
                 "product_categories": product_categories,  # Store product categories for each image
+                "per_image_metadata": per_image_metadata,  # Store structured per-image data
                 "twitter_text": platform_texts.get('twitter', ''),
                 "youtube_description": platform_texts.get('youtube', ''),
                 "instagram_caption": platform_texts.get('instagram', ''),
@@ -1088,6 +1140,32 @@ async def generate_images(request: UnifiedContentGenerationRequest, prompts: Dic
     image_model = context.get('image_model', 'seedream')
     logo_url = context.get('logo_url')
     
+    # Extract product categories from inventory analysis (same logic as save_generated_content_to_db)
+    product_categories = []
+    visual_analysis = context.get('visual_analysis', {})
+    if visual_analysis.get('inventory_analysis'):
+        inventory_data = visual_analysis['inventory_analysis']
+        # For Simple Workflow, we have multiple products, so we need to map each image to a product
+        if request.workflow_type == 'Simple Workflow' and request.user_uploaded_images:
+            for i in range(request.num_images):
+                # Each product gets 4 variations, so map image index to product index
+                product_index = (i // 4) % len(request.user_uploaded_images)
+                product_key = f"image_{product_index + 1}"
+                if product_key in inventory_data:
+                    product_categories.append(inventory_data[product_key].get('category', 'Unknown'))
+                else:
+                    product_categories.append('Unknown')
+        else:
+            # For other workflows, use the first available category
+            first_category = None
+            for key, data in inventory_data.items():
+                if isinstance(data, dict) and 'category' in data:
+                    first_category = data['category']
+                    break
+            product_categories = [first_category or 'Unknown'] * request.num_images
+    else:
+        product_categories = ['Unknown'] * request.num_images
+    
     print("=" * 80)
     print("🎨 IMAGE GENERATION WITH FAL.AI")
     print("=" * 80)
@@ -1098,6 +1176,10 @@ async def generate_images(request: UnifiedContentGenerationRequest, prompts: Dic
     print(f"🖼️  Logo URL: {logo_url}")
     print(f"🖼️  Include Logo: {request.include_logo}")
     print(f"🖼️  Context Logo URL: {context.get('logo_url')}")
+    print(f"🖼️  Product Categories: {product_categories}")
+    print(f"🖼️  Inventory Analysis Available: {bool(visual_analysis.get('inventory_analysis'))}")
+    if visual_analysis.get('inventory_analysis'):
+        print(f"🖼️  Inventory Data Keys: {list(visual_analysis['inventory_analysis'].keys())}")
     print("=" * 80)
     
     for i in range(1, request.num_images + 1):
@@ -1219,7 +1301,9 @@ async def generate_images(request: UnifiedContentGenerationRequest, prompts: Dic
             print(f"✅ Image {i} generated successfully: {s3_url}")
             
             # Save this image immediately to database
-            await save_progressive_image_to_db(request, s3_url, platform_texts, i)
+            print(f"🔍 DEBUG: Calling save_progressive_image_to_db with prompts and product_categories")
+            print(f"🔍 DEBUG: Image index: {i - 1}, Product category: {product_categories[i - 1] if i - 1 < len(product_categories) else 'Unknown'}")
+            await save_progressive_image_to_db(request, s3_url, platform_texts, i - 1, prompts, product_categories)  # Convert to 0-based index
             
             # Send individual image generation event with platform texts
             yield f"data: {json.dumps({'type': 'image_generated', 'image_url': s3_url, 'image_index': i, 'platform_texts': platform_texts})}\n\n"

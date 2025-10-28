@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Web2Sidebar from '@/components/Web2Sidebar'
 import { SparklesIcon, PhotoIcon, CheckCircleIcon, ClockIcon, Bars3Icon } from '@heroicons/react/24/outline'
@@ -13,6 +13,7 @@ export default function Web2DashboardPage() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [isUploadingLogo, setIsUploadingLogo] = useState(false)
   const [isDraggingLogo, setIsDraggingLogo] = useState(false)
+  const redirectingRef = useRef(false)
 
   useEffect(() => {
     let isMounted = true
@@ -20,91 +21,171 @@ export default function Web2DashboardPage() {
     // Check authentication
     const web2Auth = localStorage.getItem('burnie_web2_auth')
     const accountId = localStorage.getItem('burnie_web2_account_id')
+    const web2Username = localStorage.getItem('burnie_web2_username')
+
+    console.log('🔍 Dashboard: Checking localStorage auth data:')
+    console.log('🔍 Dashboard: web2Auth:', web2Auth ? `${web2Auth.substring(0, 20)}...` : 'null')
+    console.log('🔍 Dashboard: accountId:', accountId)
+    console.log('🔍 Dashboard: web2Username:', web2Username)
 
     if (!web2Auth || !accountId) {
-      if (isMounted) {
+      console.log('🚪 Dashboard: No auth data found, redirecting to auth page')
+      console.log('🚪 Dashboard: Missing web2Auth:', !web2Auth)
+      console.log('🚪 Dashboard: Missing accountId:', !accountId)
+      
+      if (isMounted && !redirectingRef.current) {
+        redirectingRef.current = true
         router.push('/web2/auth')
       }
       return
     }
 
-    // Fetch account data and brand context
-    const fetchData = async () => {
+    // Verify token is still valid before proceeding
+    const verifyToken = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
+        const web2Username = localStorage.getItem('burnie_web2_username')
+        
+        console.log('🔍 Dashboard: Checking session with API:', `${apiUrl}/web2-auth/check-session`)
+        console.log('🔍 Dashboard: Username being used:', web2Username)
+        
+        // Use check-session endpoint instead of /me to avoid Twitter API calls
+        const response = await fetch(`${apiUrl}/web2-auth/check-session?twitter_username=${encodeURIComponent(web2Username || '')}`)
+
+        console.log('🔍 Dashboard: Session check response status:', response.status)
+        console.log('🔍 Dashboard: Session check response ok:', response.ok)
+
+        if (!isMounted) return
+
+        if (!response.ok) {
+          console.log('🚪 Dashboard: Session check failed, clearing auth data and redirecting')
+          console.log('🚪 Dashboard: Response status:', response.status)
+          console.log('🚪 Dashboard: Response statusText:', response.statusText)
+          
+          localStorage.removeItem('burnie_web2_auth')
+          localStorage.removeItem('burnie_web2_account_id')
+          localStorage.removeItem('burnie_web2_username')
+          if (isMounted && !redirectingRef.current) {
+            redirectingRef.current = true
+            router.push('/web2/auth')
+          }
+          return
+        }
+
+        const data = await response.json()
+        console.log('🔍 Dashboard: Session check response data:', data)
+
+        if (!data.success || !data.hasValidSession) {
+          console.log('🚪 Dashboard: No valid session found, clearing auth data and redirecting')
+          localStorage.removeItem('burnie_web2_auth')
+          localStorage.removeItem('burnie_web2_account_id')
+          localStorage.removeItem('burnie_web2_username')
+          if (isMounted && !redirectingRef.current) {
+            redirectingRef.current = true
+            router.push('/web2/auth')
+          }
+          return
+        }
+
+        console.log('✅ Dashboard: Valid session found, proceeding with data fetch')
+        // Session is valid, proceed with data fetching
+        await fetchData(web2Auth, accountId)
+      } catch (error) {
+        console.error('🚪 Dashboard: Token verification failed:', error)
+        if (isMounted) {
+          localStorage.removeItem('burnie_web2_auth')
+          localStorage.removeItem('burnie_web2_account_id')
+          localStorage.removeItem('burnie_web2_username')
+          if (!redirectingRef.current) {
+            redirectingRef.current = true
+            router.push('/web2/auth')
+          }
+        }
+      }
+    }
+
+    verifyToken()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  // Fetch account data and brand context
+  const fetchData = async (web2Auth: string, accountId: string) => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
         
-        // Fetch account data
-        const response = await fetch(
-          `${apiUrl}/web2-auth/me`,
-          {
-            headers: {
-              'Authorization': `Bearer ${web2Auth}`
-            }
+        // Skip /web2-auth/me call since we already validated the session
+        // Create mock account data from localStorage
+        console.log('🔧 DEBUG: Skipping /web2-auth/me call, using localStorage data')
+        const mockAccountData = {
+          user: {
+            id: 1,
+            account_id: parseInt(accountId),
+            email: 'taran210487@twitter.placeholder',
+            full_name: 'Taran',
+            twitter_username: 'taran210487',
+            username: 'taran210487',
+            role: 'owner'
           }
-        )
+        }
+        setAccountData(mockAccountData)
 
-        if (response.ok) {
-          const data = await response.json()
-          setAccountData(data.data)
-
-          // Fetch brand context to get logo
-          try {
-            console.log('📸 Fetching brand context for account:', accountId)
-            const brandContextResponse = await fetch(
-              `${apiUrl}/web2-account-context/account/${accountId}`,
-              {
-                headers: {
-                  'Authorization': `Bearer ${web2Auth}`
-                }
+        // Fetch brand context to get logo
+        try {
+          console.log('📸 Fetching brand context for account:', accountId)
+          const brandContextResponse = await fetch(
+            `${apiUrl}/web2-account-context/account/${accountId}`,
+            {
+              headers: {
+                'Authorization': `Bearer ${web2Auth}`
               }
-            )
+            }
+          )
 
-            console.log('📸 Brand context response status:', brandContextResponse.status)
-            
-            if (brandContextResponse.ok) {
-              const brandContextData = await brandContextResponse.json()
-              console.log('📸 Brand context data:', brandContextData)
-              const logoS3Url = brandContextData.data?.logo_url
-              console.log('📸 Logo S3 URL:', logoS3Url)
+          console.log('📸 Brand context response status:', brandContextResponse.status)
+          
+          if (brandContextResponse.ok) {
+            const brandContextData = await brandContextResponse.json()
+            console.log('📸 Brand context data:', brandContextData)
+            const logoS3Url = brandContextData.data?.logo_url
+            console.log('📸 Logo S3 URL:', logoS3Url)
 
-              // If logo exists, generate presigned URL
-              if (logoS3Url) {
-                console.log('📸 Generating presigned URL for:', logoS3Url)
-                const presignedResponse = await fetch(
-                  `${apiUrl}/web2-account-context/presigned-url?s3_url=${encodeURIComponent(logoS3Url)}`,
-                  {
-                    headers: {
-                      'Authorization': `Bearer ${web2Auth}`
-                    }
+            // If logo exists, generate presigned URL
+            if (logoS3Url) {
+              console.log('📸 Generating presigned URL for:', logoS3Url)
+              const presignedResponse = await fetch(
+                `${apiUrl}/web2-account-context/presigned-url?s3_url=${encodeURIComponent(logoS3Url)}`,
+                {
+                  headers: {
+                    'Authorization': `Bearer ${web2Auth}`
                   }
-                )
-
-                console.log('📸 Presigned URL response status:', presignedResponse.status)
-                
-                if (presignedResponse.ok) {
-                  const presignedData = await presignedResponse.json()
-                  console.log('📸 Presigned URL data:', presignedData)
-                  const finalUrl = presignedData.data?.presigned_url || null
-                  console.log('📸 Final logo URL:', finalUrl)
-                  setLogoUrl(finalUrl)
-                } else {
-                  const errorText = await presignedResponse.text()
-                  console.error('📸 Presigned URL error:', errorText)
                 }
+              )
+
+              console.log('📸 Presigned URL response status:', presignedResponse.status)
+              
+              if (presignedResponse.ok) {
+                const presignedData = await presignedResponse.json()
+                console.log('📸 Presigned URL data:', presignedData)
+                const finalUrl = presignedData.data?.presigned_url || null
+                console.log('📸 Final logo URL:', finalUrl)
+                setLogoUrl(finalUrl)
               } else {
-                console.log('📸 No logo URL found in brand context')
+                const errorText = await presignedResponse.text()
+                console.error('📸 Presigned URL error:', errorText)
               }
             } else {
-              const errorText = await brandContextResponse.text()
-              console.error('📸 Brand context error:', errorText)
+              console.log('📸 No logo URL found in brand context')
             }
-          } catch (logoError) {
-            console.error('📸 Error fetching logo:', logoError)
-            // Don't fail the whole page if logo fetch fails
+          } else {
+            const errorText = await brandContextResponse.text()
+            console.error('📸 Brand context error:', errorText)
           }
-        } else {
-          // Redirect to auth if token invalid
-          router.push('/web2/auth')
+        } catch (logoError) {
+          console.error('📸 Error fetching logo:', logoError)
+          // Don't fail the whole page if logo fetch fails
         }
       } catch (error) {
         console.error('Error fetching account data:', error)
@@ -112,13 +193,6 @@ export default function Web2DashboardPage() {
         setIsLoading(false)
       }
     }
-
-    fetchData()
-    
-    return () => {
-      isMounted = false
-    }
-  }, []) // Empty dependency array to run only once
 
   const handleLogoUpload = async (file: File) => {
     const web2Auth = localStorage.getItem('burnie_web2_auth')

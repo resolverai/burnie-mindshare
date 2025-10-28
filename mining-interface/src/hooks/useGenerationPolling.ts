@@ -80,8 +80,12 @@ export const useGenerationPolling = () => {
             current_step: latestRecord.current_step
           })
           
-          // Update progress
-          onProgress(latestRecord)
+          // Update progress with job_id for fetching per_image_metadata
+          console.log(`📝 Polling update with job_id ${jobId} for per_image_metadata fetch`)
+          onProgress({
+            ...latestRecord,
+            job_id: jobId
+          })
           
           // Check if generation is complete
           if (latestRecord.status === 'completed') {
@@ -89,7 +93,10 @@ export const useGenerationPolling = () => {
             clearInterval(interval)
             setPollInterval(null)
             isPollingRef.current = false
-            onComplete(latestRecord)
+            onComplete({
+              ...latestRecord,
+              job_id: jobId
+            })
             return
           } else if (latestRecord.status === 'error') {
             console.log(`❌ Generation error for job ${jobId}, stopping polling`)

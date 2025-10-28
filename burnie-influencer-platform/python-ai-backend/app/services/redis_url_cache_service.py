@@ -59,6 +59,12 @@ class RedisUrlCacheService:
             expires_at = datetime.fromisoformat(cached_url_data['expires_at'])
             now = datetime.utcnow()
             
+            # Ensure both datetimes are timezone-aware or both are naive
+            if expires_at.tzinfo is None and now.tzinfo is not None:
+                now = now.replace(tzinfo=None)
+            elif expires_at.tzinfo is not None and now.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=None)
+            
             if now >= expires_at:
                 logger.debug(f"⏰ Cached URL expired for S3 key: {s3_key}")
                 # Remove expired entry

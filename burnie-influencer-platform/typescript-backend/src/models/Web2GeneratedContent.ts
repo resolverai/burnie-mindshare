@@ -157,6 +157,9 @@ export class Web2GeneratedContent {
   @Column({ type: 'jsonb', nullable: true })
   brand_context?: Record<string, any>; // Brand context data used for generation
 
+  @Column({ type: 'jsonb', nullable: true })
+  per_image_metadata?: Record<string, any>; // Per-image data: prompts, platform texts, etc.
+
   // Progress tracking
   @Column({ type: 'int', default: 0 })
   progress_percent!: number; // Progress percentage (0-100)

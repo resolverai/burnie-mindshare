@@ -7,6 +7,126 @@ import Image from 'next/image'
 import { ChevronDownIcon, ChevronUpIcon, XMarkIcon, EyeIcon, PencilIcon, ShareIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
 
+// Component to handle user images with presigned URL generation
+function UserImageDisplay({ imageUrl, alt, className, width, height }: {
+  imageUrl: string
+  alt: string
+  className?: string
+  width?: number
+  height?: number
+}) {
+  const [displayUrl, setDisplayUrl] = useState<string>(imageUrl)
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasError, setHasError] = useState(false)
+
+  useEffect(() => {
+    // Check if the URL is a presigned URL (contains query parameters)
+    const isPresignedUrl = imageUrl.includes('?')
+    
+    if (isPresignedUrl) {
+      // For presigned URLs, try to use them directly first
+      setDisplayUrl(imageUrl)
+    } else if (imageUrl.startsWith('s3://')) {
+      // For S3 URLs, generate a presigned URL
+      generatePresignedUrl(imageUrl)
+    } else {
+      // For other URLs, use as-is
+      setDisplayUrl(imageUrl)
+    }
+  }, [imageUrl])
+
+  const generatePresignedUrl = async (s3Url: string) => {
+    try {
+      setIsLoading(true)
+      setHasError(false)
+      
+      // Extract S3 key from URL
+      const s3Key = s3Url.replace('s3://burnie-mindshare-content-staging/', '')
+      
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_PYTHON_AI_BACKEND_URL || 'http://localhost:8000'}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.presigned_url) {
+          setDisplayUrl(data.presigned_url)
+        } else {
+          setHasError(true)
+        }
+      } else {
+        setHasError(true)
+      }
+    } catch (error) {
+      console.error('Error generating presigned URL:', error)
+      setHasError(true)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleImageError = () => {
+    // If the image fails to load and it's a presigned URL, try to generate a new one
+    if (imageUrl.includes('?') && imageUrl.includes('s3.amazonaws.com')) {
+      // Extract S3 key from the presigned URL
+      const urlParts = imageUrl.split('?')[0]
+      const s3Key = urlParts.replace('https://burnie-mindshare-content-staging.s3.amazonaws.com/', '')
+      const s3Url = `s3://burnie-mindshare-content-staging/${s3Key}`
+      generatePresignedUrl(s3Url)
+    } else {
+      setHasError(true)
+    }
+  }
+
+  if (hasError) {
+    return (
+      <div className={`bg-gray-700 flex items-center justify-center ${className}`}>
+        <span className="text-gray-400 text-sm">Image unavailable</span>
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className={`bg-gray-700 flex items-center justify-center ${className}`}>
+        <span className="text-gray-400 text-sm">Loading...</span>
+      </div>
+    )
+  }
+
+  // Use fill prop if no width/height provided, otherwise use width/height
+  if (width && height) {
+    return (
+      <Image
+        src={displayUrl}
+        alt={alt}
+        width={width}
+        height={height}
+        className={className}
+        onError={handleImageError}
+      />
+    )
+  } else {
+    return (
+      <div className="relative w-full h-full">
+        <Image
+          src={displayUrl}
+          alt={alt}
+          fill
+          className={className}
+          onError={handleImageError}
+        />
+      </div>
+    )
+  }
+}
+
 interface GeneratedJob {
   id: number
   job_id: string
@@ -42,6 +162,8 @@ export default function ContentLibraryPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const jobsPerPage = 12
+  const [perImageData, setPerImageData] = useState<any[]>([])
+  const [loadingPerImageData, setLoadingPerImageData] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -92,6 +214,41 @@ export default function ContentLibraryPage() {
     }
   }
 
+  const fetchPerImageData = async (jobId: number) => {
+    try {
+      setLoadingPerImageData(true)
+      const web2Auth = localStorage.getItem('burnie_web2_auth')
+      
+      if (!web2Auth) {
+        console.error('No auth token found')
+        return
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/web2-generated-content/${jobId}/per-image-data`,
+        {
+          headers: {
+            'Authorization': `Bearer ${web2Auth}`
+          }
+        }
+      )
+
+      if (response.ok) {
+        const data = await response.json()
+        setPerImageData(data.data.perImageData || [])
+        console.log('📝 Per-image data fetched:', data.data.perImageData)
+      } else {
+        console.error('Failed to fetch per-image data')
+        setPerImageData([])
+      }
+    } catch (error) {
+      console.error('Error fetching per-image data:', error)
+      setPerImageData([])
+    } finally {
+      setLoadingPerImageData(false)
+    }
+  }
+
   useEffect(() => {
     let filtered = jobs
     
@@ -121,6 +278,11 @@ export default function ContentLibraryPage() {
     setModalImageIndex(imageIndex)
     setShowInputImages(isInputImage)
     setIsModalOpen(true)
+    
+    // Fetch per-image data for this job
+    if (job.id) {
+      fetchPerImageData(job.id)
+    }
   }
 
   const closeModal = () => {
@@ -139,17 +301,31 @@ export default function ContentLibraryPage() {
     // Use the provided imageIndex or default to 0
     const selectedIndex = imageIndex !== undefined ? imageIndex : 0
     const imageUrl = job.generated_image_urls[selectedIndex]
-    const originalPrompt = job.workflow_metadata?.original_prompt || 'Generated content'
-    // Get product category from the first item in product_categories array
-    const productCategory = job.product_categories && job.product_categories.length > 0 
-      ? job.product_categories[0] 
-      : 'Unknown'
+    
+    // Get per-image data if available
+    let originalPrompt = 'Generated content'
+    let productCategory = 'Unknown'
+    let platformTexts = {}
+    
+    if (perImageData.length > 0 && selectedIndex < perImageData.length) {
+      const imageData = perImageData[selectedIndex]
+      originalPrompt = imageData.prompt || 'Generated content'
+      productCategory = imageData.productCategory || 'Unknown'
+      platformTexts = imageData.platformTexts || {}
+    } else {
+      // Fallback to job-level data
+      originalPrompt = job.workflow_metadata?.original_prompt || 'Generated content'
+      productCategory = job.product_categories && job.product_categories.length > 0 
+        ? job.product_categories[selectedIndex] || job.product_categories[0]
+        : 'Unknown'
+    }
 
     const params = new URLSearchParams({
       imageUrl,
       originalPrompt,
       productCategory,
-      accountId: localStorage.getItem('burnie_web2_account_id') || '0'
+      accountId: localStorage.getItem('burnie_web2_account_id') || '0',
+      platformTexts: JSON.stringify(platformTexts)
     })
 
     router.push(`/web2/content-studio/fashion/simple-workflow/edit?${params.toString()}`)
@@ -382,10 +558,9 @@ export default function ContentLibraryPage() {
                                 className="aspect-square relative cursor-pointer group border border-gray-600 rounded"
                                 onClick={() => openModal(job, index, true)}
                               >
-                                <Image
-                                  src={imageUrl}
+                                <UserImageDisplay
+                                  imageUrl={imageUrl}
                                   alt={`Input image ${index + 1}`}
-                                  fill
                                   className="object-cover rounded group-hover:opacity-80 transition-opacity"
                                 />
                                 {job.user_images && job.user_images.length > 2 && index === 1 && (
@@ -621,8 +796,8 @@ export default function ContentLibraryPage() {
 
               {/* Image Display */}
               {showInputImages && modalJob.user_images ? (
-                <Image
-                  src={modalJob.user_images[modalImageIndex]}
+                <UserImageDisplay
+                  imageUrl={modalJob.user_images[modalImageIndex]}
                   alt={`Input image ${modalImageIndex + 1}`}
                   width={600}
                   height={600}
@@ -685,6 +860,39 @@ export default function ContentLibraryPage() {
                     <PencilIcon className="w-4 h-4" />
                     <span>Edit</span>
                   </button>
+
+                  {/* Platform Text Display */}
+                  <div className="space-y-3">
+                    <div className="text-sm text-gray-300 font-medium">Platform Texts:</div>
+                    <div className="flex space-x-2">
+                      {['twitter', 'instagram', 'linkedin'].map((platform) => (
+                        <button
+                          key={platform}
+                          onClick={() => setSelectedPlatform(platform as 'twitter' | 'instagram' | 'linkedin')}
+                          className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                            selectedPlatform === platform
+                              ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                              : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          }`}
+                        >
+                          {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {/* Display selected platform text */}
+                    <div className="bg-gray-700 rounded-lg p-3 min-h-[100px]">
+                      {loadingPerImageData ? (
+                        <div className="text-gray-400 text-sm">Loading platform text...</div>
+                      ) : perImageData.length > 0 && modalImageIndex < perImageData.length ? (
+                        <div className="text-white text-sm">
+                          {perImageData[modalImageIndex]?.platformTexts?.[selectedPlatform] || 'No text available for this platform'}
+                        </div>
+                      ) : (
+                        <div className="text-gray-400 text-sm">No platform text available</div>
+                      )}
+                    </div>
+                  </div>
 
                   {/* Platform Posting */}
                   <div className="space-y-2">

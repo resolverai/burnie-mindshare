@@ -11,6 +11,11 @@ interface EditImageData {
   url: string
   originalPrompt: string
   productCategory: string
+  platformTexts?: {
+    twitter?: string
+    instagram?: string
+    linkedin?: string
+  }
 }
 
 export default function EditWorkflowPage() {
@@ -22,7 +27,8 @@ export default function EditWorkflowPage() {
   const editImageData: EditImageData = {
     url: searchParams.get('imageUrl') || '',
     originalPrompt: searchParams.get('originalPrompt') || '',
-    productCategory: searchParams.get('productCategory') || ''
+    productCategory: searchParams.get('productCategory') || '',
+    platformTexts: searchParams.get('platformTexts') ? JSON.parse(searchParams.get('platformTexts')!) : undefined
   }
   
   // Get account ID from URL params (passed from Step 2)
@@ -42,6 +48,14 @@ export default function EditWorkflowPage() {
   const [numVariations, setNumVariations] = useState(4)
   const [additionalInstructions, setAdditionalInstructions] = useState('')
   const [includeBrandLogo, setIncludeBrandLogo] = useState(true)
+  
+  // Platform text state
+  const [platformTexts, setPlatformTexts] = useState({
+    twitter: editImageData.platformTexts?.twitter || '',
+    instagram: editImageData.platformTexts?.instagram || '',
+    linkedin: editImageData.platformTexts?.linkedin || ''
+  })
+  const [selectedPlatform, setSelectedPlatform] = useState<'twitter' | 'instagram' | 'linkedin'>('twitter')
   
   // Custom input states for "Other" options
   const [customInputs, setCustomInputs] = useState({
@@ -87,6 +101,7 @@ export default function EditWorkflowPage() {
   // Collapsible sections
   const [sections, setSections] = useState([
     { id: 'reference-image', title: 'Reference Image', isOpen: true },
+    { id: 'platform-texts', title: 'Platform Texts', isOpen: true },
     { id: 'model-preferences', title: 'Model Preferences', isOpen: true },
     { id: 'lifestyle-context', title: 'Lifestyle & Context', isOpen: false },
     { id: 'color-style', title: 'Color & Style', isOpen: false },
@@ -370,9 +385,9 @@ export default function EditWorkflowPage() {
       return
     }
     
-    setGenerationState('generating')
-    setProgressPercent(0)
-    setProgressMessage('Starting edit generation...')
+    // Don't set generation state - navigate immediately
+    console.log('🚀 Starting edit generation process...')
+    console.log('🚀 Button clicked, handleGenerate called')
     
     try {
       // Upload model image if provided
@@ -416,6 +431,7 @@ export default function EditWorkflowPage() {
         num_variations: numVariations,
         additional_instructions: additionalInstructions,
         model_image_url: modelImageUrl,
+        original_platform_texts: editImageData.platformTexts, // Pass original platform texts
         include_logo: includeBrandLogo,
         no_characters: false,
         human_characters_only: true,
@@ -464,17 +480,29 @@ export default function EditWorkflowPage() {
       console.log('✅ Edit generation started:', responseData)
       
       if (responseData.job_id) {
-        // Navigate back to Step 2 with the new job ID for polling
-        router.push(`/web2/content-studio/fashion/simple-workflow?job_id=${responseData.job_id}&edit_mode=true`)
+        // Navigate immediately to Step 2 with the new job ID for polling
+        console.log('🚀 Edit generation started, navigating to grid screen with job:', responseData.job_id)
+        console.log('🚀 About to navigate to:', `/web2/content-studio/fashion/simple-workflow?job_id=${responseData.job_id}&edit_mode=true&num_variations=${numVariations}`)
+        
+        // Try router.replace first, then fallback to window.location
+        try {
+          router.replace(`/web2/content-studio/fashion/simple-workflow?job_id=${responseData.job_id}&edit_mode=true&num_variations=${numVariations}`)
+          console.log('🚀 Navigation via router.replace called')
+        } catch (error) {
+          console.log('🚀 Router.replace failed, trying window.location.href:', error)
+          const targetUrl = `/web2/content-studio/fashion/simple-workflow?job_id=${responseData.job_id}&edit_mode=true&num_variations=${numVariations}`
+          window.location.href = targetUrl
+          console.log('🚀 Navigation via window.location.href called')
+        }
+        return // Exit early to prevent further execution
       } else {
         throw new Error('Job ID not received from backend')
       }
       
     } catch (error: any) {
       console.error('Edit generation error:', error)
-      setGenerationState('error')
-      setProgressMessage(`Error: ${error.message}`)
       toast.error(`Edit generation failed: ${error.message}`)
+      // Don't set generation state - let user stay on edit page if there's an error
     }
   }
   
@@ -585,13 +613,70 @@ export default function EditWorkflowPage() {
                   )}
                 </div>
                 
+                {/* Platform Texts */}
+                <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg border border-gray-700/50">
+                  <button
+                    onClick={() => toggleSection('platform-texts')}
+                    className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-700/30 transition-colors rounded-lg"
+                  >
+                    <h2 className="text-base font-bold text-white">2. Platform Texts</h2>
+                    <svg
+                      className={`w-5 h-5 text-gray-400 transition-transform ${sections.find(s => s.id === 'platform-texts')?.isOpen ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {sections.find(s => s.id === 'platform-texts')?.isOpen && (
+                    <div className="p-4 border-t border-gray-700">
+                      <div className="space-y-4">
+                        {/* Platform Tabs */}
+                        <div className="flex space-x-2">
+                          {['twitter', 'instagram', 'linkedin'].map((platform) => (
+                            <button
+                              key={platform}
+                              onClick={() => setSelectedPlatform(platform as 'twitter' | 'instagram' | 'linkedin')}
+                              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+                                selectedPlatform === platform
+                                  ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                              }`}
+                            >
+                              {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                            </button>
+                          ))}
+                        </div>
+                        
+                        {/* Platform Text Input */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-2">
+                            {selectedPlatform.charAt(0).toUpperCase() + selectedPlatform.slice(1)} Text
+                          </label>
+                          <textarea
+                            value={platformTexts[selectedPlatform]}
+                            onChange={(e) => setPlatformTexts(prev => ({
+                              ...prev,
+                              [selectedPlatform]: e.target.value
+                            }))}
+                            className="w-full h-32 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                            placeholder={`Enter ${selectedPlatform} text...`}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
                 {/* Model Preferences & Image */}
                 <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg border border-gray-700/50">
                   <button
                     onClick={() => toggleSection('model-preferences')}
                     className="w-full p-4 flex items-center justify-between text-left hover:bg-gray-700/30 transition-colors rounded-lg"
                   >
-                    <h2 className="text-base font-bold text-white">2. Model Preferences</h2>
+                    <h2 className="text-base font-bold text-white">3. Model Preferences</h2>
                     <svg
                       className={`w-5 h-5 text-gray-400 transition-transform ${sections.find(s => s.id === 'model-preferences')?.isOpen ? 'rotate-180' : ''}`}
                       fill="none"

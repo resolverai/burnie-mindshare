@@ -16,6 +16,7 @@ export default function Web2AuthPage() {
   const [error, setError] = useState('')
   const router = useRouter()
   const connectingRef = useRef(false)
+  const redirectingRef = useRef(false)
 
   // Check if user has valid session
   useEffect(() => {
@@ -41,8 +42,17 @@ export default function Web2AuthPage() {
           const data = await response.json()
           if (data.success && data.hasValidSession) {
             // User has valid session, redirect to dashboard
-            console.log('✅ Valid Web2 session found, redirecting to dashboard')
-            router.push('/web2/dashboard')
+            console.log('✅ Auth page: Valid Web2 session found, redirecting to dashboard')
+            // Prevent multiple redirects
+            if (!redirectingRef.current) {
+              redirectingRef.current = true
+              // Add a small delay to prevent race condition
+              setTimeout(() => {
+                if (isMounted) {
+                  router.push('/web2/dashboard')
+                }
+              }, 100)
+            }
             return
           }
         }

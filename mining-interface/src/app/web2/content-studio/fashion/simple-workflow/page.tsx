@@ -7,7 +7,6 @@ import Web2Sidebar from '@/components/Web2Sidebar'
 import Image from 'next/image'
 import PlatformSelector from '@/components/web2/PlatformSelector'
 import ProgressOverlay from '@/components/web2/ProgressOverlay'
-import PlatformText from '@/components/web2/PlatformText'
 
 interface CollapsibleSection {
   id: string
@@ -44,7 +43,9 @@ export default function SimpleWorkflowPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<'twitter' | 'youtube' | 'instagram' | 'linkedin'>('twitter')
   const [platformTexts, setPlatformTexts] = useState<any>({})
   const [perImagePlatformTexts, setPerImagePlatformTexts] = useState<Array<any>>([])
+  const [perImageMetadata, setPerImageMetadata] = useState<any>({})
   const [selectedImageIndex, setSelectedImageIndex] = useState<number>(0)
+  const [numVariations, setNumVariations] = useState(4) // Default to 4, will be updated for edit flow
   
   // UI state
   const [sections, setSections] = useState<CollapsibleSection[]>([
@@ -61,12 +62,19 @@ export default function SimpleWorkflowPage() {
   useEffect(() => {
     const jobId = searchParams.get('job_id')
     const editMode = searchParams.get('edit_mode')
+    const numVariations = searchParams.get('num_variations')
     
     if (jobId && editMode === 'true') {
       console.log('🔄 Edit flow detected, starting polling for job:', jobId)
+      console.log('🔢 Number of variations for edit flow:', numVariations)
       setGenerationState('generating')
       setProgressPercent(0)
       setProgressMessage('Generating edit variations...')
+      
+      // Set the number of variations for edit flow
+      if (numVariations) {
+        setNumVariations(parseInt(numVariations))
+      }
       
       // Start polling for the edit job
       setTimeout(() => {
@@ -166,11 +174,16 @@ export default function SimpleWorkflowPage() {
     const imageData = generatedImageData[imageIndex]
     if (imageData) {
       const accountId = localStorage.getItem('burnie_web2_account_id')
+      
+      // Get per-image platform texts if available
+      const platformTexts = perImagePlatformTexts[imageIndex] || {}
+      
       const params = new URLSearchParams({
         imageUrl: imageData.url,
         originalPrompt: imageData.originalPrompt,
         productCategory: imageData.productCategory,
-        accountId: accountId || '0'
+        accountId: accountId || '0',
+        platformTexts: JSON.stringify(platformTexts)
       })
       router.push(`/web2/content-studio/fashion/simple-workflow/edit?${params.toString()}`)
     }
@@ -210,9 +223,55 @@ export default function SimpleWorkflowPage() {
     handleModelFileSelect(files)
   }
 
-  const handleProgress = (progress: any) => {
+  const fetchPerImageMetadata = async (jobId: string) => {
+    try {
+      console.log(`🔍 Fetching per_image_metadata for job ${jobId}...`)
+      const response = await fetch(
+        (process.env.NEXT_PUBLIC_TYPESCRIPT_BACKEND_URL || 'http://localhost:3001') + `/api/web2-generated-content/job/${jobId}`
+      )
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.data?.per_image_metadata) {
+          console.log('🔍 Fetched per_image_metadata from database:', data.data.per_image_metadata)
+          setPerImageMetadata(data.data.per_image_metadata)
+          
+          // Convert per_image_metadata to perImagePlatformTexts array format
+          const platformTextsArray: any[] = []
+          Object.keys(data.data.per_image_metadata).forEach(key => {
+            const imageData = data.data.per_image_metadata[key]
+            if (imageData.platform_texts) {
+              platformTextsArray[imageData.image_index] = imageData.platform_texts
+              console.log(`📝 Added platform texts for image ${imageData.image_index}:`, imageData.platform_texts)
+            }
+          })
+          
+          console.log('🔍 Converted to perImagePlatformTexts:', platformTextsArray)
+          console.log('🔍 Array length:', platformTextsArray.length)
+          console.log('🔍 Array contents:', platformTextsArray.map((item, index) => ({ index, hasTwitter: !!item?.twitter, twitterText: item?.twitter?.substring(0, 50) + '...' })))
+          setPerImagePlatformTexts(platformTextsArray)
+        } else {
+          console.log('⚠️ No per_image_metadata found in response:', data)
+        }
+      } else {
+        console.log('❌ Failed to fetch per_image_metadata:', response.status)
+      }
+    } catch (error) {
+      console.error('Error fetching per_image_metadata:', error)
+    }
+  }
+
+  const handleProgress = async (progress: any) => {
+    console.log('🔄 handleProgress called with:', progress)
     setProgressMessage(progress.progress_message || 'Generating...')
     setProgressPercent(progress.progress_percent || 0)
+    
+    // Fetch latest per_image_metadata from database to get updated platform texts
+    if (progress.job_id) {
+      console.log(`🔄 Polling update received, fetching per_image_metadata for job ${progress.job_id}`)
+      await fetchPerImageMetadata(progress.job_id)
+    } else {
+      console.log('⚠️ No job_id in progress data, skipping per_image_metadata fetch')
+    }
     
     // Update generated images progressively as they come in
     if (progress.generated_image_urls && progress.generated_image_urls.length > 0) {
@@ -230,7 +289,7 @@ export default function SimpleWorkflowPage() {
       }
     }
     
-    // Update platform texts progressively
+    // Update platform texts progressively - show immediately as they come in
     if (progress.twitter_text || progress.youtube_description || progress.instagram_caption || progress.linkedin_post) {
       const platformTexts: any = {}
       if (progress.twitter_text) platformTexts.twitter = progress.twitter_text
@@ -241,39 +300,46 @@ export default function SimpleWorkflowPage() {
       setPlatformTexts(platformTexts)
     }
     
-    // Update per-image platform texts if available
-    if (progress.per_image_platform_texts && Array.isArray(progress.per_image_platform_texts)) {
-      setPerImagePlatformTexts(progress.per_image_platform_texts)
-    }
-    
-    // Handle individual image generation events with platform texts
-    if (progress.type === 'image_generated' && progress.platform_texts) {
-      const imageIndex = progress.image_index - 1 // Convert to 0-based index
-      setPerImagePlatformTexts(prev => {
-        const newTexts = [...prev]
-        newTexts[imageIndex] = progress.platform_texts
-        return newTexts
-      })
-    }
+    // Note: Individual image platform texts are now fetched from database via fetchPerImageMetadata
   }
 
-  const handleComplete = (progress: any) => {
+  const handleComplete = async (progress: any) => {
     setGenerationState('complete')
     setProgressMessage('Generation complete!')
     setProgressPercent(100)
+    
+    // Fetch final per_image_metadata from database
+    if (progress.job_id) {
+      await fetchPerImageMetadata(progress.job_id)
+    }
     
     if (progress.generated_image_urls) {
       setGeneratedImages(progress.generated_image_urls)
     }
     
-    // Extract platform texts
-    const platformTexts: any = {}
-    if (progress.twitter_text) platformTexts.twitter = progress.twitter_text
-    if (progress.youtube_description) platformTexts.youtube = progress.youtube_description
-    if (progress.instagram_caption) platformTexts.instagram = progress.instagram_caption
-    if (progress.linkedin_post) platformTexts.linkedin = progress.linkedin_post
+    // Update per-image platform texts if available (don't overwrite existing ones)
+    if (progress.per_image_platform_texts && Array.isArray(progress.per_image_platform_texts)) {
+      console.log('📝 Final per-image platform texts received:', progress.per_image_platform_texts)
+      // Only update if we don't already have per-image texts
+      setPerImagePlatformTexts(prev => {
+        if (prev.length === 0 || prev.every(text => !text || Object.keys(text).length === 0)) {
+          return progress.per_image_platform_texts
+        }
+        return prev
+      })
+    }
     
-    setPlatformTexts(platformTexts)
+    // Only set global platform texts if per-image texts are not available
+    // This prevents overwriting individual image texts with generic ones
+    if (!progress.per_image_platform_texts || !Array.isArray(progress.per_image_platform_texts)) {
+      const platformTexts: any = {}
+      if (progress.twitter_text) platformTexts.twitter = progress.twitter_text
+      if (progress.youtube_description) platformTexts.youtube = progress.youtube_description
+      if (progress.instagram_caption) platformTexts.instagram = progress.instagram_caption
+      if (progress.linkedin_post) platformTexts.linkedin = progress.linkedin_post
+      
+      setPlatformTexts(platformTexts)
+    }
   }
 
   const handleError = (error: string) => {
@@ -392,7 +458,9 @@ export default function SimpleWorkflowPage() {
       console.log('🔍 Job ID:', jobId)
 
       // Start polling for progress updates
+      console.log('🚀 Starting polling for job:', jobId)
       setTimeout(() => {
+        console.log('🚀 About to call startPolling with job:', jobId)
         startPolling(jobId, handleProgress, handleComplete, handleError)
       }, 1000)
 
@@ -650,7 +718,7 @@ export default function SimpleWorkflowPage() {
               {/* Results Grid */}
               <div className="flex-1 overflow-y-auto p-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {Array.from({ length: productImages.length * 4 }, (_, index) => (
+                  {Array.from({ length: searchParams.get('edit_mode') === 'true' ? numVariations : (productImages.length * numVariations) }, (_, index) => (
                     <div key={index} className="bg-gray-800/50 rounded-lg overflow-hidden">
                       <div className="aspect-square relative">
                         {generatedImages[index] ? (
@@ -675,6 +743,44 @@ export default function SimpleWorkflowPage() {
                         )}
                       </div>
                       <div className="p-4 space-y-3">
+                        {/* Platform Text Preview for this specific image */}
+                        {generatedImages[index] && (
+                          <div className="bg-gray-700 rounded-lg p-3">
+                            <div className="text-xs text-gray-400 mb-2">
+                              {selectedPlatform.charAt(0).toUpperCase() + selectedPlatform.slice(1)} Text:
+                            </div>
+                            <div className="text-sm text-gray-300 line-clamp-2">
+                              {(() => {
+                                // Get platform text for this specific image
+                                const imagePlatformTexts = perImagePlatformTexts[index]
+                                
+                                // Debug logging for grid
+                                console.log('🔍 Grid text debug for index', index, ':', {
+                                  selectedPlatform,
+                                  imagePlatformTexts,
+                                  globalPlatformTexts: platformTexts[selectedPlatform],
+                                  perImagePlatformTextsLength: perImagePlatformTexts.length,
+                                  perImagePlatformTextsArray: perImagePlatformTexts
+                                })
+                                
+                                if (imagePlatformTexts && imagePlatformTexts[selectedPlatform]) {
+                                  console.log('✅ Using per-image text for grid index', index, ':', imagePlatformTexts[selectedPlatform])
+                                  return imagePlatformTexts[selectedPlatform]
+                                }
+                                
+                                // Fall back to global platform texts
+                                if (platformTexts[selectedPlatform]) {
+                                  console.log('⚠️ Falling back to global text for grid index', index, ':', platformTexts[selectedPlatform])
+                                  return platformTexts[selectedPlatform]
+                                }
+                                
+                                console.log('❌ No text available for grid index', index)
+                                return 'Generating text...'
+                              })()}
+                            </div>
+                          </div>
+                        )}
+                        
                         <div className="flex space-x-2">
                           <button 
                             className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
@@ -696,17 +802,6 @@ export default function SimpleWorkflowPage() {
                 </div>
               </div>
 
-              {/* Platform Text */}
-              {generationState === 'complete' && platformTexts[selectedPlatform] && (
-                <div className="bg-gray-800/50 border-t border-gray-700/50 p-6">
-                  <PlatformText 
-                    text={platformTexts[selectedPlatform]} 
-                    platform={selectedPlatform} 
-                    onCopy={() => console.log('Text copied')} 
-                    onPost={() => console.log('Posting to ' + selectedPlatform)} 
-                  />
-                </div>
-              )}
             </div>
           )}
         </main>
@@ -774,12 +869,36 @@ export default function SimpleWorkflowPage() {
                         const platformKey = selectedPlatform === 'twitter' ? 'twitter' : 
                                           selectedPlatform === 'instagram' ? 'instagram' : 'linkedin'
                         
+                        // Debug logging
+                        console.log('🔍 Modal text debug:', {
+                          selectedImageIndex,
+                          selectedPlatform,
+                          platformKey,
+                          perImagePlatformTexts: perImagePlatformTexts[selectedImageIndex],
+                          globalPlatformTexts: platformTexts[platformKey]
+                        })
+                        
                         // Use per-image platform texts if available, otherwise fall back to global
                         const imagePlatformTexts = perImagePlatformTexts[selectedImageIndex]
                         if (imagePlatformTexts && imagePlatformTexts[platformKey]) {
+                          console.log('✅ Using per-image text for', platformKey)
                           return imagePlatformTexts[platformKey]
                         }
-                        return platformTexts[platformKey] || 'No text available for this platform'
+                        
+                        // Check if this image is still being generated
+                        if (generationState === 'generating' && selectedImageIndex >= generatedImages.length) {
+                          console.log('🔄 Image still being generated')
+                          return 'Generating text for this image...'
+                        }
+                        
+                        // Fall back to global platform texts
+                        if (platformTexts[platformKey]) {
+                          console.log('⚠️ Falling back to global text for', platformKey)
+                          return platformTexts[platformKey]
+                        }
+                        
+                        console.log('❌ No text available for', platformKey)
+                        return generationState === 'generating' ? 'Generating text for this image...' : 'No text available for this image'
                       })()}
                     </p>
                   </div>
@@ -799,7 +918,13 @@ export default function SimpleWorkflowPage() {
                         if (imagePlatformTexts && imagePlatformTexts[platformKey]) {
                           return imagePlatformTexts[platformKey]
                         }
-                        return platformTexts[platformKey] || ''
+                        
+                        // Fall back to global platform texts
+                        if (platformTexts[platformKey]) {
+                          return platformTexts[platformKey]
+                        }
+                        
+                        return ''
                       })()
                       
                       if (text) {
