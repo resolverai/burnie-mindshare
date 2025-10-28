@@ -76,6 +76,8 @@ services:
         - NEXT_PUBLIC_BURNIE_API_URL=${NEXT_PUBLIC_BURNIE_API_URL:-https://mindshareapi.burnie.io/api}
         - NEXT_PUBLIC_AI_API_URL=${NEXT_PUBLIC_AI_API_URL:-https://attentionai.burnie.io}
         - NEXT_PUBLIC_BURNIE_WS_URL=${NEXT_PUBLIC_BURNIE_WS_URL:-wss://attentionai.burnie.io}
+        - NEXT_PUBLIC_PYTHON_AI_BACKEND_URL=${NEXT_PUBLIC_PYTHON_AI_BACKEND_URL:-https://attentionai.burnie.io}
+        - NEXT_PUBLIC_TYPESCRIPT_BACKEND_URL=${NEXT_PUBLIC_TYPESCRIPT_BACKEND_URL:-https://mindshareapi.burnie.io}
         - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-05882002bee82f700cdbcfb99c981fdd}
         - NEXT_PUBLIC_DEFAULT_CHAIN_ID=${NEXT_PUBLIC_DEFAULT_CHAIN_ID:-8453}
         - NEXT_PUBLIC_BASE_RPC_URL=${NEXT_PUBLIC_BASE_RPC_URL:-https://mainnet.base.org}
