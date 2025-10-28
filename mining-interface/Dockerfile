@@ -6,14 +6,21 @@ WORKDIR /app
 # Build argument for miner mode (must be defined before ENV that uses it)
 ARG NEXT_PUBLIC_MINER=1
 
-# Set production environment variables by default (for external container deployment)
-# These can be overridden by docker-compose or build args if needed
-ENV NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io/api
-ENV NEXT_PUBLIC_AI_API_URL=https://attentionai.burnie.io
-ENV NEXT_PUBLIC_BURNIE_AI_API_URL=https://attentionai.burnie.io
-ENV NEXT_PUBLIC_PYTHON_AI_BACKEND_URL=https://attentionai.burnie.io
-ENV NEXT_PUBLIC_TYPESCRIPT_BACKEND_URL=https://mindshareapi.burnie.io
-ENV NEXT_PUBLIC_BURNIE_WS_URL=wss://attentionai.burnie.io
+# Build arguments for environment variables
+ARG NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io/api
+ARG NEXT_PUBLIC_AI_API_URL=https://attentionai.burnie.io
+ARG NEXT_PUBLIC_BURNIE_AI_API_URL=https://attentionai.burnie.io
+ARG NEXT_PUBLIC_PYTHON_AI_BACKEND_URL=https://attentionai.burnie.io
+ARG NEXT_PUBLIC_TYPESCRIPT_BACKEND_URL=https://mindshareapi.burnie.io
+ARG NEXT_PUBLIC_BURNIE_WS_URL=wss://attentionai.burnie.io
+
+# Set environment variables from build args
+ENV NEXT_PUBLIC_BURNIE_API_URL=$NEXT_PUBLIC_BURNIE_API_URL
+ENV NEXT_PUBLIC_AI_API_URL=$NEXT_PUBLIC_AI_API_URL
+ENV NEXT_PUBLIC_BURNIE_AI_API_URL=$NEXT_PUBLIC_BURNIE_AI_API_URL
+ENV NEXT_PUBLIC_PYTHON_AI_BACKEND_URL=$NEXT_PUBLIC_PYTHON_AI_BACKEND_URL
+ENV NEXT_PUBLIC_TYPESCRIPT_BACKEND_URL=$NEXT_PUBLIC_TYPESCRIPT_BACKEND_URL
+ENV NEXT_PUBLIC_BURNIE_WS_URL=$NEXT_PUBLIC_BURNIE_WS_URL
 ENV NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=05882002bee82f700cdbcfb99c981fdd
 ENV NEXT_PUBLIC_DEFAULT_CHAIN_ID=8453
 ENV NEXT_PUBLIC_BASE_RPC_URL=https://mainnet.base.org

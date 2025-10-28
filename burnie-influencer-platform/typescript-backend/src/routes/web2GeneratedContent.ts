@@ -262,8 +262,8 @@ router.get('/job/:jobId', async (req: Request, res: Response): Promise<void> => 
           const presignedUrls = await Promise.all(
             imageUrls.map(async (url: string) => {
               if (url && url.startsWith('s3://')) {
-                // Extract S3 key from S3 URL
-                const s3Key = url.replace('s3://burnie-mindshare-content-staging/', '');
+                // Extract S3 key from S3 URL - handle different bucket names
+                const s3Key = url.replace(/^s3:\/\/[^\/]+\//, '');
                 return await generatePresignedUrl(s3Key);
               }
               return url; // Already a presigned URL
@@ -335,7 +335,7 @@ router.get('/:account_id', async (req: Request, res: Response) => {
             item.generated_image_urls.map(async (url: string) => {
               if (url.startsWith('s3://')) {
                 // Extract S3 key from S3 URL
-                const s3Key = url.replace('s3://burnie-mindshare-content-staging/', '');
+                const s3Key = url.replace(/^s3:\/\/[^\/]+\//, '');
                 return await generatePresignedUrl(s3Key);
               }
               return url; // Already a presigned URL
@@ -356,7 +356,7 @@ router.get('/:account_id', async (req: Request, res: Response) => {
             item.user_images.map(async (url: string) => {
               if (url.startsWith('s3://')) {
                 // Extract S3 key from S3 URL
-                const s3Key = url.replace('s3://burnie-mindshare-content-staging/', '');
+                const s3Key = url.replace(/^s3:\/\/[^\/]+\//, '');
                 return await generatePresignedUrl(s3Key);
               }
               return url; // Already a presigned URL
