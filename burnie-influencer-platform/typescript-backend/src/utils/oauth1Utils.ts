@@ -473,7 +473,8 @@ async function generateFreshPresignedUrl(s3Url: string): Promise<string> {
   }
   
   // Call the Python backend to generate fresh presigned URL
-  const response = await fetch(`http://localhost:8000/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
+  const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+  const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

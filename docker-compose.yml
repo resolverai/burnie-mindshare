@@ -63,6 +63,7 @@ services:
       - REDIS_HOST=localhost
       - REDIS_PORT=6379
       - REDIS_PASSWORD=
+      - TYPESCRIPT_BACKEND_URL=${TYPESCRIPT_BACKEND_URL:-https://mindshareapi.burnie.io}
     volumes:
       - models:/app/models
     restart: unless-stopped
