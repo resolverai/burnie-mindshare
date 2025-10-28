@@ -227,7 +227,7 @@ export default function SimpleWorkflowPage() {
     try {
       console.log(`🔍 Fetching per_image_metadata for job ${jobId}...`)
       const response = await fetch(
-        (process.env.NEXT_PUBLIC_TYPESCRIPT_BACKEND_URL || 'http://localhost:3001') + `/api/web2-generated-content/job/${jobId}`
+        (process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api') + `/web2-generated-content/job/${jobId}`
       )
       if (response.ok) {
         const data = await response.json()
