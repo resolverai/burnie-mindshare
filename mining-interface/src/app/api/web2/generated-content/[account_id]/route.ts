@@ -22,7 +22,7 @@ export async function GET(
     if (status) queryParams.append('status', status)
 
     // Call TypeScript backend
-    const typescriptBackendUrl = process.env.TYPESCRIPT_BACKEND_URL || 'http://localhost:3001'
+    const typescriptBackendUrl = process.env.NEXT_PUBLIC_TYPESCRIPT_BACKEND_URL || 'http://localhost:3001'
     const response = await fetch(
       `${typescriptBackendUrl}/api/web2-generated-content/${account_id}?${queryParams.toString()}`,
       {
