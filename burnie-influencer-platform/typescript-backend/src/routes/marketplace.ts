@@ -2093,26 +2093,9 @@ router.get('/my-content/miner/wallet/:walletAddress/totals', async (req: Request
       .orderBy('content.createdAt', 'DESC')
       .getMany();
 
-    // Refresh URLs for miner content - use unwatermarked URLs with fresh presigned URLs
-    // Process content sequentially to prevent connection exhaustion
-    const refreshedContents = [];
-    for (let i = 0; i < contents.length; i++) {
-      const content = contents[i];
-      try {
-        const refreshedContent = await refreshUrlsForMinerContent(content);
-        refreshedContents.push(refreshedContent);
-        
-        // Add small delay between content items to prevent overwhelming the system
-        if (i < contents.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-      } catch (error) {
-        logger.error(`Error refreshing URLs for content ${content?.id || 'unknown'}:`, error);
-        refreshedContents.push(content); // Use original content if refresh fails
-      }
-    }
-
-    const formattedContents = refreshedContents.map(content => ({
+    // For totals endpoint, we don't need to refresh URLs since this is only used for analytics
+    // This prevents unnecessary load on the Python AI backend
+    const formattedContents = contents.map(content => ({
       id: content.id,
       content_text: content.contentText,
       tweet_thread: content.tweetThread || null,

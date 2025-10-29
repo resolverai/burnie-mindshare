@@ -2553,6 +2553,10 @@ class CrewAIService:
         include_brand_logo = getattr(self.mining_session, 'include_brand_logo', False)
         brand_logo_model = getattr(self.mining_session, 'brand_logo_model', 'flux-pro/kontext')
         
+        # Check if video generation is requested
+        include_video = getattr(self.mining_session, 'include_video', False)
+        video_duration = getattr(self.mining_session, 'video_duration', 10)
+        
         # Get user's preferred image and video providers
         image_provider = self.model_preferences.get('image', {}).get('provider', 'openai')
         image_model = self.model_preferences.get('image', {}).get('model', 'dall-e-3')
@@ -2598,7 +2602,8 @@ class CrewAIService:
                 model_preferences=self.model_preferences,
                 wallet_address=self.wallet_address,
                 agent_id=self.agent_id,
-                prompt_callback=self._store_image_prompt
+                prompt_callback=self._store_image_prompt,
+                include_video=include_video
             ))
             available_image_providers.append('openai')
         
@@ -2618,7 +2623,8 @@ class CrewAIService:
                 agent_id=self.agent_id,
                 include_brand_logo=include_brand_logo,
                 project_logo_url=logo_url,
-                prompt_callback=self._store_image_prompt
+                prompt_callback=self._store_image_prompt,
+                include_video=include_video
             )
             tools.append(fal_tool)
             available_image_providers.append('fal')
@@ -2644,10 +2650,6 @@ class CrewAIService:
         
         # Video generation capabilities - ONLY add tool for user's chosen provider  
         available_video_providers = []
-        
-        # Check if video generation is requested from mining session
-        include_video = getattr(self.mining_session, 'include_video', False)
-        video_duration = getattr(self.mining_session, 'video_duration', 10)
         
         # Debug logging for video flags
         print(f"🔥 === VIDEO GENERATION DEBUG ===")
@@ -8835,15 +8837,18 @@ class OpenAIImageTool(BaseTool):
     wallet_address: Optional[str] = None
     agent_id: Optional[str] = None
     prompt_callback: Optional[Callable[[str], None]] = None  # Callback to store prompt
+    include_video: bool = False  # NEW: Track if video generation is enabled
     
     def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
-                 wallet_address: str = None, agent_id: str = None, prompt_callback: Callable[[str], None] = None):
+                 wallet_address: str = None, agent_id: str = None, prompt_callback: Callable[[str], None] = None,
+                 include_video: bool = False):
         super().__init__()
         self.api_key = api_key
         self.model_preferences = model_preferences or {}
         self.wallet_address = wallet_address
         self.agent_id = agent_id
         self.prompt_callback = prompt_callback  # Store callback function
+        self.include_video = include_video  # NEW: Store video generation flag
         
         logger.info(f"🛠️ OpenAI Image Tool initialized for models: {self.model_preferences.get('image', {})}")
         
@@ -8915,47 +8920,53 @@ class OpenAIImageTool(BaseTool):
                 while current_attempt <= max_attempts:
                     logger.info(f"🔍 Attempt {current_attempt}/{max_attempts}: Validating aspect ratio for generated image...")
                     
-                    # Validate 1:1 aspect ratio
-                    if CrewAIService._validate_image_aspect_ratio(final_image_url, target_ratio=1.0, tolerance=0.05):
-                        logger.info(f"✅ Image aspect ratio validation passed on attempt {current_attempt}")
-                        break
-                    
-                    if current_attempt < max_attempts:
-                        logger.warning(f"❌ Image aspect ratio validation failed on attempt {current_attempt}. Regenerating...")
-                        
-                        # Regenerate image with same parameters
-                        try:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            try:
-                                regenerated_result = loop.run_until_complete(unified_generator.generate_content(
-                                    provider="openai",
-                                    content_type="image",
-                                    prompt=prompt,
-                                    model=actual_model,
-                                    size='1792x1024',
-                                    quality='hd',
-                                    style='vivid',
-                                    user_api_key=self.api_key,
-                                    wallet_address=self.wallet_address,
-                                    agent_id=self.agent_id,
-                                    use_s3_storage=True
-                                ))
-                            finally:
-                                loop.close()
-                            
-                            if regenerated_result and regenerated_result.success and regenerated_result.content:
-                                final_image_url = regenerated_result.content
-                                logger.info(f"🔄 Image regenerated successfully on attempt {current_attempt}")
-                            else:
-                                logger.error(f"❌ Image regeneration failed on attempt {current_attempt}")
-                                break
-                                
-                        except Exception as regen_e:
-                            logger.error(f"❌ Error during image regeneration: {regen_e}")
+                    # Only validate aspect ratio if video generation is enabled
+                    if self.include_video:
+                        # Validate 1:1 aspect ratio
+                        if CrewAIService._validate_image_aspect_ratio(final_image_url, target_ratio=1.0, tolerance=0.05):
+                            logger.info(f"✅ Image aspect ratio validation passed on attempt {current_attempt}")
                             break
-                    
-                    current_attempt += 1
+                        
+                        if current_attempt < max_attempts:
+                            logger.warning(f"❌ Image aspect ratio validation failed on attempt {current_attempt}. Regenerating...")
+                            
+                            # Regenerate image with same parameters
+                            try:
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                try:
+                                    regenerated_result = loop.run_until_complete(unified_generator.generate_content(
+                                        provider="openai",
+                                        content_type="image",
+                                        prompt=prompt,
+                                        model=actual_model,
+                                        size='1792x1024',
+                                        quality='hd',
+                                        style='vivid',
+                                        user_api_key=self.api_key,
+                                        wallet_address=self.wallet_address,
+                                        agent_id=self.agent_id,
+                                        use_s3_storage=True
+                                    ))
+                                finally:
+                                    loop.close()
+                                
+                                if regenerated_result and regenerated_result.success and regenerated_result.content:
+                                    final_image_url = regenerated_result.content
+                                    logger.info(f"🔄 Image regenerated successfully on attempt {current_attempt}")
+                                else:
+                                    logger.error(f"❌ Image regeneration failed on attempt {current_attempt}")
+                                    break
+                                    
+                            except Exception as regen_e:
+                                logger.error(f"❌ Error during image regeneration: {regen_e}")
+                                break
+                        
+                        current_attempt += 1
+                    else:
+                        # Skip aspect ratio validation when video generation is disabled
+                        logger.info(f"✅ Skipping aspect ratio validation (video generation disabled)")
+                        break
                 
                 if current_attempt > max_attempts:
                     logger.warning(f"⚠️ Max regeneration attempts ({max_attempts}) reached. Using last generated image.")
@@ -9142,10 +9153,12 @@ class FalAIImageTool(BaseTool):
     include_brand_logo: bool = False
     project_logo_url: Optional[str] = None
     prompt_callback: Optional[Callable[[str], None]] = None  # Callback to store prompt
+    include_video: bool = False  # NEW: Track if video generation is enabled
     
     def __init__(self, api_key: str = None, model_preferences: Dict[str, Any] = None, 
                  wallet_address: str = None, agent_id: str = None,
-                 include_brand_logo: bool = False, project_logo_url: str = None, prompt_callback: Callable[[str], None] = None):
+                 include_brand_logo: bool = False, project_logo_url: str = None, prompt_callback: Callable[[str], None] = None,
+                 include_video: bool = False):
         super().__init__()
         self.api_key = api_key
         self.model_preferences = model_preferences or {}
@@ -9154,6 +9167,7 @@ class FalAIImageTool(BaseTool):
         self.include_brand_logo = include_brand_logo
         self.project_logo_url = project_logo_url
         self.prompt_callback = prompt_callback  # Store callback function
+        self.include_video = include_video  # NEW: Store video generation flag
         
         # 🔍 ENHANCED INITIALIZATION LOGGING
         logger.info(f"🎯 === FALAIIMAGETOOL INITIALIZATION ===")
@@ -9369,37 +9383,43 @@ class FalAIImageTool(BaseTool):
                 while current_attempt <= max_attempts:
                     logger.info(f"🔍 Attempt {current_attempt}/{max_attempts}: Validating aspect ratio for generated image...")
                     
-                    # Validate 1:1 aspect ratio
-                    if CrewAIService._validate_image_aspect_ratio(final_image_url, target_ratio=1.0, tolerance=0.05):
-                        logger.info(f"✅ Image aspect ratio validation passed on attempt {current_attempt}")
-                        break
-                    
-                    if current_attempt < max_attempts:
-                        logger.warning(f"❌ Image aspect ratio validation failed on attempt {current_attempt}. Regenerating...")
-                        
-                        # Regenerate image with same parameters
-                        regeneration_params = generation_params.copy()
-                        
-                        try:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            try:
-                                regenerated_result = loop.run_until_complete(unified_generator.generate_content(**regeneration_params))
-                            finally:
-                                loop.close()
-                            
-                            if regenerated_result and regenerated_result.success and regenerated_result.content:
-                                final_image_url = regenerated_result.content
-                                logger.info(f"🔄 Image regenerated successfully on attempt {current_attempt}")
-                            else:
-                                logger.error(f"❌ Image regeneration failed on attempt {current_attempt}")
-                                break
-                                
-                        except Exception as regen_e:
-                            logger.error(f"❌ Error during image regeneration: {regen_e}")
+                    # Only validate aspect ratio if video generation is enabled
+                    if self.include_video:
+                        # Validate 1:1 aspect ratio
+                        if CrewAIService._validate_image_aspect_ratio(final_image_url, target_ratio=1.0, tolerance=0.05):
+                            logger.info(f"✅ Image aspect ratio validation passed on attempt {current_attempt}")
                             break
-                    
-                    current_attempt += 1
+                        
+                        if current_attempt < max_attempts:
+                            logger.warning(f"❌ Image aspect ratio validation failed on attempt {current_attempt}. Regenerating...")
+                            
+                            # Regenerate image with same parameters
+                            regeneration_params = generation_params.copy()
+                            
+                            try:
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                try:
+                                    regenerated_result = loop.run_until_complete(unified_generator.generate_content(**regeneration_params))
+                                finally:
+                                    loop.close()
+                                
+                                if regenerated_result and regenerated_result.success and regenerated_result.content:
+                                    final_image_url = regenerated_result.content
+                                    logger.info(f"🔄 Image regenerated successfully on attempt {current_attempt}")
+                                else:
+                                    logger.error(f"❌ Image regeneration failed on attempt {current_attempt}")
+                                    break
+                                    
+                            except Exception as regen_e:
+                                logger.error(f"❌ Error during image regeneration: {regen_e}")
+                                break
+                        
+                        current_attempt += 1
+                    else:
+                        # Skip aspect ratio validation when video generation is disabled
+                        logger.info(f"✅ Skipping aspect ratio validation (video generation disabled)")
+                        break
                 
                 if current_attempt > max_attempts:
                     logger.warning(f"⚠️ Max regeneration attempts ({max_attempts}) reached. Using last generated image.")
