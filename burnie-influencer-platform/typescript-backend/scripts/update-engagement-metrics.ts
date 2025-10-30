@@ -116,7 +116,19 @@ async function main(): Promise<void> {
   const password = process.env.DB_PASSWORD ?? '';
   const database = getEnvVar('DB_NAME', 'roastpower');
 
-  const pool = new Pool({ host, port, user, password, database });
+  // SSL options: enable if --ssl flag present or DB_SSL=true
+  const useSSL = process.argv.includes('--ssl') || (process.env.DB_SSL || '').toLowerCase() === 'true';
+  // Optional strict verification: DB_SSL_REJECT_UNAUTHORIZED=true
+  const rejectUnauthorized = (process.env.DB_SSL_REJECT_UNAUTHORIZED || '').toLowerCase() === 'true';
+
+  const pool = new Pool({
+    host,
+    port,
+    user,
+    password,
+    database,
+    ssl: useSSL ? { rejectUnauthorized } : undefined,
+  });
 
   console.log('🔍 Loading all user_twitter_posts...');
   const res = await pool.query<DbPost>(
