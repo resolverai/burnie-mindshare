@@ -1,6 +1,6 @@
 from moviepy.editor import VideoFileClip, CompositeVideoClip, concatenate_videoclips
 
-def crossfade_videos(clip_paths, output_path, transition_duration=1.0):
+def crossfade_videos(clip_paths, output_path, transition_duration=1.0, end_fade_duration=1.5):
     """
     Combine multiple video clips with crossfade transitions between each.
     
@@ -8,6 +8,7 @@ def crossfade_videos(clip_paths, output_path, transition_duration=1.0):
         clip_paths: List of paths to video files (in order)
         output_path: Path for output video file
         transition_duration: Duration of crossfade in seconds (default: 1.0)
+        end_fade_duration: Duration of fade-to-black ending in seconds (default: 1.5)
     """
     
     if len(clip_paths) < 2:
@@ -73,6 +74,15 @@ def crossfade_videos(clip_paths, output_path, transition_duration=1.0):
     # Concatenate all parts
     final_clip = concatenate_videoclips(final_parts)
     
+    # Add fade-to-black ending with audio fade-out
+    print(f"🎬 Adding {end_fade_duration}s fade-to-black ending...")
+    final_clip = final_clip.fadeout(end_fade_duration)
+    
+    # Apply audio fade-out if audio exists
+    if final_clip.audio is not None:
+        final_clip = final_clip.audio_fadeout(end_fade_duration)
+        print(f"🔊 Adding {end_fade_duration}s audio fade-out...")
+    
     # Write output file
     final_clip.write_videofile(
         output_path,
@@ -94,15 +104,17 @@ def crossfade_videos(clip_paths, output_path, transition_duration=1.0):
 if __name__ == "__main__":
     # Specify your input files as a list (in order)
     input_clips = [
-        "/Users/taran/Downloads/burnie_clip1.mp4",
-        "/Users/taran/Downloads/burnie_clip2.mp4",
-        "/Users/taran/Downloads/burnie_clip3.mp4"
+        "/Users/taran/Downloads/cocktail-clip1.mp4",
+        "/Users/taran/Downloads/cocktail-clip2.mp4"
     ]
     
-    output_file = "/Users/taran/Downloads/combined_output_final_burnie.mp4"
+    output_file = "/Users/taran/Downloads/combined_output_final_cocktail.mp4"
     
     # Duration of crossfade transition in seconds
     fade_duration = 1.5  # Adjust as needed
     
+    # Duration of fade-to-black ending in seconds
+    end_fade_duration = 1.5  # Adjust as needed
+    
     # Combine all videos
-    crossfade_videos(input_clips, output_file, fade_duration)
+    crossfade_videos(input_clips, output_file, fade_duration, end_fade_duration)

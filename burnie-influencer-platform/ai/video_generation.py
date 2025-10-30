@@ -94,7 +94,7 @@ class SimpleS3Service:
             }
 
 class VideoGenerator:
-    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="nano-banana", video_duration=None, clip_duration=5, number_of_clips=None, human_characters_only=False, web3=False, no_characters=False, use_brand_aesthetics=False, clip_random_numbers=None, voiceover=False, clip_audio_prompts=True, theme=None, product_images=None, clip_generation_model="pixverse", viral_trends=False):
+    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="nano-banana", video_duration=None, clip_duration=5, number_of_clips=None, human_characters_only=False, web3=False, no_characters=False, use_brand_aesthetics=False, clip_random_numbers=None, voiceover=False, clip_audio_prompts=True, theme=None, product_images=None, clip_generation_model="pixverse", viral_trends=False, use_mascot_character=False, mascot_logo_path=None, use_mascot_in_images=True):
         """
         Initialize the VideoGenerator.
         
@@ -117,9 +117,16 @@ class VideoGenerator:
             theme (str): Optional theme to guide content generation (tweet text, image prompts, voiceover, etc.)
             product_images (list): List of local paths to product images for frame generation alignment
             clip_generation_model (str): "pixverse" for transition model, "sora" for Sora2 image-to-video model, or "kling" for Kling 2.5 Turbo image-to-video model
+            viral_trends (bool): If True, align content with current viral trends (uses Grok live search when Grok is selected)
+            use_mascot_character (bool): If True, use mascot character from mascot_logo_path instead of human characters
+            mascot_logo_path (str, optional): Path to mascot logo image for character consistency
+            use_mascot_in_images (bool): If True, include mascot logo as reference image in image generation. If False, don't include mascot logo in reference images (useful for famous entities that can be generated without logo). Default: True
         """
         if not logo_path or not os.path.exists(logo_path):
             raise ValueError(f"Logo path is mandatory and must exist: {logo_path}")
+        
+        if use_mascot_character and (not mascot_logo_path or not os.path.exists(mascot_logo_path)):
+            raise ValueError(f"Mascot logo path is mandatory when use_mascot_character=True and must exist: {mascot_logo_path}")
         
         # Determine which mode to use: prefer clip_duration + number_of_clips if both are provided
         if number_of_clips is not None:
@@ -173,6 +180,9 @@ class VideoGenerator:
         self.product_images = product_images or []
         self.clip_generation_model = clip_generation_model.lower()
         self.viral_trends = viral_trends
+        self.use_mascot_character = use_mascot_character
+        self.mascot_logo_path = mascot_logo_path
+        self.use_mascot_in_images = use_mascot_in_images
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.project_folder = os.path.join(output_dir, f"project_{self.timestamp}")
         
@@ -312,7 +322,9 @@ class VideoGenerator:
     def _generate_clip_prompts_json(self):
         """Generate JSON structure for clip prompts and logo decisions based on clip count."""
         clip_prompts = []
-        for i in range(1, self.clip_count + 1):
+        # Calculate regular clip count (excluding brand clip)
+        regular_clip_count = self.clip_count - (1 if self._needs_brand_clip() else 0)
+        for i in range(1, regular_clip_count + 1):
             # No brand closure instructions for regular clips - dedicated brand clip will handle this
             
             if self.video_duration >= 20:
@@ -339,7 +351,7 @@ class VideoGenerator:
                 clip_prompts.append(f'    "audio{i}_prompt": "Create continuous background music and musical composition that enhances the visual narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements. NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC."')
                 clip_prompts.append(f'    "audio{i}_prime_prompt": "Create continuous background music and musical composition that enhances the visual narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements. NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC."')
             
-            # Add individual voiceover prompts for each clip
+            # Add individual voiceover prompts for each regular clip
             clip_prompts.append(f'    "voiceover{i}_prompt": "Break down the tweet text (or generated brand messaging) into this clip\'s portion with emotions, expressions, feelings, pauses, tone changes. Generate natural, flowing voiceover text. MUST START WITH [pause 1 second]. MAXIMUM 80 CHARACTERS. NO HASHTAGS. Break down or modify the original text if needed to preserve the core message while staying within character limit."')
             clip_prompts.append(f'    "voiceover{i}_prime_prompt": "Break down the tweet text (or generated brand messaging) into this clip\'s portion with emotions, expressions, feelings, pauses, tone changes. Generate natural, flowing voiceover text. MUST START WITH [pause 1 second]. MAXIMUM 80 CHARACTERS. NO HASHTAGS. Break down or modify the original text if needed to preserve the core message while staying within character limit."')
         
@@ -352,8 +364,8 @@ class VideoGenerator:
         if self._needs_brand_clip():
             clip_prompts.append(f'    "brand_frame_prompt": "Create a powerful brand closure frame featuring the brand logo prominently in a relevant background that connects with the previous clip. The logo should be the central focus, clearly visible and well-integrated into a professional, brand-appropriate setting. This frame serves as the starting point for the final brand reinforcement clip. Consider the context and visual style of the previous content to create a seamless transition to this logo-focused moment."')
             clip_prompts.append(f'    "brand_frame_prime_prompt": "Create an alternative brand closure frame with a COMPLETELY DIFFERENT visual approach, featuring the brand logo prominently in a unique background setting. Use a different aesthetic style, lighting approach, or composition while maintaining the logo as the central focus. This alternative frame should offer a fresh perspective on brand presentation while ensuring the logo remains clearly visible and professionally integrated."')
-            clip_prompts.append(f'    "brand_clip_prompt": "Create a pure brand reinforcement clip that focuses entirely on showcasing and highlighting the brand logo. Use cinematic techniques like gentle camera movements, elegant lighting transitions, or subtle zoom effects to draw attention to the logo and create a memorable brand moment. This clip should serve as the perfect brand closure - professional, impactful, and entirely focused on brand recognition. No other elements should compete with the logo for attention."')
-            clip_prompts.append(f'    "brand_clip_prime_prompt": "Create an alternative brand reinforcement clip with a COMPLETELY DIFFERENT cinematic approach to showcasing the brand logo. Use different camera techniques, lighting styles, or visual effects while maintaining pure focus on logo prominence. This alternative approach should offer a fresh perspective on brand closure - equally professional and impactful but with a distinct visual style. The logo must remain the sole focus without competing elements."')
+            clip_prompts.append(f'    "brand_clip_prompt": "Create a creative and engaging brand reinforcement clip that showcases the brand logo in an innovative, memorable way. You have complete creative autonomy to design the most effective brand presentation - use any cinematic techniques, visual effects, creative compositions, or dynamic approaches that will make the brand logo stand out and create maximum impact. Think outside the box: dramatic reveals, creative lighting, dynamic movements, artistic compositions, or any other creative approach that serves the brand story. The goal is to create a brand moment that viewers will remember and share."')
+            clip_prompts.append(f'    "brand_clip_prime_prompt": "Create an alternative brand reinforcement clip with a COMPLETELY DIFFERENT creative approach to showcasing the brand logo. Use your full creative imagination to design a unique, innovative brand presentation that offers a fresh perspective. Consider dramatic camera work, creative visual effects, artistic compositions, dynamic lighting, or any other creative techniques that will make the brand logo memorable and impactful. This should be a creative masterpiece that reinforces the brand in an unexpected, engaging way."')
         
         return ',\n'.join(clip_prompts)
     
@@ -362,7 +374,9 @@ class VideoGenerator:
         import random
         
         decisions = []
-        for i in range(1, self.clip_count + 1):
+        # Calculate regular clip count (excluding brand clip)
+        regular_clip_count = self.clip_count - (1 if self._needs_brand_clip() else 0)
+        for i in range(1, regular_clip_count + 1):
             if self.clip_random_numbers is None:
                 # True random generation
                 random_val = random.random()
@@ -761,6 +775,8 @@ REAL-WORLD PHYSICS REQUIREMENTS:
         """Generate character instructions based on settings."""
         if self.no_characters:
             return "NO CHARACTERS ALLOWED: Focus entirely on products, environments, and brand elements without any people, meme characters, or animated characters"
+        elif self.use_mascot_character:
+            return "MASCOT CHARACTER REQUIRED: Use the mascot character from the provided mascot logo as the main character throughout the video. Use the mascot logo as reference for consistent character appearance and design. All other character details (size, appearance, clothing, actions, positioning) should be determined by the THEME instructions. If THEME specifies logo placement, follow those instructions. If THEME does not specify logo placement, you have full autonomy to decide where and how to integrate the reference logo."
         elif self.human_characters_only:
             return "If characters are included, use ONLY realistic human characters - professional models, actors, or realistic human representations. NO comic characters, memes, or cartoon-style characters allowed."
         elif self.web3:
@@ -1507,6 +1523,17 @@ Video Duration: {self.video_duration} seconds ({self.frame_count} frames, {self.
 
 {self._get_audio_enhancement_instructions()}
 
+🖼️ CRITICAL: IMAGE PROMPT BRAND REFERENCE RULES:
+- For ALL image prompts (initial_image_prompt, frame_N_prompt, frame_N_prime_prompt, brand_frame_prompt, brand_frame_prime_prompt):
+  * NEVER mention the brand name "{self.project_name}" or project name when referring to the logo
+  * ALWAYS use "reference logo" or "the logo" instead of brand name
+  * Example: Say "reference logo" NOT "{self.project_name} logo" or "{self.project_name.lower()} logo"
+  * Example: Say "the logo on the T-shirt" NOT "{self.project_name} logo on the T-shirt"
+  * IMPORTANT: When embedding the reference logo, ensure CLEARANCE and SPACE around it - no other logos, images, text, or visual elements should be placed near the reference logo space. The reference logo must have clean, unobstructed space around it for clear visibility and professional presentation.
+- This rule applies ONLY to image/frame prompts (initial_image_prompt, frame prompts, brand_frame prompts)
+- This rule does NOT apply to text prompts (tweet_text) or voiceover prompts (voiceover_N_prompt)
+- Text and voiceover prompts can freely use the brand name "{self.project_name}" for clarity
+
 Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instructions):
 
 {{
@@ -1612,6 +1639,17 @@ Initial Image Prompt: "{initial_image_prompt}"
 - Trending aesthetics
 - Unexpected twists
 - Shareable content
+
+🖼️ CRITICAL: IMAGE PROMPT BRAND REFERENCE RULES:
+- For ALL image prompts (initial_image_prompt, frame_N_prompt, frame_N_prime_prompt, brand_frame_prompt, brand_frame_prime_prompt):
+  * NEVER mention the brand name "{self.project_name}" or project name when referring to the logo
+  * ALWAYS use "reference logo" or "the logo" instead of brand name
+  * Example: Say "reference logo" NOT "{self.project_name} logo" or "{self.project_name.lower()} logo"
+  * Example: Say "the logo on the T-shirt" NOT "{self.project_name} logo on the T-shirt"
+  * IMPORTANT: When embedding the reference logo, ensure CLEARANCE and SPACE around it - no other logos, images, text, or visual elements should be placed near the reference logo space. The reference logo must have clean, unobstructed space around it for clear visibility and professional presentation.
+- This rule applies ONLY to image/frame prompts (initial_image_prompt, frame prompts, brand_frame prompts)
+- This rule does NOT apply to text prompts (tweet_text) or voiceover prompts (voiceover_N_prompt)
+- Text and voiceover prompts can freely use the brand name "{self.project_name}" for clarity
 
 Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instructions):
 
@@ -1744,6 +1782,15 @@ JSON only, no other text:"""
             if product_image_url:
                 image_urls.append(product_image_url)
             
+            # Log S3 URLs being used for image generation
+            print(f"📸 [{self.image_model.upper()}] Frame {frame_number} - Reference images being used:")
+            if image_urls:
+                for idx, img_url in enumerate(image_urls, 1):
+                    print(f"   Reference {idx}: {img_url}")
+            else:
+                print(f"   No reference images provided")
+            print(f"   Prompt preview: {prompt[:100]}...")
+            
             if self.image_model == "nano-banana":
                 # Nano-banana model arguments
                 arguments = {
@@ -1751,7 +1798,7 @@ JSON only, no other text:"""
                     "num_images": 1,
                     "output_format": "jpeg",
                     "aspect_ratio": "1:1",
-                    "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos"
+                    "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
                 }
                 
                 # Add image URLs if any
@@ -1767,7 +1814,7 @@ JSON only, no other text:"""
                     "num_images": 1,
                     "max_images": 1,
                     "enable_safety_checker": True,
-                    "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos",
+                    "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text",
                     "image_size": "square_hd"
                 }
                 
@@ -1925,7 +1972,7 @@ JSON only, no other text:"""
                     "prompt": prompt,
                     "image_url": image_url,
                     "duration": str(duration),
-                    "negative_prompt": "blur, distort, and low quality",
+                    "negative_prompt": "blur, distort, low quality, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra text, double logos",
                     "cfg_scale": 0.5
                 },
                 with_logs=True,
@@ -2212,16 +2259,43 @@ JSON only, no other text:"""
                 return None
             
             if len(local_clip_paths) == 1:
-                # Single clip case - no transitions needed, just upload the single clip
-                print("📹 Single clip detected - no transitions needed")
+                # Single clip case - no transitions needed, but add fade-to-black ending
+                print("📹 Single clip detected - adding fade-to-black ending...")
                 single_clip_path = local_clip_paths[0]
                 
-                # Upload single clip to S3 as the final video
-                s3_url = self.upload_to_s3_and_get_presigned_url(single_clip_path, "video", "prefinal")
+                # Load the single clip and add fade-to-black ending
+                single_clip = VideoFileClip(single_clip_path)
+                
+                # Add fade-to-black ending with audio fade-out
+                end_fade_duration = 1.5  # 1.5 seconds fade
+                print(f"🎬 Adding {end_fade_duration}s fade-to-black ending...")
+                single_clip = single_clip.fadeout(end_fade_duration)
+                
+                # Apply audio fade-out if audio exists
+                if single_clip.audio is not None:
+                    single_clip = single_clip.audio_fadeout(end_fade_duration)
+                    print(f"🔊 Adding {end_fade_duration}s audio fade-out...")
+                
+                # Save the modified single clip
+                modified_single_path = os.path.join(self.project_folder, "single_clip_with_fade.mp4")
+                single_clip.write_videofile(
+                    modified_single_path,
+                    codec='libx264',
+                    audio_codec='aac',
+                    temp_audiofile='temp-audio.m4a',
+                    remove_temp=True
+                )
+                
+                # Clean up the original clip
+                single_clip.close()
+                self.cleanup_local_file(single_clip_path)
+                
+                # Upload modified single clip to S3 as the final video
+                s3_url = self.upload_to_s3_and_get_presigned_url(modified_single_path, "video", "prefinal")
                 if s3_url:
                     # Clean up local file
-                    self.cleanup_local_file(single_clip_path)
-                    print(f"✅ Single clip uploaded to S3: {s3_url}")
+                    self.cleanup_local_file(modified_single_path)
+                    print(f"✅ Single clip with fade-to-black uploaded to S3: {s3_url}")
                     return s3_url
                 else:
                     print(f"❌ Failed to upload single clip to S3")
@@ -2292,6 +2366,16 @@ JSON only, no other text:"""
             
             # Concatenate all parts
             final_clip = concatenate_videoclips(final_parts)
+            
+            # Add fade-to-black ending with audio fade-out
+            end_fade_duration = 1.5  # 1.5 seconds fade
+            print(f"🎬 Adding {end_fade_duration}s fade-to-black ending...")
+            final_clip = final_clip.fadeout(end_fade_duration)
+            
+            # Apply audio fade-out if audio exists
+            if final_clip.audio is not None:
+                final_clip = final_clip.audio_fadeout(end_fade_duration)
+                print(f"🔊 Adding {end_fade_duration}s audio fade-out...")
             
             local_output_path = os.path.join(self.project_folder, "prefinal_video.mp4")
             
@@ -2401,8 +2485,8 @@ JSON only, no other text:"""
             print(f"Error adding audio to video: {str(e)}")
             return None
 
-    def generate_initial_image(self, image_prompt):
-        """Generate initial image using IMAGE_MODEL with logo."""
+    def generate_initial_image(self, image_prompt, reference_image_urls=None):
+        """Generate initial image using IMAGE_MODEL with logo and optional reference images."""
         try:
             print(f"🎨 Generating initial image with {self.image_model}...")
             
@@ -2411,15 +2495,31 @@ JSON only, no other text:"""
                     for log in update.logs:
                         print(log["message"])
             
-            # Use the specified image model with logo
+            # Prepare image URLs list
+            image_urls = [self.upload_to_s3_and_get_presigned_url(self.logo_path, "image", "logo")]
+            
+            # Add reference images if provided
+            if reference_image_urls:
+                if isinstance(reference_image_urls, str):
+                    image_urls.append(reference_image_urls)
+                else:
+                    image_urls.extend(reference_image_urls)
+            
+            # Log S3 URLs being used for initial image generation
+            print(f"📸 [{self.image_model.upper()}] Initial Image - Reference images being used:")
+            for idx, img_url in enumerate(image_urls, 1):
+                print(f"   Reference {idx}: {img_url}")
+            print(f"   Prompt preview: {image_prompt[:100]}...")
+            
+            # Use the specified image model with logo and reference images
             if self.image_model == "nano-banana":
                 result = fal_client.subscribe(
                     "fal-ai/nano-banana/edit",
                     arguments={
-                        "image_urls": [self.upload_to_s3_and_get_presigned_url(self.logo_path, "image", "logo")],
+                        "image_urls": image_urls,
                         "prompt": image_prompt,
                         "aspect_ratio": "1:1",
-                        "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, hashtags, double logos"
+                        "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, hashtags, double logos, extra text"
                     },
                     with_logs=True,
                     on_queue_update=on_queue_update,
@@ -2428,9 +2528,9 @@ JSON only, no other text:"""
                 result = fal_client.subscribe(
                     "fal-ai/bytedance/seedream/v4/edit",
                     arguments={
-                        "image_urls": [self.upload_to_s3_and_get_presigned_url(self.logo_path, "image", "logo")],
+                        "image_urls": image_urls,
                         "prompt": image_prompt,
-                        "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos",
+                        "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text",
                         "image_size": "square_hd"
                     },
                     with_logs=True,
@@ -2508,6 +2608,15 @@ JSON only, no other text:"""
                 print("❌ Failed to upload logo to S3, stopping video generation")
                 return None
             
+            # Upload mascot logo to S3 if provided
+            mascot_s3_url = None
+            if self.use_mascot_character and self.mascot_logo_path:
+                print("📤 Uploading mascot logo to S3...")
+                mascot_s3_url = self.upload_to_s3_and_get_presigned_url(self.mascot_logo_path, "image", "img")
+                if not mascot_s3_url:
+                    print("❌ Failed to upload mascot logo to S3, stopping video generation")
+                    return None
+            
             # Step 2: Generate all prompts using configured LLM
             print(f"Generating prompts with {self.llm_provider.upper()} API...")
             if include_tweet_text:
@@ -2540,7 +2649,23 @@ JSON only, no other text:"""
                     print("❌ No initial image prompt found in LLM output!")
                     return None
                 
-                initial_image_url = self.generate_initial_image(initial_image_prompt)
+                # For single clip with Kling/Sora, always include business logo in initial image
+                if self.clip_count == 1 and self.clip_generation_model in ["sora", "kling"]:
+                    print("🎯 Single clip detected with Kling/Sora - mandatorily including business logo in initial image")
+                    reference_images = [logo_s3_url]
+                    # Also include mascot logo if using mascot character AND use_mascot_in_images is True
+                    if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
+                        reference_images.append(mascot_s3_url)
+                        print("🎭 Including mascot logo for character consistency in initial image")
+                    initial_image_url = self.generate_initial_image(initial_image_prompt, reference_images)
+                else:
+                    # For regular case, conditionally include mascot logo if needed
+                    reference_images = None
+                    if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
+                        reference_images = [mascot_s3_url]
+                        print("🎭 Including mascot logo for character consistency in initial image")
+                    initial_image_url = self.generate_initial_image(initial_image_prompt, reference_images)
+                
                 if not initial_image_url:
                     print("❌ Failed to generate initial image!")
                     return None
@@ -2592,6 +2717,11 @@ JSON only, no other text:"""
                 else:
                     print(f"📷 No logo for frame {i} - natural scene")
                 
+                # Always include mascot logo for character consistency when using mascot character AND use_mascot_in_images is True
+                if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
+                    reference_images.append(mascot_s3_url)
+                    print(f"🎭 Including mascot logo for character consistency in frame {i}")
+                
                 frame_s3_url = self.generate_image(prompts[frame_prompt_key], reference_images, frame_number=i)
                 if not frame_s3_url:
                     print(f"❌ Failed to generate frame {i}!")
@@ -2624,6 +2754,11 @@ JSON only, no other text:"""
                     else:
                         print(f"📷 No logo for prime frame {i} - natural scene")
                     
+                    # Always include mascot logo for character consistency when using mascot character AND use_mascot_in_images is True
+                    if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
+                        reference_images_prime.append(mascot_s3_url)
+                        print(f"🎭 Including mascot logo for character consistency in prime frame {i}")
+                    
                     frame_prime_s3_url = self.generate_image(prompts[frame_prime_prompt_key], reference_images_prime, frame_number=f"{i}_prime")
                     if not frame_prime_s3_url:
                         print(f"❌ Failed to generate prime frame {i}!")
@@ -2637,7 +2772,9 @@ JSON only, no other text:"""
             voiceover_durations = []
             if self.voiceover:
                 print("🎤 Generating voiceovers first to determine clip durations...")
-                for i in range(1, self.clip_count + 1):
+                # Calculate regular clip count (excluding brand clip)
+                regular_clip_count = self.clip_count - (1 if self._needs_brand_clip() else 0)
+                for i in range(1, regular_clip_count + 1):
                     print(f"🎤 Generating voiceover for clip {i}...")
                     
                     # Get random decision for this clip
@@ -2770,80 +2907,84 @@ JSON only, no other text:"""
             # Step 6: Generate video clips with dynamic durations
             clip_urls = []
             
+            # Calculate regular clip count (excluding brand clip)
+            regular_clip_count = self.clip_count - (1 if self._needs_brand_clip() else 0)
+            
             if self.clip_audio_prompts:
                 # Mode 1: Individual audio for each clip (current behavior)
                 print("🎵 Using individual audio prompts for each clip...")
-            for i in range(1, self.clip_count + 1):
-                print(f"🎬 Generating clip {i}...")
                 
-                # Get voiceover info and duration
-                voiceover_path, clip_duration = voiceover_durations[i-1]
-                
-                # Get random decision for this clip
-                decision = random_decisions[i-1]
-                use_prime = decision['use_prime']
-                
-                if use_prime:
-                    print(f"🎭 Using PRIME frames for clip {i} (Random: {decision['random_value']:.2f})")
-                    # Use prime frames
-                    first_frame_idx = i-2  # Convert to 0-indexed (frame 2 = index 0)
-                    last_frame_idx = i-1   # Convert to 0-indexed (frame 3 = index 1)
+                for i in range(1, regular_clip_count + 1):
+                    print(f"🎬 Generating clip {i}...")
                     
-                    first_frame_url = frame_prime_urls[first_frame_idx] if first_frame_idx < len(frame_prime_urls) and frame_prime_urls[first_frame_idx] else frame_urls[i-1]
-                    last_frame_url = frame_prime_urls[last_frame_idx] if last_frame_idx < len(frame_prime_urls) and frame_prime_urls[last_frame_idx] else frame_urls[i]
-                    clip_prompt_key = f"clip{i}_prime_prompt"
-                    clip_logo_key = f"clip{i}_prime_logo_needed"
-                else:
-                    print(f"🎬 Using REGULAR frames for clip {i} (Random: {decision['random_value']:.2f})")
-                    # Use regular frames
-                    first_frame_url = frame_urls[i-1]
-                    # For the last clip, use the last available frame
-                    last_frame_url = frame_urls[min(i, len(frame_urls)-1)]
-                    clip_prompt_key = f"clip{i}_prompt"
-                    clip_logo_key = f"clip{i}_logo_needed"
-                
-                # Generate clip with dynamic duration (logo already handled at frame level)
-                if self.clip_generation_model == "pixverse":
-                    clip_s3_url = self.generate_clip(prompts[clip_prompt_key], first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
-                elif self.clip_generation_model == "sora":
-                    clip_s3_url = self.generate_clip_with_sora2(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
-                else:  # kling
-                    clip_s3_url = self.generate_clip_with_kling(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
+                    # Get voiceover info and duration
+                    voiceover_path, clip_duration = voiceover_durations[i-1]
                     
-                if not clip_s3_url:
-                    print(f"❌ Failed to generate clip {i}!")
-                    return None
-                
-                    # Generate audio for this clip with dynamic duration (always use Pixverse for audio)
-                    print(f"🎵 Generating Pixverse audio for clip {i}...")
-                audio_prompt_key = f"audio{i}_prompt" if not use_prime else f"audio{i}_prime_prompt"
-                audio_prompt = prompts.get(audio_prompt_key, "")
-                
-                if audio_prompt:
-                    print(f"🎵 Using {'prime' if use_prime else 'regular'} audio for clip {i}")
-                    # Generate audio for this clip with dynamic duration
-                    clip_with_audio_s3_url = self.generate_final_video_with_audio(audio_prompt, clip_s3_url, duration=clip_duration)
-                    if not clip_with_audio_s3_url:
-                        print(f"❌ Failed to generate audio for clip {i}!")
+                    # Get random decision for this clip
+                    decision = random_decisions[i-1]
+                    use_prime = decision['use_prime']
+                    
+                    if use_prime:
+                        print(f"🎭 Using PRIME frames for clip {i} (Random: {decision['random_value']:.2f})")
+                        # Use prime frames
+                        first_frame_idx = i-2  # Convert to 0-indexed (frame 2 = index 0)
+                        last_frame_idx = i-1   # Convert to 0-indexed (frame 3 = index 1)
+                        
+                        first_frame_url = frame_prime_urls[first_frame_idx] if first_frame_idx < len(frame_prime_urls) and frame_prime_urls[first_frame_idx] else frame_urls[i-1]
+                        last_frame_url = frame_prime_urls[last_frame_idx] if last_frame_idx < len(frame_prime_urls) and frame_prime_urls[last_frame_idx] else frame_urls[i]
+                        clip_prompt_key = f"clip{i}_prime_prompt"
+                        clip_logo_key = f"clip{i}_prime_logo_needed"
+                    else:
+                        print(f"🎬 Using REGULAR frames for clip {i} (Random: {decision['random_value']:.2f})")
+                        # Use regular frames
+                        first_frame_url = frame_urls[i-1]
+                        # For the last clip, use the last available frame
+                        last_frame_url = frame_urls[min(i, len(frame_urls)-1)]
+                        clip_prompt_key = f"clip{i}_prompt"
+                        clip_logo_key = f"clip{i}_logo_needed"
+                    
+                    # Generate clip with dynamic duration (logo already handled at frame level)
+                    if self.clip_generation_model == "pixverse":
+                        clip_s3_url = self.generate_clip(prompts[clip_prompt_key], first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
+                    elif self.clip_generation_model == "sora":
+                        clip_s3_url = self.generate_clip_with_sora2(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
+                    else:  # kling
+                        clip_s3_url = self.generate_clip_with_kling(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
+                        
+                    if not clip_s3_url:
+                        print(f"❌ Failed to generate clip {i}!")
                         return None
                     
-                    # Mix with voiceover if available
-                    if self.voiceover and voiceover_path:
-                        print(f"🎤 Mixing voiceover for clip {i}...")
-                        # Mix video with sound effects and voiceover
-                        mixed_clip_s3_url = self.mix_audio_with_voiceover(clip_s3_url, clip_with_audio_s3_url, voiceover_path, i)
-                        if not mixed_clip_s3_url:
-                            print(f"❌ Failed to mix audio with voiceover for clip {i}!")
+                    # Generate audio for this clip with dynamic duration (always use Pixverse for audio)
+                    print(f"🎵 Generating Pixverse audio for clip {i}...")
+                    audio_prompt_key = f"audio{i}_prompt" if not use_prime else f"audio{i}_prime_prompt"
+                    audio_prompt = prompts.get(audio_prompt_key, "")
+                    
+                    if audio_prompt:
+                        print(f"🎵 Using {'prime' if use_prime else 'regular'} audio for clip {i}")
+                        # Generate audio for this clip with dynamic duration
+                        clip_with_audio_s3_url = self.generate_final_video_with_audio(audio_prompt, clip_s3_url, duration=clip_duration)
+                        if not clip_with_audio_s3_url:
+                            print(f"❌ Failed to generate audio for clip {i}!")
                             return None
                         
-                        clip_urls.append(mixed_clip_s3_url)
-                        print(f"✅ Clip {i} with Pixverse audio and voiceover uploaded to S3: {mixed_clip_s3_url}")
+                        # Mix with voiceover if available
+                        if self.voiceover and voiceover_path:
+                            print(f"🎤 Mixing voiceover for clip {i}...")
+                            # Mix video with sound effects and voiceover
+                            mixed_clip_s3_url = self.mix_audio_with_voiceover(clip_s3_url, clip_with_audio_s3_url, voiceover_path, i)
+                            if not mixed_clip_s3_url:
+                                print(f"❌ Failed to mix audio with voiceover for clip {i}!")
+                                return None
+                            
+                            clip_urls.append(mixed_clip_s3_url)
+                            print(f"✅ Clip {i} with Pixverse audio and voiceover uploaded to S3: {mixed_clip_s3_url}")
+                        else:
+                            print(f"🎵 No voiceover for clip {i}, using Pixverse audio only")
+                            clip_urls.append(clip_with_audio_s3_url)
                     else:
-                        print(f"🎵 No voiceover for clip {i}, using Pixverse audio only")
-                        clip_urls.append(clip_with_audio_s3_url)
-                else:
-                    print(f"⚠️ No audio prompt found for clip {i}, using video without audio")
-                    clip_urls.append(clip_s3_url)
+                        print(f"⚠️ No audio prompt found for clip {i}, using video without audio")
+                        clip_urls.append(clip_s3_url)
             
             else:
                 # Mode 2: Single audio for entire video (new behavior)
@@ -2909,9 +3050,9 @@ JSON only, no other text:"""
                     brand_clip_number = regular_clip_count + 1
                     print(f"🏆 Generating dedicated brand clip {brand_clip_number}...")
                     
-                    # Randomly choose between regular and prime brand versions
-                    import random
-                    use_prime_brand = random.random() >= 0.5
+                    # Use the same stream as the last regular clip for consistency
+                    last_regular_decision = random_decisions[regular_clip_count - 1]
+                    use_prime_brand = last_regular_decision['use_prime']
                     
                     # Select appropriate prompts
                     brand_frame_prompt_key = "brand_frame_prime_prompt" if use_prime_brand else "brand_frame_prompt"
@@ -2921,7 +3062,7 @@ JSON only, no other text:"""
                     brand_clip_prompt = prompts.get(brand_clip_prompt_key, "")
                     
                     if brand_frame_prompt:
-                        print(f"🎨 Generating {'PRIME' if use_prime_brand else 'REGULAR'} brand frame...")
+                        print(f"🎨 Generating {'PRIME' if use_prime_brand else 'REGULAR'} brand frame (matching last regular clip stream)...")
                         brand_frame_s3_url = self.generate_image(brand_frame_prompt, [logo_s3_url], frame_number="brand")
                         if not brand_frame_s3_url:
                             print("❌ Failed to generate brand frame!")
@@ -2930,7 +3071,7 @@ JSON only, no other text:"""
                         # Generate brand clip with minimum duration
                         brand_clip_duration = self._get_brand_clip_duration()
                         
-                        print(f"🎬 Generating {'PRIME' if use_prime_brand else 'REGULAR'} brand clip {brand_clip_number} (duration: {brand_clip_duration}s)...")
+                        print(f"🎬 Generating {'PRIME' if use_prime_brand else 'REGULAR'} brand clip {brand_clip_number} (duration: {brand_clip_duration}s, matching last regular clip stream)...")
                         if self.clip_generation_model == "sora":
                             brand_clip_s3_url = self.generate_clip_with_sora2(brand_clip_prompt, brand_frame_s3_url, clip_number=brand_clip_number, duration=brand_clip_duration)
                         else:  # kling
@@ -3046,15 +3187,52 @@ JSON only, no other text:"""
                     final_video_s3_url = clip_urls[0]  # clip_urls contains the final combined video
                 else:
                     print("❌ Error: No final video URL available in clip_urls")
-                return None
+                    return None
             
             # Step 8: Download final video
             print("📥 Downloading final video...")
             final_video_path = self.download_file(final_video_s3_url, "final_video.mp4")
             
             if final_video_path:
+                # Add fade-to-black ending to final video
+                print("🎬 Adding fade-to-black ending to final video...")
+                final_clip = VideoFileClip(final_video_path)
+                
+                # Add audio fade-in at the beginning
+                start_fade_duration = 1.0  # 1.0 seconds fade-in
+                end_fade_duration = 1.5  # 1.5 seconds fade-out
+                
+                # Apply audio fade-in if audio exists
+                if final_clip.audio is not None:
+                    final_clip = final_clip.audio_fadein(start_fade_duration)
+                    print(f"🔊 Adding {start_fade_duration}s audio fade-in...")
+                
+                # Add fade-to-black ending with audio fade-out
+                final_clip = final_clip.fadeout(end_fade_duration)
+                
+                # Apply audio fade-out if audio exists
+                if final_clip.audio is not None:
+                    final_clip = final_clip.audio_fadeout(end_fade_duration)
+                    print(f"🔊 Adding {end_fade_duration}s audio fade-out...")
+                
+                # Save the modified final video
+                final_video_with_fade_path = os.path.join(self.project_folder, "final_video_with_fade.mp4")
+                final_clip.write_videofile(
+                    final_video_with_fade_path,
+                    codec='libx264',
+                    audio_codec='aac',
+                    temp_audiofile='temp-audio.m4a',
+                    remove_temp=True
+                )
+                
+                # Clean up the original clip
+                final_clip.close()
+                
+                # Replace the original final video path with the fade version
+                final_video_path = final_video_with_fade_path
+                
                 voiceover_status = "with audio and voiceover" if self.voiceover else "with audio"
-                print(f"✅ Final video {voiceover_status} created: {final_video_path}")
+                print(f"✅ Final video {voiceover_status} with fade-to-black created: {final_video_path}")
                 
                 # Copy final video to Downloads folder
                 downloads_path = "/Users/taran/Downloads"
@@ -3118,12 +3296,12 @@ def main():
     # ========================================
     # CONFIGURATION - MODIFY THESE VALUES
     # ========================================
-    PROJECT_NAME = "burnie"  # Change this for different projects
+    PROJECT_NAME = "roots"  # Change this for different projects
     LLM_PROVIDER = "grok"        # Change to "grok" to use Grok instead
     # LLM_PROVIDER = "grok"        # Uncomment this line to use Grok
     
     # Image generation model
-    IMAGE_MODEL = "seedream"  # Change to "seedream" to use ByteDance Seedream model
+    IMAGE_MODEL = "nano-banana"  # Change to "seedream" to use ByteDance Seedream model
     # IMAGE_MODEL = "seedream"     # Uncomment this line to use Seedream
     
     # ========================================
@@ -3134,7 +3312,7 @@ def main():
     
     # Mode 2: Use clip_duration + number_of_clips (preferred mode)
     CLIP_DURATION = 10  # Duration of each clip in seconds
-    NUMBER_OF_CLIPS = 3  # Number of clips to generate
+    NUMBER_OF_CLIPS = 1  # Number of clips to generate
     
     # Note: If both are provided, clip_duration + number_of_clips takes preference
     # If only VIDEO_DURATION is set, clips are calculated by dividing by 5
@@ -3163,11 +3341,16 @@ def main():
     # Prompt generation control
     INCLUDE_TWEET_TEXT = False  # Set to True to include tweet text in prompt generation, False to use only initial image prompt
     
+    # Mascot character support
+    USE_MASCOT_CHARACTER = True  # Set to True to use mascot character instead of human characters
+    MASCOT_LOGO_PATH =  "/Users/taran/Downloads/blue-jays-logo.png" # Path to mascot logo image (e.g., "path/to/blue_jays_logo.png")
+    USE_MASCOT_IN_IMAGES = False  # Set to True to include mascot logo as reference image in image generation. Set to False for famous entities that can be generated without logo (like Blue Jays bird)
+    
     # Character and brand aesthetics control
     HUMAN_CHARACTERS_ONLY = False  # Set to True to use only human characters (no meme characters)
     WEB3 = False  # Set to True for Web3/crypto meme characters, False for unlimited creative characters
     NO_CHARACTERS = False  # Set to True for pure product showcase with NO characters of any kind (overrides all other character flags)
-    USE_BRAND_AESTHETICS = False   # Set to True to incorporate brand-specific aesthetic guidelines
+    USE_BRAND_AESTHETICS = True   # Set to True to incorporate brand-specific aesthetic guidelines
     
     # Audio control
     CLIP_AUDIO_PROMPTS = False  # Set to True for individual audio per clip, False for single audio for entire video
@@ -3197,9 +3380,25 @@ def main():
     # THEME = "Launch of Audi's new electric SUV, targeting young professionals who want luxury without compromising on sustainability"
     # THEME = "Celebrate Audi's racing heritage and how it translates to everyday driving excellence for the modern driver"
     # THEME = "Audi as the symbol of achieved success and refined taste for entrepreneurs who have made it"
-    THEME = "Diwali Celebration with Burnie and Animated Sweet Characters: Open with vibrant Diwali diyas glowing warmly, colorful rangoli patterns. Burnie character appears alongside anthropomorphized Indian sweets as comic characters - cheerful Ladoo characters (round, golden, smiling faces), dancing Jalebi characters (spiral-shaped, orange, energetic), elegant Barfi characters (square, colorful, graceful), and jolly Gulab Jamun characters (round, brown, happy expressions). These sweet characters and Burnie celebrating together, lighting sparklers and small firecrackers creating golden sparks. Indian families in festive traditional attire watching in delight as Burnie and the animated sweet characters perform - Ladoo characters rolling joyfully, Jalebi characters doing spiral dances, Barfi characters stacking playfully, Gulab Jamun characters bouncing happily. Children laughing and clapping as sweet characters interact with Burnie, sharing high-fives and dancing together. Sweet characters helping Burnie light diyas, their comic faces glowing with excitement. Families joining the celebration - young and old gathering around Burnie and the sweet characters, everyone dancing together under colorful decorations - marigold garlands, paper lanterns, toran hangings. Community doing aarti ceremony with Burnie and sweet characters participating reverently. Animated sweets and Burnie in the center of festivities, connecting people through joy and laughter. Fireworks illuminate night sky with reds, golds, greens while sweet characters and Burnie celebrate with the community. End with entire scene - Burnie, anthropomorphized sweet characters, and Indian diaspora families standing together under fireworks, holding diyas, embodying togetherness, cultural celebration, and pure joy. Comic-style sweet characters with expressive faces, warm golden lighting, festive atmosphere, emphasis on magical celebration where sweets come alive to celebrate Diwali with Burnie and community. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
-    
-    LOGO_PATH = "/Users/taran/Downloads/burnie-logo.png"  # MUST SET THIS - always required
+    THEME = "Epic Blue Jays Championship Quest - Massive, heroic Toronto Blue Jays bird mascot with larger-than-life presence, wearing a t-shirt with reference logo prominently displayed on it, soaring majestically over Toronto skyline with CN Tower and stadium named Rogers Centre dwarfed below, dramatically landing on skyscrapers with cinematic grandeur, reference logo also prominently displayed on the CN Tower building and floating banners, stadium crowd roaring with thunderous cheers, text overlay 'Let's go Jays! We're with you!' in bold letters, supporting their 32-year championship quest with monumental, awe-inspiring scale and unstoppable team spirit - create a viral masterpiece that captures the electric energy of Toronto's baseball passion. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
+    # THEME = """
+    # A heroic Toronto Blue Jays bird mascot is celebrating a championship victory in full team colors. The scene shows the Blue Jays bird in a massive celebration environment - Rogers Centre stadium, Toronto streets, or a victory parade. The bird is wearing a T-shirt with the brand logo prominently displayed, celebrating with pure joy and triumph.
+
+    # The victory celebration sequence includes:
+    # - Blue Jays bird holding the championship trophy high
+    # - Confetti and streamers falling in team colors (blue and white)
+    # - Crowd cheering and celebrating around the bird
+    # - Victory dance and celebration moves
+    # - Final triumphant moment where the Blue Jays bird raises the trophy to the sky
+
+    # The atmosphere should be euphoric and celebratory, with dynamic camera angles showing the bird's pure joy and victory. The background should be filled with Toronto Blue Jays team colors (blue and white), championship banners, and cheering fans. The lighting should be bright and celebratory, emphasizing the bird's triumphant victory.
+
+    # Audio should feature epic victory music with stadium cheers, crowd chants of "Let's go Blue Jays!", and celebratory background music that builds to an epic crescendo. The overall mood should be "championship victory celebration" - showing the Blue Jays bird's ultimate triumph and the city's joy.
+
+    # Text overlay should say something like "Championship Victory!" or "We Did It!" to reinforce the celebration theme.
+    # """
+
+    LOGO_PATH = "/Users/taran/Downloads/roots-logo.png"  # MUST SET THIS - always required
     
     # Product images for frame generation alignment
     PRODUCT_IMAGES = [
@@ -3278,7 +3477,10 @@ def main():
                 theme=THEME,
                 product_images=PRODUCT_IMAGES,
                 clip_generation_model=CLIP_GENERATION_MODEL,
-                viral_trends=VIRAL_TRENDS
+                viral_trends=VIRAL_TRENDS,
+                use_mascot_character=USE_MASCOT_CHARACTER,
+                mascot_logo_path=MASCOT_LOGO_PATH,
+                use_mascot_in_images=USE_MASCOT_IN_IMAGES
             )
         else:
             # Clip duration mode
@@ -3300,8 +3502,11 @@ def main():
                 theme=THEME,
                 product_images=PRODUCT_IMAGES,
                 clip_generation_model=CLIP_GENERATION_MODEL,
-                viral_trends=VIRAL_TRENDS
-        )
+                viral_trends=VIRAL_TRENDS,
+                use_mascot_character=USE_MASCOT_CHARACTER,
+                mascot_logo_path=MASCOT_LOGO_PATH,
+                use_mascot_in_images=USE_MASCOT_IN_IMAGES
+            )
     except ValueError as e:
         print(f"❌ ERROR: {str(e)}")
         return
@@ -3328,7 +3533,7 @@ def main():
 
 # Alternative function for easy switching
 def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_path,
-                              logo_path, project_name, output_dir="output", llm_provider="claude", include_tweet_text=True, image_model="nano-banana", video_duration=None, clip_duration=5, number_of_clips=None, human_characters_only=False, web3=False, no_characters=False, use_brand_aesthetics=False, voiceover=False, clip_audio_prompts=True, theme=None, product_images=None, clip_generation_model="pixverse", viral_trends=False):
+                              logo_path, project_name, output_dir="output", llm_provider="claude", include_tweet_text=True, image_model="nano-banana", video_duration=None, clip_duration=5, number_of_clips=None, human_characters_only=False, web3=False, no_characters=False, use_brand_aesthetics=False, voiceover=False, clip_audio_prompts=True, theme=None, product_images=None, clip_generation_model="pixverse", viral_trends=False, use_mascot_character=False, mascot_logo_path=None, use_mascot_in_images=True):
     """
     Convenience function to create video with specified LLM provider.
     
@@ -3355,6 +3560,9 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
         product_images (list): List of local paths to product images for frame generation alignment
         clip_generation_model (str): "pixverse" for transition model, "sora" for Sora2 image-to-video model, or "kling" for Kling 2.5 Turbo image-to-video model
         viral_trends (bool): If True, align content with current viral trends (uses Grok live search when Grok is selected)
+        use_mascot_character (bool): If True, use mascot character from mascot_logo_path instead of human characters
+        mascot_logo_path (str, optional): Path to mascot logo image for character consistency
+        use_mascot_in_images (bool): If True, include mascot logo as reference image in image generation. If False, don't include mascot logo in reference images (useful for famous entities that can be generated without logo). Default: True
     
     Returns:
         str: Path to final video or None if failed
@@ -3384,8 +3592,11 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
             theme=theme,
             product_images=product_images,
             clip_generation_model=clip_generation_model,
-            viral_trends=viral_trends
-        )
+            viral_trends=viral_trends,
+            use_mascot_character=use_mascot_character,
+            mascot_logo_path=mascot_logo_path,
+            use_mascot_in_images=use_mascot_in_images
+            )
     else:
         # Clip duration mode
         generator = VideoGenerator(
@@ -3406,8 +3617,11 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
             theme=theme,
             product_images=product_images,
             clip_generation_model=clip_generation_model,
-            viral_trends=viral_trends
-    )
+            viral_trends=viral_trends,
+            use_mascot_character=use_mascot_character,
+            mascot_logo_path=mascot_logo_path,
+            use_mascot_in_images=use_mascot_in_images
+            )
     
     return generator.create_video(
         tweet_text=tweet_text,
