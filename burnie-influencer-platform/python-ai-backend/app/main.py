@@ -52,6 +52,8 @@ from app.routes.twitter_handles import router as twitter_handles_router
 from app.routes.web2_content_generation import router as web2_content_router
 from app.routes.web2_unified_generation import router as web2_unified_router
 from app.routes.web2_unified_generation_edit import router as web2_unified_edit_router
+from app.routes.project_unified_generation import router as project_unified_router
+from app.routes.utils import router as utils_router
 
 # Setup logging
 logger = setup_logger(__name__)
@@ -139,6 +141,8 @@ app.include_router(video_watermark_router, prefix="/api", tags=["video-watermark
 app.include_router(web2_content_router, prefix="/api/web2", tags=["web2-content"])
 app.include_router(web2_unified_router, tags=["web2-unified"])
 app.include_router(web2_unified_edit_router, tags=["web2-unified-edit"])
+app.include_router(project_unified_router, tags=["project-unified"])
+app.include_router(utils_router, prefix="/api/utils", tags=["utils"])
 
 
 # Global progress tracker

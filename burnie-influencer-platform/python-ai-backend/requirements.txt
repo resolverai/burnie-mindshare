@@ -50,3 +50,5 @@ pydantic-settings
 fal-client
 xai-sdk
 aiohttp
+pypdf
+python-docx

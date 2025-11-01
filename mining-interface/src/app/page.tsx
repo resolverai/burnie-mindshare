@@ -18,7 +18,7 @@ function HomePageContent() {
   const { isConnected: isTwitterConnected, isLoading: isTwitterLoading, refetch: refetchTwitterStatus } = useTwitterConnection(address)
   const router = useRouter()
   const [showFlowChoice, setShowFlowChoice] = useState(false)
-  const [selectedFlow, setSelectedFlow] = useState<'web3' | 'web2' | null>(null)
+  const [selectedFlow, setSelectedFlow] = useState<'web3' | 'web2' | 'projects' | null>(null)
   const [web2HasValidSession, setWeb2HasValidSession] = useState(false)
   const [checkingWeb2Session, setCheckingWeb2Session] = useState(false)
 
@@ -217,13 +217,16 @@ function HomePageContent() {
   }
 
   // Handle flow selection
-  const handleFlowSelection = (flow: 'web3' | 'web2') => {
+  const handleFlowSelection = (flow: 'web3' | 'web2' | 'projects') => {
     setSelectedFlow(flow)
     // Don't save to localStorage yet - only save after actual authentication
     
     if (flow === 'web3') {
       // For Web3, show the wallet connection
       setShowFlowChoice(false)
+    } else if (flow === 'projects') {
+      // Navigate to projects auth page with Connect X button and modal
+      router.push('/projects/auth')
     } else {
       // For Web2, check if session exists
       if (web2HasValidSession) {
@@ -265,7 +268,7 @@ function HomePageContent() {
           </div>
 
           {/* Flow Choice Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {/* Web3 Miner Card */}
             <div 
               onClick={() => handleFlowSelection('web3')}
@@ -334,6 +337,36 @@ function HomePageContent() {
                      >
                        {checkingWeb2Session ? 'Checking...' : web2HasValidSession ? 'Go To Dashboard →' : 'Start Journey →'}
                      </button>
+              </div>
+            </div>
+
+            {/* Web3 Projects Card */}
+            <div 
+              onClick={() => handleFlowSelection('projects')}
+              className="glass p-8 rounded-2xl border-2 border-gray-700 hover:border-purple-500 transition-all cursor-pointer hover:scale-105 transform"
+            >
+              <div className="text-center">
+                <div className="w-20 h-20 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mx-auto mb-6">
+                  <SparklesIcon className="h-12 w-12 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-4">🧩 Web3 Projects</h3>
+                <ul className="text-left space-y-3 mb-6">
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-purple-400 mr-2">✓</span>
+                    <span>Daily AI-generated posts ready to publish</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-purple-400 mr-2">✓</span>
+                    <span>Sign in with Twitter for your project handle</span>
+                  </li>
+                  <li className="flex items-start text-gray-300">
+                    <span className="text-purple-400 mr-2">✓</span>
+                    <span>One-click posting of text, images, and videos</span>
+                  </li>
+                </ul>
+                <button className="bg-black hover:bg-gray-900 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 w-full">
+                  Start Journey →
+                </button>
               </div>
             </div>
           </div>

@@ -84,6 +84,12 @@ import { Web2GeneratedContent } from '../models/Web2GeneratedContent';
 import { ScheduledPost } from '../models/ScheduledPost';
 import { AccountConfiguration } from '../models/AccountConfiguration';
 import { ContextManagement } from '../models/ContextManagement';
+// New Web3 Projects entities
+import { Web3ProjectAccount } from '../models/Web3ProjectAccount';
+import { Web3ProjectContext } from '../models/Web3ProjectContext';
+import { Web3ProjectConfiguration } from '../models/Web3ProjectConfiguration';
+import { ProjectTwitterConnection } from '../models/ProjectTwitterConnection';
+import { ProjectGeneratedContent } from '../models/ProjectGeneratedContent';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -171,6 +177,12 @@ export const AppDataSource = new DataSource({
     ScheduledPost,
     AccountConfiguration,
     ContextManagement,
+    // Web3 Projects entities
+    Web3ProjectAccount,
+    Web3ProjectContext,
+    ProjectTwitterConnection,
+    ProjectGeneratedContent,
+    Web3ProjectConfiguration,
   ],
   migrations: [],
   subscribers: [],

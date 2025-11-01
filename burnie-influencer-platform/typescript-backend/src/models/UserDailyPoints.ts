@@ -110,6 +110,10 @@ export class UserDailyPoints {
   @Column({ type: 'integer', default: 0 })
   weeklyRank!: number;
 
+  // Monthly rewards distributed to users (separate from daily and weekly rewards)
+  @Column({ type: 'integer', default: 0 })
+  monthlyRewards!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 

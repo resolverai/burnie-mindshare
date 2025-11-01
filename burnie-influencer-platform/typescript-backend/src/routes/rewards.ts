@@ -51,6 +51,19 @@ async function hasWeeklyRewardsBeenDistributed(): Promise<boolean> {
 }
 
 /**
+ * Helper function to check if monthly rewards should be shown
+ * Monthly rewards are visible only on day 1-2 of the month
+ * After that, show "TBD" until next month's calculation
+ */
+function shouldShowMonthlyRewards(): boolean {
+  const today = new Date();
+  const dayOfMonth = today.getDate(); // 1-31
+  
+  // Show monthly rewards only on day 1-2 of the month
+  return dayOfMonth >= 1 && dayOfMonth <= 2;
+}
+
+/**
  * Helper function to get the latest completed weekly calculation window
  * Returns the date range for the most recent week that has been calculated
  * (i.e., the week that ended on the most recent Wednesday 10 PM ET)
@@ -281,10 +294,11 @@ router.get('/leaderboard', async (req, res) => {
       ? ', SUM(udp."milestonePoints") as total_milestone_points' 
       : ', 0 as total_milestone_points';
     
-    // For 7D and 1M periods, handle rewards based on weekly calculation schedule
+    // For 7D and 1M periods, handle rewards based on weekly/monthly calculation schedule
     // For 'now' period, only sum dailyRewards
     let rewardsSelect: string;
     let latestWeeklyRewardsCTE: string;
+    let latestMonthlyRewardsCTE: string;
     
     if (period === '7d') {
       // For 7D, get the latest weeklyRewards value for each user (most recent calculation)
@@ -297,14 +311,25 @@ router.get('/leaderboard', async (req, res) => {
           WHERE "weeklyRewards" > 0
           ORDER BY "walletAddress", "createdAt" DESC
         )`;
+      latestMonthlyRewardsCTE = '';
       rewardsSelect = ', lwr."weeklyRewards" as total_daily_rewards';
     } else if (period === '1m') {
-      // For 1M, always show "TBD" for now
+      // For 1M, get the latest monthlyRewards value for each user (most recent calculation)
       latestWeeklyRewardsCTE = '';
-      rewardsSelect = ', 0 as total_daily_rewards'; // Will be overridden to "TBD"
+      latestMonthlyRewardsCTE = `,
+        latest_monthly_rewards AS (
+          SELECT DISTINCT ON ("walletAddress")
+            "walletAddress",
+            "monthlyRewards"
+          FROM user_daily_points
+          WHERE "monthlyRewards" > 0
+          ORDER BY "walletAddress", "createdAt" DESC
+        )`;
+      rewardsSelect = ', lmr."monthlyRewards" as total_daily_rewards';
     } else {
       // For 'now' period, only sum dailyRewards
       latestWeeklyRewardsCTE = '';
+      latestMonthlyRewardsCTE = '';
       rewardsSelect = ', SUM(udp."dailyRewards") as total_daily_rewards';
     }
     
@@ -317,7 +342,7 @@ router.get('/leaderboard', async (req, res) => {
           "totalRoastEarned"
         FROM user_daily_points
         ORDER BY "walletAddress", "createdAt" DESC
-      )${latestWeeklyRewardsCTE}
+      )${latestWeeklyRewardsCTE}${latestMonthlyRewardsCTE}
       SELECT 
         udp."walletAddress" as wallet_address,
         udp."twitterHandle" as twitter_handle,
@@ -331,9 +356,9 @@ router.get('/leaderboard', async (req, res) => {
         MAX(udp."createdAt") as latest_created_at
         ${milestonePointsSelect}
       FROM user_daily_points udp
-      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"${period === '7d' ? '\n      LEFT JOIN latest_weekly_rewards lwr ON udp."walletAddress" = lwr."walletAddress"' : ''}
+      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"${period === '7d' ? '\n      LEFT JOIN latest_weekly_rewards lwr ON udp."walletAddress" = lwr."walletAddress"' : ''}${period === '1m' ? '\n      LEFT JOIN latest_monthly_rewards lmr ON udp."walletAddress" = lmr."walletAddress"' : ''}
       WHERE 1=1 ${dateFilter}
-      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"${period === '7d' ? ', lwr."weeklyRewards"' : ''}
+      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"${period === '7d' ? ', lwr."weeklyRewards"' : ''}${period === '1m' ? ', lmr."monthlyRewards"' : ''}
       ORDER BY total_points DESC, avg_mindshare DESC
       LIMIT ${limit} OFFSET ${((page as number) - 1) * (limit as number)}
     `);
@@ -348,8 +373,8 @@ router.get('/leaderboard', async (req, res) => {
       // For 7D, show rewards only on Thursday before 10 PM ET and if rewards have been distributed
       shouldShowRewards = shouldShowWeeklyRewards() && await hasWeeklyRewardsBeenDistributed();
     } else if (period === '1m') {
-      // For 1M, always show "TBD" for now
-      shouldShowRewards = false;
+      // For 1M, show rewards only on day 1-2 of the month
+      shouldShowRewards = shouldShowMonthlyRewards();
     } else {
       // For 'now' period, always show daily rewards
       shouldShowRewards = true;
@@ -452,10 +477,11 @@ router.get('/leaderboard/top-three', async (req, res) => {
       ? ', SUM(udp."milestonePoints") as total_milestone_points' 
       : ', 0 as total_milestone_points';
     
-    // For 7D and 1M periods, handle rewards based on weekly calculation schedule
+    // For 7D and 1M periods, handle rewards based on weekly/monthly calculation schedule
     // For 'now' period, only sum dailyRewards
     let rewardsSelectTop3: string;
     let latestWeeklyRewardsCTETop3: string;
+    let latestMonthlyRewardsCTETop3: string;
     
     if (period === '7d') {
       // For 7D, get the latest weeklyRewards value for each user (most recent calculation)
@@ -468,14 +494,25 @@ router.get('/leaderboard/top-three', async (req, res) => {
           WHERE "weeklyRewards" > 0
           ORDER BY "walletAddress", "createdAt" DESC
         )`;
+      latestMonthlyRewardsCTETop3 = '';
       rewardsSelectTop3 = ', lwr."weeklyRewards" as total_daily_rewards';
     } else if (period === '1m') {
-      // For 1M, always show "TBD" for now
+      // For 1M, get the latest monthlyRewards value for each user (most recent calculation)
       latestWeeklyRewardsCTETop3 = '';
-      rewardsSelectTop3 = ', 0 as total_daily_rewards'; // Will be overridden to "TBD"
+      latestMonthlyRewardsCTETop3 = `,
+        latest_monthly_rewards AS (
+          SELECT DISTINCT ON ("walletAddress")
+            "walletAddress",
+            "monthlyRewards"
+          FROM user_daily_points
+          WHERE "monthlyRewards" > 0
+          ORDER BY "walletAddress", "createdAt" DESC
+        )`;
+      rewardsSelectTop3 = ', lmr."monthlyRewards" as total_daily_rewards';
     } else {
       // For 'now' period, only sum dailyRewards
       latestWeeklyRewardsCTETop3 = '';
+      latestMonthlyRewardsCTETop3 = '';
       rewardsSelectTop3 = ', SUM(udp."dailyRewards") as total_daily_rewards';
     }
     
@@ -488,7 +525,7 @@ router.get('/leaderboard/top-three', async (req, res) => {
           "totalRoastEarned"
         FROM user_daily_points
         ORDER BY "walletAddress", "createdAt" DESC
-      )${latestWeeklyRewardsCTETop3}
+      )${latestWeeklyRewardsCTETop3}${latestMonthlyRewardsCTETop3}
       SELECT 
         udp."walletAddress" as wallet_address,
         udp."twitterHandle" as twitter_handle,
@@ -501,9 +538,9 @@ router.get('/leaderboard/top-three', async (req, res) => {
         AVG(udp.mindshare) as avg_mindshare
         ${milestonePointsSelectTop3}
       FROM user_daily_points udp
-      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"${period === '7d' ? '\n      LEFT JOIN latest_weekly_rewards lwr ON udp."walletAddress" = lwr."walletAddress"' : ''}
+      JOIN latest_referral_data lrd ON udp."walletAddress" = lrd."walletAddress"${period === '7d' ? '\n      LEFT JOIN latest_weekly_rewards lwr ON udp."walletAddress" = lwr."walletAddress"' : ''}${period === '1m' ? '\n      LEFT JOIN latest_monthly_rewards lmr ON udp."walletAddress" = lmr."walletAddress"' : ''}
       WHERE 1=1 ${dateFilter}
-      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"${period === '7d' ? ', lwr."weeklyRewards"' : ''}
+      GROUP BY udp."walletAddress", udp."twitterHandle", udp.name, lrd."totalReferrals", lrd."activeReferrals", lrd."totalRoastEarned"${period === '7d' ? ', lwr."weeklyRewards"' : ''}${period === '1m' ? ', lmr."monthlyRewards"' : ''}
       ORDER BY total_points DESC, avg_mindshare DESC
       LIMIT 3
     `);
@@ -518,8 +555,8 @@ router.get('/leaderboard/top-three', async (req, res) => {
       // For 7D, show rewards only on Thursday before 10 PM ET and if rewards have been distributed
       shouldShowRewardsTop3 = shouldShowWeeklyRewards() && await hasWeeklyRewardsBeenDistributed();
     } else if (period === '1m') {
-      // For 1M, always show "TBD" for now
-      shouldShowRewardsTop3 = false;
+      // For 1M, show rewards only on day 1-2 of the month
+      shouldShowRewardsTop3 = shouldShowMonthlyRewards();
     } else {
       // For 'now' period, always show daily rewards
       shouldShowRewardsTop3 = true;
