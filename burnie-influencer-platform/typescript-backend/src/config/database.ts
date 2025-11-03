@@ -90,6 +90,8 @@ import { Web3ProjectContext } from '../models/Web3ProjectContext';
 import { Web3ProjectConfiguration } from '../models/Web3ProjectConfiguration';
 import { ProjectTwitterConnection } from '../models/ProjectTwitterConnection';
 import { ProjectGeneratedContent } from '../models/ProjectGeneratedContent';
+import { Web3PostsSchedule } from '../models/Web3PostsSchedule';
+import { Web3ProjectTwitterPost } from '../models/Web3ProjectTwitterPost';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -183,6 +185,8 @@ export const AppDataSource = new DataSource({
     ProjectTwitterConnection,
     ProjectGeneratedContent,
     Web3ProjectConfiguration,
+    Web3PostsSchedule,
+    Web3ProjectTwitterPost,
   ],
   migrations: [],
   subscribers: [],

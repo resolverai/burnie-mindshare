@@ -206,21 +206,23 @@ router.post('/:id/presigned-url', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/projects/upload-generated-content - Upload generated content from Python backend to S3
+// POST /api/projects/upload-generated-content - Upload generated content (images or videos) from Python backend to S3
 router.post('/upload-generated-content', async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { fal_image_url, s3_key } = req.body;
-    if (!fal_image_url || !s3_key) {
-      return res.status(400).json({ success: false, error: 'fal_image_url and s3_key required' });
+    const { fal_image_url, fal_video_url, s3_key, content_type } = req.body;
+    const sourceUrl = fal_video_url || fal_image_url;
+    
+    if (!sourceUrl || !s3_key) {
+      return res.status(400).json({ success: false, error: 'fal_image_url or fal_video_url and s3_key required' });
     }
 
-    // Download image from Fal.ai
-    const imageResponse = await fetch(fal_image_url);
-    if (!imageResponse.ok) {
-      return res.status(502).json({ success: false, error: 'Failed to download image from Fal.ai' });
+    // Download content from Fal.ai (supports both images and videos)
+    const contentResponse = await fetch(sourceUrl);
+    if (!contentResponse.ok) {
+      return res.status(502).json({ success: false, error: `Failed to download content from Fal.ai: ${contentResponse.statusText}` });
     }
 
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    const contentBuffer = Buffer.from(await contentResponse.arrayBuffer());
     
     // Get bucket name
     const bucketName = process.env.S3_BUCKET_NAME;
@@ -228,19 +230,31 @@ router.post('/upload-generated-content', async (req: Request, res: Response): Pr
       return res.status(500).json({ success: false, error: 'S3 bucket not configured' });
     }
 
+    // Determine content type from response or parameter
+    let contentType = content_type || contentResponse.headers.get('content-type');
+    if (!contentType) {
+      // Infer from file extension or default
+      if (s3_key.includes('.mp4') || s3_key.includes('.mov') || s3_key.includes('.webm')) {
+        contentType = 'video/mp4';
+      } else {
+        contentType = 'image/jpeg';
+      }
+    }
+
     // Upload to S3
     const uploadParams = {
       Bucket: bucketName,
       Key: s3_key,
-      Body: imageBuffer,
-      ContentType: imageResponse.headers.get('content-type') || 'image/jpeg',
-      ServerSideEncryption: 'AES256'
+      Body: contentBuffer,
+      ContentType: contentType,
+      ServerSideEncryption: 'AES256',
+      CacheControl: 'max-age=31536000'
     };
 
     await s3.upload(uploadParams).promise();
 
     const s3Url = `s3://${bucketName}/${s3_key}`;
-    logger.info(`✅ Generated content uploaded to S3: ${s3_key}`);
+    logger.info(`✅ Generated content uploaded to S3: ${s3_key} (${contentType})`);
 
     return res.json({
       success: true,

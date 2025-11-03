@@ -7,7 +7,9 @@ import { XMarkIcon } from '@heroicons/react/24/outline'
 import { getApiUrlWithFallback } from '@/utils/api-config'
 import SecureImage from '@/components/SecureImage'
 import TweetThreadDisplay from '@/components/TweetThreadDisplay'
+import VideoPlayer from '@/components/VideoPlayer'
 import { renderMarkdown } from '@/utils/markdownParser'
+import ScheduleModal from '@/components/projects/ScheduleModal'
 
 // Custom polling for projects (different endpoint than Web2)
 // Move ref outside hook to persist across renders
@@ -163,6 +165,7 @@ interface PostData {
   type: PostType
   text: string
   imageUrl?: string
+  videoUrl?: string
   tweetText?: string
   threadArray?: string[]
 }
@@ -197,6 +200,39 @@ export default function ProjectDailyPostsPage() {
   const [dailyPostsCount, setDailyPostsCount] = useState<number>(10) // Default to 10
   const [contentMix, setContentMix] = useState<{threads: number, shitpost: number, longpost: number}>({threads: 4, shitpost: 4, longpost: 2})
   const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null)
+  
+  // Token validation state
+  const [tokenValidation, setTokenValidation] = useState<{
+    oauth2Valid: boolean
+    oauth1Valid: boolean
+    oauth2ExpiresAt: string | null
+    oauth1ExpiresAt: string | null
+    needsOAuth2: boolean
+    needsOAuth1: boolean
+  } | null>(null)
+  
+  // Authorization and posting state
+  const [isAuthorizing, setIsAuthorizing] = useState(false)
+  const [isPosting, setIsPosting] = useState<Record<number, boolean>>({})
+  const [showScheduleModal, setShowScheduleModal] = useState<number | null>(null)
+  const [showReconnectModal, setShowReconnectModal] = useState<number | null>(null)
+  
+  // Video URLs from metadata
+  const [videoUrls, setVideoUrls] = useState<Record<number, string>>({})
+  const [videoImageIndex, setVideoImageIndex] = useState<number | null>(null) // Track which post index is generating video (1-based)
+  
+  // Schedule state - maps post index to schedule info
+  const [postSchedules, setPostSchedules] = useState<Record<number, {
+    scheduleId: number
+    scheduledAt: string
+    mediaS3Url: string
+    mediaType: 'image' | 'video'
+    tweetText?: {
+      main_tweet: string
+      thread_array?: string[]
+      content_type: 'thread' | 'shitpost' | 'longpost'
+    }
+  } | null>>({})
 
   // Fetch configurations on mount
   useEffect(() => {
@@ -227,6 +263,29 @@ export default function ProjectDailyPostsPage() {
     fetchConfig()
   }, [projectId])
 
+  // Validate tokens on mount and when posts change
+  useEffect(() => {
+    const validateTokens = async () => {
+      if (!projectId) return
+      
+      try {
+        const apiUrl = getApiUrlWithFallback()
+        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.data) {
+            setTokenValidation(data.data)
+          }
+        }
+      } catch (error) {
+        console.error('Error validating tokens:', error)
+      }
+    }
+    
+    validateTokens()
+  }, [projectId, posts])
+
   // Cleanup polling on unmount only
   useEffect(() => {
     // Note: In React Strict Mode (development), this cleanup runs on mount too
@@ -253,6 +312,11 @@ export default function ProjectDailyPostsPage() {
     setProgressMessage(progress.progress_message || 'Generating...')
     setProgressPercent(progress.progress_percent || 0)
     
+    // Extract video_image_index from workflow_metadata (1-based index)
+    if (progress.workflow_metadata?.video_image_index) {
+      setVideoImageIndex(progress.workflow_metadata.video_image_index)
+    }
+    
     // Update generated images progressively
     if (progress.generated_image_urls && progress.generated_image_urls.length > 0) {
       console.log('🖼️ Updating generated images:', progress.generated_image_urls.length, 'images')
@@ -263,6 +327,22 @@ export default function ProjectDailyPostsPage() {
     if (progress.per_image_metadata) {
       console.log('📊 Updating per_image_metadata, keys:', Object.keys(progress.per_image_metadata))
       setPerImageMetadata(progress.per_image_metadata)
+      
+      // Check for video URLs in progress (video metadata is keyed by image index that has video)
+      if (progress.per_video_metadata) {
+        const videoUrlMap: Record<number, string> = {}
+        Object.entries(progress.per_video_metadata).forEach(([key, metadata]: [string, any]) => {
+          // Video metadata keys might be "image_3" or similar - extract the index
+          const match = key.match(/image_(\d+)/)
+          if (match && metadata?.video_url) {
+            const index = parseInt(match[1]) - 1
+            videoUrlMap[index] = metadata.video_url
+          }
+        })
+        if (Object.keys(videoUrlMap).length > 0) {
+          setVideoUrls(prev => ({ ...prev, ...videoUrlMap }))
+        }
+      }
       
       // Update posts with tweet text, thread arrays, images, and content type progressively
       // Use functional update to ensure we have the latest posts array
@@ -285,6 +365,7 @@ export default function ProjectDailyPostsPage() {
               ...post,
               type: contentType as PostType, // Update type dynamically
               imageUrl: metadata.image_url || post.imageUrl,
+              videoUrl: progress.per_video_metadata?.[imageKey]?.video_url || post.videoUrl,
               tweetText: metadata.tweet_text || post.tweetText,
               text: metadata.tweet_text || post.text || post.tweetText,
               threadArray: metadata.thread_array || post.threadArray || []
@@ -304,6 +385,11 @@ export default function ProjectDailyPostsPage() {
     setProgressMessage('Generation complete!')
     setProgressPercent(100)
     
+    // Extract video_image_index from workflow_metadata if not already set
+    if (progress.workflow_metadata?.video_image_index) {
+      setVideoImageIndex(progress.workflow_metadata.video_image_index)
+    }
+    
     // Final update with all images and metadata
     if (progress.generated_image_urls) {
       console.log('🖼️ Final images update:', progress.generated_image_urls.length, 'images')
@@ -313,6 +399,21 @@ export default function ProjectDailyPostsPage() {
     if (progress.per_image_metadata) {
       console.log('📊 Final metadata update, keys:', Object.keys(progress.per_image_metadata))
       setPerImageMetadata(progress.per_image_metadata)
+      
+      // Check for video URLs in progress
+      if (progress.per_video_metadata) {
+        const videoUrlMap: Record<number, string> = {}
+        Object.entries(progress.per_video_metadata).forEach(([key, metadata]: [string, any]) => {
+          const match = key.match(/image_(\d+)/)
+          if (match && metadata?.video_url) {
+            const index = parseInt(match[1]) - 1
+            videoUrlMap[index] = metadata.video_url
+          }
+        })
+        if (Object.keys(videoUrlMap).length > 0) {
+          setVideoUrls(prev => ({ ...prev, ...videoUrlMap }))
+        }
+      }
       
       // Final posts update - use functional update
       setPosts(currentPosts => {
@@ -333,6 +434,7 @@ export default function ProjectDailyPostsPage() {
               ...post,
               type: contentType as PostType, // Update type dynamically
               imageUrl: metadata.image_url || post.imageUrl,
+              videoUrl: progress.per_video_metadata?.[imageKey]?.video_url || post.videoUrl,
               tweetText: metadata.tweet_text || post.tweetText,
               text: metadata.tweet_text || post.text || post.tweetText,
               threadArray: metadata.thread_array || post.threadArray || []
@@ -353,46 +455,580 @@ export default function ProjectDailyPostsPage() {
     alert('Generation failed: ' + error)
   }
 
+  // Get button label for Post on X button
+  const getPostButtonLabel = (postIndex: number): 'Post on X' | 'Reconnect X' => {
+    if (!tokenValidation) return 'Reconnect X'
+    
+    const post = posts[postIndex]
+    const hasVideo = !!(post?.videoUrl || videoUrls[postIndex])
+    
+    if (hasVideo) {
+      // For video, both tokens must be valid
+      if (tokenValidation.oauth2Valid && tokenValidation.oauth1Valid) {
+        return 'Post on X'
+      }
+      return 'Reconnect X'
+    } else {
+      // For image, only OAuth2 is needed
+      if (tokenValidation.oauth2Valid) {
+        return 'Post on X'
+      }
+      return 'Reconnect X'
+    }
+  }
+
+  // Handle OAuth2 authorization
+  const handleOAuth2Auth = async () => {
+    if (!projectId || isAuthorizing) return
+    
+    setIsAuthorizing(true)
+    try {
+      const apiUrl = getApiUrlWithFallback()
+      const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-auth/oauth2/initiate`, {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.data?.oauth_url) {
+          // Open OAuth modal in new window (similar to project sign-in flow)
+          const authWindow = window.open(data.data.oauth_url, 'twitter-auth', 'width=600,height=700')
+          
+          // Listen for OAuth callback via URL params
+          const checkAuthComplete = setInterval(() => {
+            try {
+              if (authWindow?.closed) {
+                clearInterval(checkAuthComplete)
+                setIsAuthorizing(false)
+                
+                // Re-validate tokens
+                setTimeout(() => {
+                  const validateTokens = async () => {
+                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+                    if (validateResponse.ok) {
+                      const validateData = await validateResponse.json()
+                      if (validateData.success) {
+                        setTokenValidation(validateData.data)
+                      }
+                    }
+                  }
+                  validateTokens()
+                }, 2000)
+              }
+            } catch (error) {
+              console.error('Error checking auth window:', error)
+            }
+          }, 1000)
+          
+          // Cleanup interval after 5 minutes
+          setTimeout(() => clearInterval(checkAuthComplete), 300000)
+        }
+      }
+    } catch (error) {
+      console.error('Error initiating OAuth2:', error)
+      setIsAuthorizing(false)
+      alert('Failed to start Twitter authorization')
+    }
+  }
+
+  // Handle OAuth1 authorization (for video)
+  const handleOAuth1Auth = async () => {
+    if (!projectId || isAuthorizing) return
+    
+    setIsAuthorizing(true)
+    try {
+      const apiUrl = getApiUrlWithFallback()
+      const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-auth/oauth1/initiate`, {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.data?.authUrl) {
+          // Open OAuth1 modal
+          const authWindow = window.open(data.data.authUrl, 'twitter-oauth1-auth', 'width=600,height=700')
+          
+          // Store sessionId for callback
+          const sessionId = data.data.sessionId
+          
+          // Listen for callback (OAuth1 uses PIN/verifier)
+          const checkAuthComplete = setInterval(() => {
+            try {
+              if (authWindow?.closed) {
+                clearInterval(checkAuthComplete)
+                setIsAuthorizing(false)
+                
+                // OAuth1 callback will be handled separately via callback endpoint
+                // Re-validate tokens after a delay
+                setTimeout(() => {
+                  const validateTokens = async () => {
+                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+                    if (validateResponse.ok) {
+                      const validateData = await validateResponse.json()
+                      if (validateData.success) {
+                        setTokenValidation(validateData.data)
+                      }
+                    }
+                  }
+                  validateTokens()
+                }, 2000)
+              }
+            } catch (error) {
+              console.error('Error checking auth window:', error)
+            }
+          }, 1000)
+          
+          setTimeout(() => clearInterval(checkAuthComplete), 300000)
+        }
+      }
+    } catch (error) {
+      console.error('Error initiating OAuth1:', error)
+      setIsAuthorizing(false)
+      alert('Failed to start Twitter OAuth1 authorization')
+    }
+  }
+
+  // Handle Reconnect X button click
+  // When called from 401 error, we trust the backend and start OAuth directly
+  // Don't refresh validation here - backend already tested the token and said it's invalid
+  const handleReconnectClick = async (postIndex: number, forceReconnect: boolean = false) => {
+    console.log('🔄 handleReconnectClick called for post index:', postIndex, 'forceReconnect:', forceReconnect)
+    
+    const post = posts[postIndex]
+    const hasVideo = !!(post?.videoUrl || videoUrls[postIndex])
+    
+    console.log('🔍 Reconnect flow - hasVideo:', hasVideo)
+    
+    // If forceReconnect is true (from 401 error), skip validation check and start OAuth directly
+    if (forceReconnect) {
+      console.log('🔐 Force reconnect mode - starting OAuth flow directly (backend confirmed token invalid)')
+      
+      if (hasVideo) {
+        // Video: Need both OAuth2 and OAuth1
+        // Start OAuth2 first, then OAuth1 will be triggered after OAuth2 completes
+        console.log('🎬 Video content - starting OAuth2 (OAuth1 will follow)...')
+        await handleOAuth2Auth()
+      } else {
+        // Image only: OAuth2 only
+        console.log('🖼️ Image content - starting OAuth2...')
+        await handleOAuth2Auth()
+      }
+      return
+    }
+    
+    // Otherwise, check validation first (for manual reconnect button clicks)
+    const apiUrl = getApiUrlWithFallback()
+    try {
+      const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+      if (validateResponse.ok) {
+        const validateData = await validateResponse.json()
+        if (validateData.success) {
+          setTokenValidation(validateData.data)
+          console.log('📋 Refreshed token validation:', validateData.data)
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing token validation:', error)
+    }
+    
+    console.log('🔍 Reconnect flow - tokenValidation:', tokenValidation)
+    
+    // Determine which auth flows are needed based on validation
+    if (hasVideo) {
+      // Video: Need both OAuth2 and OAuth1
+      const needsOAuth2 = !tokenValidation?.oauth2Valid
+      const needsOAuth1 = !tokenValidation?.oauth1Valid
+      
+      console.log('🎬 Video content - needsOAuth2:', needsOAuth2, 'needsOAuth1:', needsOAuth1)
+      
+      if (needsOAuth2 && needsOAuth1) {
+        // Both invalid: Start OAuth2, then auto-start OAuth1
+        console.log('🔐 Starting OAuth2 (both tokens invalid)...')
+        await handleOAuth2Auth()
+      } else if (needsOAuth2) {
+        // Only OAuth2 invalid
+        console.log('🔐 Starting OAuth2 only...')
+        await handleOAuth2Auth()
+      } else if (needsOAuth1) {
+        // Only OAuth1 invalid
+        console.log('🔐 Starting OAuth1 only...')
+        await handleOAuth1Auth()
+      } else {
+        console.log('✅ Both tokens valid, no reconnect needed')
+      }
+    } else {
+      // Image only: OAuth2 only
+      const needsOAuth2 = !tokenValidation?.oauth2Valid
+      console.log('🖼️ Image content - needsOAuth2:', needsOAuth2)
+      
+      if (needsOAuth2 || !tokenValidation) {
+        // OAuth2 invalid or validation not available - start OAuth2
+        console.log('🔐 Starting OAuth2 for image...')
+        await handleOAuth2Auth()
+      } else {
+        console.log('✅ OAuth2 token valid, no reconnect needed')
+      }
+    }
+  }
+
+  // Handle Post on X button click
+  const handlePostToX = async (postIndex: number) => {
+    const post = posts[postIndex]
+    if (!post || (!post.imageUrl && !post.videoUrl && !videoUrls[postIndex])) return
+    
+    setIsPosting(prev => ({ ...prev, [postIndex]: true }))
+    
+    try {
+      const apiUrl = getApiUrlWithFallback()
+      const metadata = perImageMetadata[`image_${postIndex + 1}`]
+      const tweetText = metadata?.tweet_text || post.tweetText || post.text || ''
+      const threadArray = metadata?.thread_array || post.threadArray || []
+      const imageUrl = post.imageUrl
+      const videoUrl = post.videoUrl || videoUrls[postIndex]
+      
+      const response = await fetch(`${apiUrl}/projects/${projectId}/twitter/post`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          mainTweet: tweetText,
+          thread: threadArray,
+          imageUrl: imageUrl,
+          videoUrl: videoUrl
+        })
+      })
+      
+      // Handle non-OK responses (including 401)
+      if (!response.ok) {
+        let errorResult
+        try {
+          errorResult = await response.json()
+        } catch (e) {
+          // If response is not JSON, create error object
+          errorResult = {
+            success: false,
+            error: `HTTP ${response.status}: ${response.statusText}`,
+            requiresAuth: response.status === 401
+          }
+        }
+        
+        // Check for auth-related errors (401, 403, or requiresAuth flag)
+        if (response.status === 401 || response.status === 403 || errorResult.requiresAuth || errorResult.requiresReauth) {
+          console.log('🔄 Authentication required, triggering reconnect flow...')
+          console.log('📋 Error result:', errorResult)
+          console.log('📋 Response status:', response.status)
+          console.log('🔐 Backend confirmed token is invalid - starting OAuth flow directly (skipping validation check)')
+          // Backend already tested the token and returned 401 - trust it and force reconnect
+          // Don't check validation again as it might give false positives
+          await handleReconnectClick(postIndex, true) // forceReconnect = true
+          return
+        }
+        
+        alert(`Failed to post: ${errorResult.error || 'Unknown error'}`)
+        return
+      }
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        alert(`✅ Posted to Twitter! View: ${result.data?.tweetUrl || 'Tweet posted successfully'}`)
+        // Optionally refresh token validation
+        const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+        if (validateResponse.ok) {
+          const validateData = await validateResponse.json()
+          if (validateData.success) {
+            setTokenValidation(validateData.data)
+          }
+        }
+      } else {
+        // Handle success: false responses
+        if (result.requiresAuth || result.requiresReauth) {
+          // Trigger reconnection flow (force reconnect since backend confirmed auth is needed)
+          console.log('🔐 Backend requires auth - starting OAuth flow directly')
+          await handleReconnectClick(postIndex, true) // forceReconnect = true
+        } else {
+          alert(`Failed to post: ${result.error || 'Unknown error'}`)
+        }
+      }
+    } catch (error) {
+      console.error('Error posting to Twitter:', error)
+      alert('Failed to post to Twitter. Please try again.')
+    } finally {
+      setIsPosting(prev => ({ ...prev, [postIndex]: false }))
+    }
+  }
+
+  // Handle Schedule button click
+  // Helper to extract S3 URL from a URL (handles presigned URLs)
+  const extractS3Url = (url: string | undefined): string | null => {
+    if (!url) return null
+    
+    // If it's a fal.media URL, return null (no schedule for these)
+    if (url.includes('fal.media')) {
+      return null
+    }
+    
+    // If it's already an S3 URL (s3:// or s3.amazonaws.com)
+    if (url.includes('s3.amazonaws.com')) {
+      // Extract bucket and key from presigned URL or regular S3 URL
+      // Pattern: https://s3.amazonaws.com/BUCKET/KEY?query or https://BUCKET.s3.amazonaws.com/KEY
+      let bucket = ''
+      let key = ''
+      
+      // Try pattern: s3.amazonaws.com/BUCKET/KEY
+      const match1 = url.match(/s3\.amazonaws\.com\/([^\/]+)\/(.+?)(\?|$)/)
+      if (match1) {
+        bucket = match1[1]
+        key = match1[2]
+      } else {
+        // Try pattern: BUCKET.s3.amazonaws.com/KEY
+        const match2 = url.match(/([^\.]+)\.s3\.amazonaws\.com\/(.+?)(\?|$)/)
+        if (match2) {
+          bucket = match2[1]
+          key = match2[2]
+        }
+      }
+      
+      if (bucket && key) {
+        // Return normalized S3 URL (bucket/key format for consistent lookups)
+        return `s3://${bucket}/${key}`
+      }
+    }
+    
+    // If it's an s3:// URL, return as-is
+    if (url.startsWith('s3://')) {
+      return url
+    }
+    
+    return null
+  }
+
+  // Fetch schedule for a specific post by media S3 URL
+  const fetchSchedule = async (postIndex: number, mediaS3Url: string | null) => {
+    if (!mediaS3Url || !projectId) return
+    
+    try {
+      const apiUrl = getApiUrlWithFallback()
+      const response = await fetch(`${apiUrl}/projects/${projectId}/post/schedule?mediaS3Url=${encodeURIComponent(mediaS3Url)}`)
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.success && data.data) {
+          setPostSchedules(prev => ({
+            ...prev,
+            [postIndex]: data.data
+          }))
+        } else {
+          setPostSchedules(prev => ({
+            ...prev,
+            [postIndex]: null
+          }))
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching schedule:', error)
+    }
+  }
+
+  // Fetch schedules for all posts when they're updated
+  useEffect(() => {
+    posts.forEach((post, index) => {
+      const videoUrl = videoUrls[index]
+      const imageUrl = post.imageUrl || generatedImages[index] || perImageMetadata[`image_${index + 1}`]?.image_url
+      
+      // Prioritize video URL if exists, otherwise use image URL
+      const mediaUrl = videoUrl || imageUrl
+      const mediaS3Url = extractS3Url(mediaUrl)
+      
+      if (mediaS3Url && !postSchedules[index]) {
+        fetchSchedule(index, mediaS3Url)
+      }
+    })
+  }, [posts, videoUrls, generatedImages, perImageMetadata, projectId])
+
+  const handleScheduleClick = (postIndex: number) => {
+    setShowScheduleModal(postIndex)
+  }
+
+  // Handle Edit button click (placeholder for now)
+  const handleEditClick = (postIndex: number) => {
+    // TODO: Implement edit flow
+    alert('Edit functionality coming soon!')
+  }
+
+  // Handle OAuth2 callback (check URL params)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    
+    // Check for OAuth errors first
+    const oauthError = urlParams.get('oauth2_error')
+    if (oauthError) {
+      console.error('❌ OAuth2 error:', oauthError)
+      alert(`Twitter authorization failed: ${oauthError.replace(/_/g, ' ')}. Please try again.`)
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname)
+      return
+    }
+    
+    if (urlParams.get('oauth2_success') === 'true') {
+      // OAuth2 completed, if video content exists, start OAuth1
+      const hasAnyVideo = posts.some((post, idx) => post.videoUrl || videoUrls[idx])
+      if (hasAnyVideo && tokenValidation?.needsOAuth1) {
+        setTimeout(() => {
+          handleOAuth1Auth()
+        }, 1000)
+      }
+      
+      // Re-validate tokens
+      const validateTokens = async () => {
+        const apiUrl = getApiUrlWithFallback()
+        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success) {
+            setTokenValidation(data.data)
+          }
+        }
+      }
+      validateTokens()
+      
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, posts, videoUrls, tokenValidation])
+
   const generate = async () => {
     if (!projectId) {
       alert('Project ID not found')
       return
     }
 
-    // Initialize empty posts based on content mix from config
+    // Fetch fresh configuration before generating to ensure we have the latest values
+    let currentDailyPostsCount = dailyPostsCount
+    let currentContentMix = contentMix
+    
+    try {
+      const apiUrl = getApiUrlWithFallback()
+      if (apiUrl) {
+        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+        const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`)
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.data) {
+            const config = data.data
+            currentDailyPostsCount = config.daily_posts_count || 10
+            if (config.content_mix) {
+              currentContentMix = config.content_mix
+            }
+            // Update state for future renders
+            setDailyPostsCount(currentDailyPostsCount)
+            setContentMix(currentContentMix)
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching fresh config before generation:', error)
+      // Continue with existing state values
+    }
+
+    // Initialize empty posts based on daily_posts_count and content mix from config
+    // Use contentMix values if they match dailyPostsCount, otherwise use dailyPostsCount directly
+    const contentMixSum = currentContentMix.threads + currentContentMix.shitpost + currentContentMix.longpost
+    const targetCount = contentMixSum === currentDailyPostsCount ? contentMixSum : currentDailyPostsCount
+    
+    if (contentMixSum !== currentDailyPostsCount) {
+      console.warn(`⚠️ Content mix sum (${contentMixSum}) does not match daily_posts_count (${currentDailyPostsCount})`)
+      console.warn(`   Using daily_posts_count (${currentDailyPostsCount}) as the target number of posts`)
+    }
+    
+    console.log(`📊 Initializing posts:`, {
+      dailyPostsCount: currentDailyPostsCount,
+      contentMix: currentContentMix,
+      contentMixSum,
+      targetCount
+    })
+    
     const emptyPosts: PostData[] = []
     let postIndex = 0
     
-    // Add threads
-    for (let i = 0; i < contentMix.threads; i++) {
-      emptyPosts.push({
-        id: `post-${postIndex + 1}`,
-        type: 'thread',
-        text: ''
-      })
-      postIndex++
+    // Only add posts based on actual content mix if it matches daily_posts_count
+    if (contentMixSum === currentDailyPostsCount) {
+      // Add threads
+      for (let i = 0; i < currentContentMix.threads; i++) {
+        emptyPosts.push({
+          id: `post-${postIndex + 1}`,
+          type: 'thread',
+          text: ''
+        })
+        postIndex++
+      }
+      
+      // Add shitposts
+      for (let i = 0; i < currentContentMix.shitpost; i++) {
+        emptyPosts.push({
+          id: `post-${postIndex + 1}`,
+          type: 'shitpost',
+          text: ''
+        })
+        postIndex++
+      }
+      
+      // Add longposts
+      for (let i = 0; i < currentContentMix.longpost; i++) {
+        emptyPosts.push({
+          id: `post-${postIndex + 1}`,
+          type: 'longpost',
+          text: ''
+        })
+        postIndex++
+      }
+    } else {
+      // If mismatch, create posts based on daily_posts_count with proportional distribution
+      // This is a fallback - ideally contentMix should always match currentDailyPostsCount
+      console.warn(`⚠️ Content mix (${contentMixSum}) doesn't match daily_posts_count (${currentDailyPostsCount}), using proportional distribution`)
+      
+      const threadsCount = Math.round((currentContentMix.threads / contentMixSum) * currentDailyPostsCount)
+      const shitpostCount = Math.round((currentContentMix.shitpost / contentMixSum) * currentDailyPostsCount)
+      const longpostCount = currentDailyPostsCount - threadsCount - shitpostCount // Ensure total matches
+      
+      for (let i = 0; i < threadsCount; i++) {
+        emptyPosts.push({ id: `post-${postIndex + 1}`, type: 'thread', text: '' })
+        postIndex++
+      }
+      for (let i = 0; i < shitpostCount; i++) {
+        emptyPosts.push({ id: `post-${postIndex + 1}`, type: 'shitpost', text: '' })
+        postIndex++
+      }
+      for (let i = 0; i < longpostCount; i++) {
+        emptyPosts.push({ id: `post-${postIndex + 1}`, type: 'longpost', text: '' })
+        postIndex++
+      }
     }
     
-    // Add shitposts
-    for (let i = 0; i < contentMix.shitpost; i++) {
-      emptyPosts.push({
-        id: `post-${postIndex + 1}`,
-        type: 'shitpost',
-        text: ''
-      })
-      postIndex++
+    // Verify final count matches daily_posts_count
+    const finalPostCount = emptyPosts.length
+    if (finalPostCount !== currentDailyPostsCount) {
+      console.error(`❌ Post count mismatch: Generated ${finalPostCount} posts, but daily_posts_count is ${currentDailyPostsCount}`)
+      // Trim or pad to match daily_posts_count
+      if (finalPostCount > currentDailyPostsCount) {
+        emptyPosts.splice(currentDailyPostsCount)
+      } else {
+        while (emptyPosts.length < currentDailyPostsCount) {
+          emptyPosts.push({
+            id: `post-${emptyPosts.length + 1}`,
+            type: 'thread',
+            text: ''
+          })
+        }
+      }
+    } else {
+      console.log(`✅ Post count verified: ${finalPostCount} posts match daily_posts_count (${currentDailyPostsCount})`)
     }
     
-    // Add longposts
-    for (let i = 0; i < contentMix.longpost; i++) {
-      emptyPosts.push({
-        id: `post-${postIndex + 1}`,
-        type: 'longpost',
-        text: ''
-      })
-      postIndex++
-    }
-    
+    console.log(`✅ Setting ${emptyPosts.length} empty posts for generation`)
     setPosts(emptyPosts)
 
     setIsGenerating(true)
@@ -400,6 +1036,8 @@ export default function ProjectDailyPostsPage() {
     setProgressPercent(0)
     setGeneratedImages([])
     setPerImageMetadata({})
+    setVideoImageIndex(null) // Reset video index when starting new generation
+    setVideoUrls({}) // Reset video URLs
 
     try {
       const apiUrl = getApiUrlWithFallback()
@@ -496,6 +1134,24 @@ export default function ProjectDailyPostsPage() {
           const hasImage = generatedImages[index] || metadata?.image_url || post.imageUrl
           const imageUrl = metadata?.image_url || generatedImages[index] || post.imageUrl
           
+          // Check if this post index is generating video (videoImageIndex is 1-based, index is 0-based)
+          const isVideoPost = videoImageIndex === (index + 1)
+          const hasVideo = !!(post?.videoUrl || videoUrls[index])
+          const videoUrl = post?.videoUrl || videoUrls[index]
+          // Show video generation indicator if: this is the video post AND video is not ready yet AND we're still generating
+          const isGeneratingVideo = isVideoPost && !hasVideo && isGenerating
+          
+          // Debug logging
+          if (isVideoPost) {
+            console.log(`🎬 Post ${index + 1} is video post:`, {
+              videoImageIndex,
+              hasVideo,
+              isGenerating,
+              isGeneratingVideo,
+              videoUrl: videoUrl ? 'has URL' : 'no URL'
+            })
+          }
+          
           // Get dynamic content type from metadata or fall back to post.type
           const displayContentType = metadata?.content_type || post.type
 
@@ -504,26 +1160,72 @@ export default function ProjectDailyPostsPage() {
               {/* Image/Video Section - Clickable */}
               <div 
                 className="aspect-square relative bg-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
-                onClick={() => {
-                  if (hasImage || metadata?.tweet_text || post.tweetText) {
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (hasImage || hasVideo || metadata?.tweet_text || post.tweetText) {
+                    setSelectedPostIndex(index)
+                  }
+                }}
+                onTouchStart={(e) => {
+                  // Ensure touch events work on mobile
+                  e.stopPropagation()
+                }}
+                onTouchEnd={(e) => {
+                  e.stopPropagation()
+                  if (hasImage || hasVideo || metadata?.tweet_text || post.tweetText) {
                     setSelectedPostIndex(index)
                   }
                 }}
               >
-                {hasImage && imageUrl ? (
-                  <SecureImage
-                    src={imageUrl}
-                    alt={`Post ${index + 1}`}
-                    className="w-full h-full object-cover"
-                    fallbackComponent={
-                      <div className="w-full h-full flex items-center justify-center bg-gray-700">
+                {/* Scheduled Badge */}
+                {postSchedules[index] && (
+                  <div className="absolute top-2 left-2 bg-green-600 text-white text-xs font-semibold px-2 py-1 rounded-full z-10">
+                    Scheduled
+                  </div>
+                )}
+                
+                {/* Show VideoPlayer if video is available */}
+                {hasVideo && videoUrl ? (
+                  <>
+                    <VideoPlayer
+                      src={videoUrl}
+                      className="w-full h-full"
+                      controls={true}
+                      muted={false}
+                      loop={false}
+                    />
+                    {/* Video Icon Overlay */}
+                    <div className="absolute top-2 right-2 bg-black/70 rounded-full p-2">
+                      <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                      </svg>
+                    </div>
+                  </>
+                ) : hasImage && imageUrl ? (
+                  <>
+                    <SecureImage
+                      src={imageUrl}
+                      alt={`Post ${index + 1}`}
+                      className="w-full h-full object-cover"
+                      fallbackComponent={
+                        <div className="w-full h-full flex items-center justify-center bg-gray-700">
+                          <div className="text-center space-y-2">
+                            <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                            <p className="text-sm text-gray-400">Loading image...</p>
+                          </div>
+                        </div>
+                      }
+                    />
+                    {/* Show "Video is being generated" indicator overlay if this is the video post */}
+                    {isGeneratingVideo && (
+                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-lg">
                         <div className="text-center space-y-2">
-                          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                          <p className="text-sm text-gray-400">Loading image...</p>
+                          <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                          <p className="text-sm text-white font-semibold">Video is being generated...</p>
                         </div>
                       </div>
-                    }
-                  />
+                    )}
+                  </>
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gray-700">
                     <div className="text-center space-y-2">
@@ -550,12 +1252,29 @@ export default function ProjectDailyPostsPage() {
                   <span className="text-xs px-2 py-1 bg-gray-700 rounded text-gray-300 uppercase font-semibold">
                     {formatPostType(displayContentType)}
                   </span>
-                  {isGenerating && !hasImage && (
+                  {/* Status indicators */}
+                  {isGeneratingVideo && (
+                    <span className="text-xs text-purple-400 animate-pulse flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                      </svg>
+                      Generating video...
+                    </span>
+                  )}
+                  {!isGeneratingVideo && isGenerating && !hasImage && !hasVideo && (
                     <span className="text-xs text-gray-500 animate-pulse">
                       Generating...
                     </span>
                   )}
-                  {hasImage && (
+                  {hasVideo && (
+                    <span className="text-xs text-purple-500 flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                      </svg>
+                      Video Ready
+                    </span>
+                  )}
+                  {hasImage && !hasVideo && !isGeneratingVideo && (
                     <span className="text-xs text-green-500">
                       ✓ Ready
                     </span>
@@ -579,16 +1298,32 @@ export default function ProjectDailyPostsPage() {
                 {/* Actions */}
                 <div className="flex gap-2">
                   <button 
+                    onClick={() => handleEditClick(index)}
                     className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-300 transition-colors disabled:opacity-50"
-                    disabled={!hasImage}
+                    disabled={!hasImage && !post.videoUrl && !videoUrls[index]}
                   >
                     Edit
                   </button>
-                  <button 
-                    className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm text-white transition-colors disabled:opacity-50"
-                    disabled={!hasImage}
+                  <button
+                    onClick={() => handleScheduleClick(index)}
+                    className="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm text-white transition-colors disabled:opacity-50"
+                    disabled={!hasImage && !post.videoUrl && !videoUrls[index]}
                   >
-                    Post to 𝕏
+                    Schedule
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const label = getPostButtonLabel(index)
+                      if (label === 'Reconnect X') {
+                        handleReconnectClick(index)
+                      } else {
+                        handlePostToX(index)
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm text-white transition-colors disabled:opacity-50"
+                    disabled={(!hasImage && !post.videoUrl && !videoUrls[index]) || isPosting[index] || isAuthorizing}
+                  >
+                    {isPosting[index] ? 'Posting...' : getPostButtonLabel(index)}
                   </button>
                 </div>
               </div>
@@ -620,66 +1355,122 @@ export default function ProjectDailyPostsPage() {
         
         return (
           <div 
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-6"
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-2 md:p-6"
             onClick={(e) => {
               if (e.target === e.currentTarget) {
                 setSelectedPostIndex(null)
               }
             }}
           >
-            <div className="bg-gray-800 rounded-xl border border-gray-700 w-full h-full max-w-[95vw] max-h-[95vh] overflow-hidden flex flex-col">
+            <div className="bg-gray-800 rounded-xl border border-gray-700 w-full h-full max-w-[95vw] max-h-[95vh] overflow-hidden flex flex-col" style={{ minHeight: 0 }}>
               {/* Modal Header */}
-              <div className="flex items-center justify-between p-6 border-b border-gray-700 flex-shrink-0">
-                <h2 className="text-xl font-bold text-white">Post Details</h2>
+              <div className="flex items-center justify-between p-4 md:p-6 border-b border-gray-700 flex-shrink-0">
+                <h2 className="text-lg md:text-xl font-bold text-white">Post Details</h2>
                 <button
                   onClick={() => setSelectedPostIndex(null)}
                   className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                  aria-label="Close modal"
                 >
                   <XMarkIcon className="h-5 w-5 text-gray-400" />
                 </button>
               </div>
 
+              {/* Schedule Info Banner */}
+              {postSchedules[selectedPostIndex] && (
+                <div className="bg-green-500/10 border-b border-green-500/30 px-4 md:px-6 py-3 flex-shrink-0">
+                  <p className="text-sm text-green-300">
+                    📅 This post is scheduled to be posted on Twitter on{' '}
+                    <span className="font-semibold">
+                      {new Date(postSchedules[selectedPostIndex]!.scheduledAt).toLocaleString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                      })}
+                    </span>
+                  </p>
+                </div>
+              )}
+
               {/* Modal Content - Image on Left, Content on Right */}
               <div className="flex-1 overflow-hidden">
                 <div className="flex flex-col md:flex-row h-full">
-                  {/* Left Side - Image */}
-                  <div className="md:w-3/5 bg-gray-900 flex items-center justify-center overflow-hidden">
-                    {hasImage && imageUrl ? (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <div 
-                          className="flex items-center justify-center" 
-                          style={{ 
-                            width: '100%',
-                            aspectRatio: '1 / 1',
-                            maxHeight: '100%',
-                            maxWidth: '100%'
-                          }}
-                        >
-                          <SecureImage
-                            src={imageUrl}
-                            alt="Post image"
-                            className="w-full h-full rounded-lg object-contain"
-                            fallbackComponent={
-                              <div className="w-full h-full flex items-center justify-center bg-gray-700 rounded-lg">
-                                <div className="text-center space-y-2">
-                                  <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-                                  <p className="text-sm text-gray-400">Loading image...</p>
-                                </div>
+                  {/* Left Side - Image/Video */}
+                  <div className="w-full md:w-3/5 bg-gray-900 flex items-center justify-center overflow-hidden" style={{ minHeight: 0 }}>
+                    {(() => {
+                      const modalImageKey = `image_${selectedPostIndex + 1}`
+                      const modalMetadata = perImageMetadata[modalImageKey]
+                      const modalHasImage = generatedImages[selectedPostIndex] || modalMetadata?.image_url || post.imageUrl
+                      const modalImageUrl = modalMetadata?.image_url || generatedImages[selectedPostIndex] || post.imageUrl
+                      const modalHasVideo = !!(post?.videoUrl || videoUrls[selectedPostIndex])
+                      const modalVideoUrl = post?.videoUrl || videoUrls[selectedPostIndex]
+                      
+                      // Show video if available, otherwise show image
+                      if (modalHasVideo && modalVideoUrl) {
+                        return (
+                          <div className="w-full h-full flex items-center justify-center p-2 md:p-4" style={{ minHeight: 0 }}>
+                            <div className="w-full h-full max-w-full max-h-full relative flex items-center justify-center" style={{ minHeight: 0 }}>
+                              <VideoPlayer
+                                key={`${selectedPostIndex}-${modalVideoUrl}`}
+                                src={modalVideoUrl}
+                                className="w-full h-full rounded-lg"
+                                controls={true}
+                                muted={false}
+                                loop={false}
+                              />
+                              {/* Video Icon Overlay */}
+                              <div className="absolute top-2 right-2 bg-black/70 rounded-full p-2 z-10 pointer-events-none">
+                                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M8 5v14l11-7z"/>
+                                </svg>
                               </div>
-                            }
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center text-gray-400">
-                        <div className="text-6xl mb-4">📝</div>
-                        <p>No image available</p>
-                      </div>
-                    )}
+                            </div>
+                          </div>
+                        )
+                      } else if (modalHasImage && modalImageUrl) {
+                        return (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <div 
+                              className="flex items-center justify-center" 
+                              style={{ 
+                                width: '100%',
+                                aspectRatio: '1 / 1',
+                                maxHeight: '100%',
+                                maxWidth: '100%'
+                              }}
+                            >
+                              <SecureImage
+                                src={modalImageUrl}
+                                alt="Post image"
+                                className="w-full h-full rounded-lg object-contain"
+                                fallbackComponent={
+                                  <div className="w-full h-full flex items-center justify-center bg-gray-700 rounded-lg">
+                                    <div className="text-center space-y-2">
+                                      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                                      <p className="text-sm text-gray-400">Loading image...</p>
+                                    </div>
+                                  </div>
+                                }
+                              />
+                            </div>
+                          </div>
+                        )
+                      } else {
+                        return (
+                          <div className="text-center text-gray-400">
+                            <div className="text-6xl mb-4">📝</div>
+                            <p>No content available</p>
+                          </div>
+                        )
+                      }
+                    })()}
                   </div>
 
                   {/* Right Side - Content */}
-                  <div className="md:w-2/5 p-8 overflow-y-auto bg-gray-800">
+                  <div className="w-full md:w-2/5 p-4 md:p-8 overflow-y-auto bg-gray-800" style={{ minHeight: 0 }}>
                     {/* Post Type Badge */}
                     <div className="mb-4">
                       <span className="text-xs px-3 py-1 bg-gray-700 rounded-full text-gray-300 uppercase font-semibold">
@@ -714,6 +1505,38 @@ export default function ProjectDailyPostsPage() {
               </div>
             </div>
           </div>
+        )
+      })()}
+
+      {/* Schedule Modal */}
+      {showScheduleModal !== null && posts[showScheduleModal] && (() => {
+        const postIndex = showScheduleModal
+        const post = posts[postIndex]
+        const videoUrl = videoUrls[postIndex]
+        const imageKey = `image_${postIndex + 1}`
+        const metadata = perImageMetadata[imageKey]
+        const imageUrl = metadata?.image_url || generatedImages[postIndex] || post.imageUrl
+        
+        // Prioritize video URL if exists, otherwise use image URL
+        const mediaUrl = videoUrl || imageUrl
+        const mediaS3Url = extractS3Url(mediaUrl)
+        const mediaType = videoUrl ? 'video' : 'image'
+        const schedule = postSchedules[postIndex] || null
+        
+        return (
+          <ScheduleModal
+            isOpen={showScheduleModal !== null}
+            onClose={() => setShowScheduleModal(null)}
+            projectId={projectId}
+            mediaS3Url={mediaS3Url || ''}
+            mediaType={mediaType}
+            tweetText={{
+              main_tweet: post.tweetText || post.text || metadata?.tweet_text || '',
+              thread_array: post.threadArray || metadata?.thread_array || [],
+              content_type: post.type || metadata?.content_type || 'shitpost'
+            }}
+            currentSchedule={schedule}
+          />
         )
       })()}
     </div>

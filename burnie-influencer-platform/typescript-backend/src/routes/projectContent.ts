@@ -1,14 +1,25 @@
 import { Router, Request, Response } from 'express';
 import { AppDataSource } from '../config/database';
 import { ProjectGeneratedContent } from '../models/ProjectGeneratedContent';
+import { Web3ProjectTwitterPost } from '../models/Web3ProjectTwitterPost';
+import { Web3PostsSchedule } from '../models/Web3PostsSchedule';
 import { logger } from '../config/logger';
 import { UrlCacheService } from '../services/UrlCacheService';
+import { env } from '../config/env';
+import { MoreThan } from 'typeorm';
 
 const router = Router();
 
 // Helper function to convert S3 key to presigned URL with Redis caching
+// Returns URL as-is if it's a fal.media URL (no presigning needed)
 async function getPresignedUrl(s3Key: string): Promise<string | null> {
   try {
+    // Check if URL is from fal.media - return as-is without presigning
+    if (s3Key && typeof s3Key === 'string' && s3Key.includes('fal.media')) {
+      logger.debug(`✅ URL is from fal.media, returning as-is: ${s3Key}`);
+      return s3Key;
+    }
+    
     // Handle both s3://bucket/key and just key formats
     let cleanKey = s3Key;
     if (s3Key.startsWith('s3://')) {
@@ -30,7 +41,7 @@ async function getPresignedUrl(s3Key: string): Promise<string | null> {
     }
 
     // If not cached or Redis unavailable, generate new presigned URL
-    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
+    const pythonBackendUrl = env.ai.pythonBackendUrl;
     if (!pythonBackendUrl) {
       logger.error('PYTHON_AI_BACKEND_URL not configured, cannot generate presigned URL');
       return null;
@@ -68,14 +79,22 @@ async function getPresignedUrl(s3Key: string): Promise<string | null> {
 }
 
 // Helper function to convert S3 key array to presigned URLs
+// Returns fal.media URLs as-is, only presigns S3 URLs
 async function convertS3KeysToPresignedUrls(s3Keys: string[]): Promise<string[]> {
   if (!Array.isArray(s3Keys) || s3Keys.length === 0) return [];
   
   const presignedUrls = await Promise.all(
-    s3Keys.map(key => getPresignedUrl(key))
+    s3Keys.map(key => {
+      // If it's a fal.media URL, return as-is
+      if (key && typeof key === 'string' && key.includes('fal.media')) {
+        return key;
+      }
+      // Otherwise, get presigned URL for S3
+      return getPresignedUrl(key);
+    })
   );
   
-  // Filter out null values and return only valid presigned URLs
+  // Filter out null values and return only valid URLs (presigned or fal.media)
   return presignedUrls.filter((url): url is string => url !== null);
 }
 
@@ -88,7 +107,7 @@ router.post('/:id/generate/daily', async (req: Request, res: Response) => {
     if (isNaN(projectId)) return res.status(400).json({ success: false, error: 'Invalid project id' });
     
     // Call Python backend unified generation endpoint
-    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
+    const pythonBackendUrl = env.ai.pythonBackendUrl;
     if (!pythonBackendUrl) {
       return res.status(500).json({ success: false, error: 'Python AI backend URL not configured' });
     }
@@ -192,6 +211,7 @@ router.get('/:id/generate/progress/:jobId', async (req: Request, res: Response) 
         generated_video_urls: presignedVideoUrls,
         per_image_metadata: presignedPerImageMetadata,
         per_video_metadata: presignedPerVideoMetadata,
+        workflow_metadata: content.workflow_metadata || {}, // Include workflow_metadata (contains video_image_index)
         created_at: content.created_at,
         updated_at: content.updated_at
       }
@@ -340,6 +360,53 @@ router.put('/:id/generated-content/:jobId/images', async (req: Request, res: Res
   }
 });
 
+// PUT /api/projects/:id/generated-content/:jobId/video - Update video
+router.put('/:id/generated-content/:jobId/video', async (req: Request, res: Response) => {
+  try {
+    if (!AppDataSource.isInitialized) return res.status(503).json({ success: false, error: 'DB not ready' });
+    
+    const idParam = req.params.id;
+    const jobId = req.params.jobId;
+    if (!idParam) return res.status(400).json({ success: false, error: 'Project id is required' });
+    if (!jobId) return res.status(400).json({ success: false, error: 'Job id is required' });
+    const projectId = parseInt(idParam);
+    if (isNaN(projectId)) return res.status(400).json({ success: false, error: 'Invalid project id' });
+    
+    const repo = AppDataSource.getRepository(ProjectGeneratedContent);
+    const content = await repo.findOne({
+      where: { project_id: projectId, job_id: jobId }
+    });
+    
+    if (!content) {
+      return res.status(404).json({ success: false, error: 'Record not found' });
+    }
+    
+    if (req.body.video_url) {
+      // Add to generated_video_urls if provided
+      if (req.body.generated_video_urls) {
+        content.generated_video_urls = req.body.generated_video_urls;
+      } else if (content.generated_video_urls && req.body.video_url) {
+        // Add single video URL to array if not already present
+        if (!content.generated_video_urls.includes(req.body.video_url)) {
+          content.generated_video_urls = [...(content.generated_video_urls || []), req.body.video_url];
+        }
+      } else {
+        content.generated_video_urls = [req.body.video_url];
+      }
+    }
+    
+    if (req.body.per_video_metadata) {
+      content.per_video_metadata = { ...(content.per_video_metadata || {}), ...req.body.per_video_metadata };
+    }
+    
+    await repo.save(content);
+    
+    return res.json({ success: true, data: content });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: `Failed to update video: ${e.message}` });
+  }
+});
+
 // GET /api/projects/:id/content?dateKey=yyyy-mm-dd or grouped by date with pagination and search
 router.get('/:id/content', async (req: Request, res: Response) => {
   try {
@@ -422,6 +489,11 @@ router.get('/:id/content', async (req: Request, res: Response) => {
           processedItem.generated_image_urls = await convertS3KeysToPresignedUrls(item.generated_image_urls);
         }
         
+        // Convert generated_video_urls (handle fal.media URLs)
+        if (item.generated_video_urls && Array.isArray(item.generated_video_urls)) {
+          processedItem.generated_video_urls = await convertS3KeysToPresignedUrls(item.generated_video_urls);
+        }
+        
         // Convert per_image_metadata image_urls
         if (item.per_image_metadata && typeof item.per_image_metadata === 'object') {
           const processedMetadata: Record<string, any> = {};
@@ -437,6 +509,43 @@ router.get('/:id/content', async (req: Request, res: Response) => {
             }
           }
           processedItem.per_image_metadata = processedMetadata;
+        }
+        
+        // Convert per_video_metadata video_urls (handle fal.media URLs)
+        if (item.per_video_metadata && typeof item.per_video_metadata === 'object') {
+          const processedVideoMetadata: Record<string, any> = {};
+          for (const [key, metadata] of Object.entries(item.per_video_metadata)) {
+            if (metadata && typeof metadata === 'object') {
+              const updatedMetadata = { ...metadata };
+              
+              // Handle video_url - skip presigning if fal.media
+              if (metadata.video_url) {
+                const videoUrl = metadata.video_url;
+                if (videoUrl.includes('fal.media')) {
+                  updatedMetadata.video_url = videoUrl; // Use as-is
+                } else {
+                  const presignedVideoUrl = await getPresignedUrl(videoUrl);
+                  updatedMetadata.video_url = presignedVideoUrl || videoUrl;
+                }
+              }
+              
+              // Handle watermark_video_url - skip presigning if fal.media
+              if (metadata.watermark_video_url) {
+                const watermarkUrl = metadata.watermark_video_url;
+                if (watermarkUrl.includes('fal.media')) {
+                  updatedMetadata.watermark_video_url = watermarkUrl; // Use as-is
+                } else {
+                  const presignedWatermarkUrl = await getPresignedUrl(watermarkUrl);
+                  updatedMetadata.watermark_video_url = presignedWatermarkUrl || watermarkUrl;
+                }
+              }
+              
+              processedVideoMetadata[key] = updatedMetadata;
+            } else {
+              processedVideoMetadata[key] = metadata;
+            }
+          }
+          processedItem.per_video_metadata = processedVideoMetadata;
         }
         
         return processedItem;
@@ -455,6 +564,160 @@ router.get('/:id/content', async (req: Request, res: Response) => {
   } catch (e: any) {
     logger.error(`Error fetching content: ${e.message}`, e);
     return res.status(500).json({ success: false, error: 'Failed to fetch content' });
+  }
+});
+
+/**
+ * GET /api/projects/:id/dashboard
+ * Get dashboard statistics and recent activity for web3 project
+ */
+router.get('/:id/dashboard', async (req: Request, res: Response) => {
+  try {
+    const projectId = parseInt(req.params.id || '');
+    
+    if (isNaN(projectId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid project ID'
+      });
+    }
+
+    const projectGeneratedContentRepo = AppDataSource.getRepository(ProjectGeneratedContent);
+    const web3TwitterPostsRepo = AppDataSource.getRepository(Web3ProjectTwitterPost);
+    const web3SchedulesRepo = AppDataSource.getRepository(Web3PostsSchedule);
+
+    // 1. Total posts generated (sum of tweet_texts array lengths from all records)
+    // Each record in project_generated_content can have multiple posts
+    const allGeneratedContent = await projectGeneratedContentRepo.find({
+      where: { project_id: projectId }
+    });
+
+    let totalGenerated = 0;
+    allGeneratedContent.forEach(content => {
+      // Count posts from tweet_texts array if available, otherwise use generated_image_urls length
+      if (content.tweet_texts && Array.isArray(content.tweet_texts)) {
+        totalGenerated += content.tweet_texts.length;
+      } else if (content.generated_image_urls && Array.isArray(content.generated_image_urls)) {
+        totalGenerated += content.generated_image_urls.length;
+      } else {
+        // Fallback: if neither array exists, count as 1 post per record
+        totalGenerated += 1;
+      }
+    });
+
+    // 2. Posts scheduled (count upcoming schedules from web3_posts_schedule)
+    const now = new Date();
+    const scheduledCount = await web3SchedulesRepo.count({
+      where: {
+        projectId,
+        scheduledAt: MoreThan(now)
+      }
+    });
+
+    // 3. Total posted to Twitter (count from web3_project_twitter_posts)
+    const totalPosted = await web3TwitterPostsRepo.count({
+      where: { projectId }
+    });
+
+    // 4. Total engagement (sum of likes, retweets, replies from all posted tweets)
+    const allPostedTweets = await web3TwitterPostsRepo.find({
+      where: { projectId }
+    });
+
+    let totalEngagement = {
+      likes: 0,
+      retweets: 0,
+      replies: 0,
+      quotes: 0,
+      views: 0,
+      total: 0
+    };
+
+    allPostedTweets.forEach(tweet => {
+      const totals = tweet.getTotalEngagement();
+      totalEngagement.likes += totals.likes;
+      totalEngagement.retweets += totals.retweets;
+      totalEngagement.replies += totals.replies;
+      totalEngagement.quotes += totals.quotes;
+      totalEngagement.views += totals.views || 0;
+    });
+
+    totalEngagement.total = totalEngagement.likes + totalEngagement.retweets + 
+                           totalEngagement.replies + totalEngagement.quotes;
+
+    // 5. Recent Activity
+    // - Recent posted tweets (last 5)
+    const recentPosts = await web3TwitterPostsRepo.find({
+      where: { projectId },
+      order: { postedAt: 'DESC' },
+      take: 5
+    });
+
+    // - Upcoming scheduled posts (next 5)
+    const upcomingSchedules = await web3SchedulesRepo.find({
+      where: {
+        projectId,
+        scheduledAt: MoreThan(now)
+      },
+      order: { scheduledAt: 'ASC' },
+      take: 5
+    });
+
+    // - Recent generated content (last 3)
+    const recentGenerated = await projectGeneratedContentRepo.find({
+      where: { project_id: projectId },
+      order: { created_at: 'DESC' },
+      take: 3
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        metrics: {
+          totalGenerated,
+          scheduledCount,
+          totalPosted,
+          totalEngagement: totalEngagement.total,
+          engagementBreakdown: {
+            likes: totalEngagement.likes,
+            retweets: totalEngagement.retweets,
+            replies: totalEngagement.replies,
+            quotes: totalEngagement.quotes,
+            views: totalEngagement.views
+          }
+        },
+        recentActivity: {
+          recentPosts: recentPosts.map(post => ({
+            id: post.id,
+            mainTweet: post.mainTweet.substring(0, 100) + (post.mainTweet.length > 100 ? '...' : ''),
+            postType: post.postType,
+            postedAt: post.postedAt,
+            engagement: post.getTotalEngagement(),
+            mainTweetId: post.mainTweetId
+          })),
+          upcomingSchedules: upcomingSchedules.map(schedule => ({
+            id: schedule.id,
+            scheduledAt: schedule.scheduledAt,
+            mediaType: schedule.mediaType,
+            mainTweet: schedule.tweetText.main_tweet.substring(0, 100) + (schedule.tweetText.main_tweet.length > 100 ? '...' : '')
+          })),
+          recentGenerated: recentGenerated.map(content => ({
+            id: content.id,
+            jobId: content.job_id,
+            status: content.status,
+            createdAt: content.created_at,
+            contentCount: content.generated_image_urls?.length || 0,
+            hasVideo: (content.generated_video_urls?.length || 0) > 0
+          }))
+        }
+      }
+    });
+  } catch (error: any) {
+    logger.error(`Error fetching dashboard data: ${error.message}`, error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch dashboard data'
+    });
   }
 });
 

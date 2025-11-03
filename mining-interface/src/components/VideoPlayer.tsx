@@ -34,9 +34,33 @@ export default function VideoPlayer({
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
 
+  // Effect to handle src changes and initialize video
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
+
+    // Set src and load video when src prop is provided
+    if (src) {
+      const currentSrc = video.src || video.currentSrc || ''
+      if (currentSrc !== src) {
+        console.log('🔄 VideoPlayer: Setting video src', { currentSrc, newSrc: src })
+        video.src = src
+      }
+      // Always call load() to ensure video is ready, especially when component remounts
+      // This handles cases where same URL is used but we want fresh playback
+      video.load()
+      setIsLoading(true)
+      setHasError(false)
+    } else {
+      // Clear src if new src is empty/null
+      if (video.src || video.currentSrc) {
+        console.log('🔄 VideoPlayer: Clearing video src')
+        video.src = ''
+        video.load()
+        setIsLoading(true)
+        setHasError(false)
+      }
+    }
 
     const handleLoadStart = () => {
       setIsLoading(true)
@@ -98,7 +122,7 @@ export default function VideoPlayer({
       video.removeEventListener('pause', handlePause)
       video.removeEventListener('volumechange', handleVolumeChange)
     }
-  }, [onError, onLoadStart, onCanPlay, autoPlay, isMuted])
+  }, [src, onError, onLoadStart, onCanPlay, autoPlay, isMuted])
 
   const togglePlay = () => {
     const video = videoRef.current
@@ -142,10 +166,10 @@ export default function VideoPlayer({
   }
 
   return (
-    <div className={`relative group ${className}`}>
+    <div className={`relative group w-full ${className}`} style={{ minHeight: 0, position: 'relative' }}>
       <video
         ref={videoRef}
-        src={src}
+        src={src || undefined}
         poster={poster}
         autoPlay={autoPlay}
         muted={isMuted}
@@ -153,7 +177,14 @@ export default function VideoPlayer({
         loop={loop}
         playsInline
         preload="auto"
-        className="w-full h-full object-cover rounded-lg"
+        className="w-full h-full object-contain rounded-lg"
+        style={{ 
+          maxWidth: '100%', 
+          maxHeight: '100%',
+          width: '100%',
+          height: 'auto',
+          display: 'block'
+        }}
         onError={() => setHasError(true)}
         onPlay={() => {
           const v = videoRef.current

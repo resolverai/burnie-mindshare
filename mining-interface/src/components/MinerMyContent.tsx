@@ -1174,7 +1174,8 @@ export default function MinerMyContent() {
                 : extractedImageUrl
 
               // Video URL handling - same as Mining screen
-              const videoUrl = item.video_url || null
+              const videoUrl = item.video_url || item.watermark_video_url || null
+              const hasVideo = !!videoUrl
               
               const hashtags = extractHashtags(text)
               
@@ -1324,16 +1325,34 @@ export default function MinerMyContent() {
                               ) : null}
                             </div>
                           ) : imageUrl && (
-                            <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800">
-                              <img 
-                                src={imageUrl} 
-                                alt="Content image" 
-                                className="w-full h-auto"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement
-                                  target.style.display = 'none'
-                                }}
-                              />
+                            <div className="mt-3 rounded-lg overflow-hidden border border-gray-600 bg-gray-800 relative">
+                              {hasVideo && videoUrl ? (
+                                <>
+                                  <VideoPlayer
+                                    src={videoUrl}
+                                    className="w-full h-auto rounded-lg"
+                                    controls={true}
+                                    muted={false}
+                                    loop={false}
+                                  />
+                                  {/* Video Icon Overlay */}
+                                  <div className="absolute top-2 right-2 bg-black/70 rounded-full p-2 z-10">
+                                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M8 5v14l11-7z"/>
+                                    </svg>
+                                  </div>
+                                </>
+                              ) : (
+                                <img 
+                                  src={imageUrl} 
+                                  alt="Content image" 
+                                  className="w-full h-auto"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement
+                                    target.style.display = 'none'
+                                  }}
+                                />
+                              )}
                             </div>
                           )}
                         </div>

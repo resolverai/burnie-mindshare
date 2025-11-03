@@ -24,28 +24,55 @@ function ProjectsTwitterCallbackContent() {
           throw new Error('API URL not configured')
         }
         
-        const resp = await fetch(`${apiUrl}/projects/twitter/callback`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, state })
-        })
+        // Determine if this is a reconnect flow by checking if state starts with "reconnect_" prefix
+        // The reconnect flow uses a state format that includes "reconnect_" prefix
+        // Initial sign-in uses state format: `${state}:${codeVerifier}`
+        const isReconnectFlow = state && typeof state === 'string' && state.startsWith('reconnect_');
+        
+        let resp;
+        if (isReconnectFlow) {
+          // Reconnect flow - call the reconnect callback endpoint
+          resp = await fetch(`${apiUrl}/projects/twitter-auth/oauth2/callback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, state })
+          })
+        } else {
+          // Initial sign-in flow - call the original callback endpoint
+          resp = await fetch(`${apiUrl}/projects/twitter/callback`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, state })
+          })
+        }
         
         if (!resp.ok) {
           const errorData = await resp.json().catch(() => ({}))
           throw new Error(errorData.error || `Callback failed: ${resp.status}`)
         }
         
+        // Both flows return JSON
         const result = await resp.json()
         if (!result?.success) {
           throw new Error(result?.error || 'Callback failed')
         }
+        
         setStatus('Connected! You can close this window…')
         if (window.opener) {
-          window.opener.postMessage({
-            type: 'PROJECTS_TWITTER_AUTH_SUCCESS',
-            project_id: result?.data?.project_id,
-            exists: result?.data?.exists
-          }, window.location.origin)
+          // Check if this is a reconnect flow or initial sign-in
+          if (isReconnectFlow) {
+            window.opener.postMessage({
+              type: 'PROJECTS_TWITTER_AUTH_SUCCESS',
+              reconnect: true,
+              projectId: result?.data?.projectId
+            }, window.location.origin)
+          } else {
+            window.opener.postMessage({
+              type: 'PROJECTS_TWITTER_AUTH_SUCCESS',
+              project_id: result?.data?.project_id,
+              exists: result?.data?.exists
+            }, window.location.origin)
+          }
         }
         setTimeout(() => window.close(), 1200)
       } catch (e: any) {

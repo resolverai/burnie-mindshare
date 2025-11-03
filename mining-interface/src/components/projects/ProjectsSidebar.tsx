@@ -29,7 +29,6 @@ export default function ProjectsSidebar({ projectId, isExpanded, onToggle }: Pro
     { name: 'Context', href: `${base}/context`, icon: DocumentTextIcon },
     { name: 'Daily Posts', href: `${base}/daily-posts`, icon: PhotoIcon },
     { name: 'My Content', href: `${base}/my-content`, icon: DocumentTextIcon },
-    { name: 'Schedule', href: `${base}/schedule`, icon: CalendarIcon },
     { name: 'Settings', href: `${base}/settings`, icon: Cog6ToothIcon },
   ]
 
