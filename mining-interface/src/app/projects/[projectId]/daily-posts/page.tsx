@@ -197,8 +197,8 @@ export default function ProjectDailyPostsPage() {
   const [posts, setPosts] = useState<PostData[]>([])
   const [generatedImages, setGeneratedImages] = useState<string[]>([])
   const [perImageMetadata, setPerImageMetadata] = useState<any>({})
-  const [dailyPostsCount, setDailyPostsCount] = useState<number>(10) // Default to 10
-  const [contentMix, setContentMix] = useState<{threads: number, shitpost: number, longpost: number}>({threads: 4, shitpost: 4, longpost: 2})
+  const [dailyPostsCount, setDailyPostsCount] = useState<number | null>(null) // Start as null, fetch from config
+  const [contentMix, setContentMix] = useState<{threads: number, shitpost: number, longpost: number} | null>(null) // Start as null, fetch from config
   const [selectedPostIndex, setSelectedPostIndex] = useState<number | null>(null)
   
   // Token validation state
@@ -245,10 +245,15 @@ export default function ProjectDailyPostsPage() {
         const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`)
         
         if (response.ok) {
-          const data = await response.json()
-          if (data.success && data.data) {
-            const config = data.data
-            setDailyPostsCount(config.daily_posts_count || 10)
+          // The endpoint returns the config directly (not wrapped in { success, data })
+          const config = await response.json()
+          
+          // Check if response is an error object
+          if (!config.error) {
+            // Only set if we have valid values (not null/undefined)
+            if (config.daily_posts_count != null) {
+              setDailyPostsCount(config.daily_posts_count)
+            }
             if (config.content_mix) {
               setContentMix(config.content_mix)
             }
@@ -909,116 +914,121 @@ export default function ProjectDailyPostsPage() {
     }
 
     // Fetch fresh configuration before generating to ensure we have the latest values
-    let currentDailyPostsCount = dailyPostsCount
-    let currentContentMix = contentMix
+    // This is REQUIRED - don't proceed without valid config
+    let currentDailyPostsCount: number | null = null
+    let currentContentMix: {threads: number, shitpost: number, longpost: number} | null = null
     
     try {
       const apiUrl = getApiUrlWithFallback()
-      if (apiUrl) {
-        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-        const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`)
-        
-        if (response.ok) {
-          const data = await response.json()
-          if (data.success && data.data) {
-            const config = data.data
-            currentDailyPostsCount = config.daily_posts_count || 10
-            if (config.content_mix) {
-              currentContentMix = config.content_mix
-            }
-            // Update state for future renders
-            setDailyPostsCount(currentDailyPostsCount)
-            setContentMix(currentContentMix)
-          }
-        }
+      if (!apiUrl) {
+        alert('API URL not configured. Please check your environment settings.')
+        return
       }
+      
+      const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+      const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`)
+      
+      if (!response.ok) {
+        alert(`Failed to fetch project configuration: ${response.statusText}`)
+        return
+      }
+      
+      // The endpoint returns the config directly (not wrapped in { success, data })
+      const config = await response.json()
+      
+      // Check if response is an error object
+      if (config.error) {
+        alert(`Failed to fetch configuration: ${config.error}`)
+        return
+      }
+      
+      // Validate that we have required config values
+      if (config.daily_posts_count == null || config.daily_posts_count < 1) {
+        alert(`Invalid daily_posts_count in configuration: ${config.daily_posts_count}. Please configure it in project settings.`)
+        return
+      }
+      
+      if (!config.content_mix || typeof config.content_mix !== 'object') {
+        alert('Invalid content_mix in configuration. Please configure it in project settings.')
+        return
+      }
+      
+      currentDailyPostsCount = config.daily_posts_count
+      currentContentMix = config.content_mix
+      
+      // Update state for future renders
+      setDailyPostsCount(currentDailyPostsCount)
+      setContentMix(currentContentMix)
+      
     } catch (error) {
       console.error('Error fetching fresh config before generation:', error)
-      // Continue with existing state values
+      alert(`Failed to fetch configuration: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      return // Don't proceed without valid config
+    }
+    
+    // Final validation - ensure we have valid values
+    if (currentDailyPostsCount == null || currentContentMix == null) {
+      alert('Configuration incomplete. Please configure daily posts count and content mix in project settings.')
+      return
     }
 
-    // Initialize empty posts based on daily_posts_count and content mix from config
-    // Use contentMix values if they match dailyPostsCount, otherwise use dailyPostsCount directly
+    // Initialize empty posts based EXACTLY on daily_posts_count and content mix from config
+    // The content mix should match daily_posts_count, but if it doesn't, we'll use proportional distribution
     const contentMixSum = currentContentMix.threads + currentContentMix.shitpost + currentContentMix.longpost
-    const targetCount = contentMixSum === currentDailyPostsCount ? contentMixSum : currentDailyPostsCount
-    
-    if (contentMixSum !== currentDailyPostsCount) {
-      console.warn(`⚠️ Content mix sum (${contentMixSum}) does not match daily_posts_count (${currentDailyPostsCount})`)
-      console.warn(`   Using daily_posts_count (${currentDailyPostsCount}) as the target number of posts`)
-    }
     
     console.log(`📊 Initializing posts:`, {
       dailyPostsCount: currentDailyPostsCount,
       contentMix: currentContentMix,
-      contentMixSum,
-      targetCount
+      contentMixSum
     })
     
     const emptyPosts: PostData[] = []
     let postIndex = 0
     
-    // Only add posts based on actual content mix if it matches daily_posts_count
-    if (contentMixSum === currentDailyPostsCount) {
-      // Add threads
-      for (let i = 0; i < currentContentMix.threads; i++) {
-        emptyPosts.push({
-          id: `post-${postIndex + 1}`,
-          type: 'thread',
-          text: ''
-        })
-        postIndex++
-      }
-      
-      // Add shitposts
-      for (let i = 0; i < currentContentMix.shitpost; i++) {
-        emptyPosts.push({
-          id: `post-${postIndex + 1}`,
-          type: 'shitpost',
-          text: ''
-        })
-        postIndex++
-      }
-      
-      // Add longposts
-      for (let i = 0; i < currentContentMix.longpost; i++) {
-        emptyPosts.push({
-          id: `post-${postIndex + 1}`,
-          type: 'longpost',
-          text: ''
-        })
-        postIndex++
-      }
-    } else {
-      // If mismatch, create posts based on daily_posts_count with proportional distribution
-      // This is a fallback - ideally contentMix should always match currentDailyPostsCount
-      console.warn(`⚠️ Content mix (${contentMixSum}) doesn't match daily_posts_count (${currentDailyPostsCount}), using proportional distribution`)
-      
-      const threadsCount = Math.round((currentContentMix.threads / contentMixSum) * currentDailyPostsCount)
-      const shitpostCount = Math.round((currentContentMix.shitpost / contentMixSum) * currentDailyPostsCount)
-      const longpostCount = currentDailyPostsCount - threadsCount - shitpostCount // Ensure total matches
-      
-      for (let i = 0; i < threadsCount; i++) {
-        emptyPosts.push({ id: `post-${postIndex + 1}`, type: 'thread', text: '' })
-        postIndex++
-      }
-      for (let i = 0; i < shitpostCount; i++) {
-        emptyPosts.push({ id: `post-${postIndex + 1}`, type: 'shitpost', text: '' })
-        postIndex++
-      }
-      for (let i = 0; i < longpostCount; i++) {
-        emptyPosts.push({ id: `post-${postIndex + 1}`, type: 'longpost', text: '' })
-        postIndex++
-      }
+    // Always use content mix values directly - they should match daily_posts_count
+    // Add threads
+    for (let i = 0; i < currentContentMix.threads; i++) {
+      emptyPosts.push({
+        id: `post-${postIndex + 1}`,
+        type: 'thread',
+        text: ''
+      })
+      postIndex++
     }
     
-    // Verify final count matches daily_posts_count
+    // Add shitposts
+    for (let i = 0; i < currentContentMix.shitpost; i++) {
+      emptyPosts.push({
+        id: `post-${postIndex + 1}`,
+        type: 'shitpost',
+        text: ''
+      })
+      postIndex++
+    }
+    
+    // Add longposts
+    for (let i = 0; i < currentContentMix.longpost; i++) {
+      emptyPosts.push({
+        id: `post-${postIndex + 1}`,
+        type: 'longpost',
+        text: ''
+      })
+      postIndex++
+    }
+    
+    // Verify final count matches daily_posts_count exactly
     const finalPostCount = emptyPosts.length
     if (finalPostCount !== currentDailyPostsCount) {
-      console.error(`❌ Post count mismatch: Generated ${finalPostCount} posts, but daily_posts_count is ${currentDailyPostsCount}`)
-      // Trim or pad to match daily_posts_count
+      console.warn(`⚠️ Content mix sum (${finalPostCount}) doesn't match daily_posts_count (${currentDailyPostsCount})`)
+      console.warn(`   Adjusting to match daily_posts_count (${currentDailyPostsCount})`)
+      
+      // Trim or pad to match daily_posts_count EXACTLY
       if (finalPostCount > currentDailyPostsCount) {
+        // Remove excess posts (keep first N)
         emptyPosts.splice(currentDailyPostsCount)
+        console.log(`   Trimmed ${finalPostCount - currentDailyPostsCount} excess posts`)
       } else {
+        // Pad with threads to match daily_posts_count
         while (emptyPosts.length < currentDailyPostsCount) {
           emptyPosts.push({
             id: `post-${emptyPosts.length + 1}`,
@@ -1026,12 +1036,12 @@ export default function ProjectDailyPostsPage() {
             text: ''
           })
         }
+        console.log(`   Added ${currentDailyPostsCount - finalPostCount} posts to match daily_posts_count`)
       }
-    } else {
-      console.log(`✅ Post count verified: ${finalPostCount} posts match daily_posts_count (${currentDailyPostsCount})`)
     }
     
-    console.log(`✅ Setting ${emptyPosts.length} empty posts for generation`)
+    const verifiedPostCount = emptyPosts.length
+    console.log(`✅ Setting ${verifiedPostCount} empty posts for generation (matches daily_posts_count: ${currentDailyPostsCount})`)
     setPosts(emptyPosts)
 
     setIsGenerating(true)

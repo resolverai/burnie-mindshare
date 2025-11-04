@@ -2416,19 +2416,17 @@ async def combine_clips_simple(clip_urls: List[str], project_id: int, job_id: st
             clips = [VideoFileClip(path) for path in local_clip_paths]
             
             if len(clips) == 1:
-                # Single clip: add fade-in at beginning and fade-out at end
+                # Single clip: add audio fade-in at beginning and fade-out at end (visual fade-out only)
                 logger.info("📹 Single clip detected - adding fade effects...")
                 single_clip = clips[0]
                 
-                # Add visual fade-in at beginning
+                # Add audio fade-in at beginning (NO visual fade-in)
                 start_fade_duration = 1.0
-                single_clip = single_clip.fadein(start_fade_duration)
-                logger.info(f"🎬 Adding {start_fade_duration}s visual fade-in at beginning...")
-                
-                # Add audio fade-in at beginning
                 if single_clip.audio is not None:
                     single_clip = single_clip.audio_fadein(start_fade_duration)
                     logger.info(f"🔊 Adding {start_fade_duration}s audio fade-in at beginning...")
+                else:
+                    logger.info(f"🔊 No audio track found - skipping audio fade-in")
                 
                 # Add visual fade-to-black ending
                 end_fade_duration = 1.5
@@ -2439,6 +2437,8 @@ async def combine_clips_simple(clip_urls: List[str], project_id: int, job_id: st
                 if single_clip.audio is not None:
                     single_clip = single_clip.audio_fadeout(end_fade_duration)
                     logger.info(f"🔊 Adding {end_fade_duration}s audio fade-out...")
+                else:
+                    logger.info(f"🔊 No audio track found - skipping audio fade-out")
                 
                 # Save combined clip
                 output_path = os.path.join(temp_dir, "combined_video.mp4")
