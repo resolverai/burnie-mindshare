@@ -458,7 +458,7 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
                 raise HTTPException(status_code=400, detail="API keys are required for dedicated miner. Please configure your neural keys.")
             
             # Count available API keys and categorize them
-            text_providers = ['openai', 'anthropic']
+            text_providers = ['openai', 'anthropic', 'xai']  # Added 'xai' for Grok text generation
             visual_providers = ['openai', 'google', 'fal', 'replicate', 'stability']
             
             available_text_keys = [k for k in text_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
@@ -469,7 +469,7 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
             if not available_text_keys:
                 raise HTTPException(
                     status_code=400, 
-                    detail=f"Text generation API key is required for dedicated miner. Please configure OpenAI or Anthropic API key in Neural Keys."
+                    detail=f"Text generation API key is required for dedicated miner. Please configure OpenAI, Anthropic, or XAI (Grok) API key in Neural Keys."
                 )
             
             # Determine generation capabilities
@@ -486,7 +486,7 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
                 raise HTTPException(status_code=400, detail="API keys are required. Please configure at least your text generation API key in Neural Keys.")
             
             # Count available API keys and categorize them
-            text_providers = ['openai', 'anthropic']
+            text_providers = ['openai', 'anthropic', 'xai']  # Added 'xai' for Grok text generation
             visual_providers = ['openai', 'google', 'fal', 'replicate', 'stability']
             
             available_text_keys = [k for k in text_providers if request.user_api_keys.get(k) and request.user_api_keys.get(k).strip()]
@@ -497,7 +497,7 @@ async def start_mining(request: StartMiningRequest, background_tasks: Background
             if not available_text_keys:
                 raise HTTPException(
                     status_code=400, 
-                    detail=f"Text generation API key is required. Please configure OpenAI or Anthropic API key in Neural Keys. Text content is mandatory for Twitter posts."
+                    detail=f"Text generation API key is required. Please configure OpenAI, Anthropic, or XAI (Grok) API key in Neural Keys. Text content is mandatory for Twitter posts."
                 )
             
             # Determine generation capabilities

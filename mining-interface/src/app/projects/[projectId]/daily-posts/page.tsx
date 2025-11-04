@@ -835,7 +835,10 @@ export default function ProjectDailyPostsPage() {
   useEffect(() => {
     posts.forEach((post, index) => {
       const videoUrl = videoUrls[index]
-      const imageUrl = post.imageUrl || generatedImages[index] || perImageMetadata[`image_${index + 1}`]?.image_url
+      // Use the same priority order as in the modal: metadata first, then generatedImages, then post.imageUrl
+      const imageKey = `image_${index + 1}`
+      const metadata = perImageMetadata[imageKey]
+      const imageUrl = metadata?.image_url || generatedImages[index] || post.imageUrl
       
       // Prioritize video URL if exists, otherwise use image URL
       const mediaUrl = videoUrl || imageUrl

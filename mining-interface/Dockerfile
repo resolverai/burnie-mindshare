@@ -4,9 +4,13 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 # Build argument for miner mode (must be defined before ENV that uses it)
+# For dedicated miners: NEXT_PUBLIC_MINER=1 (hardcoded)
 ARG NEXT_PUBLIC_MINER=1
 
 # Build arguments for environment variables
+# NOTE: These are hardcoded for dedicated miner deployments
+# Backends (mindshareapi.burnie.io and attentionai.burnie.io) have CORS configured
+# to allow *.nodeops.network subdomains, so no CORS issues when deployed on other domains
 ARG NEXT_PUBLIC_BURNIE_API_URL=https://mindshareapi.burnie.io/api
 ARG NEXT_PUBLIC_AI_API_URL=https://attentionai.burnie.io
 ARG NEXT_PUBLIC_BURNIE_AI_API_URL=https://attentionai.burnie.io

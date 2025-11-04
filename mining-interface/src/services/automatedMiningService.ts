@@ -289,7 +289,9 @@ class AutomatedMiningService {
       }];
 
       // Use the same mining endpoint as the Mining screen
-      const miningResponse = await fetch(`${process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000'}/api/mining/start`, {
+      // Use environment variable with localhost as fallback only
+      const aiApiUrl = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000';
+      const miningResponse = await fetch(`${aiApiUrl}/api/mining/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -310,6 +312,7 @@ class AutomatedMiningService {
               openai: apiKeys?.openai,
               anthropic: apiKeys?.anthropic,
               google: apiKeys?.google,
+              xai: apiKeys?.xai, // XAI API key for Grok text generation
               replicate: apiKeys?.replicate,
               elevenlabs: apiKeys?.elevenlabs,
               stability: apiKeys?.stability,

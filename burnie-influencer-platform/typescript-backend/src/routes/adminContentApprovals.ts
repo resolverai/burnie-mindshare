@@ -161,17 +161,19 @@ router.put('/admin-content-approvals/:approvalId/approve', async (req, res) => {
 
     await approvalRepository.save(approval);
 
-    // Update content status
+    // Update content status and wallet_address
     if (approval.content) {
       approval.content.approvalStatus = 'approved';
       approval.content.isBiddable = biddingEnabled || false;
+      // IMPORTANT: Set wallet_address to miner wallet address on approval
+      approval.content.walletAddress = approval.minerWalletAddress.toLowerCase();
       if (biddingEnabled) {
         approval.content.biddingEnabledAt = new Date();
       }
       await contentRepository.save(approval.content);
     }
 
-    logger.info(`✅ Admin ${adminWallet} approved content ${approval.contentId}`);
+    logger.info(`✅ Admin ${adminWallet} approved content ${approval.contentId}, wallet_address set to ${approval.minerWalletAddress}`);
 
     return res.json({
       success: true,
@@ -234,14 +236,16 @@ router.put('/admin-content-approvals/:approvalId/reject', async (req, res) => {
 
     await approvalRepository.save(approval);
 
-    // Update content status
+    // Update content status and wallet_address
     if (approval.content) {
       approval.content.approvalStatus = 'rejected';
       approval.content.rejectedAt = new Date();
+      // IMPORTANT: Set wallet_address to miner wallet address on rejection
+      approval.content.walletAddress = approval.minerWalletAddress.toLowerCase();
       await contentRepository.save(approval.content);
     }
 
-    logger.info(`❌ Admin ${adminWallet} rejected content ${approval.contentId}`);
+    logger.info(`❌ Admin ${adminWallet} rejected content ${approval.contentId}, wallet_address set to ${approval.minerWalletAddress}`);
 
     return res.json({
       success: true,

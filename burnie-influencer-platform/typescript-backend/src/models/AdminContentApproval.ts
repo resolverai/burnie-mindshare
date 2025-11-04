@@ -17,8 +17,8 @@ export class AdminContentApproval {
   @Column({ name: 'admin_wallet_address', type: 'varchar', length: 42 })
   adminWalletAddress!: string;
 
-  @Column({ name: 'content_id', type: 'uuid' })
-  contentId!: string;
+  @Column({ name: 'content_id', type: 'integer' })
+  contentId!: number;
 
   @Column({ name: 'miner_wallet_address', type: 'varchar', length: 42 })
   minerWalletAddress!: string;

@@ -28,6 +28,13 @@ function HomePageContent() {
   // TEMPORARY: Skip Twitter for both regular and dedicated miners
   // TODO: Re-enable Twitter requirement for regular miners later
   const skipTwitter = true // Set to false to re-enable Twitter requirement
+
+  // For dedicated miners, auto-set selectedFlow to 'web3' to show mining landing page
+  useEffect(() => {
+    if (isDedicatedMiner && !selectedFlow) {
+      setSelectedFlow('web3')
+    }
+  }, [isDedicatedMiner, selectedFlow])
   
   // Check Web2 session status when selectedFlow is web2 or on initial load
   useEffect(() => {
@@ -398,88 +405,91 @@ function HomePageContent() {
             <h1 className="text-2xl font-bold text-white">BURNIE</h1>
           </div>
           <div className="flex items-center space-x-4">
-            {!isDedicatedMiner && (
-              <>
-                {(() => {
-                  const web3Auth = typeof window !== 'undefined' ? localStorage.getItem('burnie_auth_token') : null
-                  const web2Auth = typeof window !== 'undefined' ? localStorage.getItem('burnie_web2_auth') : null
-                  
-                  if (web3Auth) {
-                    // Web3 user is logged in
-                    return (
-                      <>
-                        <button
-                          onClick={() => router.push('/dashboard')}
-                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
-                        >
-                          Go to Dashboard
-                        </button>
-                        <button
-                          onClick={() => {
-                            localStorage.removeItem('burnie_auth_token')
-                            window.location.reload()
-                          }}
-                          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
-                        >
-                          Logout
-                        </button>
-                      </>
-                    )
-                  } else if (web2Auth) {
-                    // Web2 user is logged in
-                    return (
-                      <>
-                        <button
-                          onClick={() => router.push('/web2/dashboard')}
-                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
-                        >
-                          Go to Dashboard
-                        </button>
-                        <button
-                          onClick={async () => {
-                            // Call backend logout endpoint
-                            try {
-                              const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
-                              const accountId = localStorage.getItem('burnie_web2_account_id')
-                              await fetch(`${apiUrl}/web2-auth/logout`, {
-                                method: 'POST',
-                                headers: {
-                                  'Authorization': `Bearer ${web2Auth}`,
-                                  'Content-Type': 'application/json'
-                                },
-                                body: JSON.stringify({ account_id: accountId })
-                              })
-                            } catch (error) {
-                              console.error('Logout error:', error)
-                            }
-                            
-                            // Clear localStorage
-                            localStorage.removeItem('burnie_web2_auth')
-                            localStorage.removeItem('burnie_web2_account_id')
-                            localStorage.removeItem('burnie_web2_username')
-                            window.location.reload()
-                          }}
-                          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
-                        >
-                          Logout
-                        </button>
-                      </>
-                    )
-                  } else {
-                    // No user logged in - show Get Started button
-                    return (
-                      <button
-                        onClick={() => setShowFlowChoice(true)}
-                        className="btn-secondary"
-                      >
-                        Get Started
-                      </button>
-                    )
-                  }
-                })()}
-              </>
-            )}
-            {selectedFlow === 'web3' && !localStorage.getItem('burnie_auth_token') && <ConnectButton />}
+            {(() => {
+              const web3Auth = typeof window !== 'undefined' ? localStorage.getItem('burnie_auth_token') : null
+              const web2Auth = typeof window !== 'undefined' ? localStorage.getItem('burnie_web2_auth') : null
+              
+              // Show Get Started button only for regular miners when no flow is selected
+              // For dedicated miners or when web3 flow is selected, show only Connect Wallet
+              const showGetStarted = !isDedicatedMiner && !selectedFlow && !web3Auth && !web2Auth
+              
+              if (web3Auth) {
+                // Web3 user is logged in
+                return (
+                  <>
+                    <button
+                      onClick={() => router.push('/dashboard')}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
+                    >
+                      Go to Dashboard
+                    </button>
+                    <button
+                      onClick={() => {
+                        localStorage.removeItem('burnie_auth_token')
+                        window.location.reload()
+                      }}
+                      className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
+                    >
+                      Logout
+                    </button>
+                  </>
+                )
+              } else if (web2Auth) {
+                // Web2 user is logged in
+                return (
+                  <>
+                    <button
+                      onClick={() => router.push('/web2/dashboard')}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
+                    >
+                      Go to Dashboard
+                    </button>
+                    <button
+                      onClick={async () => {
+                        // Call backend logout endpoint
+                        try {
+                          const apiUrl = process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'
+                          const accountId = localStorage.getItem('burnie_web2_account_id')
+                          await fetch(`${apiUrl}/web2-auth/logout`, {
+                            method: 'POST',
+                            headers: {
+                              'Authorization': `Bearer ${web2Auth}`,
+                              'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ account_id: accountId })
+                          })
+                        } catch (error) {
+                          console.error('Logout error:', error)
+                        }
+                        
+                        // Clear localStorage
+                        localStorage.removeItem('burnie_web2_auth')
+                        localStorage.removeItem('burnie_web2_account_id')
+                        localStorage.removeItem('burnie_web2_username')
+                        window.location.reload()
+                      }}
+                      className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
+                    >
+                      Logout
+                    </button>
+                  </>
+                )
+              } else if (showGetStarted) {
+                // No user logged in and no flow selected (regular miners only) - show Get Started button
+                return (
+                  <button
+                    onClick={() => setShowFlowChoice(true)}
+                    className="btn-secondary"
+                  >
+                    Get Started
+                  </button>
+                )
+              } else {
+                // For dedicated miners or when web3 flow is selected - show Connect Wallet
+                return null // Connect Wallet will be shown in the main CTA section
+              }
+            })()}
+            {(isDedicatedMiner || selectedFlow === 'web3') && !localStorage.getItem('burnie_auth_token') && <ConnectButton />}
           </div>
         </div>
       </header>
@@ -509,34 +519,63 @@ function HomePageContent() {
             </h1>
             
             <p className="text-xl md:text-2xl text-gray-300 mb-12 max-w-4xl mx-auto leading-relaxed">
-              Whether you're a <strong className="text-white">Web3 miner</strong>, <strong className="text-white">business owner</strong>, 
-              <strong className="text-white"> social media manager</strong>, <strong className="text-white">design agency</strong>, 
-              or <strong className="text-white">influencer</strong> — create viral content with AI in seconds.
+              {isDedicatedMiner || selectedFlow === 'web3' ? (
+                <>
+                  Mine <strong className="text-white">ROAST tokens</strong> by generating viral content for campaigns. 
+                  Create <strong className="text-white">AI-powered content</strong> in seconds and earn rewards.
+                </>
+              ) : (
+                <>
+                  Whether you're a <strong className="text-white">Web3 miner</strong>, <strong className="text-white">business owner</strong>, 
+                  <strong className="text-white"> social media manager</strong>, <strong className="text-white">design agency</strong>, 
+                  or <strong className="text-white">influencer</strong> — create viral content with AI in seconds.
+                </>
+              )}
             </p>
 
             {/* Use Cases */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12 max-w-6xl mx-auto">
-              <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
-                <div className="text-4xl mb-3">🚀</div>
-                <h3 className="text-lg font-bold text-white mb-2">Web3 Miners</h3>
-                <p className="text-gray-400 text-sm">Mine ROAST tokens by generating viral content for campaigns</p>
+            {(isDedicatedMiner || selectedFlow === 'web3') ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 max-w-5xl mx-auto">
+                <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                  <div className="text-4xl mb-3">💰</div>
+                  <h3 className="text-lg font-bold text-white mb-2">Earn ROAST Tokens</h3>
+                  <p className="text-gray-400 text-sm">Generate content for campaigns and earn cryptocurrency rewards</p>
+                </div>
+                <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                  <div className="text-4xl mb-3">🎯</div>
+                  <h3 className="text-lg font-bold text-white mb-2">Campaign Participation</h3>
+                  <p className="text-gray-400 text-sm">Join active campaigns and create content that brands need</p>
+                </div>
+                <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                  <div className="text-4xl mb-3">🤖</div>
+                  <h3 className="text-lg font-bold text-white mb-2">AI Automation</h3>
+                  <p className="text-gray-400 text-sm">Let AI generate high-quality content automatically for you</p>
+                </div>
               </div>
-              <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
-                <div className="text-4xl mb-3">🏢</div>
-                <h3 className="text-lg font-bold text-white mb-2">Businesses</h3>
-                <p className="text-gray-400 text-sm">Automate social media with AI-powered brand content</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12 max-w-6xl mx-auto">
+                <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                  <div className="text-4xl mb-3">🚀</div>
+                  <h3 className="text-lg font-bold text-white mb-2">Web3 Miners</h3>
+                  <p className="text-gray-400 text-sm">Mine ROAST tokens by generating viral content for campaigns</p>
+                </div>
+                <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                  <div className="text-4xl mb-3">🏢</div>
+                  <h3 className="text-lg font-bold text-white mb-2">Businesses</h3>
+                  <p className="text-gray-400 text-sm">Automate social media with AI-powered brand content</p>
+                </div>
+                <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                  <div className="text-4xl mb-3">🎨</div>
+                  <h3 className="text-lg font-bold text-white mb-2">Design Agencies</h3>
+                  <p className="text-gray-400 text-sm">Create stunning visuals for multiple clients instantly</p>
+                </div>
+                <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
+                  <div className="text-4xl mb-3">📱</div>
+                  <h3 className="text-lg font-bold text-white mb-2">Influencers</h3>
+                  <p className="text-gray-400 text-sm">Generate engaging content for all your social channels</p>
+                </div>
               </div>
-              <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
-                <div className="text-4xl mb-3">🎨</div>
-                <h3 className="text-lg font-bold text-white mb-2">Design Agencies</h3>
-                <p className="text-gray-400 text-sm">Create stunning visuals for multiple clients instantly</p>
-              </div>
-              <div className="glass p-6 rounded-xl hover:scale-105 transition-transform">
-                <div className="text-4xl mb-3">📱</div>
-                <h3 className="text-lg font-bold text-white mb-2">Influencers</h3>
-                <p className="text-gray-400 text-sm">Generate engaging content for all your social channels</p>
-              </div>
-            </div>
+            )}
 
             {/* What We Offer */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 max-w-5xl mx-auto">
@@ -557,37 +596,39 @@ function HomePageContent() {
               </div>
             </div>
             
-            {/* CTA Section */}
-            <div className="glass p-8 rounded-2xl max-w-2xl mx-auto mb-12">
-              <h3 className="text-2xl font-bold text-white mb-4 text-center">Choose Your Path</h3>
-              <p className="text-gray-400 mb-6 text-center">
-                Select the experience that matches your needs
-              </p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 bg-gray-700/30 rounded-lg border border-gray-600">
-                  <div className="text-3xl mb-2">🌐</div>
-                  <h4 className="text-white font-bold mb-1">Web3 Miner</h4>
-                  <p className="text-gray-400 text-sm mb-3">Generate content for campaigns and earn ROAST tokens</p>
-                  <ul className="text-xs text-gray-400 space-y-1">
-                    <li>✓ Wallet-based auth</li>
-                    <li>✓ Campaign participation</li>
-                    <li>✓ Token rewards</li>
-                  </ul>
-                </div>
+            {/* CTA Section - Only show for regular miners when no flow is selected */}
+            {!isDedicatedMiner && !selectedFlow && (
+              <div className="glass p-8 rounded-2xl max-w-2xl mx-auto mb-12">
+                <h3 className="text-2xl font-bold text-white mb-4 text-center">Choose Your Path</h3>
+                <p className="text-gray-400 mb-6 text-center">
+                  Select the experience that matches your needs
+                </p>
                 
-                <div className="p-4 bg-gray-700/30 rounded-lg border border-gray-600">
-                  <div className="text-3xl mb-2">💼</div>
-                  <h4 className="text-white font-bold mb-1">Web2 Business</h4>
-                  <p className="text-gray-400 text-sm mb-3">Automate content creation for your brand or clients</p>
-                  <ul className="text-xs text-gray-400 space-y-1">
-                    <li>✓ Social media automation</li>
-                    <li>✓ Brand-specific content</li>
-                    <li>✓ Multi-platform publishing</li>
-                  </ul>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 bg-gray-700/30 rounded-lg border border-gray-600">
+                    <div className="text-3xl mb-2">🌐</div>
+                    <h4 className="text-white font-bold mb-1">Web3 Miner</h4>
+                    <p className="text-gray-400 text-sm mb-3">Generate content for campaigns and earn ROAST tokens</p>
+                    <ul className="text-xs text-gray-400 space-y-1">
+                      <li>✓ Wallet-based auth</li>
+                      <li>✓ Campaign participation</li>
+                      <li>✓ Token rewards</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="p-4 bg-gray-700/30 rounded-lg border border-gray-600">
+                    <div className="text-3xl mb-2">💼</div>
+                    <h4 className="text-white font-bold mb-1">Web2 Business</h4>
+                    <p className="text-gray-400 text-sm mb-3">Automate content creation for your brand or clients</p>
+                    <ul className="text-xs text-gray-400 space-y-1">
+                      <li>✓ Social media automation</li>
+                      <li>✓ Brand-specific content</li>
+                      <li>✓ Multi-platform publishing</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Error Display */}
             {error && (
@@ -630,8 +671,11 @@ function HomePageContent() {
                   )
                 }
                 
-                // Otherwise show the flow selection
-                return !selectedFlow ? (
+                // Show Get Started button only for regular miners when no flow is selected
+                // For dedicated miners or when web3 flow is selected, show only Connect Wallet
+                const showGetStarted = !isDedicatedMiner && !selectedFlow
+                
+                return showGetStarted ? (
                   <>
                     <button
                       onClick={() => setShowFlowChoice(true)}

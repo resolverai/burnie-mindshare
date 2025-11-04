@@ -869,7 +869,7 @@ export default function ProjectMyContentPage() {
                                 <>
                                   {/* Scheduled Badge */}
                                   {(() => {
-                                    const scheduleKey = `${date}-${post.item.id}-image_${post.imageIndex}`
+                                    const scheduleKey = `${date}-${post.item.id}-image_${post.imageIndex + 1}`
                                     return postSchedules[scheduleKey] ? (
                                       <div className="absolute top-2 left-2 bg-green-600 text-white text-xs font-semibold px-2 py-1 rounded-full z-10">
                                         Scheduled
@@ -894,7 +894,7 @@ export default function ProjectMyContentPage() {
                                 <>
                                   {/* Scheduled Badge */}
                                   {(() => {
-                                    const scheduleKey = `${date}-${post.item.id}-image_${post.imageIndex}`
+                                    const scheduleKey = `${date}-${post.item.id}-image_${post.imageIndex + 1}`
                                     return postSchedules[scheduleKey] ? (
                                       <div className="absolute top-2 left-2 bg-green-600 text-white text-xs font-semibold px-2 py-1 rounded-full z-10">
                                         Scheduled
@@ -1179,7 +1179,7 @@ export default function ProjectMyContentPage() {
 
                     {/* Schedule Info Banner */}
                     {selectedPostIndex && (() => {
-                      const scheduleKey = `${date}-${selectedPostIndex.postData?.item?.id || ''}-image_${selectedPostIndex.postData?.imageIndex || 0}`
+                      const scheduleKey = `${date}-${selectedPostIndex.postData?.item?.id || ''}-image_${(selectedPostIndex.postData?.imageIndex || 0) + 1}`
                       const schedule = postSchedules[scheduleKey]
                       
                       if (schedule) {
@@ -1222,7 +1222,7 @@ export default function ProjectMyContentPage() {
         const mediaUrl = videoUrl || imageUrl
         const mediaS3Url = extractS3Url(mediaUrl)
         const mediaType = videoUrl ? 'video' : 'image'
-        const scheduleKey = `${date}-${postData.item?.id || ''}-image_${postData.imageIndex || 0}`
+        const scheduleKey = `${date}-${postData.item?.id || ''}-image_${(postData.imageIndex || 0) + 1}`
         const schedule = postSchedules[scheduleKey] || null
         
         return (

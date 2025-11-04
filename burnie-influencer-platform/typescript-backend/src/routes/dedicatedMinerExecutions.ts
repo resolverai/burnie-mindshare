@@ -5,7 +5,9 @@ import { DedicatedMinerExecution } from '../models/DedicatedMinerExecution';
 import { ApprovedMiner } from '../models/ApprovedMiner';
 import { ContentMarketplace } from '../models/ContentMarketplace';
 import { ContentPurchase } from '../models/ContentPurchase';
+import { User } from '../models/User';
 import { logger } from '../config/logger';
+import { env } from '../config/env';
 
 const router = Router();
 
@@ -75,6 +77,27 @@ router.post('/executions/check-and-reserve', async (req, res) => {
     }
 
     // Calculate current hot criteria for this campaign/post_type
+    // First check campaign-level metrics
+    const totalContentCount = await contentRepository
+      .createQueryBuilder('content')
+      .where('content.campaignId = :campaignId', { campaignId: parseInt(campaignId) })
+      .getCount();
+
+    const totalAvailablePosts = await contentRepository
+      .createQueryBuilder('content')
+      .where('content.campaignId = :campaignId', { campaignId: parseInt(campaignId) })
+      .andWhere('content.isAvailable = :isAvailable', { isAvailable: true })
+      .andWhere('content.isBiddable = :isBiddable', { isBiddable: true })
+      .andWhere('content.approvalStatus = :status', { status: 'approved' })
+      .getCount();
+
+    const totalPurchases = await purchaseRepository
+      .createQueryBuilder('purchase')
+      .innerJoin('purchase.content', 'content')
+      .where('content.campaignId = :campaignId', { campaignId: parseInt(campaignId) })
+      .getCount();
+
+    // Check post_type specific metrics
     const availableCount = await contentRepository
       .createQueryBuilder('content')
       .where('content.campaignId = :campaignId', { campaignId: parseInt(campaignId) })
@@ -95,10 +118,24 @@ router.post('/executions/check-and-reserve', async (req, res) => {
     let isHot = false;
     let neededPieces = 0;
 
-    if (availableCount === 0 && purchaseCount > 0) {
+    // Case 1: Campaign has no content at all (newly created) - all post types are hot
+    const isNewlyCreated = totalContentCount === 0;
+    
+    // Case 2: Campaign has purchases > 0 but total available posts = 0 - all post types are hot
+    const hasPurchasesButNoAvailable = totalPurchases > 0 && totalAvailablePosts === 0;
+
+    if (isNewlyCreated) {
+      isHot = true;
+      neededPieces = 1; // Need at least 1 piece for new campaigns
+    } else if (hasPurchasesButNoAvailable) {
+      isHot = true;
+      neededPieces = 1; // Need at least 1 piece to make it available
+    } else if (availableCount === 0 && purchaseCount > 0) {
+      // Case 3: Existing logic - available is 0 but purchases > 0 for this post type
       isHot = true;
       neededPieces = 1; // Need at least 1 piece to make it available
     } else if (availableCount > 0) {
+      // Case 4: Existing logic - ratio > 1 for this post type
       const ratio = purchaseCount / availableCount;
       if (ratio > 1) {
         isHot = true;
@@ -199,6 +236,14 @@ router.put('/executions/:executionId/complete', async (req, res) => {
     await executionRepository.save(execution);
 
     logger.info(`✅ Execution ${executionId} marked as completed`);
+
+    // Automatically assign content to admin for approval
+    try {
+      await assignContentToAdmin(execution);
+    } catch (assignError) {
+      logger.error(`❌ Failed to assign content to admin for execution ${executionId}:`, assignError);
+      // Don't fail the request if assignment fails - log and continue
+    }
 
     return res.json({
       success: true,
@@ -356,5 +401,76 @@ router.get('/executions/miner/:walletAddress/total-completed', async (req, res) 
     });
   }
 });
+
+/**
+ * Helper function to assign content to admin for approval
+ */
+async function assignContentToAdmin(execution: DedicatedMinerExecution): Promise<void> {
+  try {
+    // Get admin wallets from environment
+    const adminWallets = env.miner.adminWalletAddresses;
+    if (adminWallets.length === 0) {
+      logger.warn('⚠️ No admin wallets configured - cannot assign content for approval');
+      return;
+    }
+
+    // Find the user by miner wallet address to get creatorId
+    const userRepository = AppDataSource.getRepository(User);
+    const minerUser = await userRepository.findOne({
+      where: { walletAddress: ILike(execution.minerWalletAddress.toLowerCase()) }
+    });
+
+    if (!minerUser) {
+      logger.warn(`⚠️ Miner user not found for wallet ${execution.minerWalletAddress} - cannot assign content`);
+      return;
+    }
+
+    // Find the most recent pending content for this campaign, postType, and creator
+    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+    const content = await contentRepository
+      .createQueryBuilder('content')
+      .where('content.campaignId = :campaignId', { campaignId: execution.campaignId })
+      .andWhere('content.postType = :postType', { postType: execution.postType })
+      .andWhere('content.creatorId = :creatorId', { creatorId: minerUser.id })
+      .andWhere('content.approvalStatus = :status', { status: 'pending' })
+      .orderBy('content.createdAt', 'DESC')
+      .getOne();
+
+    if (!content) {
+      logger.warn(`⚠️ No pending content found for execution ${execution.id} - cannot assign to admin`);
+      return;
+    }
+
+    // Check if content is already assigned
+    const { AdminContentApproval } = await import('../models/AdminContentApproval');
+    const approvalRepository = AppDataSource.getRepository(AdminContentApproval);
+    const existingApproval = await approvalRepository.findOne({
+      where: { contentId: content.id }
+    });
+
+    if (existingApproval) {
+      logger.info(`ℹ️ Content ${content.id} already assigned to admin ${existingApproval.adminWalletAddress}`);
+      return;
+    }
+
+    // Randomly select an admin
+    const randomAdmin = adminWallets[Math.floor(Math.random() * adminWallets.length)];
+
+    // Create approval record
+    const approval = approvalRepository.create({
+      adminWalletAddress: randomAdmin.toLowerCase(),
+      contentId: content.id,
+      minerWalletAddress: execution.minerWalletAddress.toLowerCase(),
+      status: 'pending'
+    });
+
+    await approvalRepository.save(approval);
+
+    logger.info(`✅ Assigned content ${content.id} to admin ${randomAdmin} for review (execution ${execution.id})`);
+  } catch (error) {
+    logger.error(`❌ Error assigning content to admin: ${error}`);
+    throw error;
+  }
+}
 
 export default router;

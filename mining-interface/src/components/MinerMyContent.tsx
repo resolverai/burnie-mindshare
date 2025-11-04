@@ -55,6 +55,12 @@ interface ContentItem {
   post_type?: string // Type of post: 'shitpost', 'longpost', or 'thread'
   status?: 'pending' | 'approved' | 'rejected' // Add status field
   is_available?: boolean // Add availability field
+  // Admin-specific fields for miner-generated content
+  is_miner_generated?: boolean
+  miner_wallet_address?: string
+  approval_id?: string
+  approval_status?: 'pending' | 'approved' | 'rejected'
+  admin_notes?: string | null
 }
 
 interface BiddingModalData {
@@ -641,26 +647,53 @@ export default function MinerMyContent() {
     })
   }
 
-  // Approve content mutation
+  // Approve content mutation (for admin approval flow)
   const approveMutation = useMutation({
     mutationFn: async (contentId: number) => {
-      const response = await fetch(buildApiUrl('marketplace/approve-content'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contentId,
-          walletAddress: address
-        }),
-      })
+      // Check if this is a miner-generated content (has approval_id)
+      const contentItem = content.find((item: ContentItem) => item.id === contentId)
+      const isMinerGenerated = contentItem?.is_miner_generated && contentItem?.approval_id
       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || 'Failed to approve content')
+      if (isMinerGenerated) {
+        // Use admin approval endpoint
+        const response = await fetch(buildApiUrl(`admin-content-approvals/${contentItem.approval_id}/approve`), {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            adminWallet: address,
+            biddingEnabled: false, // Default to false, can be enabled later
+            adminNotes: null
+          }),
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.message || 'Failed to approve content')
+        }
+        
+        return response.json()
+      } else {
+        // Regular approve flow
+        const response = await fetch(buildApiUrl('marketplace/approve-content'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contentId,
+            walletAddress: address
+          }),
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || 'Failed to approve content')
+        }
+        
+        return response.json()
       }
-      
-      return response.json()
     },
     onMutate: async (contentId: number) => {
       // Add this content ID to the approving set
@@ -718,7 +751,7 @@ export default function MinerMyContent() {
     }
   })
 
-  // Reject content mutation
+  // Reject content mutation (for admin approval flow)
   const rejectMutation = useMutation({
     mutationFn: async (contentId: number) => {
       console.log('🚀 Starting reject mutation for content ID:', contentId, 'with wallet:', address)
@@ -731,28 +764,49 @@ export default function MinerMyContent() {
         throw new Error('Wallet address is required')
       }
       
-      const response = await fetch(buildApiUrl('marketplace/reject-content'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contentId,
-          walletAddress: address
-        }),
-      })
+      // Check if this is a miner-generated content (has approval_id)
+      const contentItem = content.find((item: ContentItem) => item.id === contentId)
+      const isMinerGenerated = contentItem?.is_miner_generated && contentItem?.approval_id
       
-      console.log('📡 Reject API response status:', response.status)
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        console.error('❌ Reject API error response:', errorData)
-        throw new Error(errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`)
+      if (isMinerGenerated) {
+        // Use admin rejection endpoint
+        const response = await fetch(buildApiUrl(`admin-content-approvals/${contentItem.approval_id}/reject`), {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            adminWallet: address,
+            adminNotes: null
+          }),
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.message || 'Failed to reject content')
+        }
+        
+        return response.json()
+      } else {
+        // Regular reject flow
+        const response = await fetch(buildApiUrl('marketplace/reject-content'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contentId,
+            walletAddress: address
+          }),
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || 'Failed to reject content')
+        }
+        
+        return response.json()
       }
-      
-      const result = await response.json()
-      console.log('✅ Reject API success response:', result)
-      return result
     },
     onMutate: async (contentId: number) => {
       // Add this content ID to the rejecting set
@@ -1201,6 +1255,19 @@ export default function MinerMyContent() {
                     ? 'opacity-75 border-orange-500/50 shadow-lg shadow-orange-500/20' 
                     : 'border-gray-700 hover:border-orange-500/50'
                 }`}>
+                  {/* Miner-generated content badge */}
+                  {item.is_miner_generated && (
+                    <div className="absolute top-2 right-2 z-10 flex flex-col gap-1">
+                      <span className="px-2 py-1 bg-purple-600/80 text-white text-xs font-semibold rounded-md">
+                        Generated by Miner
+                      </span>
+                      {item.miner_wallet_address && (
+                        <span className="px-2 py-1 bg-gray-700/90 text-gray-300 text-xs rounded-md font-mono">
+                          {item.miner_wallet_address.slice(0, 6)}...{item.miner_wallet_address.slice(-4)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {/* Individual Loading Overlay - Only shows for this specific content item */}
                   {updatingContentId === item.id && (
                     <div className="absolute inset-0 bg-black/20 rounded-lg flex items-center justify-center z-10">

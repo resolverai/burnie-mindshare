@@ -2173,6 +2173,119 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       });
     }
 
+    const { env } = require('../config/env');
+    const isAdminWallet = env.miner.adminWalletAddresses.includes(walletAddress.toLowerCase());
+
+    // If this is an admin wallet, show content from admin_content_approvals
+    if (isAdminWallet) {
+      const { AdminContentApproval } = await import('../models/AdminContentApproval');
+      const approvalRepository = AppDataSource.getRepository(AdminContentApproval);
+      const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+
+      // Get approvals for this admin
+      let approvalQueryBuilder = approvalRepository
+        .createQueryBuilder('approval')
+        .leftJoinAndSelect('approval.content', 'content')
+        .leftJoinAndSelect('content.creator', 'creator')
+        .leftJoinAndSelect('content.campaign', 'campaign')
+        .where('approval.adminWalletAddress = :adminWallet', { adminWallet: walletAddress.toLowerCase() });
+
+      // Apply status filter for approvals
+      if (status_filter && status_filter !== 'all') {
+        if (status_filter === 'pending') {
+          approvalQueryBuilder = approvalQueryBuilder.andWhere('approval.status = :status', { status: 'pending' });
+        } else if (status_filter === 'approved') {
+          approvalQueryBuilder = approvalQueryBuilder.andWhere('approval.status = :status', { status: 'approved' });
+        } else if (status_filter === 'rejected') {
+          approvalQueryBuilder = approvalQueryBuilder.andWhere('approval.status = :status', { status: 'rejected' });
+        }
+      } else if (include_pending !== 'true') {
+        // Default: only show pending approvals if include_pending is not explicitly true
+        approvalQueryBuilder = approvalQueryBuilder.andWhere('approval.status = :status', { status: 'pending' });
+      }
+
+      // Apply search filter
+      if (search && search.toString().trim()) {
+        const searchTerm = search.toString().trim();
+        approvalQueryBuilder = approvalQueryBuilder.andWhere(
+          '(content.contentText ILIKE :search OR campaign.title ILIKE :search OR content.agentName ILIKE :search)',
+          { search: `%${searchTerm}%` }
+        );
+      }
+
+      // Get total count
+      const totalCount = await approvalQueryBuilder.getCount();
+
+      // Apply pagination
+      const pageNum = parseInt(page as string) || 1;
+      const limitNum = parseInt(limit as string) || 20;
+      const offset = (pageNum - 1) * limitNum;
+
+      const approvals = await approvalQueryBuilder
+        .orderBy('approval.assignedAt', 'DESC')
+        .skip(offset)
+        .take(limitNum)
+        .getMany();
+
+      // Format content with admin approval info
+      const formattedContents = approvals.map(approval => {
+        const content = approval.content;
+        return {
+          id: content.id,
+          content_text: content.contentText,
+          tweet_thread: content.tweetThread || null,
+          content_images: content.contentImages,
+          predicted_mindshare: Number(content.predictedMindshare),
+          quality_score: Number(content.qualityScore),
+          asking_price: Number(content.askingPrice),
+          post_type: content.postType || 'thread',
+          status: content.approvalStatus,
+          is_available: content.isAvailable,
+          is_video: content.isVideo || false,
+          video_url: content.videoUrl || null,
+          watermark_video_url: content.watermarkVideoUrl || null,
+          video_duration: content.videoDuration || null,
+          subsequent_frame_prompts: content.subsequentFramePrompts || null,
+          clip_prompts: content.clipPrompts || null,
+          audio_prompt: content.audioPrompt || null,
+          creator: {
+            username: content.creator?.username || 'Anonymous',
+            reputation_score: content.creator?.reputationScore || 0
+          },
+          campaign: {
+            title: content.campaign?.title || 'Unknown Campaign',
+            platform_source: content.campaign?.platformSource || 'unknown',
+            reward_token: content.campaign?.rewardToken || 'ROAST'
+          },
+          agent_name: content.agentName,
+          created_at: content.createdAt.toISOString(),
+          approved_at: content.approvedAt?.toISOString() || null,
+          is_biddable: content.isBiddable,
+          bidding_end_date: content.biddingEndDate?.toISOString() || null,
+          bidding_ask_price: content.biddingAskPrice ? Number(content.biddingAskPrice) : null,
+          bidding_enabled_at: content.biddingEnabledAt?.toISOString() || null,
+          // Admin-specific fields
+          is_miner_generated: true,
+          miner_wallet_address: approval.minerWalletAddress,
+          approval_id: approval.id,
+          approval_status: approval.status,
+          admin_notes: approval.adminNotes
+        };
+      });
+
+      return res.json({
+        success: true,
+        data: formattedContents,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limitNum)
+        }
+      });
+    }
+
+    // Regular miner flow - show their own content
     // First, try to find the user by wallet address to get the creatorId
     const userRepository = AppDataSource.getRepository(User);
     const user = await userRepository.findOne({
