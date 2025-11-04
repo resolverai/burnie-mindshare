@@ -290,9 +290,16 @@ router.post('/twitter-auth/oauth2/callback', async (req: Request, res: Response)
       return res.redirect(`${frontendUrl}/projects/${projectId}/daily-posts?oauth2_error=invalid_user_data`);
     }
 
-    // Calculate expiration time (usually 7200 seconds / 2 hours)
-    const expiresIn = tokenResult.expires_in || 7200;
+    // Calculate expiration time from Twitter's response
+    // Twitter OAuth2 access tokens expire in 2 hours (7200 seconds) by default
+    // This is fixed by Twitter and cannot be changed - we must use refresh tokens for long-term access
+    const expiresIn = tokenResult.expires_in || 7200; // Default to 2 hours if not provided
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
+    
+    logger.info(`📋 Token expiration details:`);
+    logger.info(`   - expires_in from Twitter: ${expiresIn} seconds (${Math.round(expiresIn / 60)} minutes)`);
+    logger.info(`   - Calculated expiration: ${expiresAt.toISOString()}`);
+    logger.info(`   - Note: Twitter tokens expire in 2 hours. Refresh tokens are used to get new access tokens.`);
 
     // Save or update connection
     const connectionRepository = AppDataSource.getRepository(ProjectTwitterConnection);

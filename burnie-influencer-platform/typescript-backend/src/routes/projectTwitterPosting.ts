@@ -5,6 +5,7 @@ import { ProjectTwitterConnection } from '../models/ProjectTwitterConnection';
 import { logger } from '../config/logger';
 import { uploadVideoOAuth1 } from '../utils/oauth1Utils';
 import { ProjectTwitterTokenService } from '../services/ProjectTwitterTokenService';
+import { env } from '../config/env';
 import FormData from 'form-data';
 import fetch from 'node-fetch';
 
@@ -13,20 +14,33 @@ const router = Router();
 // Helper functions (similar to twitterPosting.ts)
 function extractS3KeyFromUrl(url: string): string | null {
   try {
-    if (!url.includes('s3.amazonaws.com')) {
-      return null;
+    // Handle S3 URI format: s3://key/path/to/file
+    // The bucket name is stored in S3_BUCKET_NAME environment variable
+    // Everything after s3:// is the S3 key
+    if (url.startsWith('s3://')) {
+      const s3Key = url.substring(5); // Remove 's3://' prefix, everything after is the key
+      const bucketName = env.aws.s3BucketName;
+      logger.info(`🔑 Extracted S3 key from URI: ${s3Key} (using bucket from env: ${bucketName})`);
+      return s3Key;
     }
-    const urlObj = new URL(url);
-    const path = urlObj.pathname;
-    const s3Key = path.substring(1).split('?')[0];
-    return s3Key && s3Key.length > 0 ? s3Key : null;
+    
+    // Handle HTTPS S3 URL format: https://bucket.s3.amazonaws.com/key
+    if (url.includes('s3.amazonaws.com')) {
+      const urlObj = new URL(url);
+      const path = urlObj.pathname;
+      const s3Key = path.substring(1).split('?')[0];
+      return s3Key && s3Key.length > 0 ? s3Key : null;
+    }
+    
+    return null;
   } catch (error) {
     logger.error('Error extracting S3 key from URL:', error);
     return null;
   }
 }
 
-async function generatePresignedUrlForTwitter(s3Key: string): Promise<string | null> {
+// Export for use in scheduled post processing
+export async function generatePresignedUrlForTwitter(s3Key: string): Promise<string | null> {
   try {
     const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
     const queryParams = new URLSearchParams({
@@ -58,27 +72,40 @@ function determinePostType(mainTweet: string, thread?: string[]): PostType {
 }
 
 // Upload image to Twitter using OAuth2 (API v2)
-const uploadImageToTwitter = async (accessToken: string, imageUrl: string): Promise<string | null> => {
+// Export for use in scheduled post processing
+export const uploadImageToTwitter = async (accessToken: string, imageUrl: string): Promise<string | null> => {
   try {
     logger.info('🖼️ Starting image upload for URL:', imageUrl);
     
     // Generate fresh presigned URL if it's from S3
+    // Handle both S3 URI format (s3://bucket/key) and HTTPS S3 URLs
     let freshImageUrl = imageUrl;
-    if (imageUrl.includes('s3.amazonaws.com')) {
+    if (imageUrl.startsWith('s3://') || imageUrl.includes('s3.amazonaws.com')) {
+      logger.info(`🔍 Detected S3 URL/URI, extracting S3 key: ${imageUrl.substring(0, 100)}...`);
       const s3Key = extractS3KeyFromUrl(imageUrl);
       if (s3Key) {
+        logger.info(`🔑 Extracted S3 key: ${s3Key}`);
         const presignedUrl = await generatePresignedUrlForTwitter(s3Key);
         if (presignedUrl) {
           freshImageUrl = presignedUrl;
           logger.info('✅ Generated fresh presigned URL for image upload');
+        } else {
+          logger.error('❌ Failed to generate presigned URL for S3 key');
         }
+      } else {
+        logger.error(`❌ Could not extract S3 key from URL: ${imageUrl}`);
       }
+    } else {
+      logger.info(`📎 Image URL is not an S3 URL, using as-is: ${imageUrl.substring(0, 100)}...`);
     }
 
     // Download image
+    logger.info(`📥 Downloading image from: ${freshImageUrl.substring(0, 100)}...`);
     const imageResponse = await fetch(freshImageUrl);
     if (!imageResponse.ok) {
-      logger.error(`Failed to download image: ${imageResponse.statusText}`);
+      const errorText = await imageResponse.text().catch(() => imageResponse.statusText);
+      logger.error(`❌ Failed to download image: ${imageResponse.status} ${imageResponse.statusText}`);
+      logger.error(`❌ Image download error details: ${errorText}`);
       return null;
     }
 
@@ -184,7 +211,8 @@ const uploadVideoToTwitter = async (
 // This endpoint supports posting tweets with media_ids obtained from both:
 //   - Video uploads (OAuth1/v1.1) 
 //   - Image uploads (OAuth2/v2)
-const createTweet = async (accessToken: string, text: string, mediaId?: string, replyToId?: string): Promise<string | null> => {
+// Export for use in scheduled post processing
+export const createTweet = async (accessToken: string, text: string, mediaId?: string, replyToId?: string): Promise<string | null> => {
   try {
     const tweetData: any = { text };
 
@@ -244,7 +272,8 @@ const createTweet = async (accessToken: string, text: string, mediaId?: string, 
 };
 
 // Refresh OAuth2 token
-const refreshOAuth2Token = async (connection: ProjectTwitterConnection): Promise<string | null> => {
+// Export for use in scheduled post processing
+export const refreshOAuth2Token = async (connection: ProjectTwitterConnection): Promise<string | null> => {
   try {
     if (!connection.oauth2RefreshToken) {
       return null;
@@ -299,7 +328,8 @@ const refreshOAuth2Token = async (connection: ProjectTwitterConnection): Promise
 };
 
 // Store post in database
-async function storeProjectTwitterPost(
+// Export for use in scheduled post processing
+export async function storeProjectTwitterPost(
   projectId: number,
   mainTweet: string,
   mainTweetId: string,
@@ -444,35 +474,70 @@ router.post('/:projectId/twitter/post', async (req: Request, res: Response) => {
       });
     }
 
-    // Refresh token if expired - always reload from database after refresh
-    if (freshConnection.oauth2ExpiresAt && freshConnection.oauth2ExpiresAt < new Date()) {
-      logger.info('🔄 OAuth2 token expired, refreshing...');
-      const refreshed = await refreshOAuth2Token(freshConnection);
-      if (!refreshed) {
-        return res.status(400).json({
-          success: false,
-          error: 'Token expired and refresh failed',
-          requiresAuth: true
+    // Proactively refresh token if it's expired or will expire within 5 minutes
+    // Twitter tokens expire in 2 hours (7200 seconds), so we refresh early to avoid failures
+    const now = new Date();
+    const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes buffer
+    
+    if (freshConnection.oauth2ExpiresAt) {
+      const expiresAt = new Date(freshConnection.oauth2ExpiresAt);
+      
+      if (expiresAt <= fiveMinutesFromNow) {
+        if (expiresAt <= now) {
+          logger.info('🔄 OAuth2 token expired, refreshing...');
+        } else {
+          const minutesUntilExpiry = Math.round((expiresAt.getTime() - now.getTime()) / 60000);
+          logger.info(`🔄 OAuth2 token expires in ${minutesUntilExpiry} minutes, proactively refreshing...`);
+        }
+        
+        if (!freshConnection.oauth2RefreshToken) {
+          return res.status(401).json({
+            success: false,
+            error: 'OAuth2 refresh token not found. Please reconnect your Twitter account.',
+            requiresAuth: true,
+            requiresReauth: true
+          });
+        }
+        
+        const refreshed = await refreshOAuth2Token(freshConnection);
+        if (!refreshed) {
+          return res.status(401).json({
+            success: false,
+            error: 'Token refresh failed. Please reconnect your Twitter account.',
+            requiresAuth: true,
+            requiresReauth: true
+          });
+        }
+        
+        // CRITICAL: Always reload connection from database after token refresh to get latest tokens
+        logger.info('📦 Reloading connection from database after token refresh...');
+        freshConnection = await connectionRepository.findOne({
+          where: { projectId }
         });
+        
+        if (!freshConnection || !freshConnection.oauth2AccessToken) {
+          return res.status(400).json({
+            success: false,
+            error: 'Failed to reload connection after token refresh',
+            requiresAuth: true
+          });
+        }
+        
+        // Use token from freshly reloaded database record
+        oauth2Token = freshConnection.oauth2AccessToken;
+        const newExpiresAt = freshConnection.oauth2ExpiresAt;
+        if (newExpiresAt) {
+          const minutesUntilExpiry = Math.round((new Date(newExpiresAt).getTime() - now.getTime()) / 60000);
+          logger.info(`✅ Token refreshed successfully. New expiration: ${minutesUntilExpiry} minutes`);
+        } else {
+          logger.info('✅ Token refreshed successfully');
+        }
+      } else {
+        const minutesUntilExpiry = Math.round((expiresAt.getTime() - now.getTime()) / 60000);
+        logger.info(`✅ OAuth2 token is valid for ${minutesUntilExpiry} more minutes`);
       }
-      
-      // CRITICAL: Always reload connection from database after token refresh to get latest tokens
-      logger.info('📦 Reloading connection from database after token refresh...');
-      freshConnection = await connectionRepository.findOne({
-        where: { projectId }
-      });
-      
-      if (!freshConnection || !freshConnection.oauth2AccessToken) {
-        return res.status(400).json({
-          success: false,
-          error: 'Failed to reload connection after token refresh',
-          requiresAuth: true
-        });
-      }
-      
-      // Use token from freshly reloaded database record
-      oauth2Token = freshConnection.oauth2AccessToken;
-      logger.info('✅ Using refreshed token from database');
+    } else {
+      logger.warn('⚠️ OAuth2 token expiration not set, proceeding with caution');
     }
 
     // Test the token with a simple API call (like the working flow does)

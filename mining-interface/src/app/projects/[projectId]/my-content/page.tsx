@@ -79,6 +79,8 @@ export default function ProjectMyContentPage() {
     scheduledAt: string
     mediaS3Url: string
     mediaType: 'image' | 'video'
+    status?: 'pending' | 'completed' | 'failed'
+    failureReason?: string | null
     tweetText?: {
       main_tweet: string
       thread_array?: string[]
@@ -870,11 +872,26 @@ export default function ProjectMyContentPage() {
                                   {/* Scheduled Badge */}
                                   {(() => {
                                     const scheduleKey = `${date}-${post.item.id}-image_${post.imageIndex + 1}`
-                                    return postSchedules[scheduleKey] ? (
-                                      <div className="absolute top-2 left-2 bg-green-600 text-white text-xs font-semibold px-2 py-1 rounded-full z-10">
-                                        Scheduled
+                                    const schedule = postSchedules[scheduleKey]
+                                    if (!schedule) return null
+                                    
+                                    const status = schedule.status || 'pending'
+                                    const badgeColors = {
+                                      pending: 'bg-yellow-600',
+                                      completed: 'bg-green-600',
+                                      failed: 'bg-red-600'
+                                    }
+                                    const badgeLabels = {
+                                      pending: 'Scheduled',
+                                      completed: 'Posted',
+                                      failed: 'Failed'
+                                    }
+                                    
+                                    return (
+                                      <div className={`absolute top-2 left-2 ${badgeColors[status]} text-white text-xs font-semibold px-2 py-1 rounded-full z-10`}>
+                                        {badgeLabels[status]}
                                       </div>
-                                    ) : null
+                                    )
                                   })()}
                                   <VideoPlayer
                                     src={post.videoUrl}
@@ -895,11 +912,26 @@ export default function ProjectMyContentPage() {
                                   {/* Scheduled Badge */}
                                   {(() => {
                                     const scheduleKey = `${date}-${post.item.id}-image_${post.imageIndex + 1}`
-                                    return postSchedules[scheduleKey] ? (
-                                      <div className="absolute top-2 left-2 bg-green-600 text-white text-xs font-semibold px-2 py-1 rounded-full z-10">
-                                        Scheduled
+                                    const schedule = postSchedules[scheduleKey]
+                                    if (!schedule) return null
+                                    
+                                    const status = schedule.status || 'pending'
+                                    const badgeColors = {
+                                      pending: 'bg-yellow-600',
+                                      completed: 'bg-green-600',
+                                      failed: 'bg-red-600'
+                                    }
+                                    const badgeLabels = {
+                                      pending: 'Scheduled',
+                                      completed: 'Posted',
+                                      failed: 'Failed'
+                                    }
+                                    
+                                    return (
+                                      <div className={`absolute top-2 left-2 ${badgeColors[status]} text-white text-xs font-semibold px-2 py-1 rounded-full z-10`}>
+                                        {badgeLabels[status]}
                                       </div>
-                                    ) : null
+                                    )
                                   })()}
                                   <SecureImage
                                     src={post.imageUrl}
@@ -1183,10 +1215,27 @@ export default function ProjectMyContentPage() {
                       const schedule = postSchedules[scheduleKey]
                       
                       if (schedule) {
+                        const status = schedule.status || 'pending'
+                        const bannerColors = {
+                          pending: 'bg-yellow-500/10 border-yellow-500/30',
+                          completed: 'bg-green-500/10 border-green-500/30',
+                          failed: 'bg-red-500/10 border-red-500/30'
+                        }
+                        const textColors = {
+                          pending: 'text-yellow-300',
+                          completed: 'text-green-300',
+                          failed: 'text-red-300'
+                        }
+                        const statusMessages = {
+                          pending: 'This post is scheduled to be posted on Twitter on',
+                          completed: 'This post was successfully posted on Twitter at',
+                          failed: 'This post failed to be posted on Twitter. It was scheduled for'
+                        }
+                        
                         return (
-                          <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-6">
-                            <p className="text-sm text-green-300">
-                              📅 This post is scheduled to be posted on Twitter on{' '}
+                          <div className={`${bannerColors[status]} border rounded-lg p-4 mb-6`}>
+                            <p className={`text-sm ${textColors[status]}`}>
+                              {status === 'failed' ? '❌' : status === 'completed' ? '✅' : '📅'} {statusMessages[status]}{' '}
                               <span className="font-semibold">
                                 {new Date(schedule.scheduledAt).toLocaleString('en-US', {
                                   weekday: 'long',
@@ -1198,6 +1247,14 @@ export default function ProjectMyContentPage() {
                                   hour12: true
                                 })}
                               </span>
+                              {status === 'failed' && schedule.failureReason && (
+                                <>
+                                  <br />
+                                  <span className="text-xs mt-2 block opacity-80">
+                                    Error: {schedule.failureReason}
+                                  </span>
+                                </>
+                              )}
                             </p>
                           </div>
                         )

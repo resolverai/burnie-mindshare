@@ -71,6 +71,8 @@ import cacheRoutes from './routes/cache';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
+import { scheduledPostCronService } from './services/ScheduledPostCronService';
+import { scheduledPostWorker, scheduledPostQueue } from './services/ScheduledPostQueueService';
 // DISABLED: Commented out to prevent automatic fetching of latest tweets data
 // import { PopularTwitterHandlesCronService } from './services/PopularTwitterHandlesCronService';
 import { AppDataSource } from './config/database';
@@ -271,6 +273,23 @@ const startServer = async () => {
     twitterQueueCronService.start();
     logger.info('🐦 Twitter queue cron service started');
     
+    // Start scheduled post cron service and worker
+    // Note: Worker is created when module is imported, but we verify it's ready
+    logger.info('👷 Scheduled post worker status check...');
+    scheduledPostCronService.start();
+    logger.info('📅 Scheduled post cron service started');
+    
+    // Verify worker is ready (wait a bit for Redis connection)
+    setTimeout(async () => {
+      try {
+        const waitingCount = await scheduledPostQueue.getWaitingCount();
+        const delayedCount = await scheduledPostQueue.getDelayedCount();
+        logger.info(`📊 Scheduled post queue status: ${waitingCount} waiting, ${delayedCount} delayed`);
+      } catch (error: any) {
+        logger.warn(`⚠️ Could not check queue status: ${error.message}`);
+      }
+    }, 2000);
+    
     // Start popular Twitter handles cron service
     // DISABLED: Commented out to prevent automatic fetching of latest tweets data
     // const popularTwitterHandlesCronService = new PopularTwitterHandlesCronService();
@@ -320,6 +339,9 @@ const gracefulShutdown = async (signal: string) => {
     twitterQueueCronService.stop();
     // platformYapperCronService.stop(); // DISABLED: Service not started
     scheduledCleanupService.stop();
+    scheduledPostCronService.stop();
+    // Close scheduled post worker
+    await scheduledPostWorker.close();
     logger.info('⏹️ Cron services stopped');
     
     // Close server

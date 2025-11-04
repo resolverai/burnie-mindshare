@@ -39,6 +39,20 @@ export class Web3PostsSchedule {
   @Index()
   scheduledAt!: Date;
 
+  // Status of the scheduled post
+  @Column({
+    type: 'varchar',
+    length: 20,
+    nullable: false,
+    default: 'pending'
+  })
+  @Index()
+  status!: 'pending' | 'completed' | 'failed';
+
+  // Failure reason if posting failed
+  @Column({ type: 'text', nullable: true })
+  failureReason!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 
