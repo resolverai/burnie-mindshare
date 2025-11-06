@@ -945,9 +945,16 @@ export default function ProjectDailyPostsPage() {
       }
       
       const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-      const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`)
+      const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`, {
+        credentials: 'include' // Include cookies for session
+      })
       
       if (!response.ok) {
+        if (response.status === 401) {
+          // Unauthorized - redirect to auth
+          router.replace('/projects/auth')
+          return
+        }
         alert(`Failed to fetch project configuration: ${response.statusText}`)
         return
       }

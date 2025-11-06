@@ -103,6 +103,7 @@ export default function ScheduleModal({
       const response = await fetch(`${apiUrl}/projects/${projectId}/post/schedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include cookies for session
         body: JSON.stringify({
           mediaS3Url,
           mediaType,
@@ -142,7 +143,8 @@ export default function ScheduleModal({
     try {
       const apiUrl = getApiUrlWithFallback()
       const response = await fetch(`${apiUrl}/projects/${projectId}/post/schedule?mediaS3Url=${encodeURIComponent(mediaS3Url)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include' // Include cookies for session
       })
 
       if (!response.ok) {

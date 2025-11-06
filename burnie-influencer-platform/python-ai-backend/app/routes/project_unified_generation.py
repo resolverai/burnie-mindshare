@@ -3,7 +3,7 @@ Unified Web3 Project Daily Posts Generation Endpoint
 Handles complete flow: Context Gathering → Prompt Generation → Content Generation
 With real-time progress updates via polling
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import asyncio
@@ -55,6 +55,7 @@ class ProjectUnifiedGenerationRequest(BaseModel):
     """Request for unified daily posts generation"""
     project_id: int
     job_id: Optional[str] = None  # If not provided, will be generated
+    session_cookie: Optional[str] = None  # Session cookie from TypeScript backend for authentication
 
 
 # ============================================
@@ -69,14 +70,19 @@ active_jobs: Dict[str, Dict[str, Any]] = {}
 # HELPER FUNCTIONS
 # ============================================
 
-async def fetch_project_context(project_id: int) -> Dict:
+async def fetch_project_context(project_id: int, session_cookie: Optional[str] = None) -> Dict:
     """Fetch project context from TypeScript backend"""
     try:
         typescript_backend_url = settings.typescript_backend_url
         
+        headers = {}
+        if session_cookie:
+            headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
+        
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{typescript_backend_url}/api/projects/{project_id}/context",
+                headers=headers,
                 timeout=10.0
             )
             
@@ -92,14 +98,19 @@ async def fetch_project_context(project_id: int) -> Dict:
         return {}
 
 
-async def fetch_project_configuration(project_id: int) -> Dict:
+async def fetch_project_configuration(project_id: int, session_cookie: Optional[str] = None) -> Dict:
     """Fetch project configuration from TypeScript backend"""
     try:
         typescript_backend_url = settings.typescript_backend_url
         
+        headers = {}
+        if session_cookie:
+            headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
+        
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{typescript_backend_url}/api/projects/{project_id}/configurations",
+                headers=headers,
                 timeout=10.0
             )
             
@@ -402,7 +413,7 @@ Summarize the overall patterns, trends, and key insights that emerge from combin
     return combined_data
 
 
-async def generate_presigned_url(s3_key: str, expiration: int = 3600, project_id: int = None) -> Optional[str]:
+async def generate_presigned_url(s3_key: str, expiration: int = 3600, project_id: int = None, session_cookie: Optional[str] = None) -> Optional[str]:
     """Generate presigned URL for S3 object"""
     try:
         typescript_backend_url = settings.typescript_backend_url
@@ -426,9 +437,14 @@ async def generate_presigned_url(s3_key: str, expiration: int = 3600, project_id
             logger.error(f"⚠️ Cannot generate presigned URL: project_id not found in s3_key: {s3_key}")
             return None
         
+        headers = {}
+        if session_cookie:
+            headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 endpoint,
+                headers=headers,
                 json={"s3_key": clean_s3_key, "expiration": expiration},
                 timeout=10.0
             )
@@ -448,7 +464,7 @@ async def generate_presigned_url(s3_key: str, expiration: int = 3600, project_id
         return None
 
 
-async def gather_all_context(project_id: int) -> Dict:
+async def gather_all_context(project_id: int, session_cookie: Optional[str] = None) -> Dict:
     """
     Gather ALL context needed for prompt generation.
     
@@ -465,11 +481,11 @@ async def gather_all_context(project_id: int) -> Dict:
     
     # Step 1.1: Fetch base project context from TypeScript backend
     logger.info("  → Fetching project context from TypeScript backend...")
-    context = await fetch_project_context(project_id)
+    context = await fetch_project_context(project_id, session_cookie)
     
     # Step 1.2: Fetch project configuration
     logger.info("  → Fetching project configuration...")
-    config = await fetch_project_configuration(project_id)
+    config = await fetch_project_configuration(project_id, session_cookie)
     
     # Step 1.3: Apply document decay (filter out old documents)
     logger.info("  → Applying document decay (filtering old documents)...")
@@ -554,7 +570,7 @@ def map_model_name_to_fal_id(model_name: str) -> str:
     return model_mapping.get(model_name, 'fal-ai/bytedance/seedream/v4/edit')
 
 
-async def create_initial_generation_record(project_id: int, job_id: str, context: Dict) -> bool:
+async def create_initial_generation_record(project_id: int, job_id: str, context: Dict, session_cookie: Optional[str] = None) -> bool:
     """Create initial database record for generation tracking"""
     try:
         typescript_backend_url = settings.typescript_backend_url
@@ -582,9 +598,14 @@ async def create_initial_generation_record(project_id: int, job_id: str, context
             }
         }
         
+        headers = {}
+        if session_cookie:
+            headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{typescript_backend_url}/api/projects/{project_id}/generated-content",
+                headers=headers,
                 json=db_data,
                 timeout=30.0
             )
@@ -601,14 +622,19 @@ async def create_initial_generation_record(project_id: int, job_id: str, context
         return False
 
 
-async def update_progress_in_db(project_id: int, job_id: str, progress_percent: int, progress_message: str):
+async def update_progress_in_db(project_id: int, job_id: str, progress_percent: int, progress_message: str, session_cookie: Optional[str] = None):
     """Update progress in database"""
     try:
         typescript_backend_url = settings.typescript_backend_url
         
+        headers = {}
+        if session_cookie:
+            headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
+        
         async with httpx.AsyncClient() as client:
             response = await client.put(
                 f"{typescript_backend_url}/api/projects/{project_id}/generated-content/{job_id}/progress",
+                headers=headers,
                 json={
                     "progress_percent": progress_percent,
                     "progress_message": progress_message
@@ -636,8 +662,9 @@ async def run_generation_pipeline(job_id: str, request: ProjectUnifiedGeneration
         
         # Step 1: Gather ALL context FIRST (including live search for links, document decay, etc.)
         # This is where ALL context gathering happens, including Grok live search calls for links
-        await update_progress_in_db(project_id, job_id, 10, "Gathering context (including live search for links)...")
-        context = await gather_all_context(project_id)
+        session_cookie = request.session_cookie
+        await update_progress_in_db(project_id, job_id, 10, "Gathering context (including live search for links)...", session_cookie)
+        context = await gather_all_context(project_id, session_cookie)
         logger.info(f"✅ Context gathering complete. Ready to generate prompts with all context.")
         
         # Get total number of posts for random selection
@@ -687,39 +714,43 @@ async def run_generation_pipeline(job_id: str, request: ProjectUnifiedGeneration
         # Step 2: Generate prompts with Grok (30%)
         # This is a SINGLE Grok call that uses ALL the pre-gathered context (including live_search_data)
         # No additional Grok calls are made here - all context is already gathered
-        await update_progress_in_db(project_id, job_id, 30, "Generating prompts with Grok (using pre-gathered context)...")
+        await update_progress_in_db(project_id, job_id, 30, "Generating prompts with Grok (using pre-gathered context)...", session_cookie)
         prompts = await generate_prompts(context)
         
         # Log parsed prompts (already logged raw output in generate_prompts)
         logger.info(f"✅ Successfully parsed {len(prompts)} prompt keys from Grok response")
         
         # Step 3: Generate all main images (50-90%)
-        await update_progress_in_db(project_id, job_id, 50, "Generating images...")
-        await generate_images(project_id, job_id, prompts, context)
+        await update_progress_in_db(project_id, job_id, 50, "Generating images...", session_cookie)
+        await generate_images(project_id, job_id, prompts, context, session_cookie)
         
         # Step 4: Generate additional images for video clips (if needed)
         video_image_index = context.get('video_image_index')
         if video_image_index:
-            await update_progress_in_db(project_id, job_id, 90, "Generating additional images for video clips...")
-            await generate_additional_images_for_clips(project_id, job_id, prompts, context, video_image_index)
+            await update_progress_in_db(project_id, job_id, 90, "Generating additional images for video clips...", session_cookie)
+            await generate_additional_images_for_clips(project_id, job_id, prompts, context, video_image_index, session_cookie)
         
         # Step 5: Generate video clips (after all images are complete)
         # Progress should NOT reach 100% until video is generated
         if video_image_index:
-            await update_progress_in_db(project_id, job_id, 92, "Generating video clips...")
-            await generate_video_clips(project_id, job_id, prompts, context, video_image_index)
+            await update_progress_in_db(project_id, job_id, 92, "Generating video clips...", session_cookie)
+            await generate_video_clips(project_id, job_id, prompts, context, video_image_index, session_cookie)
             # Video generation complete - now can mark as 100%
-            await update_progress_in_db(project_id, job_id, 100, "Generation completed!")
+            await update_progress_in_db(project_id, job_id, 100, "Generation completed!", session_cookie)
         else:
             # No video generation needed - mark as complete after images
-            await update_progress_in_db(project_id, job_id, 100, "Generation completed!")
+            await update_progress_in_db(project_id, job_id, 100, "Generation completed!", session_cookie)
         
         # Update status to completed
         try:
             typescript_backend_url = settings.typescript_backend_url
+            headers = {}
+            if session_cookie:
+                headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
             async with httpx.AsyncClient() as client:
                 await client.put(
                     f"{typescript_backend_url}/api/projects/{project_id}/generated-content/{job_id}/progress",
+                    headers=headers,
                     json={
                         "progress_percent": 100,
                         "progress_message": "Generation completed!",
@@ -734,7 +765,8 @@ async def run_generation_pipeline(job_id: str, request: ProjectUnifiedGeneration
         
     except Exception as e:
         logger.error(f"❌ Error in generation pipeline: {str(e)}")
-        await update_progress_in_db(project_id, job_id, 0, f"Error: {str(e)}")
+        session_cookie = request.session_cookie if hasattr(request, 'session_cookie') else None
+        await update_progress_in_db(project_id, job_id, 0, f"Error: {str(e)}", session_cookie)
         raise
 
 
@@ -1587,7 +1619,7 @@ Return ONLY the JSON object, no other text."""
     return prompt
 
 
-async def generate_images(project_id: int, job_id: str, prompts: Dict, context: Dict):
+async def generate_images(project_id: int, job_id: str, prompts: Dict, context: Dict, session_cookie: Optional[str] = None):
     """Generate images using Fal.ai with progressive database updates"""
     image_model = context.get('image_model', 'seedream')
     logo_url = context.get('logo_url')
@@ -1615,13 +1647,19 @@ async def generate_images(project_id: int, job_id: str, prompts: Dict, context: 
         print("=" * 80)
         print(f"📝 Original logo URL (S3 key): {logo_url}")
         logger.info(f"🏷️ Generating presigned URL for logo: {logo_url[:50]}...")
-        presigned_logo_url = await generate_presigned_url(logo_url, project_id=project_id)
+        presigned_logo_url = await generate_presigned_url(logo_url, project_id=project_id, session_cookie=session_cookie)
         if presigned_logo_url:
             print(f"✅ Presigned logo URL generated: {presigned_logo_url[:100]}...")
             logger.info(f"✅ Generated presigned URL for logo")
         else:
-            print(f"⚠️ Failed to generate presigned URL for logo - continuing without logo")
-            logger.warning(f"⚠️ Failed to generate presigned URL for logo - continuing without logo")
+            print(f"⚠️ Failed to generate presigned URL for logo")
+            logger.warning(f"⚠️ Failed to generate presigned URL for logo")
+            print(f"⚠️ Switching to flux-pro/kontext model (doesn't require logo)")
+            logger.warning(f"⚠️ Switching to flux-pro/kontext model (doesn't require logo)")
+            # Switch to a model that doesn't require image_urls
+            image_model = 'flux-pro-kontext'
+            fal_model_id = map_model_name_to_fal_id(image_model)
+            print(f"📊 New Image Model: {image_model} ({fal_model_id})")
         print("=" * 80)
     
     print(f"\n{'='*80}")
@@ -1725,12 +1763,12 @@ async def generate_images(project_id: int, job_id: str, prompts: Dict, context: 
                 
                 # Update database progressively
                 print(f"💾 Saving to database (progressive update {i}/{total_posts})...")
-                await update_image_in_db(project_id, job_id, generated_image_urls, per_image_metadata, tweet_texts_array, i)
+                await update_image_in_db(project_id, job_id, generated_image_urls, per_image_metadata, tweet_texts_array, i, session_cookie)
                 print(f"✅ Database update complete\n")
                 
                 # Update progress
                 progress = 50 + int((i / total_posts) * 40)  # 50-90%
-                await update_progress_in_db(project_id, job_id, progress, f"Generated image {i}/{total_posts}")
+                await update_progress_in_db(project_id, job_id, progress, f"Generated image {i}/{total_posts}", session_cookie)
                 
                 logger.info(f"✅ Image {i}/{total_posts} generated: {s3_url}")
             else:
@@ -1748,7 +1786,7 @@ async def generate_images(project_id: int, job_id: str, prompts: Dict, context: 
     print(f"{'='*80}")
     print(f"📊 Total Images Generated: {len(generated_image_urls)}/{total_posts}")
     print(f"💾 Performing final database update...")
-    await update_image_in_db(project_id, job_id, generated_image_urls, per_image_metadata, tweet_texts_array, total_posts)
+    await update_image_in_db(project_id, job_id, generated_image_urls, per_image_metadata, tweet_texts_array, total_posts, session_cookie)
     print(f"✅ Final database update complete")
     print(f"{'='*80}\n")
 
@@ -1761,13 +1799,12 @@ async def generate_image_with_fal(fal_model_id: str, model_name: str, prompt: st
         "image_size": "square_hd"
     }
     
-    # Always pass image_urls as array (even if empty) for nano-banana/seedream models
+    # nano-banana and seedream models require at least 1 image URL
     if 'nano-banana' in fal_model_id or 'seedream' in fal_model_id:
-        arguments["image_urls"] = image_urls if image_urls else []
-        if image_urls:
-            logger.info(f"🏷️ Passing logo to Fal.ai: {len(image_urls)} image(s)")
-        else:
-            logger.info(f"⚠️ No logo provided, generating without logo")
+        if not image_urls or len(image_urls) == 0:
+            raise ValueError(f"Model {fal_model_id} requires at least 1 image URL in image_urls, but got empty array. Logo generation may have failed.")
+        arguments["image_urls"] = image_urls
+        logger.info(f"🏷️ Passing logo to Fal.ai: {len(image_urls)} image(s)")
     elif image_urls:
         # For other models, only add if we have URLs
         arguments["image_urls"] = image_urls
@@ -1854,14 +1891,19 @@ async def download_and_save_video_to_s3_project(fal_video_url: str, s3_key: str)
         return s3_key
 
 
-async def update_image_in_db(project_id: int, job_id: str, image_urls: List[str], per_image_metadata: Dict, tweet_texts: List[Dict], image_index: int):
+async def update_image_in_db(project_id: int, job_id: str, image_urls: List[str], per_image_metadata: Dict, tweet_texts: List[Dict], image_index: int, session_cookie: Optional[str] = None):
     """Update database record with generated images and metadata"""
     try:
         typescript_backend_url = settings.typescript_backend_url
         
+        headers = {}
+        if session_cookie:
+            headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
+        
         async with httpx.AsyncClient() as client:
             response = await client.put(
                 f"{typescript_backend_url}/api/projects/{project_id}/generated-content/{job_id}/images",
+                headers=headers,
                 json={
                     "generated_image_urls": image_urls,
                     "per_image_metadata": per_image_metadata,
@@ -1882,7 +1924,7 @@ async def update_image_in_db(project_id: int, job_id: str, image_urls: List[str]
 # ADDITIONAL IMAGE GENERATION FOR CLIPS
 # ============================================
 
-async def generate_additional_images_for_clips(project_id: int, job_id: str, prompts: Dict, context: Dict, video_image_index: int):
+async def generate_additional_images_for_clips(project_id: int, job_id: str, prompts: Dict, context: Dict, video_image_index: int, session_cookie: Optional[str] = None):
     """Generate additional images needed for video clips (image_{index}_2, image_{index}_3, etc.)"""
     try:
         number_of_clips = context.get('number_of_clips', NUMBER_OF_CLIPS)
@@ -1897,7 +1939,7 @@ async def generate_additional_images_for_clips(project_id: int, job_id: str, pro
         presigned_logo_url = None
         if logo_url and image_model in ['nano-banana', 'seedream']:
             logger.info(f"🏷️ Generating presigned URL for logo: {logo_url[:50]}...")
-            presigned_logo_url = await generate_presigned_url(logo_url, project_id=project_id)
+            presigned_logo_url = await generate_presigned_url(logo_url, project_id=project_id, session_cookie=session_cookie)
         
         additional_image_urls = []
         per_image_metadata = {}
@@ -1955,7 +1997,7 @@ async def generate_additional_images_for_clips(project_id: int, job_id: str, pro
         
         # Update database with all additional images at once
         if per_image_metadata:
-            await update_additional_images_in_db(project_id, job_id, per_image_metadata)
+            await update_additional_images_in_db(project_id, job_id, per_image_metadata, session_cookie)
         
         logger.info(f"✅ Generated {len(additional_image_urls)} additional images for video clips")
         
@@ -1964,16 +2006,21 @@ async def generate_additional_images_for_clips(project_id: int, job_id: str, pro
         raise
 
 
-async def update_additional_images_in_db(project_id: int, job_id: str, per_image_metadata: Dict):
+async def update_additional_images_in_db(project_id: int, job_id: str, per_image_metadata: Dict, session_cookie: Optional[str] = None):
     """Update database record with additional images for clips by merging into existing per_image_metadata"""
     try:
         typescript_backend_url = settings.typescript_backend_url
+        
+        headers = {}
+        if session_cookie:
+            headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
         
         # Get current content to merge additional images
         async with httpx.AsyncClient() as client:
             # First, get the current record
             get_response = await client.get(
                 f"{typescript_backend_url}/api/projects/{project_id}/generated-content/job/{job_id}",
+                headers=headers,
                 timeout=10.0
             )
             
@@ -1995,6 +2042,7 @@ async def update_additional_images_in_db(project_id: int, job_id: str, per_image
             # Update with merged data
             update_response = await client.put(
                 f"{typescript_backend_url}/api/projects/{project_id}/generated-content/{job_id}/images",
+                headers=headers,
                 json={
                     "generated_image_urls": merged_image_urls,
                     "per_image_metadata": merged_metadata,
@@ -2032,7 +2080,7 @@ async def download_file_from_url(url: str, local_path: str) -> Optional[str]:
         return None
 
 
-async def generate_video_clips(project_id: int, job_id: str, prompts: Dict, context: Dict, video_image_index: int):
+async def generate_video_clips(project_id: int, job_id: str, prompts: Dict, context: Dict, video_image_index: int, session_cookie: Optional[str] = None):
     """Generate video clips using Kling and combine them"""
     try:
         number_of_clips = context.get('number_of_clips', NUMBER_OF_CLIPS)
@@ -2069,13 +2117,13 @@ async def generate_video_clips(project_id: int, job_id: str, prompts: Dict, cont
         
         # Clip 1: Use existing image
         # Fetch generated images from database to get the presigned URL
-        existing_image_url = await get_image_url_from_db(project_id, job_id, video_image_index)
+        existing_image_url = await get_image_url_from_db(project_id, job_id, video_image_index, session_cookie)
         if not existing_image_url:
             logger.error(f"❌ Could not find image {video_image_index} in database")
             return
         
         # Generate presigned URL for existing image
-        presigned_image_1 = await generate_presigned_url(existing_image_url, project_id=project_id)
+        presigned_image_1 = await generate_presigned_url(existing_image_url, project_id=project_id, session_cookie=session_cookie)
         if not presigned_image_1:
             logger.error(f"❌ Could not generate presigned URL for image {video_image_index}")
             return
@@ -2085,9 +2133,9 @@ async def generate_video_clips(project_id: int, job_id: str, prompts: Dict, cont
         
         # Clips 2+: Get additional images
         for clip_num in range(2, number_of_clips + 1):
-            additional_image_url = await get_image_url_from_db(project_id, job_id, f"{video_image_index}_{clip_num}")
+            additional_image_url = await get_image_url_from_db(project_id, job_id, f"{video_image_index}_{clip_num}", session_cookie)
             if additional_image_url:
-                presigned_url = await generate_presigned_url(additional_image_url, project_id=project_id)
+                presigned_url = await generate_presigned_url(additional_image_url, project_id=project_id, session_cookie=session_cookie)
                 if presigned_url:
                     image_urls.append(presigned_url)
                     logger.info(f"📸 Clip {clip_num} Image (Presigned S3 URL): {presigned_url[:100]}...")
@@ -2169,7 +2217,7 @@ async def generate_video_clips(project_id: int, job_id: str, prompts: Dict, cont
                     # Extract S3 key
                     s3_key = clip_url.replace('s3://', '').split('/', 1)[-1] if 's3://' in clip_url else clip_url
                     # Generate presigned URL
-                    presigned_url = await generate_presigned_url(s3_key, project_id=project_id)
+                    presigned_url = await generate_presigned_url(s3_key, project_id=project_id, session_cookie=session_cookie)
                     if presigned_url:
                         logger.info(f"   Clip {i} (presigned): {presigned_url[:100]}...")
                         presigned_clip_urls.append(presigned_url)
@@ -2257,7 +2305,7 @@ async def generate_video_clips(project_id: int, job_id: str, prompts: Dict, cont
                     per_video_metadata["voiceover_prompts"][f"clip_{clip_num}"] = prompts[voiceover_key]
             
             # Save final video to database with complete metadata
-            await update_video_in_db(project_id, job_id, video_image_index, video_with_audio_url, per_video_metadata)
+            await update_video_in_db(project_id, job_id, video_image_index, video_with_audio_url, per_video_metadata, session_cookie)
             
             logger.info(f"✅ Video generation complete: {video_with_audio_url[:100]}...")
             
@@ -2275,14 +2323,19 @@ async def generate_video_clips(project_id: int, job_id: str, prompts: Dict, cont
         raise
 
 
-async def get_image_url_from_db(project_id: int, job_id: str, image_index: Any) -> Optional[str]:
+async def get_image_url_from_db(project_id: int, job_id: str, image_index: Any, session_cookie: Optional[str] = None) -> Optional[str]:
     """Get image URL from database by image index"""
     try:
         typescript_backend_url = settings.typescript_backend_url
         
+        headers = {}
+        if session_cookie:
+            headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
+        
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"{typescript_backend_url}/api/projects/{project_id}/generated-content/job/{job_id}",
+                headers=headers,
                 timeout=10.0
             )
             
@@ -2689,16 +2742,21 @@ async def upload_video_to_s3_direct(local_path: str, s3_key: str) -> Optional[st
         return None
 
 
-async def update_video_in_db(project_id: int, job_id: str, image_index: int, video_url: str, per_video_metadata: Dict):
+async def update_video_in_db(project_id: int, job_id: str, image_index: int, video_url: str, per_video_metadata: Dict, session_cookie: Optional[str] = None):
     """Update database record with generated video - stores in per_video_metadata with key image_{index}"""
     try:
         typescript_backend_url = settings.typescript_backend_url
+        
+        headers = {}
+        if session_cookie:
+            headers['Cookie'] = f'project_twitter_user_id={session_cookie}'
         
         # Get current content to merge video metadata
         async with httpx.AsyncClient() as client:
             # First, get the current record
             get_response = await client.get(
                 f"{typescript_backend_url}/api/projects/{project_id}/generated-content/job/{job_id}",
+                headers=headers,
                 timeout=10.0
             )
             
@@ -2722,6 +2780,7 @@ async def update_video_in_db(project_id: int, job_id: str, image_index: int, vid
             # Update with merged data using video endpoint
             update_response = await client.put(
                 f"{typescript_backend_url}/api/projects/{project_id}/generated-content/{job_id}/video",
+                headers=headers,
                 json={
                     "image_index": image_index,
                     "video_url": video_url,
@@ -2747,18 +2806,26 @@ async def update_video_in_db(project_id: int, job_id: str, image_index: int, vid
 # ============================================
 
 @router.post("/api/projects/{project_id}/unified-generation")
-async def start_unified_generation(project_id: int, request: ProjectUnifiedGenerationRequest):
+async def start_unified_generation(
+    project_id: int, 
+    request: ProjectUnifiedGenerationRequest,
+    x_session_cookie: Optional[str] = Header(None, alias="X-Session-Cookie")
+):
     """
     Start unified daily posts generation pipeline
     """
     try:
+        # Extract session cookie from header (forwarded from TypeScript backend)
+        session_cookie = x_session_cookie or request.session_cookie
+        
         # Generate job_id if not provided
         job_id = request.job_id or str(uuid.uuid4())
         request.job_id = job_id
+        request.session_cookie = session_cookie  # Store in request for pipeline
         
         # Create initial database record
-        context = await gather_all_context(project_id)
-        await create_initial_generation_record(project_id, job_id, context)
+        context = await gather_all_context(project_id, session_cookie)
+        await create_initial_generation_record(project_id, job_id, context, session_cookie)
         
         # Store job in memory
         active_jobs[job_id] = {

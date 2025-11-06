@@ -168,7 +168,8 @@ export default function ProjectContextPage() {
               const s3Key = data.data.logo_url.startsWith('/') ? data.data.logo_url.slice(1) : data.data.logo_url
               const pres = await fetch(`${apiUrl}/projects/${projectId}/presigned-url`, { 
                 method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include', // Include cookies for session
                 body: JSON.stringify({ s3_key: s3Key }) 
               })
               if (pres.ok) {
@@ -285,6 +286,7 @@ export default function ProjectContextPage() {
       
       const uploadResp = await fetch(`${apiUrl}/projects/${projectId}/upload-logo`, {
         method: 'POST',
+        credentials: 'include', // Include cookies for session
         body: formData
       })
       
@@ -304,6 +306,7 @@ export default function ProjectContextPage() {
       const presResp = await fetch(`${apiUrl}/projects/${projectId}/presigned-url`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include cookies for session
         body: JSON.stringify({ s3_key: logoUrl })
       })
       if (presResp.ok) {
@@ -340,6 +343,7 @@ export default function ProjectContextPage() {
         
         const uploadResp = await fetch(`${apiUrl}/projects/${projectId}/upload-document`, {
           method: 'POST',
+          credentials: 'include', // Include cookies for session
           body: formData
         })
         
@@ -375,6 +379,7 @@ export default function ProjectContextPage() {
         const extractResp = await fetch(`${apiUrl}/projects/${projectId}/context/extract-documents`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // Include cookies for session
           body: JSON.stringify({ document_urls: s3Keys })
         })
         

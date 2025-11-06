@@ -117,10 +117,20 @@ router.post('/:id/generate/daily', async (req: Request, res: Response) => {
       return res.status(500).json({ success: false, error: 'Python AI backend URL not configured' });
     }
     
+    // Forward session cookie to Python backend so it can authenticate when calling back
+    const sessionCookie = req.cookies?.project_twitter_user_id;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (sessionCookie) {
+      headers['X-Session-Cookie'] = sessionCookie;
+    }
+    
     const response = await fetch(`${pythonBackendUrl}/api/projects/${projectId}/unified-generation`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project_id: projectId })
+      headers,
+      body: JSON.stringify({ 
+        project_id: projectId,
+        session_cookie: sessionCookie || undefined  // Also pass in body as fallback
+      })
     });
     
     if (!response.ok) {
