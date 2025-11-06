@@ -838,12 +838,19 @@ class FalAIGenerator:
             self.fal_client = fal_client
             
             if api_key:
+                self.api_key = api_key
                 os.environ['FAL_KEY'] = api_key
             else:
                 # Try environment variable
                 api_key = os.getenv('FAL_KEY')
                 if not api_key:
                     raise ValueError("Fal.ai API key is required")
+                self.api_key = api_key
+                os.environ['FAL_KEY'] = api_key
+            
+            # Ensure FAL_KEY is set for fal_client
+            if not os.environ.get('FAL_KEY'):
+                raise ValueError("Fal.ai API key is required - FAL_KEY not set in environment")
             
             # Model mapping from frontend names to fal.ai model IDs
             self.model_mapping = {
@@ -1283,6 +1290,37 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                     print(f"🔥   {key}: {value}")
             print(f"🔥 with_logs: True")
             print(f"🔥🔥🔥 CALLING fal_client.subscribe() NOW! 🔥🔥🔥\n")
+            
+            # CRITICAL: Ensure FAL_KEY is set right before calling fal_client
+            # This prevents authentication errors if FAL_KEY was cleared or not set
+            fal_key_to_use = None
+            
+            # Priority 1: Use instance API key if available
+            if hasattr(self, 'api_key') and self.api_key:
+                fal_key_to_use = self.api_key
+                logger.info(f"🔑 Using instance API key for FAL_KEY")
+            # Priority 2: Try environment variable
+            elif os.environ.get('FAL_KEY'):
+                fal_key_to_use = os.environ.get('FAL_KEY')
+                logger.info(f"🔑 Using FAL_KEY from environment")
+            # Priority 3: Fallback to global settings
+            else:
+                try:
+                    from app.config.settings import settings
+                    if settings.fal_api_key:
+                        fal_key_to_use = settings.fal_api_key
+                        logger.info(f"🔑 Using FAL_API_KEY from global settings as fallback")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not load settings for FAL_API_KEY fallback: {e}")
+            
+            if not fal_key_to_use:
+                error_msg = "FAL_KEY not available. Cannot authenticate with fal.ai. Please provide FAL_API_KEY in environment or user API keys."
+                logger.error(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+            
+            # Set FAL_KEY in environment right before the call
+            os.environ['FAL_KEY'] = fal_key_to_use
+            logger.info(f"🔑 FAL_KEY set before fal_client.subscribe() call: {fal_key_to_use[:10]}... (length: {len(fal_key_to_use)})")
             
             # Generate image using fal.ai
             result = self.fal_client.subscribe(

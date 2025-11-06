@@ -16,6 +16,7 @@ interface SecureImageProps {
   fallbackComponent?: React.ReactNode;
   showLoading?: boolean;
   loadingComponent?: React.ReactNode;
+  projectId?: string | null; // Optional project ID for TypeScript backend endpoint
 }
 
 export const SecureImage: React.FC<SecureImageProps> = ({
@@ -27,9 +28,10 @@ export const SecureImage: React.FC<SecureImageProps> = ({
   onError,
   fallbackComponent,
   showLoading = true,
-  loadingComponent
+  loadingComponent,
+  projectId
 }) => {
-  const { presignedUrl, loading, error } = usePresignedUrl(src);
+  const { presignedUrl, loading, error } = usePresignedUrl(src, projectId);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 

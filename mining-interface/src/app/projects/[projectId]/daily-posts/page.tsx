@@ -65,7 +65,9 @@ const useProjectPolling = () => {
         const url = `${apiUrl}/projects/${projectId}/generate/progress/${jobId}`
         console.log(`📡 Polling URL: ${url}`)
         
-        const response = await fetch(url)
+        const response = await fetch(url, {
+          credentials: 'include' // Include cookies for session
+        })
         console.log(`📥 Poll response status: ${response.status}`)
         
         if (!response.ok) {
@@ -242,7 +244,9 @@ export default function ProjectDailyPostsPage() {
         if (!apiUrl || !projectId) return
         
         const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-        const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`)
+        const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`, {
+          credentials: 'include' // Include cookies for session
+        })
         
         if (response.ok) {
           // The endpoint returns the config directly (not wrapped in { success, data })
@@ -275,7 +279,9 @@ export default function ProjectDailyPostsPage() {
       
       try {
         const apiUrl = getApiUrlWithFallback()
-        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+          credentials: 'include' // Include cookies for session
+        })
         
         if (response.ok) {
           const data = await response.json()
@@ -509,7 +515,9 @@ export default function ProjectDailyPostsPage() {
                 // Re-validate tokens
                 setTimeout(() => {
                   const validateTokens = async () => {
-                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+                      credentials: 'include' // Include cookies for session
+                    })
                     if (validateResponse.ok) {
                       const validateData = await validateResponse.json()
                       if (validateData.success) {
@@ -567,7 +575,9 @@ export default function ProjectDailyPostsPage() {
                 // Re-validate tokens after a delay
                 setTimeout(() => {
                   const validateTokens = async () => {
-                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+                      credentials: 'include' // Include cookies for session
+                    })
                     if (validateResponse.ok) {
                       const validateData = await validateResponse.json()
                       if (validateData.success) {
@@ -624,7 +634,9 @@ export default function ProjectDailyPostsPage() {
     // Otherwise, check validation first (for manual reconnect button clicks)
     const apiUrl = getApiUrlWithFallback()
     try {
-      const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+      const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+        credentials: 'include' // Include cookies for session
+      })
       if (validateResponse.ok) {
         const validateData = await validateResponse.json()
         if (validateData.success) {
@@ -696,6 +708,7 @@ export default function ProjectDailyPostsPage() {
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include', // Include cookies for session
         body: JSON.stringify({
           mainTweet: tweetText,
           thread: threadArray,
@@ -739,7 +752,9 @@ export default function ProjectDailyPostsPage() {
       if (result.success) {
         alert(`✅ Posted to Twitter! View: ${result.data?.tweetUrl || 'Tweet posted successfully'}`)
         // Optionally refresh token validation
-        const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+        const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+          credentials: 'include' // Include cookies for session
+        })
         if (validateResponse.ok) {
           const validateData = await validateResponse.json()
           if (validateData.success) {
@@ -815,7 +830,9 @@ export default function ProjectDailyPostsPage() {
     
     try {
       const apiUrl = getApiUrlWithFallback()
-      const response = await fetch(`${apiUrl}/projects/${projectId}/post/schedule?mediaS3Url=${encodeURIComponent(mediaS3Url)}`)
+      const response = await fetch(`${apiUrl}/projects/${projectId}/post/schedule?mediaS3Url=${encodeURIComponent(mediaS3Url)}`, {
+        credentials: 'include' // Include cookies for session
+      })
       
       if (response.ok) {
         const data = await response.json()
@@ -891,7 +908,9 @@ export default function ProjectDailyPostsPage() {
       // Re-validate tokens
       const validateTokens = async () => {
         const apiUrl = getApiUrlWithFallback()
-        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+          credentials: 'include' // Include cookies for session
+        })
         if (response.ok) {
           const data = await response.json()
           if (data.success) {
@@ -1056,7 +1075,8 @@ export default function ProjectDailyPostsPage() {
       const apiUrl = getApiUrlWithFallback()
       const response = await fetch(`${apiUrl}/projects/${projectId}/generate/daily`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include' // Include cookies for session
       })
 
       if (!response.ok) {

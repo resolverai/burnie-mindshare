@@ -1,78 +1,87 @@
 from moviepy.editor import VideoFileClip, CompositeVideoClip, concatenate_videoclips
 
-def crossfade_videos(clip_paths, output_path, transition_duration=1.0, end_fade_duration=1.5):
+def crossfade_videos(clip_paths, output_path, transition_duration=1.0, end_fade_duration=1.5, use_crossfade=True):
     """
-    Combine multiple video clips with crossfade transitions between each.
+    Combine multiple video clips with optional crossfade transitions or simple stitching.
     
     Args:
         clip_paths: List of paths to video files (in order)
         output_path: Path for output video file
-        transition_duration: Duration of crossfade in seconds (default: 1.0)
+        transition_duration: Duration of crossfade in seconds (default: 1.0) - only used if use_crossfade=True
         end_fade_duration: Duration of fade-to-black ending in seconds (default: 1.5)
+        use_crossfade: If True, use crossfade transitions between clips. If False, simple concatenation (default: True)
     """
     
     if len(clip_paths) < 2:
-        raise ValueError("Need at least 2 clips to create transitions")
+        raise ValueError("Need at least 2 clips to combine")
     
     # Load all video clips
     clips = [VideoFileClip(path) for path in clip_paths]
     
-    # Ensure transition duration doesn't exceed any clip length
-    min_duration = min(clip.duration for clip in clips)
-    transition_duration = min(transition_duration, min_duration / 2)
-    
-    # Build the final video parts
-    final_parts = []
-    
-    # Process each clip
-    for i, clip in enumerate(clips):
-        clip_duration = clip.duration
+    if use_crossfade:
+        # Crossfade stitching mode
+        print("🎬 Using crossfade transitions between clips...")
         
-        if i == 0:
-            # First clip: keep everything except last transition_duration
-            main_part = clip.subclip(0, clip_duration - transition_duration)
-            final_parts.append(main_part)
+        # Ensure transition duration doesn't exceed any clip length
+        min_duration = min(clip.duration for clip in clips)
+        transition_duration = min(transition_duration, min_duration / 2)
+        
+        # Build the final video parts
+        final_parts = []
+        
+        # Process each clip
+        for i, clip in enumerate(clips):
+            clip_duration = clip.duration
             
-            # Create transition with next clip
-            clip_fade_out = clip.subclip(clip_duration - transition_duration, clip_duration)
-            next_clip_fade_in = clips[i + 1].subclip(0, transition_duration)
-            
-            # Apply crossfade effects
-            clip_fade_out = clip_fade_out.crossfadeout(transition_duration)
-            next_clip_fade_in = next_clip_fade_in.crossfadein(transition_duration)
-            
-            # Composite the transition
-            clip_fade_out = clip_fade_out.set_start(0)
-            next_clip_fade_in = next_clip_fade_in.set_start(0)
-            transition = CompositeVideoClip([clip_fade_out, next_clip_fade_in])
-            final_parts.append(transition)
-            
-        elif i == len(clips) - 1:
-            # Last clip: skip first transition_duration (already in previous transition)
-            main_part = clip.subclip(transition_duration, clip_duration)
-            final_parts.append(main_part)
-            
-        else:
-            # Middle clips: skip first transition_duration, keep everything except last transition_duration
-            main_part = clip.subclip(transition_duration, clip_duration - transition_duration)
-            final_parts.append(main_part)
-            
-            # Create transition with next clip
-            clip_fade_out = clip.subclip(clip_duration - transition_duration, clip_duration)
-            next_clip_fade_in = clips[i + 1].subclip(0, transition_duration)
-            
-            # Apply crossfade effects
-            clip_fade_out = clip_fade_out.crossfadeout(transition_duration)
-            next_clip_fade_in = next_clip_fade_in.crossfadein(transition_duration)
-            
-            # Composite the transition
-            clip_fade_out = clip_fade_out.set_start(0)
-            next_clip_fade_in = next_clip_fade_in.set_start(0)
-            transition = CompositeVideoClip([clip_fade_out, next_clip_fade_in])
-            final_parts.append(transition)
-    
-    # Concatenate all parts
-    final_clip = concatenate_videoclips(final_parts)
+            if i == 0:
+                # First clip: keep everything except last transition_duration
+                main_part = clip.subclip(0, clip_duration - transition_duration)
+                final_parts.append(main_part)
+                
+                # Create transition with next clip
+                clip_fade_out = clip.subclip(clip_duration - transition_duration, clip_duration)
+                next_clip_fade_in = clips[i + 1].subclip(0, transition_duration)
+                
+                # Apply crossfade effects
+                clip_fade_out = clip_fade_out.crossfadeout(transition_duration)
+                next_clip_fade_in = next_clip_fade_in.crossfadein(transition_duration)
+                
+                # Composite the transition
+                clip_fade_out = clip_fade_out.set_start(0)
+                next_clip_fade_in = next_clip_fade_in.set_start(0)
+                transition = CompositeVideoClip([clip_fade_out, next_clip_fade_in])
+                final_parts.append(transition)
+                
+            elif i == len(clips) - 1:
+                # Last clip: skip first transition_duration (already in previous transition)
+                main_part = clip.subclip(transition_duration, clip_duration)
+                final_parts.append(main_part)
+                
+            else:
+                # Middle clips: skip first transition_duration, keep everything except last transition_duration
+                main_part = clip.subclip(transition_duration, clip_duration - transition_duration)
+                final_parts.append(main_part)
+                
+                # Create transition with next clip
+                clip_fade_out = clip.subclip(clip_duration - transition_duration, clip_duration)
+                next_clip_fade_in = clips[i + 1].subclip(0, transition_duration)
+                
+                # Apply crossfade effects
+                clip_fade_out = clip_fade_out.crossfadeout(transition_duration)
+                next_clip_fade_in = next_clip_fade_in.crossfadein(transition_duration)
+                
+                # Composite the transition
+                clip_fade_out = clip_fade_out.set_start(0)
+                next_clip_fade_in = next_clip_fade_in.set_start(0)
+                transition = CompositeVideoClip([clip_fade_out, next_clip_fade_in])
+                final_parts.append(transition)
+        
+        # Concatenate all parts
+        final_clip = concatenate_videoclips(final_parts)
+    else:
+        # Simple stitching mode - just concatenate clips directly
+        print("🔗 Using simple stitching (no crossfade transitions)...")
+        final_clip = concatenate_videoclips(clips)
     
     # Add fade-to-black ending with audio fade-out
     print(f"🎬 Adding {end_fade_duration}s fade-to-black ending...")
@@ -108,13 +117,16 @@ if __name__ == "__main__":
         "/Users/taran/Downloads/cocktail-clip2.mp4"
     ]
     
-    output_file = "/Users/taran/Downloads/combined_output_final_cocktail.mp4"
+    output_file = "/Users/taran/Downloads/combined_output_final_cocktail_simple.mp4"
     
-    # Duration of crossfade transition in seconds
+    # Stitching mode: True for crossfade transitions, False for simple concatenation
+    USE_CROSSFADE = False  # Set to False for simple stitching without crossfade
+    
+    # Duration of crossfade transition in seconds (only used if USE_CROSSFADE=True)
     fade_duration = 1.5  # Adjust as needed
     
     # Duration of fade-to-black ending in seconds
     end_fade_duration = 1.5  # Adjust as needed
     
     # Combine all videos
-    crossfade_videos(input_clips, output_file, fade_duration, end_fade_duration)
+    crossfade_videos(input_clips, output_file, fade_duration, end_fade_duration, use_crossfade=USE_CROSSFADE)

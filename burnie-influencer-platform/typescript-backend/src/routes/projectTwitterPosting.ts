@@ -8,8 +8,12 @@ import { ProjectTwitterTokenService } from '../services/ProjectTwitterTokenServi
 import { env } from '../config/env';
 import FormData from 'form-data';
 import fetch from 'node-fetch';
+import { projectAuthMiddleware } from '../middleware/projectAuthMiddleware';
 
 const router = Router();
+
+// Apply authorization middleware to all routes
+router.use('/:projectId/*', projectAuthMiddleware);
 
 // Helper functions (similar to twitterPosting.ts)
 function extractS3KeyFromUrl(url: string): string | null {

@@ -7,8 +7,13 @@ import { logger } from '../config/logger';
 import { UrlCacheService } from '../services/UrlCacheService';
 import { env } from '../config/env';
 import { MoreThan } from 'typeorm';
+import { projectAuthMiddleware } from '../middleware/projectAuthMiddleware';
 
 const router = Router();
+
+// Apply authorization middleware to all routes that require project access
+// Routes that don't need auth (like /my-project) should be defined before this
+router.use('/:id/*', projectAuthMiddleware);
 
 // Helper function to convert S3 key to presigned URL with Redis caching
 // Returns URL as-is if it's a fal.media URL (no presigning needed)

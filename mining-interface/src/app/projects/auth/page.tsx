@@ -22,7 +22,9 @@ export default function ProjectsAuthPage() {
           return
         }
         
-        const resp = await fetch(`${apiUrl}/projects/${projectId}/twitter/status`)
+        const resp = await fetch(`${apiUrl}/projects/${projectId}/twitter/status`, {
+          credentials: 'include' // Include cookies for session
+        })
         if (!resp.ok) {
           console.error(`Failed to check Twitter status: ${resp.status}`)
           return
@@ -83,7 +85,9 @@ export default function ProjectsAuthPage() {
               try {
                 const apiUrl = getApiUrlWithFallback()
                 if (apiUrl) {
-                  const ctxResp = await fetch(`${apiUrl}/projects/${project_id}/context`)
+                  const ctxResp = await fetch(`${apiUrl}/projects/${project_id}/context`, {
+                    credentials: 'include' // Include cookies for session
+                  })
                   if (ctxResp.ok) {
                     const ctxData = await ctxResp.json()
                     const hasContext = !!ctxData?.data

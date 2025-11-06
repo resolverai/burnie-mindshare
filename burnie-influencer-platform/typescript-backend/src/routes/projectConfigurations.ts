@@ -3,8 +3,12 @@ import { AppDataSource } from '../config/database';
 import { Web3ProjectConfiguration } from '../models/Web3ProjectConfiguration';
 import { logger } from '../config/logger';
 import { DateTime } from 'luxon';
+import { projectAuthMiddleware } from '../middleware/projectAuthMiddleware';
 
 const router = express.Router();
+
+// Apply authorization middleware to all routes
+router.use('/:id/*', projectAuthMiddleware);
 
 /**
  * GET /api/projects/:id/configurations

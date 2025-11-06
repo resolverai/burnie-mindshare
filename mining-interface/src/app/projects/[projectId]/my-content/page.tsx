@@ -9,6 +9,7 @@ import TweetThreadDisplay from '@/components/TweetThreadDisplay'
 import VideoPlayer from '@/components/VideoPlayer'
 import { renderMarkdown } from '@/utils/markdownParser'
 import ScheduleModal from '@/components/projects/ScheduleModal'
+import { presignedUrlManager } from '@/utils/presigned-url-helper'
 
 interface ContentItem {
   id: number
@@ -47,6 +48,16 @@ const formatPostType = (type: string): string => {
 export default function ProjectMyContentPage() {
   const params = useParams()
   const projectId = params.projectId as string
+  
+  // Set project ID for presigned URL manager to use TypeScript backend with Redis caching
+  useEffect(() => {
+    if (projectId) {
+      presignedUrlManager.setProjectId(projectId)
+    }
+    return () => {
+      presignedUrlManager.setProjectId(null)
+    }
+  }, [projectId])
   
   const [content, setContent] = useState<Record<string, ContentItem[]>>({})
   const [loading, setLoading] = useState(true)
@@ -128,9 +139,16 @@ export default function ProjectMyContentPage() {
           queryParams.append('postType', postTypeFilter)
         }
 
-        const response = await fetch(`${apiUrl}/projects/${projectId}/content?${queryParams}`)
+        const response = await fetch(`${apiUrl}/projects/${projectId}/content?${queryParams}`, {
+          credentials: 'include' // Include cookies for session
+        })
         
         if (!response.ok) {
+          if (response.status === 401) {
+            // Unauthorized - redirect to auth
+            window.location.href = '/projects/auth'
+            return
+          }
           throw new Error(`Failed to fetch content: ${response.statusText}`)
         }
 
@@ -205,7 +223,9 @@ export default function ProjectMyContentPage() {
       
       try {
         const apiUrl = getApiUrlWithFallback()
-        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+          credentials: 'include' // Include cookies for session
+        })
         
         if (response.ok) {
           const data = await response.json()
@@ -269,7 +289,9 @@ export default function ProjectMyContentPage() {
                 // Re-validate tokens
                 setTimeout(() => {
                   const validateTokens = async () => {
-                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+                      credentials: 'include' // Include cookies for session
+                    })
                     if (validateResponse.ok) {
                       const validateData = await validateResponse.json()
                       if (validateData.success) {
@@ -323,7 +345,9 @@ export default function ProjectMyContentPage() {
                 // Re-validate tokens
                 setTimeout(() => {
                   const validateTokens = async () => {
-                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+                    const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+                      credentials: 'include' // Include cookies for session
+                    })
                     if (validateResponse.ok) {
                       const validateData = await validateResponse.json()
                       if (validateData.success) {
@@ -378,7 +402,9 @@ export default function ProjectMyContentPage() {
     // Otherwise, check validation first (for manual reconnect button clicks)
     const apiUrl = getApiUrlWithFallback()
     try {
-      const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+      const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+        credentials: 'include' // Include cookies for session
+      })
       if (validateResponse.ok) {
         const validateData = await validateResponse.json()
         if (validateData.success) {
@@ -444,6 +470,7 @@ export default function ProjectMyContentPage() {
         headers: {
           'Content-Type': 'application/json'
         },
+        credentials: 'include', // Include cookies for session
         body: JSON.stringify({
           mainTweet: postData.tweetText,
           thread: postData.threadArray,
@@ -487,7 +514,9 @@ export default function ProjectMyContentPage() {
       if (result.success) {
         alert(`✅ Posted to Twitter! View: ${result.data?.tweetUrl || 'Tweet posted successfully'}`)
         // Re-validate tokens
-        const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+        const validateResponse = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+          credentials: 'include' // Include cookies for session
+        })
         if (validateResponse.ok) {
           const validateData = await validateResponse.json()
           if (validateData.success) {
@@ -561,7 +590,9 @@ export default function ProjectMyContentPage() {
     
     try {
       const apiUrl = getApiUrlWithFallback()
-      const response = await fetch(`${apiUrl}/projects/${projectId}/post/schedule?mediaS3Url=${encodeURIComponent(mediaS3Url)}`)
+      const response = await fetch(`${apiUrl}/projects/${projectId}/post/schedule?mediaS3Url=${encodeURIComponent(mediaS3Url)}`, {
+        credentials: 'include' // Include cookies for session
+      })
       
       if (response.ok) {
         const data = await response.json()
@@ -630,7 +661,9 @@ export default function ProjectMyContentPage() {
       // Re-validate tokens
       const validateTokens = async () => {
         const apiUrl = getApiUrlWithFallback()
-        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`)
+        const response = await fetch(`${apiUrl}/projects/${projectId}/twitter-tokens/validate`, {
+          credentials: 'include' // Include cookies for session
+        })
         if (response.ok) {
           const data = await response.json()
           if (data.success) {
@@ -937,6 +970,7 @@ export default function ProjectMyContentPage() {
                                     src={post.imageUrl}
                                     alt={`Post ${postIndex + 1}`}
                                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                    projectId={projectId}
                                     fallbackComponent={
                                       <div className="w-full h-full flex items-center justify-center bg-gray-700">
                                         <div className="text-center space-y-2">
@@ -1125,6 +1159,7 @@ export default function ProjectMyContentPage() {
                             src={imageUrl}
                             alt="Post image"
                             className="w-full h-full rounded-lg object-contain"
+                            projectId={projectId}
                             fallbackComponent={
                               <div className="w-full h-full flex items-center justify-center bg-gray-700 rounded-lg">
                                 <div className="text-center space-y-2">

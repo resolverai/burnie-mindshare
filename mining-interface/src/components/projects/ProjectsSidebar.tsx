@@ -12,6 +12,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon
 } from '@heroicons/react/24/outline'
+import { getApiUrlWithFallback } from '@/utils/api-config'
 
 interface ProjectsSidebarProps {
   projectId: string
@@ -32,9 +33,27 @@ export default function ProjectsSidebar({ projectId, isExpanded, onToggle }: Pro
     { name: 'Settings', href: `${base}/settings`, icon: Cog6ToothIcon },
   ]
 
-  const handleLogout = () => {
-    localStorage.removeItem('burnie_project_id')
-    router.push('/')
+  const handleLogout = async () => {
+    try {
+      // Call backend to clear session cookie
+      const apiUrl = getApiUrlWithFallback()
+      if (apiUrl) {
+        await fetch(`${apiUrl}/projects/logout`, {
+          method: 'POST',
+          credentials: 'include', // Include cookies to clear them
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+      }
+    } catch (error) {
+      console.error('Error during logout:', error)
+    } finally {
+      // Clear localStorage
+      localStorage.removeItem('burnie_project_id')
+      // Redirect to home
+      router.push('/')
+    }
   }
 
   return (

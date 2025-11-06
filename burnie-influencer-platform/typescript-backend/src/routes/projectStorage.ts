@@ -3,8 +3,14 @@ import multer from 'multer';
 import AWS from 'aws-sdk';
 import path from 'path';
 import { logger } from '../config/logger';
+import { UrlCacheService } from '../services/UrlCacheService';
+import { env } from '../config/env';
+import { projectAuthMiddleware } from '../middleware/projectAuthMiddleware';
 
 const router = Router();
+
+// Apply authorization middleware to all routes that require project access
+router.use('/:id/*', projectAuthMiddleware);
 
 // Configure AWS S3
 const s3 = new AWS.S3({
@@ -175,33 +181,80 @@ router.post('/:id/upload-document', uploadDocuments.single('document'), async (r
 });
 
 // POST /api/projects/:id/presigned-url { s3_key }
+// This endpoint uses Redis caching to avoid calling Python backend unnecessarily
 router.post('/:id/presigned-url', async (req: Request, res: Response) => {
   try {
     const { s3_key } = req.body || {};
     if (!s3_key) return res.status(400).json({ success: false, error: 's3_key required' });
-    const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL;
-    if (!pythonBackendUrl) return res.status(500).json({ success: false, error: 'Python backend URL not configured' });
-
-    // Python backend expects query parameters, not JSON body
-    // Remove leading slash if present (S3 keys shouldn't have leading slashes)
-    const cleanS3Key = s3_key.startsWith('/') ? s3_key.slice(1) : s3_key;
-    const queryParams = `s3_key=${encodeURIComponent(cleanS3Key)}&expiration=3600`;
     
+    // Check if URL is from fal.media - return as-is without presigning
+    if (s3_key && typeof s3_key === 'string' && s3_key.includes('fal.media')) {
+      logger.debug(`✅ URL is from fal.media, returning as-is: ${s3_key}`);
+      return res.json({ success: true, presigned_url: s3_key });
+    }
+    
+    // Handle both s3://bucket/key and just key formats
+    let cleanKey = s3_key;
+    if (s3_key.startsWith('s3://')) {
+      // Extract key from s3://bucket/key format
+      const parts = s3_key.replace('s3://', '').split('/');
+      cleanKey = parts.slice(1).join('/'); // Remove bucket name
+    }
+    // Remove leading slash if present
+    cleanKey = cleanKey.startsWith('/') ? cleanKey.slice(1) : cleanKey;
+
+    // First, check Redis cache (TTL: 55 minutes)
+    const isRedisAvailable = await UrlCacheService.isRedisAvailable();
+    if (isRedisAvailable) {
+      const cachedUrl = await UrlCacheService.getCachedUrl(cleanKey);
+      if (cachedUrl) {
+        logger.debug(`✅ Using cached presigned URL for S3 key: ${cleanKey}`);
+        return res.json({ success: true, presigned_url: cachedUrl });
+      }
+    }
+
+    // If not cached or Redis unavailable, generate new presigned URL from Python backend
+    const pythonBackendUrl = env.ai.pythonBackendUrl;
+    if (!pythonBackendUrl) {
+      logger.error('PYTHON_AI_BACKEND_URL not configured, cannot generate presigned URL');
+      return res.status(500).json({ success: false, error: 'Python backend URL not configured' });
+    }
+
+    logger.info(`🔗 Requesting presigned URL for S3 key: ${cleanKey}`);
+    
+    const queryParams = `s3_key=${encodeURIComponent(cleanKey)}&expiration=3600`;
     const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?${queryParams}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     });
+    
     if (!response.ok) {
       const errorText = await response.text().catch(() => 'Unknown error');
+      logger.error(`Failed to generate presigned URL for ${cleanKey}: ${response.status}`);
       return res.status(502).json({ success: false, error: `Python backend responded ${response.status}: ${errorText}` });
     }
-    const data = await response.json() as { status?: string; presigned_url?: string; error?: string };
-    // Python backend returns: { status: "success", presigned_url: "...", details: {...} }
+
+    const data = await response.json() as { status?: string; presigned_url?: string; error?: string; details?: any };
+    
     if (data.status === 'success' && data.presigned_url) {
-      return res.json({ success: true, presigned_url: data.presigned_url });
+      logger.info(`✅ Generated presigned URL for S3 key: ${cleanKey}`);
+      
+      // Cache the new URL with 55-minute TTL (3300 seconds) if Redis is available
+      if (isRedisAvailable && data.presigned_url) {
+        await UrlCacheService.cacheUrl(cleanKey, data.presigned_url, 3300); // 55 minutes
+      }
+      
+      return res.json({ 
+        success: true, 
+        presigned_url: data.presigned_url,
+        expires_at: data.details?.expires_at,
+        expires_in_seconds: data.details?.expires_in_seconds
+      });
     }
+    
     return res.status(502).json({ success: false, error: data.error || 'Failed to generate presigned URL' });
-  } catch (e) {
+  } catch (e: any) {
+    logger.error('Error generating presigned URL:', e);
     return res.status(500).json({ success: false, error: 'Failed to get presigned URL' });
   }
 });

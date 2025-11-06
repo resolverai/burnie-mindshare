@@ -66,9 +66,16 @@ export default function ProjectContextPage() {
       }
       
       try {
-        const resp = await fetch(`${apiUrl}/projects/${projectId}/context`)
+        const resp = await fetch(`${apiUrl}/projects/${projectId}/context`, {
+          credentials: 'include' // Include cookies for session
+        })
         if (!resp.ok) {
           console.error(`Failed to fetch context: ${resp.status}`)
+          if (resp.status === 401) {
+            // Unauthorized - redirect to auth
+            window.location.href = '/projects/auth'
+            return
+          }
           return
         }
         
@@ -236,7 +243,8 @@ export default function ProjectContextPage() {
       
       const resp = await fetch(`${apiUrl}/projects/${projectId}/context`, { 
         method: 'PUT', 
-        headers: { 'Content-Type': 'application/json' }, 
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include cookies for session
         body: JSON.stringify(body) 
       })
       

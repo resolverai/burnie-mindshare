@@ -20,7 +20,9 @@ export default function NewProjectOnboardingPage() {
           return
         }
         
-        const resp = await fetch(`${apiUrl}/projects/${pid}/twitter/status`)
+        const resp = await fetch(`${apiUrl}/projects/${pid}/twitter/status`, {
+          credentials: 'include' // Include cookies for session
+        })
         if (!resp.ok) {
           console.error(`Failed to check Twitter status: ${resp.status}`)
           router.replace('/projects/auth')
@@ -34,7 +36,9 @@ export default function NewProjectOnboardingPage() {
         }
         // If context already exists, go straight to dashboard
         try {
-          const ctxResp = await fetch(`${apiUrl}/projects/${pid}/context`)
+          const ctxResp = await fetch(`${apiUrl}/projects/${pid}/context`, {
+            credentials: 'include' // Include cookies for session
+          })
           if (ctxResp.ok) {
             const ctxData = await ctxResp.json()
             if (ctxData?.data) {
@@ -202,7 +206,9 @@ export default function NewProjectOnboardingPage() {
       }
       console.log('Saving context with logo_url:', logoUrl)
       const saveResp = await fetch(`${apiUrl}/projects/${projectId}/context`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        method: 'PUT', 
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Include cookies for session
         body: JSON.stringify(contextPayload)
       })
       if (!saveResp.ok) {

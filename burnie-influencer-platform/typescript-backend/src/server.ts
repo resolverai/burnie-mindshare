@@ -4,6 +4,7 @@ import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 
 import { env } from './config/env';
 import { logger } from './config/logger';
@@ -120,6 +121,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+app.use(cookieParser()); // Parse cookies for session management
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
@@ -141,9 +143,11 @@ app.use('/health', healthRoutes); // Direct health endpoint for frontend
 app.use('/api/health', healthRoutes);
 app.use('/api/miners', minerRoutes);
 app.use('/api/campaigns', campaignRoutes);
+// Mount projectAuthStatusRoutes BEFORE projectRoutes to avoid route conflicts
+// (my-project route must be matched before :id routes)
+app.use('/api/projects', projectAuthStatusRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/projects', projectAuthRoutes);
-app.use('/api/projects', projectAuthStatusRoutes);
 app.use('/api/projects', projectContextRoutes);
 app.use('/api/projects', projectContentRoutes);
 app.use('/api/projects', projectStorageRoutes);

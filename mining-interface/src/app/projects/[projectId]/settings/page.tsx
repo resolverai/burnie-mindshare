@@ -71,7 +71,9 @@ export default function ProjectSettingsPage() {
     
     try {
       const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-      const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`)
+      const response = await fetch(`${apiUrl}/projects/${projectId}/configurations?user_timezone=${encodeURIComponent(userTimezone)}`, {
+        credentials: 'include' // Include cookies for session
+      })
       if (response.ok) {
         const config: ProjectConfiguration = await response.json()
         setImageModel(config.image_model)
@@ -146,6 +148,7 @@ export default function ProjectSettingsPage() {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include', // Include cookies for session
         body: JSON.stringify({
           image_model: imageModel,
           video_model: videoModel,

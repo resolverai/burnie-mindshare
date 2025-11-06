@@ -4,8 +4,12 @@ import { Web3PostsSchedule } from '../models/Web3PostsSchedule';
 import { Web3ProjectConfiguration } from '../models/Web3ProjectConfiguration';
 import { logger } from '../config/logger';
 import { queueScheduledPost } from '../services/ScheduledPostQueueService';
+import { projectAuthMiddleware } from '../middleware/projectAuthMiddleware';
 
 const router = Router();
+
+// Apply authorization middleware to all routes
+router.use('/:projectId/*', projectAuthMiddleware);
 
 /**
  * GET /api/projects/:projectId/post/schedule

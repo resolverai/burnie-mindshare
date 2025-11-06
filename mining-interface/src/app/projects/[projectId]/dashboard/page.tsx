@@ -85,9 +85,16 @@ export default function ProjectDashboardPage() {
       }
 
       try {
-        const response = await fetch(`${apiUrl}/projects/${projectId}/dashboard`)
+        const response = await fetch(`${apiUrl}/projects/${projectId}/dashboard`, {
+          credentials: 'include' // Include cookies for session
+        })
         
         if (!response.ok) {
+          if (response.status === 401) {
+            // Unauthorized - redirect to auth
+            router.replace('/projects/auth')
+            return
+          }
           throw new Error(`Failed to fetch dashboard data: ${response.statusText}`)
         }
 

@@ -4,8 +4,12 @@ import { Web3ProjectContext } from '../models/Web3ProjectContext';
 import { logger } from '../config/logger';
 import { s3Service } from '../services/S3Service';
 import { UrlCacheService } from '../services/UrlCacheService';
+import { projectAuthMiddleware } from '../middleware/projectAuthMiddleware';
 
 const router = Router();
+
+// Apply authorization middleware to all routes
+router.use('/:id/*', projectAuthMiddleware);
 
 router.get('/:id/context', async (req: Request, res: Response) => {
   if (!AppDataSource.isInitialized) return res.status(503).json({ success: false, error: 'DB not ready' });

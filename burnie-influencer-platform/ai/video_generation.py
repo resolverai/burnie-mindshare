@@ -7,7 +7,7 @@ from datetime import datetime
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, concatenate_audioclips, CompositeAudioClip, CompositeVideoClip
 import anthropic
 from xai_sdk import Client
-from xai_sdk.chat import user, system
+from xai_sdk.chat import user, system, image as chat_image
 from pathlib import Path
 
 # Import required modules
@@ -352,8 +352,8 @@ class VideoGenerator:
                 clip_prompts.append(f'    "audio{i}_prime_prompt": "Create continuous background music and musical composition that enhances the visual narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements. NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC."')
             
             # Add individual voiceover prompts for each regular clip
-            clip_prompts.append(f'    "voiceover{i}_prompt": "Break down the tweet text (or generated brand messaging) into this clip\'s portion with emotions, expressions, feelings, pauses, tone changes. Generate natural, flowing voiceover text. MUST START WITH [pause 1 second]. MAXIMUM 80 CHARACTERS. NO HASHTAGS. Break down or modify the original text if needed to preserve the core message while staying within character limit."')
-            clip_prompts.append(f'    "voiceover{i}_prime_prompt": "Break down the tweet text (or generated brand messaging) into this clip\'s portion with emotions, expressions, feelings, pauses, tone changes. Generate natural, flowing voiceover text. MUST START WITH [pause 1 second]. MAXIMUM 80 CHARACTERS. NO HASHTAGS. Break down or modify the original text if needed to preserve the core message while staying within character limit."')
+            clip_prompts.append(f'    "voiceover{i}_prompt": "Break down the tweet text (or generated brand messaging) into this clip\'s portion with emotions, expressions, feelings, pauses, tone changes. Generate natural, flowing voiceover text. MUST START WITH [pause 1 second]. MAXIMUM 90 CHARACTERS. NO HASHTAGS. Break down or modify the original text if needed to preserve the core message while staying within character limit."')
+            clip_prompts.append(f'    "voiceover{i}_prime_prompt": "Break down the tweet text (or generated brand messaging) into this clip\'s portion with emotions, expressions, feelings, pauses, tone changes. Generate natural, flowing voiceover text. MUST START WITH [pause 1 second]. MAXIMUM 90 CHARACTERS. NO HASHTAGS. Break down or modify the original text if needed to preserve the core message while staying within character limit."')
         
         # Add single audio prompt for entire video if clip_audio_prompts is False (always generate for Pixverse audio)
         if not self.clip_audio_prompts:
@@ -424,6 +424,232 @@ class VideoGenerator:
         except Exception as e:
             print(f"❌ Error selecting product image: {str(e)}")
             return None
+    
+    def analyze_product_images(self, product_image_s3_urls):
+        """
+        Analyze uploaded product images and extract product details using Grok vision capabilities.
+        This is similar to inventory analysis in web2 flow but fully autonomous for any product type.
+        
+        Args:
+            product_image_s3_urls: List of S3 URLs (presigned) of uploaded product images
+            
+        Returns:
+            Dict with product analysis for each image, or None if analysis fails
+        """
+        if not product_image_s3_urls or len(product_image_s3_urls) == 0:
+            return None
+        
+        if not self.grok_client:
+            print("❌ Grok client not available for product image analysis")
+            return None
+        
+        try:
+            print(f"🔍 Starting product image analysis for {len(product_image_s3_urls)} product images")
+            print(f"🔍 Product images to analyze: {product_image_s3_urls}")
+            
+            # Prepare the analysis prompt - fully autonomous for any product type
+            analysis_prompt = """
+You are an expert product analyst with deep knowledge across all industries and product categories. Your task is to analyze the uploaded product images and extract comprehensive product details.
+
+The product can be ANYTHING in the world:
+- Physical products (electronics, furniture, clothing, accessories, home goods, etc.)
+- Digital products (software interfaces, apps, websites, digital art, etc.)
+- Food items (dishes, ingredients, packaged foods, beverages, etc.)
+- Services (spa treatments, experiences, events, etc.)
+- Or any other product category
+
+For each image, provide:
+1. Product category (be specific: e.g., "Wireless Headphones", "Modern Sofa", "Mobile App Interface", "Gourmet Pizza", etc.)
+2. Key product features (design elements, materials, colors, functionality, unique selling points)
+3. Product angle/view (front view, side view, detail shot, close-up, top-down, etc.)
+4. What this image showcases best (main design, specific feature, texture, functionality, etc.)
+5. Target audience/demographic (who would use/buy this product)
+6. Styling/context recommendations (how to present this product in marketing)
+7. Best use case (when/where to use this image in a video sequence)
+
+IMPORTANT: Return ONLY a JSON object with this exact format:
+{
+  "image_1": {
+    "category": "Specific Product Category",
+    "features": ["feature1", "feature2", "feature3"],
+    "angle": "front view / side view / detail shot / close-up / etc.",
+    "showcases": "What this image showcases best",
+    "target_audience": "Target demographic or user type",
+    "styling": "How to present this product in marketing",
+    "best_use": "When/where to use this image in video sequence"
+  },
+  "image_2": {
+    "category": "Specific Product Category",
+    "features": ["feature1", "feature2", "feature3"],
+    "angle": "front view / side view / detail shot / close-up / etc.",
+    "showcases": "What this image showcases best",
+    "target_audience": "Target demographic or user type",
+    "styling": "How to present this product in marketing",
+    "best_use": "When/where to use this image in video sequence"
+  }
+}
+
+Use "image_1", "image_2", etc. as keys corresponding to the order of images provided.
+Be specific and detailed in your analysis. Consider the product's unique characteristics, design elements, and marketing potential.
+"""
+            
+            # Create chat with Grok
+            chat = self.grok_client.chat.create(model="grok-4-latest")
+            
+            # Add system message
+            chat.append(system(
+                "You are Grok, an expert product analyst with comprehensive knowledge across all industries. "
+                "Analyze product images and provide detailed insights in structured JSON format. "
+                "Focus on product-specific features, design elements, and marketing potential."
+            ))
+            
+            # Build user prompt with images
+            prompt = f"""
+{analysis_prompt}
+
+Analyze the following {len(product_image_s3_urls)} product images and provide detailed categorization.
+Output ONLY valid JSON with the structure specified above. No markdown, no extra text.
+"""
+            
+            # Create image objects with high detail
+            image_objects = [chat_image(image_url=url, detail="high") for url in product_image_s3_urls]
+            print(f"🤖 Created {len(image_objects)} image objects with high detail")
+            
+            # Append user message with images
+            chat.append(user(prompt, *image_objects))
+            print(f"🤖 Calling Grok for product image analysis...")
+            
+            # Get response
+            response = chat.sample()
+            analysis_text = response.content
+            print(f"📊 Grok analysis result (first 500 chars): {analysis_text[:500]}...")
+            
+            # Parse JSON response
+            try:
+                # Clean the response text to extract JSON
+                response_text = analysis_text.strip()
+                
+                # Find JSON content between ```json and ``` or just the JSON itself
+                if "```json" in response_text:
+                    json_start = response_text.find("```json") + 7
+                    json_end = response_text.find("```", json_start)
+                    json_content = response_text[json_start:json_end].strip()
+                elif "```" in response_text:
+                    json_start = response_text.find("```") + 3
+                    json_end = response_text.find("```", json_start)
+                    json_content = response_text[json_start:json_end].strip()
+                else:
+                    # Try to find JSON object directly
+                    json_start = response_text.find("{")
+                    json_end = response_text.rfind("}") + 1
+                    if json_start >= 0 and json_end > json_start:
+                        json_content = response_text[json_start:json_end]
+                    else:
+                        json_content = response_text
+                
+                # Parse JSON
+                product_analysis = json.loads(json_content)
+                print(f"✅ Product image analysis completed successfully")
+                print(f"📦 Analyzed {len(product_analysis)} product images")
+                return product_analysis
+                
+            except json.JSONDecodeError as e:
+                print(f"❌ Error parsing JSON response from Grok: {str(e)}")
+                print(f"❌ Response text (first 1000 chars): {response_text[:1000]}")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error analyzing product images: {str(e)}")
+            import traceback
+            print(f"❌ Full traceback: {traceback.print_exc()}")
+            return None
+    
+    def _format_product_analysis(self, product_analysis):
+        """Format product analysis results for inclusion in prompt generation."""
+        if not product_analysis:
+            return ""
+        
+        formatted = """
+📦 PRODUCT ANALYSIS INSIGHTS:
+Based on analysis of uploaded product images, use these specific product details:
+
+"""
+        
+        for image_key, product_data in product_analysis.items():
+            if isinstance(product_data, dict):
+                formatted += f"🛍️ {product_data.get('category', 'Product')} ({image_key}):\n"
+                
+                if product_data.get('features'):
+                    features = product_data['features']
+                    if isinstance(features, list):
+                        formatted += f"  - Features: {', '.join(features)}\n"
+                    else:
+                        formatted += f"  - Features: {features}\n"
+                
+                if product_data.get('angle'):
+                    formatted += f"  - View/Angle: {product_data['angle']}\n"
+                
+                if product_data.get('showcases'):
+                    formatted += f"  - Showcases: {product_data['showcases']}\n"
+                
+                if product_data.get('target_audience'):
+                    formatted += f"  - Target Audience: {product_data['target_audience']}\n"
+                
+                if product_data.get('styling'):
+                    formatted += f"  - Styling: {product_data['styling']}\n"
+                
+                if product_data.get('best_use'):
+                    formatted += f"  - Best Use: {product_data['best_use']}\n"
+                
+                formatted += "\n"
+        
+        formatted += """
+🎯 CRITICAL PRODUCT-AWARE INSTRUCTIONS:
+- Generate prompts for the ACTUAL products analyzed above
+- Use the specific product categories, features, and details provided
+- Create frame prompts that showcase each product's unique characteristics
+- Focus on the product features, angles, and what each image showcases best
+- DO NOT invent or assume different products - use only what was analyzed
+- Each frame should highlight specific product features based on the analysis
+
+📸 FRAME-TO-IMAGE MAPPING REQUIREMENT:
+- You MUST map exactly ONE product image to each frame (frame_2, frame_3, etc.)
+- Choose the best product image for each frame based on:
+  * What the frame prompt should showcase
+  * The product image's angle/view (front view, detail shot, etc.)
+  * The product image's "best_use" recommendation
+  * The product image's "showcases" description
+- Map product images intelligently to create a logical visual progression
+- For example: Use front view for opening frame, detail shots for close-ups, etc.
+
+🖼️ CRITICAL: REFERENCE IMAGE ALIGNMENT REQUIREMENT:
+- When you map a product image to a frame, the frame prompt MUST describe the EXACT product shown in that reference image
+- The frame prompt must match the product image's:
+  * Specific angle/view (e.g., "side view", "front view", "close-up detail")
+  * Exact features visible in the image (e.g., "touch-sensitive buttons", "LED indicators", "chain attachment")
+  * Specific design elements (e.g., "sleek white rectangular design", "compact form factor")
+  * Exact styling and appearance shown in the image
+- The frame prompt should describe the product EXACTLY as it appears in the mapped reference image
+- This ensures the image generation model extracts the SAME product from the reference image
+- DO NOT describe a generic or different product - describe the SPECIFIC product shown in the mapped image
+- Include specific details from the product analysis (features, angle, showcases) in the frame prompt
+- The goal is: when the reference image is passed to the image generation model, it should recognize and extract the exact same product described in the prompt
+
+🎯 CRITICAL: PRODUCT EXTRACTION REQUIREMENT:
+- The frame prompt MUST explicitly reference and describe the product from the mapped reference image
+- Start the frame prompt by describing the product shown in the reference image (e.g., "Sleek black over-ear headphones with glowing RGB LED ring", "Smart window shade controller with touch-sensitive buttons")
+- DO NOT just describe a scene without mentioning the product - the product must be the central focus
+- The frame prompt should describe: "The [product type] shown in the reference image, featuring [specific features from analysis], in [specific angle/view], with [specific design elements]"
+- This explicit product description allows the image generation model to:
+  * Recognize the product in the reference image
+  * Extract the product from the reference image
+  * Place the extracted product into the new scene described in the frame prompt
+- Example: Instead of "A modern living room with window shades", write "The sleek white SmartShade controller device (from reference image) mounted on a modern living room window frame, featuring touch-sensitive buttons and LED indicators, with the reference logo visible"
+- The frame prompt should create a NEW scene while explicitly referencing the product from the reference image so it can be extracted and placed in that new scene
+
+"""
+        
+        return formatted
     
     def _get_transition_physics_instructions(self):
         """Get comprehensive transition physics instructions for autonomous LLM decision-making."""
@@ -524,7 +750,7 @@ VOICEOVER GENERATION REQUIREMENTS:
 - Include emotional guidance: [pause], [voice cracks], [building confidence], etc.
 - Maintain narrative continuity across all clips
 - Use professional male voiceover tone with appropriate emotions
-- STRICT CHARACTER LIMIT: Maximum 80 characters per voiceover prompt
+- STRICT CHARACTER LIMIT: Maximum 90 characters per voiceover prompt
 - Break down or modify the original text if needed to preserve the core message
 - Ensure the complete narrative is preserved across all voiceover clips
 - Each voiceover should be a natural, flowing segment of the overall story
@@ -702,8 +928,8 @@ REAL-WORLD PHYSICS REQUIREMENTS:
 - FINAL FRAME BRAND CLOSURE: The final frame MUST provide perfect brand closure with the logo prominently featured - either centered, highlighted, or reinforced for maximum brand impact and memorability"""
         else:
             return f"""🎨 VISUAL STYLE & BRAND NARRATIVE:
-- Style should be ULTRA-VIRAL with trending aesthetics, meme culture, and Web3 vibes that will dominate social feeds
-- Content should be inspired by popular image memes, Web3 memes, and shitpost culture - let you decide the best visual style for maximum viral potential
+- Style should be ULTRA-VIRAL with trending aesthetics and meme culture that will dominate social feeds
+- Content should be inspired by popular image memes and viral culture - let you decide the best visual style for maximum viral potential
 - Create a professional brand promotion video - you have FULL AUTONOMY to decide the optimal number of characters and visual elements for maximum impact without clutter
 - BRAND NARRATIVE FOCUS: Ensure the core message from the tweet is clearly communicated through a compelling visual narrative that builds to a powerful brand revelation"""
 
@@ -742,7 +968,7 @@ REAL-WORLD PHYSICS REQUIREMENTS:
 - NO CHARACTERS: Focus entirely on products, environments, and brand elements
 - CLIP PROMPTS: Must be concise and direct - describe key content only, no transition language or cinematic descriptions
 - AUDIO PROMPTS: Must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style that matches the visual theme and brand message, avoid abrupt audio cuts"""
-        else:
+        elif self.web3:
             return f"""🎯 BRAND PROMOTION ELEMENTS:
 - Stop-scrolling visual impact with professional quality
 - Meme-worthy moments inspired by popular image memes
@@ -752,7 +978,20 @@ REAL-WORLD PHYSICS REQUIREMENTS:
 - Shareable content that resonates with crypto/Web3 communities
 - Professional brand promotion video quality
 - You have FULL AUTONOMY to decide optimal number of characters (0, 1, 2, 3, 4, or N) for maximum impact
-- If characters are included: Use popular comic meme characters (Pepe, Wojak, Chad, Shiba Inu, Doge, etc.) or Web3 meme characters (HODL guy, Diamond Hands, etc.) - COMIC STYLE PREFERRED over actual humans
+- If characters are included: Use Web3 meme characters (HODL guy, Diamond Hands, Paper Hands, Moon boy, etc.) - COMIC STYLE PREFERRED over actual humans
+- Focus on storytelling and brand messaging without visual clutter
+- CLIP PROMPTS: Must be concise and direct - describe key content only, no transition language or cinematic descriptions
+- AUDIO PROMPTS: Must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style that matches the visual theme and brand message, avoid abrupt audio cuts"""
+        else:
+            return f"""🎯 BRAND PROMOTION ELEMENTS:
+- Stop-scrolling visual impact with professional quality
+- Meme-worthy moments inspired by popular image memes
+- Trending aesthetics (let LLM choose colors and style)
+- Unexpected twists and meme references
+- Shareable content that resonates with viral culture
+- Professional brand promotion video quality
+- You have FULL AUTONOMY to decide optimal number of characters (0, 1, 2, 3, 4, or N) for maximum impact
+- If characters are included: Use popular comic meme characters (Pepe, Wojak, Chad, Shiba Inu, Doge, Wojak variants, Distracted Boyfriend, Drake pointing, etc.) - COMIC STYLE PREFERRED over actual humans
 - Focus on storytelling and brand messaging without visual clutter
 - CLIP PROMPTS: Must be concise and direct - describe key content only, no transition language or cinematic descriptions
 - AUDIO PROMPTS: Must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style that matches the visual theme and brand message, avoid abrupt audio cuts"""
@@ -813,10 +1052,14 @@ REAL-WORLD PHYSICS REQUIREMENTS:
             return """- Instead of "Your detailed prompt for frame 2 here", write something like "A clean, professional product showcase scene with elegant composition, dramatic lighting, 8K resolution, cinematic quality, following real-world physics - focus on product details and craftsmanship"
 - For longer videos, you can use completely different scenes: "A bustling modern workspace scene with the product prominently displayed in professional setting, dramatic lighting, 8K resolution, cinematic quality, following real-world physics"
 - Instead of "Your detailed transition description here", write something like "Product showcase with elegant lighting, smooth camera dolly movement, slow-motion dramatic reveal, realistic physics, clean professional cinematography"""
+        elif self.web3:
+            return """- Instead of "Your detailed prompt for frame 2 here", write something like "A clean, professional chessboard scene with 2-3 comic meme characters (HODL guy as knight, Diamond Hands as opponent, etc.) elegantly composed, dramatic lighting, 8K resolution, cinematic quality, following real-world physics - you decide optimal character count"
+- For longer videos, you can use completely different scenes: "A bustling city street scene with different characters (HODL guy walking confidently, Diamond Hands checking phone) in outdoor setting, dramatic lighting, 8K resolution, cinematic quality, following real-world physics"
+- Instead of "Your detailed transition description here", write something like "Blockchain knight chess piece, HODL guy and Diamond Hands characters on chessboard, vibrant lighting, smooth camera dolly movement, slow-motion dramatic reveal, realistic physics, clean professional cinematography"""
         else:
             return """- Instead of "Your detailed prompt for frame 2 here", write something like "A clean, professional chessboard scene with 2-3 comic meme characters (Pepe as knight, Wojak as opponent, etc.) elegantly composed, dramatic lighting, 8K resolution, cinematic quality, following real-world physics - you decide optimal character count"
-- For longer videos, you can use completely different scenes: "A bustling city street scene with different characters (HODL guy walking confidently, Diamond Hands checking phone) in outdoor setting, dramatic lighting, 8K resolution, cinematic quality, following real-world physics"
-- Instead of "Your detailed transition description here", write something like "Blockchain knight chess piece, Pepe and Wojak characters on chessboard, vibrant lighting, smooth camera dolly movement, slow-motion dramatic reveal, realistic physics, clean professional cinematography"""
+- For longer videos, you can use completely different scenes: "A bustling city street scene with different characters (popular meme characters like Pepe, Wojak, Chad, Shiba Inu, etc.) in outdoor setting, dramatic lighting, 8K resolution, cinematic quality, following real-world physics"
+- Instead of "Your detailed transition description here", write something like "Meme characters on scene, vibrant lighting, smooth camera dolly movement, slow-motion dramatic reveal, realistic physics, clean professional cinematography"""
 
     def _get_viral_trends_instructions(self):
         """Generate viral trends instructions for LLM prompts."""
@@ -1198,6 +1441,7 @@ ENSURE THEME DOMINANCE:
 - THEME: {self.theme if self.theme else 'Brand showcase and promotion'}
 - YOU MUST FOCUS EXCLUSIVELY ON THIS BRAND AND THEME
 - ALL prompts must be directly related to {self.project_name} and the specified theme
+- THEME IS MANDATORY: If THEME is provided, ALL prompts MUST directly reflect and align with the THEME - use the THEME as the primary guide for generating ALL prompts
 
 {self._get_theme_instructions()}
 
@@ -1207,7 +1451,7 @@ You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion vi
 - You are directing a {self.video_duration}-second brand promotion video for {self.project_name}
 - Goal: Create a cohesive, professional narrative that effectively promotes {self.project_name}
 - Style: Cinematic quality with viral potential
-- Audience: Web3/crypto community with high engagement expectations
+- Audience: {("Web3/crypto community with high engagement expectations" if self.web3 else "Social media audience with high engagement expectations")}
 - Brand Focus: Every element must reinforce the {self.project_name} brand message
 
 🎥 PROFESSIONAL VIDEO PRODUCTION REQUIREMENTS:
@@ -1233,8 +1477,9 @@ You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion vi
 {self._get_creative_autonomy_instructions()}
 
 ⚠️ CONTENT POLICY COMPLIANCE:
-- AVOID words like "explosive", "explosion", "bomb", "blast", "detonate", "explode", "violent", "aggressive", "attack", "destroy", "crash", "smash", "punch", "hit", "strike", "war", "battle", "fight", "combat", "weapon", "gun", "knife", "sword", "fire", "flame", "burn", "smoke", "ash"
-- USE SAFER ALTERNATIVES: "intense", "dynamic", "vibrant", "powerful", "energetic", "dramatic", "spectacular", "amazing", "incredible", "stunning", "magnificent", "epic", "thrilling", "exciting", "engaging", "captivating", "mesmerizing", "electrifying", "pulsating", "radiant", "brilliant", "luminous", "glowing", "shimmering", "sparkling", "dazzling", "vibrant", "energetic", "dynamic", "powerful", "intense", "dramatic", "spectacular", "amazing", "incredible", "stunning", "magnificent", "epic", "thrilling", "exciting", "engaging", "captivating", "mesmerizing", "electrifying", "pulsating", "radiant", "brilliant", "luminous", "glowing", "shimmering", "sparkling", "dazzling"
+- AVOID words like "explosive", "explosion", "bomb", "blast", "detonate", "explode", "exploded", "violent", "aggressive", "attack", "destroy", "crash", "smash", "punch", "hit", "strike", "war", "battle", "fight", "combat", "weapon", "gun", "knife", "sword", "fire", "flame", "burn", "smoke", "ash"
+- USE SAFER ALTERNATIVES: "intense", "dynamic", "vibrant", "powerful", "energetic", "dramatic", "spectacular", "amazing", "incredible", "stunning", "magnificent", "epic", "thrilling", "exciting", "engaging", "captivating", "mesmerizing", "electrifying", "pulsating", "radiant", "brilliant", "luminous", "glowing", "shimmering", "sparkling", "dazzling"
+- FOR TECHNICAL/INTERNAL VIEWS: Instead of "exploded", use "disassembled", "technical breakdown", "internal view", "cross-section", "revealed components", "layered view", "component separation", "technical visualization", "internal structure", "detailed breakdown", "component reveal", "technical diagram", "layered components"
 
 {self._get_brand_promotion_elements()}
 
@@ -1274,6 +1519,30 @@ FINAL FRAME (Frame {self.frame_count}):
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
 
+📝 CRITICAL: CLIP PROMPT DETAIL REQUIREMENTS:
+- Clip prompts MUST be EXTREMELY DETAILED and SPECIFIC - include comprehensive descriptions of:
+  * Exact camera movements and angles (dolly forward, tracking shot, overhead view, etc.)
+  * Specific character/object positions and movements in detail
+  * Precise lighting conditions and atmosphere
+  * Detailed environmental elements (snow, terrain, background details)
+  * Exact timing and pacing of movements
+  * Specific visual elements and their interactions
+  * Detailed composition and framing
+- DO NOT write generic or vague clip prompts - be specific about every visual element, movement, and detail
+- Include detailed descriptions of how elements interact, move, and transition
+- Specify exact camera techniques, shot types, and cinematographic details
+- Describe in detail the visual progression and narrative flow within each clip
+
+🛡️ CRITICAL SAFETY REQUIREMENTS FOR CLIP PROMPTS:
+- ABSOLUTELY NO animals or humans being hurt, injured, or in danger in any clip
+- NO animals under trucks, NO animals near moving vehicles, NO animals in the path of vehicles
+- All animals must be shown at SAFE DISTANCES from trucks and vehicles
+- Animals must be positioned safely: behind barriers, on elevated areas, at side distances, in trees, or watching from safe vantage points
+- NO risk of harm, collision, or danger to any living beings
+- All interactions must be safe and joyful - animals watching from safe positions, humans in safe environments
+- If vehicles are moving, ensure all animals and humans are clearly at safe distances with no possibility of contact
+- Describe in detail the safe positioning of animals and humans in relation to vehicles and moving objects
+
 {self._get_transition_physics_instructions()}
 
 🎵 AUDIO PRODUCTION:
@@ -1298,7 +1567,7 @@ FINAL FRAME (Frame {self.frame_count}):
 - Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
 - Make it ABSOLUTELY MAGNIFICENT and share-worthy - something that will get millions of views
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
-- Draw inspiration from popular image memes, Web3 memes, and shitpost culture for maximum relatability and viral potential
+- Draw inspiration from popular image memes and viral culture for maximum relatability and viral potential
 🎬 PROFESSIONAL VIDEO PRODUCTION CHECKLIST:
 - For clip prompts: Create SPECTACULAR sequences with complete creative autonomy. Design visually compelling content that captures attention and drives engagement. Use your cinematographic expertise to create memorable, shareable moments.
 - REAL-WORLD PHYSICS COMPLIANCE: All character movements, object interactions, and camera movements must follow realistic physics
@@ -1335,8 +1604,9 @@ Create a VIRAL BRAND PROMOTION MASTERPIECE that will dominate social media! Gene
 {self._get_character_instructions()}
 
 ⚠️ CONTENT POLICY COMPLIANCE:
-- AVOID words like "explosive", "explosion", "bomb", "blast", "detonate", "explode", "violent", "aggressive", "attack", "destroy", "crash", "smash", "punch", "hit", "strike", "war", "battle", "fight", "combat", "weapon", "gun", "knife", "sword", "fire", "flame", "burn", "smoke", "ash"
+- AVOID words like "explosive", "explosion", "bomb", "blast", "detonate", "explode", "exploded", "violent", "aggressive", "attack", "destroy", "crash", "smash", "punch", "hit", "strike", "war", "battle", "fight", "combat", "weapon", "gun", "knife", "sword", "fire", "flame", "burn", "smoke", "ash"
 - USE SAFER ALTERNATIVES: "intense", "dynamic", "vibrant", "powerful", "energetic", "dramatic", "spectacular", "amazing", "incredible", "stunning", "magnificent", "epic", "thrilling", "exciting", "engaging", "captivating", "mesmerizing", "electrifying", "pulsating", "radiant", "brilliant", "luminous", "glowing", "shimmering", "sparkling", "dazzling"
+- FOR TECHNICAL/INTERNAL VIEWS: Instead of "exploded", use "disassembled", "technical breakdown", "internal view", "cross-section", "revealed components", "layered view", "component separation", "technical visualization", "internal structure", "detailed breakdown", "component reveal", "technical diagram", "layered components"
 
 {self._get_brand_promotion_elements()}
 
@@ -1362,8 +1632,8 @@ Requirements:
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - Audio should build from catchy hooks to EPIC, goosebump-inducing finale with appropriate ending effects (fade-out for subtle endings, crescendo for cosmic/dramatic scenes) for cinematic ending that will make people rewatch and share
-- Style should be ULTRA-VIRAL with trending aesthetics, meme culture, and Web3 vibes that will dominate social feeds
-- Content should be inspired by popular image memes, Web3 memes, and shitpost culture - let you decide the best visual style for maximum viral potential
+- Style should be ULTRA-VIRAL with trending aesthetics and meme culture that will dominate social feeds
+- Content should be inspired by popular image memes and viral culture - let you decide the best visual style for maximum viral potential
 - Create a professional brand promotion video - you have FULL AUTONOMY to decide the optimal number of characters and visual elements for maximum impact without clutter
 - Focus on storytelling and brand messaging - ensure the core message from the initial image prompt is clearly communicated through a compelling visual narrative
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
@@ -1371,7 +1641,7 @@ Requirements:
 - Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
 - Make it ABSOLUTELY MAGNIFICENT and share-worthy - something that will get millions of views
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
-- Draw inspiration from popular image memes, Web3 memes, and shitpost culture for maximum relatability and viral potential
+- Draw inspiration from popular image memes and viral culture for maximum relatability and viral potential
 🎬 PROFESSIONAL VIDEO PRODUCTION CHECKLIST:
 - For clip prompts: Create SPECTACULAR sequences with complete creative autonomy. Design visually compelling content that captures attention and drives engagement. Use your cinematographic expertise to create memorable, shareable moments.
 - REAL-WORLD PHYSICS COMPLIANCE: All character movements, object interactions, and camera movements must follow realistic physics
@@ -1426,10 +1696,16 @@ Respond ONLY with the JSON object, no other text."""
             print(f"Error generating prompts with Claude: {str(e)}")
             return None
 
-    def generate_prompts_with_grok(self, tweet_text=None, initial_image_prompt=None, include_tweet_text=True):
+    def generate_prompts_with_grok(self, tweet_text=None, initial_image_prompt=None, include_tweet_text=True, product_analysis=None):
         """
         Use Grok API to generate all necessary prompts for the video sequence.
         Uses live search when viral_trends is enabled.
+        
+        Args:
+            tweet_text: Optional tweet text
+            initial_image_prompt: Optional initial image prompt
+            include_tweet_text: Whether to include tweet text
+            product_analysis: Optional product analysis from analyze_product_images
         """
         try:
             # Import Grok SDK
@@ -1478,6 +1754,7 @@ Respond ONLY with the JSON object, no other text."""
 - THEME: {self.theme if self.theme else 'Brand showcase and promotion'}
 - YOU MUST FOCUS EXCLUSIVELY ON THIS BRAND AND THEME
 - ALL prompts must be directly related to {self.project_name} and the specified theme
+- THEME IS MANDATORY: If THEME is provided, ALL prompts MUST directly reflect and align with the THEME - use the THEME as the primary guide for generating ALL prompts
 
 {self._get_theme_instructions()}
 
@@ -1487,7 +1764,7 @@ You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion vi
 - You are directing a {self.video_duration}-second brand promotion video for {self.project_name}
 - Goal: Create a cohesive, professional narrative that effectively promotes {self.project_name}
 - Style: Cinematic quality with viral potential
-- Audience: Web3/crypto community with high engagement expectations
+- Audience: {("Web3/crypto community with high engagement expectations" if self.web3 else "Social media audience with high engagement expectations")}
 - Brand Focus: Every element must reinforce the {self.project_name} brand message
 
 🎥 PROFESSIONAL VIDEO PRODUCTION REQUIREMENTS:
@@ -1514,10 +1791,13 @@ Video Duration: {self.video_duration} seconds ({self.frame_count} frames, {self.
 {self._get_creative_autonomy_instructions()}
 
 ⚠️ CONTENT POLICY COMPLIANCE:
-- AVOID words like "explosive", "explosion", "bomb", "blast", "detonate", "explode", "violent", "aggressive", "attack", "destroy", "crash", "smash", "punch", "hit", "strike", "war", "battle", "fight", "combat", "weapon", "gun", "knife", "sword", "fire", "flame", "burn", "smoke", "ash"
+- AVOID words like "explosive", "explosion", "bomb", "blast", "detonate", "explode", "exploded", "violent", "aggressive", "attack", "destroy", "crash", "smash", "punch", "hit", "strike", "war", "battle", "fight", "combat", "weapon", "gun", "knife", "sword", "fire", "flame", "burn", "smoke", "ash"
 - USE SAFER ALTERNATIVES: "intense", "dynamic", "vibrant", "powerful", "energetic", "dramatic", "spectacular", "amazing", "incredible", "stunning", "magnificent", "epic", "thrilling", "exciting", "engaging", "captivating", "mesmerizing", "electrifying", "pulsating", "radiant", "brilliant", "luminous", "glowing", "shimmering", "sparkling", "dazzling"
+- FOR TECHNICAL/INTERNAL VIEWS: Instead of "exploded", use "disassembled", "technical breakdown", "internal view", "cross-section", "revealed components", "layered view", "component separation", "technical visualization", "internal structure", "detailed breakdown", "component reveal", "technical diagram", "layered components"
 
 {self._get_brand_promotion_elements()}
+
+{self._format_product_analysis(product_analysis) if product_analysis else ""}
 
 {self._get_viral_trends_instructions()}
 
@@ -1534,12 +1814,51 @@ Video Duration: {self.video_duration} seconds ({self.frame_count} frames, {self.
 - This rule does NOT apply to text prompts (tweet_text) or voiceover prompts (voiceover_N_prompt)
 - Text and voiceover prompts can freely use the brand name "{self.project_name}" for clarity
 
-Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instructions):
+🚨 CRITICAL: PROMPT GENERATION REQUIREMENTS:
+- ABSOLUTELY NO prompt field should be "None", null, or empty
+- EVERY prompt field MUST contain actual, detailed prompt text
+- initial_image_prompt MUST be a complete, detailed prompt - NEVER "None"
+- ALL frame prompts (frame_2_prompt, frame_3_prompt, etc.) MUST be detailed prompts
+- ALL clip prompts MUST be detailed prompts
+- If THEME is provided, ALL prompts MUST align with and reflect the THEME
+- Generate REAL prompts, not placeholders or "None" values
 
+Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instructions):
+"""
+            
+                # Build frame_image_mapping JSON string if product_analysis is provided
+                frame_mapping_json = ""
+                if product_analysis:
+                    # Build dynamic frame_image_mapping for all frames (frame_2, frame_3, etc.)
+                    mapping_entries = []
+                    for i in range(2, self.frame_count + 1):
+                        mapping_entries.append(f'        "frame_{i}": {{"product_image": "image_X", "reason": "Why this specific product image is chosen for frame {i} - the frame prompt MUST explicitly reference and describe the product from this reference image (e.g., start with describing the product type, features, angle, and design), then create a new scene with that product extracted and placed in it"}}')
+                    frame_mapping_json = ',\n    "frame_image_mapping": {\n' + ',\n'.join(mapping_entries) + '\n    }'
+                
+                # Add product extraction instructions if product analysis is provided
+                product_extraction_instructions = ""
+                if product_analysis:
+                    product_extraction_instructions = """
+🎯 CRITICAL: PRODUCT EXTRACTION FOR FRAME PROMPTS:
+- When frame_image_mapping is provided, each frame prompt MUST explicitly reference and describe the product from the mapped reference image
+- Frame prompts should START by describing the product shown in the reference image, then create a new scene with that product
+- Example structure: "The [product type] from the reference image, featuring [specific features from product analysis], in [specific angle/view], placed in [new scene description]"
+- DO NOT just describe a scene without mentioning the product - the product must be explicitly mentioned and described
+- The frame prompt should enable product extraction: describe the product clearly so the image generation model can:
+  * Recognize the product in the reference image
+  * Extract the product from the reference image
+  * Place the extracted product into the new scene described in the frame prompt
+- Use specific product details from the product analysis (category, features, angle, showcases) to describe the product accurately
+- The goal is to create a NEW scene while explicitly referencing the product from the reference image so it can be extracted and placed in that new scene
+"""
+                
+                prompt += f"""
 {{
     {self._generate_frame_prompts_json()},
-    {self._generate_clip_prompts_json()}
+    {self._generate_clip_prompts_json()}{frame_mapping_json}
 }}
+
+{product_extraction_instructions}
 
 🎬 CREATIVE DIRECTOR REQUIREMENTS:
 
@@ -1566,6 +1885,30 @@ FINAL FRAME (Frame {self.frame_count}):
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
 
+📝 CRITICAL: CLIP PROMPT DETAIL REQUIREMENTS:
+- Clip prompts MUST be EXTREMELY DETAILED and SPECIFIC - include comprehensive descriptions of:
+  * Exact camera movements and angles (dolly forward, tracking shot, overhead view, etc.)
+  * Specific character/object positions and movements in detail
+  * Precise lighting conditions and atmosphere
+  * Detailed environmental elements (snow, terrain, background details)
+  * Exact timing and pacing of movements
+  * Specific visual elements and their interactions
+  * Detailed composition and framing
+- DO NOT write generic or vague clip prompts - be specific about every visual element, movement, and detail
+- Include detailed descriptions of how elements interact, move, and transition
+- Specify exact camera techniques, shot types, and cinematographic details
+- Describe in detail the visual progression and narrative flow within each clip
+
+🛡️ CRITICAL SAFETY REQUIREMENTS FOR CLIP PROMPTS:
+- ABSOLUTELY NO animals or humans being hurt, injured, or in danger in any clip
+- NO animals under trucks, NO animals near moving vehicles, NO animals in the path of vehicles
+- All animals must be shown at SAFE DISTANCES from trucks and vehicles
+- Animals must be positioned safely: behind barriers, on elevated areas, at side distances, in trees, or watching from safe vantage points
+- NO risk of harm, collision, or danger to any living beings
+- All interactions must be safe and joyful - animals watching from safe positions, humans in safe environments
+- If vehicles are moving, ensure all animals and humans are clearly at safe distances with no possibility of contact
+- Describe in detail the safe positioning of animals and humans in relation to vehicles and moving objects
+
 {self._get_transition_physics_instructions()}
 
 🎵 AUDIO PRODUCTION:
@@ -1590,7 +1933,7 @@ FINAL FRAME (Frame {self.frame_count}):
 - Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
 - Make it ABSOLUTELY MAGNIFICENT and share-worthy - something that will get millions of views
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
-- Draw inspiration from popular image memes, Web3 memes, and shitpost culture for maximum relatability and viral potential
+- Draw inspiration from popular image memes and viral culture for maximum relatability and viral potential
 🎬 PROFESSIONAL VIDEO PRODUCTION CHECKLIST:
 - For clip prompts: Create SPECTACULAR sequences with complete creative autonomy. Design visually compelling content that captures attention and drives engagement. Use your cinematographic expertise to create memorable, shareable moments.
 - REAL-WORLD PHYSICS COMPLIANCE: All character movements, object interactions, and camera movements must follow realistic physics
@@ -1612,26 +1955,46 @@ IMPORTANT: Replace the placeholder text in the JSON with ACTUAL detailed prompts
 
 JSON only, no other text:"""
             else:
+                # Build frame_image_mapping JSON string if product_analysis is provided
+                frame_mapping_json_else = ""
+                if product_analysis:
+                    # Build dynamic frame_image_mapping for all frames (frame_2, frame_3, etc.)
+                    mapping_entries = []
+                    for i in range(2, self.frame_count + 1):
+                        mapping_entries.append(f'        "frame_{i}": {{"product_image": "image_X", "reason": "Why this specific product image is chosen for frame {i} - the frame prompt MUST explicitly reference and describe the product from this reference image (e.g., start with describing the product type, features, angle, and design), then create a new scene with that product extracted and placed in it"}}')
+                    frame_mapping_json_else = ',\n    "frame_image_mapping": {\n' + ',\n'.join(mapping_entries) + '\n    }'
+                
                 prompt = f"""🚨 CRITICAL: You are creating content EXCLUSIVELY for {self.project_name}. DO NOT generate content for any other brand or product.
 
 🏢 MANDATORY BRAND CONTEXT:
 - BRAND NAME: {self.project_name}
 - THEME: {self.theme if self.theme else 'Brand showcase and promotion'}
 - YOU MUST FOCUS EXCLUSIVELY ON THIS BRAND AND THEME
+- THEME IS MANDATORY: If THEME is provided, ALL prompts MUST directly reflect and align with the THEME
 
 {self._get_theme_instructions()}
 
+{self._format_product_analysis(product_analysis) if product_analysis else ""}
+
 Create a VIRAL MASTERPIECE that will dominate social media! Generate content that will get millions of views, shares, and engagement.
 
-Initial Image Prompt: "{initial_image_prompt}"
+"""
+                if initial_image_prompt:
+                    initial_prompt_section = f'Initial Image Prompt: "{initial_image_prompt}"'
+                else:
+                    initial_prompt_section = f'Generate a compelling initial image prompt for {self.project_name} brand based on this theme: "{self.theme}". Create a cinematic, professional scene that establishes the brand context and visual narrative. Include specific details about lighting, composition, and visual elements that will create an impactful first frame.'
+                
+                prompt += f"""
+{initial_prompt_section}
 
 {self._get_character_instructions()}
 
 {self._get_creative_autonomy_instructions()}
 
 ⚠️ CONTENT POLICY COMPLIANCE:
-- AVOID words like "explosive", "explosion", "bomb", "blast", "detonate", "explode", "violent", "aggressive", "attack", "destroy", "crash", "smash", "punch", "hit", "strike", "war", "battle", "fight", "combat", "weapon", "gun", "knife", "sword", "fire", "flame", "burn", "smoke", "ash"
+- AVOID words like "explosive", "explosion", "bomb", "blast", "detonate", "explode", "exploded", "violent", "aggressive", "attack", "destroy", "crash", "smash", "punch", "hit", "strike", "war", "battle", "fight", "combat", "weapon", "gun", "knife", "sword", "fire", "flame", "burn", "smoke", "ash"
 - USE SAFER ALTERNATIVES: "intense", "dynamic", "vibrant", "powerful", "energetic", "dramatic", "spectacular", "amazing", "incredible", "stunning", "magnificent", "epic", "thrilling", "exciting", "engaging", "captivating", "mesmerizing", "electrifying", "pulsating", "radiant", "brilliant", "luminous", "glowing", "shimmering", "sparkling", "dazzling"
+- FOR TECHNICAL/INTERNAL VIEWS: Instead of "exploded", use "disassembled", "technical breakdown", "internal view", "cross-section", "revealed components", "layered view", "component separation", "technical visualization", "internal structure", "detailed breakdown", "component reveal", "technical diagram", "layered components"
 
 🎯 VIRAL ELEMENTS:
 - Stop-scrolling visual impact
@@ -1651,12 +2014,40 @@ Initial Image Prompt: "{initial_image_prompt}"
 - This rule does NOT apply to text prompts (tweet_text) or voiceover prompts (voiceover_N_prompt)
 - Text and voiceover prompts can freely use the brand name "{self.project_name}" for clarity
 
+🚨 CRITICAL: PROMPT GENERATION REQUIREMENTS:
+- ABSOLUTELY NO prompt field should be "None", null, or empty
+- EVERY prompt field MUST contain actual, detailed prompt text
+- initial_image_prompt MUST be a complete, detailed prompt - NEVER "None"
+- ALL frame prompts (frame_2_prompt, frame_3_prompt, etc.) MUST be detailed prompts
+- ALL clip prompts MUST be detailed prompts
+- If THEME is provided, ALL prompts MUST align with and reflect the THEME
+- Generate REAL prompts, not placeholders or "None" values
+
 Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instructions):
 
 {{
     {self._generate_frame_prompts_json()},
-    {self._generate_clip_prompts_json()}
+    {self._generate_clip_prompts_json()}{frame_mapping_json_else}
 }}
+"""
+                # Add product extraction instructions if product analysis is provided
+                if product_analysis:
+                    product_extraction_instructions_else = """
+🎯 CRITICAL: PRODUCT EXTRACTION FOR FRAME PROMPTS:
+- When frame_image_mapping is provided, each frame prompt MUST explicitly reference and describe the product from the mapped reference image
+- Frame prompts should START by describing the product shown in the reference image, then create a new scene with that product
+- Example structure: "The [product type] from the reference image, featuring [specific features from product analysis], in [specific angle/view], placed in [new scene description]"
+- DO NOT just describe a scene without mentioning the product - the product must be explicitly mentioned and described
+- The frame prompt should enable product extraction: describe the product clearly so the image generation model can:
+  * Recognize the product in the reference image
+  * Extract the product from the reference image
+  * Place the extracted product into the new scene described in the frame prompt
+- Use specific product details from the product analysis (category, features, angle, showcases) to describe the product accurately
+- The goal is to create a NEW scene while explicitly referencing the product from the reference image so it can be extracted and placed in that new scene
+"""
+                    prompt += product_extraction_instructions_else
+                
+                prompt += """
 
 Requirements:
 - {self._get_frame_specific_instructions(2)}
@@ -1673,8 +2064,8 @@ Requirements:
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - Audio should build from catchy hooks to EPIC, goosebump-inducing finale with appropriate ending effects (fade-out for subtle endings, crescendo for cosmic/dramatic scenes) for cinematic ending that will make people rewatch and share
-- Style should be ULTRA-VIRAL with trending aesthetics, meme culture, and Web3 vibes that will dominate social feeds
-- Content should be inspired by popular image memes, Web3 memes, and shitpost culture - let you decide the best visual style for maximum viral potential
+- Style should be ULTRA-VIRAL with trending aesthetics and meme culture that will dominate social feeds
+- Content should be inspired by popular image memes and viral culture - let you decide the best visual style for maximum viral potential
 - Create a professional brand promotion video - you have FULL AUTONOMY to decide the optimal number of characters and visual elements for maximum impact without clutter
 - Focus on storytelling and brand messaging - ensure the core message from the initial image prompt is clearly communicated through a compelling visual narrative
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
@@ -1682,7 +2073,7 @@ Requirements:
 - Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
 - Make it ABSOLUTELY MAGNIFICENT and share-worthy - something that will get millions of views
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
-- Draw inspiration from popular image memes, Web3 memes, and shitpost culture for maximum relatability and viral potential
+- Draw inspiration from popular image memes and viral culture for maximum relatability and viral potential
 🎬 PROFESSIONAL VIDEO PRODUCTION CHECKLIST:
 - For clip prompts: Create SPECTACULAR sequences with complete creative autonomy. Design visually compelling content that captures attention and drives engagement. Use your cinematographic expertise to create memorable, shareable moments.
 - REAL-WORLD PHYSICS COMPLIANCE: All character movements, object interactions, and camera movements must follow realistic physics
@@ -1716,42 +2107,111 @@ JSON only, no other text:"""
                 # Clean the response to extract JSON
                 response_text = response.content.strip()
                 
+                # Log the full response for debugging
+                print(f"\n🔍 DEBUG: Full Grok response (first 2000 chars):")
+                print("=" * 80)
+                print(response_text[:2000])
+                if len(response_text) > 2000:
+                    print(f"... (truncated, total length: {len(response_text)} chars)")
+                print("=" * 80)
+                
                 # Find JSON content between ```json and ``` or just the JSON itself
                 if "```json" in response_text:
                     json_start = response_text.find("```json") + 7
                     json_end = response_text.find("```", json_start)
                     json_content = response_text[json_start:json_end].strip()
+                    print(f"🔍 DEBUG: Found JSON in ```json``` block (length: {len(json_content)} chars)")
                 elif response_text.startswith("{") and response_text.endswith("}"):
                     json_content = response_text
+                    print(f"🔍 DEBUG: Response is pure JSON (length: {len(json_content)} chars)")
                 else:
                     # Try to find JSON-like content
                     start_idx = response_text.find("{")
                     end_idx = response_text.rfind("}") + 1
                     if start_idx != -1 and end_idx > start_idx:
                         json_content = response_text[start_idx:end_idx]
+                        print(f"🔍 DEBUG: Extracted JSON from response (start: {start_idx}, end: {end_idx}, length: {len(json_content)} chars)")
+                        print(f"🔍 DEBUG: Extracted JSON preview (first 500 chars): {json_content[:500]}")
                     else:
+                        print(f"❌ DEBUG: No JSON found in response!")
+                        print(f"❌ DEBUG: Response starts with: {response_text[:100]}")
+                        print(f"❌ DEBUG: Response ends with: {response_text[-100:]}")
+                        print(f"❌ DEBUG: Looking for '{{' at index: {response_text.find('{')}")
+                        print(f"❌ DEBUG: Looking for '}}' at index: {response_text.rfind('}')}")
                         raise ValueError("No valid JSON found in response")
                 
+                print(f"🔍 DEBUG: Attempting to parse JSON...")
                 prompts = json.loads(json_content)
+                print(f"✅ DEBUG: Successfully parsed JSON! Found {len(prompts)} keys")
+                
+                # Validate that no prompts are None, null, or "None" string
+                print("🔍 Validating prompts for None/null values...")
+                validation_errors = []
+                for key, value in prompts.items():
+                    if value is None or value == "None" or value == "null" or (isinstance(value, str) and value.strip().lower() == "none"):
+                        validation_errors.append(f"{key} is None/null/empty")
+                        print(f"⚠️ WARNING: {key} has invalid value: {value}")
+                
+                if validation_errors:
+                    print(f"❌ ERROR: Found {len(validation_errors)} prompts with None/null values:")
+                    for error in validation_errors:
+                        print(f"   - {error}")
+                    print("❌ Grok must generate actual prompts, not None values. Please check THEME and product_analysis are being used correctly.")
+                    # Try to regenerate missing prompts based on THEME
+                    if prompts.get("initial_image_prompt") in [None, "None", "null"] or (isinstance(prompts.get("initial_image_prompt"), str) and prompts.get("initial_image_prompt").strip().lower() == "none"):
+                        if self.theme:
+                            print("🔄 Attempting to regenerate initial_image_prompt from THEME...")
+                            prompts["initial_image_prompt"] = f"Create a cinematic, professional scene for {self.project_name} based on this theme: {self.theme[:200]}. Establish the brand context and visual narrative with specific details about lighting, composition, and visual elements."
+                        else:
+                            prompts["initial_image_prompt"] = f"Create a cinematic, professional scene for {self.project_name} brand. Establish the brand context and visual narrative with specific details about lighting, composition, and visual elements."
+                        print(f"✅ Regenerated initial_image_prompt: {prompts['initial_image_prompt'][:100]}...")
+                
+                # Log frame_image_mapping if present
+                if "frame_image_mapping" in prompts:
+                    print(f"📸 Frame-to-image mapping found: {prompts['frame_image_mapping']}")
+                elif product_analysis:
+                    print("⚠️ WARNING: frame_image_mapping not found in Grok response, but product_analysis was provided!")
+                
                 return prompts
                 
             except json.JSONDecodeError as e:
                 print(f"❌ Error parsing JSON response from Grok: {str(e)}")
-                print(f"Raw response: {response.content[:500]}...")
+                print(f"❌ DEBUG: JSON decode error at position {e.pos if hasattr(e, 'pos') else 'unknown'}")
+                print(f"❌ DEBUG: Error message: {e.msg if hasattr(e, 'msg') else str(e)}")
+                print(f"❌ DEBUG: Attempted to parse JSON content (first 1000 chars):")
+                print("=" * 80)
+                print(json_content[:1000] if 'json_content' in locals() else "No json_content available")
+                print("=" * 80)
+                print(f"❌ DEBUG: Full raw response (first 1000 chars): {response.content[:1000]}")
                 return None
             
         except Exception as e:
-            print(f"Error generating prompts with Grok: {str(e)}")
+            print(f"❌ Error generating prompts with Grok: {str(e)}")
+            print(f"❌ DEBUG: Exception type: {type(e).__name__}")
+            import traceback
+            print(f"❌ DEBUG: Full traceback:")
+            traceback.print_exc()
+            if 'response' in locals():
+                print(f"❌ DEBUG: Response object available: {response}")
+                if hasattr(response, 'content'):
+                    print(f"❌ DEBUG: Response content (first 1000 chars): {response.content[:1000]}")
             return None
 
-    def generate_prompts_with_llm(self, tweet_text=None, initial_image_prompt=None, include_tweet_text=True):
+    def generate_prompts_with_llm(self, tweet_text=None, initial_image_prompt=None, include_tweet_text=True, product_analysis=None):
         """
         Generate prompts using the configured LLM provider.
+        
+        Args:
+            tweet_text: Optional tweet text
+            initial_image_prompt: Optional initial image prompt
+            include_tweet_text: Whether to include tweet text
+            product_analysis: Optional product analysis from analyze_product_images
         """
         if self.llm_provider == "claude":
+            # Claude doesn't support product analysis yet, but we can add it later
             return self.generate_prompts_with_claude(tweet_text, initial_image_prompt, include_tweet_text)
         elif self.llm_provider == "grok":
-            return self.generate_prompts_with_grok(tweet_text, initial_image_prompt, include_tweet_text)
+            return self.generate_prompts_with_grok(tweet_text, initial_image_prompt, include_tweet_text, product_analysis=product_analysis)
         else:
             raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
 
@@ -2240,9 +2700,9 @@ JSON only, no other text:"""
             return None
 
     def combine_clips_simple(self, clip_urls):
-        """Combine video clips with smooth crossfade transitions."""
+        """Combine video clips with randomized stitching (crossfade or simple based on random decisions)."""
         try:
-            print("🎬 Combining video clips with smooth crossfade transitions...")
+            print("🎬 Combining video clips with randomized stitching...")
             
             # Download clips locally first
             local_clip_paths = []
@@ -2308,11 +2768,19 @@ JSON only, no other text:"""
             # Load all video clips
             clips = [VideoFileClip(path) for path in local_clip_paths]
             
-            # Ensure transition duration doesn't exceed any clip length
+            # Generate random numbers for each transition (N-1 random numbers for N clips)
+            import random
+            num_transitions = len(clips) - 1
+            transition_decisions = [random.random() for _ in range(num_transitions)]
+            
+            print(f"🎲 Generated {num_transitions} random transition decisions:")
+            for i, decision in enumerate(transition_decisions, 1):
+                stitch_type = "SIMPLE" if decision > 0.5 else "CROSSFADE"
+                print(f"   Transition {i} (clip {i} → clip {i+1}): {decision:.3f} → {stitch_type}")
+            
+            # Ensure transition duration doesn't exceed any clip length (only needed for crossfade transitions)
             min_duration = min(clip.duration for clip in clips)
             transition_duration = min(1.0, min_duration / 2)  # Use 1.0s or half of shortest clip
-            
-            print(f"📊 Using transition duration: {transition_duration:.2f}s")
             
             # Build the final video parts
             final_parts = []
@@ -2321,48 +2789,63 @@ JSON only, no other text:"""
             for i, clip in enumerate(clips):
                 clip_duration = clip.duration
                 
+                # Determine where this clip starts (based on previous transition)
                 if i == 0:
-                    # First clip: keep everything except last transition_duration
-                    main_part = clip.subclip(0, clip_duration - transition_duration)
-                    final_parts.append(main_part)
-                    
-                    # Create transition with next clip
-                    clip_fade_out = clip.subclip(clip_duration - transition_duration, clip_duration)
-                    next_clip_fade_in = clips[i + 1].subclip(0, transition_duration)
-                    
-                    # Apply crossfade effects
-                    clip_fade_out = clip_fade_out.crossfadeout(transition_duration)
-                    next_clip_fade_in = next_clip_fade_in.crossfadein(transition_duration)
-                    
-                    # Composite the transition
-                    clip_fade_out = clip_fade_out.set_start(0)
-                    next_clip_fade_in = next_clip_fade_in.set_start(0)
-                    transition = CompositeVideoClip([clip_fade_out, next_clip_fade_in])
-                    final_parts.append(transition)
-                    
-                elif i == len(clips) - 1:
-                    # Last clip: skip first transition_duration (already in previous transition)
-                    main_part = clip.subclip(transition_duration, clip_duration)
-                    final_parts.append(main_part)
-                    
+                    clip_start = 0.0  # First clip always starts from beginning
                 else:
-                    # Middle clips: skip first transition_duration, keep everything except last transition_duration
-                    main_part = clip.subclip(transition_duration, clip_duration - transition_duration)
+                    # Check previous transition (transition_decisions[i-1])
+                    prev_transition_decision = transition_decisions[i - 1]
+                    if prev_transition_decision <= 0.5:
+                        # Previous was crossfade, so this clip starts from transition_duration
+                        clip_start = transition_duration
+                    else:
+                        # Previous was simple, so this clip starts from beginning
+                        clip_start = 0.0
+                
+                # Determine where this clip ends (based on next transition)
+                if i == len(clips) - 1:
+                    # Last clip: use all remaining content
+                    clip_end = clip_duration
+                else:
+                    # Check next transition (transition_decisions[i])
+                    next_transition_decision = transition_decisions[i]
+                    if next_transition_decision <= 0.5:
+                        # Next will be crossfade, so end this clip before transition_duration
+                        clip_end = clip_duration - transition_duration
+                    else:
+                        # Next will be simple, so use entire clip
+                        clip_end = clip_duration
+                
+                # Add the main part of this clip
+                if clip_end > clip_start:
+                    main_part = clip.subclip(clip_start, clip_end)
                     final_parts.append(main_part)
                     
-                    # Create transition with next clip
-                    clip_fade_out = clip.subclip(clip_duration - transition_duration, clip_duration)
-                    next_clip_fade_in = clips[i + 1].subclip(0, transition_duration)
+                # Handle transition to next clip (if not last clip)
+                if i < len(clips) - 1:
+                    next_transition_decision = transition_decisions[i]
                     
-                    # Apply crossfade effects
-                    clip_fade_out = clip_fade_out.crossfadeout(transition_duration)
-                    next_clip_fade_in = next_clip_fade_in.crossfadein(transition_duration)
-                    
-                    # Composite the transition
-                    clip_fade_out = clip_fade_out.set_start(0)
-                    next_clip_fade_in = next_clip_fade_in.set_start(0)
-                    transition = CompositeVideoClip([clip_fade_out, next_clip_fade_in])
-                    final_parts.append(transition)
+                    if next_transition_decision <= 0.5:
+                        # Crossfade transition
+                        print(f"🎬 Transition {i+1} (clip {i+1} → clip {i+2}): Using CROSSFADE (random: {next_transition_decision:.3f})")
+                        
+                        # Create transition with next clip
+                        clip_fade_out = clip.subclip(clip_duration - transition_duration, clip_duration)
+                        next_clip_fade_in = clips[i + 1].subclip(0, transition_duration)
+                        
+                        # Apply crossfade effects
+                        clip_fade_out = clip_fade_out.crossfadeout(transition_duration)
+                        next_clip_fade_in = next_clip_fade_in.crossfadein(transition_duration)
+                        
+                        # Composite the transition
+                        clip_fade_out = clip_fade_out.set_start(0)
+                        next_clip_fade_in = next_clip_fade_in.set_start(0)
+                        transition = CompositeVideoClip([clip_fade_out, next_clip_fade_in])
+                        final_parts.append(transition)
+                    else:
+                        # Simple stitching - no transition needed, clips will be directly concatenated
+                        print(f"🔗 Transition {i+1} (clip {i+1} → clip {i+2}): Using SIMPLE STITCHING (random: {next_transition_decision:.3f})")
+                        # No transition clip needed - next clip will start from beginning
             
             # Concatenate all parts
             final_clip = concatenate_videoclips(final_parts)
@@ -2380,7 +2863,7 @@ JSON only, no other text:"""
             local_output_path = os.path.join(self.project_folder, "prefinal_video.mp4")
             
             # Write output file
-            print("💾 Writing final video with smooth crossfade transitions...")
+            print("💾 Writing final video with randomized stitching...")
             final_clip.write_videofile(
                 local_output_path,
                 codec='libx264',
@@ -2401,7 +2884,7 @@ JSON only, no other text:"""
                 self.cleanup_local_file(local_output_path)
                 for local_path in local_clip_paths:
                     self.cleanup_local_file(local_path)
-                print(f"✅ Pre-final video with smooth crossfade transitions uploaded to S3: {s3_url}")
+                print(f"✅ Pre-final video with randomized stitching uploaded to S3: {s3_url}")
                 return s3_url
             else:
                 print(f"❌ Failed to upload pre-final video to S3, stopping video generation")
@@ -2617,15 +3100,54 @@ JSON only, no other text:"""
                     print("❌ Failed to upload mascot logo to S3, stopping video generation")
                     return None
             
+            # Step 1.5: Upload product images and analyze if provided
+            product_analysis = None
+            product_image_s3_urls = []
+            product_image_mapping = {}  # Maps image_1, image_2, etc. to S3 URLs
+            
+            if self.product_images and len(self.product_images) > 0:
+                print(f"📦 Uploading {len(self.product_images)} product images to S3...")
+                for idx, product_image_path in enumerate(self.product_images, 1):
+                    if not os.path.exists(product_image_path):
+                        print(f"⚠️ Product image not found: {product_image_path}, skipping...")
+                        continue
+                    
+                    product_s3_url = self.upload_to_s3_and_get_presigned_url(product_image_path, "image", "img")
+                    if product_s3_url:
+                        product_image_s3_urls.append(product_s3_url)
+                        product_image_mapping[f"image_{idx}"] = product_s3_url
+                        print(f"✅ Uploaded product image {idx}: {os.path.basename(product_image_path)}")
+                    else:
+                        print(f"❌ Failed to upload product image {idx}: {product_image_path}")
+                
+                if len(product_image_s3_urls) > 0:
+                    print(f"📦 Successfully uploaded {len(product_image_s3_urls)} product images")
+                    print("🔍 Analyzing product images with Grok...")
+                    product_analysis = self.analyze_product_images(product_image_s3_urls)
+                    if product_analysis:
+                        print(f"✅ Product analysis completed: {len(product_analysis)} images analyzed")
+                    else:
+                        print("⚠️ Product analysis failed, continuing without product-aware prompts")
+                else:
+                    print("⚠️ No product images were successfully uploaded")
+            else:
+                print("📦 No product images provided, skipping product analysis")
+            
             # Step 2: Generate all prompts using configured LLM
             print(f"Generating prompts with {self.llm_provider.upper()} API...")
             if include_tweet_text:
                 print("📝 Including tweet text in prompt generation")
             else:
                 print("📝 Using only initial image prompt for generation (tweet text excluded)")
-            prompts = self.generate_prompts_with_llm(tweet_text, initial_image_prompt, include_tweet_text)
+            prompts = self.generate_prompts_with_llm(tweet_text, initial_image_prompt, include_tweet_text, product_analysis=product_analysis)
             if not prompts:
                 print("Failed to generate prompts!")
+                return None
+            
+            # Validate that prompts is a dictionary
+            if not isinstance(prompts, dict):
+                print(f"❌ ERROR: prompts is not a dictionary, got {type(prompts)}")
+                print(f"❌ prompts value: {prompts}")
                 return None
             
             print("Generated prompts:")
@@ -2633,7 +3155,12 @@ JSON only, no other text:"""
                 if key.endswith('_logo_needed'):
                     print(f"  {key}: {value} (type: {type(value)})")
                 else:
-                    print(f"  {key}: {value[:100]}...")
+                    # Only slice if value is a string
+                    if isinstance(value, str):
+                        value_preview = value[:100] + "..." if len(value) > 100 else value
+                        print(f"  {key}: {value_preview}")
+                    else:
+                        print(f"  {key}: {value} (type: {type(value)})")
             
             # Step 3: Generate random decisions for clip generation
             print("🎲 Generating random decisions for dynamic scene generation...")
@@ -2644,27 +3171,43 @@ JSON only, no other text:"""
             # Step 4: Generate initial image if not provided
             if not frame1_s3_url:
                 print("🎨 Generating initial image using LLM-generated prompt...")
-                initial_image_prompt = prompts.get("initial_image_prompt", "")
-                if not initial_image_prompt:
-                    print("❌ No initial image prompt found in LLM output!")
+                try:
+                    initial_image_prompt = prompts.get("initial_image_prompt", "")
+                    if not initial_image_prompt:
+                        print("❌ No initial image prompt found in LLM output!")
+                        return None
+                    if not isinstance(initial_image_prompt, str):
+                        print(f"❌ ERROR: initial_image_prompt is not a string, got {type(initial_image_prompt)}")
+                        return None
+                    
+                    # For single clip with Kling/Sora, always include business logo in initial image
+                    if self.clip_count == 1 and self.clip_generation_model in ["sora", "kling"]:
+                        print("🎯 Single clip detected with Kling/Sora - mandatorily including business logo in initial image")
+                        reference_images = [logo_s3_url]
+                        # Also include mascot logo if using mascot character AND use_mascot_in_images is True
+                        if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
+                            reference_images.append(mascot_s3_url)
+                            print("🎭 Including mascot logo for character consistency in initial image")
+                        initial_image_url = self.generate_initial_image(initial_image_prompt, reference_images)
+                    else:
+                        # For regular case, conditionally include mascot logo if needed
+                        reference_images = None
+                        if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
+                            reference_images = [mascot_s3_url]
+                            print("🎭 Including mascot logo for character consistency in initial image")
+                        initial_image_url = self.generate_initial_image(initial_image_prompt, reference_images)
+                except TypeError as e:
+                    print(f"❌ ERROR: TypeError accessing prompts for initial image: {str(e)}")
+                    print(f"❌ prompts type: {type(prompts)}")
+                    import traceback
+                    traceback.print_exc()
                     return None
-                
-                # For single clip with Kling/Sora, always include business logo in initial image
-                if self.clip_count == 1 and self.clip_generation_model in ["sora", "kling"]:
-                    print("🎯 Single clip detected with Kling/Sora - mandatorily including business logo in initial image")
-                    reference_images = [logo_s3_url]
-                    # Also include mascot logo if using mascot character AND use_mascot_in_images is True
-                    if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
-                        reference_images.append(mascot_s3_url)
-                        print("🎭 Including mascot logo for character consistency in initial image")
-                    initial_image_url = self.generate_initial_image(initial_image_prompt, reference_images)
-                else:
-                    # For regular case, conditionally include mascot logo if needed
-                    reference_images = None
-                    if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
-                        reference_images = [mascot_s3_url]
-                        print("🎭 Including mascot logo for character consistency in initial image")
-                    initial_image_url = self.generate_initial_image(initial_image_prompt, reference_images)
+                except Exception as e:
+                    print(f"❌ ERROR: Unexpected error generating initial image: {str(e)}")
+                    print(f"❌ Error type: {type(e).__name__}")
+                    import traceback
+                    traceback.print_exc()
+                    return None
                 
                 if not initial_image_url:
                     print("❌ Failed to generate initial image!")
@@ -2687,12 +3230,42 @@ JSON only, no other text:"""
             frame_urls = [frame1_s3_url]  # Start with initial frame
             frame_prime_urls = []  # Store prime frame URLs
             
+            # Extract frame_image_mapping from prompts if product analysis was provided
+            frame_image_mapping = {}
+            if product_analysis:
+                try:
+                    frame_image_mapping_raw = prompts.get("frame_image_mapping")
+                    if frame_image_mapping_raw and isinstance(frame_image_mapping_raw, dict):
+                        frame_image_mapping = frame_image_mapping_raw
+                        print(f"📸 Frame-to-image mapping found: {frame_image_mapping}")
+                    else:
+                        print(f"⚠️ WARNING: frame_image_mapping is not a valid dictionary: {type(frame_image_mapping_raw)}")
+                except Exception as e:
+                    print(f"⚠️ WARNING: Error extracting frame_image_mapping: {str(e)}")
+                    frame_image_mapping = {}
+            
             for i in range(2, self.frame_count + 1):
-                print(f"🎨 Generating frame {i}...")
-                
-                # Generate regular frame
-                frame_prompt_key = f"frame{i}_prompt"
-                frame_logo_key = f"frame{i}_logo_needed"
+                try:
+                    # Validate i is an integer
+                    if not isinstance(i, int):
+                        print(f"❌ ERROR: Frame index i is not an integer: {type(i)}, value: {i}")
+                        return None
+                    
+                    print(f"🎨 Generating frame {i}...")
+                    
+                    # Generate regular frame
+                    frame_prompt_key = f"frame{i}_prompt"
+                    frame_logo_key = f"frame{i}_logo_needed"
+                    
+                    # Validate keys are strings
+                    if not isinstance(frame_prompt_key, str) or not isinstance(frame_logo_key, str):
+                        print(f"❌ ERROR: Frame keys are not strings: frame_prompt_key={type(frame_prompt_key)}, frame_logo_key={type(frame_logo_key)}")
+                        return None
+                except Exception as e:
+                    print(f"❌ ERROR: Error preparing frame {i}: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    return None
                 
                 # Get LLM's decision on whether logo is needed for this frame
                 logo_needed_raw = prompts.get(frame_logo_key, False)
@@ -2709,8 +3282,8 @@ JSON only, no other text:"""
                 else:
                     print(f"🎯 Frame {i} logo needed: {logo_needed} (raw: {logo_needed_raw})")
                 
-                # Prepare reference images based on LLM decision
-                reference_images = [frame_urls[-1]]  # Always include previous frame
+                # Prepare reference images based on LLM decision (NO previous frame - only logos/mascots)
+                reference_images = []
                 if logo_needed:
                     reference_images.append(logo_s3_url)
                     print(f"🏆 Including logo for frame {i}")
@@ -2722,7 +3295,51 @@ JSON only, no other text:"""
                     reference_images.append(mascot_s3_url)
                     print(f"🎭 Including mascot logo for character consistency in frame {i}")
                 
-                frame_s3_url = self.generate_image(prompts[frame_prompt_key], reference_images, frame_number=i)
+                # Add mapped product image if frame_image_mapping exists
+                frame_key = f"frame_{i}"
+                try:
+                    if frame_image_mapping and isinstance(frame_image_mapping, dict) and frame_key in frame_image_mapping:
+                        frame_mapping_data = frame_image_mapping[frame_key]
+                        if isinstance(frame_mapping_data, dict):
+                            mapped_image_key = frame_mapping_data.get("product_image")
+                            if mapped_image_key and isinstance(mapped_image_key, str) and mapped_image_key in product_image_mapping:
+                                product_image_url = product_image_mapping[mapped_image_key]
+                                reference_images.append(product_image_url)
+                                reason = frame_mapping_data.get("reason", "No reason provided")
+                                print(f"📦 Including mapped product image {mapped_image_key} for frame {i}: {reason}")
+                            else:
+                                print(f"⚠️ WARNING: Invalid mapped_image_key '{mapped_image_key}' for frame {i}")
+                        else:
+                            print(f"⚠️ WARNING: frame_image_mapping[{frame_key}] is not a dict: {type(frame_mapping_data)}")
+                except Exception as e:
+                    print(f"⚠️ WARNING: Error processing frame_image_mapping for frame {i}: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                
+                # Safely get frame prompt with error handling
+                try:
+                    frame_prompt = prompts.get(frame_prompt_key)
+                    if not frame_prompt:
+                        print(f"❌ ERROR: Frame prompt '{frame_prompt_key}' not found in prompts dictionary")
+                        print(f"❌ Available keys: {list(prompts.keys())[:20]}...")  # Show first 20 keys
+                        return None
+                    if not isinstance(frame_prompt, str):
+                        print(f"❌ ERROR: Frame prompt '{frame_prompt_key}' is not a string, got {type(frame_prompt)}")
+                        return None
+                    frame_s3_url = self.generate_image(frame_prompt, reference_images, frame_number=i)
+                except TypeError as e:
+                    print(f"❌ ERROR: TypeError accessing prompts dictionary: {str(e)}")
+                    print(f"❌ frame_prompt_key type: {type(frame_prompt_key)}, value: {frame_prompt_key}")
+                    print(f"❌ prompts type: {type(prompts)}")
+                    import traceback
+                    traceback.print_exc()
+                    return None
+                except KeyError as e:
+                    print(f"❌ ERROR: KeyError accessing prompts dictionary: {str(e)}")
+                    print(f"❌ Available keys: {list(prompts.keys())[:20]}...")
+                    import traceback
+                    traceback.print_exc()
+                    return None
                 if not frame_s3_url:
                     print(f"❌ Failed to generate frame {i}!")
                     return None
@@ -2746,8 +3363,8 @@ JSON only, no other text:"""
                         logo_needed = bool(logo_needed_raw)
                     print(f"🎯 Prime frame {i} logo needed: {logo_needed} (raw: {logo_needed_raw})")
                     
-                    # Prepare reference images for prime frame (use initial image for character consistency)
-                    reference_images_prime = [frame1_s3_url]  # Use initial image for character consistency
+                    # Prepare reference images for prime frame (NO previous frame - only logos/mascots)
+                    reference_images_prime = []
                     if logo_needed:
                         reference_images_prime.append(logo_s3_url)
                         print(f"🏆 Including logo for prime frame {i}")
@@ -2759,7 +3376,50 @@ JSON only, no other text:"""
                         reference_images_prime.append(mascot_s3_url)
                         print(f"🎭 Including mascot logo for character consistency in prime frame {i}")
                     
-                    frame_prime_s3_url = self.generate_image(prompts[frame_prime_prompt_key], reference_images_prime, frame_number=f"{i}_prime")
+                    # Add mapped product image for prime frame (use same mapping as regular frame)
+                    frame_key = f"frame_{i}"
+                    try:
+                        if frame_image_mapping and isinstance(frame_image_mapping, dict) and frame_key in frame_image_mapping:
+                            frame_mapping_data = frame_image_mapping[frame_key]
+                            if isinstance(frame_mapping_data, dict):
+                                mapped_image_key = frame_mapping_data.get("product_image")
+                                if mapped_image_key and isinstance(mapped_image_key, str) and mapped_image_key in product_image_mapping:
+                                    product_image_url = product_image_mapping[mapped_image_key]
+                                    reference_images_prime.append(product_image_url)
+                                    reason = frame_mapping_data.get("reason", "No reason provided")
+                                    print(f"📦 Including mapped product image {mapped_image_key} for prime frame {i}: {reason}")
+                                else:
+                                    print(f"⚠️ WARNING: Invalid mapped_image_key '{mapped_image_key}' for prime frame {i}")
+                            else:
+                                print(f"⚠️ WARNING: frame_image_mapping[{frame_key}] is not a dict: {type(frame_mapping_data)}")
+                    except Exception as e:
+                        print(f"⚠️ WARNING: Error processing frame_image_mapping for prime frame {i}: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                    
+                    # Safely get prime frame prompt with error handling
+                    try:
+                        frame_prime_prompt = prompts.get(frame_prime_prompt_key)
+                        if not frame_prime_prompt:
+                            print(f"❌ ERROR: Prime frame prompt '{frame_prime_prompt_key}' not found in prompts dictionary")
+                            print(f"❌ Available keys: {list(prompts.keys())[:20]}...")
+                            return None
+                        if not isinstance(frame_prime_prompt, str):
+                            print(f"❌ ERROR: Prime frame prompt '{frame_prime_prompt_key}' is not a string, got {type(frame_prime_prompt)}")
+                            return None
+                        frame_prime_s3_url = self.generate_image(frame_prime_prompt, reference_images_prime, frame_number=f"{i}_prime")
+                    except TypeError as e:
+                        print(f"❌ ERROR: TypeError accessing prompts dictionary for prime frame: {str(e)}")
+                        print(f"❌ frame_prime_prompt_key type: {type(frame_prime_prompt_key)}, value: {frame_prime_prompt_key}")
+                        import traceback
+                        traceback.print_exc()
+                        return None
+                    except KeyError as e:
+                        print(f"❌ ERROR: KeyError accessing prompts dictionary for prime frame: {str(e)}")
+                        print(f"❌ Available keys: {list(prompts.keys())[:20]}...")
+                        import traceback
+                        traceback.print_exc()
+                        return None
                     if not frame_prime_s3_url:
                         print(f"❌ Failed to generate prime frame {i}!")
                         return None
@@ -2944,13 +3604,36 @@ JSON only, no other text:"""
                         clip_logo_key = f"clip{i}_logo_needed"
                     
                     # Generate clip with dynamic duration (logo already handled at frame level)
-                    if self.clip_generation_model == "pixverse":
-                        clip_s3_url = self.generate_clip(prompts[clip_prompt_key], first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
-                    elif self.clip_generation_model == "sora":
-                        clip_s3_url = self.generate_clip_with_sora2(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
-                    else:  # kling
-                        clip_s3_url = self.generate_clip_with_kling(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
+                    # Safely get clip prompt with error handling
+                    try:
+                        clip_prompt = prompts.get(clip_prompt_key)
+                        if not clip_prompt:
+                            print(f"❌ ERROR: Clip prompt '{clip_prompt_key}' not found in prompts dictionary")
+                            print(f"❌ Available keys: {list(prompts.keys())[:20]}...")
+                            return None
+                        if not isinstance(clip_prompt, str):
+                            print(f"❌ ERROR: Clip prompt '{clip_prompt_key}' is not a string, got {type(clip_prompt)}")
+                            return None
                         
+                        if self.clip_generation_model == "pixverse":
+                            clip_s3_url = self.generate_clip(clip_prompt, first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
+                        elif self.clip_generation_model == "sora":
+                            clip_s3_url = self.generate_clip_with_sora2(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
+                        else:  # kling
+                            clip_s3_url = self.generate_clip_with_kling(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
+                    except TypeError as e:
+                        print(f"❌ ERROR: TypeError accessing prompts dictionary for clip: {str(e)}")
+                        print(f"❌ clip_prompt_key type: {type(clip_prompt_key)}, value: {clip_prompt_key}")
+                        import traceback
+                        traceback.print_exc()
+                        return None
+                    except KeyError as e:
+                        print(f"❌ ERROR: KeyError accessing prompts dictionary for clip: {str(e)}")
+                        print(f"❌ Available keys: {list(prompts.keys())[:20]}...")
+                        import traceback
+                        traceback.print_exc()
+                        return None
+                    
                     if not clip_s3_url:
                         print(f"❌ Failed to generate clip {i}!")
                         return None
@@ -3026,12 +3709,35 @@ JSON only, no other text:"""
                         clip_logo_key = f"clip{i}_logo_needed"
                     
                     # Generate clip with dynamic duration (logo already handled at frame level)
-                    if self.clip_generation_model == "pixverse":
-                        clip_s3_url = self.generate_clip(prompts[clip_prompt_key], first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
-                    elif self.clip_generation_model == "sora":
-                        clip_s3_url = self.generate_clip_with_sora2(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
-                    else:  # kling
-                        clip_s3_url = self.generate_clip_with_kling(prompts[clip_prompt_key], first_frame_url, clip_number=i, duration=clip_duration)
+                    # Safely get clip prompt with error handling
+                    try:
+                        clip_prompt = prompts.get(clip_prompt_key)
+                        if not clip_prompt:
+                            print(f"❌ ERROR: Clip prompt '{clip_prompt_key}' not found in prompts dictionary")
+                            print(f"❌ Available keys: {list(prompts.keys())[:20]}...")
+                            return None
+                        if not isinstance(clip_prompt, str):
+                            print(f"❌ ERROR: Clip prompt '{clip_prompt_key}' is not a string, got {type(clip_prompt)}")
+                            return None
+                        
+                        if self.clip_generation_model == "pixverse":
+                            clip_s3_url = self.generate_clip(clip_prompt, first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
+                        elif self.clip_generation_model == "sora":
+                            clip_s3_url = self.generate_clip_with_sora2(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
+                        else:  # kling
+                            clip_s3_url = self.generate_clip_with_kling(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
+                    except TypeError as e:
+                        print(f"❌ ERROR: TypeError accessing prompts dictionary for clip: {str(e)}")
+                        print(f"❌ clip_prompt_key type: {type(clip_prompt_key)}, value: {clip_prompt_key}")
+                        import traceback
+                        traceback.print_exc()
+                        return None
+                    except KeyError as e:
+                        print(f"❌ ERROR: KeyError accessing prompts dictionary for clip: {str(e)}")
+                        print(f"❌ Available keys: {list(prompts.keys())[:20]}...")
+                        import traceback
+                        traceback.print_exc()
+                        return None
                     
                     if not clip_s3_url:
                         print(f"❌ Failed to generate clip {i}!")
@@ -3286,7 +3992,11 @@ JSON only, no other text:"""
             return final_video_path
             
         except Exception as e:
-            print(f"Error in video creation process: {str(e)}")
+            print(f"❌ Error in video creation process: {str(e)}")
+            print(f"❌ Error type: {type(e).__name__}")
+            import traceback
+            print(f"❌ Full traceback:")
+            traceback.print_exc()
             return None
 
 
@@ -3296,13 +4006,13 @@ def main():
     # ========================================
     # CONFIGURATION - MODIFY THESE VALUES
     # ========================================
-    PROJECT_NAME = "roots"  # Change this for different projects
+    PROJECT_NAME = "boat"  # Change this for different projects
     LLM_PROVIDER = "grok"        # Change to "grok" to use Grok instead
     # LLM_PROVIDER = "grok"        # Uncomment this line to use Grok
     
     # Image generation model
-    IMAGE_MODEL = "nano-banana"  # Change to "seedream" to use ByteDance Seedream model
-    # IMAGE_MODEL = "seedream"     # Uncomment this line to use Seedream
+    # IMAGE_MODEL = "nano-banana"  # Change to "seedream" to use ByteDance Seedream model
+    IMAGE_MODEL = "nano-banana"     # Using Seedream for better product image quality
     
     # ========================================
     # VIDEO CONFIGURATION - CHOOSE ONE MODE
@@ -3311,8 +4021,8 @@ def main():
     VIDEO_DURATION = None  # Set to 10, 15, 20, or 25 for video_duration mode
     
     # Mode 2: Use clip_duration + number_of_clips (preferred mode)
-    CLIP_DURATION = 10  # Duration of each clip in seconds
-    NUMBER_OF_CLIPS = 1  # Number of clips to generate
+    CLIP_DURATION = 5  # Duration of each clip in seconds
+    NUMBER_OF_CLIPS = 5  # Number of clips to generate
     
     # Note: If both are provided, clip_duration + number_of_clips takes preference
     # If only VIDEO_DURATION is set, clips are calculated by dividing by 5
@@ -3342,21 +4052,21 @@ def main():
     INCLUDE_TWEET_TEXT = False  # Set to True to include tweet text in prompt generation, False to use only initial image prompt
     
     # Mascot character support
-    USE_MASCOT_CHARACTER = True  # Set to True to use mascot character instead of human characters
-    MASCOT_LOGO_PATH =  "/Users/taran/Downloads/blue-jays-logo.png" # Path to mascot logo image (e.g., "path/to/blue_jays_logo.png")
+    USE_MASCOT_CHARACTER = False  # Set to True to use mascot character instead of human characters
+    MASCOT_LOGO_PATH =  None # Path to mascot logo image (e.g., "path/to/blue_jays_logo.png")
     USE_MASCOT_IN_IMAGES = False  # Set to True to include mascot logo as reference image in image generation. Set to False for famous entities that can be generated without logo (like Blue Jays bird)
     
     # Character and brand aesthetics control
-    HUMAN_CHARACTERS_ONLY = False  # Set to True to use only human characters (no meme characters)
+    HUMAN_CHARACTERS_ONLY = True  # Set to True for product marketing videos - show real people using the product
     WEB3 = False  # Set to True for Web3/crypto meme characters, False for unlimited creative characters
     NO_CHARACTERS = False  # Set to True for pure product showcase with NO characters of any kind (overrides all other character flags)
-    USE_BRAND_AESTHETICS = True   # Set to True to incorporate brand-specific aesthetic guidelines
+    USE_BRAND_AESTHETICS = False   # Set to True to incorporate brand-specific aesthetic guidelines
     
     # Audio control
-    CLIP_AUDIO_PROMPTS = False  # Set to True for individual audio per clip, False for single audio for entire video
+    CLIP_AUDIO_PROMPTS = False  # Set to False for product videos - single cohesive audio track works better
     
     # Voiceover control
-    VOICEOVER = False  # Set to True to generate voiceover for clips, False to use only sound effects
+    VOICEOVER = False  # Set to True for product videos - adds narration about features and benefits
     
     # Clip generation model
     CLIP_GENERATION_MODEL = "kling"  # Set to "pixverse" for transition model, "sora" for Sora2 image-to-video model, or "kling" for Kling 2.5 Turbo image-to-video model
@@ -3380,33 +4090,88 @@ def main():
     # THEME = "Launch of Audi's new electric SUV, targeting young professionals who want luxury without compromising on sustainability"
     # THEME = "Celebrate Audi's racing heritage and how it translates to everyday driving excellence for the modern driver"
     # THEME = "Audi as the symbol of achieved success and refined taste for entrepreneurs who have made it"
-    THEME = "Epic Blue Jays Championship Quest - Massive, heroic Toronto Blue Jays bird mascot with larger-than-life presence, wearing a t-shirt with reference logo prominently displayed on it, soaring majestically over Toronto skyline with CN Tower and stadium named Rogers Centre dwarfed below, dramatically landing on skyscrapers with cinematic grandeur, reference logo also prominently displayed on the CN Tower building and floating banners, stadium crowd roaring with thunderous cheers, text overlay 'Let's go Jays! We're with you!' in bold letters, supporting their 32-year championship quest with monumental, awe-inspiring scale and unstoppable team spirit - create a viral masterpiece that captures the electric energy of Toronto's baseball passion. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
-    # THEME = """
-    # A heroic Toronto Blue Jays bird mascot is celebrating a championship victory in full team colors. The scene shows the Blue Jays bird in a massive celebration environment - Rogers Centre stadium, Toronto streets, or a victory parade. The bird is wearing a T-shirt with the brand logo prominently displayed, celebrating with pure joy and triumph.
+    # THEME = "Epic Blue Jays Championship Quest - Massive, heroic Toronto Blue Jays bird mascot with larger-than-life presence, wearing a t-shirt with reference logo prominently displayed on it, soaring majestically over Toronto skyline with CN Tower and stadium named Rogers Centre dwarfed below, dramatically landing on skyscrapers with cinematic grandeur, reference logo also prominently displayed on the CN Tower building and floating banners, stadium crowd roaring with thunderous cheers, text overlay 'Let's go Jays! We're with you!' in bold letters, supporting their 32-year championship quest with monumental, awe-inspiring scale and unstoppable team spirit - create a viral masterpiece that captures the electric energy of Toronto's baseball passion. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
+    THEME = """
+    "Unleash Your Sound, Illuminate Your Style" - boAt Rockerz 480: A cinematic journey showcasing premium audio performance, striking RGB LED design, and cutting-edge gaming technology that transforms every listening experience into an immersive adventure.
 
-    # The victory celebration sequence includes:
-    # - Blue Jays bird holding the championship trophy high
-    # - Confetti and streamers falling in team colors (blue and white)
-    # - Crowd cheering and celebrating around the bird
-    # - Victory dance and celebration moves
-    # - Final triumphant moment where the Blue Jays bird raises the trophy to the sky
+    OPENING (0-5 seconds):
+    A dramatic, close-up cinematic reveal of the boAt Rockerz 480 headphones against a dark, atmospheric background. The sleek black over-ear headphones feature a vibrant, glowing RGB LED ring encircling the ear cup, transitioning through mesmerizing colors - from deep magenta-pink to electric purple, creating a striking visual impact. The reference logo is prominently displayed on the ear cup with clear space around it. A smooth, elegant camera movement rotates around the headphones, showcasing the premium matte black finish, metallic silver accents on the headband, and the adaptive fit design. The scene radiates modern sophistication, gaming energy, and premium audio excellence.
 
-    # The atmosphere should be euphoric and celebratory, with dynamic camera angles showing the bird's pure joy and victory. The background should be filled with Toronto Blue Jays team colors (blue and white), championship banners, and cheering fans. The lighting should be bright and celebratory, emphasizing the bird's triumphant victory.
+    MAIN JOURNEY (5-20 seconds):
+    Showcase the product's revolutionary features through dynamic, lifestyle-focused sequences:
 
-    # Audio should feature epic victory music with stadium cheers, crowd chants of "Let's go Blue Jays!", and celebratory background music that builds to an epic crescendo. The overall mood should be "championship victory celebration" - showing the Blue Jays bird's ultimate triumph and the city's joy.
+    RGB LED SHOWCASE (5-7 seconds):
+    Extreme close-up of the RGB LED ring as it cycles through 6 different lighting modes - vibrant pink, electric purple, cool blue, fiery red, neon green, and dynamic color transitions. The LED ring pulses and glows with cinematic intensity, creating a mesmerizing visual effect. The camera slowly pulls back to reveal the full headphone design, with the RGB lighting casting dynamic shadows and reflections. The reference logo remains visible with proper clearance. Text overlay: "Blazing RGB LEDs with 6 Modes" - emphasizing the customizable lighting that personalizes the audio experience.
 
-    # Text overlay should say something like "Championship Victory!" or "We Did It!" to reinforce the celebration theme.
-    # """
+    GAMING & BEAST MODE (7-10 seconds):
+    Transition to an intense gaming scene - a focused gamer wearing the headphones in a dimly lit gaming setup. The RGB LEDs glow with vibrant colors, matching the gaming environment's ambient lighting. The camera captures the gamer's intense focus, with the headphones' sleek design and glowing LEDs prominently featured. Text overlay: "BEAST Mode - 40ms Low Latency" - emphasizing the ultra-responsive gaming experience with zero lag. The scene showcases the headphones' ability to deliver crystal-clear game audio and communication without delay.
 
-    LOGO_PATH = "/Users/taran/Downloads/roots-logo.png"  # MUST SET THIS - always required
+    SOUND QUALITY & 40MM DRIVERS (10-13 seconds):
+    Cinematic transition to a technical breakdown view showcasing the internal 40mm audio drivers. The camera reveals the sophisticated sound engineering through a layered component view - the powerful drivers, precision-tuned components, and boAt Signature Sound technology. Visual emphasis on the driver's size and quality, with sound waves radiating outward in a stylized, dynamic visualization. The scene transitions to a person experiencing immersive music, with the headphones delivering rich, bass-heavy audio. Text overlay: "40mm Drivers - boAt Signature Sound" - emphasizing the premium audio quality that brings music to life.
+
+    APP SUPPORT & STREAMING (13-16 seconds):
+    Close-up of a smartphone displaying the boAt Hearables App interface. A finger smoothly navigates the app, showcasing ad-free music streaming, audiobook access, and intuitive controls. The app interface is sleek and modern, with the reference logo visible. The scene transitions to show seamless Bluetooth connectivity, with the headphones pairing effortlessly. Text overlay: "Stream Ad-Free Music via App Support" - emphasizing the comprehensive audio ecosystem and wireless freedom.
+
+    BATTERY LIFE & COMFORT (16-20 seconds):
+    Elegant montage showcasing the 60-hour battery life and adaptive fit. A time-lapse style sequence shows the headphones being used throughout an entire day - morning commute, work session, evening gaming, and late-night music listening - all without needing to charge. The adaptive fit is demonstrated through smooth, comfortable wear, with the headphones providing a snug, comfortable fit for extended use. Text overlay: "60 Hours of Playback - Charge Less, Enjoy More" - emphasizing the massive battery life that keeps the music playing uninterrupted.
+
+    CLOSING (20-25 seconds):
+    A final, cinematic wide shot of a modern lifestyle scene - a person wearing the boAt Rockerz 480 headphones, fully immersed in their audio experience. The RGB LEDs glow with dynamic colors, creating a striking visual presence. The scene transitions to an extreme close-up of the ear cup with the reference logo prominently displayed, the RGB LED ring pulsing with energy. The final frame showcases the headphones' premium design, cutting-edge technology, and the promise of an unparalleled audio experience. The scene radiates confidence, innovation, and the perfect fusion of style and performance.
+
+    VISUAL STYLE:
+    - Photorealistic, live-action cinematography with professional film quality
+    - Modern, gaming-oriented aesthetic with emphasis on dynamic lighting and RGB effects
+    - Smooth, cinematic camera movements - dramatic reveals, elegant rotations, dynamic tracking shots
+    - Dark, atmospheric backgrounds with vibrant RGB lighting creating striking contrasts
+    - Cinematic depth of field - product in sharp focus, backgrounds beautifully blurred
+    - Professional gaming and lifestyle settings - modern gaming setups, urban environments, contemporary spaces
+    - Ultra-detailed product shots showcasing the headphones' sleek design, RGB LEDs, and premium quality
+    - Dynamic lighting effects - RGB LEDs casting colorful glows, creating immersive atmospheres
+    - Emphasis on the product's visual impact - the RGB LEDs as a central design element
+
+    NARRATIVE THEMES:
+    - Premium audio performance: boAt Signature Sound that brings music to life
+    - Gaming excellence: BEAST Mode with ultra-low latency for competitive gaming
+    - Visual innovation: RGB LEDs that personalize and elevate the audio experience
+    - Uninterrupted freedom: 60-hour battery life for all-day listening
+    - Seamless connectivity: Bluetooth v5.3, dual pairing, and app integration
+    - Comfort and style: Adaptive fit design that looks and feels premium
+    - Complete audio ecosystem: Music, gaming, calls, and voice assistant all in one
+
+    PRODUCT FEATURES TO HIGHLIGHT:
+    - Blazing RGB LEDs with 6 customizable modes: Personalize your audio corner with striking lighting
+    - BEAST Mode: 40ms low latency for lag-free gaming and realistic gameplay
+    - 60 Hours of Playback: Massive battery life for uninterrupted listening
+    - 40mm Drivers: boAt Signature Sound with bass-heavy, impressive soundstage
+    - ENx Technology: Advanced noise cancellation for crystal-clear calls
+    - Dual Pairing: Seamlessly switch between phone and laptop without reconnecting
+    - Bluetooth v5.3: Latest wireless technology for stable, high-quality audio
+    - Adaptive Fit: Comfortable, snug fit for extended wear
+    - Quick Access Controls: Easily manage calls, audio, and functions
+    - Voice Assistant: Activate Google Assistant or Siri with voice commands
+    - App Support: Stream ad-free music and access audiobooks via boAt Hearables App
+
+    AUDIO ELEMENTS:
+    - Dynamic, energetic electronic music building from atmospheric opening to powerful, bass-driven crescendo
+    - Immersive sound design: Deep bass notes, crisp highs, and rich audio textures showcasing the 40mm drivers
+    - Gaming sound effects: Subtle game audio, button clicks, and immersive gaming atmosphere
+    - App interface sounds: Modern UI feedback, smooth transitions, and intuitive interactions
+    - Voice assistant activation sounds: Subtle chimes and confirmation tones
+    - Ambient gaming environment: Low hum of gaming setup, keyboard clicks, and immersive audio
+    - Building to an epic, confident finale that emphasizes power, performance, and premium audio excellence
+
+    Duration: Approximately 25 seconds showcasing boAt Rockerz 480 as the ultimate audio companion for music, gaming, and lifestyle.
+    """
+
+    LOGO_PATH = "/Users/taran/Downloads/boat-logo.jpg"  # MUST SET THIS - always required
     
     # Product images for frame generation alignment
     PRODUCT_IMAGES = [
-        # "/Users/taran/Downloads/cocktail-emporium-image1.jpeg",
-        # "/Users/taran/Downloads/cocktail-emporium-image2.jpeg",
-        # "/Users/taran/Downloads/cocktail-emporium-image3.jpeg"
-        # "/Users/taran/Downloads/iphone-16-pro-max-1.jpg",
-        # "/Users/taran/Downloads/iphone-16-pro-max-2.jpg" 
+        "/Users/taran/Downloads/boat-product-1.jpg",
+        "/Users/taran/Downloads/boat-product-2.jpg",
+        "/Users/taran/Downloads/boat-product-3.jpg",
+        "/Users/taran/Downloads/boat-product-4.jpg",
+        "/Users/taran/Downloads/boat-product-5.jpg"
     ]  # List of local paths to product images (can be empty list)
     # ========================================
     # END CONFIGURATION
@@ -3506,7 +4271,7 @@ def main():
                 use_mascot_character=USE_MASCOT_CHARACTER,
                 mascot_logo_path=MASCOT_LOGO_PATH,
                 use_mascot_in_images=USE_MASCOT_IN_IMAGES
-            )
+        )
     except ValueError as e:
         print(f"❌ ERROR: {str(e)}")
         return
@@ -3596,7 +4361,7 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
             use_mascot_character=use_mascot_character,
             mascot_logo_path=mascot_logo_path,
             use_mascot_in_images=use_mascot_in_images
-            )
+        )
     else:
         # Clip duration mode
         generator = VideoGenerator(
@@ -3621,7 +4386,7 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
             use_mascot_character=use_mascot_character,
             mascot_logo_path=mascot_logo_path,
             use_mascot_in_images=use_mascot_in_images
-            )
+    )
     
     return generator.create_video(
         tweet_text=tweet_text,

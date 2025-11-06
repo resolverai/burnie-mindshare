@@ -335,6 +335,14 @@ router.post('/twitter-auth/oauth2/callback', async (req: Request, res: Response)
     await connectionRepository.save(connection);
     logger.info(`✅ OAuth2 tokens saved for project ${projectId}`);
 
+    // Set session cookie with Twitter user ID for authorization
+    res.cookie('project_twitter_user_id', twitterUserId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days (matches token expiry)
+    });
+
     // Clean up session
     delete sessions[sessionKey];
 

@@ -1090,6 +1090,17 @@ async def run_avatar_fusion_processing(
     roast_amount: float = 0
 ):
     """Background task that processes avatar fusion using IntegratedAvatarFusion"""
+    import os
+    import tempfile
+    import requests
+    
+    # Get TypeScript backend URL at function level for use in all error handlers
+    from app.config.settings import settings
+    typescript_backend_url = settings.typescript_backend_url or os.getenv('TYPESCRIPT_BACKEND_URL', 'http://localhost:3001')
+    
+    original_image_path = None
+    avatar_image_path = None
+    
     try:
         logger.info(f"🎨 Starting avatar fusion processing for execution: {execution_id}")
         
@@ -1144,15 +1155,37 @@ async def run_avatar_fusion_processing(
                         logger.info(f"🏷️ Found project logo URL from campaigns table: {project_logo_url}")
                         
                         # Generate fresh presigned URL for the logo if it's an S3 URL
-                        if 's3.amazonaws.com' in project_logo_url or 'amazonaws.com' in project_logo_url:
-                            logger.info(f"🔑 Generating fresh presigned URL for project logo")
-                            
-                            # Extract S3 key from logo URL
-                            from urllib.parse import urlparse
+                        # Check if it's an S3 URL (either s3:// format or https:// with s3.amazonaws.com)
+                        is_s3_url = False
+                        logo_s3_key = None
+                        
+                        if project_logo_url.startswith('s3://'):
+                            # Handle s3://bucket/key format
+                            parts = project_logo_url.replace('s3://', '').split('/', 1)
+                            if len(parts) > 1:
+                                logo_s3_key = parts[1]
+                                is_s3_url = True
+                                logger.info(f"🔑 Extracted logo S3 key from s3:// format: {logo_s3_key}")
+                        elif 's3.amazonaws.com' in project_logo_url:
+                            # Extract S3 key from presigned URL
+                            from urllib.parse import urlparse, unquote
                             parsed_logo_url = urlparse(project_logo_url)
-                            logo_s3_key = parsed_logo_url.path.lstrip('/')  # Remove leading slash
-                            logger.info(f"🔑 Extracted logo S3 key: {logo_s3_key}")
                             
+                            # Validate it's actually an S3 URL (not a regular URL being misidentified)
+                            if parsed_logo_url.netloc and 's3.amazonaws.com' in parsed_logo_url.netloc:
+                                logo_s3_key = unquote(parsed_logo_url.path.lstrip('/'))  # Remove leading slash and decode
+                                
+                                # Additional validation: S3 keys shouldn't start with http:// or https://
+                                if logo_s3_key and not logo_s3_key.startswith(('http://', 'https://')):
+                                    is_s3_url = True
+                                    logger.info(f"🔑 Extracted logo S3 key: {logo_s3_key}")
+                                else:
+                                    logger.warning(f"⚠️ Invalid S3 key extracted (looks like a URL): {logo_s3_key}")
+                                    logger.info(f"📋 Will use original logo URL as-is (may be external URL)")
+                            else:
+                                logger.info(f"📋 Logo URL is not a valid S3 URL: {project_logo_url}")
+                        
+                        if is_s3_url and logo_s3_key:
                             # Generate fresh presigned URL for logo
                             from app.services.s3_storage_service import get_s3_storage
                             s3_service = get_s3_storage()
@@ -1165,7 +1198,7 @@ async def run_avatar_fusion_processing(
                                 logger.warning(f"⚠️ Failed to generate fresh presigned URL for logo: {logo_presigned_result.get('error')}")
                                 logger.info(f"📋 Will use original logo URL anyway: {project_logo_url}")
                         else:
-                            logger.info(f"📋 Using original logo URL (not an S3 presigned URL): {project_logo_url}")
+                            logger.info(f"📋 Using original logo URL as-is (external URL or non-S3): {project_logo_url}")
                     else:
                         logger.info("🏷️ No project logo URL found in campaign details")
                 else:
@@ -1178,13 +1211,25 @@ async def run_avatar_fusion_processing(
             project_logo_url = None
         
         # Extract S3 key from the presigned URL and generate a fresh presigned URL
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import urlparse, unquote
         parsed_url = urlparse(original_image_url)
+        
+        is_s3_url = False
+        s3_key = None
+        
         if 's3.amazonaws.com' in parsed_url.netloc:
             # Extract S3 key from the URL path
-            s3_key = parsed_url.path.lstrip('/')  # Remove leading slash
-            logger.info(f"🔑 Extracted S3 key: {s3_key}")
+            s3_key = unquote(parsed_url.path.lstrip('/'))  # Remove leading slash and decode
             
+            # Validate it's actually an S3 key (not a regular URL being misidentified)
+            if s3_key and not s3_key.startswith(('http://', 'https://')):
+                is_s3_url = True
+                logger.info(f"🔑 Extracted S3 key: {s3_key}")
+            else:
+                logger.warning(f"⚠️ Invalid S3 key extracted (looks like a URL): {s3_key}")
+                logger.info(f"📋 Will use original URL as-is (may be external URL)")
+        
+        if is_s3_url and s3_key:
             # Generate fresh presigned URL (reuse s3_service if already initialized)
             if 's3_service' not in locals():
                 from app.services.s3_storage_service import get_s3_storage
@@ -1198,7 +1243,7 @@ async def run_avatar_fusion_processing(
                 logger.warning(f"⚠️ Failed to generate fresh presigned URL: {presigned_result.get('error')}")
                 logger.info(f"📋 Will attempt to use original URL anyway: {original_image_url}")
         else:
-            logger.info(f"📋 Using original URL (not an S3 presigned URL): {original_image_url}")
+            logger.info(f"📋 Using original URL as-is (external URL or non-S3): {original_image_url}")
         
         # Generate fresh presigned URL for avatar image if provided
         if avatar_image_url:
@@ -1206,11 +1251,22 @@ async def run_avatar_fusion_processing(
             
             # Check if avatar image URL is an S3 presigned URL and generate fresh one
             parsed_avatar_url = urlparse(avatar_image_url)
-            if 's3.amazonaws.com' in parsed_avatar_url.netloc or 'amazonaws.com' in parsed_avatar_url.netloc:
+            is_avatar_s3_url = False
+            avatar_s3_key = None
+            
+            if 's3.amazonaws.com' in parsed_avatar_url.netloc:
                 # Extract S3 key from the avatar URL path
-                avatar_s3_key = parsed_avatar_url.path.lstrip('/')  # Remove leading slash
-                logger.info(f"🔑 Extracted avatar S3 key: {avatar_s3_key}")
+                avatar_s3_key = unquote(parsed_avatar_url.path.lstrip('/'))  # Remove leading slash and decode
                 
+                # Validate it's actually an S3 key (not a regular URL being misidentified)
+                if avatar_s3_key and not avatar_s3_key.startswith(('http://', 'https://')):
+                    is_avatar_s3_url = True
+                    logger.info(f"🔑 Extracted avatar S3 key: {avatar_s3_key}")
+                else:
+                    logger.warning(f"⚠️ Invalid avatar S3 key extracted (looks like a URL): {avatar_s3_key}")
+                    logger.info(f"📋 Will use original avatar URL as-is (may be external URL)")
+            
+            if is_avatar_s3_url and avatar_s3_key:
                 # Generate fresh presigned URL for avatar (reuse s3_service if already initialized)
                 if 's3_service' not in locals():
                     from app.services.s3_storage_service import get_s3_storage
@@ -1224,24 +1280,20 @@ async def run_avatar_fusion_processing(
                     logger.warning(f"⚠️ Failed to generate fresh presigned URL for avatar: {avatar_presigned_result.get('error')}")
                     logger.info(f"📋 Will attempt to use original avatar URL anyway: {avatar_image_url}")
             else:
-                logger.info(f"📋 Using original avatar URL (not an S3 presigned URL): {avatar_image_url}")
+                logger.info(f"📋 Using original avatar URL as-is (external URL or non-S3): {avatar_image_url}")
         
         # Download original image temporarily
-        import tempfile
-        import requests
-        
         # Download original image
         with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as original_temp:
-            response = requests.get(original_image_url)
+            response = requests.get(original_image_url, timeout=30)
             response.raise_for_status()
             original_temp.write(response.content)
             original_image_path = original_temp.name
         
         # Download avatar image if provided
-        avatar_image_path = None
         if avatar_image_url:
             with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as avatar_temp:
-                response = requests.get(avatar_image_url)
+                response = requests.get(avatar_image_url, timeout=30)
                 response.raise_for_status()
                 avatar_temp.write(response.content)
                 avatar_image_path = avatar_temp.name
@@ -1290,10 +1342,6 @@ async def run_avatar_fusion_processing(
                 # Download the fused image from fal.ai
                 fused_image_url = result['fused_image_url']
                 logger.info(f"📥 Downloading fused image from: {fused_image_url}")
-                
-                import requests
-                import tempfile
-                import os
                 
                 # Download the fused image temporarily
                 fused_response = requests.get(fused_image_url, timeout=30)
@@ -1352,9 +1400,6 @@ async def run_avatar_fusion_processing(
                         logger.info(f"💰 Post-purchase URL assignment - unwatermarked: {unwatermarked_url}")
                     
                     # Call TypeScript backend to complete the edit
-                    from app.config.settings import settings
-                    typescript_backend_url = settings.typescript_backend_url or "http://localhost:3001"
-                    
                     import httpx
                     async with httpx.AsyncClient() as client:
                         # Prepare the completion data based on post type
@@ -1432,9 +1477,6 @@ async def run_avatar_fusion_processing(
         # Update status to failed in TypeScript backend
         try:
             import httpx
-            import os  # Import os here for this scope
-            typescript_backend_url = os.getenv('TYPESCRIPT_BACKEND_URL', 'http://localhost:3001')
-            
             async with httpx.AsyncClient() as client:
                 failure_response = await client.put(
                     f"{typescript_backend_url}/api/edit-tweet/complete",
