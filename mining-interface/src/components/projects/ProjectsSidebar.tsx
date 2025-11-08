@@ -2,22 +2,71 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { 
-  HomeIcon, 
-  DocumentTextIcon, 
-  CalendarIcon, 
-  Cog6ToothIcon, 
-  PhotoIcon, 
+import {
+  HomeIcon,
+  DocumentTextIcon,
+  Cog6ToothIcon,
+  PhotoIcon,
   ArrowRightOnRectangleIcon,
   ChevronLeftIcon,
   ChevronRightIcon
 } from '@heroicons/react/24/outline'
 import { getApiUrlWithFallback } from '@/utils/api-config'
+import { ReactNode, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 interface ProjectsSidebarProps {
   projectId: string
   isExpanded: boolean
   onToggle: () => void
+}
+
+function SidebarTooltip({ children, enabled, label }: { children: ReactNode; enabled: boolean; label: string }) {
+  const triggerRef = useRef<HTMLDivElement | null>(null)
+  const [mounted, setMounted] = useState(false)
+  const [visible, setVisible] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const show = () => {
+    if (!enabled || !triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    setPosition({
+      top: rect.top + rect.height / 2,
+      left: rect.right + 16
+    })
+    setVisible(true)
+  }
+
+  const hide = () => setVisible(false)
+
+  return (
+    <>
+      <div
+        ref={triggerRef}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        className="relative"
+      >
+        {children}
+      </div>
+      {mounted && enabled && visible && createPortal(
+        <div
+          className="pointer-events-none fixed z-[9999] -translate-y-1/2"
+          style={{ top: position.top, left: position.left }}
+        >
+          <div className="relative flex items-center gap-2 rounded-xl border border-white/10 bg-gray-900/95 px-3 py-1.5 text-sm font-medium text-white shadow-[0_18px_40px_rgba(16,24,40,0.35)] backdrop-blur-md">
+            <span className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)]">{label}</span>
+            <span className="absolute left-[-6px] top-1/2 h-3 w-3 -translate-y-1/2 rotate-45 border border-white/10 border-l-transparent border-t-transparent bg-gray-900/95" />
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
 }
 
 export default function ProjectsSidebar({ projectId, isExpanded, onToggle }: ProjectsSidebarProps) {
@@ -94,47 +143,38 @@ export default function ProjectsSidebar({ projectId, isExpanded, onToggle }: Pro
         {navigation.map((item) => {
           const isActive = pathname?.startsWith(item.href)
           return (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`flex items-center ${isExpanded ? 'px-4' : 'px-3 justify-center'} py-3 text-sm font-medium rounded-lg transition-colors group relative ${
-                isActive
-                  ? 'bg-gradient-to-r from-orange-500/20 to-red-500/20 text-orange-400 border border-orange-500/30'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
-              }`}
-              title={!isExpanded ? item.name : ''}
-            >
-              <item.icon className={`w-5 h-5 ${isExpanded ? 'mr-3' : ''} flex-shrink-0`} />
-              {isExpanded && <span>{item.name}</span>}
-              
-              {/* Tooltip for collapsed state */}
-              {!isExpanded && (
-                <div className="absolute left-[calc(100%+0.5rem)] top-1/2 -translate-y-1/2 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity shadow-lg">
-                  {item.name}
-                </div>
-              )}
-            </Link>
+            <SidebarTooltip key={item.name} enabled={!isExpanded} label={item.name}>
+              <Link
+                href={item.href}
+                className={`flex items-center ${isExpanded ? 'px-4' : 'px-3 justify-center'} py-3 text-sm font-medium rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-gradient-to-r from-orange-500/20 to-red-500/20 text-orange-400 border border-orange-500/30'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`}
+                aria-label={!isExpanded ? item.name : undefined}
+                title={isExpanded ? item.name : undefined}
+              >
+                <item.icon className={`w-5 h-5 ${isExpanded ? 'mr-3' : ''} flex-shrink-0`} />
+                {isExpanded && <span>{item.name}</span>}
+              </Link>
+            </SidebarTooltip>
           )
         })}
       </nav>
 
       {/* Logout Button - Fixed at bottom */}
       <div className="p-3 border-t border-gray-800 flex-shrink-0">
-        <button
-          onClick={handleLogout}
-          className={`flex items-center w-full ${isExpanded ? 'px-4' : 'px-3 justify-center'} py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors group relative`}
-          title={!isExpanded ? 'Logout' : ''}
-        >
-          <ArrowRightOnRectangleIcon className={`w-5 h-5 ${isExpanded ? 'mr-3' : ''} flex-shrink-0`} />
-          {isExpanded && <span>Logout</span>}
-          
-          {/* Tooltip for collapsed state */}
-          {!isExpanded && (
-            <div className="absolute left-[calc(100%+0.5rem)] top-1/2 -translate-y-1/2 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity shadow-lg">
-              Logout
-            </div>
-          )}
-        </button>
+        <SidebarTooltip enabled={!isExpanded} label="Logout">
+          <button
+            onClick={handleLogout}
+            className={`flex items-center w-full ${isExpanded ? 'px-4' : 'px-3 justify-center'} py-3 text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors`}
+            aria-label={!isExpanded ? 'Logout' : undefined}
+            title={isExpanded ? 'Logout' : undefined}
+          >
+            <ArrowRightOnRectangleIcon className={`w-5 h-5 ${isExpanded ? 'mr-3' : ''} flex-shrink-0`} />
+            {isExpanded && <span>Logout</span>}
+          </button>
+        </SidebarTooltip>
       </div>
     </div>
   )
