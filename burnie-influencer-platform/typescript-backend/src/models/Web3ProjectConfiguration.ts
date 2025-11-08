@@ -10,7 +10,7 @@ export class Web3ProjectConfiguration {
   project_id!: number;
 
   // Image Generation Settings (from Web2)
-  @Column({ type: 'varchar', length: 50, default: 'seedream' })
+  @Column({ type: 'varchar', length: 50, default: 'nano-banana' })
   image_model!: string; // 'flux-pro-kontext', 'seedream', or 'nano-banana'
 
   // Video Generation Settings (from Web2)

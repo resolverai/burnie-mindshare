@@ -32,7 +32,7 @@ export default function ProjectSettingsPage() {
   const [isSaving, setIsSaving] = useState(false)
   
   // Configuration state - Web2 settings
-  const [imageModel, setImageModel] = useState<string>('seedream')
+  const [imageModel, setImageModel] = useState<string>('nano-banana')
   const [videoModel, setVideoModel] = useState<string>('kling')
   const [clipDuration, setClipDuration] = useState<number>(5)
   

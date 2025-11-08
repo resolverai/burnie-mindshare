@@ -533,7 +533,7 @@ async def gather_all_context(project_id: int, session_cookie: Optional[str] = No
     content_mix = raw_content_mix if isinstance(raw_content_mix, dict) else default_content_mix
     
     # Get image model (video model is fixed to 'kling')
-    image_model = config.get('image_model') or 'seedream'
+    image_model = config.get('image_model') or 'nano-banana'
     
     # Step 1.5: Combine all gathered context into a single dict
     logger.info("  → Combining all context data...")
