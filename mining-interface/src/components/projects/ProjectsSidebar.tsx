@@ -90,7 +90,7 @@ export default function ProjectsSidebar({ projectId, isExpanded, onToggle }: Pro
       </div>
 
       {/* Navigation - Scrollable */}
-      <nav className="flex-1 px-3 py-6 space-y-2 overflow-y-auto">
+      <nav className="flex-1 px-3 py-6 space-y-2 overflow-y-auto overflow-visible">
         {navigation.map((item) => {
           const isActive = pathname?.startsWith(item.href)
           return (
@@ -109,7 +109,7 @@ export default function ProjectsSidebar({ projectId, isExpanded, onToggle }: Pro
               
               {/* Tooltip for collapsed state */}
               {!isExpanded && (
-                <div className="absolute left-full ml-6 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
+                <div className="absolute left-[calc(100%+0.5rem)] top-1/2 -translate-y-1/2 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity shadow-lg">
                   {item.name}
                 </div>
               )}
@@ -130,7 +130,7 @@ export default function ProjectsSidebar({ projectId, isExpanded, onToggle }: Pro
           
           {/* Tooltip for collapsed state */}
           {!isExpanded && (
-            <div className="absolute left-full ml-6 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
+            <div className="absolute left-[calc(100%+0.5rem)] top-1/2 -translate-y-1/2 px-2 py-1 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity shadow-lg">
               Logout
             </div>
           )}

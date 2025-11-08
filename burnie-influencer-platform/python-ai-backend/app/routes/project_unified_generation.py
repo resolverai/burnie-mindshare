@@ -489,15 +489,19 @@ async def gather_all_context(project_id: int, session_cookie: Optional[str] = No
     
     # Step 1.3: Apply document decay (filter out old documents)
     logger.info("  → Applying document decay (filtering old documents)...")
-    documents_text = context.get('documents_text', [])
+    documents_text_raw = context.get('documents_text')
+    documents_text = documents_text_raw if isinstance(documents_text_raw, list) else []
+    valid_documents: List[Dict[str, Any]] = []
     if documents_text:
         valid_documents = apply_document_decay(documents_text)
         context['documents_text'] = valid_documents
         logger.info(f"  → Documents after decay: {len(valid_documents)}/{len(documents_text)}")
     
     # Step 1.4: Fetch live search data for links and Twitter handles (USES GROK LIVE SEARCH)
-    links = context.get('linksJson', [])
-    platform_handles = context.get('platform_handles', {})
+    raw_links = context.get('linksJson')
+    links = raw_links if isinstance(raw_links, list) else []
+    raw_platform_handles = context.get('platform_handles')
+    platform_handles = raw_platform_handles if isinstance(raw_platform_handles, dict) else {}
     live_search_data = {}
     
     # Check if we have any sources for live search
@@ -520,13 +524,16 @@ async def gather_all_context(project_id: int, session_cookie: Optional[str] = No
         logger.info("  → No links or Twitter handles provided, skipping live search")
     
     # Extract color palette
-    color_palette = context.get('color_palette', {})
+    raw_color_palette = context.get('color_palette')
+    color_palette = raw_color_palette if isinstance(raw_color_palette, dict) else {}
     
     # Get content mix from configuration
-    content_mix = config.get('content_mix', {'shitpost': 4, 'threads': 4, 'longpost': 2})
+    default_content_mix = {'shitpost': 4, 'threads': 4, 'longpost': 2}
+    raw_content_mix = config.get('content_mix')
+    content_mix = raw_content_mix if isinstance(raw_content_mix, dict) else default_content_mix
     
     # Get image model (video model is fixed to 'kling')
-    image_model = config.get('image_model', 'seedream')
+    image_model = config.get('image_model') or 'seedream'
     
     # Step 1.5: Combine all gathered context into a single dict
     logger.info("  → Combining all context data...")
@@ -543,8 +550,8 @@ async def gather_all_context(project_id: int, session_cookie: Optional[str] = No
         'goals': context.get('goals'),
         'brand_values': context.get('brand_values'),
         'color_palette': color_palette,
-        'documents_text': valid_documents if documents_text else [],
-        'platform_handles': context.get('platform_handles', {}),
+        'documents_text': valid_documents if valid_documents else [],
+        'platform_handles': platform_handles,
         'links': links,
         'live_search_data': live_search_data,  # Pre-fetched using Grok live search
         'details_text': context.get('details_text'),
