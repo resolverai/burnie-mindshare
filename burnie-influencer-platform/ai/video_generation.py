@@ -94,7 +94,7 @@ class SimpleS3Service:
             }
 
 class VideoGenerator:
-    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="nano-banana", video_duration=None, clip_duration=5, number_of_clips=None, human_characters_only=False, web3=False, no_characters=False, use_brand_aesthetics=False, clip_random_numbers=None, voiceover=False, clip_audio_prompts=True, theme=None, product_images=None, clip_generation_model="pixverse", viral_trends=False, use_mascot_character=False, mascot_logo_path=None, use_mascot_in_images=True):
+    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="nano-banana", video_duration=None, clip_duration=5, number_of_clips=None, human_characters_only=False, web3=False, no_characters=False, use_brand_aesthetics=False, clip_random_numbers=None, voiceover=False, clip_audio_prompts=True, theme=None, product_images=None, clip_generation_model="pixverse", viral_trends=False, use_mascot_character=False, mascot_logo_path=None, use_mascot_in_images=True, influencer_marketing=False):
         """
         Initialize the VideoGenerator.
         
@@ -116,11 +116,12 @@ class VideoGenerator:
             clip_audio_prompts (bool): If True, generate individual audio prompts for each clip. If False, generate single audio prompt for entire video
             theme (str): Optional theme to guide content generation (tweet text, image prompts, voiceover, etc.)
             product_images (list): List of local paths to product images for frame generation alignment
-            clip_generation_model (str): "pixverse" for transition model, "sora" for Sora2 image-to-video model, or "kling" for Kling 2.5 Turbo image-to-video model
+            clip_generation_model (str): "pixverse" for transition model, "sora" for Sora2 image-to-video model, "kling" for Kling 2.5 Turbo image-to-video model, or "veo" for Google Veo3.1-Fast image-to-video model with embedded audio
             viral_trends (bool): If True, align content with current viral trends (uses Grok live search when Grok is selected)
             use_mascot_character (bool): If True, use mascot character from mascot_logo_path instead of human characters
             mascot_logo_path (str, optional): Path to mascot logo image for character consistency
             use_mascot_in_images (bool): If True, include mascot logo as reference image in image generation. If False, don't include mascot logo in reference images (useful for famous entities that can be generated without logo). Default: True
+            influencer_marketing (bool): If True, create UGC-style influencer videos where a human character speaks naturally (overrides voiceover flag for veo model only). Characters speak the text instead of voiceover. Skips background music generation.
         """
         if not logo_path or not os.path.exists(logo_path):
             raise ValueError(f"Logo path is mandatory and must exist: {logo_path}")
@@ -183,12 +184,13 @@ class VideoGenerator:
         self.use_mascot_character = use_mascot_character
         self.mascot_logo_path = mascot_logo_path
         self.use_mascot_in_images = use_mascot_in_images
+        self.influencer_marketing = influencer_marketing
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.project_folder = os.path.join(output_dir, f"project_{self.timestamp}")
         
         # Validate clip generation model
-        if self.clip_generation_model not in ["pixverse", "sora", "kling"]:
-            raise ValueError(f"clip_generation_model must be 'pixverse', 'sora', or 'kling', got: {clip_generation_model}")
+        if self.clip_generation_model not in ["pixverse", "sora", "kling", "veo"]:
+            raise ValueError(f"clip_generation_model must be 'pixverse', 'sora', 'kling', or 'veo', got: {clip_generation_model}")
         
         # Validate clip duration for sora model
         if self.clip_generation_model == "sora" and self.clip_duration not in [4, 8, 12]:
@@ -197,6 +199,13 @@ class VideoGenerator:
         # Validate clip duration for kling model
         if self.clip_generation_model == "kling" and self.clip_duration not in [5, 10]:
             raise ValueError(f"Kling model only supports clip durations of 5 or 10 seconds, got: {self.clip_duration}")
+        
+        # Validate clip duration for veo model (only 8 seconds supported)
+        if self.clip_generation_model == "veo" and self.clip_duration != 8:
+            raise ValueError(f"Veo3.1 model only supports clip duration of 8 seconds, got: {self.clip_duration}")
+        
+        # Note: For veo, voiceover is embedded in clips but Pixverse music will be added separately
+        # So we still need audio prompts for Pixverse background music
         
         # Calculate frame and clip counts based on the selected mode and clip generation model
         self.frame_count = self._calculate_frame_count()
@@ -273,19 +282,19 @@ class VideoGenerator:
         if self.clip_generation_model == "pixverse":
             # Pixverse: clips = frames - 1 (transitions between consecutive frames)
             base_clips = self.frame_count - 1
-        else:  # sora, kling
-            # Sora and Kling: clips = frames (each frame generates one clip)
+        else:  # sora, kling, veo
+            # Sora, Kling, and Veo: clips = frames (each frame generates one clip)
             base_clips = self.frame_count
         
-        # Add extra brand clip for Sora/Kling when brand aesthetics are enabled
-        if self.use_brand_aesthetics and self.clip_generation_model in ["sora", "kling"]:
+        # Add extra brand clip for Sora/Kling/Veo when brand aesthetics are enabled
+        if self.use_brand_aesthetics and self.clip_generation_model in ["sora", "kling", "veo"]:
             return base_clips + 1
         else:
             return base_clips
     
     def _needs_brand_clip(self):
         """Check if we need to generate a dedicated brand clip."""
-        return self.use_brand_aesthetics and self.clip_generation_model in ["sora", "kling"]
+        return self.use_brand_aesthetics and self.clip_generation_model in ["sora", "kling", "veo"]
     
     def _get_brand_clip_duration(self):
         """Get the minimum duration for brand clip based on model."""
@@ -293,6 +302,8 @@ class VideoGenerator:
             return 4  # Minimum for Sora
         elif self.clip_generation_model == "kling":
             return 5  # Minimum for Kling
+        elif self.clip_generation_model == "veo":
+            return 8  # Veo only supports 8 seconds
         else:
             return self.clip_duration  # Fallback
     
@@ -319,11 +330,57 @@ class VideoGenerator:
             frame_prompts.append(f'    "frame{i}_prime_logo_needed": true/false')
         return ',\n'.join(frame_prompts)
     
+    def _get_veo_clip_instructions(self, clip_number, total_clips):
+        """Get special instructions for Veo3.1-Fast clip prompts with voiceover only (no music)."""
+        if self.influencer_marketing:
+            # Influencer marketing mode: Character speaks naturally
+            return 'Generate detailed visual description with human character speaking naturally. Your generated prompt MUST end with these exact phrases: "no text overlays. No background music." MUST include: Character speaking: [8-9 word natural speech based on THEME and product analysis]. Example format: "[Visual description], no text overlays. No background music. Woman looking at camera and saying: This product changed my gaming experience completely."'
+        else:
+            # Regular voiceover mode
+            voiceover_instruction = ""
+            if self.voiceover:
+                voiceover_instruction = ' MUST include voiceover at the end with "Voiceover:" prefix. Format: "Voiceover: [Voice type] voice: [8-9 word voiceover text]". Example: "Voiceover: Confident female voice: Experience luxury that lasts all day long." or "Voiceover: Energetic male voice: Unleash power with zero lag gaming performance." Voice types: female/male, tone: confident/energetic/soothing/professional/warm/enthusiastic/calm/powerful. Choose voice that matches the product, target audience, and THEME.'
+            else:
+                voiceover_instruction = ' No voiceover or audio.'
+            
+            return f'Generate detailed visual description. Your generated prompt MUST include these exact phrases in this order: "no text overlays. No background music."{voiceover_instruction} Required structure: [Visual description], no text overlays. No background music. Voiceover: [Voice type] voice: [8-9 word voiceover text]'.strip()
+    
     def _generate_clip_prompts_json(self):
         """Generate JSON structure for clip prompts and logo decisions based on clip count."""
         clip_prompts = []
         # Calculate regular clip count (excluding brand clip)
         regular_clip_count = self.clip_count - (1 if self._needs_brand_clip() else 0)
+        
+        # Special handling for Veo3.1-Fast model (voiceover embedded, but need audio prompts for Pixverse)
+        if self.clip_generation_model == "veo":
+            for i in range(1, regular_clip_count + 1):
+                veo_instructions = self._get_veo_clip_instructions(i, regular_clip_count)
+                clip_prompts.append(f'    "clip{i}_prompt": "Generate detailed cinematic clip prompt for clip {i}. {veo_instructions}"')
+                clip_prompts.append(f'    "clip{i}_prime_prompt": "Generate alternative detailed cinematic clip prompt for clip {i} with different visual approach. {veo_instructions}"')
+                clip_prompts.append(f'    "clip{i}_logo_needed": true/false')
+                clip_prompts.append(f'    "clip{i}_prime_logo_needed": true/false')
+                
+                # Add audio prompts for Pixverse background music (same as other models)
+                if self.clip_audio_prompts:
+                    clip_prompts.append(f'    "audio{i}_prompt": "Create continuous background music and musical composition that enhances the visual narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements. NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC."')
+                    clip_prompts.append(f'    "audio{i}_prime_prompt": "Create continuous background music and musical composition that enhances the visual narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements. NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC."')
+            
+            # Add single audio prompt if not using individual audio prompts
+            if not self.clip_audio_prompts:
+                clip_prompts.append(f'    "single_audio_prompt": "Create a continuous background music composition for the entire {self.video_duration}-second video that enhances the overall narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements that build throughout the video. Create a cohesive musical theme that flows seamlessly from beginning to end. Include appropriate ending effects for cinematic finish (fade-out for subtle endings, crescendo for dramatic scenes). NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC. Duration: {self.video_duration} seconds."')
+                clip_prompts.append(f'    "single_audio_prime_prompt": "Create an alternative continuous background music composition for the entire {self.video_duration}-second video with a different musical style that enhances the overall narrative. Focus ONLY on music: instrumental arrangements, musical progression, tempo, mood, and atmospheric musical elements that build throughout the video. Create a cohesive musical theme that flows seamlessly from beginning to end. Include appropriate ending effects for cinematic finish (fade-out for subtle endings, crescendo for dramatic scenes). NO sound effects, footsteps, car sounds, or environmental noises - ONLY MUSIC. Duration: {self.video_duration} seconds."')
+            
+            # Add brand clip for veo if needed
+            if self._needs_brand_clip():
+                clip_prompts.append(f'    "brand_frame_prompt": "Create a powerful brand closure frame featuring the brand logo prominently in a relevant background."')
+                clip_prompts.append(f'    "brand_frame_prime_prompt": "Create an alternative brand closure frame with a COMPLETELY DIFFERENT visual approach, featuring the brand logo prominently."')
+                brand_veo_instructions = self._get_veo_clip_instructions(regular_clip_count + 1, regular_clip_count + 1)
+                clip_prompts.append(f'    "brand_clip_prompt": "Generate detailed cinematic brand reinforcement clip prompt. {brand_veo_instructions}"')
+                clip_prompts.append(f'    "brand_clip_prime_prompt": "Generate alternative detailed cinematic brand reinforcement clip prompt with different visual approach. {brand_veo_instructions}"')
+            
+            return ',\n'.join(clip_prompts)
+        
+        # Standard handling for other models (pixverse, sora, kling)
         for i in range(1, regular_clip_count + 1):
             # No brand closure instructions for regular clips - dedicated brand clip will handle this
             
@@ -824,6 +881,57 @@ REAL-WORLD PHYSICS REQUIREMENTS:
     
     def _get_character_instructions(self):
         """Generate character instructions based on no_characters, human_characters_only, and web3 flags."""
+        # Influencer marketing overrides all other character modes for veo
+        if self.influencer_marketing and self.clip_generation_model == "veo":
+            product_context = ""
+            if self.product_images:
+                product_context = """
+- PRODUCT SHOWCASE: The influencer must naturally showcase and interact with the product from reference images
+- PRODUCT EXTRACTION: Extract the product from reference images and show the influencer using/demonstrating it
+- NATURAL INTERACTION: Influencer should hold, use, or demonstrate the product while speaking
+- AUTHENTIC DEMONSTRATION: Show real product usage scenarios, not just talking about it"""
+            
+            return f"""🎥 CRITICAL: INFLUENCER MARKETING MODE (UGC-STYLE VIDEO):
+- This is a UGC (User Generated Content) style influencer video where a REAL HUMAN speaks naturally to camera
+- MANDATORY HUMAN CHARACTER: Every frame and clip MUST include a human influencer character
+- CHARACTER DETAILS REQUIRED: Specify influencer's ethnicity, age range (e.g., "25-30 year old"), gender, style, and appearance
+  * Example: "South Asian woman, 25-30 years old, casual modern style, confident demeanor"
+  * Example: "African American man, 30-35 years old, streetwear fashion, energetic personality"
+  * Example: "Hispanic woman, 20-25 years old, athletic wear, friendly approachable vibe"
+- NATURAL SPEAKING: The influencer character SPEAKS the text naturally (NOT voiceover)
+  * Format: "Woman looking at camera and saying (12 words max): [10-12 word natural speech]"
+  * Format: "Man holding product and saying (12 words max): [10-12 word natural speech]"
+  * 🚨 CRITICAL: Speech MUST be 10-12 words MAXIMUM to fit naturally in 8-second clip
+  * The character is PHYSICALLY SPEAKING on camera, like a real influencer video
+  * Speech must feel complete and natural, not cut off abruptly
+- CAMERA ENGAGEMENT: Influencer should look at camera, speak directly to viewers
+- AUTHENTIC STYLE: Natural, conversational, relatable - like real social media content
+- NO VOICEOVER: This is NOT voiceover - the character's lips move and they speak naturally{product_context}
+- CONSISTENT CHARACTER: Use the SAME influencer character across all frames and clips for continuity
+
+FRAME PROMPT REQUIREMENTS:
+- FRAME 1 (Initial Frame): Provide FULL detailed human character description
+  * Specify: ethnicity, age range, gender, style, clothing, personality traits
+  * Example: "25-year-old Asian woman in casual streetwear, friendly smile, modern urban background"
+- FRAME 2+ (Subsequent Frames): Use "reference character" or "reference woman/man" to maintain consistency
+  * The first frame image will be used as a reference image for subsequent frames
+  * Example: "Reference woman now holding product and smiling at camera, indoor setting"
+  * Example: "Reference man demonstrating product features, close-up shot, well-lit background"
+  * CRITICAL: Always use "reference character/woman/man" for frames 2+ to ensure the SAME person appears
+  * Specify gender (woman/man) based on the character established in frame 1
+
+CLIP PROMPT REQUIREMENTS:
+- Every clip prompt MUST show the influencer speaking naturally to camera
+- 🚨 CRITICAL WORD LIMIT: Influencer speech MUST be 10-12 words MAXIMUM (fits perfectly in 8-second clip)
+- Include what the influencer is saying with EXACT word count specified
+- Format: "Woman looking at camera and saying (12 words max): [actual 10-12 word speech]"
+- For clip 1: Use full character description + speech with word limit
+- For clip 2+: Use "reference character/woman/man" + speech with word limit
+- Example: "Reference woman looking at camera saying (12 words max): This lipstick changed my entire makeup routine and I'm obsessed with it"
+- ⚠️ NEVER exceed 12 words - influencer must finish speaking naturally before clip ends
+- Show natural gestures, expressions, and body language while speaking
+- Speech should feel complete and natural, not cut off abruptly"""
+        
         if self.no_characters:
             return f"""🎭 CHARACTER CONTINUITY (NO NEW CHARACTERS - MAINTAIN EXISTING):
 - CHARACTER CONTINUITY REQUIREMENT: If the initial image contains characters, you MUST maintain those same characters throughout all frames for visual continuity
@@ -1076,6 +1184,42 @@ REAL-WORLD PHYSICS REQUIREMENTS:
 - Focus on formats that drive high engagement and shareability
 - Examples: trending transitions, popular visual effects, viral storytelling patterns, trending camera movements
 - IMPORTANT: Adapt trends to fit the brand message - don't sacrifice brand integrity for trends
+"""
+
+    def _get_veo_audio_instructions(self):
+        """Generate Veo3.1-Fast embedded audio instructions."""
+        if self.clip_generation_model != "veo":
+            return ""
+        
+        return f"""
+🎵 CRITICAL: VEO3.1-FAST VOICEOVER-ONLY REQUIREMENTS:
+- Veo3.1 clips will have VOICEOVER ONLY (no background music - music will be added separately with Pixverse)
+- Each clip prompt MUST explicitly state "No background music" to ensure Veo generates clips without music
+- Each clip prompt MUST include visual description, "no text overlays" statement, "no background music" statement, then voiceover (if enabled)
+- VOICEOVER ({("ENABLED" if self.voiceover else "DISABLED")}): {"Include voiceover with voice characteristics" if self.voiceover else "DO NOT include any audio"}
+  {"* VOICE CHARACTERISTICS: Specify voice type and tone that matches product/audience/THEME" if self.voiceover else ""}
+  {"* Format: '[Voice type] voice: [8-9 word voiceover text]'" if self.voiceover else ""}
+  {"* Voice types: female/male | Tones: confident/energetic/soothing/professional/warm/enthusiastic/calm/powerful/elegant/friendly" if self.voiceover else ""}
+  {"* Choose voice autonomously based on: product category, target audience, brand personality, THEME tone" if self.voiceover else ""}
+  {"* Beauty products → Confident female voice or Elegant female voice" if self.voiceover else ""}
+  {"* Tech/Gaming → Energetic male voice or Powerful male voice" if self.voiceover else ""}
+  {"* Luxury → Professional female/male voice or Warm sophisticated voice" if self.voiceover else ""}
+  {"* Example: 'Confident female voice: Experience luxury that lasts all day long.'" if self.voiceover else ""}
+  {"* Example: 'Energetic male voice: Unleash power with zero lag performance.'" if self.voiceover else ""}
+  {"* Example: 'Soothing female voice: Discover comfort that feels like home.'" if self.voiceover else ""}
+  {"* Plain text only - NO expressions like [pause], [excited], [whisper]" if self.voiceover else ""}
+  {"* Based on THEME + product analysis (when product_images provided)" if self.voiceover else ""}
+- 🚨 CRITICAL PROMPT STRUCTURE ORDER (MUST FOLLOW EXACTLY):
+  1. [Visual description with camera work, lighting, scene details]
+  2. "No text overlays." (MUST come BEFORE audio instructions)
+  3. "No background music." (MUST explicitly state to prevent Veo from adding music)
+  {"4. [Voice type] voice: [8-9 word voiceover text]" if self.voiceover else "4. No audio or sound."}
+- FULL EXAMPLE: "Dramatic close-up of lipstick with elegant lighting, smooth rotation, cinematic depth of field, 8K resolution. No text overlays. No background music.{" Confident female voice: Experience luxury that lasts all day long." if self.voiceover else " No audio or sound."}"
+- ⚠️ CRITICAL: Every clip prompt MUST explicitly include "No background music" statement
+- ⚠️ CRITICAL: Every voiceover MUST start with voice characteristics (e.g., "Confident female voice:")
+- ⚠️ DO NOT include any music instructions (tempo, style, mood) - background music will be added separately with Pixverse
+- ⚠️ NEVER place "No text overlays" or "No background music" at the end - they MUST come before voiceover to avoid confusion
+- ⚠️ VOICE VARIETY: Use different voice types/tones across clips for variety and engagement (e.g., Clip 1: Confident female, Clip 2: Warm female)
 """
 
     def _get_audio_enhancement_instructions(self):
@@ -1434,12 +1578,12 @@ ENSURE THEME DOMINANCE:
                 else:
                     image_section = f'Generate a compelling initial image prompt for {self.project_name} brand. Create a cinematic, professional scene that establishes the brand context and visual narrative. Include specific details about lighting, composition, and visual elements that will create an impactful first frame.'
                 
-                prompt = f"""🚨 CRITICAL: You are creating content EXCLUSIVELY for {self.project_name}. DO NOT generate content for any other brand or product.
+                prompt = f"""🚨 CRITICAL: You are creating content for {self.project_name}.
 
-🏢 MANDATORY BRAND CONTEXT:
+🏢 BRAND CONTEXT:
 - BRAND NAME: {self.project_name}
 - THEME: {self.theme if self.theme else 'Brand showcase and promotion'}
-- YOU MUST FOCUS EXCLUSIVELY ON THIS BRAND AND THEME
+- FOCUS ON THIS BRAND AND THEME
 - ALL prompts must be directly related to {self.project_name} and the specified theme
 - THEME IS MANDATORY: If THEME is provided, ALL prompts MUST directly reflect and align with the THEME - use the THEME as the primary guide for generating ALL prompts
 
@@ -1487,6 +1631,8 @@ You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion vi
 
 {self._get_audio_enhancement_instructions()}
 
+{self._get_veo_audio_instructions()}
+
 Please provide EXACTLY the following in JSON format with ACTUAL detailed prompts (not instructions):
 
 {{
@@ -1518,6 +1664,20 @@ FINAL FRAME (Frame {self.frame_count}):
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
+- 🚫 CRITICAL: NO TEXT OVERLAYS IN CLIP PROMPTS: 
+  * Clip prompts must NEVER mention text overlays, text on screen, text displays, captions, labels, or any form of text elements in the scene description
+  * IMPORTANT: Each clip prompt MUST explicitly end with "no text overlays", "no text on screen", or "no text elements" to ensure the video generation model does not add any text
+  * Example: "...cinematic quality, 8K resolution, trending visual effects, viral aesthetic, no text overlays"
+  * This explicit instruction must be included in EVERY clip prompt you generate
+  * Describe only visual content, camera movements, and scene composition - then add the "no text overlays" instruction at the end
+- 🎵 CRITICAL: NO BACKGROUND MUSIC IN CLIP PROMPTS:
+  * EVERY clip prompt you generate MUST explicitly state "No background music" 
+  * This is MANDATORY - background music will be added separately with Pixverse sound effects
+  * EVERY clip prompt must include BOTH "No text overlays" AND "No background music" explicitly
+  * Required structure: "[Detailed visual description]. No text overlays. No background music. [Voiceover if enabled]"
+  * DO NOT include any music instructions (tempo, style, mood, beats, rhythm, instruments) in clip prompts
+  * The clip prompt should ONLY contain: Visual description + "No text overlays" + "No background music" + Voiceover (if enabled)
+  * Example: "Ultra slow motion shot of shirt fabric cascading, intricate pattern revealed, dramatic lighting, 8K resolution, cinematic quality. No text overlays. No background music. Confident male voice: Experience timeless style today."
 
 📝 CRITICAL: CLIP PROMPT DETAIL REQUIREMENTS:
 - Clip prompts MUST be EXTREMELY DETAILED and SPECIFIC - include comprehensive descriptions of:
@@ -1564,7 +1724,7 @@ FINAL FRAME (Frame {self.frame_count}):
 - PROFESSIONAL PRODUCTION: Every element must feel like it was created by a professional creative team at a top advertising agency
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
 - AUDIO STYLE AUTONOMY: You have FULL AUTONOMY to decide the audio ending style - use fade-out for subtle endings, crescendo/fade-in for dramatic scenes, or any other appropriate ending that matches the visual theme and brand message
-- Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
+- Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic", "no text overlays" in ALL prompts (especially clip prompts must end with "no text overlays")
 - Make it ABSOLUTELY MAGNIFICENT and share-worthy - something that will get millions of views
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
 - Draw inspiration from popular image memes and viral culture for maximum relatability and viral potential
@@ -1638,7 +1798,7 @@ Requirements:
 - Focus on storytelling and brand messaging - ensure the core message from the initial image prompt is clearly communicated through a compelling visual narrative
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
 - AUDIO STYLE AUTONOMY: You have FULL AUTONOMY to decide the audio ending style - use fade-out for subtle endings, crescendo/fade-in for dramatic scenes, or any other appropriate ending that matches the visual theme and brand message
-- Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
+- Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic", "no text overlays" in ALL prompts (especially clip prompts must end with "no text overlays")
 - Make it ABSOLUTELY MAGNIFICENT and share-worthy - something that will get millions of views
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
 - Draw inspiration from popular image memes and viral culture for maximum relatability and viral potential
@@ -1727,7 +1887,7 @@ Respond ONLY with the JSON object, no other text."""
                 print("🤖 Using Grok without live search...")
                 chat = client.chat.create(model="grok-4-latest")
             
-            chat.append(system(f"You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion videos for {self.project_name}. You respond ONLY with valid JSON objects, no extra text or formatting. Every prompt you generate must follow real-world physics and professional video production standards. FOCUS EXCLUSIVELY ON {self.project_name} - DO NOT generate content for any other brand."))
+            chat.append(system(f"You are a WORLD-CLASS CREATIVE DIRECTOR specializing in viral brand promotion videos for {self.project_name}. You respond ONLY with valid JSON objects, no extra text or formatting. Every prompt you generate must follow real-world physics and professional video production standards. Focus on creating compelling content for {self.project_name}."))
             
             # Build the prompt based on whether to include tweet text
             if include_tweet_text:
@@ -1747,12 +1907,12 @@ Respond ONLY with the JSON object, no other text."""
                 else:
                     image_section = f'Generate a compelling initial image prompt for {self.project_name} brand. Create a cinematic, professional scene that establishes the brand context and visual narrative. Include specific details about lighting, composition, and visual elements that will create an impactful first frame.'
                 
-                prompt = f"""🚨 CRITICAL: You are creating content EXCLUSIVELY for {self.project_name}. DO NOT generate content for any other brand or product.
+                prompt = f"""🚨 CRITICAL: You are creating content for {self.project_name}.
 
-🏢 MANDATORY BRAND CONTEXT:
+🏢 BRAND CONTEXT:
 - BRAND NAME: {self.project_name}
 - THEME: {self.theme if self.theme else 'Brand showcase and promotion'}
-- YOU MUST FOCUS EXCLUSIVELY ON THIS BRAND AND THEME
+- FOCUS ON THIS BRAND AND THEME
 - ALL prompts must be directly related to {self.project_name} and the specified theme
 - THEME IS MANDATORY: If THEME is provided, ALL prompts MUST directly reflect and align with the THEME - use the THEME as the primary guide for generating ALL prompts
 
@@ -1884,6 +2044,20 @@ FINAL FRAME (Frame {self.frame_count}):
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
+- 🚫 CRITICAL: NO TEXT OVERLAYS IN CLIP PROMPTS: 
+  * Clip prompts must NEVER mention text overlays, text on screen, text displays, captions, labels, or any form of text elements in the scene description
+  * IMPORTANT: Each clip prompt MUST explicitly end with "no text overlays", "no text on screen", or "no text elements" to ensure the video generation model does not add any text
+  * Example: "...cinematic quality, 8K resolution, trending visual effects, viral aesthetic, no text overlays"
+  * This explicit instruction must be included in EVERY clip prompt you generate
+  * Describe only visual content, camera movements, and scene composition - then add the "no text overlays" instruction at the end
+- 🎵 CRITICAL: NO BACKGROUND MUSIC IN CLIP PROMPTS:
+  * EVERY clip prompt you generate MUST explicitly state "No background music" 
+  * This is MANDATORY - background music will be added separately with Pixverse sound effects
+  * EVERY clip prompt must include BOTH "No text overlays" AND "No background music" explicitly
+  * Required structure: "[Detailed visual description]. No text overlays. No background music. [Voiceover if enabled]"
+  * DO NOT include any music instructions (tempo, style, mood, beats, rhythm, instruments) in clip prompts
+  * The clip prompt should ONLY contain: Visual description + "No text overlays" + "No background music" + Voiceover (if enabled)
+  * Example: "Ultra slow motion shot of shirt fabric cascading, intricate pattern revealed, dramatic lighting, 8K resolution, cinematic quality. No text overlays. No background music. Confident male voice: Experience timeless style today."
 
 📝 CRITICAL: CLIP PROMPT DETAIL REQUIREMENTS:
 - Clip prompts MUST be EXTREMELY DETAILED and SPECIFIC - include comprehensive descriptions of:
@@ -1930,7 +2104,7 @@ FINAL FRAME (Frame {self.frame_count}):
 - PROFESSIONAL PRODUCTION: Every element must feel like it was created by a professional creative team at a top advertising agency
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
 - AUDIO STYLE AUTONOMY: You have FULL AUTONOMY to decide the audio ending style - use fade-out for subtle endings, crescendo/fade-in for dramatic scenes, or any other appropriate ending that matches the visual theme and brand message
-- Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
+- Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic", "no text overlays" in ALL prompts (especially clip prompts must end with "no text overlays")
 - Make it ABSOLUTELY MAGNIFICENT and share-worthy - something that will get millions of views
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
 - Draw inspiration from popular image memes and viral culture for maximum relatability and viral potential
@@ -1964,12 +2138,12 @@ JSON only, no other text:"""
                         mapping_entries.append(f'        "frame_{i}": {{"product_image": "image_X", "reason": "Why this specific product image is chosen for frame {i} - the frame prompt MUST explicitly reference and describe the product from this reference image (e.g., start with describing the product type, features, angle, and design), then create a new scene with that product extracted and placed in it"}}')
                     frame_mapping_json_else = ',\n    "frame_image_mapping": {\n' + ',\n'.join(mapping_entries) + '\n    }'
                 
-                prompt = f"""🚨 CRITICAL: You are creating content EXCLUSIVELY for {self.project_name}. DO NOT generate content for any other brand or product.
+                prompt = f"""🚨 CRITICAL: You are creating content for {self.project_name}.
 
-🏢 MANDATORY BRAND CONTEXT:
+🏢 BRAND CONTEXT:
 - BRAND NAME: {self.project_name}
 - THEME: {self.theme if self.theme else 'Brand showcase and promotion'}
-- YOU MUST FOCUS EXCLUSIVELY ON THIS BRAND AND THEME
+- FOCUS ON THIS BRAND AND THEME
 - THEME IS MANDATORY: If THEME is provided, ALL prompts MUST directly reflect and align with the THEME
 
 {self._get_theme_instructions()}
@@ -2070,7 +2244,7 @@ Requirements:
 - Focus on storytelling and brand messaging - ensure the core message from the initial image prompt is clearly communicated through a compelling visual narrative
 - AUDIO ENDING EFFECTS: Audio prompts must include appropriate ending effects for cinematic finish - you have FULL AUTONOMY to decide the best ending style (fade-out, crescendo, or other) that matches the visual theme and brand message, avoid abrupt audio cuts
 - AUDIO STYLE AUTONOMY: You have FULL AUTONOMY to decide the audio ending style - use fade-out for subtle endings, crescendo/fade-in for dramatic scenes, or any other appropriate ending that matches the visual theme and brand message
-- Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic" in ALL prompts
+- Include "8K resolution", "cinematic quality", "trending visual effects", "viral aesthetic", "no text overlays" in ALL prompts (especially clip prompts must end with "no text overlays")
 - Make it ABSOLUTELY MAGNIFICENT and share-worthy - something that will get millions of views
 - Focus on VIRAL POTENTIAL: dramatic reveals, unexpected twists, meme-worthy moments, and shareable content
 - Draw inspiration from popular image memes and viral culture for maximum relatability and viral potential
@@ -2432,7 +2606,7 @@ JSON only, no other text:"""
                     "prompt": prompt,
                     "image_url": image_url,
                     "duration": str(duration),
-                    "negative_prompt": "blur, distort, low quality, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra text, double logos",
+                    "negative_prompt": "blur, distort, low quality, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra text, double logos, text overlays",
                     "cfg_scale": 0.5
                 },
                 with_logs=True,
@@ -2460,6 +2634,55 @@ JSON only, no other text:"""
             
         except Exception as e:
             print(f"❌ Failed to generate Kling clip {clip_number}: {str(e)}")
+            return None
+        
+            return None
+
+    def generate_clip_with_veo(self, prompt, image_url, clip_number=1, duration=8):
+        """Generate video clip using fal.ai veo3.1-fast image-to-video model with embedded audio."""
+        try:
+            print(f"Generating Clip {clip_number} with Veo3.1-Fast (duration {duration}s with embedded audio)...")
+            
+            def on_queue_update(update):
+                if isinstance(update, fal_client.InProgress):
+                    for log in update.logs:
+                        print(log["message"])
+            
+            result = fal_client.subscribe(
+                "fal-ai/veo3.1/fast/image-to-video",
+                arguments={
+                    "prompt": prompt,
+                    "image_url": image_url,
+                    "aspect_ratio": "16:9",
+                    "duration": "8s",
+                    "generate_audio": True,
+                    "resolution": "720p"
+                },
+                with_logs=True,
+                on_queue_update=on_queue_update,
+            )
+            
+            if result and 'video' in result:
+                video_url = result['video']['url']
+                local_path = os.path.join(self.project_folder, "clips", f"clip_{clip_number}.mp4")
+                
+                if self.download_file(video_url, local_path):
+                    # Upload to S3 and get presigned URL
+                    s3_url = self.upload_to_s3_and_get_presigned_url(local_path, "video", "clip")
+                    if s3_url:
+                        # Clean up local file
+                        self.cleanup_local_file(local_path)
+                        print(f"✅ Veo3.1 Clip {clip_number} generated successfully (with embedded audio)")
+                        return s3_url
+                    else:
+                        print(f"❌ Failed to upload Veo3.1 clip {clip_number} to S3")
+                else:
+                    print(f"❌ Failed to download Veo3.1 clip {clip_number}")
+            else:
+                print(f"❌ No video result from Veo3.1")
+            
+        except Exception as e:
+            print(f"❌ Failed to generate Veo3.1 clip {clip_number}: {str(e)}")
             return None
         
             return None
@@ -2567,6 +2790,160 @@ JSON only, no other text:"""
             print(f"❌ Error getting voiceover duration: {str(e)}")
             return None
     
+    def extract_audio_from_video(self, video_path):
+        """Extract audio from video file and return audio file path."""
+        try:
+            print(f"🎵 Extracting audio from video...")
+            
+            # Load video
+            video_clip = VideoFileClip(video_path)
+            
+            if video_clip.audio is None:
+                print(f"⚠️ No audio found in video")
+                video_clip.close()
+                return None
+            
+            # Extract audio
+            audio_path = video_path.replace('.mp4', '_audio.mp3')
+            video_clip.audio.write_audiofile(audio_path, codec='mp3')
+            
+            # Close video
+            video_clip.close()
+            
+            print(f"✅ Audio extracted: {audio_path}")
+            return audio_path
+            
+        except Exception as e:
+            print(f"❌ Error extracting audio: {str(e)}")
+            return None
+    
+    def remove_audio_from_video(self, video_path):
+        """Remove audio from video file and return video-only file path."""
+        try:
+            print(f"🎬 Removing audio from video...")
+            
+            # Load video
+            video_clip = VideoFileClip(video_path)
+            
+            # Remove audio
+            video_only = video_clip.without_audio()
+            
+            # Save video without audio
+            video_only_path = video_path.replace('.mp4', '_no_audio.mp4')
+            video_only.write_videofile(
+                video_only_path,
+                codec='libx264',
+                temp_audiofile='temp-audio.m4a',
+                remove_temp=True
+            )
+            
+            # Close clips
+            video_clip.close()
+            video_only.close()
+            
+            print(f"✅ Video without audio created: {video_only_path}")
+            return video_only_path
+            
+        except Exception as e:
+            print(f"❌ Error removing audio: {str(e)}")
+            return None
+    
+    def separate_voice_from_music_demucs(self, video_path):
+        """
+        Separate voice from background music in video using Demucs.
+        This is specifically for Veo clips that have unwanted background music.
+        
+        Args:
+            video_path (str): Path to video file with voice and music
+            
+        Returns:
+            str: Path to video file with voice only (music removed)
+        """
+        try:
+            import torch
+            import torchaudio
+            from demucs.pretrained import get_model
+            from demucs.apply import apply_model
+            import librosa
+            import soundfile as sf
+            import numpy as np
+            
+            print(f"🎵 Separating voice from background music using Demucs...")
+            
+            # Extract audio from video
+            video_clip = VideoFileClip(video_path)
+            audio_path = video_path.replace('.mp4', '_audio.wav')
+            video_clip.audio.write_audiofile(audio_path, codec='pcm_s16le')
+            
+            # Load Demucs model (htdemucs is best for vocals)
+            print("🤖 Loading Demucs model...")
+            model = get_model('htdemucs')
+            model.eval()
+            
+            # Load audio with torchaudio
+            print("📂 Loading audio file...")
+            waveform, sample_rate = torchaudio.load(audio_path)
+            
+            # Ensure stereo
+            if waveform.shape[0] == 1:
+                waveform = waveform.repeat(2, 1)
+            
+            # Apply model
+            print("🔬 Separating voice from music (this may take 10-30 seconds)...")
+            with torch.no_grad():
+                sources = apply_model(model, waveform.unsqueeze(0), device='cpu')[0]
+            
+            # Extract vocals (index 3 in htdemucs output)
+            # htdemucs outputs: drums, bass, other, vocals
+            vocals = sources[3].numpy()
+            
+            # Convert to mono if stereo
+            if vocals.shape[0] == 2:
+                vocals = np.mean(vocals, axis=0)
+            
+            # Save voice-only audio
+            voice_only_audio_path = video_path.replace('.mp4', '_voice_only.wav')
+            sf.write(voice_only_audio_path, vocals, sample_rate)
+            print(f"✅ Voice-only audio saved: {voice_only_audio_path}")
+            
+            # Replace video audio with voice-only audio
+            voice_audio_clip = AudioFileClip(voice_only_audio_path)
+            video_with_voice = video_clip.set_audio(voice_audio_clip)
+            
+            # Save final video with voice only
+            output_path = video_path.replace('.mp4', '_voice_only.mp4')
+            video_with_voice.write_videofile(
+                output_path,
+                codec='libx264',
+                audio_codec='aac',
+                temp_audiofile='temp-audio.m4a',
+                remove_temp=True,
+                logger=None
+            )
+            
+            # Close clips
+            video_clip.close()
+            voice_audio_clip.close()
+            video_with_voice.close()
+            
+            # Clean up intermediate files
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+            if os.path.exists(voice_only_audio_path):
+                os.remove(voice_only_audio_path)
+            
+            print(f"✅ Voice separation complete: {output_path}")
+            return output_path
+            
+        except ImportError as e:
+            print(f"⚠️ Demucs not installed: {e}")
+            print("⚠️ Skipping voice separation - using original video")
+            return video_path
+        except Exception as e:
+            print(f"⚠️ Voice separation failed: {type(e).__name__}: {e}")
+            print("⚠️ Using original video")
+            return video_path
+    
     def mix_audio_with_voiceover(self, video_url, sound_effects_url, voiceover_path, clip_number):
         """Mix video with sound effects and voiceover, with voiceover at higher volume."""
         try:
@@ -2593,8 +2970,8 @@ JSON only, no other text:"""
             voiceover_clip = AudioFileClip(voiceover_path)
             
             # Adjust volumes: voiceover louder than sound effects
-            sound_effects_clip = sound_effects_clip.volumex(0.5)  # 50% volume for background
-            voiceover_clip = voiceover_clip.volumex(0.8)  # 80% volume for voiceover
+            sound_effects_clip = sound_effects_clip.volumex(0.7)  # 70% volume for background music
+            voiceover_clip = voiceover_clip.volumex(1.2)  # 120% volume for voiceover (boosted)
             
             # Mix audio tracks together (play simultaneously)
             combined_audio = CompositeAudioClip([sound_effects_clip, voiceover_clip])
@@ -2769,14 +3146,21 @@ JSON only, no other text:"""
             clips = [VideoFileClip(path) for path in local_clip_paths]
             
             # Generate random numbers for each transition (N-1 random numbers for N clips)
+            # For influencer marketing, always use simple stitching (no crossfade)
             import random
             num_transitions = len(clips) - 1
-            transition_decisions = [random.random() for _ in range(num_transitions)]
             
-            print(f"🎲 Generated {num_transitions} random transition decisions:")
-            for i, decision in enumerate(transition_decisions, 1):
-                stitch_type = "SIMPLE" if decision > 0.5 else "CROSSFADE"
-                print(f"   Transition {i} (clip {i} → clip {i+1}): {decision:.3f} → {stitch_type}")
+            if self.influencer_marketing:
+                # Influencer marketing: Always simple stitching (value > 0.5)
+                transition_decisions = [1.0] * num_transitions
+                print(f"🎥 Influencer Marketing Mode: Using SIMPLE STITCHING for all {num_transitions} transitions (no crossfade)")
+            else:
+                # Regular mode: Random decisions
+                transition_decisions = [random.random() for _ in range(num_transitions)]
+                print(f"🎲 Generated {num_transitions} random transition decisions:")
+                for i, decision in enumerate(transition_decisions, 1):
+                    stitch_type = "SIMPLE" if decision > 0.5 else "CROSSFADE"
+                    print(f"   Transition {i} (clip {i} → clip {i+1}): {decision:.3f} → {stitch_type}")
             
             # Ensure transition duration doesn't exceed any clip length (only needed for crossfade transitions)
             min_duration = min(clip.duration for clip in clips)
@@ -3284,6 +3668,12 @@ JSON only, no other text:"""
                 
                 # Prepare reference images based on LLM decision (NO previous frame - only logos/mascots)
                 reference_images = []
+                
+                # For influencer marketing, use first frame as reference for character consistency (frames 2+)
+                if self.influencer_marketing and i > 1 and frame1_s3_url:
+                    reference_images.append(frame1_s3_url)
+                    print(f"🎥 Influencer Marketing: Including frame 1 for character consistency in frame {i}")
+                
                 if logo_needed:
                     reference_images.append(logo_s3_url)
                     print(f"🏆 Including logo for frame {i}")
@@ -3430,7 +3820,8 @@ JSON only, no other text:"""
             
             # Step 5: Generate voiceover first to determine clip durations
             voiceover_durations = []
-            if self.voiceover:
+            # Skip voiceover generation for veo (audio is embedded in clips)
+            if self.voiceover and self.clip_generation_model != "veo":
                 print("🎤 Generating voiceovers first to determine clip durations...")
                 # Calculate regular clip count (excluding brand clip)
                 regular_clip_count = self.clip_count - (1 if self._needs_brand_clip() else 0)
@@ -3535,34 +3926,41 @@ JSON only, no other text:"""
                             safe_clip_duration = self.clip_duration
                         voiceover_durations.append((None, safe_clip_duration))
             else:
-                print("🎵 Voiceover disabled, using configured clip durations")
-                # Model-aware duration validation
-                if self.clip_generation_model == "pixverse":
-                    # Pixverse supports 5 or 8 seconds
-                    if self.clip_duration <= 5:
-                        safe_clip_duration = 5
-                    else:
-                        safe_clip_duration = 8
-                elif self.clip_generation_model == "kling":
-                    # Kling supports 5 or 10 seconds
-                    if self.clip_duration <= 5:
-                        safe_clip_duration = 5
-                    else:
-                        safe_clip_duration = 10
-                elif self.clip_generation_model == "sora":
-                    # Sora supports 4, 8, or 12 seconds
-                    if self.clip_duration <= 4:
-                        safe_clip_duration = 4
-                    elif self.clip_duration <= 8:
-                        safe_clip_duration = 8
-                    else:
-                        safe_clip_duration = 12
+                # For veo or when voiceover is disabled, use configured clip durations
+                if self.clip_generation_model == "veo":
+                    print("🎵 Veo model: Audio embedded in clips, using 8-second duration")
+                    safe_clip_duration = 8
+                    print(f"🎵 Using {safe_clip_duration}s duration for all clips (Veo default)")
+                    voiceover_durations = [(None, safe_clip_duration)] * self.clip_count
                 else:
-                    # Default fallback
-                    safe_clip_duration = self.clip_duration
-                
-                print(f"🎵 Using {safe_clip_duration}s duration for all clips (configured: {self.clip_duration}s)")
-                voiceover_durations = [(None, safe_clip_duration)] * self.clip_count
+                    print("🎵 Voiceover disabled, using configured clip durations")
+                    # Model-aware duration validation
+                    if self.clip_generation_model == "pixverse":
+                        # Pixverse supports 5 or 8 seconds
+                        if self.clip_duration <= 5:
+                            safe_clip_duration = 5
+                        else:
+                            safe_clip_duration = 8
+                    elif self.clip_generation_model == "kling":
+                        # Kling supports 5 or 10 seconds
+                        if self.clip_duration <= 5:
+                            safe_clip_duration = 5
+                        else:
+                            safe_clip_duration = 10
+                    elif self.clip_generation_model == "sora":
+                        # Sora supports 4, 8, or 12 seconds
+                        if self.clip_duration <= 4:
+                            safe_clip_duration = 4
+                        elif self.clip_duration <= 8:
+                            safe_clip_duration = 8
+                        else:
+                            safe_clip_duration = 12
+                    else:
+                        # Default fallback
+                        safe_clip_duration = self.clip_duration
+                    
+                    print(f"🎵 Using {safe_clip_duration}s duration for all clips (configured: {self.clip_duration}s)")
+                    voiceover_durations = [(None, safe_clip_duration)] * self.clip_count
             
             # Step 6: Generate video clips with dynamic durations
             clip_urls = []
@@ -3619,8 +4017,10 @@ JSON only, no other text:"""
                             clip_s3_url = self.generate_clip(clip_prompt, first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
                         elif self.clip_generation_model == "sora":
                             clip_s3_url = self.generate_clip_with_sora2(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
-                        else:  # kling
+                        elif self.clip_generation_model == "kling":
                             clip_s3_url = self.generate_clip_with_kling(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
+                        else:  # veo
+                            clip_s3_url = self.generate_clip_with_veo(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
                     except TypeError as e:
                         print(f"❌ ERROR: TypeError accessing prompts dictionary for clip: {str(e)}")
                         print(f"❌ clip_prompt_key type: {type(clip_prompt_key)}, value: {clip_prompt_key}")
@@ -3634,40 +4034,40 @@ JSON only, no other text:"""
                         traceback.print_exc()
                         return None
                     
-                    if not clip_s3_url:
-                        print(f"❌ Failed to generate clip {i}!")
-                        return None
-                    
+                if not clip_s3_url:
+                    print(f"❌ Failed to generate clip {i}!")
+                    return None
+                
                     # Generate audio for this clip with dynamic duration (always use Pixverse for audio)
                     print(f"🎵 Generating Pixverse audio for clip {i}...")
-                    audio_prompt_key = f"audio{i}_prompt" if not use_prime else f"audio{i}_prime_prompt"
-                    audio_prompt = prompts.get(audio_prompt_key, "")
+                audio_prompt_key = f"audio{i}_prompt" if not use_prime else f"audio{i}_prime_prompt"
+                audio_prompt = prompts.get(audio_prompt_key, "")
+                
+                if audio_prompt:
+                    print(f"🎵 Using {'prime' if use_prime else 'regular'} audio for clip {i}")
+                    # Generate audio for this clip with dynamic duration
+                    clip_with_audio_s3_url = self.generate_final_video_with_audio(audio_prompt, clip_s3_url, duration=clip_duration)
+                    if not clip_with_audio_s3_url:
+                        print(f"❌ Failed to generate audio for clip {i}!")
+                        return None
                     
-                    if audio_prompt:
-                        print(f"🎵 Using {'prime' if use_prime else 'regular'} audio for clip {i}")
-                        # Generate audio for this clip with dynamic duration
-                        clip_with_audio_s3_url = self.generate_final_video_with_audio(audio_prompt, clip_s3_url, duration=clip_duration)
-                        if not clip_with_audio_s3_url:
-                            print(f"❌ Failed to generate audio for clip {i}!")
+                    # Mix with voiceover if available
+                    if self.voiceover and voiceover_path:
+                        print(f"🎤 Mixing voiceover for clip {i}...")
+                        # Mix video with sound effects and voiceover
+                        mixed_clip_s3_url = self.mix_audio_with_voiceover(clip_s3_url, clip_with_audio_s3_url, voiceover_path, i)
+                        if not mixed_clip_s3_url:
+                            print(f"❌ Failed to mix audio with voiceover for clip {i}!")
                             return None
                         
-                        # Mix with voiceover if available
-                        if self.voiceover and voiceover_path:
-                            print(f"🎤 Mixing voiceover for clip {i}...")
-                            # Mix video with sound effects and voiceover
-                            mixed_clip_s3_url = self.mix_audio_with_voiceover(clip_s3_url, clip_with_audio_s3_url, voiceover_path, i)
-                            if not mixed_clip_s3_url:
-                                print(f"❌ Failed to mix audio with voiceover for clip {i}!")
-                                return None
-                            
-                            clip_urls.append(mixed_clip_s3_url)
-                            print(f"✅ Clip {i} with Pixverse audio and voiceover uploaded to S3: {mixed_clip_s3_url}")
-                        else:
-                            print(f"🎵 No voiceover for clip {i}, using Pixverse audio only")
-                            clip_urls.append(clip_with_audio_s3_url)
+                        clip_urls.append(mixed_clip_s3_url)
+                        print(f"✅ Clip {i} with Pixverse audio and voiceover uploaded to S3: {mixed_clip_s3_url}")
                     else:
-                        print(f"⚠️ No audio prompt found for clip {i}, using video without audio")
-                        clip_urls.append(clip_s3_url)
+                        print(f"🎵 No voiceover for clip {i}, using Pixverse audio only")
+                        clip_urls.append(clip_with_audio_s3_url)
+                else:
+                    print(f"⚠️ No audio prompt found for clip {i}, using video without audio")
+                    clip_urls.append(clip_s3_url)
             
             else:
                 # Mode 2: Single audio for entire video (new behavior)
@@ -3724,8 +4124,10 @@ JSON only, no other text:"""
                             clip_s3_url = self.generate_clip(clip_prompt, first_frame_url, last_frame_url, clip_number=i, duration=clip_duration)
                         elif self.clip_generation_model == "sora":
                             clip_s3_url = self.generate_clip_with_sora2(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
-                        else:  # kling
+                        elif self.clip_generation_model == "kling":
                             clip_s3_url = self.generate_clip_with_kling(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
+                        else:  # veo
+                            clip_s3_url = self.generate_clip_with_veo(clip_prompt, first_frame_url, clip_number=i, duration=clip_duration)
                     except TypeError as e:
                         print(f"❌ ERROR: TypeError accessing prompts dictionary for clip: {str(e)}")
                         print(f"❌ clip_prompt_key type: {type(clip_prompt_key)}, value: {clip_prompt_key}")
@@ -3780,8 +4182,10 @@ JSON only, no other text:"""
                         print(f"🎬 Generating {'PRIME' if use_prime_brand else 'REGULAR'} brand clip {brand_clip_number} (duration: {brand_clip_duration}s, matching last regular clip stream)...")
                         if self.clip_generation_model == "sora":
                             brand_clip_s3_url = self.generate_clip_with_sora2(brand_clip_prompt, brand_frame_s3_url, clip_number=brand_clip_number, duration=brand_clip_duration)
-                        else:  # kling
+                        elif self.clip_generation_model == "kling":
                             brand_clip_s3_url = self.generate_clip_with_kling(brand_clip_prompt, brand_frame_s3_url, clip_number=brand_clip_number, duration=brand_clip_duration)
+                        else:  # veo
+                            brand_clip_s3_url = self.generate_clip_with_veo(brand_clip_prompt, brand_frame_s3_url, clip_number=brand_clip_number, duration=brand_clip_duration)
                         
                         if not brand_clip_s3_url:
                             print("❌ Failed to generate brand clip!")
@@ -3798,6 +4202,55 @@ JSON only, no other text:"""
                     else:
                         print("⚠️ No brand frame prompt found, skipping brand clip")
                 
+                # DEMUCS VOICE SEPARATION: Remove background music from Veo clips (skip for influencer marketing)
+                if self.clip_generation_model == "veo" and not self.influencer_marketing:
+                    print("\n" + "="*60)
+                    print("🎵 VEO MODEL DETECTED: Separating voice from background music")
+                    print("="*60)
+                    
+                    cleaned_clips = []
+                    for idx, clip_info in enumerate(video_only_clips):
+                        clip_url = clip_info['clip_url']
+                        clip_number = clip_info['clip_number']
+                        
+                        print(f"\n🎬 Processing clip {clip_number}/{len(video_only_clips)}...")
+                        
+                        # Download the clip
+                        clip_path = self.download_file(clip_url, f"veo_clip_{clip_number}.mp4")
+                        if not clip_path:
+                            print(f"❌ Failed to download clip {clip_number}")
+                            return None
+                        
+                        # Separate voice from music using Demucs
+                        cleaned_clip_path = self.separate_voice_from_music_demucs(clip_path)
+                        if not cleaned_clip_path:
+                            print(f"❌ Failed to clean clip {clip_number}")
+                            return None
+                        
+                        # Upload cleaned clip to S3
+                        cleaned_clip_s3_url = self.upload_to_s3_and_get_presigned_url(cleaned_clip_path, "video", "cleaned_clip")
+                        if not cleaned_clip_s3_url:
+                            print(f"❌ Failed to upload cleaned clip {clip_number}")
+                            return None
+                        
+                        # Clean up local files
+                        self.cleanup_local_file(clip_path)
+                        if cleaned_clip_path != clip_path:
+                            self.cleanup_local_file(cleaned_clip_path)
+                        
+                        # Update clip URL with cleaned version
+                        clip_info['clip_url'] = cleaned_clip_s3_url
+                        cleaned_clips.append(clip_info)
+                        
+                        print(f"✅ Clip {clip_number} cleaned and uploaded")
+                    
+                    # Replace video_only_clips with cleaned clips
+                    video_only_clips = cleaned_clips
+                    
+                    print("\n" + "="*60)
+                    print("✅ ALL CLIPS CLEANED: Background music removed from all Veo clips")
+                    print("="*60 + "\n")
+                
                 # Combine video clips first (without audio)
                 print("🔗 Combining video clips (without audio)...")
                 video_only_clip_urls = [clip['clip_url'] for clip in video_only_clips]
@@ -3806,76 +4259,135 @@ JSON only, no other text:"""
                     print("❌ Failed to combine video clips!")
                     return None
                 
-                # Generate single audio for the entire video
-                print("🎵 Generating single audio for entire video...")
-                # Randomly choose between regular and prime audio prompt
-                import random
-                use_prime_audio = random.random() >= 0.5
-                audio_prompt_key = "single_audio_prime_prompt" if use_prime_audio else "single_audio_prompt"
-                audio_prompt = prompts.get(audio_prompt_key, "")
+                # Special handling for Veo model with voiceover/influencer - extract audio first
+                if self.clip_generation_model == "veo" and (self.voiceover or self.influencer_marketing):
+                    if self.influencer_marketing:
+                        print("🎥 Influencer marketing mode - video has natural speaking, skipping music generation")
+                        # For influencer marketing, just use the combined video as-is (has natural speaking)
+                        clip_urls = [combined_video_s3_url]
+                    else:
+                        print("🎵 Veo model detected with voiceover - extracting voiceover and adding Pixverse music...")
+                        
+                        # Download the combined video (has voiceover only from veo)
+                        combined_video_path = self.download_file(combined_video_s3_url, "combined_with_voiceover.mp4")
+                        if not combined_video_path:
+                            print("❌ Failed to download combined video!")
+                            return None
+                        
+                        # Extract voiceover audio from combined video
+                        voiceover_audio_path = self.extract_audio_from_video(combined_video_path)
+                        if not voiceover_audio_path:
+                            print("❌ Failed to extract voiceover audio!")
+                            return None
+                        
+                        # Remove audio from video (create video-only file)
+                        video_only_path = self.remove_audio_from_video(combined_video_path)
+                        if not video_only_path:
+                            print("❌ Failed to create video-only file!")
+                            return None
+                        
+                        # Upload video-only to S3
+                        video_only_s3_url = self.upload_to_s3_and_get_presigned_url(video_only_path, "video", "video_only")
+                        if not video_only_s3_url:
+                            print("❌ Failed to upload video-only to S3!")
+                            return None
+                        
+                        # Now use this video-only URL for adding Pixverse music
+                        combined_video_s3_url = video_only_s3_url
+                        
+                        # Clean up intermediate files
+                        self.cleanup_local_file(combined_video_path)
+                        self.cleanup_local_file(video_only_path)
                 
-                if audio_prompt:
-                    print(f"🎵 Using {'prime' if use_prime_audio else 'regular'} Pixverse single audio for entire video")
-                    # Apply single audio to the entire combined video
-                    combined_video_with_audio_s3_url = self.generate_final_video_with_audio(audio_prompt, combined_video_s3_url, duration=self.video_duration)
-                    if not combined_video_with_audio_s3_url:
-                        print("❌ Failed to generate audio for combined video!")
-                        return None
+                # Generate single audio for the entire video (skip for influencer marketing)
+                if not self.influencer_marketing:
+                    print("🎵 Generating single audio for entire video...")
+                    # Randomly choose between regular and prime audio prompt
+                    import random
+                    use_prime_audio = random.random() >= 0.5
+                    audio_prompt_key = "single_audio_prime_prompt" if use_prime_audio else "single_audio_prompt"
+                    audio_prompt = prompts.get(audio_prompt_key, "")
                     
-                    # Handle voiceover mixing if enabled
-                    if self.voiceover:
-                        print("🎤 Mixing voiceover with combined video...")
-                        # For single audio mode, we need to combine all voiceovers first
-                        all_voiceover_paths = [clip['voiceover_path'] for clip in video_only_clips if clip['voiceover_path']]
-                        if all_voiceover_paths:
-                            # Combine all voiceovers into one file
-                            combined_voiceover_path = self.combine_voiceovers(all_voiceover_paths)
-                            if combined_voiceover_path:
-                                # Mix the combined video with audio and combined voiceover
-                                mixed_final_s3_url = self.mix_audio_with_voiceover(combined_video_s3_url, combined_video_with_audio_s3_url, combined_voiceover_path, "final")
-                                if mixed_final_s3_url:
-                                    clip_urls = [mixed_final_s3_url]
-                                    print("✅ Combined video with audio and voiceover created")
+                    if audio_prompt:
+                        print(f"🎵 Using {'prime' if use_prime_audio else 'regular'} Pixverse single audio for entire video")
+                        # Apply single audio to the entire combined video
+                        combined_video_with_audio_s3_url = self.generate_final_video_with_audio(audio_prompt, combined_video_s3_url, duration=self.video_duration)
+                        if not combined_video_with_audio_s3_url:
+                            print("❌ Failed to generate audio for combined video!")
+                            return None
+                        
+                        # Handle voiceover mixing if enabled
+                        if self.voiceover:
+                            print("🎤 Mixing voiceover with combined video...")
+                            # For veo model, use the extracted voiceover audio
+                            if self.clip_generation_model == "veo":
+                                # Use the extracted voiceover from veo clips
+                                if voiceover_audio_path and os.path.exists(voiceover_audio_path):
+                                    # Mix the combined video with Pixverse music and veo voiceover
+                                    mixed_final_s3_url = self.mix_audio_with_voiceover(combined_video_s3_url, combined_video_with_audio_s3_url, voiceover_audio_path, "final")
+                                    if mixed_final_s3_url:
+                                        clip_urls = [mixed_final_s3_url]
+                                        print("✅ Combined video with Pixverse music and Veo voiceover created")
+                                        # Clean up voiceover file
+                                        self.cleanup_local_file(voiceover_audio_path)
+                                    else:
+                                        print("⚠️ Failed to mix voiceover, using video with audio only")
+                                        clip_urls = [combined_video_with_audio_s3_url]
                                 else:
-                                    print("⚠️ Failed to mix voiceover, using video with audio only")
+                                    print("⚠️ No voiceover audio found, using video with audio only")
                                     clip_urls = [combined_video_with_audio_s3_url]
                             else:
-                                print("⚠️ Failed to combine voiceovers, using video with audio only")
-                                clip_urls = [combined_video_with_audio_s3_url]
+                                # For other models, combine all voiceovers first
+                                all_voiceover_paths = [clip['voiceover_path'] for clip in video_only_clips if clip['voiceover_path']]
+                                if all_voiceover_paths:
+                                    # Combine all voiceovers into one file
+                                    combined_voiceover_path = self.combine_voiceovers(all_voiceover_paths)
+                                    if combined_voiceover_path:
+                                        # Mix the combined video with audio and combined voiceover
+                                        mixed_final_s3_url = self.mix_audio_with_voiceover(combined_video_s3_url, combined_video_with_audio_s3_url, combined_voiceover_path, "final")
+                                        if mixed_final_s3_url:
+                                            clip_urls = [mixed_final_s3_url]
+                                            print("✅ Combined video with audio and voiceover created")
+                                        else:
+                                            print("⚠️ Failed to mix voiceover, using video with audio only")
+                                            clip_urls = [combined_video_with_audio_s3_url]
+                                    else:
+                                        print("⚠️ Failed to combine voiceovers, using video with audio only")
+                                        clip_urls = [combined_video_with_audio_s3_url]
+                                else:
+                                    print("🎵 No voiceovers to mix, using video with audio only")
+                                    clip_urls = [combined_video_with_audio_s3_url]
                         else:
-                            print("🎵 No voiceovers to mix, using video with audio only")
                             clip_urls = [combined_video_with_audio_s3_url]
                     else:
-                        clip_urls = [combined_video_with_audio_s3_url]
-                else:
-                    print("⚠️ No single audio prompt found, using combined video without audio")
-                    combined_video_with_audio_s3_url = combined_video_s3_url
-                    
-                    # Handle voiceover mixing if enabled
-                    if self.voiceover:
-                        print("🎤 Mixing voiceover with combined video...")
-                        # For single audio mode, we need to combine all voiceovers first
-                        all_voiceover_paths = [clip['voiceover_path'] for clip in video_only_clips if clip['voiceover_path']]
-                        if all_voiceover_paths:
-                            # Combine all voiceovers into one file
-                            combined_voiceover_path = self.combine_voiceovers(all_voiceover_paths)
-                            if combined_voiceover_path:
-                                # Mix the combined video with audio and combined voiceover
-                                mixed_final_s3_url = self.mix_audio_with_voiceover(combined_video_s3_url, combined_video_with_audio_s3_url, combined_voiceover_path, "final")
-                                if mixed_final_s3_url:
-                                    clip_urls = [mixed_final_s3_url]
-                                    print("✅ Combined video with audio and voiceover created")
+                        print("⚠️ No single audio prompt found, using combined video without audio")
+                        combined_video_with_audio_s3_url = combined_video_s3_url
+                        
+                        # Handle voiceover mixing if enabled
+                        if self.voiceover:
+                            print("🎤 Mixing voiceover with combined video...")
+                            # For single audio mode, we need to combine all voiceovers first
+                            all_voiceover_paths = [clip['voiceover_path'] for clip in video_only_clips if clip['voiceover_path']]
+                            if all_voiceover_paths:
+                                # Combine all voiceovers into one file
+                                combined_voiceover_path = self.combine_voiceovers(all_voiceover_paths)
+                                if combined_voiceover_path:
+                                    # Mix the combined video with audio and combined voiceover
+                                    mixed_final_s3_url = self.mix_audio_with_voiceover(combined_video_s3_url, combined_video_with_audio_s3_url, combined_voiceover_path, "final")
+                                    if mixed_final_s3_url:
+                                        clip_urls = [mixed_final_s3_url]
+                                        print("✅ Combined video with audio and voiceover created")
+                                    else:
+                                        print("⚠️ Failed to mix voiceover, using video with audio only")
+                                        clip_urls = [combined_video_with_audio_s3_url]
                                 else:
-                                    print("⚠️ Failed to mix voiceover, using video with audio only")
+                                    print("⚠️ Failed to combine voiceovers, using video with audio only")
                                     clip_urls = [combined_video_with_audio_s3_url]
                             else:
-                                print("⚠️ Failed to combine voiceovers, using video with audio only")
+                                print("🎵 No voiceovers to mix, using video with audio only")
                                 clip_urls = [combined_video_with_audio_s3_url]
                         else:
-                            print("🎵 No voiceovers to mix, using video with audio only")
                             clip_urls = [combined_video_with_audio_s3_url]
-                    else:
-                        clip_urls = [combined_video_with_audio_s3_url]
             
             # Step 7: Handle final video combination based on audio mode
             if self.clip_audio_prompts:
@@ -4006,7 +4518,7 @@ def main():
     # ========================================
     # CONFIGURATION - MODIFY THESE VALUES
     # ========================================
-    PROJECT_NAME = "boat"  # Change this for different projects
+    PROJECT_NAME = "openledger"  # Change this for different projects
     LLM_PROVIDER = "grok"        # Change to "grok" to use Grok instead
     # LLM_PROVIDER = "grok"        # Uncomment this line to use Grok
     
@@ -4021,8 +4533,8 @@ def main():
     VIDEO_DURATION = None  # Set to 10, 15, 20, or 25 for video_duration mode
     
     # Mode 2: Use clip_duration + number_of_clips (preferred mode)
-    CLIP_DURATION = 5  # Duration of each clip in seconds
-    NUMBER_OF_CLIPS = 5  # Number of clips to generate
+    CLIP_DURATION = 8  # Duration of each clip in seconds
+    NUMBER_OF_CLIPS = 2  # Number of clips to generate
     
     # Note: If both are provided, clip_duration + number_of_clips takes preference
     # If only VIDEO_DURATION is set, clips are calculated by dividing by 5
@@ -4060,16 +4572,28 @@ def main():
     HUMAN_CHARACTERS_ONLY = True  # Set to True for product marketing videos - show real people using the product
     WEB3 = False  # Set to True for Web3/crypto meme characters, False for unlimited creative characters
     NO_CHARACTERS = False  # Set to True for pure product showcase with NO characters of any kind (overrides all other character flags)
-    USE_BRAND_AESTHETICS = False   # Set to True to incorporate brand-specific aesthetic guidelines
+    USE_BRAND_AESTHETICS = True   # Set to True to incorporate brand-specific aesthetic guidelines
     
     # Audio control
     CLIP_AUDIO_PROMPTS = False  # Set to False for product videos - single cohesive audio track works better
     
     # Voiceover control
-    VOICEOVER = False  # Set to True for product videos - adds narration about features and benefits
+    VOICEOVER = True  # Set to True for product videos - adds narration about features and benefits
+    
+    # Influencer marketing mode (UGC-style videos)
+    INFLUENCER_MARKETING = False  # Set to True for UGC-style influencer videos where human character speaks naturally (veo model only, overrides voiceover, skips background music)
     
     # Clip generation model
-    CLIP_GENERATION_MODEL = "kling"  # Set to "pixverse" for transition model, "sora" for Sora2 image-to-video model, or "kling" for Kling 2.5 Turbo image-to-video model
+    # Options:
+    # - "pixverse": Transition-based model (supports 5-8s clips)
+    # - "sora": Sora2 image-to-video model (supports 4, 8, 12s clips)
+    # - "kling": Kling 2.5 Turbo image-to-video model (supports 5, 10s clips)
+    # - "veo": Google Veo3.1-Fast with embedded audio (ONLY 8s clips, forces CLIP_AUDIO_PROMPTS=False)
+    #   * Veo3.1-Fast generates clips with music and voiceover embedded directly in the video
+    #   * Music will be coherent across clips based on Grok's instructions
+    #   * Voiceover content derived from THEME + product analysis (if PRODUCT_IMAGES provided)
+    #   * Each clip voiceover limited to 8-9 words maximum
+    CLIP_GENERATION_MODEL = "veo"
     
     # Viral trends integration
     VIRAL_TRENDS = False  # Set to True to align content with current viral trends (uses Grok live search when Grok is selected)
@@ -4092,86 +4616,95 @@ def main():
     # THEME = "Audi as the symbol of achieved success and refined taste for entrepreneurs who have made it"
     # THEME = "Epic Blue Jays Championship Quest - Massive, heroic Toronto Blue Jays bird mascot with larger-than-life presence, wearing a t-shirt with reference logo prominently displayed on it, soaring majestically over Toronto skyline with CN Tower and stadium named Rogers Centre dwarfed below, dramatically landing on skyscrapers with cinematic grandeur, reference logo also prominently displayed on the CN Tower building and floating banners, stadium crowd roaring with thunderous cheers, text overlay 'Let's go Jays! We're with you!' in bold letters, supporting their 32-year championship quest with monumental, awe-inspiring scale and unstoppable team spirit - create a viral masterpiece that captures the electric energy of Toronto's baseball passion. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
     THEME = """
-    "Unleash Your Sound, Illuminate Your Style" - boAt Rockerz 480: A cinematic journey showcasing premium audio performance, striking RGB LED design, and cutting-edge gaming technology that transforms every listening experience into an immersive adventure.
+    "OpenLedger - The AI Blockchain Revolution" - Product Marketing Campaign: A dynamic 16-second Instagram/TikTok Reel showcasing OpenLedger's groundbreaking platform that unlocks liquidity to monetize data, models, and agents. This is the next-generation blockchain network purpose-built for AI, where contributors receive provenance, attribution, and rewards for their work. The platform enables creation, training, and deployment of specialized AI models and agents with verifiable ownership, earnings, and governance embedded into the ecosystem. Every clip features dynamic visuals combining real professionals using the platform, futuristic UI/UX, blockchain networks, and AI visualization to emphasize innovation, accessibility, and transformative power for AI developers and data scientists.
 
-    OPENING (0-5 seconds):
-    A dramatic, close-up cinematic reveal of the boAt Rockerz 480 headphones against a dark, atmospheric background. The sleek black over-ear headphones feature a vibrant, glowing RGB LED ring encircling the ear cup, transitioning through mesmerizing colors - from deep magenta-pink to electric purple, creating a striking visual impact. The reference logo is prominently displayed on the ear cup with clear space around it. A smooth, elegant camera movement rotates around the headphones, showcasing the premium matte black finish, metallic silver accents on the headband, and the adaptive fit design. The scene radiates modern sophistication, gaming energy, and premium audio excellence.
+    CLIP 1 (0-8 seconds) - THE PLATFORM IN ACTION:
+    Modern professional workspace scene opening with a young AI developer (25-35 years old, tech-savvy, focused expression) sitting at a sleek workstation with multiple monitors displaying the OpenLedger platform interface. Camera captures over-the-shoulder view showing the actual platform UI - Model Datanet section with dataset cards, Model Factory with training configurations, Open Models gallery with AI model thumbnails. The developer's hands interact with the interface - scrolling through datasets, clicking "Create Datanet" button, selecting training parameters. Screen displays show real platform elements: question-answer tags, model cards with stats, training progress bars. Transition to close-up of the developer's face showing concentration and satisfaction as they upload their AI model. Split-screen effect shows blockchain network visualization overlaying the workspace - interconnected nodes forming neural network patterns with data streams in neon blue and orange, representing the decentralized infrastructure. Reference logo prominently displayed on the platform interface and laptop stickers. The scene emphasizes real platform usage, intuitive UI/UX, and the power of blockchain-backed AI development. Setting: Modern tech workspace with natural lighting, clean aesthetic, multiple monitors, coffee cup, coding environment. Dynamic camera movements capturing authentic platform interaction. Voiceover focuses on unlocking liquidity and monetizing AI contributions.
 
-    MAIN JOURNEY (5-20 seconds):
-    Showcase the product's revolutionary features through dynamic, lifestyle-focused sequences:
+    CLIP 2 (8-16 seconds) - COLLABORATION & SUCCESS:
+    Dynamic scene showing a diverse team of AI professionals collaborating in a modern tech office. Wide shot reveals multiple developers (different ethnicities, genders, ages 25-40) working at their workstations, each with OpenLedger platform open on their screens showing different sections - one on Model Datanet browsing datasets, another on Model Factory training a model, another on Open Models deploying their AI. Camera moves between workstations capturing authentic moments of collaboration - developers discussing model architecture, pointing at screens showing training metrics, celebrating successful model deployment. Transition to montage of deployed AI models in action: customer support bot interface responding to queries, instruction model generating code, cyber intelligence dashboard analyzing data. Screen overlays show token rewards being distributed, provenance records being created, attribution badges appearing on model cards. Cut to close-up of a data scientist (confident, satisfied expression) reviewing their earnings dashboard showing accumulated rewards from their AI contributions. Final powerful moment: The team gathers around a large screen displaying the OpenLedger ecosystem visualization - a network of interconnected nodes representing the global community of contributors. Camera zooms into the OpenLedger logo on the screen, then pulls back to show the entire team looking at camera with confident, excited expressions - they are building the future of decentralized AI. Setting: Modern tech office with glass walls, standing desks, whiteboards with AI diagrams, natural lighting, collaborative atmosphere. Dynamic camera movements capturing authentic teamwork and platform success. Voiceover focuses on verifiable ownership, community rewards, and empowering AI builders worldwide.
 
-    RGB LED SHOWCASE (5-7 seconds):
-    Extreme close-up of the RGB LED ring as it cycles through 6 different lighting modes - vibrant pink, electric purple, cool blue, fiery red, neon green, and dynamic color transitions. The LED ring pulses and glows with cinematic intensity, creating a mesmerizing visual effect. The camera slowly pulls back to reveal the full headphone design, with the RGB lighting casting dynamic shadows and reflections. The reference logo remains visible with proper clearance. Text overlay: "Blazing RGB LEDs with 6 Modes" - emphasizing the customizable lighting that personalizes the audio experience.
+    VISUAL STYLE (Professional Tech Product Marketing):
+    - 🚀 Dynamic, professional cinematography with modern tech aesthetic
+    - Authentic visual language combining real platform UI, professional workspaces, and blockchain visualization overlays
+    - Platform UI showcased through actual screens and monitors with real interface elements
+    - Varied settings: Individual workspace (Clip 1), Collaborative tech office (Clip 2)
+    - Dynamic camera movements - over-shoulder shots, tracking between workstations, screen close-ups, team reveals
+    - Cinematic depth of field - professionals and screens in sharp focus, office backgrounds with natural depth
+    - Professional lighting with tech-forward accents (blue, orange glow from screens), natural office lighting
+    - 9:16 vertical format - optimized for Instagram Reels and TikTok
+    - Brand-focused storytelling: logo on platform interface, laptop stickers, consistent visual identity
+    - Human-centric shots showing real usage, collaboration, satisfaction, and success moments
+    - Modern color grading - natural office tones, vibrant screen displays, tech blue/orange accents
+    - Dynamic pacing emphasizes: platform usability, team collaboration, model deployment, reward distribution
 
-    GAMING & BEAST MODE (7-10 seconds):
-    Transition to an intense gaming scene - a focused gamer wearing the headphones in a dimly lit gaming setup. The RGB LEDs glow with vibrant colors, matching the gaming environment's ambient lighting. The camera captures the gamer's intense focus, with the headphones' sleek design and glowing LEDs prominently featured. Text overlay: "BEAST Mode - 40ms Low Latency" - emphasizing the ultra-responsive gaming experience with zero lag. The scene showcases the headphones' ability to deliver crystal-clear game audio and communication without delay.
+    CORE MESSAGE (Product Marketing - 16 Seconds):
+    - Platform Philosophy: Decentralized AI infrastructure that empowers contributors and unlocks value
+    - Revolutionary Technology: Blockchain-powered provenance, attribution, and rewards for AI work
+    - Ecosystem Platform: Not just tools, but a complete ecosystem for AI model creation, training, and deployment
+    - Professional Community: Real AI developers, data scientists, and teams building the future together
+    - Monetization Power: Transform data, models, and agents into verifiable assets with real rewards
+    - Authentic Visuals: Emphasizes real platform usage, professional collaboration, and tangible success
 
-    SOUND QUALITY & 40MM DRIVERS (10-13 seconds):
-    Cinematic transition to a technical breakdown view showcasing the internal 40mm audio drivers. The camera reveals the sophisticated sound engineering through a layered component view - the powerful drivers, precision-tuned components, and boAt Signature Sound technology. Visual emphasis on the driver's size and quality, with sound waves radiating outward in a stylized, dynamic visualization. The scene transitions to a person experiencing immersive music, with the headphones delivering rich, bass-heavy audio. Text overlay: "40mm Drivers - boAt Signature Sound" - emphasizing the premium audio quality that brings music to life.
+    PLATFORM VALUES (Prioritized for 16s with 2 Clips):
+    1. Decentralization - Blockchain infrastructure for verifiable ownership and governance (Clip 1)
+    2. Monetization - Unlock liquidity for data, models, and agents with token rewards (Both clips)
+    3. Innovation - Next-gen AI blockchain combining cutting-edge technology with accessibility (Clip 1)
+    4. Professional Empowerment - Real developers and teams building, training, and deploying AI (Clip 2)
+    5. Provenance & Attribution - Verifiable ownership and earnings embedded in the system (Clip 2)
+    6. OpenLedger - The AI Blockchain revolutionizing how AI is built and monetized (Both clips, emphasized in Clip 2 finale)
 
-    APP SUPPORT & STREAMING (13-16 seconds):
-    Close-up of a smartphone displaying the boAt Hearables App interface. A finger smoothly navigates the app, showcasing ad-free music streaming, audiobook access, and intuitive controls. The app interface is sleek and modern, with the reference logo visible. The scene transitions to show seamless Bluetooth connectivity, with the headphones pairing effortlessly. Text overlay: "Stream Ad-Free Music via App Support" - emphasizing the comprehensive audio ecosystem and wireless freedom.
+    VOICEOVER GUIDANCE (16-Second Product Reel):
+    - Voiceover narration: Professional voice (male or female) with energetic, confident, tech-forward tone
+    - Clip 1 voiceover: Focus on monetizing AI, blockchain infrastructure, unlocking liquidity (8-9 words)
+    - Clip 2 voiceover: Focus on team collaboration, verifiable ownership, empowering builders (8-9 words)
+    - Voiceover should reinforce platform capabilities, professional empowerment, and revolutionary technology
+    - Energetic, memorable voiceover that builds excitement and inspires AI builders
 
-    BATTERY LIFE & COMFORT (16-20 seconds):
-    Elegant montage showcasing the 60-hour battery life and adaptive fit. A time-lapse style sequence shows the headphones being used throughout an entire day - morning commute, work session, evening gaming, and late-night music listening - all without needing to charge. The adaptive fit is demonstrated through smooth, comfortable wear, with the headphones providing a snug, comfortable fit for extended use. Text overlay: "60 Hours of Playback - Charge Less, Enjoy More" - emphasizing the massive battery life that keeps the music playing uninterrupted.
+    PLATFORM ELEMENTS TO HIGHLIGHT (Across 2 Clips):
+    - OpenLedger reference logo (prominent on platform screens, laptop stickers in both clips, establishing brand recognition)
+    - Platform UI showcasing Model Datanet, Model Factory, Open Models, Open Chat sections
+    - Blockchain visualization overlays: interconnected nodes, neural networks, data streams (Clip 1)
+    - Token rewards and monetization mechanics - progress bars, checkmarks, earnings dashboard (Both clips)
+    - Professional collaboration with diverse AI developers and data scientists (Clip 2)
+    - Decentralized ecosystem visualization on large screen (Clip 2)
+    - Provenance, attribution, and governance embedded in the system (Clip 2)
+    - Authentic visuals emphasize innovation, accessibility, and professional empowerment
 
-    CLOSING (20-25 seconds):
-    A final, cinematic wide shot of a modern lifestyle scene - a person wearing the boAt Rockerz 480 headphones, fully immersed in their audio experience. The RGB LEDs glow with dynamic colors, creating a striking visual presence. The scene transitions to an extreme close-up of the ear cup with the reference logo prominently displayed, the RGB LED ring pulsing with energy. The final frame showcases the headphones' premium design, cutting-edge technology, and the promise of an unparalleled audio experience. The scene radiates confidence, innovation, and the perfect fusion of style and performance.
+    PRODUCT SHOWCASE (Use product images intelligently across 2 clips):
+    - Clip 1: Feature platform UI on developer's monitors - datasets grid, model cards, training configuration panels
+    - Clip 2: Show Model Factory interface, deployed AI models (customer support, instruction, cyber intelligence), team collaboration
+    - Use product images to show different platform sections and real-world usage
+    - Consistent brand identity and logo across all screens and workspace elements
+    - UI/UX details and professional workflows that define the platform
+    - Versatility that makes OpenLedger essential for AI contributors and builders
 
-    VISUAL STYLE:
-    - Photorealistic, live-action cinematography with professional film quality
-    - Modern, gaming-oriented aesthetic with emphasis on dynamic lighting and RGB effects
-    - Smooth, cinematic camera movements - dramatic reveals, elegant rotations, dynamic tracking shots
-    - Dark, atmospheric backgrounds with vibrant RGB lighting creating striking contrasts
-    - Cinematic depth of field - product in sharp focus, backgrounds beautifully blurred
-    - Professional gaming and lifestyle settings - modern gaming setups, urban environments, contemporary spaces
-    - Ultra-detailed product shots showcasing the headphones' sleek design, RGB LEDs, and premium quality
-    - Dynamic lighting effects - RGB LEDs casting colorful glows, creating immersive atmospheres
-    - Emphasis on the product's visual impact - the RGB LEDs as a central design element
+    CLIP-SPECIFIC GUIDANCE FOR GROK:
+    - Clip 1: Focus on individual developer, platform UI interaction, blockchain overlay, authentic workspace - PROFESSIONAL & DYNAMIC
+    - Clip 2: Focus on team collaboration, multiple workstations, deployed models, final team moment - COLLABORATIVE & INSPIRING
+    - Every clip must emphasize AUTHENTIC USAGE and PROFESSIONAL ENVIRONMENT for credibility
+    - Voiceover must be 8-9 words maximum per clip for natural pacing
 
-    NARRATIVE THEMES:
-    - Premium audio performance: boAt Signature Sound that brings music to life
-    - Gaming excellence: BEAST Mode with ultra-low latency for competitive gaming
-    - Visual innovation: RGB LEDs that personalize and elevate the audio experience
-    - Uninterrupted freedom: 60-hour battery life for all-day listening
-    - Seamless connectivity: Bluetooth v5.3, dual pairing, and app integration
-    - Comfort and style: Adaptive fit design that looks and feels premium
-    - Complete audio ecosystem: Music, gaming, calls, and voice assistant all in one
+    TARGET AUDIENCE:
+    - AI developers and data scientists aged 25-45 building and training models
+    - Machine learning engineers looking to monetize their work
+    - Tech entrepreneurs exploring decentralized AI opportunities
+    - Data professionals seeking fair attribution and rewards
+    - Blockchain-curious AI practitioners interested in Web3 infrastructure
+    - Research teams and startups building AI products
+    - Professional audiences who value authentic, credible tech demonstrations
 
-    PRODUCT FEATURES TO HIGHLIGHT:
-    - Blazing RGB LEDs with 6 customizable modes: Personalize your audio corner with striking lighting
-    - BEAST Mode: 40ms low latency for lag-free gaming and realistic gameplay
-    - 60 Hours of Playback: Massive battery life for uninterrupted listening
-    - 40mm Drivers: boAt Signature Sound with bass-heavy, impressive soundstage
-    - ENx Technology: Advanced noise cancellation for crystal-clear calls
-    - Dual Pairing: Seamlessly switch between phone and laptop without reconnecting
-    - Bluetooth v5.3: Latest wireless technology for stable, high-quality audio
-    - Adaptive Fit: Comfortable, snug fit for extended wear
-    - Quick Access Controls: Easily manage calls, audio, and functions
-    - Voice Assistant: Activate Google Assistant or Siri with voice commands
-    - App Support: Stream ad-free music and access audiobooks via boAt Hearables App
-
-    AUDIO ELEMENTS:
-    - Dynamic, energetic electronic music building from atmospheric opening to powerful, bass-driven crescendo
-    - Immersive sound design: Deep bass notes, crisp highs, and rich audio textures showcasing the 40mm drivers
-    - Gaming sound effects: Subtle game audio, button clicks, and immersive gaming atmosphere
-    - App interface sounds: Modern UI feedback, smooth transitions, and intuitive interactions
-    - Voice assistant activation sounds: Subtle chimes and confirmation tones
-    - Ambient gaming environment: Low hum of gaming setup, keyboard clicks, and immersive audio
-    - Building to an epic, confident finale that emphasizes power, performance, and premium audio excellence
-
-    Duration: Approximately 25 seconds showcasing boAt Rockerz 480 as the ultimate audio companion for music, gaming, and lifestyle.
+    Duration: 16 seconds (2 clips × 8 seconds) - Perfect for Instagram Reels and TikTok. Dynamic pacing throughout both clips for maximum engagement. Voiceover narration (8-9 words per clip) adds professional storytelling that reinforces platform capabilities. Designed to showcase OpenLedger as the revolutionary AI blockchain platform through authentic professional usage, not just abstract concepts. Builds brand recognition, establishes platform credibility, and creates excitement with the target audience through professional, authentic visual storytelling with energetic voiceover. Background music will be added separately to complement the visuals and voiceover.
     """
 
-    LOGO_PATH = "/Users/taran/Downloads/boat-logo.jpg"  # MUST SET THIS - always required
+    LOGO_PATH = "/Users/taran/Downloads/openledger-logo.jpg"  # MUST SET THIS - always required
     
     # Product images for frame generation alignment
     PRODUCT_IMAGES = [
-        "/Users/taran/Downloads/boat-product-1.jpg",
-        "/Users/taran/Downloads/boat-product-2.jpg",
-        "/Users/taran/Downloads/boat-product-3.jpg",
-        "/Users/taran/Downloads/boat-product-4.jpg",
-        "/Users/taran/Downloads/boat-product-5.jpg"
+        "/Users/taran/Downloads/openledger-product-1.jpeg",
+        "/Users/taran/Downloads/openledger-product-2.jpeg",
+        "/Users/taran/Downloads/openledger-product-3.jpeg",
+        "/Users/taran/Downloads/openledger-product-4.png"
     ]  # List of local paths to product images (can be empty list)
     # ========================================
     # END CONFIGURATION
@@ -4245,7 +4778,8 @@ def main():
                 viral_trends=VIRAL_TRENDS,
                 use_mascot_character=USE_MASCOT_CHARACTER,
                 mascot_logo_path=MASCOT_LOGO_PATH,
-                use_mascot_in_images=USE_MASCOT_IN_IMAGES
+                use_mascot_in_images=USE_MASCOT_IN_IMAGES,
+                influencer_marketing=INFLUENCER_MARKETING
             )
         else:
             # Clip duration mode
@@ -4270,7 +4804,8 @@ def main():
                 viral_trends=VIRAL_TRENDS,
                 use_mascot_character=USE_MASCOT_CHARACTER,
                 mascot_logo_path=MASCOT_LOGO_PATH,
-                use_mascot_in_images=USE_MASCOT_IN_IMAGES
+                use_mascot_in_images=USE_MASCOT_IN_IMAGES,
+                influencer_marketing=INFLUENCER_MARKETING
         )
     except ValueError as e:
         print(f"❌ ERROR: {str(e)}")
@@ -4360,7 +4895,8 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
             viral_trends=viral_trends,
             use_mascot_character=use_mascot_character,
             mascot_logo_path=mascot_logo_path,
-            use_mascot_in_images=use_mascot_in_images
+            use_mascot_in_images=use_mascot_in_images,
+            influencer_marketing=influencer_marketing
         )
     else:
         # Clip duration mode
@@ -4385,7 +4921,8 @@ def create_video_with_provider(tweet_text, initial_image_prompt, initial_image_p
             viral_trends=viral_trends,
             use_mascot_character=use_mascot_character,
             mascot_logo_path=mascot_logo_path,
-            use_mascot_in_images=use_mascot_in_images
+            use_mascot_in_images=use_mascot_in_images,
+            influencer_marketing=influencer_marketing
     )
     
     return generator.create_video(

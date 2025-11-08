@@ -118,6 +118,7 @@ export default function NewProjectOnboardingPage() {
           
           const uploadResp = await fetch(`${apiUrl}/projects/${projectId}/upload-logo`, {
             method: 'POST',
+            credentials: 'include', // Include cookies for session
             body: formData
           })
           
@@ -159,6 +160,7 @@ export default function NewProjectOnboardingPage() {
           
           const uploadResp = await fetch(`${apiUrl}/projects/${projectId}/upload-document`, {
             method: 'POST',
+            credentials: 'include', // Include cookies for session
             body: formData
           })
           
@@ -225,6 +227,7 @@ export default function NewProjectOnboardingPage() {
           const extractResp = await fetch(`${apiUrl}/projects/${projectId}/context/extract-documents`, {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
+            credentials: 'include', // Include cookies for session
             body: JSON.stringify({ document_urls: documentUrls })
           })
           

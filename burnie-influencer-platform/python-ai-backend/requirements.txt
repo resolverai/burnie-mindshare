@@ -35,6 +35,12 @@ ffmpeg-python
 # ML and Data Science packages with compatible versions
 numpy
 scipy
+# Voice/Music Separation for Veo clips
+demucs
+torch
+torchaudio
+librosa
+soundfile
 scikit-learn
 pandas
 nltk

@@ -113,11 +113,14 @@ def crossfade_videos(clip_paths, output_path, transition_duration=1.0, end_fade_
 if __name__ == "__main__":
     # Specify your input files as a list (in order)
     input_clips = [
-        "/Users/taran/Downloads/cocktail-clip1.mp4",
-        "/Users/taran/Downloads/cocktail-clip2.mp4"
+        "/Users/taran/Downloads/indian-garage-1.mp4",
+        "/Users/taran/Downloads/indian-garage-2.mp4",
+        "/Users/taran/Downloads/indian-garage-3.mp4",
+        "/Users/taran/Downloads/indian-garage-4.mp4",
+        "/Users/taran/Downloads/indian-garage-5.mp4"
     ]
     
-    output_file = "/Users/taran/Downloads/combined_output_final_cocktail_simple.mp4"
+    output_file = "/Users/taran/Downloads/combined_output_final_indian-garage_simple.mp4"
     
     # Stitching mode: True for crossfade transitions, False for simple concatenation
     USE_CROSSFADE = False  # Set to False for simple stitching without crossfade
