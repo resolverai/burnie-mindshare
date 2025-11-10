@@ -94,7 +94,7 @@ class SimpleS3Service:
             }
 
 class VideoGenerator:
-    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="nano-banana", video_duration=None, clip_duration=5, number_of_clips=None, human_characters_only=False, web3=False, no_characters=False, use_brand_aesthetics=False, clip_random_numbers=None, voiceover=False, clip_audio_prompts=True, theme=None, product_images=None, clip_generation_model="pixverse", viral_trends=False, use_mascot_character=False, mascot_logo_path=None, use_mascot_in_images=True, influencer_marketing=False):
+    def __init__(self, logo_path, project_name, output_dir="output", llm_provider="claude", image_model="nano-banana", video_duration=None, clip_duration=5, number_of_clips=None, human_characters_only=False, web3=False, no_characters=False, use_brand_aesthetics=False, clip_random_numbers=None, voiceover=False, clip_audio_prompts=True, theme=None, product_images=None, clip_generation_model="pixverse", viral_trends=False, use_mascot_character=False, mascot_logo_path=None, use_mascot_in_images=True, influencer_marketing=False, model_image_path=None, nudge=False):
         """
         Initialize the VideoGenerator.
         
@@ -122,6 +122,8 @@ class VideoGenerator:
             mascot_logo_path (str, optional): Path to mascot logo image for character consistency
             use_mascot_in_images (bool): If True, include mascot logo as reference image in image generation. If False, don't include mascot logo in reference images (useful for famous entities that can be generated without logo). Default: True
             influencer_marketing (bool): If True, create UGC-style influencer videos where a human character speaks naturally (overrides voiceover flag for veo model only). Characters speak the text instead of voiceover. Skips background music generation.
+            model_image_path (str, optional): Path to model/influencer image for character consistency in influencer marketing videos. If None, Grok generates character description autonomously. If provided, the same model will appear in all frames.
+            nudge (bool): If True, add engagement nudges (follow, like, share text overlays) in final seconds of designated clip. If use_brand_aesthetics=True: nudges in brand clip. If use_brand_aesthetics=False: nudges in last regular clip.
         """
         if not logo_path or not os.path.exists(logo_path):
             raise ValueError(f"Logo path is mandatory and must exist: {logo_path}")
@@ -185,6 +187,9 @@ class VideoGenerator:
         self.mascot_logo_path = mascot_logo_path
         self.use_mascot_in_images = use_mascot_in_images
         self.influencer_marketing = influencer_marketing
+        self.model_image_path = model_image_path
+        self.model_image_s3_url = None  # Will be set if model_image_path is provided
+        self.nudge = nudge
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.project_folder = os.path.join(output_dir, f"project_{self.timestamp}")
         
@@ -333,17 +338,40 @@ class VideoGenerator:
     def _get_veo_clip_instructions(self, clip_number, total_clips):
         """Get special instructions for Veo3.1-Fast clip prompts with voiceover only (no music)."""
         if self.influencer_marketing:
+            # Determine if this is the nudge clip
+            is_nudge_clip = False
+            if self.nudge:
+                if self.use_brand_aesthetics:
+                    # Brand clip is the nudge clip
+                    is_nudge_clip = (clip_number == total_clips + 1)  # Brand clip comes after regular clips
+                else:
+                    # Last regular clip is the nudge clip
+                    is_nudge_clip = (clip_number == total_clips)
+            
             # Influencer marketing mode: Character speaks naturally
-            return 'Generate detailed visual description with human character speaking naturally. Your generated prompt MUST end with these exact phrases: "no text overlays. No background music." MUST include: Character speaking: [8-9 word natural speech based on THEME and product analysis]. Example format: "[Visual description], no text overlays. No background music. Woman looking at camera and saying: This product changed my gaming experience completely."'
+            if is_nudge_clip:
+                # This is the nudge clip - MUST include nudge, DO NOT include "no text overlays"
+                nudge_instruction = ""
+                if self.theme and ("Ready to Post" in self.theme or "nudge" in self.theme.lower()):
+                    # Theme has specific nudge instructions
+                    nudge_instruction = "🚨 MANDATORY NUDGE: Include nudge text overlay EXACTLY as specified in THEME (e.g., 'Ready to Post' with green checkmark at bottom, appearing at 5-6 seconds, visible for final 3 seconds). This is NON-NEGOTIABLE."
+                else:
+                    # Generic nudge instructions
+                    nudge_instruction = "🚨 MANDATORY NUDGE: Include animated engagement text overlay (e.g., 'FOLLOW FOR MORE', 'DOUBLE TAP', 'SHARE THIS') in final 3-5 seconds. This is NON-NEGOTIABLE."
+                
+                return f'Generate detailed visual description with human character speaking naturally. {nudge_instruction} Prompt MUST end with ONLY: "No background music." Character speaking: [12-14 word speech]. 🚨 CRITICAL: Do NOT write "no text overlays" - this clip WILL have text overlays. Example: "[Visual]. At 5-6 seconds, animated text Ready to Post with checkmark appears at bottom. No background music. Man saying: This bike is perfect."'
+            else:
+                # Regular clip - include "no text overlays"
+                return 'Generate detailed visual description with human character speaking naturally. Prompt MUST end with: "no text overlays. No background music." Character speaking: [12-14 word speech]. Example: "[Visual], no text overlays. No background music. Man saying: This product is amazing."'
         else:
-            # Regular voiceover mode
+            # Regular voiceover mode (non-influencer)
             voiceover_instruction = ""
             if self.voiceover:
-                voiceover_instruction = ' MUST include voiceover at the end with "Voiceover:" prefix. Format: "Voiceover: [Voice type] voice: [8-9 word voiceover text]". Example: "Voiceover: Confident female voice: Experience luxury that lasts all day long." or "Voiceover: Energetic male voice: Unleash power with zero lag gaming performance." Voice types: female/male, tone: confident/energetic/soothing/professional/warm/enthusiastic/calm/powerful. Choose voice that matches the product, target audience, and THEME.'
+                voiceover_instruction = ' Include: "Voiceover: [Voice type] voice: [8-9 words]". Example: "Voiceover: Confident female voice: Experience luxury that lasts all day."'
             else:
-                voiceover_instruction = ' No voiceover or audio.'
+                voiceover_instruction = ' No voiceover.'
             
-            return f'Generate detailed visual description. Your generated prompt MUST include these exact phrases in this order: "no text overlays. No background music."{voiceover_instruction} Required structure: [Visual description], no text overlays. No background music. Voiceover: [Voice type] voice: [8-9 word voiceover text]'.strip()
+            return f'Generate detailed visual description. Prompt MUST end with: "no text overlays. No background music."{voiceover_instruction}'.strip()
     
     def _generate_clip_prompts_json(self):
         """Generate JSON structure for clip prompts and logo decisions based on clip count."""
@@ -681,28 +709,34 @@ Based on analysis of uploaded product images, use these specific product details
 
 🖼️ CRITICAL: REFERENCE IMAGE ALIGNMENT REQUIREMENT:
 - When you map a product image to a frame, the frame prompt MUST describe the EXACT product shown in that reference image
+- 🚨 USE "REFERENCE PRODUCT": You MUST use the term "reference product" in frame prompts to maintain product consistency
+  * The reference image shows the specific product that will appear in the generated frame
+  * DO NOT describe new product details - use "reference product" to refer to the product in the reference image
+  * Example: "Reference product shown from side angle in modern home setting, highlighting [specific features from analysis]"
+  * Example: "Close-up of reference product demonstrating [feature], capturing [specific design element from analysis]"
+  * Example: "Reference product placed in [environment], showcasing [angle/view from analysis]"
 - The frame prompt must match the product image's:
   * Specific angle/view (e.g., "side view", "front view", "close-up detail")
   * Exact features visible in the image (e.g., "touch-sensitive buttons", "LED indicators", "chain attachment")
   * Specific design elements (e.g., "sleek white rectangular design", "compact form factor")
   * Exact styling and appearance shown in the image
-- The frame prompt should describe the product EXACTLY as it appears in the mapped reference image
+- The frame prompt should describe the product EXACTLY as it appears in the mapped reference image using "reference product"
 - This ensures the image generation model extracts the SAME product from the reference image
-- DO NOT describe a generic or different product - describe the SPECIFIC product shown in the mapped image
-- Include specific details from the product analysis (features, angle, showcases) in the frame prompt
-- The goal is: when the reference image is passed to the image generation model, it should recognize and extract the exact same product described in the prompt
+- DO NOT describe a generic or different product - use "reference product" and describe the SPECIFIC product shown in the mapped image
+- Include specific details from the product analysis (features, angle, showcases) along with "reference product"
+- The goal is: when the reference image is passed to the image generation model, it should recognize and extract the exact same product described as "reference product" in the prompt
 
 🎯 CRITICAL: PRODUCT EXTRACTION REQUIREMENT:
-- The frame prompt MUST explicitly reference and describe the product from the mapped reference image
-- Start the frame prompt by describing the product shown in the reference image (e.g., "Sleek black over-ear headphones with glowing RGB LED ring", "Smart window shade controller with touch-sensitive buttons")
-- DO NOT just describe a scene without mentioning the product - the product must be the central focus
-- The frame prompt should describe: "The [product type] shown in the reference image, featuring [specific features from analysis], in [specific angle/view], with [specific design elements]"
-- This explicit product description allows the image generation model to:
+- The frame prompt MUST explicitly use "reference product" and describe the product from the mapped reference image
+- Start the frame prompt with "reference product" (e.g., "Reference product (sleek black over-ear headphones with glowing RGB LED ring)", "Reference product (smart window shade controller with touch-sensitive buttons)")
+- DO NOT just describe a scene without mentioning "reference product" - the reference product must be the central focus
+- The frame prompt should use format: "Reference product shown in [angle/view from analysis], featuring [specific features from analysis], in [environment/setting], with [specific design elements], reference logo visible"
+- This explicit "reference product" terminology allows the image generation model to:
   * Recognize the product in the reference image
   * Extract the product from the reference image
   * Place the extracted product into the new scene described in the frame prompt
-- Example: Instead of "A modern living room with window shades", write "The sleek white SmartShade controller device (from reference image) mounted on a modern living room window frame, featuring touch-sensitive buttons and LED indicators, with the reference logo visible"
-- The frame prompt should create a NEW scene while explicitly referencing the product from the reference image so it can be extracted and placed in that new scene
+- Example: Instead of "A modern living room with window shades", write "Reference product (sleek white SmartShade controller device) mounted on modern living room window frame, touch-sensitive buttons and LED indicators visible, reference logo prominently displayed"
+- The frame prompt should create a NEW scene while explicitly using "reference product" so the exact product can be extracted and placed in that new scene
 
 """
         
@@ -891,25 +925,28 @@ REAL-WORLD PHYSICS REQUIREMENTS:
 - NATURAL INTERACTION: Influencer should hold, use, or demonstrate the product while speaking
 - AUTHENTIC DEMONSTRATION: Show real product usage scenarios, not just talking about it"""
             
-            return f"""🎥 CRITICAL: INFLUENCER MARKETING MODE (UGC-STYLE VIDEO):
+            # Determine character instructions based on whether model image is provided
+            if self.model_image_s3_url:
+                # Model image provided - use "reference model" approach
+                character_instructions = """🎥 CRITICAL: INFLUENCER MARKETING MODE (UGC-STYLE VIDEO) - SPECIFIC MODEL:
+- This is a UGC (User Generated Content) style influencer video where a REAL HUMAN speaks naturally to camera
+- MANDATORY HUMAN CHARACTER: Every frame and clip MUST include the human influencer character from the reference model image
+- 🚨 USE "REFERENCE MODEL": You MUST use the term "reference model" in ALL frame prompts to maintain character consistency
+  * The reference model image shows the specific influencer/model who will appear in all frames
+  * DO NOT describe new character details - use "reference model" to refer to the person in the reference image
+  * Example: "Reference model sitting at table, looking at camera with genuine excitement"
+  * Example: "Reference model holding product and speaking naturally to camera"
+  * Example: "Reference model in elegant restaurant setting, gesturing toward dish"
+- CHARACTER CONSISTENCY: The same person from the reference model image MUST appear in ALL frames and clips"""
+            else:
+                # No model image - autonomous character generation
+                character_instructions = """🎥 CRITICAL: INFLUENCER MARKETING MODE (UGC-STYLE VIDEO):
 - This is a UGC (User Generated Content) style influencer video where a REAL HUMAN speaks naturally to camera
 - MANDATORY HUMAN CHARACTER: Every frame and clip MUST include a human influencer character
 - CHARACTER DETAILS REQUIRED: Specify influencer's ethnicity, age range (e.g., "25-30 year old"), gender, style, and appearance
   * Example: "South Asian woman, 25-30 years old, casual modern style, confident demeanor"
   * Example: "African American man, 30-35 years old, streetwear fashion, energetic personality"
   * Example: "Hispanic woman, 20-25 years old, athletic wear, friendly approachable vibe"
-- NATURAL SPEAKING: The influencer character SPEAKS the text naturally (NOT voiceover)
-  * Format: "Woman looking at camera and saying (12 words max): [10-12 word natural speech]"
-  * Format: "Man holding product and saying (12 words max): [10-12 word natural speech]"
-  * 🚨 CRITICAL: Speech MUST be 10-12 words MAXIMUM to fit naturally in 8-second clip
-  * The character is PHYSICALLY SPEAKING on camera, like a real influencer video
-  * Speech must feel complete and natural, not cut off abruptly
-- CAMERA ENGAGEMENT: Influencer should look at camera, speak directly to viewers
-- AUTHENTIC STYLE: Natural, conversational, relatable - like real social media content
-- NO VOICEOVER: This is NOT voiceover - the character's lips move and they speak naturally{product_context}
-- CONSISTENT CHARACTER: Use the SAME influencer character across all frames and clips for continuity
-
-FRAME PROMPT REQUIREMENTS:
 - FRAME 1 (Initial Frame): Provide FULL detailed human character description
   * Specify: ethnicity, age range, gender, style, clothing, personality traits
   * Example: "25-year-old Asian woman in casual streetwear, friendly smile, modern urban background"
@@ -918,17 +955,28 @@ FRAME PROMPT REQUIREMENTS:
   * Example: "Reference woman now holding product and smiling at camera, indoor setting"
   * Example: "Reference man demonstrating product features, close-up shot, well-lit background"
   * CRITICAL: Always use "reference character/woman/man" for frames 2+ to ensure the SAME person appears
-  * Specify gender (woman/man) based on the character established in frame 1
+  * Specify gender (woman/man) based on the character established in frame 1"""
+            
+            return f"""{character_instructions}
+- NATURAL SPEAKING: The influencer character SPEAKS the text naturally (NOT voiceover)
+  * Format: "Woman looking at camera and saying (14 words max): [12-14 word natural speech]"
+  * Format: "Man holding product and saying (14 words max): [12-14 word natural speech]"
+  * 🚨 CRITICAL: Speech MUST be 12-14 words MAXIMUM to fit naturally in 8-second clip
+  * The character is PHYSICALLY SPEAKING on camera, like a real influencer video
+  * Speech must feel complete and natural, not cut off abruptly
+- CAMERA ENGAGEMENT: Influencer should look at camera, speak directly to viewers
+- AUTHENTIC STYLE: Natural, conversational, relatable - like real social media content
+- NO VOICEOVER: This is NOT voiceover - the character's lips move and they speak naturally{product_context}
 
 CLIP PROMPT REQUIREMENTS:
 - Every clip prompt MUST show the influencer speaking naturally to camera
-- 🚨 CRITICAL WORD LIMIT: Influencer speech MUST be 10-12 words MAXIMUM (fits perfectly in 8-second clip)
+- 🚨 CRITICAL WORD LIMIT: Influencer speech MUST be 12-14 words MAXIMUM (fits perfectly in 8-second clip)
 - Include what the influencer is saying with EXACT word count specified
-- Format: "Woman looking at camera and saying (12 words max): [actual 10-12 word speech]"
+- Format: "Woman looking at camera and saying (14 words max): [actual 12-14 word speech]"
 - For clip 1: Use full character description + speech with word limit
 - For clip 2+: Use "reference character/woman/man" + speech with word limit
-- Example: "Reference woman looking at camera saying (12 words max): This lipstick changed my entire makeup routine and I'm obsessed with it"
-- ⚠️ NEVER exceed 12 words - influencer must finish speaking naturally before clip ends
+- Example: "Reference woman looking at camera saying (14 words max): This lipstick completely changed my entire makeup routine and I'm absolutely obsessed with it"
+- ⚠️ NEVER exceed 14 words - influencer must finish speaking naturally before clip ends
 - Show natural gestures, expressions, and body language while speaking
 - Speech should feel complete and natural, not cut off abruptly"""
         
@@ -1117,6 +1165,112 @@ CLIP PROMPT REQUIREMENTS:
 - Focus on creating a clean, professional brand promotion video that showcases products without visual clutter"""
         else:
             return f"""🎬 {self._get_frame_production_requirements()}"""
+
+    def _get_nudge_instructions(self):
+        """Generate engagement nudge instructions based on nudge flag and brand aesthetics."""
+        if not self.nudge:
+            return ""
+        
+        # Determine which clip gets nudges
+        if self.use_brand_aesthetics:
+            target_clip = "brand_clip_prompt"
+            clip_description = "the brand clip"
+        else:
+            # Calculate regular clip count (excluding brand clip if present)
+            regular_clip_count = self.number_of_clips if self.number_of_clips is not None else (self.video_duration // 5)
+            target_clip = f"clip{regular_clip_count}_prompt"
+            clip_description = f"clip {regular_clip_count} (the final regular clip)"
+        
+        return f"""
+🎯 🚨 CRITICAL REQUIREMENT - ENGAGEMENT NUDGES MUST BE INCLUDED:
+- **MANDATORY**: {target_clip} MUST include engagement text overlay in final 3-5 seconds
+- **NON-NEGOTIABLE**: You MUST add nudge instructions to {target_clip} - this is NOT optional
+- **THEME PRIORITY**: If THEME specifies nudge details (text, style, position, colors), use EXACTLY those specifications
+- **AUTONOMOUS MODE**: If THEME has no nudge details, create engaging text overlays yourself
+- **TEXT EXAMPLES**: "FOLLOW FOR MORE", "DOUBLE TAP", "SHARE THIS", "TAG A FRIEND", "Ready to Post ✓"
+- **FORMAT**: Describe text overlay directly in {target_clip}: "...at 5-6 seconds, animated text 'Ready to Post' with green checkmark appears at bottom..."
+- **REMINDER**: {target_clip} is the ONLY clip that gets text overlays - all other clips must end with "no text overlays"
+"""
+
+    def _get_no_text_overlays_instructions(self):
+        """Generate conditional 'no text overlays' instructions based on nudge flag."""
+        if not self.nudge:
+            # No nudges - all clips should have "no text overlays"
+            return """- 🚫 CRITICAL: NO TEXT OVERLAYS IN CLIP PROMPTS: 
+  * Clip prompts must NEVER mention text overlays, text on screen, text displays, captions, labels, or any form of text elements in the scene description
+  * IMPORTANT: Each clip prompt MUST explicitly end with "no text overlays", "no text on screen", or "no text elements" to ensure the video generation model does not add any text
+  * Example: "...cinematic quality, 8K resolution, trending visual effects, viral aesthetic, no text overlays"
+  * This explicit instruction must be included in EVERY clip prompt you generate
+  * Describe only visual content, camera movements, and scene composition - then add the "no text overlays" instruction at the end"""
+        else:
+            # Determine which clip gets nudges (the LAST clip in the video)
+            if self.use_brand_aesthetics:
+                # When brand aesthetics is true, the brand clip is the last clip
+                nudge_clip_name = "brand_clip_prompt"
+                clip_description = "the brand clip (the final/last clip in the video)"
+                other_clips_description = "ALL regular clip prompts (clip1_prompt, clip2_prompt, etc.)"
+            else:
+                # When brand aesthetics is false, the last regular clip is the final clip
+                regular_clip_count = self.number_of_clips if self.number_of_clips is not None else (self.video_duration // 5)
+                nudge_clip_name = f"clip{regular_clip_count}_prompt"
+                clip_description = f"clip {regular_clip_count} (the final/last clip in the video)"
+                other_clips_description = f"ALL other clip prompts (clip1_prompt, clip2_prompt, ... up to clip{regular_clip_count - 1}_prompt)"
+            
+            return f"""- 🚫 CONDITIONAL: NO TEXT OVERLAYS IN CLIP PROMPTS (EXCEPT THE FINAL CLIP WITH NUDGE): 
+  * {other_clips_description} must NEVER mention text overlays and MUST explicitly end with "no text overlays"
+  * 🚨 CRITICAL EXCEPTION: {nudge_clip_name} ({clip_description}) is the ONLY clip that should NOT have "no text overlays"
+  * {nudge_clip_name} will contain engagement text overlays (nudges) as specified in NUDGE instructions
+  * For all clips EXCEPT {nudge_clip_name}, end with: "...cinematic quality, 8K resolution, no text overlays"
+  * For {nudge_clip_name} ONLY, describe the nudge text overlays and DO NOT add "no text overlays" at the end
+  * Example for regular clips: "...bathroom setting, natural lighting. No text overlays."
+  * Example for {nudge_clip_name}: "...holds product with smile. At 5 seconds, animated text overlay appears..." (NO "no text overlays"!)"""
+
+    def _get_background_music_instructions(self):
+        """Generate background music instructions with conditional structure based on nudge flag."""
+        if not self.nudge:
+            # No nudges - all clips have same structure
+            return """- 🎵 CRITICAL: NO BACKGROUND MUSIC IN CLIP PROMPTS:
+  * EVERY clip prompt you generate MUST explicitly state "No background music" 
+  * This is MANDATORY - background music will be added separately with Pixverse sound effects
+  * EVERY clip prompt must include BOTH "No text overlays" AND "No background music" explicitly
+  * Required structure: "[Detailed visual description]. No text overlays. No background music. [Voiceover if enabled]"
+  * DO NOT include any music instructions (tempo, style, mood, beats, rhythm, instruments) in clip prompts
+  * The clip prompt should ONLY contain: Visual description + "No text overlays" + "No background music" + Voiceover (if enabled)
+  * Example: "Ultra slow motion shot of shirt fabric cascading, intricate pattern revealed, dramatic lighting, 8K resolution, cinematic quality. No text overlays. No background music. Confident male voice: Experience timeless style today."
+"""
+        else:
+            # Determine which clip gets nudges
+            if self.use_brand_aesthetics:
+                nudge_clip_name = "brand_clip_prompt"
+                clip_description = "the brand clip (the final/last clip in the video)"
+                other_clips_description = "ALL regular clip prompts"
+            else:
+                regular_clip_count = self.number_of_clips if self.number_of_clips is not None else (self.video_duration // 5)
+                nudge_clip_name = f"clip{regular_clip_count}_prompt"
+                clip_description = f"clip {regular_clip_count} (the final/last clip)"
+                other_clips_description = f"ALL other clip prompts (clip1 through clip{regular_clip_count - 1})"
+            
+            return f"""- 🎵 CRITICAL: NO BACKGROUND MUSIC IN CLIP PROMPTS:
+  * EVERY clip prompt you generate MUST explicitly state "No background music" 
+  * This is MANDATORY - background music will be added separately with Pixverse sound effects
+  * 🚨 CRITICAL: DIFFERENT STRUCTURES FOR DIFFERENT CLIPS:
+    
+    FOR {other_clips_description}:
+    - Required structure: "[Visual description]. No text overlays. No background music. [Voiceover if enabled]"
+    - These clips MUST end with BOTH "No text overlays" AND "No background music"
+    
+    FOR {nudge_clip_name} ONLY:
+    - 🚨 ABSOLUTELY CRITICAL: DO NOT ADD "no text overlays" to this clip prompt!
+    - {nudge_clip_name} will have text overlays (the nudge), so it MUST NOT include "no text overlays"
+    - Required structure: "[Visual description including nudge text overlay]. No background music. [Voiceover if enabled]"
+    - This clip should END with: "...No background music. [Voiceover]" (NO "no text overlays"!)
+    - The prompt should describe the nudge text overlay, then end with ONLY "No background music"
+    
+  * DO NOT include any music instructions (tempo, style, mood, beats, rhythm, instruments) in clip prompts
+  * Example for regular clips: "...cinematic quality, 8K resolution. No text overlays. No background music."
+  * Example for {nudge_clip_name}: "...animated text 'Ready to Post' with green checkmark appears at bottom. No background music. Man saying: Try this product." 
+    (See how this example does NOT have "no text overlays" but DOES have "No background music"? Follow this pattern exactly for {nudge_clip_name}!)
+"""
 
     def _get_character_instructions(self):
         """Generate character instructions based on settings."""
@@ -1664,20 +1818,8 @@ FINAL FRAME (Frame {self.frame_count}):
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
-- 🚫 CRITICAL: NO TEXT OVERLAYS IN CLIP PROMPTS: 
-  * Clip prompts must NEVER mention text overlays, text on screen, text displays, captions, labels, or any form of text elements in the scene description
-  * IMPORTANT: Each clip prompt MUST explicitly end with "no text overlays", "no text on screen", or "no text elements" to ensure the video generation model does not add any text
-  * Example: "...cinematic quality, 8K resolution, trending visual effects, viral aesthetic, no text overlays"
-  * This explicit instruction must be included in EVERY clip prompt you generate
-  * Describe only visual content, camera movements, and scene composition - then add the "no text overlays" instruction at the end
-- 🎵 CRITICAL: NO BACKGROUND MUSIC IN CLIP PROMPTS:
-  * EVERY clip prompt you generate MUST explicitly state "No background music" 
-  * This is MANDATORY - background music will be added separately with Pixverse sound effects
-  * EVERY clip prompt must include BOTH "No text overlays" AND "No background music" explicitly
-  * Required structure: "[Detailed visual description]. No text overlays. No background music. [Voiceover if enabled]"
-  * DO NOT include any music instructions (tempo, style, mood, beats, rhythm, instruments) in clip prompts
-  * The clip prompt should ONLY contain: Visual description + "No text overlays" + "No background music" + Voiceover (if enabled)
-  * Example: "Ultra slow motion shot of shirt fabric cascading, intricate pattern revealed, dramatic lighting, 8K resolution, cinematic quality. No text overlays. No background music. Confident male voice: Experience timeless style today."
+{self._get_no_text_overlays_instructions()}
+{self._get_background_music_instructions()}
 
 📝 CRITICAL: CLIP PROMPT DETAIL REQUIREMENTS:
 - Clip prompts MUST be EXTREMELY DETAILED and SPECIFIC - include comprehensive descriptions of:
@@ -1948,6 +2090,8 @@ Video Duration: {self.video_duration} seconds ({self.frame_count} frames, {self.
 
 {self._get_character_instructions()}
 
+{self._get_nudge_instructions()}
+
 {self._get_creative_autonomy_instructions()}
 
 ⚠️ CONTENT POLICY COMPLIANCE:
@@ -1974,11 +2118,24 @@ Video Duration: {self.video_duration} seconds ({self.frame_count} frames, {self.
 - This rule does NOT apply to text prompts (tweet_text) or voiceover prompts (voiceover_N_prompt)
 - Text and voiceover prompts can freely use the brand name "{self.project_name}" for clarity
 
+🚨 CRITICAL: PRODUCT REFERENCE RULES (When product images are provided):
+- For ALL image prompts (initial_image_prompt, frame_N_prompt, frame_N_prime_prompt) when product images are mapped:
+  * ALWAYS use "reference product" to refer to the product shown in the mapped reference image
+  * DO NOT describe new product details - use "reference product" to maintain product consistency
+  * Example: "Reference product (sleek black headphones with RGB LED ring) shown in modern gaming setup"
+  * Example: "Close-up of reference product demonstrating touch controls, highlighting button interface"
+  * Example: "Reference product placed in bright bathroom setting, showcasing charcoal texture"
+- The "reference product" term signals to the image generation model to extract the EXACT product from the reference image
+- After "reference product", you can add brief product description in parentheses from the product analysis
+- This applies to initial_image_prompt AND all frame prompts when products are mapped
+
 🚨 CRITICAL: PROMPT GENERATION REQUIREMENTS:
 - ABSOLUTELY NO prompt field should be "None", null, or empty
 - EVERY prompt field MUST contain actual, detailed prompt text
 - initial_image_prompt MUST be a complete, detailed prompt - NEVER "None"
+- initial_image_prompt MUST use "reference product" when product images are provided
 - ALL frame prompts (frame_2_prompt, frame_3_prompt, etc.) MUST be detailed prompts
+- ALL frame prompts MUST use "reference product" when product images are mapped to them
 - ALL clip prompts MUST be detailed prompts
 - If THEME is provided, ALL prompts MUST align with and reflect the THEME
 - Generate REAL prompts, not placeholders or "None" values
@@ -1989,8 +2146,11 @@ Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instruct
                 # Build frame_image_mapping JSON string if product_analysis is provided
                 frame_mapping_json = ""
                 if product_analysis:
-                    # Build dynamic frame_image_mapping for all frames (frame_2, frame_3, etc.)
+                    # Build dynamic frame_image_mapping for all frames INCLUDING initial_image
                     mapping_entries = []
+                    # Include initial_image mapping
+                    mapping_entries.append(f'        "initial_image": {{"product_image": "image_X", "reason": "Why this specific product image is chosen for initial_image - the initial_image_prompt MUST start with \'reference product\' and explicitly describe the product from this reference image"}}')
+                    # Include subsequent frames
                     for i in range(2, self.frame_count + 1):
                         mapping_entries.append(f'        "frame_{i}": {{"product_image": "image_X", "reason": "Why this specific product image is chosen for frame {i} - the frame prompt MUST explicitly reference and describe the product from this reference image (e.g., start with describing the product type, features, angle, and design), then create a new scene with that product extracted and placed in it"}}')
                     frame_mapping_json = ',\n    "frame_image_mapping": {\n' + ',\n'.join(mapping_entries) + '\n    }'
@@ -1999,17 +2159,24 @@ Respond EXACTLY with this JSON format with ACTUAL detailed prompts (not instruct
                 product_extraction_instructions = ""
                 if product_analysis:
                     product_extraction_instructions = """
-🎯 CRITICAL: PRODUCT EXTRACTION FOR FRAME PROMPTS:
-- When frame_image_mapping is provided, each frame prompt MUST explicitly reference and describe the product from the mapped reference image
-- Frame prompts should START by describing the product shown in the reference image, then create a new scene with that product
-- Example structure: "The [product type] from the reference image, featuring [specific features from product analysis], in [specific angle/view], placed in [new scene description]"
-- DO NOT just describe a scene without mentioning the product - the product must be explicitly mentioned and described
-- The frame prompt should enable product extraction: describe the product clearly so the image generation model can:
+🎯 CRITICAL: PRODUCT EXTRACTION FOR ALL IMAGE PROMPTS:
+- When frame_image_mapping is provided, ALWAYS use "reference product" in initial_image_prompt and all frame prompts
+- 🚨 USE "REFERENCE PRODUCT": You MUST use the term "reference product" to maintain product consistency
+  * The reference image shows the specific product that will appear in the generated image
+  * DO NOT describe new product details - use "reference product" to refer to the product in the reference image
+  * Format: "Reference product ([brief product type from analysis]) [doing something/in setting], [additional scene details]"
+- initial_image_prompt MUST start with "Reference product" when product images are provided
+- Each frame prompt MUST explicitly use "reference product" to describe the product from the mapped reference image
+- Frame prompts should use structure: "Reference product ([product type]) shown in [angle/view from analysis], featuring [specific features], in [new scene/environment]"
+- Example for initial_image_prompt: "Reference product (Pond's Pure Detox charcoal facewash tube) in clean bathroom setting, natural lighting, modern minimalist aesthetic"
+- Example for frame prompt: "Reference product (sleek black over-ear headphones with RGB LED ring) in modern gaming setup, highlighting dynamic lighting"
+- DO NOT just describe a scene without "reference product" - the reference product must be explicitly mentioned
+- The "reference product" terminology enables product extraction: it tells the image generation model to:
   * Recognize the product in the reference image
   * Extract the product from the reference image
-  * Place the extracted product into the new scene described in the frame prompt
-- Use specific product details from the product analysis (category, features, angle, showcases) to describe the product accurately
-- The goal is to create a NEW scene while explicitly referencing the product from the reference image so it can be extracted and placed in that new scene
+  * Place the extracted product into the new scene described in the prompt
+- Use specific product details from the product analysis (category, features, angle, showcases) after "reference product"
+- The goal is to create a NEW scene while explicitly using "reference product" so the exact same product can be extracted and placed in that new scene
 """
                 
                 prompt += f"""
@@ -2044,20 +2211,8 @@ FINAL FRAME (Frame {self.frame_count}):
 - Clip prompts must start directly with content description - do not begin with transition setup language like "Cinematic transition from...", "Epic transition from...", etc. Start directly with the actual content
 - Transition details within the prompt are good - just don't start by describing what you're transitioning from/to
 - NAMING RESTRICTION (clip prompts only): Do NOT include brand names, product names, company names, or known personalities in clip prompts. Use generic descriptors like "the car", "the phone", "the athlete". This restriction applies ONLY to clip prompts and does NOT apply to frame prompts, audio prompts, or voiceover prompts.
-- 🚫 CRITICAL: NO TEXT OVERLAYS IN CLIP PROMPTS: 
-  * Clip prompts must NEVER mention text overlays, text on screen, text displays, captions, labels, or any form of text elements in the scene description
-  * IMPORTANT: Each clip prompt MUST explicitly end with "no text overlays", "no text on screen", or "no text elements" to ensure the video generation model does not add any text
-  * Example: "...cinematic quality, 8K resolution, trending visual effects, viral aesthetic, no text overlays"
-  * This explicit instruction must be included in EVERY clip prompt you generate
-  * Describe only visual content, camera movements, and scene composition - then add the "no text overlays" instruction at the end
-- 🎵 CRITICAL: NO BACKGROUND MUSIC IN CLIP PROMPTS:
-  * EVERY clip prompt you generate MUST explicitly state "No background music" 
-  * This is MANDATORY - background music will be added separately with Pixverse sound effects
-  * EVERY clip prompt must include BOTH "No text overlays" AND "No background music" explicitly
-  * Required structure: "[Detailed visual description]. No text overlays. No background music. [Voiceover if enabled]"
-  * DO NOT include any music instructions (tempo, style, mood, beats, rhythm, instruments) in clip prompts
-  * The clip prompt should ONLY contain: Visual description + "No text overlays" + "No background music" + Voiceover (if enabled)
-  * Example: "Ultra slow motion shot of shirt fabric cascading, intricate pattern revealed, dramatic lighting, 8K resolution, cinematic quality. No text overlays. No background music. Confident male voice: Experience timeless style today."
+{self._get_no_text_overlays_instructions()}
+{self._get_background_music_instructions()}
 
 📝 CRITICAL: CLIP PROMPT DETAIL REQUIREMENTS:
 - Clip prompts MUST be EXTREMELY DETAILED and SPECIFIC - include comprehensive descriptions of:
@@ -2132,8 +2287,11 @@ JSON only, no other text:"""
                 # Build frame_image_mapping JSON string if product_analysis is provided
                 frame_mapping_json_else = ""
                 if product_analysis:
-                    # Build dynamic frame_image_mapping for all frames (frame_2, frame_3, etc.)
+                    # Build dynamic frame_image_mapping for all frames INCLUDING initial_image
                     mapping_entries = []
+                    # Include initial_image mapping
+                    mapping_entries.append(f'        "initial_image": {{"product_image": "image_X", "reason": "Why this specific product image is chosen for initial_image - the initial_image_prompt MUST start with \'reference product\' and explicitly describe the product from this reference image"}}')
+                    # Include subsequent frames
                     for i in range(2, self.frame_count + 1):
                         mapping_entries.append(f'        "frame_{i}": {{"product_image": "image_X", "reason": "Why this specific product image is chosen for frame {i} - the frame prompt MUST explicitly reference and describe the product from this reference image (e.g., start with describing the product type, features, angle, and design), then create a new scene with that product extracted and placed in it"}}')
                     frame_mapping_json_else = ',\n    "frame_image_mapping": {\n' + ',\n'.join(mapping_entries) + '\n    }'
@@ -2188,11 +2346,24 @@ Create a VIRAL MASTERPIECE that will dominate social media! Generate content tha
 - This rule does NOT apply to text prompts (tweet_text) or voiceover prompts (voiceover_N_prompt)
 - Text and voiceover prompts can freely use the brand name "{self.project_name}" for clarity
 
+🚨 CRITICAL: PRODUCT REFERENCE RULES (When product images are provided):
+- For ALL image prompts (initial_image_prompt, frame_N_prompt, frame_N_prime_prompt) when product images are mapped:
+  * ALWAYS use "reference product" to refer to the product shown in the mapped reference image
+  * DO NOT describe new product details - use "reference product" to maintain product consistency
+  * Example: "Reference product (sleek black headphones with RGB LED ring) shown in modern gaming setup"
+  * Example: "Close-up of reference product demonstrating touch controls, highlighting button interface"
+  * Example: "Reference product placed in bright bathroom setting, showcasing charcoal texture"
+- The "reference product" term signals to the image generation model to extract the EXACT product from the reference image
+- After "reference product", you can add brief product description in parentheses from the product analysis
+- This applies to initial_image_prompt AND all frame prompts when products are mapped
+
 🚨 CRITICAL: PROMPT GENERATION REQUIREMENTS:
 - ABSOLUTELY NO prompt field should be "None", null, or empty
 - EVERY prompt field MUST contain actual, detailed prompt text
 - initial_image_prompt MUST be a complete, detailed prompt - NEVER "None"
+- initial_image_prompt MUST use "reference product" when product images are provided
 - ALL frame prompts (frame_2_prompt, frame_3_prompt, etc.) MUST be detailed prompts
+- ALL frame prompts MUST use "reference product" when product images are mapped to them
 - ALL clip prompts MUST be detailed prompts
 - If THEME is provided, ALL prompts MUST align with and reflect the THEME
 - Generate REAL prompts, not placeholders or "None" values
@@ -2653,7 +2824,7 @@ JSON only, no other text:"""
                 arguments={
                     "prompt": prompt,
                     "image_url": image_url,
-                    "aspect_ratio": "16:9",
+                    "aspect_ratio": "9:16",
                     "duration": "8s",
                     "generate_audio": True,
                     "resolution": "720p"
@@ -3484,6 +3655,20 @@ JSON only, no other text:"""
                     print("❌ Failed to upload mascot logo to S3, stopping video generation")
                     return None
             
+            # Upload model image to S3 if provided (for influencer marketing)
+            if self.influencer_marketing and self.model_image_path:
+                if os.path.exists(self.model_image_path):
+                    print("📤 Uploading model image to S3 for character consistency...")
+                    self.model_image_s3_url = self.upload_to_s3_and_get_presigned_url(self.model_image_path, "image", "img")
+                    if not self.model_image_s3_url:
+                        print("❌ Failed to upload model image to S3")
+                        return None
+                    print(f"✅ Model image uploaded: {self.model_image_s3_url[:100]}...")
+                else:
+                    print(f"⚠️ Warning: Model image path provided but file does not exist: {self.model_image_path}")
+                    print("⚠️ Continuing with autonomous character generation...")
+                    self.model_image_path = None
+            
             # Step 1.5: Upload product images and analyze if provided
             product_analysis = None
             product_image_s3_urls = []
@@ -3564,6 +3749,20 @@ JSON only, no other text:"""
                         print(f"❌ ERROR: initial_image_prompt is not a string, got {type(initial_image_prompt)}")
                         return None
                     
+                    # Extract frame_image_mapping from prompts to get the mapped product image for initial_image
+                    frame_image_mapping = {}
+                    if product_analysis:
+                        try:
+                            frame_image_mapping_raw = prompts.get("frame_image_mapping")
+                            if frame_image_mapping_raw and isinstance(frame_image_mapping_raw, dict):
+                                frame_image_mapping = frame_image_mapping_raw
+                                print(f"📸 Frame-to-image mapping found for initial image: {frame_image_mapping}")
+                            else:
+                                print(f"⚠️ WARNING: frame_image_mapping is not a valid dictionary: {type(frame_image_mapping_raw)}")
+                        except Exception as e:
+                            print(f"⚠️ WARNING: Error extracting frame_image_mapping: {str(e)}")
+                            frame_image_mapping = {}
+                    
                     # For single clip with Kling/Sora, always include business logo in initial image
                     if self.clip_count == 1 and self.clip_generation_model in ["sora", "kling"]:
                         print("🎯 Single clip detected with Kling/Sora - mandatorily including business logo in initial image")
@@ -3572,6 +3771,25 @@ JSON only, no other text:"""
                         if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
                             reference_images.append(mascot_s3_url)
                             print("🎭 Including mascot logo for character consistency in initial image")
+                        # Include model image for influencer marketing
+                        if self.influencer_marketing and self.model_image_s3_url:
+                            reference_images.append(self.model_image_s3_url)
+                            print("👤 Including model image for character consistency in initial image")
+                        # Include mapped product image for initial_image if mapping exists
+                        if product_analysis and "initial_image" in frame_image_mapping:
+                            initial_image_mapping_data = frame_image_mapping["initial_image"]
+                            if isinstance(initial_image_mapping_data, dict):
+                                mapped_image_key = initial_image_mapping_data.get("product_image")
+                                if mapped_image_key and isinstance(mapped_image_key, str) and mapped_image_key in product_image_mapping:
+                                    product_image_url = product_image_mapping[mapped_image_key]
+                                    reference_images.append(product_image_url)
+                                    reason = initial_image_mapping_data.get("reason", "No reason provided")
+                                    print(f"📦 Including mapped product image {mapped_image_key} for initial_image: {reason}")
+                                else:
+                                    print(f"⚠️ WARNING: No valid product mapping for initial_image, using first product image as fallback")
+                                    if len(product_image_s3_urls) > 0:
+                                        reference_images.append(product_image_s3_urls[0])
+                                        print(f"📦 Including first product image for initial image generation (fallback)")
                         initial_image_url = self.generate_initial_image(initial_image_prompt, reference_images)
                     else:
                         # For regular case, conditionally include mascot logo if needed
@@ -3579,6 +3797,29 @@ JSON only, no other text:"""
                         if self.use_mascot_character and self.use_mascot_in_images and mascot_s3_url:
                             reference_images = [mascot_s3_url]
                             print("🎭 Including mascot logo for character consistency in initial image")
+                        # Include model image for influencer marketing
+                        if self.influencer_marketing and self.model_image_s3_url:
+                            if reference_images is None:
+                                reference_images = []
+                            reference_images.append(self.model_image_s3_url)
+                            print("👤 Including model image for character consistency in initial image")
+                        # Include mapped product image for initial_image if mapping exists
+                        if product_analysis and "initial_image" in frame_image_mapping:
+                            if reference_images is None:
+                                reference_images = []
+                            initial_image_mapping_data = frame_image_mapping["initial_image"]
+                            if isinstance(initial_image_mapping_data, dict):
+                                mapped_image_key = initial_image_mapping_data.get("product_image")
+                                if mapped_image_key and isinstance(mapped_image_key, str) and mapped_image_key in product_image_mapping:
+                                    product_image_url = product_image_mapping[mapped_image_key]
+                                    reference_images.append(product_image_url)
+                                    reason = initial_image_mapping_data.get("reason", "No reason provided")
+                                    print(f"📦 Including mapped product image {mapped_image_key} for initial_image: {reason}")
+                                else:
+                                    print(f"⚠️ WARNING: No valid product mapping for initial_image, using first product image as fallback")
+                                    if len(product_image_s3_urls) > 0:
+                                        reference_images.append(product_image_s3_urls[0])
+                                        print(f"📦 Including first product image for initial image generation (fallback)")
                         initial_image_url = self.generate_initial_image(initial_image_prompt, reference_images)
                 except TypeError as e:
                     print(f"❌ ERROR: TypeError accessing prompts for initial image: {str(e)}")
@@ -3670,6 +3911,7 @@ JSON only, no other text:"""
                 reference_images = []
                 
                 # For influencer marketing, use first frame as reference for character consistency (frames 2+)
+                # This ensures consistent attire and appearance based on the initial generated image
                 if self.influencer_marketing and i > 1 and frame1_s3_url:
                     reference_images.append(frame1_s3_url)
                     print(f"🎥 Influencer Marketing: Including frame 1 for character consistency in frame {i}")
@@ -3960,7 +4202,7 @@ JSON only, no other text:"""
                         safe_clip_duration = self.clip_duration
                     
                     print(f"🎵 Using {safe_clip_duration}s duration for all clips (configured: {self.clip_duration}s)")
-                    voiceover_durations = [(None, safe_clip_duration)] * self.clip_count
+                voiceover_durations = [(None, safe_clip_duration)] * self.clip_count
             
             # Step 6: Generate video clips with dynamic durations
             clip_urls = []
@@ -4034,17 +4276,17 @@ JSON only, no other text:"""
                         traceback.print_exc()
                         return None
                     
-                if not clip_s3_url:
-                    print(f"❌ Failed to generate clip {i}!")
-                    return None
-                
+                    if not clip_s3_url:
+                        print(f"❌ Failed to generate clip {i}!")
+                        return None
+                    
                     # Generate audio for this clip with dynamic duration (always use Pixverse for audio)
                     print(f"🎵 Generating Pixverse audio for clip {i}...")
-                audio_prompt_key = f"audio{i}_prompt" if not use_prime else f"audio{i}_prime_prompt"
-                audio_prompt = prompts.get(audio_prompt_key, "")
-                
-                if audio_prompt:
-                    print(f"🎵 Using {'prime' if use_prime else 'regular'} audio for clip {i}")
+                    audio_prompt_key = f"audio{i}_prompt" if not use_prime else f"audio{i}_prime_prompt"
+                    audio_prompt = prompts.get(audio_prompt_key, "")
+                    
+                    if audio_prompt:
+                        print(f"🎵 Using {'prime' if use_prime else 'regular'} audio for clip {i}")
                     # Generate audio for this clip with dynamic duration
                     clip_with_audio_s3_url = self.generate_final_video_with_audio(audio_prompt, clip_s3_url, duration=clip_duration)
                     if not clip_with_audio_s3_url:
@@ -4518,7 +4760,7 @@ def main():
     # ========================================
     # CONFIGURATION - MODIFY THESE VALUES
     # ========================================
-    PROJECT_NAME = "openledger"  # Change this for different projects
+    PROJECT_NAME = "burnie"  # Change this for different projects
     LLM_PROVIDER = "grok"        # Change to "grok" to use Grok instead
     # LLM_PROVIDER = "grok"        # Uncomment this line to use Grok
     
@@ -4572,7 +4814,7 @@ def main():
     HUMAN_CHARACTERS_ONLY = True  # Set to True for product marketing videos - show real people using the product
     WEB3 = False  # Set to True for Web3/crypto meme characters, False for unlimited creative characters
     NO_CHARACTERS = False  # Set to True for pure product showcase with NO characters of any kind (overrides all other character flags)
-    USE_BRAND_AESTHETICS = True   # Set to True to incorporate brand-specific aesthetic guidelines
+    USE_BRAND_AESTHETICS = False   # Set to True to incorporate brand-specific aesthetic guidelines
     
     # Audio control
     CLIP_AUDIO_PROMPTS = False  # Set to False for product videos - single cohesive audio track works better
@@ -4581,7 +4823,16 @@ def main():
     VOICEOVER = True  # Set to True for product videos - adds narration about features and benefits
     
     # Influencer marketing mode (UGC-style videos)
-    INFLUENCER_MARKETING = False  # Set to True for UGC-style influencer videos where human character speaks naturally (veo model only, overrides voiceover, skips background music)
+    INFLUENCER_MARKETING = True  # Set to True for UGC-style influencer videos where human character speaks naturally (veo model only, overrides voiceover, skips background music)
+    
+    # Engagement nudges (call-to-action text overlays)
+    NUDGE = True  # Set to True to add engagement nudges (follow, like, share, etc.) in final seconds of designated clip
+    # If USE_BRAND_AESTHETICS=True: nudges appear in brand clip
+    # If USE_BRAND_AESTHETICS=False: nudges appear in last regular clip
+    
+    # Model image for influencer marketing (optional)
+    MODEL_IMAGE_PATH = "/Users/taran/Downloads/Taran.png"  # Set to path of model/influencer image for character consistency in influencer marketing videos. If None, Grok generates character description autonomously. If provided, the same model will appear in all frames.
+    # MODEL_IMAGE_PATH = "/Users/taran/Downloads/model-photo.jpg"  # Example: Use specific model/influencer
     
     # Clip generation model
     # Options:
@@ -4616,96 +4867,102 @@ def main():
     # THEME = "Audi as the symbol of achieved success and refined taste for entrepreneurs who have made it"
     # THEME = "Epic Blue Jays Championship Quest - Massive, heroic Toronto Blue Jays bird mascot with larger-than-life presence, wearing a t-shirt with reference logo prominently displayed on it, soaring majestically over Toronto skyline with CN Tower and stadium named Rogers Centre dwarfed below, dramatically landing on skyscrapers with cinematic grandeur, reference logo also prominently displayed on the CN Tower building and floating banners, stadium crowd roaring with thunderous cheers, text overlay 'Let's go Jays! We're with you!' in bold letters, supporting their 32-year championship quest with monumental, awe-inspiring scale and unstoppable team spirit - create a viral masterpiece that captures the electric energy of Toronto's baseball passion. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
     THEME = """
-    "OpenLedger - The AI Blockchain Revolution" - Product Marketing Campaign: A dynamic 16-second Instagram/TikTok Reel showcasing OpenLedger's groundbreaking platform that unlocks liquidity to monetize data, models, and agents. This is the next-generation blockchain network purpose-built for AI, where contributors receive provenance, attribution, and rewards for their work. The platform enables creation, training, and deployment of specialized AI models and agents with verifiable ownership, earnings, and governance embedded into the ecosystem. Every clip features dynamic visuals combining real professionals using the platform, futuristic UI/UX, blockchain networks, and AI visualization to emphasize innovation, accessibility, and transformative power for AI developers and data scientists.
+    "Productivity Hacks 101" - Cartoonish Influencer Campaign: A fun 16-second vertical cartoon-style video featuring an animated tech entrepreneur sharing productivity wisdom in a playful way. This is entertaining cartoon influencer content showing the comedic contrast between attempting to multitask chaos and the zen of single-tasking focus. The video uses vibrant cartoon animation style to make productivity advice fun and relatable, creating shareable content that resonates with busy professionals and students everywhere. Full cartoon/animated style throughout - no live-action elements.
 
-    CLIP 1 (0-8 seconds) - THE PLATFORM IN ACTION:
-    Modern professional workspace scene opening with a young AI developer (25-35 years old, tech-savvy, focused expression) sitting at a sleek workstation with multiple monitors displaying the OpenLedger platform interface. Camera captures over-the-shoulder view showing the actual platform UI - Model Datanet section with dataset cards, Model Factory with training configurations, Open Models gallery with AI model thumbnails. The developer's hands interact with the interface - scrolling through datasets, clicking "Create Datanet" button, selecting training parameters. Screen displays show real platform elements: question-answer tags, model cards with stats, training progress bars. Transition to close-up of the developer's face showing concentration and satisfaction as they upload their AI model. Split-screen effect shows blockchain network visualization overlaying the workspace - interconnected nodes forming neural network patterns with data streams in neon blue and orange, representing the decentralized infrastructure. Reference logo prominently displayed on the platform interface and laptop stickers. The scene emphasizes real platform usage, intuitive UI/UX, and the power of blockchain-backed AI development. Setting: Modern tech workspace with natural lighting, clean aesthetic, multiple monitors, coffee cup, coding environment. Dynamic camera movements capturing authentic platform interaction. Voiceover focuses on unlocking liquidity and monetizing AI contributions.
+    CLIP 1 (0-8 seconds) - MULTITASKING MADNESS:
+    Vertical 9:16 format. Full cartoon/animated style. Opening with animated cartoon version of reference model (tech entrepreneur character) frantically juggling multiple tasks - cartoon character has multiple arms sprouting out (comic exaggeration), each holding different items: laptop, phone, coffee cup, notebook, pen. Character's face shows stressed expression with swirly eyes, sweat drops flying off. Background: Bright colorful cartoon office with floating papers, sticky notes everywhere, multiple screens showing different tasks. Character is spinning slightly with motion lines, trying to do everything at once. Vibrant cartoon aesthetic with bold outlines, bright colors (oranges, yellows, blues), exaggerated overwhelmed expression. Comic chaos symbols around character (lightning bolts, exclamation marks, swirl lines). Everything animated in playful 2D/3D cartoon style with smooth, bouncy movements and dynamic energy. Character looks at camera with comedic stressed expression. No background music. Reference cartoon character saying: Trying to multitask everything at once is basically asking for a productivity disaster.
+    
+    CLIP 2 (8-16 seconds) - SINGLE-TASK SERENITY & ENGAGEMENT NUDGE:
+    Vertical 9:16 format. Full cartoon/animated style continuing. TRANSFORMATION happens - all the extra arms disappear in a cartoon "poof" with sparkle cloud. Animated cartoon character now calm and focused, sitting at clean organized desk with just one laptop open. Character's expression is peaceful and confident with slight smile. Background: Same office space but now organized, clean, minimalist - papers neatly stacked, single plant on desk, calm atmosphere. Character typing smoothly with focused concentration, occasional satisfied nods. Productivity meter appears beside character showing 100% efficiency with green checkmark. Color palette is cooler and calmer (soft blues, gentle greens, warm neutrals). Character maintains steady pace, looking content and in control. Zen-like aura with subtle glow around character. At approximately 5-6 seconds into this clip, bold animated text overlay appears at the TOP of the screen: "Subscribe for more videos" with fun cartoon styling - consider modern clean font with subtle shadow, bright blue or green with smooth outline, appearing with smooth slide-in animation and small sparkle particles. Text remains visible for final 3 seconds. Final moment: Character looks up at camera with knowing smile and gives thumbs up. No background music. Reference cartoon character saying: Focus on one thing at a time and watch your productivity soar like magic.
 
-    CLIP 2 (8-16 seconds) - COLLABORATION & SUCCESS:
-    Dynamic scene showing a diverse team of AI professionals collaborating in a modern tech office. Wide shot reveals multiple developers (different ethnicities, genders, ages 25-40) working at their workstations, each with OpenLedger platform open on their screens showing different sections - one on Model Datanet browsing datasets, another on Model Factory training a model, another on Open Models deploying their AI. Camera moves between workstations capturing authentic moments of collaboration - developers discussing model architecture, pointing at screens showing training metrics, celebrating successful model deployment. Transition to montage of deployed AI models in action: customer support bot interface responding to queries, instruction model generating code, cyber intelligence dashboard analyzing data. Screen overlays show token rewards being distributed, provenance records being created, attribution badges appearing on model cards. Cut to close-up of a data scientist (confident, satisfied expression) reviewing their earnings dashboard showing accumulated rewards from their AI contributions. Final powerful moment: The team gathers around a large screen displaying the OpenLedger ecosystem visualization - a network of interconnected nodes representing the global community of contributors. Camera zooms into the OpenLedger logo on the screen, then pulls back to show the entire team looking at camera with confident, excited expressions - they are building the future of decentralized AI. Setting: Modern tech office with glass walls, standing desks, whiteboards with AI diagrams, natural lighting, collaborative atmosphere. Dynamic camera movements capturing authentic teamwork and platform success. Voiceover focuses on verifiable ownership, community rewards, and empowering AI builders worldwide.
+    VISUAL STYLE (Cartoonish Influencer Content):
+    - 📱 Vertical 9:16 format - native Instagram Reels/TikTok orientation
+    - FULL CARTOON/ANIMATED STYLE: Everything is animated - character, environment, props, effects
+    - Vibrant cartoon color palette: Bright, saturated colors with bold outlines and smooth shading
+    - Exaggerated expressions and movements: Over-the-top reactions, bouncy animations, squash-and-stretch
+    - Cartoon character design based on reference model: Tech entrepreneur features translated to appealing cartoon style with personality
+    - Animated effects: Sparkles, energy lines, transformation sequences, cartoon sound effect bubbles
+    - Smooth cartoon movements: Character walks, gestures, drinks with fluid animation and personality
+    - Playful visual comedy: Exaggerated tiredness in clip 1, dramatic transformation in clip 2
+    - Bold cartoon outlines: Clean, defined edges on all elements
+    - Cartoon environment: Bedroom and kitchen with simplified, colorful designs and fun details
+    - Character consistency: Same cartoon character design in both clips, maintaining recognizable features from reference model
+    - Relatable humor: Universal morning struggle amplified through cartoon comedy
+    - "Subscribe for more videos" nudge: Bold cartoon text at TOP with playful styling and bounce animation
 
-    VISUAL STYLE (Professional Tech Product Marketing):
-    - 🚀 Dynamic, professional cinematography with modern tech aesthetic
-    - Authentic visual language combining real platform UI, professional workspaces, and blockchain visualization overlays
-    - Platform UI showcased through actual screens and monitors with real interface elements
-    - Varied settings: Individual workspace (Clip 1), Collaborative tech office (Clip 2)
-    - Dynamic camera movements - over-shoulder shots, tracking between workstations, screen close-ups, team reveals
-    - Cinematic depth of field - professionals and screens in sharp focus, office backgrounds with natural depth
-    - Professional lighting with tech-forward accents (blue, orange glow from screens), natural office lighting
-    - 9:16 vertical format - optimized for Instagram Reels and TikTok
-    - Brand-focused storytelling: logo on platform interface, laptop stickers, consistent visual identity
-    - Human-centric shots showing real usage, collaboration, satisfaction, and success moments
-    - Modern color grading - natural office tones, vibrant screen displays, tech blue/orange accents
-    - Dynamic pacing emphasizes: platform usability, team collaboration, model deployment, reward distribution
+    CORE MESSAGE (Cartoonish Influencer Content - 16 Seconds):
+    - Productivity Wisdom: Multitasking vs single-tasking - a universal workplace struggle
+    - Exaggerated Comedy: Cartoon style amplifies the chaos-to-calm transformation
+    - Visual Contrast: Frantic multitasking chaos transformed into peaceful focused productivity
+    - Relatable Influencer: Animated character sharing productivity tips with humor
+    - Shareable Advice: Work/study tips that resonate with busy professionals and students
+    - Personality-Driven: Cartoon character with expressive animations and helpful wisdom
 
-    CORE MESSAGE (Product Marketing - 16 Seconds):
-    - Platform Philosophy: Decentralized AI infrastructure that empowers contributors and unlocks value
-    - Revolutionary Technology: Blockchain-powered provenance, attribution, and rewards for AI work
-    - Ecosystem Platform: Not just tools, but a complete ecosystem for AI model creation, training, and deployment
-    - Professional Community: Real AI developers, data scientists, and teams building the future together
-    - Monetization Power: Transform data, models, and agents into verifiable assets with real rewards
-    - Authentic Visuals: Emphasizes real platform usage, professional collaboration, and tangible success
+    CONTENT BENEFITS (Prioritized for 16s with 2 Clips):
+    1. Relatable Productivity Advice - Universal work struggle everyone experiences (Both clips, heavily emphasized)
+    2. Visual Comedy - Exaggerated cartoon animations showing multitasking chaos vs focused calm (Both clips, emphasized)
+    3. Character Personality - Animated influencer with helpful wisdom delivered with humor (Both clips, emphasized)
+    4. Shareable Content - Productivity tips people want to share with colleagues and friends (Both clips, emphasized)
+    5. Engagement Hook - "Subscribe for more videos" nudge encouraging audience to follow for more tips (Clip 2, emphasized)
+    6. Educational Entertainment - Practical advice wrapped in fun cartoon content (Both clips, emphasized)
 
-    PLATFORM VALUES (Prioritized for 16s with 2 Clips):
-    1. Decentralization - Blockchain infrastructure for verifiable ownership and governance (Clip 1)
-    2. Monetization - Unlock liquidity for data, models, and agents with token rewards (Both clips)
-    3. Innovation - Next-gen AI blockchain combining cutting-edge technology with accessibility (Clip 1)
-    4. Professional Empowerment - Real developers and teams building, training, and deploying AI (Clip 2)
-    5. Provenance & Attribution - Verifiable ownership and earnings embedded in the system (Clip 2)
-    6. OpenLedger - The AI Blockchain revolutionizing how AI is built and monetized (Both clips, emphasized in Clip 2 finale)
+    SPEAKING GUIDANCE (16-Second Cartoonish Influencer Content):
+    - CARTOON CHARACTER SPEAKS: Animated influencer talks directly to camera with personality
+    - Clip 1: Maximum 12-14 words: "Trying to multitask everything at once is basically asking for a productivity disaster."
+    - Clip 2: Maximum 12-14 words: "Focus on one thing at a time and watch your productivity soar like magic."
+    - Tone: Helpful, friendly, relatable with light humor and practical wisdom
+    - Animation: Mouth movements sync with speech, expressive gestures during talking
+    - Direct Address: Cartoon character looks at camera like sharing advice with a friend
 
-    VOICEOVER GUIDANCE (16-Second Product Reel):
-    - Voiceover narration: Professional voice (male or female) with energetic, confident, tech-forward tone
-    - Clip 1 voiceover: Focus on monetizing AI, blockchain infrastructure, unlocking liquidity (8-9 words)
-    - Clip 2 voiceover: Focus on team collaboration, verifiable ownership, empowering builders (8-9 words)
-    - Voiceover should reinforce platform capabilities, professional empowerment, and revolutionary technology
-    - Energetic, memorable voiceover that builds excitement and inspires AI builders
+    ELEMENTS TO HIGHLIGHT (Across 2 Clips):
+    - Cartoon Character Design (Both clips): Animated version of reference model with tech entrepreneur features, expressive face
+    - Multitasking Chaos (Clip 1): Multiple cartoon arms, juggling items, swirly stressed eyes, sweat drops, motion lines
+    - Colorful Cartoon Environments (Both clips): Bright messy office (Clip 1), Clean organized office (Clip 2)
+    - Transformation Animation (Clip 2): Extra arms disappear in "poof" with sparkles, character becomes calm and focused
+    - Props and Details (Both clips): Laptop, phone, coffee cup, notebook (Clip 1), Single laptop, plant, organized desk (Clip 2)
+    - Cartoon Effects (Both clips): Lightning bolts, exclamation marks, swirl lines (Clip 1), productivity meter, zen glow (Clip 2)
+    - Color Shift (Both clips): Bright chaotic colors (oranges, yellows) to calm peaceful colors (blues, greens)
+    - "Subscribe for more videos" Nudge (Clip 2): Bold cartoon text at TOP with clean modern font, smooth slide-in animation
+    - Character Expressions (Both clips): Stressed overwhelm transforming to peaceful confident focus with thumbs up
 
-    PLATFORM ELEMENTS TO HIGHLIGHT (Across 2 Clips):
-    - OpenLedger reference logo (prominent on platform screens, laptop stickers in both clips, establishing brand recognition)
-    - Platform UI showcasing Model Datanet, Model Factory, Open Models, Open Chat sections
-    - Blockchain visualization overlays: interconnected nodes, neural networks, data streams (Clip 1)
-    - Token rewards and monetization mechanics - progress bars, checkmarks, earnings dashboard (Both clips)
-    - Professional collaboration with diverse AI developers and data scientists (Clip 2)
-    - Decentralized ecosystem visualization on large screen (Clip 2)
-    - Provenance, attribution, and governance embedded in the system (Clip 2)
-    - Authentic visuals emphasize innovation, accessibility, and professional empowerment
+    CONTENT SHOWCASE:
+    - Clip 1: Multitasking chaos - multiple arms, juggling tasks, stressed expression, relatable workplace struggle
+    - Clip 2: Single-task focus - calm organized workspace, peaceful productivity, "Subscribe for more videos" engagement nudge at TOP
 
-    PRODUCT SHOWCASE (Use product images intelligently across 2 clips):
-    - Clip 1: Feature platform UI on developer's monitors - datasets grid, model cards, training configuration panels
-    - Clip 2: Show Model Factory interface, deployed AI models (customer support, instruction, cyber intelligence), team collaboration
-    - Use product images to show different platform sections and real-world usage
-    - Consistent brand identity and logo across all screens and workspace elements
-    - UI/UX details and professional workflows that define the platform
-    - Versatility that makes OpenLedger essential for AI contributors and builders
+    CLIP-SPECIFIC GUIDANCE:
+    - Clip 1: Focus on exaggerated multitasking chaos - multiple cartoon arms, juggling items, stressed swirly eyes, comic overwhelm
+    - Clip 2: Focus on peaceful transformation - arms disappear, calm focused character, organized workspace, zen productivity
+    - Both clips: Maintain full cartoon style, vibrant colors, smooth bouncy animations, helpful productivity message
+    - Cartoon character SPEAKS in both clips - direct to camera, friendly helpful tone, practical advice
+    - Character consistency: Same animated character design based on reference model in both clips
+    - Animation style: Smooth 2D/3D cartoon with exaggerated expressions, fluid movements, comic timing
 
-    CLIP-SPECIFIC GUIDANCE FOR GROK:
-    - Clip 1: Focus on individual developer, platform UI interaction, blockchain overlay, authentic workspace - PROFESSIONAL & DYNAMIC
-    - Clip 2: Focus on team collaboration, multiple workstations, deployed models, final team moment - COLLABORATIVE & INSPIRING
-    - Every clip must emphasize AUTHENTIC USAGE and PROFESSIONAL ENVIRONMENT for credibility
-    - Voiceover must be 8-9 words maximum per clip for natural pacing
+    CARTOON CHARACTER DESIGN GUIDANCE (Based on Reference Model):
+    - Animated version of tech entrepreneur: Translate reference model features to appealing cartoon style
+    - Clip 1: Multiple arms (4-6 arms total), stressed expression, swirly eyes, sweat drops, casual work attire
+    - Clip 2: Normal two arms, calm expression, confident smile, same casual work attire but tidier
+    - Facial features: Cartoon version of glasses if reference has them, distinct recognizable features
+    - Expressions: Extreme range from frantic stress to peaceful zen confidence
+    - Personality: Helpful, relatable, shares wisdom directly to audience like a friendly mentor
+    - Size and proportions: Appealing cartoon proportions with emphasis on expressive face and gestures
+    - Consistency: Recognizable as same character across both clips despite arm transformation
 
     TARGET AUDIENCE:
-    - AI developers and data scientists aged 25-45 building and training models
-    - Machine learning engineers looking to monetize their work
-    - Tech entrepreneurs exploring decentralized AI opportunities
-    - Data professionals seeking fair attribution and rewards
-    - Blockchain-curious AI practitioners interested in Web3 infrastructure
-    - Research teams and startups building AI products
-    - Professional audiences who value authentic, credible tech demonstrations
+    - Busy professionals struggling with productivity and time management (universal appeal)
+    - Students learning effective study techniques
+    - Social media users seeking practical life advice content
+    - Anyone who multitasks and feels overwhelmed
+    - Cartoon/animation content fans who enjoy educational entertainment
+    - Instagram Reels and TikTok audience looking for shareable productivity tips
 
-    Duration: 16 seconds (2 clips × 8 seconds) - Perfect for Instagram Reels and TikTok. Dynamic pacing throughout both clips for maximum engagement. Voiceover narration (8-9 words per clip) adds professional storytelling that reinforces platform capabilities. Designed to showcase OpenLedger as the revolutionary AI blockchain platform through authentic professional usage, not just abstract concepts. Builds brand recognition, establishes platform credibility, and creates excitement with the target audience through professional, authentic visual storytelling with energetic voiceover. Background music will be added separately to complement the visuals and voiceover.
+    Duration: 16 seconds (2 clips × 8 seconds) - Perfect for Instagram Reels and TikTok. Cartoonish influencer content with helpful pacing throughout both clips for maximum entertainment and practical value. Opens with exaggerated multitasking chaos showing universal workplace struggle, concludes with peaceful single-task focus and "Subscribe for more videos" engagement nudge at TOP of screen. Full cartoon/animated style creating playful educational comedy that resonates with busy professionals and students everywhere. Designed to be highly shareable and helpful through exaggerated humor and practical productivity wisdom. Builds connection through relatable struggle, educates through transformation demonstration, and creates engagement through subscription call-to-action. Ends with "Subscribe for more videos" text overlay with clean cartoon styling at TOP position in final 3 seconds of clip 2, with smooth slide-in animation and sparkle effects encouraging audience to follow for more tips. No background music - clean cartoon aesthetic with character speaking helpful advice directly. Simple stitching between clips maintains educational narrative flow from chaotic overwhelm to focused productivity zen.
     """
 
-    LOGO_PATH = "/Users/taran/Downloads/openledger-logo.jpg"  # MUST SET THIS - always required
+`    LOGO_PATH = "/Users/taran/Downloads/burnie-logo.png"  # Optional for influencer content - set to None if no brand logo needed
+`    # LOGO_PATH = None  # No brand logo for pure influencer content
     
     # Product images for frame generation alignment
-    PRODUCT_IMAGES = [
-        "/Users/taran/Downloads/openledger-product-1.jpeg",
-        "/Users/taran/Downloads/openledger-product-2.jpeg",
-        "/Users/taran/Downloads/openledger-product-3.jpeg",
-        "/Users/taran/Downloads/openledger-product-4.png"
-    ]  # List of local paths to product images (can be empty list)
+    PRODUCT_IMAGES = []  # Empty for this AI platform video - no physical product images needed
     # ========================================
     # END CONFIGURATION
     # ========================================
@@ -4779,7 +5036,9 @@ def main():
                 use_mascot_character=USE_MASCOT_CHARACTER,
                 mascot_logo_path=MASCOT_LOGO_PATH,
                 use_mascot_in_images=USE_MASCOT_IN_IMAGES,
-                influencer_marketing=INFLUENCER_MARKETING
+                influencer_marketing=INFLUENCER_MARKETING,
+                model_image_path=MODEL_IMAGE_PATH,
+                nudge=NUDGE
             )
         else:
             # Clip duration mode
@@ -4805,7 +5064,9 @@ def main():
                 use_mascot_character=USE_MASCOT_CHARACTER,
                 mascot_logo_path=MASCOT_LOGO_PATH,
                 use_mascot_in_images=USE_MASCOT_IN_IMAGES,
-                influencer_marketing=INFLUENCER_MARKETING
+                influencer_marketing=INFLUENCER_MARKETING,
+                model_image_path=MODEL_IMAGE_PATH,
+                nudge=NUDGE
         )
     except ValueError as e:
         print(f"❌ ERROR: {str(e)}")

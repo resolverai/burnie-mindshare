@@ -1545,12 +1545,14 @@ You must generate:
       - Primary color: {color_palette.get('primary', 'N/A')}
       - Secondary color: {color_palette.get('secondary', 'N/A')}
       - Accent color: {color_palette.get('accent', 'N/A')}
-      - **USE HEX CODES IN PROMPTS**: Include hex codes (e.g., {color_palette.get('primary', '#000000')}, {color_palette.get('secondary', '#000000')}) in your image prompts to ensure accurate color reproduction
-      - **CRITICAL: HEX CODES MUST NOT APPEAR AS TEXT**: The hex codes should be used for color reference in the prompt, but they must NEVER appear as visible text, numbers, or symbols in the generated images themselves
-      - Use these colors intelligently in visual design (backgrounds, accents, highlights, lighting)
+      - **USE HEX CODES IN PROMPTS FOR COLOR GENERATION**: Include hex codes (e.g., {color_palette.get('primary', '#000000')}, {color_palette.get('secondary', '#000000')}) in your image prompts to ensure accurate color reproduction
+      - **CRITICAL INSTRUCTION FOR EVERY IMAGE PROMPT**: You MUST include this exact phrase at the END of every single image prompt you generate:
+        * ", use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
+      - **ABSOLUTELY MANDATORY**: The hex codes should be used by the AI model for color palette application, but they must NEVER appear as visible text, numbers, or symbols anywhere in the generated images themselves
+      - Use these colors intelligently in visual design (backgrounds, accents, highlights, lighting, color grading)
       - Make color integration feel natural and contextual
-      - Example CORRECT prompt: "...using {color_palette.get('primary', '#000000')} for highlights, {color_palette.get('secondary', '#000000')} for backgrounds, {color_palette.get('accent', '#000000')} for accents..."
-      - The AI model will interpret the hex codes to apply colors correctly, but the hex codes themselves should remain invisible in the final image
+      - Example CORRECT prompt structure: "...using {color_palette.get('primary', '#000000')} for highlights, {color_palette.get('secondary', '#000000')} for backgrounds, {color_palette.get('accent', '#000000')} for accents, use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
+      - The AI model will interpret the hex codes to apply the color palette correctly, but the hex code strings (e.g., "#2bbf7a") must remain completely invisible in the final rendered image
    {f'''
    5. **REFERENCE LOGO INTEGRATION REQUIRED** (MANDATORY):
       - You MUST create dynamic prompts that naturally incorporate reference logo placement
@@ -1686,6 +1688,14 @@ async def generate_images(project_id: int, job_id: str, prompts: Dict, context: 
             continue
         
         image_prompt = prompts[image_prompt_key]
+        
+        # POST-PROCESS IMAGE PROMPT: Ensure hex code instruction is appended
+        # This is a safety net in case Grok doesn't include it
+        hex_code_instruction = ", use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
+        if hex_code_instruction not in image_prompt:
+            image_prompt = image_prompt.rstrip('.') + hex_code_instruction
+            logger.info(f"🎨 Added hex code instruction to image_prompt_{i}")
+        
         tweet_data = prompts.get(tweet_text_key, {})
         
         # Extract tweet text and thread array
@@ -1959,6 +1969,13 @@ async def generate_additional_images_for_clips(project_id: int, job_id: str, pro
                 continue
             
             image_prompt = prompts[image_prompt_key]
+            
+            # POST-PROCESS IMAGE PROMPT: Ensure hex code instruction is appended
+            # This is a safety net in case Grok doesn't include it
+            hex_code_instruction = ", use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
+            if hex_code_instruction not in image_prompt:
+                image_prompt = image_prompt.rstrip('.') + hex_code_instruction
+                logger.info(f"🎨 Added hex code instruction to {image_prompt_key}")
             
             try:
                 # Prepare image URLs for Fal.ai
