@@ -4202,7 +4202,7 @@ JSON only, no other text:"""
                         safe_clip_duration = self.clip_duration
                     
                     print(f"🎵 Using {safe_clip_duration}s duration for all clips (configured: {self.clip_duration}s)")
-                voiceover_durations = [(None, safe_clip_duration)] * self.clip_count
+                    voiceover_durations = [(None, safe_clip_duration)] * self.clip_count
             
             # Step 6: Generate video clips with dynamic durations
             clip_urls = []
@@ -4276,17 +4276,17 @@ JSON only, no other text:"""
                         traceback.print_exc()
                         return None
                     
-                    if not clip_s3_url:
-                        print(f"❌ Failed to generate clip {i}!")
-                        return None
-                    
+                if not clip_s3_url:
+                    print(f"❌ Failed to generate clip {i}!")
+                    return None
+                
                     # Generate audio for this clip with dynamic duration (always use Pixverse for audio)
                     print(f"🎵 Generating Pixverse audio for clip {i}...")
-                    audio_prompt_key = f"audio{i}_prompt" if not use_prime else f"audio{i}_prime_prompt"
-                    audio_prompt = prompts.get(audio_prompt_key, "")
-                    
-                    if audio_prompt:
-                        print(f"🎵 Using {'prime' if use_prime else 'regular'} audio for clip {i}")
+                audio_prompt_key = f"audio{i}_prompt" if not use_prime else f"audio{i}_prime_prompt"
+                audio_prompt = prompts.get(audio_prompt_key, "")
+                
+                if audio_prompt:
+                    print(f"🎵 Using {'prime' if use_prime else 'regular'} audio for clip {i}")
                     # Generate audio for this clip with dynamic duration
                     clip_with_audio_s3_url = self.generate_final_video_with_audio(audio_prompt, clip_s3_url, duration=clip_duration)
                     if not clip_with_audio_s3_url:
@@ -4601,35 +4601,35 @@ JSON only, no other text:"""
                                     clip_urls = [combined_video_with_audio_s3_url]
                         else:
                             clip_urls = [combined_video_with_audio_s3_url]
-                    else:
-                        print("⚠️ No single audio prompt found, using combined video without audio")
-                        combined_video_with_audio_s3_url = combined_video_s3_url
-                        
-                        # Handle voiceover mixing if enabled
-                        if self.voiceover:
-                            print("🎤 Mixing voiceover with combined video...")
-                            # For single audio mode, we need to combine all voiceovers first
-                            all_voiceover_paths = [clip['voiceover_path'] for clip in video_only_clips if clip['voiceover_path']]
-                            if all_voiceover_paths:
-                                # Combine all voiceovers into one file
-                                combined_voiceover_path = self.combine_voiceovers(all_voiceover_paths)
-                                if combined_voiceover_path:
-                                    # Mix the combined video with audio and combined voiceover
-                                    mixed_final_s3_url = self.mix_audio_with_voiceover(combined_video_s3_url, combined_video_with_audio_s3_url, combined_voiceover_path, "final")
-                                    if mixed_final_s3_url:
-                                        clip_urls = [mixed_final_s3_url]
-                                        print("✅ Combined video with audio and voiceover created")
-                                    else:
-                                        print("⚠️ Failed to mix voiceover, using video with audio only")
-                                        clip_urls = [combined_video_with_audio_s3_url]
+                else:
+                    print("⚠️ No single audio prompt found, using combined video without audio")
+                    combined_video_with_audio_s3_url = combined_video_s3_url
+                    
+                    # Handle voiceover mixing if enabled
+                    if self.voiceover:
+                        print("🎤 Mixing voiceover with combined video...")
+                        # For single audio mode, we need to combine all voiceovers first
+                        all_voiceover_paths = [clip['voiceover_path'] for clip in video_only_clips if clip['voiceover_path']]
+                        if all_voiceover_paths:
+                            # Combine all voiceovers into one file
+                            combined_voiceover_path = self.combine_voiceovers(all_voiceover_paths)
+                            if combined_voiceover_path:
+                                # Mix the combined video with audio and combined voiceover
+                                mixed_final_s3_url = self.mix_audio_with_voiceover(combined_video_s3_url, combined_video_with_audio_s3_url, combined_voiceover_path, "final")
+                                if mixed_final_s3_url:
+                                    clip_urls = [mixed_final_s3_url]
+                                    print("✅ Combined video with audio and voiceover created")
                                 else:
-                                    print("⚠️ Failed to combine voiceovers, using video with audio only")
+                                    print("⚠️ Failed to mix voiceover, using video with audio only")
                                     clip_urls = [combined_video_with_audio_s3_url]
                             else:
-                                print("🎵 No voiceovers to mix, using video with audio only")
+                                print("⚠️ Failed to combine voiceovers, using video with audio only")
                                 clip_urls = [combined_video_with_audio_s3_url]
                         else:
+                            print("🎵 No voiceovers to mix, using video with audio only")
                             clip_urls = [combined_video_with_audio_s3_url]
+                    else:
+                        clip_urls = [combined_video_with_audio_s3_url]
             
             # Step 7: Handle final video combination based on audio mode
             if self.clip_audio_prompts:
@@ -4760,7 +4760,7 @@ def main():
     # ========================================
     # CONFIGURATION - MODIFY THESE VALUES
     # ========================================
-    PROJECT_NAME = "burnie"  # Change this for different projects
+    PROJECT_NAME = "ryse"  # Change this for different projects
     LLM_PROVIDER = "grok"        # Change to "grok" to use Grok instead
     # LLM_PROVIDER = "grok"        # Uncomment this line to use Grok
     
@@ -4776,7 +4776,7 @@ def main():
     
     # Mode 2: Use clip_duration + number_of_clips (preferred mode)
     CLIP_DURATION = 8  # Duration of each clip in seconds
-    NUMBER_OF_CLIPS = 2  # Number of clips to generate
+    NUMBER_OF_CLIPS = 3  # Number of clips to generate
     
     # Note: If both are provided, clip_duration + number_of_clips takes preference
     # If only VIDEO_DURATION is set, clips are calculated by dividing by 5
@@ -4823,15 +4823,15 @@ def main():
     VOICEOVER = True  # Set to True for product videos - adds narration about features and benefits
     
     # Influencer marketing mode (UGC-style videos)
-    INFLUENCER_MARKETING = True  # Set to True for UGC-style influencer videos where human character speaks naturally (veo model only, overrides voiceover, skips background music)
+    INFLUENCER_MARKETING = False  # Set to False for product marketing videos with professional voiceover, True for UGC-style where character speaks naturally
     
     # Engagement nudges (call-to-action text overlays)
-    NUDGE = True  # Set to True to add engagement nudges (follow, like, share, etc.) in final seconds of designated clip
+    NUDGE = False  # Set to False for product marketing videos, True for influencer content with engagement nudges
     # If USE_BRAND_AESTHETICS=True: nudges appear in brand clip
     # If USE_BRAND_AESTHETICS=False: nudges appear in last regular clip
     
     # Model image for influencer marketing (optional)
-    MODEL_IMAGE_PATH = "/Users/taran/Downloads/Taran.png"  # Set to path of model/influencer image for character consistency in influencer marketing videos. If None, Grok generates character description autonomously. If provided, the same model will appear in all frames.
+    MODEL_IMAGE_PATH = None  # Set to None for product marketing videos with actors (not influencer-based). Set to path for influencer videos to maintain character consistency.
     # MODEL_IMAGE_PATH = "/Users/taran/Downloads/model-photo.jpg"  # Example: Use specific model/influencer
     
     # Clip generation model
@@ -4867,102 +4867,110 @@ def main():
     # THEME = "Audi as the symbol of achieved success and refined taste for entrepreneurs who have made it"
     # THEME = "Epic Blue Jays Championship Quest - Massive, heroic Toronto Blue Jays bird mascot with larger-than-life presence, wearing a t-shirt with reference logo prominently displayed on it, soaring majestically over Toronto skyline with CN Tower and stadium named Rogers Centre dwarfed below, dramatically landing on skyscrapers with cinematic grandeur, reference logo also prominently displayed on the CN Tower building and floating banners, stadium crowd roaring with thunderous cheers, text overlay 'Let's go Jays! We're with you!' in bold letters, supporting their 32-year championship quest with monumental, awe-inspiring scale and unstoppable team spirit - create a viral masterpiece that captures the electric energy of Toronto's baseball passion. Ultra slow motion camera shots"  # Set to None to let LLM generate content autonomously
     THEME = """
-    "Productivity Hacks 101" - Cartoonish Influencer Campaign: A fun 16-second vertical cartoon-style video featuring an animated tech entrepreneur sharing productivity wisdom in a playful way. This is entertaining cartoon influencer content showing the comedic contrast between attempting to multitask chaos and the zen of single-tasking focus. The video uses vibrant cartoon animation style to make productivity advice fun and relatable, creating shareable content that resonates with busy professionals and students everywhere. Full cartoon/animated style throughout - no live-action elements.
+    "RYSE SmartShade - The Future of Morning Light" - Product Marketing Campaign: A stunning 24-second vertical video showcasing smart home automation through the lens of perfect morning light control. This compelling product marketing demonstrates how RYSE SmartShade transforms any window into an intelligent lighting system that wakes you naturally, responds to voice commands, and integrates seamlessly into modern smart homes. The video captures the elegant simplicity of automation through beautiful cinematography, smooth device operation, and lifestyle integration that resonates with tech-savvy homeowners seeking effortless luxury.
 
-    CLIP 1 (0-8 seconds) - MULTITASKING MADNESS:
-    Vertical 9:16 format. Full cartoon/animated style. Opening with animated cartoon version of reference model (tech entrepreneur character) frantically juggling multiple tasks - cartoon character has multiple arms sprouting out (comic exaggeration), each holding different items: laptop, phone, coffee cup, notebook, pen. Character's face shows stressed expression with swirly eyes, sweat drops flying off. Background: Bright colorful cartoon office with floating papers, sticky notes everywhere, multiple screens showing different tasks. Character is spinning slightly with motion lines, trying to do everything at once. Vibrant cartoon aesthetic with bold outlines, bright colors (oranges, yellows, blues), exaggerated overwhelmed expression. Comic chaos symbols around character (lightning bolts, exclamation marks, swirl lines). Everything animated in playful 2D/3D cartoon style with smooth, bouncy movements and dynamic energy. Character looks at camera with comedic stressed expression. No background music. Reference cartoon character saying: Trying to multitask everything at once is basically asking for a productivity disaster.
-    
-    CLIP 2 (8-16 seconds) - SINGLE-TASK SERENITY & ENGAGEMENT NUDGE:
-    Vertical 9:16 format. Full cartoon/animated style continuing. TRANSFORMATION happens - all the extra arms disappear in a cartoon "poof" with sparkle cloud. Animated cartoon character now calm and focused, sitting at clean organized desk with just one laptop open. Character's expression is peaceful and confident with slight smile. Background: Same office space but now organized, clean, minimalist - papers neatly stacked, single plant on desk, calm atmosphere. Character typing smoothly with focused concentration, occasional satisfied nods. Productivity meter appears beside character showing 100% efficiency with green checkmark. Color palette is cooler and calmer (soft blues, gentle greens, warm neutrals). Character maintains steady pace, looking content and in control. Zen-like aura with subtle glow around character. At approximately 5-6 seconds into this clip, bold animated text overlay appears at the TOP of the screen: "Subscribe for more videos" with fun cartoon styling - consider modern clean font with subtle shadow, bright blue or green with smooth outline, appearing with smooth slide-in animation and small sparkle particles. Text remains visible for final 3 seconds. Final moment: Character looks up at camera with knowing smile and gives thumbs up. No background music. Reference cartoon character saying: Focus on one thing at a time and watch your productivity soar like magic.
+    CLIP 1 (0-8 seconds) - NATURAL WAKE-UP MAGIC:
+    Vertical 9:16 format. Photorealistic live-action cinematography. Opening: Serene modern bedroom bathed in soft pre-dawn blue light filtering through closed window blinds. Close-up of woman (late 20s, brunette shoulder-length hair, fair complexion, wearing white sleep shirt) sleeping peacefully in bed, face relaxed and peaceful. Camera slowly pulls back revealing the full scene. MAGICAL MOMENT: As natural sunlight begins to rise outside, RYSE SmartShade device (sleek white rectangular unit with glowing blue LED indicators mounted on window frame with bead chain) automatically activates on schedule. Blinds begin gliding open smoothly and gradually in ultra-slow motion, motorized chain moving effortlessly. Golden sunrise light gradually floods the room in gentle waves, creating stunning lens flare effects and warm color temperature shift from cool blue to golden amber. Woman naturally stirs and wakes with a peaceful smile, stretching contentedly as perfect natural light fills the space. Camera captures: Close-up of RYSE device LED pulsing blue (showing scheduled activation), smooth automated chain movement, woman's peaceful awakening, beautiful lighting transformation. Product context: Automated scheduling feature in action, natural circadian rhythm support, gentle wake-up experience. No background music. Professional warm voice-over with confident reassuring tone: Wake up naturally to perfect light, automatically scheduled for your rhythm.
 
-    VISUAL STYLE (Cartoonish Influencer Content):
+    CLIP 2 (8-16 seconds) - VOICE CONTROL POWER:
+    Vertical 9:16 format. Photorealistic live-action cinematography. Same bedroom, later morning scene with bright daylight. Man (early 30s, athletic build, dark brown hair, light stubble, wearing casual gray t-shirt and dark jeans) enters bedroom carrying coffee, walks toward window area. Room already has natural light but blinds are partially open. VOICE COMMAND MOMENT: Man speaks naturally and clearly to the air: "Hey Alexa, close the bedroom blinds." Camera captures his confident expression and casual gesture. INSTANT RESPONSE: RYSE SmartShade device LED indicators light up blue immediately in response, motor engages smoothly. Blinds glide closed automatically with elegant controlled movement, no effort required. Room lighting shifts as blinds close, creating dramatic lighting change. Camera shows multiple angles: Man's satisfied expression as he watches effortless automation, close-up of RYSE device activating with LED response, smooth motorized blind operation, bead chain moving on its own. Final shot: Man taking sip of coffee with accomplished smile as blinds finish closing perfectly. Product showcase: Voice assistant integration (Alexa), instant responsiveness, smooth quiet operation, hands-free convenience. No background music. Professional confident voice-over: Control with your voice. Works with Alexa, Google Home, and more.
+
+    CLIP 3 (16-24 seconds) - SMART HOME ECOSYSTEM & PRODUCT DETAILS:
+    Vertical 9:16 format. Photorealistic live-action cinematography. Opening: Same man now holding smartphone in hand, standing by window with pleased expression in well-lit bedroom. Screen clearly shows RYSE mobile app interface with intuitive controls visible (schedule icons, slider controls, room selection). Man taps screen confidently, adjusting settings. INSTANT APP CONTROL: Blinds respond immediately to app command, opening halfway to perfect position. Golden afternoon light streams in at ideal level. TRANSITION TO PRODUCT SHOWCASE: Quick dynamic cuts highlighting key features in professional product photography style: (1) Close-up of RYSE device from multiple angles - sleek white rectangular design, LED status indicators glowing, modern minimalist aesthetic; (2) BatteryPack component snapping into device seamlessly - showing wire-free design and 6-month battery life; (3) Side-by-side comparison of plastic and metal bead chains working perfectly with device - universal compatibility demonstration; (4) Three-step installation visual sequence - mounting bracket installation, looping chain through device, mounting device to bracket - showing DIY simplicity; (5) Smartphone screen with RYSE app showing voice assistant integration icons (Alexa, Google Home, IFTTT logos prominent), timer schedules, and automation controls; (6) Wide shot: Modern bedroom with RYSE device installed, perfect natural lighting, couple both visible and happy in background. Final frame: RYSE logo prominent on device, reference logo subtly integrated in app screen, professional product aesthetic. No background music. Professional enthusiastic voice-over: Easy DIY install. Six-month battery. Works with any blind. The smart home upgrade you've been waiting for.
+
+    VISUAL STYLE (Premium Product Marketing):
     - 📱 Vertical 9:16 format - native Instagram Reels/TikTok orientation
-    - FULL CARTOON/ANIMATED STYLE: Everything is animated - character, environment, props, effects
-    - Vibrant cartoon color palette: Bright, saturated colors with bold outlines and smooth shading
-    - Exaggerated expressions and movements: Over-the-top reactions, bouncy animations, squash-and-stretch
-    - Cartoon character design based on reference model: Tech entrepreneur features translated to appealing cartoon style with personality
-    - Animated effects: Sparkles, energy lines, transformation sequences, cartoon sound effect bubbles
-    - Smooth cartoon movements: Character walks, gestures, drinks with fluid animation and personality
-    - Playful visual comedy: Exaggerated tiredness in clip 1, dramatic transformation in clip 2
-    - Bold cartoon outlines: Clean, defined edges on all elements
-    - Cartoon environment: Bedroom and kitchen with simplified, colorful designs and fun details
-    - Character consistency: Same cartoon character design in both clips, maintaining recognizable features from reference model
-    - Relatable humor: Universal morning struggle amplified through cartoon comedy
-    - "Subscribe for more videos" nudge: Bold cartoon text at TOP with playful styling and bounce animation
+    - PHOTOREALISTIC LIVE-ACTION: Premium cinematography, professional actors, beautiful modern bedroom setting
+    - Stunning lighting progression: Pre-dawn blue (Clip 1) → Bright daylight (Clip 2) → Perfect afternoon light with product showcase (Clip 3)
+    - Modern luxury aesthetic: Minimalist bedroom, clean lines, premium materials, soft color palette (whites, grays, warm woods)
+    - Cinematic camera work: Smooth pull-backs, close-ups for product details, dramatic lighting reveals, multiple angles
+    - Professional color grading: Warm inviting tones, natural skin tones, golden hour quality, stunning sunrise effects
+    - Product integration: RYSE SmartShade prominently featured, LED indicators clearly visible, smooth operation highlighted
+    - Ultra-slow motion: Blinds opening/closing in elegant slow motion to showcase smooth automated movement
+    - Premium product shots: Clean professional product photography, multiple feature highlights, dynamic cuts
+    - Smart home aesthetic: Modern technology seamlessly integrated, voice control demonstration, app interface clear
+    - Lifestyle integration: Natural wake-up, voice commands during daily routine, app control convenience
+    - Emotional resonance: Peaceful awakening, satisfied confidence, modern luxury living
 
-    CORE MESSAGE (Cartoonish Influencer Content - 16 Seconds):
-    - Productivity Wisdom: Multitasking vs single-tasking - a universal workplace struggle
-    - Exaggerated Comedy: Cartoon style amplifies the chaos-to-calm transformation
-    - Visual Contrast: Frantic multitasking chaos transformed into peaceful focused productivity
-    - Relatable Influencer: Animated character sharing productivity tips with humor
-    - Shareable Advice: Work/study tips that resonate with busy professionals and students
-    - Personality-Driven: Cartoon character with expressive animations and helpful wisdom
+    CORE MESSAGE (Premium Product Marketing - 24 Seconds):
+    - Automated Awakening: Wake up naturally with scheduled blind opening, perfect circadian rhythm support
+    - Voice Control Power: Hands-free control with Alexa, Google Home, and other voice assistants
+    - Smart Home Integration: Seamless app control, automation schedules, IFTTT compatibility
+    - Premium Features: 6-month battery life, DIY installation, universal blind compatibility (plastic/metal chains)
+    - Modern Luxury Living: Transform any window into intelligent lighting system, effortless convenience
+    - Product Showcase: Professional product photography highlights key features and installation simplicity
+    - Effortless Mornings: Wake up naturally to gradually opening blinds, perfect lighting every time
+    - Easy Installation: Quick DIY install, works with existing bead chain blinds (plastic or metal)
+    - Wire-Free Convenience: 6-month rechargeable battery, no electrical work required
+    - Smart Home Integration: Compatible with popular voice assistants and home automation platforms
+    - Lifestyle Upgrade: Transform daily routines from hassle to hands-free convenience
 
-    CONTENT BENEFITS (Prioritized for 16s with 2 Clips):
-    1. Relatable Productivity Advice - Universal work struggle everyone experiences (Both clips, heavily emphasized)
-    2. Visual Comedy - Exaggerated cartoon animations showing multitasking chaos vs focused calm (Both clips, emphasized)
-    3. Character Personality - Animated influencer with helpful wisdom delivered with humor (Both clips, emphasized)
-    4. Shareable Content - Productivity tips people want to share with colleagues and friends (Both clips, emphasized)
-    5. Engagement Hook - "Subscribe for more videos" nudge encouraging audience to follow for more tips (Clip 2, emphasized)
-    6. Educational Entertainment - Practical advice wrapped in fun cartoon content (Both clips, emphasized)
+    PRODUCT BENEFITS (Prioritized for 24s with 3 Clips):
+    1. Automated Convenience - No more manual pulling of blind cords, effortless operation (Clips 2-3, heavily emphasized)
+    2. Smart Control Options - App, voice, schedules, buttons - control any way you prefer (Clip 3, emphasized)
+    3. Better Mornings - Wake naturally to gradual light, support circadian rhythm, peaceful wake-ups (Clips 1,3, emphasized)
+    4. Easy DIY Installation - Quick 3-step install, works with existing blinds, renter-friendly (Clip 3, subtly present)
+    5. Wire-Free Design - 6-month battery life, rechargeable via USB, no electrician needed (Clip 3, quick showcase)
+    6. Universal Compatibility - Works with any bead chain (plastic or metal), voice assistant integration (Clip 3, emphasized)
+    7. Relationship Harmony - No more waking woman abruptly with harsh light, smooth automated operation everyone loves (Clips 2-3, comedic emphasis)
 
-    SPEAKING GUIDANCE (16-Second Cartoonish Influencer Content):
-    - CARTOON CHARACTER SPEAKS: Animated influencer talks directly to camera with personality
-    - Clip 1: Maximum 12-14 words: "Trying to multitask everything at once is basically asking for a productivity disaster."
-    - Clip 2: Maximum 12-14 words: "Focus on one thing at a time and watch your productivity soar like magic."
-    - Tone: Helpful, friendly, relatable with light humor and practical wisdom
-    - Animation: Mouth movements sync with speech, expressive gestures during talking
-    - Direct Address: Cartoon character looks at camera like sharing advice with a friend
+    SPEAKING GUIDANCE (24-Second Product Marketing with Voiceover):
+    - Clip 1: Man whispers with playful innuendo tone (8-9 words max): "Some people like doing it first thing in the morning"
+    - Clip 2: Same man, sarcastic self-aware tone (9-10 words max): "But sometimes doing it manually... isn't worth the effort"
+    - Clip 3: Same man, confident relaxed satisfied tone (10-11 words max): "Now I just tap it and let it do the work"
+    - Overall tone: Playful, clever, sophisticated humor with practical product demonstration
+    - Innuendo reveal: Clips 1-2 build mystery, Clip 3 reveals it's about blinds with satisfying payoff
+    - No background music, only character speaking naturally in all 3 clips
 
-    ELEMENTS TO HIGHLIGHT (Across 2 Clips):
-    - Cartoon Character Design (Both clips): Animated version of reference model with tech entrepreneur features, expressive face
-    - Multitasking Chaos (Clip 1): Multiple cartoon arms, juggling items, swirly stressed eyes, sweat drops, motion lines
-    - Colorful Cartoon Environments (Both clips): Bright messy office (Clip 1), Clean organized office (Clip 2)
-    - Transformation Animation (Clip 2): Extra arms disappear in "poof" with sparkles, character becomes calm and focused
-    - Props and Details (Both clips): Laptop, phone, coffee cup, notebook (Clip 1), Single laptop, plant, organized desk (Clip 2)
-    - Cartoon Effects (Both clips): Lightning bolts, exclamation marks, swirl lines (Clip 1), productivity meter, zen glow (Clip 2)
-    - Color Shift (Both clips): Bright chaotic colors (oranges, yellows) to calm peaceful colors (blues, greens)
-    - "Subscribe for more videos" Nudge (Clip 2): Bold cartoon text at TOP with clean modern font, smooth slide-in animation
-    - Character Expressions (Both clips): Stressed overwhelm transforming to peaceful confident focus with thumbs up
+    ELEMENTS TO HIGHLIGHT (Across 3 Clips):
+    - Morning Bedroom Setting (All clips): Authentic modern residential interior, large windows, comfortable bed, soft textiles
+    - Traditional Blind System (Clips 1-2): Manual bead chain blinds, showing the "before" manual operation struggle
+    - RYSE SmartShade Device (Clip 3): Sleek white rectangular unit, LED indicators, mounted on window frame with chain attachment
+    - App Control Interface (Clip 3): Smartphone screen showing RYSE app with schedules, app icon, voice control options clearly visible
+    - Automated Operation (Clip 3): Smooth motorized blind movement, LED lights activating, effortless gliding action
+    - Product Components (Clip 3): BatteryPack, bead chain compatibility (plastic/metal), quick installation visual
+    - Voice Assistant Integration (Clip 3): Alexa, Google Home, IFTTT icons showing smart home compatibility
+    - Couple Dynamics (Clips 2-3): Woman's annoyed reaction to manual operation (squinting, pulling covers over head) vs peaceful natural wake with automation (smiling, stretching)
+    - Lighting Transformation (All clips): Dawn glow → harsh blast → gentle automated light with product highlights
+    - Comedy Moments (Clips 1-2): Sneaky tiptoeing, dramatic cord yanking, woman hiding under covers, exaggerated reactions
+    - Product Highlights (Clip 3): Quick cuts of RYSE device, app, BatteryPack, installation, voice integration
 
-    CONTENT SHOWCASE:
-    - Clip 1: Multitasking chaos - multiple arms, juggling tasks, stressed expression, relatable workplace struggle
-    - Clip 2: Single-task focus - calm organized workspace, peaceful productivity, "Subscribe for more videos" engagement nudge at TOP
+    PRODUCT SHOWCASE:
+    - Clip 1: Setup the innuendo mystery - "doing it" first thing in morning, sneaky approach to window
+    - Clip 2: Reveal manual struggle - dramatic blind yanking, woman disturbance, effort and disruption
+    - Clip 3: Smart solution & product showcase - app control, smooth automation, RYSE device in action, product highlights, couple happy together
 
     CLIP-SPECIFIC GUIDANCE:
-    - Clip 1: Focus on exaggerated multitasking chaos - multiple cartoon arms, juggling items, stressed swirly eyes, comic overwhelm
-    - Clip 2: Focus on peaceful transformation - arms disappear, calm focused character, organized workspace, zen productivity
-    - Both clips: Maintain full cartoon style, vibrant colors, smooth bouncy animations, helpful productivity message
-    - Cartoon character SPEAKS in both clips - direct to camera, friendly helpful tone, practical advice
-    - Character consistency: Same animated character design based on reference model in both clips
-    - Animation style: Smooth 2D/3D cartoon with exaggerated expressions, fluid movements, comic timing
-
-    CARTOON CHARACTER DESIGN GUIDANCE (Based on Reference Model):
-    - Animated version of tech entrepreneur: Translate reference model features to appealing cartoon style
-    - Clip 1: Multiple arms (4-6 arms total), stressed expression, swirly eyes, sweat drops, casual work attire
-    - Clip 2: Normal two arms, calm expression, confident smile, same casual work attire but tidier
-    - Facial features: Cartoon version of glasses if reference has them, distinct recognizable features
-    - Expressions: Extreme range from frantic stress to peaceful zen confidence
-    - Personality: Helpful, relatable, shares wisdom directly to audience like a friendly mentor
-    - Size and proportions: Appealing cartoon proportions with emphasis on expressive face and gestures
-    - Consistency: Recognizable as same character across both clips despite arm transformation
+    - Clip 1: Focus on building comedic suspense - mystery setup, playful innuendo, sneaky behavior, what is he doing?
+    - Clip 2: Focus on the struggle payoff - dramatic reveal it's about blinds, exaggerated effort, woman's annoyance, manual hassle
+    - Clip 3: Focus on smart solution & product features - contrast to manual struggle, smooth effortless automation, app control, happy peaceful result, quick product highlights (app interface, BatteryPack, voice integration, bead chain compatibility), couple satisfaction
+    - All clips: Maintain photorealistic style, natural acting, authentic morning scenarios, relatable couple dynamics
+    - Comedy through contrast: Manual struggle (Clips 1-2) vs automated ease (Clip 3)
+    - Product integration: RYSE device visible and prominent in Clip 3, traditional blinds in Clips 1-2 for contrast
 
     TARGET AUDIENCE:
-    - Busy professionals struggling with productivity and time management (universal appeal)
-    - Students learning effective study techniques
-    - Social media users seeking practical life advice content
-    - Anyone who multitasks and feels overwhelmed
-    - Cartoon/animation content fans who enjoy educational entertainment
-    - Instagram Reels and TikTok audience looking for shareable productivity tips
+    - Homeowners seeking smart home automation solutions (primary target)
+    - Renters looking for non-permanent home upgrades (DIY-friendly appeal)
+    - Couples wanting better morning routines and sleep quality
+    - Tech-savvy consumers interested in IoT and home automation
+    - People with hard-to-reach windows or heavy blinds
+    - Smart home enthusiasts with Alexa/Google Home setups
+    - Social media users who appreciate clever viral-worthy humor
+    - Anyone frustrated with manual blind operation daily
 
-    Duration: 16 seconds (2 clips × 8 seconds) - Perfect for Instagram Reels and TikTok. Cartoonish influencer content with helpful pacing throughout both clips for maximum entertainment and practical value. Opens with exaggerated multitasking chaos showing universal workplace struggle, concludes with peaceful single-task focus and "Subscribe for more videos" engagement nudge at TOP of screen. Full cartoon/animated style creating playful educational comedy that resonates with busy professionals and students everywhere. Designed to be highly shareable and helpful through exaggerated humor and practical productivity wisdom. Builds connection through relatable struggle, educates through transformation demonstration, and creates engagement through subscription call-to-action. Ends with "Subscribe for more videos" text overlay with clean cartoon styling at TOP position in final 3 seconds of clip 2, with smooth slide-in animation and sparkle effects encouraging audience to follow for more tips. No background music - clean cartoon aesthetic with character speaking helpful advice directly. Simple stitching between clips maintains educational narrative flow from chaotic overwhelm to focused productivity zen.
+    Duration: 24 seconds (3 clips × 8 seconds) - Perfect for Instagram Reels and TikTok. Product marketing with sophisticated playful humor throughout all clips for maximum entertainment and viral shareability. Opens with mysterious innuendo setup building curiosity ("doing it first thing in morning"), escalates with dramatic manual struggle reveal and woman disturbance, concludes with smart solution demonstration plus quick product feature showcase. Photorealistic live-action cinematography creating authentic relatable scenarios that demonstrate product value through comedy and contrast. Designed to be highly shareable through clever wordplay and innuendo that's revealed to be about opening blinds, creating viral-worthy "gotcha" moment. Builds engagement through mystery setup (Clip 1), delivers comedy through struggle (Clip 2), and showcases solution plus product features (Clip 3). Character speaking naturally in all 3 clips, no background music - clean natural dialogue. Simple stitching between clips maintains comedic narrative flow from innuendo mystery to manual hassle to automated solution with product highlights.
     """
 
-`    LOGO_PATH = "/Users/taran/Downloads/burnie-logo.png"  # Optional for influencer content - set to None if no brand logo needed
-`    # LOGO_PATH = None  # No brand logo for pure influencer content
+    LOGO_PATH = "/Users/taran/Downloads/ryse-logo.jpeg"  # Optional for influencer content - set to None if no brand logo needed
+    # LOGO_PATH = None  # No brand logo for pure influencer content
     
     # Product images for frame generation alignment
-    PRODUCT_IMAGES = []  # Empty for this AI platform video - no physical product images needed
+    # PRODUCT_IMAGES = []  # Empty list for this smart home device - no physical product angle shots needed, will use promotional images
+    PRODUCT_IMAGES = ["/Users/taran/Downloads/ryse-product-1.jpeg",
+        "/Users/taran/Downloads/ryse-product-4.jpeg",
+        "/Users/taran/Downloads/ryse-product-5.jpeg",
+        "/Users/taran/Downloads/ryse-product-6.jpeg"
+    ]
     # ========================================
     # END CONFIGURATION
     # ========================================
