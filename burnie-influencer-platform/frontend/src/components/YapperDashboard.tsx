@@ -3,9 +3,10 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useAccount } from 'wagmi'
-import { useROASTBalance } from '../hooks/useROASTBalance'
+import { useTokenBalance } from '../hooks/useTokenBalance'
 import WalletDisplay from './WalletDisplay'
 import { appKit } from '@/app/reown'
+import { TokenBalance } from './TokenBalance'
 
 import { useAuth } from '../hooks/useAuth'
 import { useRouter } from 'next/navigation'
@@ -30,9 +31,12 @@ interface YapperDashboardProps {
 }
 
 export default function YapperDashboard({ activeSection = 'dashboard' }: YapperDashboardProps) {
-  const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
+  console.log('🚨🚨🚨 YAPPER DASHBOARD RENDERING 🚨🚨🚨')
   
-
+  const { balance: tokenBalance, isLoading: balanceLoading, tokenSymbol, network } = useTokenBalance()
+  
+  console.log('🔴 useTokenBalance returned:', { tokenBalance, tokenSymbol, balanceLoading, network })
+  console.log('[YapperDashboard] Token balance:', { tokenBalance, tokenSymbol, balanceLoading, network })
   
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false) // Default to closed
   const [isReconnectingTwitter, setIsReconnectingTwitter] = useState(false)
@@ -243,6 +247,26 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
 
   return (
     <div className="min-h-screen yapper-background">
+      {/* DEBUG: SUPER SIMPLE TEST */}
+      <div style={{
+        position: 'fixed',
+        top: '100px',
+        right: '20px',
+        zIndex: 9999,
+        backgroundColor: 'red',
+        color: 'white',
+        padding: '20px',
+        fontSize: '16px',
+        border: '5px solid yellow',
+        fontWeight: 'bold'
+      }}>
+        🔴 DEBUG BOX 🔴
+        <br/>Network: {network || 'undefined'}
+        <br/>Symbol: {tokenSymbol || 'undefined'}
+        <br/>Balance: {tokenBalance || 'undefined'}
+        <br/>Loading: {balanceLoading ? 'Yes' : 'No'}
+      </div>
+
       {/* Single Combined Header - Matching New UI */}
       <header className="z-20 w-full sticky top-0 bg-yapper-surface/95 backdrop-blur border-b border-yapper">
         <div className="relative flex items-center justify-between px-6 h-16 max-w-none mx-auto">
@@ -261,8 +285,8 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
             </div>
           </div>
 
-          {/* Right Side - Social Icons + Points + Status + Wallet */}
-          <div className="flex items-center flex-row justify-end gap-2 ml-auto">
+          {/* Right Side - Social Icons + Network Selector + Token Balance + Wallet */}
+          <div className="flex items-center flex-row justify-end gap-3 ml-auto">
             {/* Social Icons */}
             <div className="items-center md:flex hidden gap-2">
               <a href="https://x.com/burnieio" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center p-1">
@@ -277,11 +301,17 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
               </a>
             </div>
 
+            {/* Token Balance - Somnia Integration */}
+            <div className="hidden xl:block">
+              <TokenBalance showNativeBalance={false} className="max-w-[200px]" />
+            </div>
+
             {/* Wallet Connection with Balance */}
             <WalletDisplay 
               showBalance={true}
-              balance={roastBalance}
+              balance={tokenBalance}
               balanceLoading={balanceLoading}
+              tokenSymbol={tokenSymbol}
             />
           </div>
         </div>

@@ -36,6 +36,7 @@
   "author": "RoastPower Team",
   "license": "MIT",
   "dependencies": {
+    "@lighthouse-web3/sdk": "^0.4.3",
     "@types/aws-sdk": "^2.7.4",
     "@types/bcrypt": "^6.0.0",
     "@types/node-cron": "^3.0.11",

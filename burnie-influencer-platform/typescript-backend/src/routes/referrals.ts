@@ -5,8 +5,23 @@ import { ReferralCode, LeaderTier } from '../models/ReferralCode';
 import { UserReferral, ReferralStatus } from '../models/UserReferral';
 import { User, UserAccessStatus } from '../models/User';
 import { ReferralPayout } from '../models/ReferralPayout';
+import { SomniaBlockchainService } from '../services/somniaBlockchainService';
+import { ethers } from 'ethers';
 
 const router = Router();
+
+// Helper function to convert tier string to number for smart contract
+function getTierNumber(tier: string): number {
+  const tierMap: Record<string, number> = {
+    'SILVER': 0,
+    'GOLD': 1,
+    'PLATINUM': 2,
+    'EMERALD': 3,
+    'DIAMOND': 4,
+    'UNICORN': 5
+  };
+  return tierMap[tier.toUpperCase()] || 0;
+}
 
 /**
  * @route POST /api/referrals/codes
@@ -308,6 +323,24 @@ router.post('/validate', async (req: Request, res: Response): Promise<void> => {
     }
 
     logger.info(`✅ Processed referral for ${walletAddress} using code ${code}`);
+
+    // Register referral on Somnia blockchain
+    try {
+      const somniaService = new SomniaBlockchainService();
+      const tierNumber = getTierNumber(referralCode.tier);
+      
+      const txHash = await somniaService.registerReferral(
+        user.walletAddress!,
+        referrer?.walletAddress || ethers.ZeroAddress,
+        grandReferrer?.walletAddress || ethers.ZeroAddress,
+        tierNumber
+      );
+      
+      logger.info(`✅ Referral registered on Somnia blockchain: ${txHash}`);
+    } catch (error) {
+      logger.error('❌ Failed to register referral on blockchain:', error);
+      // Don't fail the whole flow - blockchain sync can happen as fallback during purchase
+    }
 
     res.json({
       success: true,

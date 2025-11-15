@@ -276,7 +276,8 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       platformSource,
       startDate,
       endDate,
-      guidelines
+      guidelines,
+      somniaWhitelisted // Add Somnia whitelist flag
     } = req.body;
 
     logger.info('📝 Admin creating new campaign:', { title, rewardPool, category, projectLogo, campaignBanner, admin: req.admin.username });
@@ -340,6 +341,7 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
           description: description || `Campaign: ${title}`,
           isActive: true,
           ownerId: defaultUser.id,
+          somniaWhitelisted: somniaWhitelisted || false // Set Somnia whitelist status
         };
 
         if (projectLogo) {
@@ -357,6 +359,13 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       } else {
         logger.info(`✅ Using existing project: ${existingProject.id} - ${existingProject.name}`);
         finalProjectId = existingProject.id;
+        
+        // Update somnia_whitelisted status if provided
+        if (somniaWhitelisted !== undefined && existingProject.somniaWhitelisted !== somniaWhitelisted) {
+          logger.info(`🔄 Updating Somnia whitelist status for project: ${existingProject.name} to ${somniaWhitelisted}`);
+          existingProject.somniaWhitelisted = somniaWhitelisted;
+          await projectRepository.save(existingProject);
+        }
       }
     }
 
@@ -441,7 +450,8 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       platformSource,
       startDate,
       endDate,
-      guidelines
+      guidelines,
+      somniaWhitelisted // Add Somnia whitelist flag for updates
     } = req.body;
 
     logger.info('📝 Admin updating campaign:', { campaignId, title, projectLogo, campaignBanner, admin: req.admin.username });
@@ -469,7 +479,8 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
 
     // Find existing campaign
     const existingCampaign = await campaignRepository.findOne({
-      where: { id: campaignId }
+      where: { id: campaignId },
+      relations: ['project'] // Load project relation to update somniaWhitelisted
     });
 
     if (!existingCampaign) {
@@ -478,6 +489,71 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
         error: 'Campaign not found',
         timestamp: new Date().toISOString(),
       });
+    }
+
+    // Update project's somnia_whitelisted status if provided and campaign has a project
+    if (somniaWhitelisted !== undefined && existingCampaign.project) {
+      const projectRepository: Repository<Project> = AppDataSource.getRepository(Project);
+      if (existingCampaign.project.somniaWhitelisted !== somniaWhitelisted) {
+        logger.info(`🔄 Updating Somnia whitelist status for project: ${existingCampaign.project.name} to ${somniaWhitelisted}`);
+        existingCampaign.project.somniaWhitelisted = somniaWhitelisted;
+        await projectRepository.save(existingCampaign.project);
+      }
+    } else if (somniaWhitelisted !== undefined && projectName) {
+      // If campaign doesn't have a project yet but projectName is provided, create/update project
+      const projectRepository: Repository<Project> = AppDataSource.getRepository(Project);
+      const userRepository = AppDataSource.getRepository(User);
+      
+      let project: Project | null = await projectRepository.findOne({
+        where: { name: projectName.trim() }
+      });
+
+      if (project) {
+        // Update existing project
+        if (project.somniaWhitelisted !== somniaWhitelisted) {
+          logger.info(`🔄 Updating Somnia whitelist status for project: ${project.name} to ${somniaWhitelisted}`);
+          project.somniaWhitelisted = somniaWhitelisted;
+          await projectRepository.save(project);
+        }
+      } else {
+        // Create new project with somnia status
+        let defaultUser = await userRepository.findOne({ where: { id: 1 } });
+        if (!defaultUser) {
+          const newUser = userRepository.create({
+            walletAddress: '0x0000000000000000000000000000000000000001',
+            username: 'admin',
+            email: 'admin@burnie.co',
+            isVerified: true,
+            isAdmin: true,
+            profile: {
+              displayName: 'Admin User',
+              bio: 'System administrator account',
+              website: 'https://burnie.co'
+            }
+          });
+          defaultUser = await userRepository.save(newUser);
+        }
+
+        logger.info(`🏗️ Creating new project during update: ${projectName}`);
+        const projectData: any = {
+          name: projectName.trim(),
+          description: description || `Campaign: ${title}`,
+          isActive: true,
+          ownerId: defaultUser.id,
+          somniaWhitelisted: somniaWhitelisted || false,
+          logo: projectLogo || undefined
+        };
+
+        const newProject = projectRepository.create(projectData);
+        const savedProjects = await projectRepository.save(newProject);
+        // TypeORM save can return array or single entity, ensure we get single entity
+        project = Array.isArray(savedProjects) ? (savedProjects[0] || null) : savedProjects;
+        
+        // Update campaign with new project ID
+        if (project) {
+          existingCampaign.projectId = project.id;
+        }
+      }
     }
 
     // Update campaign data
@@ -694,6 +770,7 @@ router.get('/campaigns', verifyAdminToken, async (req: Request, res: Response) =
     const campaignRepository: Repository<Campaign> = AppDataSource.getRepository(Campaign);
     
     const [campaigns, total] = await campaignRepository.findAndCount({
+      relations: ['project'], // Load project relation to get somniaWhitelisted status
       order: { createdAt: 'DESC' },
       skip,
       take: limit,

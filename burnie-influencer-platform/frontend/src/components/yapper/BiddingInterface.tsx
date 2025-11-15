@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useAccount, useBalance } from 'wagmi'
+import { useAccount, useBalance, useChainId } from 'wagmi'
 import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { 
@@ -31,6 +31,7 @@ import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo } f
 import { useInfiniteMarketplace } from '../../hooks/useInfiniteMarketplace'
 import { useUserReferralCode } from '@/hooks/useUserReferralCode'
 import { useAuth } from '@/hooks/useAuth'
+import { getNetworkType } from '@/config/somnia'
 // Scroll restoration removed - using page reload instead
 import NoContentFound from '../NoContentFound'
 import { ContentRequestService } from '../../services/contentRequestService'
@@ -107,11 +108,15 @@ type ContentItem = MarketplaceContent & {
 
 export default function BiddingInterface() {
   const { address } = useAccount()
+  const chainId = useChainId()
+  const currentNetwork = getNetworkType(chainId)
   const searchParams = useSearchParams()
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
   const { price: roastPrice } = useROASTPrice()
   const mixpanel = useMixpanel()
+  
+  console.log('[BiddingInterface] Current network:', currentNetwork, 'Chain ID:', chainId)
   // Get ROAST balance (raw numeric value)
   const ROAST_TOKEN_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN as `0x${string}`
   const { data: roastBalance } = useBalance({
@@ -293,9 +298,10 @@ export default function BiddingInterface() {
 
 
   
-  // Price display component
+  // Price display component - now network-aware
   const PriceDisplay = ({ roastAmount }: { roastAmount: number }) => {
     const [usdcAmount, setUsdcAmount] = useState<number>(0)
+    const tokenSymbol = currentNetwork === 'somnia_testnet' ? 'TOAST' : 'ROAST'
 
     useEffect(() => {
       if (roastPrice > 0) {
@@ -306,8 +312,8 @@ export default function BiddingInterface() {
               return (
       <div className="text-white text-[10px] xs:text-xs sm:text-lg md:text-lg lg:text-2xl font-semibold">
         <div className="flex flex-row items-baseline gap-1 xs:gap-2 sm:gap-2">
-          <span className="text-center xs:text-left sm:text-left">{roastAmount} <span className="text-[8px] xs:text-[9px] sm:text-sm md:text-sm lg:text-base align-middle font-semibold">$ROAST</span></span>
-          {roastPrice > 0 && (
+          <span className="text-center xs:text-left sm:text-left">{roastAmount} <span className="text-[8px] xs:text-[9px] sm:text-sm md:text-sm lg:text-base align-middle font-semibold">${tokenSymbol}</span></span>
+          {currentNetwork === 'base' && roastPrice > 0 && (
             <span className="text-xs xs:text-xs sm:text-sm md:hidden lg:block text-white/80 text-center xs:text-left sm:text-left">
               ({formatUSDCPrice(usdcAmount)} USDC)
             </span>
@@ -450,7 +456,7 @@ export default function BiddingInterface() {
   };
 
   // Handle purchase function (updated to use marketplace service)
-  const handlePurchaseCallback = async (contentId: number, price: number, currency: 'ROAST' | 'USDC' = 'ROAST', transactionHash?: string) => {
+  const handlePurchaseCallback = async (contentId: number, price: number, currency: 'ROAST' | 'USDC' | 'TOAST' = 'ROAST', transactionHash?: string) => {
     if (!address) {
       alert('Please connect your wallet to purchase content');
       return;
@@ -465,6 +471,9 @@ export default function BiddingInterface() {
         throw new Error('Transaction hash is required for purchase confirmation');
       }
 
+      // Determine network based on currency
+      const network = currency === 'TOAST' ? 'somnia_testnet' : 'base';
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/purchase`, {
         method: 'POST',
         headers: {
@@ -475,7 +484,8 @@ export default function BiddingInterface() {
           buyerWalletAddress: address,
           purchasePrice: price,
           currency: currency,
-          transactionHash: transactionHash // Include the transaction hash
+          transactionHash: transactionHash,
+          network: network // Include network parameter
         }),
       });
 
@@ -491,7 +501,8 @@ export default function BiddingInterface() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          transactionHash: transactionHash // Use the transaction hash from PurchaseContentModal
+          transactionHash: transactionHash, // Use the transaction hash from PurchaseContentModal
+          network: network // Include network parameter
         }),
       });
 
@@ -896,6 +907,7 @@ export default function BiddingInterface() {
         }}
         onPurchase={handlePurchaseCallback}
         onContentUpdate={handleContentUpdate}
+        currentNetwork={currentNetwork}
       />
 
       {/* Copy protection removed from marketplace - now public */}

@@ -49,6 +49,9 @@ export class Project {
   @Column({ default: true })
   isActive!: boolean;
 
+  @Column({ name: 'somnia_whitelisted', default: false })
+  somniaWhitelisted!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 

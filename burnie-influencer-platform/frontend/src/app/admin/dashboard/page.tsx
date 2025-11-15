@@ -80,7 +80,8 @@ export default function AdminDashboard() {
     platformSource: 'burnie',
     startDate: '',
     endDate: '',
-    guidelines: ''
+    guidelines: '',
+    somniaWhitelisted: false // Add Somnia whitelist checkbox
   })
   const [logoPreview, setLogoPreview] = useState<string>('')
   const [bannerPreview, setBannerPreview] = useState<string>('')
@@ -412,7 +413,8 @@ export default function AdminDashboard() {
       platformSource: campaign.platformSource || 'burnie',
       startDate: campaign.startDate ? new Date(campaign.startDate).toISOString().split('T')[0] : '',
       endDate: campaign.endDate ? new Date(campaign.endDate).toISOString().split('T')[0] : '',
-      guidelines: campaign.brandGuidelines || ''
+      guidelines: campaign.brandGuidelines || '',
+      somniaWhitelisted: (campaign as any).project?.somniaWhitelisted || false // Get from project relation
     })
     
     // Set logo preview if campaign has a project logo
@@ -517,7 +519,8 @@ export default function AdminDashboard() {
         platformSource: formData.platformSource,
         startDate: formData.startDate,
         endDate: formData.endDate,
-        guidelines: formData.guidelines
+        guidelines: formData.guidelines,
+        somniaWhitelisted: formData.somniaWhitelisted // Send Somnia whitelist status
       }
 
       console.log('📝 Updating campaign with data:', campaignData)
@@ -557,7 +560,8 @@ export default function AdminDashboard() {
           platformSource: 'burnie',
           startDate: '',
           endDate: '',
-          guidelines: ''
+          guidelines: '',
+          somniaWhitelisted: false // Reset Somnia checkbox
         })
         setLogoPreview('')
         setBannerPreview('')
@@ -635,7 +639,8 @@ export default function AdminDashboard() {
         platformSource: formData.platformSource,
         startDate: formData.startDate,
         endDate: formData.endDate,
-        guidelines: formData.guidelines
+        guidelines: formData.guidelines,
+        somniaWhitelisted: formData.somniaWhitelisted // Send Somnia whitelist status
       }
 
       console.log('📊 Creating campaign with data:', campaignData)
@@ -669,7 +674,8 @@ export default function AdminDashboard() {
           platformSource: 'burnie',
           startDate: '',
           endDate: '',
-          guidelines: ''
+          guidelines: '',
+          somniaWhitelisted: false // Reset Somnia checkbox
         })
         setLogoPreview('')
         setBannerPreview('')
@@ -1025,7 +1031,8 @@ export default function AdminDashboard() {
                   platformSource: 'burnie',
                   startDate: '',
                   endDate: '',
-                  guidelines: ''
+                  guidelines: '',
+                  somniaWhitelisted: false // Reset Somnia checkbox
                 })
                 setLogoPreview('')
                 setBannerPreview('')
@@ -1267,7 +1274,8 @@ export default function AdminDashboard() {
                       platformSource: 'burnie',
                       startDate: '',
                       endDate: '',
-                      guidelines: ''
+                      guidelines: '',
+                      somniaWhitelisted: false // Reset Somnia checkbox
                     })
                     setLogoPreview('')
                     setBannerPreview('')
@@ -1477,6 +1485,25 @@ export default function AdminDashboard() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Somnia Whitelist Checkbox */}
+              <div className="flex items-center space-x-2 p-4 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
+                <input
+                  type="checkbox"
+                  id="somniaWhitelisted"
+                  checked={formData.somniaWhitelisted}
+                  onChange={(e) => setFormData({ ...formData, somniaWhitelisted: e.target.checked })}
+                  className="w-4 h-4 text-purple-600 bg-white border-gray-300 rounded focus:ring-purple-500 focus:ring-2 cursor-pointer"
+                />
+                <label htmlFor="somniaWhitelisted" className="flex items-center cursor-pointer">
+                  <span className="text-sm font-medium text-gray-900">
+                    ✨ Somnia Project
+                  </span>
+                  <span className="ml-2 text-xs text-gray-600">
+                    (Enable purchases with TOAST on Somnia Testnet)
+                  </span>
+                </label>
               </div>
 
               <div>
@@ -1836,6 +1863,25 @@ export default function AdminDashboard() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Somnia Whitelist Checkbox */}
+              <div className="flex items-center space-x-2 p-4 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
+                <input
+                  type="checkbox"
+                  id="somniaWhitelisted"
+                  checked={formData.somniaWhitelisted}
+                  onChange={(e) => setFormData({ ...formData, somniaWhitelisted: e.target.checked })}
+                  className="w-4 h-4 text-purple-600 bg-white border-gray-300 rounded focus:ring-purple-500 focus:ring-2 cursor-pointer"
+                />
+                <label htmlFor="somniaWhitelisted" className="flex items-center cursor-pointer">
+                  <span className="text-sm font-medium text-gray-900">
+                    ✨ Somnia Project
+                  </span>
+                  <span className="ml-2 text-xs text-gray-600">
+                    (Enable purchases with TOAST on Somnia Testnet)
+                  </span>
+                </label>
               </div>
 
               <div>

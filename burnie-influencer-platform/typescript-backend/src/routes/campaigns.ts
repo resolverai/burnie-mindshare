@@ -1181,6 +1181,36 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
 
     logger.info(`✅ Synced AI content to marketplace: Campaign ${campaignId}, Content ${savedContent.id}`);
 
+    // Register content on blockchain if user is on Somnia Testnet
+    // This happens in the background and doesn't block the response
+    const { contentIntegrationService } = require('../services/contentIntegrationService');
+    
+    // Get miner's wallet address from creator
+    const userRepository: Repository<User> = AppDataSource.getRepository(User);
+    const creator = await userRepository.findOne({ where: { id: creator_id } });
+    
+    if (creator?.walletAddress) {
+      // Determine file path for IPFS upload
+      let filePath = null;
+      if (content_data.content_images && Array.isArray(content_data.content_images) && content_data.content_images.length > 0) {
+        filePath = content_data.content_images[0]; // Use first image
+      } else if (content_data.video_url) {
+        filePath = content_data.video_url;
+      }
+
+      if (filePath) {
+        // Register on blockchain asynchronously (don't block response)
+        contentIntegrationService.registerContentOnChain(
+          savedContent.id,
+          creator.walletAddress,
+          filePath,
+          content_data.post_type || 'thread'
+        ).catch((error: any) => {
+          logger.error(`❌ Background blockchain registration failed for content ${savedContent.id}:`, error);
+        });
+      }
+    }
+
     return res.status(201).json({
       success: true,
       data: savedContent,

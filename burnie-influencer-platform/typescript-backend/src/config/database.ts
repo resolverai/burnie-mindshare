@@ -84,7 +84,7 @@ import { Web2GeneratedContent } from '../models/Web2GeneratedContent';
 import { ScheduledPost } from '../models/ScheduledPost';
 import { AccountConfiguration } from '../models/AccountConfiguration';
 import { ContextManagement } from '../models/ContextManagement';
-// New Web3 Projects entities
+// Import Web3 Projects entities
 import { Web3ProjectAccount } from '../models/Web3ProjectAccount';
 import { Web3ProjectContext } from '../models/Web3ProjectContext';
 import { Web3ProjectConfiguration } from '../models/Web3ProjectConfiguration';
@@ -92,6 +92,12 @@ import { ProjectTwitterConnection } from '../models/ProjectTwitterConnection';
 import { ProjectGeneratedContent } from '../models/ProjectGeneratedContent';
 import { Web3PostsSchedule } from '../models/Web3PostsSchedule';
 import { Web3ProjectTwitterPost } from '../models/Web3ProjectTwitterPost';
+
+// Import Somnia integration entities
+import { UserNetwork } from '../models/UserNetwork';
+import { SomniaAirdrop } from '../models/SomniaAirdrop';
+import { ContentIpfsUpload } from '../models/ContentIpfsUpload';
+import { ContentBlockchainTransaction } from '../models/ContentBlockchainTransaction';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -187,6 +193,11 @@ export const AppDataSource = new DataSource({
     Web3ProjectConfiguration,
     Web3PostsSchedule,
     Web3ProjectTwitterPost,
+    // Somnia integration entities
+    UserNetwork,
+    SomniaAirdrop,
+    ContentIpfsUpload,
+    ContentBlockchainTransaction,
   ],
   migrations: [],
   subscribers: [],

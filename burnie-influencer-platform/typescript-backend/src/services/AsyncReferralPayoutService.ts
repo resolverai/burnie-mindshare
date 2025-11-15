@@ -85,6 +85,15 @@ export class AsyncReferralPayoutService {
         return;
       }
 
+      // Skip referral payouts for Somnia network (already paid via contract)
+      const network = purchase.network || 'base_mainnet';
+      if (network === 'somnia_testnet') {
+        logger.info(`⏭️ Skipping referral payouts for Somnia purchase ${purchaseId} (already paid via contract)`);
+        purchase.referralPayoutStatus = 'not_applicable';
+        await contentPurchaseRepository.save(purchase);
+        return;
+      }
+
       // Get buyer's referral information
       const buyer = await userRepository.findOne({
         where: { walletAddress: purchase.buyerWalletAddress }
@@ -285,7 +294,10 @@ export class AsyncReferralPayoutService {
         contentPurchaseId: purchase.id,
         payoutWalletAddress: walletAddress.toLowerCase(),
         payoutType,
-        roastAmount: amount,
+        network: 'base_mainnet', // ADD network field
+        currency: 'ROAST', // ADD currency field
+        tokenAmount: amount, // ADD tokenAmount field
+        roastAmount: amount, // Keep backward compatibility
         commissionRate: rate,
         status: PayoutStatus.PENDING
       });

@@ -4,6 +4,7 @@ import { createAppKit } from "@reown/appkit";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { base, mainnet } from "@reown/appkit/networks";
 import { type AppKitNetwork } from "@reown/appkit/networks";
+import { somniaTestnet } from "../config/somnia";
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
 console.log("[AppKit] projectId (first 6 chars):", projectId.slice(0, 6)); // <= should NOT be empty
@@ -17,8 +18,8 @@ if (projectId.length !== 32) {
   throw new Error("Invalid WalletConnect Project ID format");
 }
 
-// Force Base network only - remove Ethereum Mainnet to prevent gas fee issues
-const networks: AppKitNetwork[] = [base];
+// Support Base Mainnet and Somnia Testnet
+const networks: AppKitNetwork[] = [base, somniaTestnet];
 
 console.log("[AppKit] Networks configured:", networks.map(n => n.name));
 console.log("[AppKit] Environment:", process.env.NODE_ENV);

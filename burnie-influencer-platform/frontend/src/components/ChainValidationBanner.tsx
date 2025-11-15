@@ -5,7 +5,7 @@ import { useChainValidation } from '../hooks/useChainValidation';
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 
 export default function ChainValidationBanner() {
-  const { showChainError, currentChainId, expectedChainId } = useChainValidation();
+  const { showChainError, currentChainId } = useChainValidation();
   const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
@@ -26,8 +26,8 @@ export default function ChainValidationBanner() {
         </span>
       </div>
       <p className="text-sm mt-1">
-        You're connected to Chain ID {currentChainId}, but this platform requires Base network (Chain ID {expectedChainId}).
-        Please switch to Base network in your wallet to continue.
+        You're connected to Chain ID {currentChainId}. This platform supports Base Mainnet (Chain ID 8453) and Somnia Testnet (Chain ID 50312).
+        Please switch to a supported network in your wallet to continue.
       </p>
     </div>
   );

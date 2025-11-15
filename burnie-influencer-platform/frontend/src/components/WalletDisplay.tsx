@@ -1,35 +1,95 @@
 'use client'
 
 import React, { useState, useRef, useEffect } from 'react'
-import { useAccount, useDisconnect } from 'wagmi'
+import { useAccount, useDisconnect, useChainId, useSwitchChain } from 'wagmi'
 import { appKit } from '@/app/reown'
 import toast from 'react-hot-toast'
 import useMixpanel from '../hooks/useMixpanel'
+import { getNetworkType, getChainIdFromNetwork, type NetworkType } from '@/config/somnia'
 
 interface WalletDisplayProps {
   className?: string
   showBalance?: boolean
   balance?: string | number
   balanceLoading?: boolean
+  tokenSymbol?: string
 }
 
 export default function WalletDisplay({ 
   className = '', 
   showBalance = false, 
   balance, 
-  balanceLoading = false 
+  balanceLoading = false,
+  tokenSymbol = 'ROAST'
 }: WalletDisplayProps) {
   const { address, isConnected, isConnecting } = useAccount()
   const { disconnect, isPending: isDisconnecting } = useDisconnect()
+  const chainId = useChainId()
+  const { switchChain } = useSwitchChain()
   const mixpanel = useMixpanel()
   const [showDropdown, setShowDropdown] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [selectedNetwork, setSelectedNetwork] = useState<NetworkType>('base')
+  const [isSwitching, setIsSwitching] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Handle SSR hydration
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Sync selected network with actual chain ID
+  useEffect(() => {
+    const networkType = getNetworkType(chainId)
+    setSelectedNetwork(networkType)
+  }, [chainId])
+
+  // Initialize user's network record on first connection
+  useEffect(() => {
+    const initializeNetwork = async () => {
+      if (!address) return
+      
+      try {
+        console.log('[WalletDisplay] Initializing network for:', address)
+        
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/network/current`, {
+          headers: {
+            'Authorization': `Bearer ${address}`,
+          },
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          console.log('[WalletDisplay] User network preference:', data.currentNetwork)
+          
+          // If backend network differs from wallet network, update backend to match wallet
+          const backendNetwork = data.currentNetwork as NetworkType
+          const walletNetwork = getNetworkType(chainId)
+          
+          if (backendNetwork !== walletNetwork) {
+            console.log('[WalletDisplay] Syncing backend to match wallet network:', walletNetwork)
+            
+            // Update backend to match wallet without switching the wallet
+            await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/network/switch`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${address}`,
+              },
+              body: JSON.stringify({
+                network: walletNetwork,
+                walletAddress: address,
+              }),
+            })
+          }
+        }
+      } catch (error) {
+        console.error('[WalletDisplay] Failed to initialize network:', error)
+      }
+    }
+    
+    initializeNetwork()
+  }, [address, chainId])
 
   // Handle click outside dropdown
   useEffect(() => {
@@ -136,6 +196,128 @@ export default function WalletDisplay({
     }
   }
 
+  const handleNetworkSwitch = async (network: NetworkType) => {
+    if (!address) {
+      toast.error('Please connect your wallet first')
+      return
+    }
+
+    if (isSwitching) return
+
+    setIsSwitching(true)
+    
+    try {
+      const targetChainId = getChainIdFromNetwork(network)
+      
+      // Step 1: Switch wallet network
+      console.log(`[WalletDisplay] Switching to ${network} (Chain ID: ${targetChainId})`)
+      
+      try {
+        await switchChain({ chainId: targetChainId })
+      } catch (switchError: any) {
+        // If the error is because the chain is not added, try to add it via wallet_addEthereumChain
+        if (switchError?.message?.includes('Unrecognized chain ID') || 
+            switchError?.code === 4902 || 
+            switchError?.message?.includes('Try adding the chain')) {
+          
+          console.log('[WalletDisplay] Chain not found in wallet, attempting to add it...')
+          
+          if (network === 'somnia_testnet') {
+            // Add Somnia Testnet to wallet
+            try {
+              // @ts-ignore - wallet_addEthereumChain is not in the types
+              await window.ethereum?.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                  chainId: `0x${targetChainId.toString(16)}`,
+                  chainName: 'Somnia Testnet',
+                  nativeCurrency: {
+                    name: 'STT',
+                    symbol: 'STT',
+                    decimals: 18,
+                  },
+                  rpcUrls: [process.env.NEXT_PUBLIC_SOMNIA_RPC_URL || 'https://dream-rpc.somnia.network'],
+                  blockExplorerUrls: [process.env.NEXT_PUBLIC_SOMNIA_EXPLORER_URL || 'https://somnia.w3us.site'],
+                }],
+              })
+              
+              // After adding, try switching again
+              await switchChain({ chainId: targetChainId })
+              console.log('[WalletDisplay] Successfully added and switched to Somnia Testnet')
+            } catch (addError) {
+              console.error('[WalletDisplay] Failed to add Somnia Testnet:', addError)
+              throw new Error('Failed to add Somnia Testnet to your wallet. Please add it manually.')
+            }
+          } else {
+            throw switchError
+          }
+        } else {
+          throw switchError
+        }
+      }
+      
+      // Step 2: Update backend
+      console.log('[WalletDisplay] Updating backend network preference')
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/network/switch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          network,
+          walletAddress: address,
+        }),
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to update network preference')
+      }
+      
+      const data = await response.json()
+      console.log('[WalletDisplay] Backend response:', data)
+      
+      // Step 3: Show airdrop notification if applicable
+      if (data.airdrop?.success) {
+        toast.success(
+          `🎁 Welcome to Somnia! Received ${data.airdrop.amount} TOAST tokens!`,
+          { duration: 6000 }
+        )
+      }
+      
+      setSelectedNetwork(network)
+      toast.success(`Switched to ${network === 'somnia_testnet' ? 'Somnia Testnet' : 'Base Mainnet'}`)
+      
+      // Close dropdown
+      setShowDropdown(false)
+      
+      // Step 4: Reload to refresh marketplace content
+      setTimeout(() => {
+        window.location.reload()
+      }, 1500)
+      
+    } catch (error: any) {
+      console.error('[WalletDisplay] Failed to switch network:', error)
+      
+      if (error.message?.includes('User rejected')) {
+        toast.error('Network switch cancelled')
+      } else if (error.code === 4001) {
+        toast.error('Network switch rejected by user')
+      } else {
+        toast.error(error.message || 'Failed to switch network. Please try switching manually in your wallet.')
+      }
+    } finally {
+      setTimeout(() => setIsSwitching(false), 2000)
+    }
+  }
+
+  const getNetworkName = (network: NetworkType) => {
+    return network === 'somnia_testnet' ? 'Somnia Testnet' : 'Base Mainnet'
+  }
+
+  const getTokenSymbol = (network: NetworkType) => {
+    return network === 'somnia_testnet' ? 'TOAST' : 'ROAST'
+  }
+
   // Prevent hydration mismatch by not rendering until mounted
   if (!mounted) {
     return (
@@ -161,8 +343,12 @@ export default function WalletDisplay({
     <div className={`relative flex items-center gap-2 ${className}`} ref={dropdownRef}>
       {/* Balance Badge */}
       {showBalance && (
-        <div className="px-3 py-1 bg-white text-black rounded-full text-lg font-bold hidden md:flex items-center gap-1" style={{ fontFamily: 'Silkscreen, monospace' }}>
-          🔥 {balanceLoading ? '...' : balance}
+        <div 
+          key={`balance-${tokenSymbol}`}
+          className="px-3 py-1 bg-white text-black rounded-full text-lg font-bold hidden md:flex items-center gap-1" 
+          style={{ fontFamily: 'Silkscreen, monospace' }}
+        >
+          🔥 {balanceLoading ? '...' : balance} {tokenSymbol}
         </div>
       )}
 
@@ -192,23 +378,59 @@ export default function WalletDisplay({
 
       {/* Dropdown Menu */}
       {showDropdown && (
-        <div className="absolute right-0 top-12 w-64 min-w-[200px] rounded-md shadow-2xl bg-[#220808]/90 backdrop-blur-md border border-[#3a1a1a] overflow-hidden z-50">
+        <div className="absolute right-0 top-12 w-72 min-w-[280px] rounded-md shadow-2xl bg-[#220808]/90 backdrop-blur-md border border-[#3a1a1a] overflow-hidden z-50">
           <div className="py-2">
             {/* Wallet Info */}
-            <div className="px-3 py-2 text-white/70 text-xs border-b border-[#3a1a1a]">
-              <div className="flex items-center justify-between">
-                <div className="font-medium">Connected Wallet</div>
+            <div className="px-3 py-2 text-white text-xs border-b border-[#3a1a1a]">
+              <div className="flex items-center justify-between mb-1">
+                <div className="font-medium text-sm" style={{ fontFamily: 'Silkscreen, monospace' }}>Connected Wallet</div>
                 <button
                   onClick={copyAddress}
                   className="p-1 hover:bg-white/20 rounded transition-colors"
                   title="Copy wallet address"
                 >
-                  <svg className="w-3 h-3 text-white/60 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-3.5 h-3.5 text-white/70 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </button>
               </div>
-              <div className="font-mono text-xs mt-1 break-all">{address}</div>
+              <div className="font-mono text-[11px] mt-1 break-all text-white/70">{address}</div>
+            </div>
+
+            {/* Network Selector */}
+            <div className="px-3 py-3 border-b border-[#3a1a1a]">
+              <label className="text-white text-sm font-medium mb-2 block" style={{ fontFamily: 'Silkscreen, monospace' }}>Network</label>
+              <div className="relative">
+                <select
+                  value={selectedNetwork}
+                  onChange={(e) => handleNetworkSwitch(e.target.value as NetworkType)}
+                  disabled={isSwitching}
+                  className="w-full appearance-none px-3 py-2.5 pr-10 bg-[#1a0505] border border-[#3a1a1a] rounded-lg text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#FD7A10] focus:border-[#FD7A10] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#2a0808] hover:border-[#4a2a2a] transition-all cursor-pointer"
+                  style={{ fontFamily: 'Silkscreen, monospace' }}
+                >
+                  <option value="base" className="bg-[#1a0505] text-white">Base Mainnet ({getTokenSymbol('base')})</option>
+                  <option value="somnia_testnet" className="bg-[#1a0505] text-white">Somnia Testnet ({getTokenSymbol('somnia_testnet')})</option>
+                </select>
+                
+                {/* Custom Dropdown Arrow */}
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none">
+                  <svg className="w-4 h-4 text-white/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+              
+              {/* Network Status */}
+              <div className="flex items-center gap-2 mt-2.5 text-xs text-white/70">
+                <div className={`w-2 h-2 rounded-full ${selectedNetwork === 'somnia_testnet' ? 'bg-purple-500' : 'bg-blue-500'} shadow-lg`} />
+                <span className="font-medium">{getNetworkName(selectedNetwork)}</span>
+                {isSwitching && (
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <div className="animate-spin h-3 w-3 border-2 border-[#FD7A10] border-t-transparent rounded-full" />
+                    <span className="text-xs text-white/70">Switching...</span>
+                  </div>
+                )}
+              </div>
             </div>
             
             {/* Disconnect Button */}

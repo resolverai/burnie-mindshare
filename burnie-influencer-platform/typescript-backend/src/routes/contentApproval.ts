@@ -5,6 +5,7 @@ import { ContentMarketplace } from '../models/ContentMarketplace';
 import { ExecutionTracking } from '../models/ExecutionTracking';
 import { WatermarkService } from '../services/WatermarkService';
 import { VideoWatermarkService } from '../services/VideoWatermarkService';
+import { contentIntegrationService } from '../services/contentIntegrationService';
 
 const router = Router();
 
@@ -79,6 +80,15 @@ router.post('/approve/:contentId', async (req, res) => {
     logger.info(`✅ Content ${contentId} approved successfully by creator wallet: ${creatorWallet}`);
     
     await contentRepository.save(content);
+
+    // Approve content on blockchain if applicable (async, non-blocking)
+    const priceInROAST = content.biddingAskPrice || content.askingPrice || 0;
+    contentIntegrationService.approveContentOnChain(
+      parseInt(contentId),
+      priceInROAST
+    ).catch((error) => {
+      logger.error(`❌ Background blockchain approval failed for content ${contentId}:`, error);
+    });
     
     return res.json({
       content_id: parseInt(contentId),
@@ -152,6 +162,14 @@ router.post('/make-biddable/:contentId', async (req, res) => {
     content.biddingEnabledAt = new Date();
     
     await contentRepository.save(content);
+
+    // Update price on blockchain (async, non-blocking)
+    contentIntegrationService.updateContentPriceOnChain(
+      parseInt(contentId),
+      parseFloat(price)
+    ).catch((error) => {
+      logger.error(`❌ Background blockchain price update failed for content ${contentId}:`, error);
+    });
     
     logger.info(`✅ Content ${contentId} is now biddable with price: ${price}`);
     

@@ -49,6 +49,12 @@ export class ContentPurchase {
   @Column({ name: 'transaction_hash', type: 'varchar', length: 255, nullable: true })
   transactionHash!: string | null
 
+  @Column({ name: 'network', type: 'varchar', length: 50, nullable: true, default: null })
+  network!: string | null // 'base_mainnet' | 'somnia_testnet'
+
+  @Column({ name: 'blockchain_content_id', type: 'integer', nullable: true, default: null })
+  blockchainContentId!: number | null // Content ID on blockchain
+
   @Column({ type: 'varchar', length: 50, default: 'pending', name: 'payment_status' })
   paymentStatus!: 'pending' | 'completed' | 'failed' | 'refunded' | 'rolled_back'
 

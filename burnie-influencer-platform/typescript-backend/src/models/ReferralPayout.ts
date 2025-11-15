@@ -49,8 +49,18 @@ export class ReferralPayout {
   })
   payoutType!: PayoutType;
 
-  @Column({ type: 'decimal', precision: 18, scale: 8 })
-  roastAmount!: number;
+  @Column({ name: 'network', type: 'varchar', length: 50, nullable: true, default: null })
+  network!: string | null; // 'base_mainnet' | 'somnia_testnet'
+
+  @Column({ name: 'currency', type: 'varchar', length: 20, nullable: true, default: 'ROAST' })
+  currency!: string | null; // 'ROAST' | 'TOAST'
+
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true })
+  tokenAmount!: number | null; // Generic amount field (was roastAmount)
+
+  // Deprecated - keep for backward compatibility
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true })
+  roastAmount!: number | null;
 
   @Column({ type: 'decimal', precision: 5, scale: 4 })
   commissionRate!: number; // e.g., 0.05 for 5%

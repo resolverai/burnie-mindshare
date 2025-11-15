@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
 import Image from 'next/image'
 import BiddingInterface from '@/components/yapper/BiddingInterface'
-import { useROASTBalance } from '@/hooks/useROASTBalance'
+import { useTokenBalance } from '@/hooks/useTokenBalance'
 import WalletDisplay from '@/components/WalletDisplay'
 import { createPortal } from 'react-dom'
 
@@ -18,7 +18,7 @@ export default function MarketplacePage() {
   console.log('🏪 Marketplace page loaded - authentication required')
   
   const { address, isConnected } = useAccount()
-  const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
+  const { balance: tokenBalance, isLoading: balanceLoading, tokenSymbol } = useTokenBalance()
   const { needsSignature, signIn, isLoading: authLoading, isAuthenticated } = useAuth()
   const { referralCode, copyReferralLink } = useUserReferralCode()
   const mixpanel = useMixpanel()
@@ -160,8 +160,9 @@ export default function MarketplacePage() {
             {/* Wallet Connection with Balance */}
             <WalletDisplay 
               showBalance={true}
-              balance={roastBalance}
+              balance={tokenBalance}
               balanceLoading={balanceLoading}
+              tokenSymbol={tokenSymbol}
             />
           </div>
         </div>

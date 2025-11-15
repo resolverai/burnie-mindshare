@@ -244,7 +244,7 @@ class MixpanelService {
     contentId: number;
     contentType: 'text' | 'visual';
     purchasePrice: number;
-    selectedCurrency: 'ROAST' | 'USDC';
+    selectedCurrency: 'ROAST' | 'USDC' | 'TOAST';
     campaignId: number;
     transactionHash: string;
     purchaseTime: number;
@@ -258,6 +258,8 @@ class MixpanelService {
     if (this.isInitialized) {
       const increment = properties.selectedCurrency === 'ROAST' ? 
         { $total_spent_roast: properties.purchasePrice } : 
+        properties.selectedCurrency === 'TOAST' ?
+        { $total_spent_toast: properties.purchasePrice } :
         { $total_spent_usdc: properties.purchasePrice };
 
       mixpanel.people.increment({

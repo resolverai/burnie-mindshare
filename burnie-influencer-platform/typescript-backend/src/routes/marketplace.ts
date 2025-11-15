@@ -18,9 +18,108 @@ import { createPublicClient, http, parseUnits, formatUnits } from 'viem';
 import { base } from 'viem/chains';
 import { MarketplaceContentService } from '../services/MarketplaceContentService';
 import { UrlCacheService } from '../services/UrlCacheService';
+import { contentIntegrationService } from '../services/contentIntegrationService';
+import { SomniaBlockchainService } from '../services/somniaBlockchainService';
+import { UserReferral } from '../models/UserReferral';
+import { ReferralCode } from '../models/ReferralCode';
+import { ethers } from 'ethers';
 const AWS = require('aws-sdk');
 
 const router = Router();
+
+// Helper function to convert tier string to number for smart contract
+function getTierNumber(tier: string): number {
+  const tierMap: Record<string, number> = {
+    'SILVER': 0,
+    'GOLD': 1,
+    'PLATINUM': 2,
+    'EMERALD': 3,
+    'DIAMOND': 4,
+    'UNICORN': 5
+  };
+  return tierMap[tier.toUpperCase()] || 0;
+}
+
+/**
+ * Ensure user referral is registered on Somnia blockchain (fallback for signup)
+ * @param userWalletAddress User's wallet address
+ */
+async function ensureReferralRegisteredOnChain(userWalletAddress: string): Promise<void> {
+  try {
+    const somniaService = new SomniaBlockchainService();
+    
+    // Check if user is already registered on-chain
+    const onChainData = await somniaService.getUserReferralData(userWalletAddress);
+    
+    if (onChainData.isActive) {
+      logger.info(`✅ User ${userWalletAddress} already registered on-chain`);
+      return;
+    }
+    
+    logger.info(`⚠️ User ${userWalletAddress} not registered on-chain, registering now as fallback...`);
+    
+    // Get user referral data from database
+    const userRepository = AppDataSource.getRepository(User);
+    const userReferralRepository = AppDataSource.getRepository(UserReferral);
+    const referralCodeRepository = AppDataSource.getRepository(ReferralCode);
+    
+    const user = await userRepository.findOne({
+      where: { walletAddress: userWalletAddress.toLowerCase() }
+    });
+    
+    if (!user) {
+      logger.warn(`⚠️ User ${userWalletAddress} not found in database - registering with no referral`);
+      // Register with zero addresses (no referral payouts will be given)
+      await somniaService.registerReferral(
+        userWalletAddress,
+        ethers.ZeroAddress,
+        ethers.ZeroAddress,
+        0 // SILVER tier default
+      );
+      return;
+    }
+    
+    // Get user referral record
+    const userReferral = await userReferralRepository.findOne({
+      where: { userId: user.id },
+      relations: ['referralCode', 'directReferrer', 'grandReferrer']
+    });
+    
+    if (!userReferral) {
+      logger.info(`ℹ️ User ${userWalletAddress} has no referral in DB - registering without referral payouts`);
+      // Register with zero addresses (no referral)
+      await somniaService.registerReferral(
+        userWalletAddress,
+        ethers.ZeroAddress,
+        ethers.ZeroAddress,
+        0 // SILVER tier default
+      );
+      return;
+    }
+    
+    // Get referral code to determine tier
+    const referralCode = await referralCodeRepository.findOne({
+      where: { id: userReferral.referralCodeId }
+    });
+    
+    const tierNumber = getTierNumber(referralCode?.tier || 'SILVER');
+    
+    // Register on blockchain
+    const txHash = await somniaService.registerReferral(
+      userWalletAddress,
+      userReferral.directReferrer?.walletAddress || ethers.ZeroAddress,
+      userReferral.grandReferrer?.walletAddress || ethers.ZeroAddress,
+      tierNumber
+    );
+    
+    logger.info(`✅ Fallback: Registered user ${userWalletAddress} on Somnia blockchain: ${txHash}`);
+    
+  } catch (error) {
+    logger.error('❌ Failed to ensure referral registration on blockchain:', error);
+    // Don't fail purchase - just log and continue
+    // User will get no referral payouts but can still purchase
+  }
+}
 
 // Database connection check middleware
 const checkDatabaseConnection = async (req: Request, res: Response, next: Function): Promise<void> => {
@@ -728,13 +827,14 @@ router.get('/content', async (req, res) => {
       video_only,
       sort_by = 'bidding_enabled',
       page = 1,
-      limit = 18 
+      limit = 18,
+      network = 'base' // Default to base network
     } = req.query;
 
     // Get wallet address from Authorization header (optional for marketplace browsing)
     const walletAddress = req.headers.authorization?.replace('Bearer ', '');
     logger.info(`🔍 Marketplace request - wallet address: ${walletAddress ? walletAddress.substring(0, 10) + '...' : 'anonymous'}`);
-    logger.info(`🔍 Marketplace request - headers:`, req.headers);
+    logger.info(`🔍 Marketplace request - network: ${network}`);
 
     const marketplaceService = new MarketplaceContentService();
     
@@ -746,7 +846,8 @@ router.get('/content', async (req, res) => {
       video_only: video_only === 'true',
       sort_by: sort_by as string,
       page: Number(page),
-      limit: Number(limit)
+      limit: Number(limit),
+      network: network as string // Pass network filter
     });
 
     // Refresh expired pre-signed URLs in all content
@@ -1092,7 +1193,7 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);
     const content = await contentRepository.findOne({
       where: { id: parseInt(id) },
-      relations: ['creator', 'campaign']
+      relations: ['creator', 'campaign', 'campaign.project'] // Load project to get somniaWhitelisted
     });
 
     if (!content) {
@@ -1232,7 +1333,8 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
         title: refreshedContent.campaign?.title || 'Unknown Campaign',
         project_name: refreshedContent.campaign?.projectName || refreshedContent.campaign?.title || 'Unknown Project',
         platform_source: refreshedContent.campaign?.platformSource || 'unknown',
-        reward_token: refreshedContent.campaign?.rewardToken || 'ROAST'
+        reward_token: refreshedContent.campaign?.rewardToken || 'ROAST',
+        somnia_whitelisted: refreshedContent.campaign?.project?.somniaWhitelisted || false // Add Somnia whitelist status
       },
       agent_name: refreshedContent.agentName,
       created_at: refreshedContent.createdAt.toISOString(),
@@ -1699,6 +1801,18 @@ router.post('/approve', async (req, res) => {
       if (walletAddress) {
         existingContent.walletAddress = walletAddress;
       }
+
+      // Save to DB first
+      const savedContent = await contentRepository.save(existingContent);
+
+      // Approve on blockchain (async, non-blocking)
+      const { contentIntegrationService } = require('../services/contentIntegrationService');
+      const priceForBlockchain = savedContent.biddingAskPrice || Number(askingPrice) || 0;
+      contentIntegrationService.approveContentOnChain(savedContent.id, priceForBlockchain).catch((error: any) => {
+        console.error(`❌ Failed to approve content ${savedContent.id} on blockchain:`, error);
+      });
+      
+      existingContent = savedContent; // Update reference
       
       // Determine if content has video based on videoUrl presence
       // IMPORTANT: Validate that videoUrl is actually a video, not an image
@@ -3064,6 +3178,7 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
     }
 
     // Update bidding settings
+    const oldPrice = content.biddingAskPrice;
     content.isBiddable = is_biddable;
     if (is_biddable) {
       content.biddingEndDate = bidding_end_date ? new Date(bidding_end_date) : null;
@@ -3081,6 +3196,15 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
     }
 
     const updatedContent = await contentRepository.save(content);
+
+    // Update price on blockchain if changed and non-zero
+    const newPrice = updatedContent.biddingAskPrice;
+    if (newPrice && newPrice > 0 && newPrice !== oldPrice && updatedContent.approvalStatus === 'approved') {
+      const { contentIntegrationService } = require('../services/contentIntegrationService');
+      contentIntegrationService.updateContentPriceOnChain(updatedContent.id, newPrice).catch((error: any) => {
+        logger.error(`❌ Failed to update price on blockchain for content ${updatedContent.id}:`, error);
+      });
+    }
 
     return res.json({
       success: true,
@@ -4560,18 +4684,61 @@ router.post('/content/:id/presigned-url', async (req: Request, res: Response) =>
 });
 
 /**
+ * @route POST /api/marketplace/ensure-referral-registration
+ * @desc Ensure buyer's referral is registered on Somnia blockchain before purchase
+ */
+router.post('/ensure-referral-registration', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { buyerWalletAddress } = req.body;
+
+    if (!buyerWalletAddress) {
+      res.status(400).json({
+        success: false,
+        message: 'Buyer wallet address is required'
+      });
+      return;
+    }
+
+    logger.info(`🔄 Ensuring referral registration for buyer: ${buyerWalletAddress}`);
+    
+    await ensureReferralRegisteredOnChain(buyerWalletAddress);
+
+    res.json({
+      success: true,
+      message: 'Referral registration ensured'
+    });
+  } catch (error) {
+    logger.error('❌ Error ensuring referral registration:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to ensure referral registration',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
  * @route POST /api/marketplace/purchase
  * @desc Create a direct content purchase record (new immediate purchase system)
  */
 router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { contentId, buyerWalletAddress, purchasePrice, currency = 'ROAST', transactionHash } = req.body;
+    const { contentId, buyerWalletAddress, purchasePrice, currency = 'ROAST', transactionHash, network = 'base' } = req.body;
 
     // Validate required fields - allow 0 as valid price for free content
     if (!contentId || !buyerWalletAddress || (purchasePrice === undefined || purchasePrice === null)) {
       res.status(400).json({
         success: false,
         message: 'Missing required fields: contentId, buyerWalletAddress, purchasePrice'
+      });
+      return;
+    }
+
+    // For Somnia network, transaction hash is required (on-chain purchase)
+    if (network === 'somnia_testnet' && !transactionHash) {
+      res.status(400).json({
+        success: false,
+        message: 'Transaction hash required for Somnia network purchases'
       });
       return;
     }
@@ -4661,6 +4828,11 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       console.log(`🆕 Auto-created new buyer: ${buyerWalletAddress}`);
     }
 
+    // For Somnia purchases, ensure referral is registered on-chain (fallback if signup failed)
+    if (network === 'somnia_testnet') {
+      await ensureReferralRegisteredOnChain(buyerWalletAddress);
+    }
+
     // Check if this is free content (0 price)
     const isFreeContent = purchasePrice === 0;
     const isSyntheticTxHash = transactionHash && transactionHash.startsWith('FREE_CONTENT_');
@@ -4709,28 +4881,42 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
     
     // Calculate normalized purchase price in ROAST based on payment currency
     let normalizedPurchasePriceROAST: number;
-    if (currency === 'ROAST') {
-      // User paid in ROAST, so purchase price in ROAST is the same as what they paid
+    let actualPurchasePriceInNativeCurrency: number; // The actual amount paid by buyer
+    
+    if (network === 'somnia_testnet') {
+      // Somnia: Buyer pays in TOAST at 1:1 with content price
+      // No conversion needed - TOAST = ROAST price (same value)
+      normalizedPurchasePriceROAST = purchasePrice; // purchasePrice is already in TOAST
+      actualPurchasePriceInNativeCurrency = purchasePrice; // TOAST amount
+    } else if (currency === 'ROAST') {
+      // Base: User paid in ROAST, so purchase price in ROAST is the same as what they paid
       normalizedPurchasePriceROAST = purchasePrice;
+      actualPurchasePriceInNativeCurrency = purchasePrice; // ROAST amount
     } else {
-      // User paid in USDC, convert to ROAST using conversion rate
+      // Base: User paid in USDC, convert to ROAST using conversion rate
       // purchasePrice (USDC) / roastPrice (ROAST/USD) = ROAST amount
       normalizedPurchasePriceROAST = purchasePrice / roastPrice;
+      actualPurchasePriceInNativeCurrency = purchasePrice; // USDC amount
     }
     
     // Calculate miner payout and platform fee - set to 0 for free content
-    const minerPayoutRoast = isFreeContent ? 0 : (originalRoastPrice * 0.80);
+    // Update to 50% for miner (matching contract), 30% platform, 20% evaluator
+    const minerPayoutRoast = isFreeContent ? 0 : (actualPurchasePriceInNativeCurrency * 0.50); // 50% of what buyer paid
     
     // Calculate platform fee based on payment currency (still in payment currency) - set to 0 for free content
+    // Update to 30% platform fee (matching contract)
     let platformFee: number;
     if (isFreeContent) {
       platformFee = 0;
+    } else if (network === 'somnia_testnet') {
+      // Somnia: 30% of TOAST payment
+      platformFee = actualPurchasePriceInNativeCurrency * 0.30;
     } else if (currency === 'ROAST') {
-      // For ROAST payments: 20% of original asking price
-      platformFee = originalRoastPrice * 0.20;
+      // For ROAST payments: 30% of original asking price (matching contract)
+      platformFee = actualPurchasePriceInNativeCurrency * 0.30;
     } else {
-      // For USDC payments: 20% of asking price (converted to USDC) + 0.03 USDC fee (no extra fee for free content)
-      const baseUsdcFee = originalRoastPrice * roastPrice * 0.20;
+      // For USDC payments: 30% of asking price (converted to USDC) + 0.03 USDC fee
+      const baseUsdcFee = actualPurchasePriceInNativeCurrency * 0.30;
       const extraUsdcFee = isFreeContent ? 0 : 0.03;
       platformFee = baseUsdcFee + extraUsdcFee;
     }
@@ -4738,29 +4924,156 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
     // Extract miner wallet address (already validated above) and normalize case
     const minerWalletAddress = content.creator!.walletAddress.toLowerCase();
     
+    // Determine the actual currency used for this purchase
+    const actualCurrency = network === 'somnia_testnet' ? 'TOAST' : (currency === 'ROAST' ? 'ROAST' : 'USDC');
+    
     // Log purchase processing details
-    logger.info(`Purchase processing: ${isFreeContent ? 'FREE CONTENT' : 'PAID CONTENT'} - Price: ${purchasePrice} ${currency}, Platform Fee: ${platformFee}, Miner Payout: ${minerPayoutRoast}, Synthetic TX: ${isSyntheticTxHash}`);
+    logger.info(`Purchase processing: ${isFreeContent ? 'FREE CONTENT' : 'PAID CONTENT'} - Price: ${actualPurchasePriceInNativeCurrency} ${actualCurrency}, Platform Fee: ${platformFee}, Miner Payout: ${minerPayoutRoast}, Synthetic TX: ${isSyntheticTxHash}, Network: ${network}`);
 
-    // Create purchase record with normalized ROAST pricing
+    // Create purchase record with correct pricing
     const purchase = purchaseRepository.create({
       contentId: parseInt(contentId),
       buyerWalletAddress: buyerWalletAddress.toLowerCase(), // ✅ Fix case sensitivity
       minerWalletAddress: minerWalletAddress.toLowerCase(), // ✅ Fix case sensitivity
-      purchasePrice: normalizedPurchasePriceROAST, // ALWAYS in ROAST (converted if needed)
-      currency: 'ROAST', // ALWAYS 'ROAST' for consistency
-      paymentCurrency: currency, // Currency actually paid by yapper (ROAST or USDC)
+      network: network === 'somnia_testnet' ? 'somnia_testnet' : 'base_mainnet', // ADD network
+      blockchainContentId: network === 'somnia_testnet' ? parseInt(contentId) : null, // ADD blockchain content ID
+      purchasePrice: actualPurchasePriceInNativeCurrency, // Actual amount paid by buyer in their payment currency
+      currency: actualCurrency, // 'TOAST' for Somnia, 'ROAST' or 'USDC' for Base
+      paymentCurrency: actualCurrency, // Currency actually paid by yapper (same as currency)
       conversionRate: roastPrice, // ROAST to USD rate at time of purchase
-      originalRoastPrice, // Original asking price in ROAST
-      platformFee, // In payment currency
-      minerPayout: minerPayoutRoast, // ALWAYS in ROAST (80% of original)
-      minerPayoutRoast, // Explicit ROAST amount for clarity
+      originalRoastPrice, // Original asking price in ROAST (from content.biddingAskPrice)
+      platformFee, // In payment currency (30%)
+      minerPayout: minerPayoutRoast, // 50% of actual purchase price in payment currency
+      minerPayoutRoast, // Explicit amount for clarity
       paymentStatus: transactionHash ? 'completed' : 'pending', // If transaction hash provided, mark as completed
       payoutStatus: isFreeContent ? 'not_applicable' : 'pending', // Set payout status for free content
-      referralPayoutStatus: isFreeContent ? 'not_applicable' : 'pending', // Set referral status for free content
+      referralPayoutStatus: isFreeContent ? 'not_applicable' : (network === 'somnia_testnet' ? 'completed' : 'pending'), // Somnia referrals already paid
       transactionHash: transactionHash || null // Store transaction hash if provided
     });
 
     await purchaseRepository.save(purchase);
+
+    // Handle Somnia network purchase - record blockchain transaction and referral payouts
+    if (network === 'somnia_testnet' && transactionHash && !isFreeContent) {
+      try {
+        // Get buyer's referral info
+        const buyer = await userRepository.findOne({
+          where: { walletAddress: buyerWalletAddress.toLowerCase() }
+        });
+
+        const { UserReferral } = require('../models/UserReferral');
+        const { ReferralPayout, PayoutType, PayoutStatus } = require('../models/ReferralPayout');
+        const userReferralRepository = AppDataSource.getRepository(UserReferral);
+        const referralPayoutRepository = AppDataSource.getRepository(ReferralPayout);
+
+        let directReferrerAmount = 0;
+        let grandReferrerAmount = 0;
+        let tier = 'SILVER';
+        let directReferrerAddress: string | null = null;
+        let grandReferrerAddress: string | null = null;
+
+        if (buyer) {
+          const userReferral = await userReferralRepository.findOne({
+            where: { userId: buyer.id },
+            relations: ['referralCode', 'directReferrer', 'grandReferrer']
+          });
+
+          if (userReferral?.referralCode) {
+            // Calculate referral amounts (from purchase price, not platform fee)
+            directReferrerAmount = purchasePrice * (userReferral.referralCode.getDirectReferrerRate() / 100);
+            grandReferrerAmount = purchasePrice * (userReferral.referralCode.getGrandReferrerRate() / 100);
+            tier = userReferral.referralCode.tier;
+            directReferrerAddress = userReferral.directReferrer?.walletAddress || null;
+            grandReferrerAddress = userReferral.grandReferrer?.walletAddress || null;
+
+            // Create referral payout records (already paid via contract)
+            if (userReferral.directReferrer && directReferrerAmount >= 10) {
+              const directPayout = referralPayoutRepository.create({
+                userReferralId: userReferral.id,
+                contentPurchaseId: purchase.id,
+                payoutWalletAddress: userReferral.directReferrer.walletAddress,
+                payoutType: PayoutType.DIRECT_REFERRER,
+                network: 'somnia_testnet',
+                currency: 'TOAST',
+                tokenAmount: directReferrerAmount,
+                commissionRate: userReferral.referralCode.getDirectReferrerRate() / 100,
+                transactionHash,
+                status: PayoutStatus.PAID,
+                paidAt: new Date()
+              });
+              await referralPayoutRepository.save(directPayout);
+
+              purchase.directReferrerPayout = directReferrerAmount;
+              purchase.directReferrerTxHash = transactionHash;
+              logger.info(`✅ Recorded direct referrer payout: ${directReferrerAmount} TOAST`);
+            }
+
+            if (userReferral.grandReferrer && grandReferrerAmount >= 10) {
+              const grandPayout = referralPayoutRepository.create({
+                userReferralId: userReferral.id,
+                contentPurchaseId: purchase.id,
+                payoutWalletAddress: userReferral.grandReferrer.walletAddress,
+                payoutType: PayoutType.GRAND_REFERRER,
+                network: 'somnia_testnet',
+                currency: 'TOAST',
+                tokenAmount: grandReferrerAmount,
+                commissionRate: userReferral.referralCode.getGrandReferrerRate() / 100,
+                transactionHash,
+                status: PayoutStatus.PAID,
+                paidAt: new Date()
+              });
+              await referralPayoutRepository.save(grandPayout);
+
+              purchase.grandReferrerPayout = grandReferrerAmount;
+              purchase.grandReferrerTxHash = transactionHash;
+              logger.info(`✅ Recorded grand referrer payout: ${grandReferrerAmount} TOAST`);
+            }
+
+            purchase.referralPayoutStatus = 'completed';
+            await purchaseRepository.save(purchase);
+          }
+        }
+
+        // Record blockchain purchase transaction with all reward details
+        logger.info(`📝 Recording purchase transaction in content_blockchain_transactions table...`);
+        const recordResult = await contentIntegrationService.recordPurchaseTransaction(
+          parseInt(contentId),
+          buyerWalletAddress,
+          transactionHash,
+          purchasePrice, // In TOAST
+          {
+            directReferrerAddress,
+            grandReferrerAddress,
+            directReferrerAmount,
+            grandReferrerAmount,
+            tier
+          }
+        );
+
+        if (recordResult.success) {
+          logger.info(`✅ Somnia purchase transaction recorded in DB: ${transactionHash}`);
+        } else {
+          logger.error(`❌ Failed to record purchase transaction: ${recordResult.error}`);
+        }
+      } catch (error) {
+        logger.error(`❌ Failed to record Somnia purchase transaction:`, error);
+      }
+    }
+
+    // Verify on-chain purchase for Somnia network
+    if (network === 'somnia_testnet' && transactionHash) {
+      logger.info(`🔗 Verifying on-chain purchase for content ${contentId} on Somnia`);
+      const verification = await contentIntegrationService.verifyPurchaseOnChain(
+        parseInt(contentId),
+        buyerWalletAddress
+      );
+      
+      if (!verification.success) {
+        logger.warn(`⚠️ On-chain verification failed for content ${contentId}: ${verification.error}`);
+      } else {
+        logger.info(`✅ On-chain purchase verified for content ${contentId}`);
+      }
+    }
 
     // Only mark content as unavailable if we have a confirmed transaction hash
     // Otherwise, keep it available until payment is confirmed
@@ -4772,7 +5085,7 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       logger.info(`No transaction hash provided, keeping content available until payment confirmation`);
     }
 
-    logger.info(`Purchase record created: Content ${contentId} by ${buyerWalletAddress} - Paid: ${purchasePrice} ${currency}, Normalized: ${normalizedPurchasePriceROAST} ROAST`);
+    logger.info(`Purchase record created: Content ${contentId} by ${buyerWalletAddress} - Paid: ${purchasePrice} ${currency}, Normalized: ${normalizedPurchasePriceROAST} ROAST, Network: ${network}`);
 
     res.json({
       success: true,
@@ -4965,10 +5278,14 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
     }
 
     const minerAddress = purchase.minerWalletAddress;
-    // Always use ROAST payout amount (80% of original ROAST asking price)
+    // Always use ROAST payout amount (50% of original ROAST asking price)
     const minerPayoutRoast = purchase.minerPayoutRoast || purchase.minerPayout;
 
-    logger.info(`🏦 Starting treasury distribution: ${minerPayoutRoast} ROAST to ${minerAddress}`);
+    // For Somnia purchases: Miner gets 50% TOAST on-chain (already paid by contract)
+    // AND 50% ROAST off-chain from Base treasury (to compensate for content creation costs)
+    const network = purchase.network || 'base_mainnet';
+    
+    logger.info(`🏦 Starting treasury distribution: ${minerPayoutRoast} ROAST to ${minerAddress} (Network: ${network})`);
 
     // Initialize treasury service
     const treasuryService = new TreasuryService();
@@ -4984,7 +5301,9 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
       return;
     }
 
-    // Execute the distribution
+    // Execute the distribution (ROAST from Base treasury for both Base and Somnia purchases)
+    // For Somnia: This is the off-chain 50% ROAST payout (on-chain 50% TOAST already distributed by contract)
+    // For Base: This is the standard 50% ROAST payout
     const distributionResult = await treasuryService.distributeToMiner(minerAddress, minerPayoutRoast);
 
     if (!distributionResult.success) {
@@ -5004,23 +5323,39 @@ router.post('/purchase/:id/distribute', async (req: Request, res: Response): Pro
     await purchaseRepository.save(purchase);
 
     logger.info(`✅ Treasury distribution completed: ${distributionResult.transactionHash}`);
+    if (network === 'somnia_testnet') {
+      logger.info(`ℹ️ Somnia purchase: Miner receives 50% ROAST (Base treasury) + 50% TOAST (on-chain contract)`);
+    }
 
     // Queue referral payouts for asynchronous processing (non-blocking)
-    logger.info(`🎯 Queuing referral payouts for purchase ${purchase.id}...`);
-    AsyncReferralPayoutService.queueReferralPayouts(purchase.id);
+    // Skip for Somnia network (referrals already paid via contract)
+    if (network === 'somnia_testnet') {
+      logger.info(`⏭️ Skipping referral payouts for Somnia purchase ${purchase.id} (already paid via contract)`);
+    } else {
+      logger.info(`🎯 Queuing referral payouts for purchase ${purchase.id}...`);
+      AsyncReferralPayoutService.queueReferralPayouts(purchase.id);
+    }
 
     res.json({
       success: true,
-      message: 'Treasury distribution completed',
+      message: network === 'somnia_testnet' 
+        ? 'Dual payout completed: 50% ROAST (Base treasury) + 50% TOAST (on-chain contract)' 
+        : 'Treasury distribution completed',
       data: {
         purchaseId: purchase.id,
         minerAddress,
         minerPayoutRoast,
         treasuryTransactionHash: distributionResult.transactionHash,
         payoutStatus: purchase.payoutStatus,
+        network,
+        payoutDetails: network === 'somnia_testnet' ? {
+          roastPayout: `${minerPayoutRoast} ROAST (Base treasury)`,
+          toastPayout: `50% TOAST (on-chain contract, already distributed)`,
+          note: 'Dual payout: Miner receives compensation in both ROAST and TOAST'
+        } : undefined,
         referralPayouts: {
-          status: 'queued',
-          message: 'Referral payouts are being processed asynchronously'
+          status: network === 'somnia_testnet' ? 'completed' : 'queued',
+          message: network === 'somnia_testnet' ? 'Referral payouts already completed on-chain' : 'Referral payouts are being processed asynchronously'
         }
       }
     });
@@ -5841,6 +6176,13 @@ router.post('/approve-content', async (req: Request, res: Response) => {
 
     const updatedContent = await contentRepository.save(content);
 
+    // Approve on blockchain (async, non-blocking)
+    const { contentIntegrationService } = require('../services/contentIntegrationService');
+    const priceForBlockchain = updatedContent.biddingAskPrice || 0;
+    contentIntegrationService.approveContentOnChain(updatedContent.id, priceForBlockchain).catch((error: any) => {
+      console.error(`❌ Failed to approve content ${updatedContent.id} on blockchain:`, error);
+    });
+
     console.log('✅ Content approved:', {
       id: updatedContent.id,
       creatorId: updatedContent.creatorId,
@@ -6142,7 +6484,7 @@ const publicClient = createPublicClient({
  */
 router.post('/check-balance', async (req: Request, res: Response) => {
   try {
-    const { walletAddress, tokenType, requiredAmount } = req.body;
+    const { walletAddress, tokenType, requiredAmount, network } = req.body;
 
     if (!walletAddress || !tokenType || requiredAmount === undefined) {
       return res.status(400).json({
@@ -6151,8 +6493,45 @@ router.post('/check-balance', async (req: Request, res: Response) => {
       });
     }
 
-    logger.info(`🔍 Checking ${tokenType} balance for wallet: ${walletAddress}, required: ${requiredAmount}`);
+    logger.info(`🔍 Checking ${tokenType} balance for wallet: ${walletAddress}, required: ${requiredAmount}, network: ${network || 'base'}`);
 
+    // Handle Somnia TOAST balance check
+    if (network === 'somnia_testnet' && tokenType.toLowerCase() === 'toast') {
+      try {
+        const somniaService = new SomniaBlockchainService();
+        const balanceFormatted = await somniaService.getToastBalance(walletAddress);
+        const balance = parseFloat(balanceFormatted); // Already formatted by getToastBalance
+        const required = parseFloat(requiredAmount.toString());
+        const hasBalance = balance >= required;
+
+        logger.info(`💰 Somnia TOAST balance check result:`, {
+          wallet: walletAddress,
+          token: 'TOAST',
+          balance: balance,
+          required: required,
+          hasBalance: hasBalance
+        });
+
+        return res.json({
+          success: true,
+          data: {
+            tokenType: 'TOAST',
+            balance: balance,
+            requiredAmount: required,
+            hasBalance: hasBalance,
+            shortfall: hasBalance ? 0 : (required - balance)
+          }
+        });
+      } catch (error) {
+        logger.error('❌ Error checking Somnia TOAST balance:', error);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to check TOAST balance on Somnia'
+        });
+      }
+    }
+
+    // Handle Base Mainnet (ROAST/USDC) balance check
     let tokenAddress: string;
     let tokenName: string;
 
@@ -6165,7 +6544,7 @@ router.post('/check-balance', async (req: Request, res: Response) => {
     } else {
       return res.status(400).json({
         success: false,
-        error: 'Invalid tokenType. Must be "roast" or "usdc"'
+        error: 'Invalid tokenType. Must be "roast", "usdc", or "toast" (for Somnia)'
       });
     }
 
@@ -6214,6 +6593,69 @@ router.post('/check-balance', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to check token balance'
+    });
+  }
+});
+
+/**
+ * Get blockchain content ID for a content
+ * GET /api/marketplace/content/:contentId/blockchain-id
+ */
+router.get('/content/:contentId/blockchain-id', async (req: Request, res: Response) => {
+  try {
+    const { contentId } = req.params;
+    const { network } = req.query; // 'somnia_testnet' or 'base_mainnet'
+
+    if (!contentId || !network || typeof network !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Content ID and network parameters are required'
+      });
+    }
+
+    logger.info(`🔍 Getting blockchain content ID for content ${contentId} on network ${network}`);
+
+    const { ContentBlockchainTransaction } = await import('../models/ContentBlockchainTransaction');
+    const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
+
+    // Find the registration transaction for this content on the specified network
+    const registrationTx = await blockchainTxRepository.findOne({
+      where: {
+        contentId: parseInt(contentId, 10),
+        network: network,
+        transactionType: 'registration'
+      },
+      order: {
+        createdAt: 'DESC' // Get the most recent one
+      }
+    });
+
+    if (!registrationTx || !registrationTx.blockchainContentId) {
+      logger.warn(`⚠️ No blockchain content ID found for content ${contentId} on ${network}`);
+      return res.status(404).json({
+        success: false,
+        error: 'Content not registered on blockchain'
+      });
+    }
+
+    logger.info(`✅ Found blockchain content ID: ${registrationTx.blockchainContentId} for content ${contentId}`);
+
+    return res.json({
+      success: true,
+      data: {
+        contentId: parseInt(contentId, 10),
+        blockchainContentId: registrationTx.blockchainContentId,
+        network: registrationTx.network,
+        transactionHash: registrationTx.transactionHash,
+        creatorWalletAddress: registrationTx.creatorWalletAddress
+      }
+    });
+
+  } catch (error) {
+    logger.error('❌ Error getting blockchain content ID:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get blockchain content ID'
     });
   }
 });

@@ -64,6 +64,7 @@ export interface MarketplaceParams {
   sort_by?: string
   page?: number
   limit?: number
+  network?: 'base' | 'somnia_testnet' // Network filter for Somnia integration
 }
 
 const marketplaceService = {
@@ -139,7 +140,14 @@ const marketplaceService = {
     }
   },
 
-  async purchaseContent(contentId: number, buyerWalletAddress: string, purchasePrice: number, currency: string = 'ROAST'): Promise<any> {
+  async purchaseContent(
+    contentId: number,
+    buyerWalletAddress: string,
+    purchasePrice: number,
+    currency: string = 'ROAST',
+    transactionHash?: string,
+    network: 'base' | 'somnia_testnet' = 'base'
+  ): Promise<any> {
     const url = `${API_BASE_URL}/api/marketplace/purchase`
     
     try {
@@ -152,7 +160,9 @@ const marketplaceService = {
           contentId,
           buyerWalletAddress,
           purchasePrice,
-          currency
+          currency,
+          transactionHash,
+          network
         })
       })
       

@@ -9,6 +9,7 @@ import { generateRandomMindshare, formatMindshare } from '../../utils/mindshareU
 import { useROASTPrice, formatUSDCPrice } from '../../utils/priceUtils'
 import { transferROAST, checkROASTBalance, transferUSDC, checkUSDCBalance } from '../../utils/walletUtils'
 import { executeROASTPayment } from '../../services/roastPaymentService'
+import { executeTOASTPaymentWithPermit } from '../../services/toastPaymentService'
 import TweetThreadDisplay from '../TweetThreadDisplay'
 import VideoPlayer from '../VideoPlayer'
 import { renderMarkdown, isMarkdownContent, formatPlainText, getPostTypeInfo, markdownToPlainText, markdownToHTML } from '../../utils/markdownParser'
@@ -53,6 +54,7 @@ interface ContentItem {
     platform_source: string
     project_name?: string
     reward_token: string
+    somnia_whitelisted?: boolean // Add Somnia whitelist status
   }
   agent_name?: string
   created_at: string
@@ -71,8 +73,9 @@ interface PurchaseContentModalProps {
   content: ContentItem | null
   isOpen: boolean
   onClose: () => void
-  onPurchase?: (contentId: number, price: number, currency: 'ROAST' | 'USDC', transactionHash?: string) => void
+  onPurchase?: (contentId: number, price: number, currency: 'ROAST' | 'USDC' | 'TOAST', transactionHash?: string) => void
   onContentUpdate?: (updatedContent: ContentItem) => void
+  currentNetwork?: 'base' | 'somnia_testnet'
 }
 
 export default function PurchaseContentModal({
@@ -80,7 +83,8 @@ export default function PurchaseContentModal({
   isOpen,
   onClose,
   onPurchase,
-  onContentUpdate
+  onContentUpdate,
+  currentNetwork = 'base'
 }: PurchaseContentModalProps) {
   const mixpanel = useMixpanel()
   
@@ -2011,7 +2015,7 @@ export default function PurchaseContentModal({
   };
   
   // Handle purchase with content management
-  const handlePurchaseWithContentManagement = async (contentToPurchase: ContentItem, price: number, currency: 'ROAST' | 'USDC', transactionHash?: string) => {
+  const handlePurchaseWithContentManagement = async (contentToPurchase: ContentItem, price: number, currency: 'ROAST' | 'USDC' | 'TOAST', transactionHash?: string) => {
     try {
       console.log('🔄 handlePurchaseWithContentManagement called with:', { 
         contentId: contentToPurchase?.id, 
@@ -2030,7 +2034,7 @@ export default function PurchaseContentModal({
       // Content availability will be managed by the backend after successful purchase
       if (onPurchase) {
         console.log('📞 Calling onPurchase callback...')
-        onPurchase(contentToPurchase.id, price, currency, transactionHash)
+        await onPurchase(contentToPurchase.id, price, currency, transactionHash)
         console.log('✅ onPurchase callback completed')
       }
       
@@ -3202,7 +3206,12 @@ export default function PurchaseContentModal({
 
     // Check balance first (before locking content)
     try {
-      console.log(`🔍 Checking ${selectedPayment === 'roast' ? 'ROAST' : 'USDC'} balance via backend...`)
+      // Determine token type and network based on current network and selected payment
+      const isSomnia = currentNetwork === 'somnia_testnet';
+      const tokenType = isSomnia ? 'toast' : (selectedPayment === 'roast' ? 'roast' : 'usdc');
+      const networkParam = isSomnia ? 'somnia_testnet' : 'base';
+      
+      console.log(`🔍 Checking ${tokenType.toUpperCase()} balance via backend (Network: ${networkParam})...`)
       
       const balanceResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/check-balance`, {
         method: 'POST',
@@ -3211,8 +3220,9 @@ export default function PurchaseContentModal({
         },
         body: JSON.stringify({
           walletAddress: address,
-          tokenType: selectedPayment === 'roast' ? 'roast' : 'usdc',
-          requiredAmount: selectedPayment === 'roast' ? requiredAmount : totalUSDC
+          tokenType,
+          requiredAmount: selectedPayment === 'roast' ? requiredAmount : totalUSDC,
+          network: networkParam
         }),
       })
 
@@ -3329,25 +3339,97 @@ export default function PurchaseContentModal({
     setIsLoading(true)
     try {
       let success = false
+      let transactionHash: string | undefined;
       
-      // Get treasury address from environment or API
+      // Determine if we're on Somnia
+      const isSomnia = currentNetwork === 'somnia_testnet';
+      
+      // Get treasury address from environment or API (only for Base network)
       const treasuryAddress = process.env.NEXT_PUBLIC_TREASURY_WALLET_ADDRESS || '0x742d35Cc6634C0532925a3b8D0a8e0E6a1e2cf47' // fallback address
       
-      if (!treasuryAddress) {
+      if (!isSomnia && !treasuryAddress) {
         console.error('Treasury wallet address not configured')
         return
       }
 
-      // Execute payment directly without token registration
-
-      // Execute transaction using working implementation pattern
+      // Execute payment based on network
       let result: any;
-      if (selectedPayment === 'roast') {
+      
+      if (isSomnia) {
+        // SOMNIA TESTNET PURCHASE - Use smart contract with permit
+        console.log(`🔄 Executing TOAST payment on Somnia: ${requiredAmount} TOAST`)
+        
+        try {
+          // Step 1: Ensure referral is registered on-chain BEFORE purchase
+          console.log('📝 Step 1: Ensuring referral registration on Somnia...');
+          try {
+            const referralRegResponse = await fetch(
+              `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/ensure-referral-registration`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ buyerWalletAddress: address })
+              }
+            );
+            
+            if (referralRegResponse.ok) {
+              console.log('✅ Referral registration ensured');
+            } else {
+              console.warn('⚠️ Referral registration check failed (non-critical)');
+            }
+          } catch (refError) {
+            console.warn('⚠️ Referral registration check failed (non-critical):', refError);
+            // Don't fail the purchase - registration might have happened at signup
+          }
+          
+          // Step 2: Get the blockchain content ID for this content
+          console.log('📝 Step 2: Getting blockchain content ID...');
+          const blockchainIdResponse = await fetch(
+            `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${currentContent.id}/blockchain-id?network=somnia_testnet`
+          );
+          
+          if (!blockchainIdResponse.ok) {
+            throw new Error('Failed to get blockchain content ID - content may not be registered on Somnia');
+          }
+          
+          const blockchainIdData = await blockchainIdResponse.json();
+          if (!blockchainIdData.success || !blockchainIdData.data?.blockchainContentId) {
+            throw new Error('Content not registered on Somnia blockchain');
+          }
+          
+          const blockchainContentId = blockchainIdData.data.blockchainContentId;
+          console.log(`✅ Blockchain Content ID: ${blockchainContentId}`);
+          
+          // Step 3: Execute TOAST payment with permit (single transaction)
+          console.log('📝 Step 3: Executing TOAST payment on-chain...');
+          transactionHash = await executeTOASTPaymentWithPermit(
+            requiredAmount,
+            blockchainContentId,
+            address!
+          );
+          
+          result = {
+            success: true,
+            transactionHash: transactionHash,
+            hash: transactionHash
+          };
+          success = true;
+          console.log('✅ TOAST payment successful on Somnia:', result);
+        } catch (error) {
+          console.error('❌ TOAST payment failed:', error);
+          result = {
+            success: false,
+            error: error
+          };
+          success = false;
+        }
+      } else if (selectedPayment === 'roast') {
+        // BASE MAINNET - ROAST PAYMENT
         console.log(`🔄 Executing ROAST payment: ${requiredAmount} ROAST to ${treasuryAddress}`)
         
         try {
           // Use the working implementation service for better wallet display
-          const transactionHash = await executeROASTPayment(requiredAmount, treasuryAddress);
+          transactionHash = await executeROASTPayment(requiredAmount, treasuryAddress);
           result = {
             success: true,
             transactionHash: transactionHash,
@@ -3364,16 +3446,18 @@ export default function PurchaseContentModal({
           success = false;
         }
       } else {
+        // BASE MAINNET - USDC PAYMENT
         console.log(`🔄 Initiating USDC transfer: ${totalUSDC} USDC to ${treasuryAddress}`)
         result = await transferUSDC(totalUSDC, treasuryAddress)
         success = result.success
+        transactionHash = result.transactionHash || result.hash;
       }
 
       if (success) {
         // Call the content management purchase handler
         if (result.success) {
-          const transactionHash = result.transactionHash;
-          await handlePurchaseWithContentManagement(currentContent, requiredAmount, selectedPayment === 'roast' ? 'ROAST' : 'USDC', transactionHash)
+          const currency = isSomnia ? 'TOAST' : (selectedPayment === 'roast' ? 'ROAST' : 'USDC');
+          await handlePurchaseWithContentManagement(currentContent, requiredAmount, currency, transactionHash)
           
           // Refresh presigned URLs for purchased content
           console.log('🔄 Refreshing presigned URLs for purchased content...');
@@ -4742,7 +4826,25 @@ export default function PurchaseContentModal({
                       </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-2">
+                    {/* Network restriction warning for non-whitelisted projects on Somnia - Mobile/Tablet */}
+                    {currentNetwork === 'somnia_testnet' && !getCurrentContent()?.campaign?.somnia_whitelisted && (
+                      <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-lg p-3 mb-4">
+                        <div className="flex items-start gap-2">
+                          <svg className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <div className="flex-1">
+                            <span className="text-orange-400 font-semibold text-xs block mb-1">Network Restriction</span>
+                            <p className="text-white/80 text-[10px] leading-relaxed">
+                              This content is only available on <span className="text-orange-400 font-semibold">Base Mainnet</span>. 
+                              Please switch your network to Base Mainnet to purchase this content with ROAST or USDC tokens.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className={`grid gap-3 ${currentNetwork === 'somnia_testnet' ? 'grid-cols-1' : 'grid-cols-2'}`}>
                       <div 
                         onClick={() => {
                           if (selectedPayment !== "roast") {
@@ -4764,7 +4866,7 @@ export default function PurchaseContentModal({
                           selectedPayment === "roast" ? 'border-[#FD7A10]' : 'border-transparent'
                         }`}>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-white font-semibold text-[6px] xs:text-[12px] md:text-[16px]">$ROAST</span>
+                          <span className="text-white font-semibold text-[6px] xs:text-[12px] md:text-[16px]">{currentNetwork === "somnia_testnet" ? "$TOAST" : "$ROAST"}</span>
                           <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
                             selectedPayment === "roast" ? "border-[#FD7A10] bg-[#FD7A10]" : "border-[#FD7A10]"
                           }`}>
@@ -4774,11 +4876,13 @@ export default function PurchaseContentModal({
                           </div>
                         </div>
                         <div className="text-white text-[6px] xs:text-[12px] md:text-[16px] font-bold">{Math.round(getDisplayPrice(getCurrentContent()))}</div>
-                        <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Platform Token</div>
+                        <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">{currentNetwork === 'somnia_testnet' ? 'Somnia Testnet Token' : 'Platform Token'}</div>
                       </div>
 
-                      <div 
-                        onClick={() => {
+                      {/* USDC option - only show on Base Mainnet */}
+                      {currentNetwork === 'base' && (
+                        <div 
+                          onClick={() => {
                           if (selectedPayment !== "usdc") {
                             // Track currency toggle
                             if (content) {
@@ -4810,6 +4914,7 @@ export default function PurchaseContentModal({
                         <div className="text-white text-[6px] xs:text-[12px] md:text-[16px] font-bold">${totalUSDC}</div>
                         <div className="text-white/60 text-[10px] xs:text-[6px] sm:text-[8px] md:text-[10px]">Including 0.03 USDC fee</div>
                       </div>
+                      )}
                     </div>
 
                     {/* Motivational message for USDC users */}
@@ -4855,10 +4960,12 @@ export default function PurchaseContentModal({
                           // Content has been generated - show Buy Tweet button
                           <button
                             onClick={handlePurchase}
-                            disabled={isLoading}
+                            disabled={isLoading || (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)}
                             className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {isLoading ? 'Processing...' : (currentContent && getDisplayPrice(currentContent) === 0 ? 'Get Free Tweet' : 'Buy Tweet')}
+                            {isLoading ? 'Processing...' : 
+                             (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted) ? 'Switch to Base Mainnet' :
+                             (currentContent && getDisplayPrice(currentContent) === 0 ? 'Get Free Tweet' : 'Buy Tweet')}
                           </button>
                         ) : (
                           // Content not generated yet - show single Generate button based on mode
@@ -4904,10 +5011,12 @@ export default function PurchaseContentModal({
                           // Content has been generated - show Buy Tweet button
                           <button
                             onClick={handlePurchase}
-                            disabled={isLoading}
+                            disabled={isLoading || (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)}
                             className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            {isLoading ? 'Processing...' : (currentContent && getDisplayPrice(currentContent) === 0 ? 'Get Free Tweet' : 'Buy Tweet')}
+                            {isLoading ? 'Processing...' : 
+                             (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted) ? 'Switch to Base Mainnet' :
+                             (currentContent && getDisplayPrice(currentContent) === 0 ? 'Get Free Tweet' : 'Buy Tweet')}
                           </button>
                         ) : (
                           // Content not generated yet - show Generate button
@@ -4933,10 +5042,12 @@ export default function PurchaseContentModal({
                         // Regular purchase flow (auto generated tone)
                         <button
                           onClick={handlePurchase}
-                          disabled={isLoading}
+                          disabled={isLoading || (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)}
                           className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {isLoading ? 'Processing...' : 'Buy Tweet'}
+                          {isLoading ? 'Processing...' : 
+                           (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted) ? 'Switch to Base Mainnet' :
+                           'Buy Tweet'}
                         </button>
                       )}
                     </>
@@ -4999,12 +5110,16 @@ export default function PurchaseContentModal({
                                 <span className="text-white/80 text-sm">Transaction Hash:</span>
                               </div>
                               <a
-                                href={`https://basescan.org/tx/${purchasedContentDetails.transactionHash}`}
+                                href={
+                                  currentNetwork === 'somnia_testnet'
+                                    ? `https://shannon-explorer.somnia.network/tx/${purchasedContentDetails.transactionHash}`
+                                    : `https://basescan.org/tx/${purchasedContentDetails.transactionHash}`
+                                }
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-blue-400 hover:text-blue-300 text-sm underline"
                               >
-                                View on Base
+                                {currentNetwork === 'somnia_testnet' ? 'View on Somnia' : 'View on Base'}
                               </a>
                             </div>
                             <div className="text-white text-xs font-mono mt-2 break-all">
@@ -5488,12 +5603,16 @@ export default function PurchaseContentModal({
                             <span className="text-white/80 text-sm">Transaction Hash:</span>
                           </div>
                           <a
-                            href={`https://basescan.org/tx/${purchasedContentDetails.transactionHash}`}
+                            href={
+                              currentNetwork === 'somnia_testnet'
+                                ? `https://shannon-explorer.somnia.network/tx/${purchasedContentDetails.transactionHash}`
+                                : `https://basescan.org/tx/${purchasedContentDetails.transactionHash}`
+                            }
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-blue-400 hover:text-blue-300 text-sm underline"
                           >
-                            View on Base
+                            {currentNetwork === 'somnia_testnet' ? 'View on Somnia' : 'View on Base'}
                           </a>
                         </div>
                         <div className="text-white text-xs font-mono mt-2 break-all">
@@ -6230,13 +6349,33 @@ export default function PurchaseContentModal({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* Network restriction warning for non-whitelisted projects on Somnia */}
+                  {currentNetwork === 'somnia_testnet' && !getCurrentContent()?.campaign?.somnia_whitelisted && (
+                    <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-lg p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <svg className="w-5 h-5 text-orange-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <span className="text-orange-400 font-semibold text-sm">Network Restriction</span>
+                          </div>
+                          <p className="text-white/80 text-xs leading-relaxed">
+                            This content is only available on <span className="text-orange-400 font-semibold">Base Mainnet</span>. 
+                            Please switch your network to Base Mainnet to purchase this content with ROAST or USDC tokens.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={`grid gap-3 ${currentNetwork === 'somnia_testnet' ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
                     <div
                       onClick={() => setSelectedPayment("roast")}
                       className={'p-4 rounded-md cursor-pointer transition-colors bg-[#12141866] '}
                     >
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-white font-semibold">$ROAST</span>
+                        <span className="text-white font-semibold">{currentNetwork === 'somnia_testnet' ? '$TOAST' : '$ROAST'}</span>
                         <div className={`w-5 h-5 rounded-full border-[1px] flex items-center justify-center ${selectedPayment === "roast"
                           ? "border-orange-500"
                           : "border-orange-500"
@@ -6247,31 +6386,34 @@ export default function PurchaseContentModal({
                         </div>
                       </div>
                                               <div className="text-white text-xl font-bold">{Math.round(getDisplayPrice(getCurrentContent()))}</div>
-                      <div className="text-white/60 text-xs">Platform Token</div>
+                      <div className="text-white/60 text-xs">{currentNetwork === 'somnia_testnet' ? 'Somnia Testnet Token' : 'Platform Token'}</div>
                     </div>
 
-                    <div
-                      onClick={() => setSelectedPayment("usdc")}
-                      className={'p-4 rounded-md cursor-pointer transition-colors bg-[#12141866]'}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-white font-semibold">USDC</span>
-                        <div className={`w-5 h-5 rounded-full border-[1px] flex items-center justify-center ${selectedPayment === "usdc"
-                          ? "border-orange-500"
-                          : "border-orange-500"
-                          }`}>
-                          {selectedPayment === "usdc" && (
-                            <div className="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
-                          )}
+                    {/* USDC option - only show on Base Mainnet */}
+                    {currentNetwork === 'base' && (
+                      <div
+                        onClick={() => setSelectedPayment("usdc")}
+                        className={'p-4 rounded-md cursor-pointer transition-colors bg-[#12141866]'}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-white font-semibold">USDC</span>
+                          <div className={`w-5 h-5 rounded-full border-[1px] flex items-center justify-center ${selectedPayment === "usdc"
+                            ? "border-orange-500"
+                            : "border-orange-500"
+                            }`}>
+                            {selectedPayment === "usdc" && (
+                              <div className="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
+                            )}
+                          </div>
                         </div>
+                        <div className="text-white text-xl font-bold">${totalUSDC}</div>
+                        <div className="text-white/60 text-xs">Including 0.03 USDC fee</div>
                       </div>
-                      <div className="text-white text-xl font-bold">${totalUSDC}</div>
-                      <div className="text-white/60 text-xs">Including 0.03 USDC fee</div>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Motivational message for USDC users */}
-                  {selectedPayment === "usdc" && (
+                  {/* Motivational message for USDC users - only show on Base */}
+                  {currentNetwork === 'base' && selectedPayment === "usdc" && (
                     <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20 rounded-lg p-4">
                       <div className="flex items-center gap-2 mb-2">
                         <svg className="w-5 h-5 text-orange-400" fill="currentColor" viewBox="0 0 20 20">
@@ -6363,7 +6505,7 @@ export default function PurchaseContentModal({
                         handlePurchase(); // Purchase existing content
                       }
                     }}
-                    disabled={isLoading || isGeneratingContent}
+                    disabled={isLoading || isGeneratingContent || (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)}
                     className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 ${
                       isLoading || isGeneratingContent
                         ? 'bg-[#FD7A10] cursor-not-allowed' 
@@ -6373,6 +6515,8 @@ export default function PurchaseContentModal({
                         ? 'bg-orange-600 hover:bg-orange-700'
                         : !hasAccess
                         ? 'bg-purple-600 hover:bg-purple-700'
+                        : (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)
+                        ? 'bg-[#FD7A10] opacity-50 cursor-not-allowed'
                         : 'bg-[#FD7A10] glow-orange-button hover:bg-[#e86d0f]'
                     } text-white flex items-center justify-center gap-2`}
                   >
@@ -6390,6 +6534,8 @@ export default function PurchaseContentModal({
                       'Sign Message to Authenticate'
                     ) : !hasAccess ? (
                       'Get Marketplace Access'
+                    ) : (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted) ? (
+                      'Switch to Base Mainnet'
                     ) : selectedVoiceTone === "custom" && selectedYapper !== "" ? (
                       hasGeneratedContent ? 'Buy Tweet' : `Generate Content using @${selectedYapper}`
                     ) : selectedVoiceTone === "mystyle" && twitter.isConnected ? (
@@ -6536,12 +6682,16 @@ export default function PurchaseContentModal({
                               <span className="text-white/80 text-sm">Transaction Hash:</span>
                             </div>
                             <a
-                              href={`https://basescan.org/tx/${purchasedContentDetails.transactionHash}`}
+                              href={
+                                currentNetwork === 'somnia_testnet'
+                                  ? `https://shannon-explorer.somnia.network/tx/${purchasedContentDetails.transactionHash}`
+                                  : `https://basescan.org/tx/${purchasedContentDetails.transactionHash}`
+                              }
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-400 hover:text-blue-300 text-sm underline"
                             >
-                              View on Base
+                              {currentNetwork === 'somnia_testnet' ? 'View on Somnia' : 'View on Base'}
                             </a>
                           </div>
                           <div className="text-white text-xs font-mono mt-2 break-all">

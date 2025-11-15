@@ -12,6 +12,7 @@ export interface MarketplaceContentFilters {
   sort_by?: string;
   page?: number;
   limit?: number;
+  network?: string; // 'base' | 'somnia_testnet'
 }
 
 export interface MarketplaceContentResponse {
@@ -44,19 +45,24 @@ export class MarketplaceContentService {
         video_only,
         sort_by = 'bidding_enabled',
         page = 1,
-        limit = 18
+        limit = 18,
+        network = 'base' // Default to base network
       } = filters;
 
-      logger.info(`🔍 Fetching marketplace content: page=${page}, limit=${limit}, search="${search}", video_only=${video_only}`);
+      logger.info(`🔍 Fetching marketplace content: page=${page}, limit=${limit}, search="${search}", video_only=${video_only}, network="${network}"`);
 
       // Build base query
       let query = this.contentRepository
         .createQueryBuilder('content')
         .leftJoinAndSelect('content.creator', 'creator')
         .leftJoinAndSelect('content.campaign', 'campaign')
+        .leftJoinAndSelect('campaign.project', 'project') // Join project to get somniaWhitelisted status
         .where('content.approvalStatus = :status', { status: 'approved' })
         .andWhere('content.isAvailable = true')
         .andWhere('content.isBiddable = true');
+
+      // No network-based filtering - show all content regardless of network
+      // Frontend will handle showing appropriate purchase options based on somniaWhitelisted status
 
       // Exclude purchased content
       query = query.andWhere(
@@ -229,7 +235,8 @@ export class MarketplaceContentService {
           title: content.campaign?.title || 'Unknown Campaign',
           project_name: content.campaign?.projectName || content.campaign?.title || 'Unknown Project',
           platform_source: content.campaign?.platformSource || 'unknown',
-          reward_token: content.campaign?.rewardToken || 'ROAST'
+          reward_token: content.campaign?.rewardToken || 'ROAST',
+          somnia_whitelisted: content.campaign?.project?.somniaWhitelisted || false // Add Somnia whitelist status
         },
         agent_name: content.agentName,
         created_at: content.createdAt?.toISOString() || null,

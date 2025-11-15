@@ -11,6 +11,7 @@ interface UseInfiniteMarketplaceOptions {
   sort_by?: string
   limit?: number
   walletAddress?: string // Add wallet address for personalization
+  network?: 'base' | 'somnia_testnet' // Add network filtering for Somnia integration
 }
 
 export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = {}) {
@@ -22,7 +23,8 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
     video_only,
     sort_by = 'bidding_enabled',
     limit = 18,
-    walletAddress // Extract wallet address
+    walletAddress, // Extract wallet address
+    network // Extract network
   } = options
 
   const {
@@ -35,7 +37,7 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
     error,
     refetch
   } = useInfiniteQuery({
-    queryKey: ['marketplace', search, platform_source, project_name, post_type, video_only, sort_by, limit, walletAddress],
+    queryKey: ['marketplace', search, platform_source, project_name, post_type, video_only, sort_by, limit, walletAddress, network],
     queryFn: async ({ pageParam = 1 }) => {
       const params: MarketplaceParams = {
         page: pageParam,
@@ -48,6 +50,7 @@ export function useInfiniteMarketplace(options: UseInfiniteMarketplaceOptions = 
       if (project_name && project_name !== 'all') params.project_name = project_name
       if (post_type && post_type !== 'all') params.post_type = post_type
       if (video_only) params.video_only = video_only
+      if (network) params.network = network
 
       return marketplaceService.getContent(params, walletAddress)
     },
