@@ -54,11 +54,11 @@ router.get('/current', async (req: Request, res: Response) => {
     const userNetworkRepo = AppDataSource.getRepository(UserNetwork);
     let userNetwork = await userNetworkRepo.findOne({ where: { userId: user.id } });
 
-    // If no network selected, default to 'base'
+    // If no network selected, default to 'somnia_testnet'
     if (!userNetwork) {
       userNetwork = userNetworkRepo.create({
         userId: user.id,
-        currentNetwork: 'base',
+        currentNetwork: 'somnia_testnet',
         pastNetwork: null,
       });
       await userNetworkRepo.save(userNetwork);

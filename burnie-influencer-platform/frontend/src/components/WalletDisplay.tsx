@@ -29,7 +29,7 @@ export default function WalletDisplay({
   const mixpanel = useMixpanel()
   const [showDropdown, setShowDropdown] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const [selectedNetwork, setSelectedNetwork] = useState<NetworkType>('base')
+  const [selectedNetwork, setSelectedNetwork] = useState<NetworkType>('somnia_testnet')
   const [isSwitching, setIsSwitching] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -318,6 +318,31 @@ export default function WalletDisplay({
     return network === 'somnia_testnet' ? 'TOAST' : 'ROAST'
   }
 
+  // Format large numbers with K (thousands) and M (millions)
+  const formatBalance = (balance: string | number | undefined): string => {
+    if (!balance) return '0'
+    
+    // Convert to number, handling both string and number inputs
+    const numBalance = typeof balance === 'string' ? parseFloat(balance.replace(/,/g, '')) : balance
+    
+    if (isNaN(numBalance)) return '0'
+    
+    // Less than 1000 - show as is (remove unnecessary decimals)
+    if (numBalance < 1000) {
+      return numBalance % 1 === 0 ? numBalance.toString() : numBalance.toFixed(2)
+    }
+    
+    // 1000 to 999,999 - show in K (thousands)
+    if (numBalance < 1000000) {
+      const kValue = numBalance / 1000
+      return (kValue % 1 === 0 ? kValue.toFixed(0) : kValue.toFixed(2)) + 'K'
+    }
+    
+    // 1,000,000 and above - show in M (millions)
+    const mValue = numBalance / 1000000
+    return (mValue % 1 === 0 ? mValue.toFixed(0) : mValue.toFixed(2)) + 'M'
+  }
+
   // Prevent hydration mismatch by not rendering until mounted
   if (!mounted) {
     return (
@@ -348,7 +373,7 @@ export default function WalletDisplay({
           className="px-3 py-1 bg-white text-black rounded-full text-lg font-bold hidden md:flex items-center gap-1" 
           style={{ fontFamily: 'Silkscreen, monospace' }}
         >
-          🔥 {balanceLoading ? '...' : balance} {tokenSymbol}
+          🔥 {balanceLoading ? '...' : formatBalance(balance)} {tokenSymbol}
         </div>
       )}
 

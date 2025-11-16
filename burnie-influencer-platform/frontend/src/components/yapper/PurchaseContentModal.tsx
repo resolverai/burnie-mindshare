@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { useAccount } from 'wagmi'
+import { useAccount, useChainId, useSwitchChain } from 'wagmi'
 import { appKit } from '@/app/reown'
 import Image from 'next/image'
 import { generateRandomMindshare, formatMindshare } from '../../utils/mindshareUtils'
@@ -87,6 +87,12 @@ export default function PurchaseContentModal({
   currentNetwork = 'base'
 }: PurchaseContentModalProps) {
   const mixpanel = useMixpanel()
+  const chainId = useChainId()
+  const { switchChain } = useSwitchChain()
+  
+  // Blockchain registration state
+  const [isContentOnBlockchain, setIsContentOnBlockchain] = useState<boolean | null>(null)
+  const [isCheckingBlockchain, setIsCheckingBlockchain] = useState(false)
   
   // Text editing state
   const [isEditingMainTweet, setIsEditingMainTweet] = useState(false)
@@ -1879,6 +1885,18 @@ export default function PurchaseContentModal({
     setGenerationStatus('')
     setIsTextOnlyGeneration(false)
   }, [selectedVoiceTone, selectedYapper])
+
+  // Check if content is registered on blockchain when on Somnia network
+  useEffect(() => {
+    const currentContent = getCurrentContent();
+    if (currentNetwork === 'somnia_testnet' && currentContent?.id && currentContent.campaign?.somnia_whitelisted) {
+      console.log('🔍 Checking blockchain registration for content:', currentContent.id);
+      checkContentBlockchainRegistration(currentContent.id);
+    } else {
+      // Reset state when not on Somnia or not whitelisted
+      setIsContentOnBlockchain(null);
+    }
+  }, [content?.id, currentNetwork]);
   
   // Note: Removed auto-refresh useEffects to prevent flickering and unnecessary API calls
   // Content refresh now only happens when explicitly triggered by user actions or generation completion
@@ -2165,6 +2183,87 @@ export default function PurchaseContentModal({
     } catch (error) {
       console.error('Error releasing purchase flow:', error);
     }
+  };
+
+  // Check if content is registered on blockchain
+  const checkContentBlockchainRegistration = async (contentId: number) => {
+    try {
+      setIsCheckingBlockchain(true);
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/marketplace/content/${contentId}/blockchain-registration`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        // Content is registered if there's a 'register' transaction
+        setIsContentOnBlockchain(data.isRegistered === true);
+      } else {
+        // If endpoint fails, assume not registered (fail-safe)
+        setIsContentOnBlockchain(false);
+      }
+    } catch (error) {
+      console.error('Error checking blockchain registration:', error);
+      // On error, assume not registered (fail-safe)
+      setIsContentOnBlockchain(false);
+    } finally {
+      setIsCheckingBlockchain(false);
+    }
+  };
+
+  // Handle network switch to Base Mainnet
+  const handleSwitchToBase = async () => {
+    try {
+      console.log('[PurchaseContentModal] Switching to Base Mainnet...');
+      
+      // Switch chain to Base Mainnet (chainId: 8453)
+      await switchChain({ chainId: 8453 });
+      
+      // Update backend network preference if user is connected
+      if (address) {
+        try {
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/network/switch`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              walletAddress: address,
+              network: 'base',
+            }),
+          });
+        } catch (error) {
+          console.error('[PurchaseContentModal] Failed to update backend network:', error);
+        }
+      }
+      
+      console.log('[PurchaseContentModal] Successfully switched to Base Mainnet');
+      
+      // Page will reload automatically due to network change
+    } catch (error) {
+      console.error('[PurchaseContentModal] Failed to switch network:', error);
+    }
+  };
+
+  // Helper function to check if content should show network restriction on Somnia
+  const shouldShowNetworkRestriction = () => {
+    if (currentNetwork !== 'somnia_testnet') return false;
+    
+    const currentContent = getCurrentContent();
+    if (!currentContent) return false;
+    
+    // Restrict if not whitelisted
+    if (!currentContent.campaign?.somnia_whitelisted) return true;
+    
+    // Restrict if whitelisted but not registered on blockchain
+    if (isContentOnBlockchain === false) return true;
+    
+    return false;
   };
   
   // Individual shimmer components for different content elements
@@ -4827,14 +4926,14 @@ export default function PurchaseContentModal({
                     )}
 
                     {/* Network restriction warning for non-whitelisted projects on Somnia - Mobile/Tablet */}
-                    {currentNetwork === 'somnia_testnet' && !getCurrentContent()?.campaign?.somnia_whitelisted && (
-                      <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-lg p-3 mb-4">
+                    {shouldShowNetworkRestriction() && (
+                      <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border-2 border-red-400 rounded-lg p-3 mb-4">
                         <div className="flex items-start gap-2">
                           <svg className="w-4 h-4 text-orange-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                           </svg>
                           <div className="flex-1">
-                            <span className="text-orange-400 font-semibold text-xs block mb-1">Network Restriction</span>
+                            <span className="text-orange-400 font-semibold text-xs block mb-1">ATTENTION</span>
                             <p className="text-white/80 text-[10px] leading-relaxed">
                               This content is only available on <span className="text-orange-400 font-semibold">Base Mainnet</span>. 
                               Please switch your network to Base Mainnet to purchase this content with ROAST or USDC tokens.
@@ -4959,12 +5058,12 @@ export default function PurchaseContentModal({
                         hasGeneratedContent ? (
                           // Content has been generated - show Buy Tweet button
                           <button
-                            onClick={handlePurchase}
-                            disabled={isLoading || (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)}
+                            onClick={shouldShowNetworkRestriction() ? handleSwitchToBase : handlePurchase}
+                            disabled={isLoading}
                             className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {isLoading ? 'Processing...' : 
-                             (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted) ? 'Switch to Base Mainnet' :
+                             shouldShowNetworkRestriction() ? 'Switch to Base Mainnet' :
                              (currentContent && getDisplayPrice(currentContent) === 0 ? 'Get Free Tweet' : 'Buy Tweet')}
                           </button>
                         ) : (
@@ -5010,12 +5109,12 @@ export default function PurchaseContentModal({
                         hasGeneratedContent ? (
                           // Content has been generated - show Buy Tweet button
                           <button
-                            onClick={handlePurchase}
-                            disabled={isLoading || (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)}
+                            onClick={shouldShowNetworkRestriction() ? handleSwitchToBase : handlePurchase}
+                            disabled={isLoading}
                             className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             {isLoading ? 'Processing...' : 
-                             (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted) ? 'Switch to Base Mainnet' :
+                             shouldShowNetworkRestriction() ? 'Switch to Base Mainnet' :
                              (currentContent && getDisplayPrice(currentContent) === 0 ? 'Get Free Tweet' : 'Buy Tweet')}
                           </button>
                         ) : (
@@ -5041,12 +5140,12 @@ export default function PurchaseContentModal({
                       ) : (
                         // Regular purchase flow (auto generated tone)
                         <button
-                          onClick={handlePurchase}
-                          disabled={isLoading || (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)}
+                          onClick={shouldShowNetworkRestriction() ? handleSwitchToBase : handlePurchase}
+                          disabled={isLoading}
                           className="w-full bg-[#FD7A10] text-white py-3 px-4 rounded-lg font-semibold text-lg hover:bg-[#FD7A10]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isLoading ? 'Processing...' : 
-                           (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted) ? 'Switch to Base Mainnet' :
+                           shouldShowNetworkRestriction() ? 'Switch to Base Mainnet' :
                            'Buy Tweet'}
                         </button>
                       )}
@@ -6350,15 +6449,15 @@ export default function PurchaseContentModal({
                   )}
 
                   {/* Network restriction warning for non-whitelisted projects on Somnia */}
-                  {currentNetwork === 'somnia_testnet' && !getCurrentContent()?.campaign?.somnia_whitelisted && (
-                    <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/30 rounded-lg p-4">
+                  {shouldShowNetworkRestriction() && (
+                    <div className="bg-gradient-to-r from-orange-500/10 to-red-500/10 border-2 border-red-400 rounded-lg p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-2">
                             <svg className="w-5 h-5 text-orange-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
-                            <span className="text-orange-400 font-semibold text-sm">Network Restriction</span>
+                            <span className="text-orange-400 font-semibold text-sm">ATTENTION</span>
                           </div>
                           <p className="text-white/80 text-xs leading-relaxed">
                             This content is only available on <span className="text-orange-400 font-semibold">Base Mainnet</span>. 
@@ -6481,7 +6580,11 @@ export default function PurchaseContentModal({
                       // Handle content generation or purchase
                       if (selectedVoiceTone === "custom" && selectedYapper !== "") {
                         if (hasGeneratedContent) {
-                          handlePurchase(); // Purchase generated content
+                          if (shouldShowNetworkRestriction()) {
+                            handleSwitchToBase(); // Switch network if restricted
+                          } else {
+                            handlePurchase(); // Purchase generated content
+                          }
                         } else {
                           // Use mode-based function selection
                           console.log('🎯 Mobile button clicked - custom voice tone');
@@ -6497,15 +6600,23 @@ export default function PurchaseContentModal({
                         }
                       } else if (selectedVoiceTone === "mystyle" && twitter.isConnected) {
                         if (hasGeneratedContent) {
-                          handlePurchase(); // Purchase generated content
+                          if (shouldShowNetworkRestriction()) {
+                            handleSwitchToBase(); // Switch network if restricted
+                          } else {
+                            handlePurchase(); // Purchase generated content
+                          }
                         } else {
                           handleGenerate(); // Generate content in user's voice
                         }
                       } else {
-                        handlePurchase(); // Purchase existing content
+                        if (shouldShowNetworkRestriction()) {
+                          handleSwitchToBase(); // Switch network if restricted
+                        } else {
+                          handlePurchase(); // Purchase existing content
+                        }
                       }
                     }}
-                    disabled={isLoading || isGeneratingContent || (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)}
+                    disabled={isLoading || isGeneratingContent}
                     className={`w-full font-semibold py-4 rounded-sm text-lg transition-all duration-200 ${
                       isLoading || isGeneratingContent
                         ? 'bg-[#FD7A10] cursor-not-allowed' 
@@ -6515,8 +6626,8 @@ export default function PurchaseContentModal({
                         ? 'bg-orange-600 hover:bg-orange-700'
                         : !hasAccess
                         ? 'bg-purple-600 hover:bg-purple-700'
-                        : (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted)
-                        ? 'bg-[#FD7A10] opacity-50 cursor-not-allowed'
+                        : shouldShowNetworkRestriction()
+                        ? 'bg-[#FD7A10] hover:bg-[#e86d0f] glow-orange-button'
                         : 'bg-[#FD7A10] glow-orange-button hover:bg-[#e86d0f]'
                     } text-white flex items-center justify-center gap-2`}
                   >
@@ -6534,7 +6645,7 @@ export default function PurchaseContentModal({
                       'Sign Message to Authenticate'
                     ) : !hasAccess ? (
                       'Get Marketplace Access'
-                    ) : (currentNetwork === 'somnia_testnet' && !currentContent?.campaign?.somnia_whitelisted) ? (
+                    ) : shouldShowNetworkRestriction() ? (
                       'Switch to Base Mainnet'
                     ) : selectedVoiceTone === "custom" && selectedYapper !== "" ? (
                       hasGeneratedContent ? 'Buy Tweet' : `Generate Content using @${selectedYapper}`

@@ -1390,6 +1390,55 @@ router.get('/content/:id', async (req: Request, res: Response): Promise<void> =>
 });
 
 /**
+ * @route GET /api/marketplace/content/:id/blockchain-registration
+ * @desc Check if content is registered on blockchain (Somnia)
+ */
+router.get('/content/:id/blockchain-registration', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    
+    if (!id || isNaN(parseInt(id))) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid content ID',
+        isRegistered: false
+      });
+      return;
+    }
+    
+    const ContentBlockchainTransaction = (await import('../models/ContentBlockchainTransaction')).ContentBlockchainTransaction;
+    const txRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
+    
+    // Check if there's a 'registration' transaction for this content on Somnia
+    const registrationTx = await txRepository.findOne({
+      where: {
+        contentId: parseInt(id),
+        transactionType: 'registration',
+        network: 'somnia_testnet'
+      }
+    });
+    
+    const isRegistered = !!registrationTx;
+    
+    logger.info(`📋 Blockchain registration check for content ${id}: ${isRegistered ? 'REGISTERED' : 'NOT REGISTERED'}`);
+    
+    res.json({
+      success: true,
+      isRegistered,
+      blockchainContentId: registrationTx?.blockchainContentId || null
+    });
+  } catch (error) {
+    logger.error('❌ Error checking blockchain registration:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check blockchain registration',
+      isRegistered: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
  * @route POST /api/marketplace/bid
  * @desc Place a bid on content
  */
