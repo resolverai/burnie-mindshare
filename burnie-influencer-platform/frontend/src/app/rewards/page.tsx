@@ -9,7 +9,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useAuthGuard } from '@/hooks/useAuthGuard'
 import { useUserReferralCode } from '@/hooks/useUserReferralCode'
 import WalletDisplay from '@/components/WalletDisplay'
-import { useROASTBalance } from '@/hooks/useROASTBalance'
+import { useTokenBalance } from '@/hooks/useTokenBalance'
 import { useAccount } from 'wagmi'
 import { createPortal } from 'react-dom'
 
@@ -18,7 +18,7 @@ export default function RewardsPage() {
   const { isAuthenticated, isLoading: authLoading } = useAuth()
   useAuthGuard({ redirectTo: '/', requiresAuth: true })
   const { referralCode, copyReferralLink } = useUserReferralCode()
-  const { balance: roastBalance, isLoading: balanceLoading } = useROASTBalance()
+  const { balance: tokenBalance, isLoading: balanceLoading, tokenSymbol } = useTokenBalance()
   const router = useRouter()
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -111,8 +111,9 @@ export default function RewardsPage() {
             )}
             <WalletDisplay 
               showBalance={true}
-              balance={roastBalance}
+              balance={tokenBalance}
               balanceLoading={balanceLoading}
+              tokenSymbol={tokenSymbol}
             />
           </div>
         </div>

@@ -6,7 +6,6 @@ import { useAccount } from 'wagmi'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import WalletDisplay from './WalletDisplay'
 import { appKit } from '@/app/reown'
-import { TokenBalance } from './TokenBalance'
 
 import { useAuth } from '../hooks/useAuth'
 import { useRouter } from 'next/navigation'
@@ -31,12 +30,7 @@ interface YapperDashboardProps {
 }
 
 export default function YapperDashboard({ activeSection = 'dashboard' }: YapperDashboardProps) {
-  console.log('🚨🚨🚨 YAPPER DASHBOARD RENDERING 🚨🚨🚨')
-  
   const { balance: tokenBalance, isLoading: balanceLoading, tokenSymbol, network } = useTokenBalance()
-  
-  console.log('🔴 useTokenBalance returned:', { tokenBalance, tokenSymbol, balanceLoading, network })
-  console.log('[YapperDashboard] Token balance:', { tokenBalance, tokenSymbol, balanceLoading, network })
   
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false) // Default to closed
   const [isReconnectingTwitter, setIsReconnectingTwitter] = useState(false)
@@ -247,26 +241,6 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
 
   return (
     <div className="min-h-screen yapper-background">
-      {/* DEBUG: SUPER SIMPLE TEST */}
-      <div style={{
-        position: 'fixed',
-        top: '100px',
-        right: '20px',
-        zIndex: 9999,
-        backgroundColor: 'red',
-        color: 'white',
-        padding: '20px',
-        fontSize: '16px',
-        border: '5px solid yellow',
-        fontWeight: 'bold'
-      }}>
-        🔴 DEBUG BOX 🔴
-        <br/>Network: {network || 'undefined'}
-        <br/>Symbol: {tokenSymbol || 'undefined'}
-        <br/>Balance: {tokenBalance || 'undefined'}
-        <br/>Loading: {balanceLoading ? 'Yes' : 'No'}
-      </div>
-
       {/* Single Combined Header - Matching New UI */}
       <header className="z-20 w-full sticky top-0 bg-yapper-surface/95 backdrop-blur border-b border-yapper">
         <div className="relative flex items-center justify-between px-6 h-16 max-w-none mx-auto">
@@ -299,11 +273,6 @@ export default function YapperDashboard({ activeSection = 'dashboard' }: YapperD
                   <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14.171.142.27.293.27.293-.271 1.469-1.428 6.943-2.008 9.218-.245 1.164-.726 1.555-1.192 1.597-.964.089-1.7-.636-2.637-1.247-1.466-.957-2.297-1.552-3.716-2.48-1.64-1.073-.578-1.668.36-2.633.246-.252 4.486-4.107 4.576-4.456.014-.041.015-.192-.077-.272-.092-.08-.226-.053-.323-.03-.137.032-2.294 1.451-6.476 4.257-.612.424-.966.632-1.064.633-.352.003-.987-.198-1.47-.36-1.174-.404-2.107-.616-2.027-.982.042-.19.283-.385.725-.583 2.855-1.259 4.758-2.08 5.71-2.463 2.713-1.145 3.278-1.344 3.648-1.351z"/>
                 </svg>
               </a>
-            </div>
-
-            {/* Token Balance - Somnia Integration */}
-            <div className="hidden xl:block">
-              <TokenBalance showNativeBalance={false} className="max-w-[200px]" />
             </div>
 
             {/* Wallet Connection with Balance */}
