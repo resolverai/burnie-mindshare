@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import CampaignComponent from '@/components/sections/RewardCampaigning'
+import Season2CampaignComponent from '@/components/sections/Season2Campaign'
 import MobileBottomNav from '@/components/MobileBottomNav'
 import { useAuth } from '@/hooks/useAuth'
 import { useAuthGuard } from '@/hooks/useAuthGuard'
@@ -24,23 +24,38 @@ function CountdownBanner() {
       const now = new Date()
       const currentET = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}))
       
-      // First snapshot: October 2nd, 2025 at 10 PM ET
-      const firstSnapshot = new Date(2025, 9, 2, 22, 0, 0, 0) // Month is 0-indexed, so 9 = October
+      // Season 2: First weekly snapshot is Monday, Nov 17, 2025 at 10 AM ET
+      const firstSnapshot = new Date(2025, 10, 17, 10, 0, 0, 0) // Month is 0-indexed, so 10 = November
       
       let nextSnapshot: Date
       
       if (currentET < firstSnapshot) {
-        // Before first snapshot - countdown to Oct 2nd, 2025 10 PM ET
+        // Before first snapshot - countdown to Nov 17th, 2025 10 AM ET
         nextSnapshot = firstSnapshot
       } else {
-        // After first snapshot - daily 10 PM ET snapshots
+        // After first snapshot - weekly Monday 10 AM ET snapshots
         nextSnapshot = new Date(currentET)
-        nextSnapshot.setHours(22, 0, 0, 0) // 10 PM ET
         
-        // If it's already past 10 PM today, set for tomorrow
-        if (currentET.getHours() >= 22) {
-          nextSnapshot.setDate(nextSnapshot.getDate() + 1)
+        // Get current day of week (0 = Sunday, 1 = Monday, 6 = Saturday)
+        const dayOfWeek = currentET.getDay()
+        
+        // Calculate days until next Monday
+        let daysUntilMonday = dayOfWeek === 0 ? 1 : (8 - dayOfWeek) % 7
+        if (daysUntilMonday === 0) daysUntilMonday = 7; // If today is Monday but past 10 AM
+        
+        // If today is Monday
+        if (dayOfWeek === 1) {
+          // If it's already past 10 AM, next snapshot is next Monday
+          if (currentET.getHours() >= 10) {
+            daysUntilMonday = 7
+          } else {
+            daysUntilMonday = 0
+          }
         }
+        
+        // Set to next Monday at 10 AM
+        nextSnapshot.setDate(nextSnapshot.getDate() + daysUntilMonday)
+        nextSnapshot.setHours(10, 0, 0, 0) // 10 AM ET
       }
       
       const timeDiff = nextSnapshot.getTime() - currentET.getTime()
@@ -256,7 +271,7 @@ export default function CampaignPage() {
         <div className="flex-1 min-h-[calc(100vh-64px)] flex flex-col overflow-x-hidden max-w-[100vw]">
       <main className="flex-1 overflow-y-auto overflow-x-hidden px-0 md:px-6 lg:px-6 pb-24">
         <section className="space-y-6 py-6">
-          <CampaignComponent mixpanel={mixpanel} />
+          <Season2CampaignComponent mixpanel={mixpanel} />
         </section>
       </main>
         </div>

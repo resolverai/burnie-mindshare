@@ -379,6 +379,42 @@ export class SomniaBlockchainService {
   }
 
   /**
+   * Transfer native STT tokens (for gas)
+   * @param toAddress Recipient address
+   * @param amount Amount in STT tokens (as string, e.g., "0.5")
+   * @returns Transaction hash
+   */
+  async transferSTT(toAddress: string, amount: string): Promise<string> {
+    logger.info(`📝 Queuing STT transfer: ${amount} STT to ${toAddress} (from treasury)`);
+    
+    return this.queueTreasuryTransaction(async (nonce) => {
+      try {
+        logger.info(`⛽ Transferring STT (gas) with nonce ${nonce}: ${amount} to ${toAddress}`);
+
+        const amountInWei = ethers.parseEther(amount);
+        
+        // Send native token transfer
+        const tx = await this.treasuryWallet.sendTransaction({
+          to: toAddress,
+          value: amountInWei,
+          nonce,
+        });
+
+        const receipt = await tx.wait();
+        if (!receipt) {
+          throw new Error('Transaction receipt is null');
+        }
+        logger.info(`✅ STT transferred: ${receipt.hash}`);
+
+        return receipt.hash;
+      } catch (error) {
+        logger.error('❌ Failed to transfer STT:', error);
+        throw error;
+      }
+    });
+  }
+
+  /**
    * Register referral on-chain
    * @param userAddress User wallet address
    * @param directReferrerAddress Direct referrer address

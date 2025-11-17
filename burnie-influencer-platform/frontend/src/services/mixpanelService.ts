@@ -572,24 +572,26 @@ class MixpanelService {
     this.track('threadItemRemoved', properties);
   }
 
-  // Rewards Page Events
+  // Rewards Page Events (Season 2 - Updated for 4 tabs)
   rewardsPageViewed(properties: {
     screenName: 'Rewards';
-    activeTab: 'rewards' | 'leaderboard';
+    activeTab: 'yapping-rewards' | 'mining-rewards' | 'yapping-leaderboard' | 'mining-leaderboard';
     userTier: string;
     totalPoints: number;
     totalRoastEarned: number;
     totalReferrals: number;
     timeSpent?: number;
+    season?: 'season1' | 'season2';
   }) {
     this.track('rewardsPageViewed', properties);
   }
 
   rewardsTabClicked(properties: {
-    tabName: 'rewards' | 'leaderboard';
-    previousTab: 'rewards' | 'leaderboard';
+    tabName: 'yapping-rewards' | 'mining-rewards' | 'yapping-leaderboard' | 'mining-leaderboard';
+    previousTab: 'yapping-rewards' | 'mining-rewards' | 'yapping-leaderboard' | 'mining-leaderboard';
     timeSpentOnPreviousTab: number;
     screenName: 'Rewards';
+    season?: 'season2';
   }) {
     this.track('rewardsTabClicked', properties);
   }
@@ -655,19 +657,32 @@ class MixpanelService {
     this.track('leaderboardUserClicked', properties);
   }
 
-  // Yapping Campaign Page Events
+  // Yapping Campaign Page Events (Season 2 - Updated for Yappers/Node Runners tabs)
   yapperCampaignPageViewed(properties: {
-    screenName: 'YapperCampaign';
+    screenName: 'YapperCampaign' | 'Season2Campaign';
     timeSpent?: number;
+    season?: 'season1' | 'season2';
+    activeTab?: 'yappers' | 'miners';
   }) {
     this.track('yapperCampaignPageViewed', properties);
+  }
+
+  campaignTabClicked(properties: {
+    tabName: 'yappers' | 'miners';
+    previousTab: 'yappers' | 'miners';
+    timeSpentOnPreviousTab: number;
+    screenName: 'Season2Campaign';
+    season: 'season2';
+  }) {
+    this.track('campaignTabClicked', properties);
   }
 
   campaignSectionViewed(properties: {
     sectionName: 'reward_distribution' | 'earning_points' | 'tier_structure' | 'leaderboard_system' | 'strategy_guide' | 'rules' | 'getting_started' | 'faqs';
     sectionPosition: number;
     timeInSection: number;
-    screenName: 'YapperCampaign';
+    screenName: 'YapperCampaign' | 'Season2Campaign';
+    activeTab?: 'yappers' | 'miners';
   }) {
     this.track('campaignSectionViewed', properties);
   }
@@ -679,7 +694,8 @@ class MixpanelService {
     revenueShare: string;
     userCurrentTier: string;
     isUnlocked: boolean;
-    screenName: 'YapperCampaign';
+    screenName: 'YapperCampaign' | 'Season2Campaign';
+    season?: 'season2';
   }) {
     this.track('campaignTierViewed', properties);
   }
@@ -688,7 +704,7 @@ class MixpanelService {
     faqQuestion: string;
     faqIndex: number;
     isExpanded: boolean;
-    screenName: 'YapperCampaign';
+    screenName: 'YapperCampaign' | 'Season2Campaign';
   }) {
     this.track('campaignFaqClicked', properties);
   }
@@ -697,7 +713,9 @@ class MixpanelService {
     buttonText: string;
     buttonPosition: string;
     userAuthenticated: boolean;
-    screenName: 'YapperCampaign';
+    screenName: 'YapperCampaign' | 'Season2Campaign';
+    activeTab?: 'yappers' | 'miners';
+    season?: 'season2';
   }) {
     this.track('campaignGetStartedClicked', properties);
   }

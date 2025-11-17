@@ -637,12 +637,15 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
   const searchParams = useSearchParams();
   
   // Initialize activeTab based on URL parameter
-  const getInitialTab = (): "rewards" | "leaderboard" => {
+  const getInitialTab = (): "yapping-rewards" | "mining-rewards" | "yapping-leaderboard" | "mining-leaderboard" => {
     const tabParam = searchParams?.get('tab');
-    return tabParam === 'leaderboard' ? 'leaderboard' : 'rewards';
+    if (tabParam === 'mining-rewards') return 'mining-rewards';
+    if (tabParam === 'yapping-leaderboard') return 'yapping-leaderboard';
+    if (tabParam === 'mining-leaderboard') return 'mining-leaderboard';
+    return 'yapping-rewards';
   };
   
-  const [activeTab, setActiveTab] = useState<"rewards" | "leaderboard">(getInitialTab());
+  const [activeTab, setActiveTab] = useState<"yapping-rewards" | "mining-rewards" | "yapping-leaderboard" | "mining-leaderboard">(getInitialTab());
   const [activeTimePeriod, setActiveTimePeriod] = useState<"now" | "7d" | "1m">("now");
   const [leaderboardUsers, setLeaderboardUsers] = useState<LeaderboardUser[]>([]);
   const [topThreeUsers, setTopThreeUsers] = useState<LeaderboardUser[]>([]);
@@ -718,10 +721,17 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
   // Handle URL parameter changes for tab switching
   useEffect(() => {
     const tabParam = searchParams?.get('tab');
-    if (tabParam === 'leaderboard' && activeTab !== 'leaderboard') {
-      setActiveTab('leaderboard');
-    } else if (tabParam !== 'leaderboard' && activeTab !== 'rewards') {
-      setActiveTab('rewards');
+    if (tabParam === 'mining-rewards' && activeTab !== 'mining-rewards') {
+      setActiveTab('mining-rewards');
+    } else if (tabParam === 'yapping-leaderboard' && activeTab !== 'yapping-leaderboard') {
+      setActiveTab('yapping-leaderboard');
+    } else if (tabParam === 'mining-leaderboard' && activeTab !== 'mining-leaderboard') {
+      setActiveTab('mining-leaderboard');
+    } else if (tabParam === 'yapping-rewards' && activeTab !== 'yapping-rewards') {
+      setActiveTab('yapping-rewards');
+    } else if (!tabParam && activeTab !== 'yapping-rewards') {
+      // Default to yapping-rewards if no tab param
+      setActiveTab('yapping-rewards');
     }
   }, [searchParams, activeTab]);
 
@@ -730,25 +740,26 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
     if (userStats) {
       mixpanel.rewardsPageViewed({
         screenName: 'Rewards',
-        activeTab,
+        activeTab: activeTab,
         userTier: userStats.currentTier,
         totalPoints: userStats.totalPoints,
         totalRoastEarned: userStats.totalRoastEarned,
         totalReferrals: userStats.totalReferrals,
-        timeSpent: getTimeSpentSeconds()
+        timeSpent: getTimeSpentSeconds(),
+        season: 'season2'
       });
     }
   }, [userStats, activeTab, mixpanel, getTimeSpentSeconds]);
 
   // Fetch leaderboard data when tab or time period changes
   useEffect(() => {
-    if (activeTab === "leaderboard") {
+    if (activeTab === "yapping-leaderboard" || activeTab === "mining-leaderboard") {
       fetchLeaderboardData();
     }
   }, [activeTab, activeTimePeriod]); // Removed fetchLeaderboardData to prevent infinite loop
 
   // Handle tab change with tracking
-  const handleTabChange = (newTab: "rewards" | "leaderboard") => {
+  const handleTabChange = (newTab: "yapping-rewards" | "mining-rewards" | "yapping-leaderboard" | "mining-leaderboard") => {
     if (newTab === activeTab) return;
     
     // Track time spent on previous tab
@@ -758,11 +769,12 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
       tabName: newTab,
       previousTab: activeTab,
       timeSpentOnPreviousTab: Math.floor(timeSpentOnPrevious / 1000),
-      screenName: 'Rewards'
+      screenName: 'Rewards',
+      season: 'season2'
     });
     
     // Update URL parameter to match the new tab
-    const newUrl = newTab === 'rewards' ? '/rewards?tab=rewards' : '/rewards?tab=leaderboard';
+    const newUrl = `/rewards?tab=${newTab}`;
     router.push(newUrl, { scroll: false });
     
     setActiveTab(newTab);
@@ -809,9 +821,9 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
 
       {/* Tabs Section */}
       <div className="relative w-full px-4 lg:px-1">
-        {/* Tabs Container - Original Width */}
+        {/* Tabs Container - Expanded for 4 tabs */}
         <div
-          className="flex gap-2 md:gap-3 justify-start items-center w-full max-w-[calc(100vw-1rem)] md:max-w-md mx-auto md:mx-0"
+          className="flex gap-1 md:gap-2 justify-start items-center w-full max-w-[calc(100vw-1rem)] md:max-w-3xl mx-auto md:mx-0"
           style={{
             borderRadius: "32px",
             padding: "4px",
@@ -820,28 +832,46 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
           }}
         >
           <button
-            onClick={() => handleTabChange("rewards")}
-            className={`px-3 md:px-6 py-2 rounded-3xl w-full text-xs md:text-sm font-medium transition-all duration-200 ${activeTab === "rewards"
+            onClick={() => handleTabChange("yapping-rewards")}
+            className={`px-2 md:px-3 py-2 rounded-3xl w-full text-[9px] sm:text-xs md:text-sm font-medium transition-all duration-200 sm:whitespace-nowrap leading-tight ${activeTab === "yapping-rewards"
                 ? "bg-white text-black shadow-lg"
                 : "text-white/70 hover:text-white"
               }`}
           >
-            Rewards
+            Yapping Rewards
           </button>
           <button
-            onClick={() => handleTabChange("leaderboard")}
-            className={`px-3 md:px-6 py-2 rounded-3xl w-full text-xs md:text-sm font-medium transition-all duration-200 ${activeTab === "leaderboard"
+            onClick={() => handleTabChange("mining-rewards")}
+            className={`px-2 md:px-3 py-2 rounded-3xl w-full text-[9px] sm:text-xs md:text-sm font-medium transition-all duration-200 sm:whitespace-nowrap leading-tight ${activeTab === "mining-rewards"
                 ? "bg-white text-black shadow-lg"
                 : "text-white/70 hover:text-white"
               }`}
           >
-            Leaderboard
+            Mining Rewards
+          </button>
+          <button
+            onClick={() => handleTabChange("yapping-leaderboard")}
+            className={`px-2 md:px-3 py-2 rounded-3xl w-full text-[9px] sm:text-xs md:text-sm font-medium transition-all duration-200 sm:whitespace-nowrap leading-tight ${activeTab === "yapping-leaderboard"
+                ? "bg-white text-black shadow-lg"
+                : "text-white/70 hover:text-white"
+              }`}
+          >
+            Yapping Leaderboard
+          </button>
+          <button
+            onClick={() => handleTabChange("mining-leaderboard")}
+            className={`px-2 md:px-3 py-2 rounded-3xl w-full text-[9px] sm:text-xs md:text-sm font-medium transition-all duration-200 sm:whitespace-nowrap leading-tight ${activeTab === "mining-leaderboard"
+                ? "bg-white text-black shadow-lg"
+                : "text-white/70 hover:text-white"
+              }`}
+          >
+            Mining Leaderboard
           </button>
         </div>
       </div>
 
-      {/* Time Period Selector - Only show on leaderboard tab */}
-      {activeTab === "leaderboard" && (
+      {/* Time Period Selector - Only show on leaderboard tabs */}
+      {(activeTab === "yapping-leaderboard" || activeTab === "mining-leaderboard") && (
         <div className="flex justify-center md:justify-end">
           <div
             className="flex gap-1 items-center"
@@ -890,7 +920,7 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
       )}
 
       {/* Content */}
-      {activeTab === "leaderboard" && (
+      {activeTab === "yapping-leaderboard" && (
         <div className="space-y-20">
 
           {/* Top 3 Podium */}
@@ -905,10 +935,38 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
         </div>
       )}
 
-      {activeTab === "rewards" && (
+      {activeTab === "yapping-rewards" && (
         <div className="space-y-4">
           <div className="w-full md:max-w-none">
             <RewardsPanel currentUserWallet={currentUserWallet} />
+          </div>
+        </div>
+      )}
+
+      {activeTab === "mining-rewards" && (
+        <div className="space-y-4">
+          <div className="w-full md:max-w-none">
+            {/* Placeholder for Mining Rewards - will be populated later */}
+            <div className="bg-white/10 rounded-xl p-8 text-center text-white">
+              <h3 className="text-2xl font-bold mb-4">Mining Rewards Coming Soon</h3>
+              <p className="text-white/70">
+                Node Runner rewards dashboard will be available here. Track your uptime, sales, and earnings.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "mining-leaderboard" && (
+        <div className="space-y-4">
+          <div className="w-full md:max-w-none">
+            {/* Placeholder for Mining Leaderboard - will be populated later */}
+            <div className="bg-white/10 rounded-xl p-8 text-center text-white">
+              <h3 className="text-2xl font-bold mb-4">Mining Leaderboard Coming Soon</h3>
+              <p className="text-white/70">
+                Node Runner leaderboard will be available here. See top performers by uptime and sales.
+              </p>
+            </div>
           </div>
         </div>
       )}

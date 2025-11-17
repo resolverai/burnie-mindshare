@@ -64,6 +64,10 @@ import { TwitterHandleMetadata } from '../models/TwitterHandleMetadata';
 import { UserDailyPoints } from '../models/UserDailyPoints';
 import { UserTiers } from '../models/UserTiers';
 
+// Import Season 2 (Somnia Dreamathon) entities
+import { SomniaDreamathonYapperPoints } from '../models/SomniaDreamathonYapperPoints';
+import { SomniaDreamathonMinerPoints } from '../models/SomniaDreamathonMinerPoints';
+
 // Import edit tweet functionality entity
 import { UserTweetEdits } from '../models/UserTweetEdits';
 
@@ -168,6 +172,9 @@ export const AppDataSource = new DataSource({
     // Rewards and leaderboard entities
     UserDailyPoints,
     UserTiers,
+    // Season 2 (Somnia Dreamathon) entities
+    SomniaDreamathonYapperPoints,
+    SomniaDreamathonMinerPoints,
     // Edit tweet functionality entity
     UserTweetEdits,
     // User twitter posts tracking entity

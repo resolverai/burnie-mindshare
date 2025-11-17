@@ -49,7 +49,15 @@ export default function WalletDisplay({
     const initializeNetwork = async () => {
       if (!address) return
       
+      // Prevent multiple simultaneous initializations
+      const initKey = `network_init_${address}`
+      if (sessionStorage.getItem(initKey)) {
+        console.log('[WalletDisplay] Network already initializing/initialized for:', address)
+        return
+      }
+      
       try {
+        sessionStorage.setItem(initKey, 'true')
         console.log('[WalletDisplay] Initializing network for:', address)
         
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/network/current`, {
@@ -85,6 +93,8 @@ export default function WalletDisplay({
         }
       } catch (error) {
         console.error('[WalletDisplay] Failed to initialize network:', error)
+        // Remove lock on error so it can retry
+        sessionStorage.removeItem(`network_init_${address}`)
       }
     }
     

@@ -6,11 +6,14 @@ import { logger } from '../config/logger';
 
 export class AirdropService {
   private airdropAmount: string;
+  private gasAmount: string; // STT for gas
   private processingAirdrops: Set<string>; // Track in-progress airdrops
 
   constructor() {
     // Get airdrop amount from environment (default: 50000 TOAST)
     this.airdropAmount = process.env.SOMNIA_AIRDROP_AMOUNT || '50000';
+    // Get gas amount from environment (default: 0.5 STT)
+    this.gasAmount = process.env.SOMNIA_GAS_AIRDROP_AMOUNT || '0.5';
     this.processingAirdrops = new Set();
   }
 
@@ -88,31 +91,40 @@ export class AirdropService {
         };
       }
 
-      logger.info(`🎁 Processing airdrop for user ${userId} (${walletAddress}): ${this.airdropAmount} TOAST`);
+      logger.info(`🎁 Processing airdrop for user ${userId} (${walletAddress}): ${this.airdropAmount} TOAST + ${this.gasAmount} STT`);
 
       // Transfer TOAST tokens
-      const transactionHash = await somniaBlockchainService.transferToast(
+      const toastTxHash = await somniaBlockchainService.transferToast(
         walletAddress,
         this.airdropAmount
       );
 
-      // Record in database
+      // Transfer STT tokens (gas)
+      const sttTxHash = await somniaBlockchainService.transferSTT(
+        walletAddress,
+        this.gasAmount
+      );
+
+      logger.info(`✅ TOAST transferred: ${toastTxHash}`);
+      logger.info(`⛽ STT (gas) transferred: ${sttTxHash}`);
+
+      // Record in database (store TOAST tx hash as primary, STT tx hash in separate field)
       const airdropRepo = AppDataSource.getRepository(SomniaAirdrop);
       const airdrop = airdropRepo.create({
         userId,
         walletAddress: walletAddress.toLowerCase(),
         airdropAmount: parseFloat(this.airdropAmount),
-        transactionHash,
+        transactionHash: toastTxHash,
         network,
       });
 
       await airdropRepo.save(airdrop);
 
-      logger.info(`✅ Airdrop successful: ${transactionHash}`);
+      logger.info(`✅ Airdrop successful: TOAST=${toastTxHash}, STT=${sttTxHash}`);
 
       return {
         success: true,
-        transactionHash,
+        transactionHash: toastTxHash,
         amount: this.airdropAmount,
       };
     } catch (error) {
