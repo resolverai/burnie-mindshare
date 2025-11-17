@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import RewardsPanel from "@/components/sections/RewardsPanel";
+import MiningRewardsPanel from "@/components/sections/MiningRewardsPanel";
 import { rewardsApi, LeaderboardUser, TierLevel } from "@/services/rewardsApi";
 import { useMixpanel } from "@/hooks/useMixpanel";
 import { useTimeTracking } from "@/hooks/useTimeTracking";
@@ -231,6 +232,145 @@ const currentUserData = {
   avatar: "K",
   isCurrentUser: true,
 };
+
+// Mining Leaderboard table component
+function MiningLeaderboardTable({ leaderboardUsers, loading }: { leaderboardUsers: any[], loading: boolean }) {
+  // Use API data only - no dummy data (for now, empty array until API is ready)
+  const users = leaderboardUsers;
+  const currentUser = users.find(user => user.isCurrentUser);
+  const shouldShowPinned = !!currentUser;
+
+  return (
+    <div className="w-full overflow-x-hidden justify-center items-center flex px-2 md:px-0">
+      <div className="h-full flex flex-col w-full max-w-[1116px]" style={{ height: "745px" }}>
+        {/* Table Header */}
+        <div
+          className="flex items-center justify-between text-white shadow-2xl w-full"
+          style={{
+            height: "61px",
+            paddingTop: "20px",
+            paddingRight: "24px",
+            paddingBottom: "20px",
+            paddingLeft: "24px",
+            borderWidth: "1px",
+            borderTopLeftRadius: "16px",
+            borderTopRightRadius: "16px",
+            borderBottom: "1px solid rgba(255,255,255,0.1)",
+            background: "linear-gradient(to bottom, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.1) 100%)"
+          }}
+        >
+          <div className="text-left md:text-center text-white text-xs font-medium w-6">#</div>
+          <div className="text-left text-white text-xs font-medium md:text-center md:w-40">TWITTER HANDLE</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-20">TIER</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-24">CONTENT CREATED</div>
+          <div className="text-right md:text-center text-white text-xs font-medium w-28">TOTAL VALUE SOLD</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-24">REV SHARE</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-24">EARNINGS</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-20">BONUS</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-28">REWARDS</div>
+        </div>
+
+        {/* Table Body */}
+        <div 
+          className="flex-1 overflow-y-auto" 
+          onWheel={(e) => {
+            const element = e.currentTarget;
+            const { scrollTop, scrollHeight, clientHeight } = element;
+            const deltaY = e.deltaY;
+            
+            const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
+            const atTop = scrollTop <= 1;
+            
+            if ((deltaY > 0 && atBottom) || (deltaY < 0 && atTop)) {
+              return;
+            }
+            
+            e.stopPropagation();
+          }}
+        >
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-12 h-12 animate-spin border-4 border-orange-500 border-t-transparent rounded-full"></div>
+              <div className="text-white ml-4">Loading mining leaderboard...</div>
+            </div>
+          ) : users.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-white text-center">
+                <div className="text-xl font-semibold mb-2">Mining Leaderboard Coming Soon</div>
+                <div className="text-white/70">Node Runner leaderboard will be available here.</div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {shouldShowPinned && currentUser && (
+                <div
+                  className="flex items-center justify-between w-full text-white shadow-2xl"
+                  style={{
+                    height: "60px",
+                    paddingTop: "10px",
+                    paddingRight: "24px",
+                    paddingBottom: "10px",
+                    paddingLeft: "24px",
+                    background: "linear-gradient(to bottom, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.1) 100%)"
+                  }}
+                >
+                  <div className="text-white md:text-center text-sm font-medium w-6">{currentUser.rank}</div>
+                  <div className="flex items-center gap-3 w-40 min-w-0">
+                    <UserAvatar user={currentUser} size="sm" />
+                    <span className="text-white text-sm truncate" title={currentUser.twitterHandle || currentUser.name}>@{currentUser.twitterHandle || currentUser.name}</span>
+                  </div>
+                  <div className="hidden md:block w-20 text-center">
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
+                      {currentUser.tier}
+                    </span>
+                  </div>
+                  <div className="hidden md:block w-24 text-center text-sm">{currentUser.contentCreated || 0}</div>
+                  <div className="text-right md:text-center text-sm w-28">{formatRoastValue(currentUser.totalValueSold || 0)}</div>
+                  <div className="hidden md:block w-24 text-center text-sm">{formatRoastValue(currentUser.revShare || 0)}</div>
+                  <div className="hidden md:block w-24 text-center text-sm">{formatRoastValue(currentUser.earnings || 0)}</div>
+                  <div className="hidden md:block w-20 text-center text-sm">{formatRoastValue(currentUser.bonus || 0)}</div>
+                  <div className="hidden md:block w-28 text-center text-sm font-semibold">{formatRoastValue(currentUser.rewards || 0)}</div>
+                </div>
+              )}
+
+              {users.map((user: any, index: number) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between w-full text-white"
+                  style={{
+                    height: "60px",
+                    paddingTop: "10px",
+                    paddingRight: "24px",
+                    paddingBottom: "10px",
+                    paddingLeft: "24px",
+                    borderBottom: "1px solid rgba(255,255,255,0.1)"
+                  }}
+                >
+                  <div className="text-white md:text-center text-sm font-medium w-6">{user.rank}</div>
+                  <div className="flex items-center gap-3 w-40 min-w-0">
+                    <UserAvatar user={user} size="sm" />
+                    <span className="text-white text-sm truncate" title={user.twitterHandle || user.name}>@{user.twitterHandle || user.name}</span>
+                  </div>
+                  <div className="hidden md:block w-20 text-center">
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
+                      {user.tier}
+                    </span>
+                  </div>
+                  <div className="hidden md:block w-24 text-center text-sm">{user.contentCreated || 0}</div>
+                  <div className="text-right md:text-center text-sm w-28">{formatRoastValue(user.totalValueSold || 0)}</div>
+                  <div className="hidden md:block w-24 text-center text-sm">{formatRoastValue(user.revShare || 0)}</div>
+                  <div className="hidden md:block w-24 text-center text-sm">{formatRoastValue(user.earnings || 0)}</div>
+                  <div className="hidden md:block w-20 text-center text-sm">{formatRoastValue(user.bonus || 0)}</div>
+                  <div className="hidden md:block w-28 text-center text-sm font-semibold">{formatRoastValue(user.rewards || 0)}</div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // 3D Podium with SVG and user images
 function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], loading: boolean }) {
@@ -491,16 +631,10 @@ function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { lea
           <div className="text-left md:text-center text-white text-xs font-medium w-6">#</div>
           <div className="text-left text-white text-xs font-medium md:text-center md:w-40">TWITTER HANDLE</div>
           <div className="hidden md:block text-center text-white text-xs font-medium w-20">TIER</div>
-          {activeTimePeriod === 'now' && (
-            <div className="hidden md:block text-center text-white text-xs font-medium w-24">MINDSHARE%</div>
-          )}
+          <div className="hidden md:block text-center text-white text-xs font-medium w-24">IMPRESSION</div>
           <div className="hidden md:block text-center text-white text-xs font-medium w-24">REFERRALS</div>
           <div className="text-right md:text-center text-white text-xs font-medium w-20">POINTS</div>
-          {(activeTimePeriod === '7d' || activeTimePeriod === '1m') && (
-            <div className="hidden md:block text-center text-white text-xs font-medium w-28">MILESTONE PTS</div>
-          )}
-          <div className="hidden md:block text-center text-white text-xs font-medium w-32">REFERRAL EARNINGS ($ROAST)</div>
-          <div className="hidden md:block text-center text-white text-xs font-medium w-28">REWARDS ($ROAST)</div>
+          <div className="hidden md:block text-center text-white text-xs font-medium w-28">REWARDS</div>
         </div>
 
         {/* Table Body */}
@@ -560,19 +694,9 @@ function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { lea
                   currentUser?.tier === "PLATINUM" ? "bg-gray-500/20 text-gray-400" :
                     "bg-yellow-500/20 text-yellow-400"}`}>{currentUser?.tier}</span>
               </div>
-              {activeTimePeriod === 'now' && (
-                <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.mindshare ? (currentUser.mindshare * 100).toFixed(1) : '0.0'}%</div>
-              )}
+              <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.mindshare ? (currentUser.mindshare * 100).toFixed(1) : '0.0'}%</div>
               <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.activeReferrals?.toLocaleString() || '0'}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{currentUser?.totalPoints?.toLocaleString() || '0'}</div>
-              {(activeTimePeriod === '7d' || activeTimePeriod === '1m') && (
-                <div className="hidden md:block text-white text-center text-sm w-28">
-                  {currentUser?.totalMilestonePoints ? currentUser.totalMilestonePoints.toLocaleString() : '0'}
-                </div>
-              )}
-              <div className="hidden md:block text-white text-center text-sm w-32">
-                {currentUser?.totalRoastEarned ? formatRoastValue(Number(currentUser.totalRoastEarned)) : '0'}
-              </div>
               <div className="hidden md:block text-white text-center text-sm w-28">
                 {currentUser?.totalDailyRewards === 'TBD' ? 'TBD' : 
                  currentUser?.totalDailyRewards ? formatRoastValue(Number(currentUser.totalDailyRewards)) : '0'}
@@ -605,19 +729,9 @@ function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { lea
                   {user.tier}
                 </span>
               </div>
-              {activeTimePeriod === 'now' && (
-                <div className="hidden md:block text-white text-center text-sm w-24">{(user.mindshare * 100).toFixed(1)}%</div>
-              )}
+              <div className="hidden md:block text-white text-center text-sm w-24">{(user.mindshare * 100).toFixed(1)}%</div>
               <div className="hidden md:block text-white text-center text-sm w-24">{user.activeReferrals.toLocaleString()}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{user.totalPoints.toLocaleString()}</div>
-              {(activeTimePeriod === '7d' || activeTimePeriod === '1m') && (
-                <div className="hidden md:block text-white text-center text-sm w-28">
-                  {user.totalMilestonePoints ? user.totalMilestonePoints.toLocaleString() : '0'}
-                </div>
-              )}
-              <div className="hidden md:block text-white text-center text-sm w-32">
-                {user.totalRoastEarned ? formatRoastValue(Number(user.totalRoastEarned)) : '0'}
-              </div>
               <div className="hidden md:block text-white text-center text-sm w-28">
                 {user.totalDailyRewards === 'TBD' ? 'TBD' : 
                  user.totalDailyRewards ? formatRoastValue(Number(user.totalDailyRewards)) : '0'}
@@ -946,27 +1060,22 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
       {activeTab === "mining-rewards" && (
         <div className="space-y-4">
           <div className="w-full md:max-w-none">
-            {/* Placeholder for Mining Rewards - will be populated later */}
-            <div className="bg-white/10 rounded-xl p-8 text-center text-white">
-              <h3 className="text-2xl font-bold mb-4">Mining Rewards Coming Soon</h3>
-              <p className="text-white/70">
-                Node Runner rewards dashboard will be available here. Track your uptime, sales, and earnings.
-              </p>
-            </div>
+            <MiningRewardsPanel currentUserWallet={currentUserWallet} />
           </div>
         </div>
       )}
 
       {activeTab === "mining-leaderboard" && (
-        <div className="space-y-4">
-          <div className="w-full md:max-w-none">
-            {/* Placeholder for Mining Leaderboard - will be populated later */}
-            <div className="bg-white/10 rounded-xl p-8 text-center text-white">
-              <h3 className="text-2xl font-bold mb-4">Mining Leaderboard Coming Soon</h3>
-              <p className="text-white/70">
-                Node Runner leaderboard will be available here. See top performers by uptime and sales.
-              </p>
-            </div>
+        <div className="space-y-20">
+
+          {/* Top 3 Podium */}
+          <div className="flex justify-center mt-20">
+            <Podium topThreeUsers={[]} loading={loading} />
+          </div>
+
+          {/* Mining Leaderboard Table */}
+          <div className="flex justify-center">
+            <MiningLeaderboardTable leaderboardUsers={[]} loading={loading} />
           </div>
         </div>
       )}

@@ -12,12 +12,13 @@ import { useMarketplaceAccess } from '@/hooks/useMarketplaceAccess'
 import { useRouter, useSearchParams } from 'next/navigation'
 import MobileBottomNav from '@/components/MobileBottomNav'
 import useMixpanel from '@/hooks/useMixpanel'
+import OnboardingModal from '@/components/OnboardingModal'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
 
 // Countdown Banner Component
-function CountdownBanner() {
+function CountdownBanner({ isAuthenticated }: { isAuthenticated: boolean }) {
   const router = useRouter()
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 })
 
@@ -26,23 +27,38 @@ function CountdownBanner() {
       const now = new Date()
       const currentET = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}))
       
-      // First snapshot: October 2nd, 2025 at 10 PM ET
-      const firstSnapshot = new Date(2025, 9, 2, 22, 0, 0, 0) // Month is 0-indexed, so 9 = October
+      // Season 2: First weekly snapshot is Monday, Nov 17, 2025 at 10 AM ET
+      const firstSnapshot = new Date(2025, 10, 17, 10, 0, 0, 0) // Month is 0-indexed, so 10 = November
       
       let nextSnapshot: Date
       
       if (currentET < firstSnapshot) {
-        // Before first snapshot - countdown to Oct 2nd, 2025 10 PM ET
+        // Before first snapshot - countdown to Nov 17th, 2025 10 AM ET
         nextSnapshot = firstSnapshot
       } else {
-        // After first snapshot - daily 10 PM ET snapshots
+        // After first snapshot - weekly Monday 10 AM ET snapshots
         nextSnapshot = new Date(currentET)
-        nextSnapshot.setHours(22, 0, 0, 0) // 10 PM ET
         
-        // If it's already past 10 PM today, set for tomorrow
-        if (currentET.getHours() >= 22) {
-          nextSnapshot.setDate(nextSnapshot.getDate() + 1)
+        // Get current day of week (0 = Sunday, 1 = Monday, 6 = Saturday)
+        const dayOfWeek = currentET.getDay()
+        
+        // Calculate days until next Monday
+        let daysUntilMonday = dayOfWeek === 0 ? 1 : (8 - dayOfWeek) % 7
+        if (daysUntilMonday === 0) daysUntilMonday = 7; // If today is Monday but past 10 AM
+        
+        // If today is Monday
+        if (dayOfWeek === 1) {
+          // If it's already past 10 AM, next snapshot is next Monday
+          if (currentET.getHours() >= 10) {
+            daysUntilMonday = 7
+          } else {
+            daysUntilMonday = 0
+          }
         }
+        
+        // Set to next Monday at 10 AM
+        nextSnapshot.setDate(nextSnapshot.getDate() + daysUntilMonday)
+        nextSnapshot.setHours(10, 0, 0, 0) // 10 AM ET
       }
       
       const timeDiff = nextSnapshot.getTime() - currentET.getTime()
@@ -65,11 +81,14 @@ function CountdownBanner() {
   }, [])
 
   const formatTime = (value: number) => value.toString().padStart(2, '0')
+  
+  // Route to authenticated or unauthenticated campaign page based on auth status
+  const campaignRoute = isAuthenticated ? '/campaign' : '/yapping-campaign'
 
   return (
     <div className="flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-black/70 transition-all duration-200 border border-white/10 ml-5">
       <button
-        onClick={() => router.push('/yapping-campaign')}
+        onClick={() => router.push(campaignRoute)}
         className="flex items-center gap-2 hover:opacity-80 transition-opacity"
       >
         <div className="flex items-center gap-2 text-white font-mono text-sm">
@@ -82,10 +101,10 @@ function CountdownBanner() {
         </div>
       </button>
       <button 
-        onClick={() => router.push('/yapping-campaign')}
+        onClick={() => router.push(campaignRoute)}
         className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white text-xs font-semibold px-3 py-1 rounded-full transition-all duration-300 animate-pulse hover:animate-none hover:scale-105 shadow-lg hover:shadow-xl"
       >
-        Yapping Campaign Details
+        Campaign Details
       </button>
     </div>
   )
@@ -104,12 +123,55 @@ export default function HomePage() {
   const [mounted, setMounted] = useState(false)
   const [isProcessingReferral, setIsProcessingReferral] = useState(false)
   const mixpanel = useMixpanel()
+  
+  // Onboarding modal state
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false)
 
   
   // Handle SSR hydration
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Onboarding modal logic
+  useEffect(() => {
+    if (!mounted) return
+    
+    // If user is currently authenticated, mark that they've logged in and don't show modal
+    if (isAuthenticated) {
+      localStorage.setItem('burnie_has_authenticated', 'true')
+      return
+    }
+    
+    // Check if user is currently authenticated (not historically)
+    // We check the flag but clear it if they're logged out, so it shows again when logged out
+    const isCurrentlyAuthenticated = localStorage.getItem('burnie_has_authenticated') === 'true'
+    
+    // Clear the flag when user is logged out, so modal can show again
+    if (!isAuthenticated && isCurrentlyAuthenticated) {
+      localStorage.removeItem('burnie_has_authenticated')
+    }
+    
+    // Don't show modal to currently authenticated users
+    if (isCurrentlyAuthenticated) {
+      return
+    }
+    
+    // For logged out users, check show count
+    const shownCount = parseInt(localStorage.getItem('burnie_onboarding_shown_count') || '0')
+
+    // Show up to 2 times for logged out users
+    if (shownCount < 100) {
+      // Small delay to let page load
+      const timer = setTimeout(() => {
+        setShowOnboardingModal(true)
+        // Increment show count
+        localStorage.setItem('burnie_onboarding_shown_count', (shownCount + 1).toString())
+      }, 1000)
+      
+      return () => clearTimeout(timer)
+    }
+  }, [mounted, isAuthenticated])
 
   // Track homepage view when page loads
   useEffect(() => {
@@ -245,7 +307,7 @@ export default function HomePage() {
         <div className="relative flex items-center justify-between px-6 h-16 max-w-none mx-auto">
           {/* Left Navigation Links */}
           <div className="hidden lg:flex items-center space-x-6 xl:space-x-8">
-            {!isAuthenticated && <CountdownBanner />}
+            {!isAuthenticated && <CountdownBanner isAuthenticated={isAuthenticated} />}
           </div>
 
           {/* Center Logo */}
@@ -478,6 +540,12 @@ export default function HomePage() {
 
       {/* Mobile & Tablet Bottom Padding to prevent content from being hidden behind bottom nav */}
       <div className="lg:hidden h-20"></div>
+
+      {/* Onboarding Modal */}
+      <OnboardingModal 
+        isOpen={showOnboardingModal} 
+        onClose={() => setShowOnboardingModal(false)} 
+      />
     </div>
   )
 } 

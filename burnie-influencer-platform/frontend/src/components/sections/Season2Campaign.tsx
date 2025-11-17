@@ -11,6 +11,10 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
     const router = useRouter();
     const [activeTab, setActiveTab] = useState<'yappers' | 'miners'>('yappers');
     const tabStartTime = useRef<number>(Date.now());
+    
+    // Determine if user is authenticated based on onWalletConnect presence
+    // If onWalletConnect is provided, user is unauthenticated
+    const isAuthenticated = !onWalletConnect;
 
     // Track page view on mount
     useEffect(() => {
@@ -376,13 +380,15 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
                                     mixpanel.campaignGetStartedClicked({
                                         buttonText: 'Start Earning',
                                         buttonPosition: 'below_banner',
-                                        userAuthenticated: true,
+                                        userAuthenticated: isAuthenticated,
                                         screenName: 'Season2Campaign',
                                         activeTab: activeTab,
                                         season: 'season2'
                                     });
                                 }
-                                router.push("/marketplace?search=Dreamathon");
+                                // Route to homepage for unauthenticated, marketplace for authenticated
+                                const route = isAuthenticated ? "/marketplace?search=Dreamathon" : "/?search=Dreamathon";
+                                router.push(route);
                             }}
                             className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white font-semibold text-sm transition-colors"
                             style={{
@@ -730,13 +736,15 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
                                     mixpanel.campaignGetStartedClicked({
                                         buttonText: 'View Somnia Projects',
                                         buttonPosition: 'cta_section',
-                                        userAuthenticated: true,
+                                        userAuthenticated: isAuthenticated,
                                         screenName: 'Season2Campaign',
                                         activeTab: activeTab,
                                         season: 'season2'
                                     });
                                 }
-                                router.push("/marketplace?search=Dreamathon");
+                                // Route to homepage for unauthenticated, marketplace for authenticated
+                                const route = isAuthenticated ? "/marketplace?search=Dreamathon" : "/?search=Dreamathon";
+                                router.push(route);
                             }}
                             className="bg-[#FD7A10] hover:bg-[#e55a0d] text-white font-semibold text-sm transition-colors px-8 py-3 rounded-lg"
                         >

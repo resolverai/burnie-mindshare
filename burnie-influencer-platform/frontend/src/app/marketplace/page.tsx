@@ -38,6 +38,53 @@ export default function MarketplacePage() {
     setMounted(true)
   }, [])
 
+  // Initialize network on first marketplace visit (triggers airdrop)
+  useEffect(() => {
+    const initializeUserNetwork = async () => {
+      if (!mounted || !isAuthenticated || !address) return
+      
+      // Check if this is first initialization
+      const initKey = `marketplace_network_init_${address}`
+      if (sessionStorage.getItem(initKey)) {
+        console.log('[Marketplace] Network already initialized for:', address)
+        return
+      }
+      
+      try {
+        sessionStorage.setItem(initKey, 'true')
+        console.log('[Marketplace] Initializing network and triggering airdrop check for:', address)
+        
+        // Call network/current to create network record and trigger airdrop
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/network/current`,
+          {
+            headers: {
+              'Authorization': `Bearer ${address}`,
+            },
+          }
+        )
+        
+        if (response.ok) {
+          const data = await response.json()
+          console.log('[Marketplace] Network initialized:', data.currentNetwork)
+          
+          // If airdrop was triggered, show success message
+          if (data.airdropTriggered) {
+            console.log('🎁 Airdrop triggered! User will receive 50,000 TOAST + 0.5 STT')
+            // Optional: Show a toast notification
+            // toast.success('Welcome! 50,000 TOAST + 0.5 STT airdropped to your wallet! 🎉')
+          }
+        }
+      } catch (error) {
+        console.error('[Marketplace] Failed to initialize network:', error)
+        // Remove lock on error so it can retry
+        sessionStorage.removeItem(`marketplace_network_init_${address}`)
+      }
+    }
+    
+    initializeUserNetwork()
+  }, [mounted, isAuthenticated, address])
+
   // Track marketplace view when page loads
   useEffect(() => {
     if (mounted && isAuthenticated) {

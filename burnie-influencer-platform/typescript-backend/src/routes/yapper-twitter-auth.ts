@@ -362,6 +362,50 @@ router.post('/exchange-code', async (req: Request, res: Response) => {
       }).catch(error => {
         logger.error(`❌ Twitter data fetch error for new yapper @${twitterUser.username}:`, error);
       });
+
+      // Check if user has a direct referrer and distribute 5000 ROAST bonus
+      try {
+        const { UserReferral } = await import('../models/UserReferral');
+        const { TreasuryService } = await import('../services/TreasuryService');
+        
+        const userReferralRepository = AppDataSource.getRepository(UserReferral);
+        const userReferral = await userReferralRepository.findOne({
+          where: { userId: user.id },
+          relations: ['directReferrer']
+        });
+
+        if (userReferral && userReferral.directReferrerId && userReferral.directReferrer) {
+          logger.info(`🎁 User ${user.walletAddress} has direct referrer ${userReferral.directReferrer.walletAddress} - distributing referral bonuses`);
+          
+          const treasuryService = new TreasuryService();
+          const REFERRAL_BONUS = 5000; // 5000 ROAST
+
+          // Distribute 5000 ROAST to the user
+          logger.info(`💰 Distributing ${REFERRAL_BONUS} ROAST to user ${user.walletAddress}`);
+          const userDistribution = await treasuryService.distributeToMiner(user.walletAddress!, REFERRAL_BONUS);
+          
+          if (userDistribution.success) {
+            logger.info(`✅ User referral bonus distributed: ${userDistribution.transactionHash}`);
+          } else {
+            logger.error(`❌ Failed to distribute user referral bonus: ${userDistribution.error}`);
+          }
+
+          // Distribute 5000 ROAST to the direct referrer
+          logger.info(`💰 Distributing ${REFERRAL_BONUS} ROAST to referrer ${userReferral.directReferrer.walletAddress}`);
+          const referrerDistribution = await treasuryService.distributeToMiner(userReferral.directReferrer.walletAddress!, REFERRAL_BONUS);
+          
+          if (referrerDistribution.success) {
+            logger.info(`✅ Referrer bonus distributed: ${referrerDistribution.transactionHash}`);
+          } else {
+            logger.error(`❌ Failed to distribute referrer bonus: ${referrerDistribution.error}`);
+          }
+        } else {
+          logger.info(`ℹ️ User ${user.walletAddress} has no direct referrer - skipping referral bonus`);
+        }
+      } catch (referralError) {
+        // Don't fail the Twitter connection if referral bonus distribution fails
+        logger.error('❌ Error processing referral bonus:', referralError);
+      }
     }
 
     logger.info(`✅ Yapper Twitter connection successful for wallet ${walletAddress} -> @${twitterUser.username}`);

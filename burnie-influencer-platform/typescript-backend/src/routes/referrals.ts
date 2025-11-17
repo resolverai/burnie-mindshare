@@ -487,6 +487,71 @@ router.get('/check-access/:walletAddress', async (req: Request, res: Response): 
 });
 
 /**
+ * @route POST /api/referrals/grant-direct-access
+ * @desc Grant direct marketplace access without referral code
+ */
+router.post('/grant-direct-access', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { walletAddress } = req.body;
+
+    if (!walletAddress) {
+      res.status(400).json({
+        success: false,
+        message: 'Wallet address is required'
+      });
+      return;
+    }
+
+    const userRepository = AppDataSource.getRepository(User);
+
+    // Find or create user
+    let user = await userRepository.findOne({ 
+      where: { walletAddress: walletAddress.toLowerCase() } 
+    });
+
+    if (!user) {
+      // Create new user with direct access
+      user = userRepository.create({
+        walletAddress: walletAddress.toLowerCase(),
+        accessStatus: UserAccessStatus.APPROVED,
+        roleType: 'yapper' as any
+      });
+      await userRepository.save(user);
+      logger.info(`👤 Created new user with direct access: ${walletAddress}`);
+    } else {
+      // Update existing user to approved
+      if (user.accessStatus !== UserAccessStatus.APPROVED) {
+        user.accessStatus = UserAccessStatus.APPROVED;
+        await userRepository.save(user);
+        logger.info(`👤 Granted direct access to existing user: ${walletAddress}`);
+      } else {
+        logger.info(`👤 User already has access: ${walletAddress}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: user.id,
+          walletAddress: user.walletAddress,
+          username: user.username,
+          accessStatus: user.accessStatus
+        }
+      },
+      message: 'Access granted successfully'
+    });
+
+  } catch (error) {
+    logger.error('❌ Error granting direct access:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to grant direct access'
+    });
+  }
+});
+
+/**
  * @route GET /api/referrals/my-code/:walletAddress
  * @desc Get or generate user's personal referral code
  */

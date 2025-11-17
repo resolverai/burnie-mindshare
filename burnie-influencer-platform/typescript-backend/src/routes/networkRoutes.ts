@@ -54,6 +54,8 @@ router.get('/current', async (req: Request, res: Response) => {
     const userNetworkRepo = AppDataSource.getRepository(UserNetwork);
     let userNetwork = await userNetworkRepo.findOne({ where: { userId: user.id } });
 
+    let airdropTriggered = false;
+
     // If no network selected, default to 'somnia_testnet'
     if (!userNetwork) {
       userNetwork = userNetworkRepo.create({
@@ -62,13 +64,28 @@ router.get('/current', async (req: Request, res: Response) => {
         pastNetwork: null,
       });
       await userNetworkRepo.save(userNetwork);
-      logger.info(`✅ Created initial network record for user ${user.id} (wallet: ${walletAddress})`);
+      logger.info(`✅ Created initial network record for user ${user.id} (wallet: ${walletAddress}) with Somnia Testnet`);
+      
+      // Process airdrop for first-time users on Somnia Testnet
+      const hasReceived = await airdropService.hasReceivedAirdrop(user.id, walletAddress, 'somnia_testnet');
+      
+      if (!hasReceived) {
+        logger.info(`🎁 Triggering first-time airdrop for user ${user.id} (${walletAddress})`);
+        airdropTriggered = true;
+        // Trigger airdrop in background (don't block response)
+        airdropService.processAirdrop(user.id, walletAddress, 'somnia_testnet').catch(error => {
+          logger.error('❌ Background airdrop failed:', error);
+        });
+      } else {
+        logger.info(`⏭️ User ${user.id} (${walletAddress}) already received airdrop, skipping`);
+      }
     }
 
     res.json({
       currentNetwork: userNetwork.currentNetwork,
       pastNetwork: userNetwork.pastNetwork,
       updatedAt: userNetwork.updatedAt,
+      airdropTriggered, // Let frontend know if airdrop was triggered
     });
   } catch (error) {
     logger.error('Failed to get current network:', error);

@@ -12,7 +12,6 @@ import WalletDisplay from '@/components/WalletDisplay'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
 import Image from 'next/image'
 import { useROASTBalance } from '@/hooks/useROASTBalance'
-import TwitterHandleModal from '@/components/TwitterHandleModal'
 import ClientOnly from '@/components/ClientOnly'
 
 export default function AccessPage() {
@@ -35,10 +34,6 @@ export default function AccessPage() {
 
   // Referral form state
   const [referralCode, setReferralCode] = useState('')
-
-  // Twitter handle modal state
-  const [showTwitterModal, setShowTwitterModal] = useState(false)
-  const [isJoiningWaitlist, setIsJoiningWaitlist] = useState(false)
 
   // Handle SSR hydration
   useEffect(() => {
@@ -117,19 +112,6 @@ export default function AccessPage() {
       setAccessStatus(prev => ({ ...prev, isLoading: false }))
     }
   }, [authLoading, isAuthenticated, address])
-
-  // Poll for approval status when user is on waitlist
-  useEffect(() => {
-    if (!authLoading && isAuthenticated && address && accessStatus.status === 'PENDING_WAITLIST') {
-      const pollInterval = setInterval(() => {
-        checkAccessStatus()
-      }, 5000) // Poll every 5 seconds for faster detection
-
-      return () => {
-        clearInterval(pollInterval)
-      }
-    }
-  }, [authLoading, isAuthenticated, address, accessStatus.status])
 
   // Auto-redirect when access is granted
   useEffect(() => {
@@ -224,24 +206,13 @@ export default function AccessPage() {
     }
   }
 
-  const handleWaitlistJoin = () => {
-    // Prevent joining if already on waitlist
-    if (accessStatus.status === 'PENDING_WAITLIST') {
-      setSubmitMessage('❌ You are already on the waitlist')
-      return
-    }
-
-    // Show Twitter handle modal
-    setShowTwitterModal(true)
-  }
-
-  const handleTwitterSubmit = async (twitterHandle: string) => {
-    setIsJoiningWaitlist(true)
+  const handleDirectAccess = async () => {
+    setIsSubmitting(true)
     setSubmitMessage('')
 
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/waitlist/join`,
+        `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/referrals/grant-direct-access`,
         {
           method: 'POST',
           headers: {
@@ -249,7 +220,6 @@ export default function AccessPage() {
           },
           body: JSON.stringify({
             walletAddress: address,
-            twitterHandle: twitterHandle,
           }),
         }
       )
@@ -257,27 +227,18 @@ export default function AccessPage() {
       const result = await response.json()
 
       if (result.success) {
-        setSubmitMessage('✅ You have been added to the waitlist! You\'ll be able to access the platform once approved by admin.')
-        setShowTwitterModal(false)
-        // Refresh access status after a delay
+        setSubmitMessage('✅ Access granted! Redirecting to marketplace...')
         setTimeout(() => {
-          checkAccessStatus()
-        }, 2000)
+          router.push('/marketplace')
+        }, 1500)
       } else {
-        // Show specific error message for Twitter handle conflicts
-        if (result.message && result.message.includes('already in use')) {
-          setSubmitMessage(`❌ ${result.message}`)
-        } else {
-          setSubmitMessage(`❌ ${result.message || 'Failed to join waitlist'}`)
-        }
-        setShowTwitterModal(false)
+        setSubmitMessage(`❌ ${result.message || 'Failed to grant access'}`)
       }
     } catch (error) {
-      console.error('Error joining waitlist:', error)
-      setSubmitMessage('❌ Error joining waitlist. Please try again.')
-      setShowTwitterModal(false)
+      console.error('Error granting direct access:', error)
+      setSubmitMessage('❌ Error granting access. Please try again.')
     } finally {
-      setIsJoiningWaitlist(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -415,7 +376,7 @@ export default function AccessPage() {
               ? 'Your waitlist application is being reviewed. You\'ll be notified when approved.'
               : accessStatus.status === 'REJECTED'
               ? 'Your application was not approved at this time.'
-              : 'Join the Burnie platform with a referral code or apply for the waitlist'
+              : 'Enter a referral code to get started, or proceed without one'
             }
           </p>
           
@@ -455,6 +416,17 @@ export default function AccessPage() {
             </Button>
           ) : (
             <>
+              {/* Incentive Message */}
+              <div className="mb-6 p-4 bg-gradient-to-r from-orange-500/20 to-orange-600/20 border border-orange-500/50 rounded-xl">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <span className="text-2xl">🎁</span>
+                  <h3 className="text-lg font-bold text-white font-nt-brick">Bonus Reward!</h3>
+                </div>
+                <p className="text-orange-300 font-nt-brick text-sm">
+                  Add referral code to get <span className="font-bold text-orange-400">5000 $ROAST</span>
+                </p>
+              </div>
+
               <Button
                 onClick={() => setActiveForm('referral')}
                 className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-nt-brick"
@@ -463,14 +435,14 @@ export default function AccessPage() {
               </Button>
               <div className="text-white/50 text-sm font-nt-brick">or</div>
               <Button
-                onClick={handleWaitlistJoin}
+                onClick={handleDirectAccess}
                 className="w-full bg-[#451616] hover:bg-[#743636] text-white font-nt-brick"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Joining...' : 'Join Waitlist'}
+                {isSubmitting ? 'Granting Access...' : "I don't have a Referral Code"}
               </Button>
               
-              {/* Show message after waitlist action */}
+              {/* Show message after action */}
               {submitMessage && (
                 <div className="mt-4 text-center text-sm">
                   {submitMessage.startsWith('✅') ? (
@@ -484,16 +456,6 @@ export default function AccessPage() {
           )}
         </div>
       </div>
-
-      {/* Twitter Handle Modal */}
-      <ClientOnly>
-        <TwitterHandleModal
-          isOpen={showTwitterModal}
-          onClose={() => setShowTwitterModal(false)}
-          onSubmit={handleTwitterSubmit}
-          loading={isJoiningWaitlist}
-        />
-      </ClientOnly>
     </div>
   )
 }
