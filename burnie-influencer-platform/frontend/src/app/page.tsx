@@ -161,7 +161,7 @@ export default function HomePage() {
     const shownCount = parseInt(localStorage.getItem('burnie_onboarding_shown_count') || '0')
 
     // Show up to 2 times for logged out users
-    if (shownCount < 100) {
+    if (shownCount < 2) {
       // Small delay to let page load
       const timer = setTimeout(() => {
         setShowOnboardingModal(true)
