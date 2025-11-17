@@ -189,16 +189,57 @@ logger.info(`   Secret Access Key: ${process.env.AWS_SECRET_ACCESS_KEY ? 'SET' :
 function isUrlExpired(preSignedUrl: string): boolean {
   try {
     const url = new URL(preSignedUrl);
-    const expiresParam = url.searchParams.get('Expires') || url.searchParams.get('X-Amz-Expires');
     
-    if (!expiresParam) {
-      return true; // Assume expired if no expiration parameter
+    // Check for AWS Signature Version 4 (X-Amz-Date and X-Amz-Expires)
+    const amzDate = url.searchParams.get('X-Amz-Date');
+    const amzExpires = url.searchParams.get('X-Amz-Expires');
+    
+    if (amzDate && amzExpires) {
+      // X-Amz-Date is in format: YYYYMMDDTHHMMSSZ
+      // Parse it to timestamp
+      const year = parseInt(amzDate.substring(0, 4));
+      const month = parseInt(amzDate.substring(4, 6)) - 1; // months are 0-indexed
+      const day = parseInt(amzDate.substring(6, 8));
+      const hour = parseInt(amzDate.substring(9, 11));
+      const minute = parseInt(amzDate.substring(11, 13));
+      const second = parseInt(amzDate.substring(13, 15));
+      
+      const creationTime = Math.floor(new Date(Date.UTC(year, month, day, hour, minute, second)).getTime() / 1000);
+      const expiresInSeconds = parseInt(amzExpires, 10);
+      const expirationTime = creationTime + expiresInSeconds;
+      const currentTime = Math.floor(Date.now() / 1000);
+      
+      // Add 5-minute buffer to refresh URLs before they actually expire
+      const bufferSeconds = 300; // 5 minutes
+      const isExpired = currentTime >= (expirationTime - bufferSeconds);
+      
+      if (isExpired) {
+        logger.info(`🕐 URL expired: Current time ${currentTime}, Expiration time ${expirationTime} (with 5min buffer)`);
+      }
+      
+      return isExpired;
     }
-
-    const expirationTime = parseInt(expiresParam, 10);
-    const currentTime = Math.floor(Date.now() / 1000);
     
-    return currentTime >= expirationTime;
+    // Check for AWS Signature Version 2 (Expires parameter)
+    const expiresParam = url.searchParams.get('Expires');
+    if (expiresParam) {
+      const expirationTime = parseInt(expiresParam, 10);
+      const currentTime = Math.floor(Date.now() / 1000);
+      
+      // Add 5-minute buffer
+      const bufferSeconds = 300;
+      const isExpired = currentTime >= (expirationTime - bufferSeconds);
+      
+      if (isExpired) {
+        logger.info(`🕐 URL expired (v2 signature): Current time ${currentTime}, Expiration time ${expirationTime} (with 5min buffer)`);
+      }
+      
+      return isExpired;
+    }
+    
+    // No expiration parameters found - assume it's a non-presigned URL or expired
+    logger.warn(`⚠️ No expiration parameters found in URL, treating as expired`);
+    return true;
   } catch (error) {
     logger.error(`❌ Failed to check URL expiration: ${preSignedUrl}`, error);
     return true; // Assume expired if we can't parse
@@ -514,12 +555,13 @@ async function refreshExpiredUrls(content: any): Promise<any> {
 
 /**
  * Process content for MinerMyContent - always use unwatermarked URLs and generate fresh presigned URLs
+ * AGGRESSIVE URL REFRESH: Always regenerate URLs to prevent any expired URL issues for miners
  */
 async function refreshUrlsForMinerContent(content: any): Promise<any> {
   // For MinerMyContent, we ALWAYS want fresh presigned URLs and NEVER watermarked content
   // This is the user's own content, so they should see the original unwatermarked version
   
-  // Process content images - only generate fresh presigned URLs if needed
+  // Process content images - ALWAYS generate fresh presigned URLs for miner content
   const contentImages = content.contentImages || content.content_images;
   if (contentImages) {
     if (Array.isArray(contentImages)) {
@@ -527,27 +569,24 @@ async function refreshUrlsForMinerContent(content: any): Promise<any> {
       const updatedImages = [];
       for (const imageUrl of contentImages) {
         if (typeof imageUrl === 'string') {
-          // Check if URL is already a presigned URL and not expired
-          if (imageUrl.includes('X-Amz-Signature') && !isUrlExpired(imageUrl)) {
-            updatedImages.push(imageUrl); // Use existing presigned URL if not expired
-          } else {
-            const s3Key = extractS3KeyFromUrl(imageUrl);
-            if (s3Key) {
-              try {
-                const freshUrl = await generatePresignedUrl(s3Key);
-                if (freshUrl) {
-                  logger.info(`🔄 Generated fresh presigned URL for image in content ${content.id}`);
-                  updatedImages.push(freshUrl);
-                } else {
-                  updatedImages.push(imageUrl); // Fallback to original
-                }
-              } catch (error) {
-                logger.error(`Error generating presigned URL for image in content ${content.id}:`, error);
+          const s3Key = extractS3KeyFromUrl(imageUrl);
+          if (s3Key) {
+            try {
+              const freshUrl = await generatePresignedUrl(s3Key);
+              if (freshUrl) {
+                logger.info(`🔄 Generated fresh presigned URL for image in content ${content.id}`);
+                updatedImages.push(freshUrl);
+              } else {
+                logger.warn(`⚠️ Failed to generate presigned URL for image, using original`);
                 updatedImages.push(imageUrl); // Fallback to original
               }
-            } else {
+            } catch (error) {
+              logger.error(`Error generating presigned URL for image in content ${content.id}:`, error);
               updatedImages.push(imageUrl); // Fallback to original
             }
+          } else {
+            logger.warn(`⚠️ Could not extract S3 key from image URL: ${imageUrl.substring(0, 100)}`);
+            updatedImages.push(imageUrl); // Fallback to original
           }
         } else {
           updatedImages.push(imageUrl);
@@ -563,65 +602,56 @@ async function refreshUrlsForMinerContent(content: any): Promise<any> {
     }
   }
 
-  // Process video URL - only generate fresh presigned URL if needed
+  // Process video URL - ALWAYS generate fresh presigned URL for miner content
   const videoUrl = content.videoUrl || content.video_url;
   if (videoUrl && typeof videoUrl === 'string') {
-    // Check if URL is already a presigned URL and not expired
-    if (videoUrl.includes('X-Amz-Signature') && !isUrlExpired(videoUrl)) {
-      // URL is still valid, no need to regenerate
-      logger.info(`🎬 Using existing presigned URL for video in content ${content.id}`);
-    } else {
-      logger.info(`🎬 Generating fresh presigned URL for video in content ${content.id}`);
-      
-      const s3Key = extractS3KeyFromUrl(videoUrl);
-      if (s3Key) {
-        try {
-          const freshUrl = await generatePresignedUrl(s3Key);
-          if (freshUrl) {
-            // Update both possible field names
-            if (content.videoUrl) {
-              content.videoUrl = freshUrl;
-            }
-            if (content.video_url) {
-              content.video_url = freshUrl;
-            }
-            logger.info(`🔄 Generated fresh presigned URL for video in content ${content.id}`);
+    logger.info(`🎬 Generating fresh presigned URL for video in content ${content.id}`);
+    
+    const s3Key = extractS3KeyFromUrl(videoUrl);
+    if (s3Key) {
+      try {
+        const freshUrl = await generatePresignedUrl(s3Key);
+        if (freshUrl) {
+          // Update both possible field names
+          if (content.videoUrl) {
+            content.videoUrl = freshUrl;
           }
-        } catch (error) {
-          logger.error(`Error generating video URL for content ${content.id}:`, error);
+          if (content.video_url) {
+            content.video_url = freshUrl;
+          }
+          logger.info(`🔄 Generated fresh presigned URL for video in content ${content.id}`);
+        } else {
+          logger.warn(`⚠️ Failed to generate presigned URL for video, keeping original`);
         }
+      } catch (error) {
+        logger.error(`Error generating video URL for content ${content.id}:`, error);
       }
     }
   }
 
-  // For MinerMyContent, we need to keep watermark URLs for status display
-  // But we refresh the presigned URLs if they exist and are expired
+  // Process watermark video URL - ALWAYS generate fresh presigned URL for miner content
   const watermarkVideoUrl = content.watermarkVideoUrl || content.watermark_video_url;
   if (watermarkVideoUrl && typeof watermarkVideoUrl === 'string') {
-    // Check if URL is already a presigned URL and not expired
-    if (watermarkVideoUrl.includes('X-Amz-Signature') && !isUrlExpired(watermarkVideoUrl)) {
-      // URL is still valid, no need to regenerate
-      logger.info(`🎬 Using existing presigned URL for watermarked video in content ${content.id}`);
-    } else {
-      logger.info(`🎬 Generating fresh presigned URL for watermarked video in content ${content.id}`);
-      
-      const s3Key = extractS3KeyFromUrl(watermarkVideoUrl);
-      if (s3Key) {
-        try {
-          const freshUrl = await generatePresignedUrl(s3Key);
-          if (freshUrl) {
-            // Update both possible field names
-            if (content.watermarkVideoUrl) {
-              content.watermarkVideoUrl = freshUrl;
-            }
-            if (content.watermark_video_url) {
-              content.watermark_video_url = freshUrl;
-            }
-            logger.info(`🔄 Generated fresh presigned URL for watermarked video in content ${content.id}`);
+    logger.info(`🎬 Generating fresh presigned URL for watermarked video in content ${content.id}`);
+    
+    const s3Key = extractS3KeyFromUrl(watermarkVideoUrl);
+    if (s3Key) {
+      try {
+        const freshUrl = await generatePresignedUrl(s3Key);
+        if (freshUrl) {
+          // Update both possible field names
+          if (content.watermarkVideoUrl) {
+            content.watermarkVideoUrl = freshUrl;
           }
-        } catch (error) {
-          logger.error(`Error generating watermark video URL for content ${content.id}:`, error);
+          if (content.watermark_video_url) {
+            content.watermark_video_url = freshUrl;
+          }
+          logger.info(`🔄 Generated fresh presigned URL for watermarked video in content ${content.id}`);
+        } else {
+          logger.warn(`⚠️ Failed to generate presigned URL for watermarked video, keeping original`);
         }
+      } catch (error) {
+        logger.error(`Error generating watermark video URL for content ${content.id}:`, error);
       }
     }
   }
