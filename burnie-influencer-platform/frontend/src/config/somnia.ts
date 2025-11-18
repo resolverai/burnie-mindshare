@@ -30,15 +30,15 @@ export const somniaTestnet: AppKitNetwork = {
   contracts: {
     // TOAST Token (ERC-20 with EIP-2612 Permit)
     toastToken: {
-      address: process.env.NEXT_PUBLIC_TOAST_TOKEN_ADDRESS as `0x${string}` || "0x3A15cfDDa1c598De891E66AA6e7EAc47D20EfBC7",
+      address: process.env.NEXT_PUBLIC_TOAST_TOKEN_ADDRESS as `0x${string}` || "0x24dAeA2E04497e7894D7E0b3761A09B88700Cc9D",
     },
     // Content Registry (Content ownership & marketplace)
     contentRegistry: {
-      address: process.env.NEXT_PUBLIC_CONTENT_REGISTRY_ADDRESS as `0x${string}` || "0x74A28D0a78ae57C618BD8338E54110D8922C990e",
+      address: process.env.NEXT_PUBLIC_CONTENT_REGISTRY_ADDRESS as `0x${string}` || "0x8319877ed76390EbcC069eBf7Be1C9EC3E158E5c",
     },
     // Reward Distribution (Automated payouts)
     rewardDistribution: {
-      address: process.env.NEXT_PUBLIC_REWARD_DISTRIBUTION_ADDRESS as `0x${string}` || "0x6feaa2AC70D6afFc70063840E3e8465668267700",
+      address: process.env.NEXT_PUBLIC_REWARD_DISTRIBUTION_ADDRESS as `0x${string}` || "0xe1472DF839155CCB8987418EB5102Ea1f2eb783D",
     },
   },
   testnet: true,
