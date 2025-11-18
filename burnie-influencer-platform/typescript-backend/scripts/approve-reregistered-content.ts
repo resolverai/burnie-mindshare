@@ -76,9 +76,9 @@ async function approveContent(
       };
     }
     
-    // Determine price: use bidding_ask_price, asking_price, or default to 999
-    const priceInROAST = content.biddingAskPrice || content.askingPrice || 999;
-    logger.info(`💰 Content ${content.id} price: ${priceInROAST} ROAST/TOAST`);
+    // Always use 999 TOAST as the price for re-registered content
+    const priceInROAST = 999;
+    logger.info(`💰 Content ${content.id} price: ${priceInROAST} TOAST (fixed price for re-registered content)`);
     
     // Call the content integration service to approve on-chain
     const result = await contentIntegrationService.approveContentOnChain(
@@ -202,7 +202,7 @@ async function main() {
     
     logger.info(`📋 Found ${contentNeedingApproval.length} content items needing approval:\n`);
     contentNeedingApproval.forEach(content => {
-      logger.info(`   - Content ID: ${content.id} | Price: ${content.biddingAskPrice || content.askingPrice || 999} ROAST`);
+      logger.info(`   - Content ID: ${content.id} | Price: 999 TOAST (fixed)`);
     });
     logger.info('');
     
