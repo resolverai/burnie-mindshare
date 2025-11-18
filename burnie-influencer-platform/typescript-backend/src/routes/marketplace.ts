@@ -3226,7 +3226,13 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
     }
 
     // Verify ownership by wallet address or creatorId (for backward compatibility)
+    // OR check if user is an admin (for miner-generated content)
     let isOwner = false;
+    let isAdmin = false;
+    
+    // Check if wallet is an admin wallet
+    const { env } = require('../config/env');
+    isAdmin = env.miner.adminWalletAddresses.includes(wallet_address.toLowerCase());
     
     if (content.walletAddress) {
       // Modern ownership check: compare wallet addresses
@@ -3249,11 +3255,19 @@ router.put('/content/:id/bidding', async (req: Request, res: Response) => {
       }
     }
     
-    if (!isOwner) {
+    // Allow modification if:
+    // 1. User is the owner (wallet_address matches)
+    // 2. User is an admin (can modify miner-generated content)
+    if (!isOwner && !isAdmin) {
       return res.status(403).json({
         success: false,
-        message: 'Unauthorized: You can only modify your own content'
+        message: 'Unauthorized: You can only modify your own content (or you must be an admin)'
       });
+    }
+    
+    // Log admin action for audit trail
+    if (isAdmin && !isOwner) {
+      logger.info(`👮 Admin ${wallet_address} is modifying bidding settings for content ${content.id} (owner: ${content.walletAddress || 'N/A'})`);
     }
 
     // Update bidding settings
