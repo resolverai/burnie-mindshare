@@ -4908,8 +4908,18 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
     }
 
     // For Somnia purchases, ensure referral is registered on-chain (fallback if signup failed)
+    let referralRegisteredOnChain = false;
     if (network === 'somnia_testnet') {
-      await ensureReferralRegisteredOnChain(buyerWalletAddress);
+      try {
+        await ensureReferralRegisteredOnChain(buyerWalletAddress);
+        referralRegisteredOnChain = true;
+        logger.info('✅ Referral registration on-chain successful');
+      } catch (error) {
+        logger.error('❌ Failed to register referral on-chain (non-blocking):', error);
+        // Don't fail purchase - user can still complete purchase without referral registration
+        // Referral payouts won't work but purchase flow continues
+        referralRegisteredOnChain = false;
+      }
     }
 
     // Check if this is free content (0 price)
@@ -4978,12 +4988,14 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       actualPurchasePriceInNativeCurrency = purchasePrice; // USDC amount
     }
     
-    // Calculate miner payout and platform fee - set to 0 for free content
-    // Update to 50% for miner (matching contract), 30% platform, 20% evaluator
-    const minerPayoutRoast = isFreeContent ? 0 : (actualPurchasePriceInNativeCurrency * 0.50); // 50% of what buyer paid
+    // Calculate miner payout in ROAST (always 70% from Base treasury)
+    // Note: ROAST payout is always 70% regardless of network (Base or Somnia)
+    // On Somnia, miner gets 70% ROAST from Base treasury + 50% TOAST from smart contract
+    // On Base, miner gets 70% ROAST from Base treasury only
+    const minerPayoutRoast = isFreeContent ? 0 : (actualPurchasePriceInNativeCurrency * 0.70); // 70% ROAST payout
     
-    // Calculate platform fee based on payment currency (still in payment currency) - set to 0 for free content
-    // Update to 30% platform fee (matching contract)
+    // Calculate platform fee based on payment currency - set to 0 for free content
+    // Platform fee is 30% (matching contract)
     let platformFee: number;
     if (isFreeContent) {
       platformFee = 0;
@@ -5022,7 +5034,7 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
       conversionRate: roastPrice, // ROAST to USD rate at time of purchase
       originalRoastPrice, // Original asking price in ROAST (from content.biddingAskPrice)
       platformFee, // In payment currency (30%)
-      minerPayout: minerPayoutRoast, // 50% of actual purchase price in payment currency
+      minerPayout: minerPayoutRoast, // 70% ROAST payout from Base treasury
       minerPayoutRoast, // Explicit amount for clarity
       paymentStatus: transactionHash ? 'completed' : 'pending', // If transaction hash provided, mark as completed
       payoutStatus: isFreeContent ? 'not_applicable' : 'pending', // Set payout status for free content
@@ -5058,15 +5070,24 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
           });
 
           if (userReferral?.referralCode) {
-            // Calculate referral amounts (from purchase price, not platform fee)
-            directReferrerAmount = purchasePrice * (userReferral.referralCode.getDirectReferrerRate() / 100);
-            grandReferrerAmount = purchasePrice * (userReferral.referralCode.getGrandReferrerRate() / 100);
+            // Only calculate actual amounts if referral was successfully registered on-chain
+            if (referralRegisteredOnChain) {
+              // Calculate referral amounts (from purchase price, not platform fee)
+              directReferrerAmount = purchasePrice * (userReferral.referralCode.getDirectReferrerRate() / 100);
+              grandReferrerAmount = purchasePrice * (userReferral.referralCode.getGrandReferrerRate() / 100);
+            } else {
+              // Referral registration failed - no payouts will be made
+              directReferrerAmount = 0;
+              grandReferrerAmount = 0;
+              logger.warn(`⚠️ Referral registration failed - setting payout amounts to 0`);
+            }
+            
             tier = userReferral.referralCode.tier;
             directReferrerAddress = userReferral.directReferrer?.walletAddress || null;
             grandReferrerAddress = userReferral.grandReferrer?.walletAddress || null;
 
-            // Create referral payout records (already paid via contract)
-            if (userReferral.directReferrer && directReferrerAmount >= 10) {
+            // Create referral payout records only if registration succeeded and amounts are >= 10
+            if (referralRegisteredOnChain && userReferral.directReferrer && directReferrerAmount >= 10) {
               const directPayout = referralPayoutRepository.create({
                 userReferralId: userReferral.id,
                 contentPurchaseId: purchase.id,
@@ -5085,9 +5106,11 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
               purchase.directReferrerPayout = directReferrerAmount;
               purchase.directReferrerTxHash = transactionHash;
               logger.info(`✅ Recorded direct referrer payout: ${directReferrerAmount} TOAST`);
+            } else if (!referralRegisteredOnChain && userReferral.directReferrer) {
+              logger.warn(`⚠️ Skipping direct referrer payout record - registration failed`);
             }
 
-            if (userReferral.grandReferrer && grandReferrerAmount >= 10) {
+            if (referralRegisteredOnChain && userReferral.grandReferrer && grandReferrerAmount >= 10) {
               const grandPayout = referralPayoutRepository.create({
                 userReferralId: userReferral.id,
                 contentPurchaseId: purchase.id,
@@ -5106,9 +5129,11 @@ router.post('/purchase', async (req: Request, res: Response): Promise<void> => {
               purchase.grandReferrerPayout = grandReferrerAmount;
               purchase.grandReferrerTxHash = transactionHash;
               logger.info(`✅ Recorded grand referrer payout: ${grandReferrerAmount} TOAST`);
+            } else if (!referralRegisteredOnChain && userReferral.grandReferrer) {
+              logger.warn(`⚠️ Skipping grand referrer payout record - registration failed`);
             }
 
-            purchase.referralPayoutStatus = 'completed';
+            purchase.referralPayoutStatus = referralRegisteredOnChain ? 'completed' : 'failed';
             await purchaseRepository.save(purchase);
           }
         }
