@@ -20,7 +20,8 @@
     "twitter-learning:once": "ts-node src/jobs/twitterLearningJob.ts run-once",
     "twitter-learning:status": "ts-node src/jobs/twitterLearningJob.ts status",
     "manage-referral-payouts": "ts-node src/scripts/manage-referral-payouts.ts",
-    "reregister-failed-content": "ts-node scripts/reregister-failed-content.ts"
+    "reregister-failed-content": "ts-node scripts/reregister-failed-content.ts",
+    "approve-reregistered-content": "ts-node scripts/approve-reregistered-content.ts"
   },
   "keywords": [
     "roastpower",
