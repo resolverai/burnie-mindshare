@@ -14,8 +14,8 @@
 
 import 'reflect-metadata';
 import { AppDataSource } from '../src/config/database';
-import { ContentMarketplace } from '../src/entities/ContentMarketplace';
-import { ContentBlockchainTransaction } from '../src/entities/ContentBlockchainTransaction';
+import { ContentMarketplace } from '../src/models/ContentMarketplace';
+import { ContentBlockchainTransaction } from '../src/models/ContentBlockchainTransaction';
 import { ContentIntegrationService } from '../src/services/contentIntegrationService';
 import { logger } from '../src/utils/logger';
 
