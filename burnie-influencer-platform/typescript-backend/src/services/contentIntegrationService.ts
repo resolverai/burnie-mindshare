@@ -207,7 +207,19 @@ export class ContentIntegrationService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       logger.error(`❌ Error approving content ${contentId} on-chain: ${errorMessage}`);
       
-      // Record failed transaction - get content info first
+      // Check if error is "Content already approved" - this is not a failure, just skip it
+      const isAlreadyApproved = errorMessage.includes('Content already approved') || 
+                                errorMessage.includes('already approved');
+      
+      if (isAlreadyApproved) {
+        logger.info(`⏭️ Content ${contentId} is already approved on blockchain, skipping...`);
+        return {
+          success: true,
+          error: 'Already approved on blockchain (skipped)',
+        };
+      }
+      
+      // Record failed transaction for actual errors (not "already approved")
       try {
         const contentRepository = AppDataSource.getRepository(ContentMarketplace);
         const content = await contentRepository.findOne({ where: { id: contentId } });

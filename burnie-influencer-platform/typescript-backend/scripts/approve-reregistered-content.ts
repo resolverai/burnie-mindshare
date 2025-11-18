@@ -250,8 +250,14 @@ async function main() {
     logger.info('📊 APPROVAL SUMMARY');
     logger.info('='.repeat(80));
     
-    const successful = results.filter(r => r.success && !r.error?.includes('skipped'));
-    const skipped = results.filter(r => r.success && r.error?.includes('skipped'));
+    // Successful approvals (new transactions)
+    const successful = results.filter(r => r.success && !r.error);
+    
+    // Skipped items (already approved in DB or on blockchain)
+    const skipped = results.filter(r => r.success && r.error && 
+      (r.error.includes('skipped') || r.error.includes('Already approved')));
+    
+    // Failed approvals (real errors)
     const failed = results.filter(r => !r.success);
     
     logger.info(`✅ Successfully approved: ${successful.length}`);
@@ -264,7 +270,7 @@ async function main() {
     logger.info(`⏭️ Skipped (already approved): ${skipped.length}`);
     if (skipped.length > 0) {
       skipped.forEach(r => {
-        logger.info(`   - Content ${r.contentId}: ${r.transactionHash || 'N/A'}`);
+        logger.info(`   - Content ${r.contentId}: ${r.error}`);
       });
     }
     
