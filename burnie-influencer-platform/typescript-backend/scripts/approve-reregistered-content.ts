@@ -76,9 +76,31 @@ async function approveContent(
       };
     }
     
-    // Always use 999 TOAST as the price for re-registered content
-    const priceInROAST = 999;
-    logger.info(`💰 Content ${content.id} price: ${priceInROAST} TOAST (fixed price for re-registered content)`);
+    // Ensure content has walletAddress set (required for approval)
+    // Get it from the registration transaction if not set
+    if (!content.walletAddress && confirmedRegistration.creatorWalletAddress) {
+      logger.info(`📝 Setting wallet address for content ${content.id} from registration: ${confirmedRegistration.creatorWalletAddress}`);
+      const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+      content.walletAddress = confirmedRegistration.creatorWalletAddress;
+      await contentRepository.save(content);
+    }
+    
+    if (!content.walletAddress) {
+      logger.error(`❌ Content ${content.id} has no wallet address and none found in registration transaction`);
+      return {
+        contentId: content.id,
+        success: false,
+        error: 'No wallet address found for content',
+      };
+    }
+    
+    // Determine price: use biddingAskPrice if available, otherwise default to 999
+    // NEVER use askingPrice (which can be 100 or other low values)
+    const priceInROAST = content.biddingAskPrice && content.biddingAskPrice > 0 
+      ? content.biddingAskPrice 
+      : 999;
+    
+    logger.info(`💰 Content ${content.id} price: ${priceInROAST} TOAST (${content.biddingAskPrice ? 'from biddingAskPrice' : 'default fixed price'})`);
     
     // Call the content integration service to approve on-chain
     const result = await contentIntegrationService.approveContentOnChain(
@@ -125,6 +147,7 @@ async function approveContent(
 async function main() {
   try {
     logger.info('🚀 Starting content approval process...\n');
+    logger.info('⚠️  IMPORTANT: Stop the TypeScript backend server before running this script to avoid nonce conflicts!\n');
     
     // Initialize database
     await AppDataSource.initialize();
@@ -202,7 +225,9 @@ async function main() {
     
     logger.info(`📋 Found ${contentNeedingApproval.length} content items needing approval:\n`);
     contentNeedingApproval.forEach(content => {
-      logger.info(`   - Content ID: ${content.id} | Price: 999 TOAST (fixed)`);
+      const price = content.biddingAskPrice && content.biddingAskPrice > 0 ? content.biddingAskPrice : 999;
+      const priceSource = content.biddingAskPrice ? 'biddingAskPrice' : 'default';
+      logger.info(`   - Content ID: ${content.id} | Price: ${price} TOAST (${priceSource})`);
     });
     logger.info('');
     
@@ -213,8 +238,11 @@ async function main() {
       const result = await approveContent(content, contentIntegrationService);
       results.push(result);
       
-      // Add a small delay between approvals to avoid nonce issues
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Add a delay between approvals to avoid nonce issues (increased to 5 seconds)
+      if (content !== contentNeedingApproval[contentNeedingApproval.length - 1]) {
+        logger.info('⏳ Waiting 5 seconds before next approval...\n');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
     }
     
     // Summary
