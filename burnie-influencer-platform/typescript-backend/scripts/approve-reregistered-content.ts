@@ -17,6 +17,7 @@ import { AppDataSource } from '../src/config/database';
 import { ContentMarketplace } from '../src/models/ContentMarketplace';
 import { ContentBlockchainTransaction } from '../src/models/ContentBlockchainTransaction';
 import { ContentIntegrationService } from '../src/services/contentIntegrationService';
+import { SomniaBlockchainService } from '../src/services/somniaBlockchainService';
 import { logger } from '../src/config/logger';
 
 interface ApprovalResult {
@@ -31,12 +32,13 @@ interface ApprovalResult {
  */
 async function approveContent(
   content: ContentMarketplace,
-  contentIntegrationService: ContentIntegrationService
+  contentIntegrationService: ContentIntegrationService,
+  somniaBlockchainService: SomniaBlockchainService
 ): Promise<ApprovalResult> {
   try {
     logger.info(`\n🔄 Approving content ${content.id}...`);
     
-    // Check if content already has a confirmed approval
+    // Check if content already has a confirmed approval in DB
     const txRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
     const confirmedApproval = await txRepository.findOne({
       where: {
@@ -48,12 +50,12 @@ async function approveContent(
     });
     
     if (confirmedApproval) {
-      logger.info(`⏭️ Content ${content.id} already has a confirmed approval (tx: ${confirmedApproval.transactionHash}), skipping...`);
+      logger.info(`⏭️ Content ${content.id} already has a confirmed approval in DB (tx: ${confirmedApproval.transactionHash}), skipping...`);
       return {
         contentId: content.id,
         success: true,
         transactionHash: confirmedApproval.transactionHash || undefined,
-        error: 'Already approved (skipped)',
+        error: 'Already approved in DB (skipped)',
       };
     }
     
@@ -74,6 +76,26 @@ async function approveContent(
         success: false,
         error: 'No confirmed registration found',
       };
+    }
+    
+    // Check blockchain state BEFORE attempting approval
+    try {
+      logger.info(`🔍 Checking blockchain state for content ${content.id}...`);
+      const blockchainContent = await somniaBlockchainService.getContent(content.id);
+      
+      if (blockchainContent.isApproved) {
+        logger.info(`⏭️ Content ${content.id} is already approved on blockchain (isApproved=true), skipping...`);
+        return {
+          contentId: content.id,
+          success: true,
+          error: 'Already approved on blockchain (skipped)',
+        };
+      }
+      
+      logger.info(`✅ Content ${content.id} is registered but not yet approved (isApproved=false), proceeding...`);
+    } catch (blockchainError) {
+      // If we can't check blockchain state, log warning but continue
+      logger.warn(`⚠️ Could not check blockchain state for content ${content.id}, will attempt approval anyway`);
     }
     
     // Ensure content has walletAddress set (required for approval)
@@ -155,6 +177,7 @@ async function main() {
     
     // Initialize services
     const contentIntegrationService = new ContentIntegrationService();
+    const somniaBlockchainService = new SomniaBlockchainService();
     
     // Get command line arguments
     const args = process.argv.slice(2);
@@ -235,7 +258,7 @@ async function main() {
     const results: ApprovalResult[] = [];
     
     for (const content of contentNeedingApproval) {
-      const result = await approveContent(content, contentIntegrationService);
+      const result = await approveContent(content, contentIntegrationService, somniaBlockchainService);
       results.push(result);
       
       // Add a delay between approvals to avoid nonce issues (increased to 5 seconds)
