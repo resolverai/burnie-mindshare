@@ -97,7 +97,10 @@ export class ContentIntegrationService {
         blockchainContentId: contentId,
       };
     } catch (error) {
-      logger.error(`❌ Error registering content ${contentId} on-chain:`, error);
+      // Extract safe error information without circular references
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorCode = (error as any).code || 'UNKNOWN';
+      logger.error(`❌ Error registering content ${contentId} on-chain: ${errorMessage} (Code: ${errorCode})`);
       
       // Record failed transaction
       try {
@@ -110,17 +113,18 @@ export class ContentIntegrationService {
           transactionType: 'registration',
           status: 'failed',
           creatorWalletAddress: minerWalletAddress.toLowerCase(),
-          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          errorMessage: errorMessage,
           failedAt: new Date(),
         });
         await blockchainTxRepository.save(blockchainTx);
       } catch (recordError) {
-        logger.error('Failed to record blockchain transaction error:', recordError);
+        const recordErrorMsg = recordError instanceof Error ? recordError.message : 'Unknown error';
+        logger.error(`Failed to record blockchain transaction error: ${recordErrorMsg}`);
       }
 
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
       };
     }
   }
@@ -200,7 +204,8 @@ export class ContentIntegrationService {
         transactionHash: receipt,
       };
     } catch (error) {
-      logger.error(`❌ Error approving content ${contentId} on-chain:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Error approving content ${contentId} on-chain: ${errorMessage}`);
       
       // Record failed transaction - get content info first
       try {
@@ -337,7 +342,8 @@ export class ContentIntegrationService {
         transactionHash: receipt,
       };
     } catch (error) {
-      logger.error(`❌ Error updating price for content ${contentId} on-chain:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Error updating price for content ${contentId} on-chain: ${errorMessage}`);
       
       // Record failed transaction - get content info first
       try {
@@ -471,10 +477,11 @@ export class ContentIntegrationService {
 
       return { success: true };
     } catch (error) {
-      logger.error(`❌ Error recording purchase transaction for content ${contentId}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Error recording purchase transaction for content ${contentId}: ${errorMessage}`);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
       };
     }
   }
@@ -511,10 +518,11 @@ export class ContentIntegrationService {
         currentOwner: buyerWalletAddress,
       };
     } catch (error) {
-      logger.error(`❌ Error verifying purchase for content ${contentId}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Error verifying purchase for content ${contentId}: ${errorMessage}`);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
       };
     }
   }
@@ -537,7 +545,8 @@ export class ContentIntegrationService {
 
       return content.campaign.project.somniaWhitelisted || false;
     } catch (error) {
-      logger.error(`❌ Error checking Somnia whitelist for content ${contentId}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Error checking Somnia whitelist for content ${contentId}: ${errorMessage}`);
       return false;
     }
   }
@@ -558,7 +567,8 @@ export class ContentIntegrationService {
       // Lighthouse gateway URL
       return `https://gateway.lighthouse.storage/ipfs/${ipfsUpload.cid}`;
     } catch (error) {
-      logger.error(`❌ Error getting IPFS URL for content ${contentId}:`, error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Error getting IPFS URL for content ${contentId}: ${errorMessage}`);
       return null;
     }
   }

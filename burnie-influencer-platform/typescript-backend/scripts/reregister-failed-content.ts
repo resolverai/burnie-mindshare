@@ -132,8 +132,13 @@ async function downloadFileToTemp(url: string, contentId: number): Promise<strin
     logger.info(`✅ Downloaded file to ${tempFilePath}`);
     return tempFilePath;
   } catch (error) {
-    logger.error(`Failed to download file for content ${contentId}:`, error);
-    throw error;
+    // Extract safe error information without circular references
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorCode = (error as any).code || 'UNKNOWN';
+    const errorStatus = (error as any).response?.status || 'N/A';
+    
+    logger.error(`Failed to download file for content ${contentId}: ${errorMessage} (Code: ${errorCode}, Status: ${errorStatus})`);
+    throw new Error(`Download failed: ${errorMessage}`);
   }
 }
 
@@ -163,6 +168,27 @@ async function reregisterContent(
   
   try {
     logger.info(`\n🔄 Processing content ${content.id}...`);
+    
+    // Check if content already has a confirmed registration
+    const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
+    const confirmedRegistration = await blockchainTxRepository.findOne({
+      where: {
+        contentId: content.id,
+        transactionType: 'registration',
+        network: 'somnia_testnet',
+        status: 'confirmed',
+      },
+    });
+    
+    if (confirmedRegistration) {
+      logger.info(`⏭️ Content ${content.id} already has a confirmed registration (tx: ${confirmedRegistration.transactionHash}), skipping...`);
+      return {
+        contentId: content.id,
+        success: true,
+        transactionHash: confirmedRegistration.transactionHash || undefined,
+        error: 'Already registered (skipped)',
+      };
+    }
     
     // Get creator wallet address
     const creator = content.creator;
@@ -212,41 +238,89 @@ async function reregisterContent(
     // Download file to temp location
     tempFilePath = await downloadFileToTemp(freshPresignedUrl, content.id);
     
-    // Register on blockchain (this will upload to IPFS internally)
+    // Upload to IPFS
+    logger.info(`📤 Uploading content ${content.id} to IPFS...`);
+    const ipfsResult = await contentIntegrationService['ipfsService'].uploadFile(tempFilePath, content.id);
+    logger.info(`✅ Content ${content.id} uploaded to IPFS: ${ipfsResult.cid}`);
+    
+    // Register on blockchain
     logger.info(`⛓️ Registering content ${content.id} on Somnia blockchain...`);
-    const result = await contentIntegrationService.registerContentOnChain(
+    const receipt = await contentIntegrationService['somniaBlockchainService'].registerContent(
       content.id,
       creator.walletAddress,
-      tempFilePath,
+      ipfsResult.cid,
       content.postType || 'thread'
     );
     
-    if (!result.success) {
+    if (!receipt) {
       return {
         contentId: content.id,
         success: false,
-        error: result.error || 'Registration failed',
+        error: 'Blockchain registration failed - no transaction hash returned',
       };
     }
     
     logger.info(`✅ Content ${content.id} registered successfully!`);
-    logger.info(`   Transaction Hash: ${result.transactionHash}`);
-    logger.info(`   IPFS CID: ${result.cid}`);
+    logger.info(`   Transaction Hash: ${receipt}`);
+    logger.info(`   IPFS CID: ${ipfsResult.cid}`);
     
-    // Note: The transaction record is automatically created/updated by registerContentOnChain
+    // Update transaction hash in IPFS record
+    await contentIntegrationService['ipfsService'].updateTransactionHash(ipfsResult.uploadId, receipt);
+    
+    // Update the existing failed transaction record to mark it as confirmed
+    const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
+    
+    if (failedTxRecord) {
+      // Update the existing failed record
+      failedTxRecord.status = 'confirmed';
+      failedTxRecord.transactionHash = receipt;
+      failedTxRecord.ipfsCid = ipfsResult.cid;
+      failedTxRecord.blockchainContentId = content.id;
+      failedTxRecord.contractAddress = process.env.CONTENT_REGISTRY_ADDRESS || null;
+      failedTxRecord.currentOwnerWallet = creator.walletAddress.toLowerCase();
+      failedTxRecord.contentType = content.postType || 'thread';
+      failedTxRecord.confirmedAt = new Date();
+      failedTxRecord.failedAt = null;
+      failedTxRecord.errorMessage = null;
+      
+      await blockchainTxRepository.save(failedTxRecord);
+      logger.info(`✅ Updated existing transaction record (ID: ${failedTxRecord.id}) to confirmed status`);
+    } else {
+      // No existing failed record - create a new one (fallback scenario)
+      logger.warn(`⚠️ No existing failed transaction record found, creating new confirmed record...`);
+      const newTxRecord = blockchainTxRepository.create({
+        contentId: content.id,
+        blockchainContentId: content.id,
+        network: 'somnia_testnet',
+        chainId: 50312,
+        transactionType: 'registration',
+        transactionHash: receipt,
+        status: 'confirmed',
+        contractAddress: process.env.CONTENT_REGISTRY_ADDRESS || null,
+        creatorWalletAddress: creator.walletAddress.toLowerCase(),
+        currentOwnerWallet: creator.walletAddress.toLowerCase(),
+        ipfsCid: ipfsResult.cid,
+        contentType: content.postType || 'thread',
+        confirmedAt: new Date(),
+      });
+      await blockchainTxRepository.save(newTxRecord);
+    }
     
     return {
       contentId: content.id,
       success: true,
-      transactionHash: result.transactionHash,
+      transactionHash: receipt,
     };
     
   } catch (error) {
-    logger.error(`❌ Failed to re-register content ${content.id}:`, error);
+    // Extract safe error information without circular references
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error(`❌ Failed to re-register content ${content.id}: ${errorMessage}`);
+    
     return {
       contentId: content.id,
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
     };
   } finally {
     // Cleanup temp file
@@ -356,16 +430,26 @@ async function main() {
     logger.info('📊 RE-REGISTRATION SUMMARY');
     logger.info('='.repeat(80) + '\n');
     
-    const successCount = results.filter(r => r.success).length;
+    const newRegistrations = results.filter(r => r.success && r.error !== 'Already registered (skipped)');
+    const skippedCount = results.filter(r => r.success && r.error === 'Already registered (skipped)').length;
     const failureCount = results.filter(r => !r.success).length;
     
-    logger.info(`✅ Successful: ${successCount}`);
+    logger.info(`✅ Newly Registered: ${newRegistrations.length}`);
+    logger.info(`⏭️ Skipped (Already Registered): ${skippedCount}`);
     logger.info(`❌ Failed: ${failureCount}`);
     logger.info(`📊 Total: ${results.length}\n`);
     
-    if (successCount > 0) {
-      logger.info('✅ Successfully re-registered content:');
-      results.filter(r => r.success).forEach(r => {
+    if (newRegistrations.length > 0) {
+      logger.info('✅ Newly registered content:');
+      newRegistrations.forEach(r => {
+        logger.info(`   - Content ${r.contentId}: ${r.transactionHash}`);
+      });
+      logger.info('');
+    }
+    
+    if (skippedCount > 0) {
+      logger.info('⏭️ Skipped content (already registered):');
+      results.filter(r => r.success && r.error === 'Already registered (skipped)').forEach(r => {
         logger.info(`   - Content ${r.contentId}: ${r.transactionHash}`);
       });
       logger.info('');
