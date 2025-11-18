@@ -267,6 +267,20 @@ export class ContentIntegrationService {
 
       const blockchainContentId = registrationTx.blockchainContentId!;
 
+      // ✅ NEW: Check if content is approved on blockchain before updating price
+      const approvalTx = await blockchainTxRepository.findOne({
+        where: {
+          contentId,
+          transactionType: 'approval',
+          status: 'confirmed',
+        },
+      });
+
+      if (!approvalTx) {
+        logger.warn(`⚠️ Cannot update price for content ${contentId}: Content not approved on blockchain yet`);
+        return { success: false, error: 'Content not approved on blockchain yet' };
+      }
+
       // Check if there's already a pending price_update for this content
       const existingPriceUpdate = await blockchainTxRepository.findOne({
         where: {

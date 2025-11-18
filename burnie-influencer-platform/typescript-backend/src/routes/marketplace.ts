@@ -1439,12 +1439,14 @@ router.get('/content/:id/blockchain-registration', async (req: Request, res: Res
     const ContentBlockchainTransaction = (await import('../models/ContentBlockchainTransaction')).ContentBlockchainTransaction;
     const txRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
     
-    // Check if there's a 'registration' transaction for this content on Somnia
+    // Check if there's a SUCCESSFUL 'registration' transaction for this content on Somnia
+    // Only count it as registered if status is 'confirmed'
     const registrationTx = await txRepository.findOne({
       where: {
         contentId: parseInt(id),
         transactionType: 'registration',
-        network: 'somnia_testnet'
+        network: 'somnia_testnet',
+        status: 'confirmed' // ✅ Only count successful registrations
       }
     });
     
