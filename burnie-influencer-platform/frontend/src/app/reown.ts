@@ -5,6 +5,7 @@ import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { base, mainnet } from "@reown/appkit/networks";
 import { type AppKitNetwork } from "@reown/appkit/networks";
 import { somniaTestnet } from "../config/somnia";
+import { http } from "wagmi";
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
 console.log("[AppKit] projectId (first 6 chars):", projectId.slice(0, 6)); // <= should NOT be empty
@@ -24,9 +25,26 @@ const networks: AppKitNetwork[] = [base, somniaTestnet];
 console.log("[AppKit] Networks configured:", networks.map(n => n.name));
 console.log("[AppKit] Environment:", process.env.NODE_ENV);
 
+// Configure custom RPC endpoints for better reliability (especially in production)
+const somniaRpcUrl = process.env.NEXT_PUBLIC_SOMNIA_RPC_URL || "https://dream-rpc.somnia.network";
+const baseRpcUrl = process.env.NEXT_PUBLIC_BASE_RPC_URL || "https://mainnet.base.org";
+
+console.log("[AppKit] Somnia RPC:", somniaRpcUrl);
+console.log("[AppKit] Base RPC:", baseRpcUrl);
+
 const wagmiAdapter = new WagmiAdapter({
   projectId,
   networks,
+  transports: {
+    [somniaTestnet.id]: http(somniaRpcUrl, {
+      batch: false, // Disable batching for better reliability
+      timeout: 30_000, // 30 second timeout
+    }),
+    [base.id]: http(baseRpcUrl, {
+      batch: false,
+      timeout: 30_000,
+    }),
+  },
 });
 
 export const wagmiConfig = wagmiAdapter.wagmiConfig;
