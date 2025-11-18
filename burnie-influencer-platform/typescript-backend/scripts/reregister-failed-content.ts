@@ -170,8 +170,8 @@ async function reregisterContent(
     logger.info(`\n🔄 Processing content ${content.id}...`);
     
     // Check if content already has a confirmed registration
-    const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
-    const confirmedRegistration = await blockchainTxRepository.findOne({
+    const txRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
+    const confirmedRegistration = await txRepository.findOne({
       where: {
         contentId: content.id,
         transactionType: 'registration',
@@ -268,8 +268,6 @@ async function reregisterContent(
     await contentIntegrationService['ipfsService'].updateTransactionHash(ipfsResult.uploadId, receipt);
     
     // Update the existing failed transaction record to mark it as confirmed
-    const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
-    
     if (failedTxRecord) {
       // Update the existing failed record
       failedTxRecord.status = 'confirmed';
@@ -283,12 +281,12 @@ async function reregisterContent(
       failedTxRecord.failedAt = null;
       failedTxRecord.errorMessage = null;
       
-      await blockchainTxRepository.save(failedTxRecord);
+      await txRepository.save(failedTxRecord);
       logger.info(`✅ Updated existing transaction record (ID: ${failedTxRecord.id}) to confirmed status`);
     } else {
       // No existing failed record - create a new one (fallback scenario)
       logger.warn(`⚠️ No existing failed transaction record found, creating new confirmed record...`);
-      const newTxRecord = blockchainTxRepository.create({
+      const newTxRecord = txRepository.create({
         contentId: content.id,
         blockchainContentId: content.id,
         network: 'somnia_testnet',
@@ -303,7 +301,7 @@ async function reregisterContent(
         contentType: content.postType || 'thread',
         confirmedAt: new Date(),
       });
-      await blockchainTxRepository.save(newTxRecord);
+      await txRepository.save(newTxRecord);
     }
     
     return {
