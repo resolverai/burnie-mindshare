@@ -17,7 +17,7 @@ import { AppDataSource } from '../src/config/database';
 import { ContentMarketplace } from '../src/models/ContentMarketplace';
 import { ContentBlockchainTransaction } from '../src/models/ContentBlockchainTransaction';
 import { ContentIntegrationService } from '../src/services/contentIntegrationService';
-import { logger } from '../src/utils/logger';
+import { logger } from '../src/config/logger';
 
 interface ApprovalResult {
   contentId: number;
