@@ -42,8 +42,8 @@ const S3_BUCKET = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content';
 interface ReregistrationResult {
   contentId: number;
   success: boolean;
-  transactionHash?: string;
-  error?: string;
+  transactionHash?: string | undefined;
+  error?: string | undefined;
 }
 
 /**
@@ -270,7 +270,9 @@ async function main() {
     for (const arg of args) {
       if (arg.startsWith('--contentIds=')) {
         const idsString = arg.split('=')[1];
-        specificContentIds = idsString.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+        if (idsString) {
+          specificContentIds = idsString.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+        }
       }
     }
     
@@ -333,9 +335,11 @@ async function main() {
     // Process each content
     for (let i = 0; i < contents.length; i++) {
       const content = contents[i];
+      if (!content) continue; // Skip if undefined
+      
       const failedTxRecord = failedTxRecords.find(tx => tx.contentId === content.id) || null;
       
-      logger.info(`\n[${ i + 1}/${contents.length}] Processing content ${content.id}...`);
+      logger.info(`\n[${i + 1}/${contents.length}] Processing content ${content.id}...`);
       
       const result = await reregisterContent(content, failedTxRecord, contentIntegrationService);
       results.push(result);
