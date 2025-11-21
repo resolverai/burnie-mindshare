@@ -186,7 +186,7 @@ async function main(): Promise<void> {
   const queryParams: any[] = [];
   
   if (sinceDate) {
-    query += ' WHERE created_at >= $1';
+    query += ' WHERE "createdAt" >= $1';
     queryParams.push(sinceDate);
   }
   
