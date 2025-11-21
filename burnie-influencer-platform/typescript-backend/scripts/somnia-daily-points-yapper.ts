@@ -796,7 +796,13 @@ class SomniaDailyPointsYapperScript {
     
     // Calculate GLOBAL points once (referrals + transaction milestones)
     const lastGlobalEntry = await this.getLastRecordedEntry(user.walletAddress);
-    const sinceTimestamp = lastGlobalEntry.lastEntry ? lastGlobalEntry.lastEntry.createdAt : user.createdAt;
+    let sinceTimestamp = lastGlobalEntry.lastEntry ? lastGlobalEntry.lastEntry.createdAt : user.createdAt;
+    
+    // Ensure sinceTimestamp is never before campaign start date
+    // This prevents counting purchases/referrals from before Season 2
+    if (sinceTimestamp < CAMPAIGN_START_DATE) {
+      sinceTimestamp = CAMPAIGN_START_DATE;
+    }
     
     console.log(`  📅 Calculating since: ${sinceTimestamp.toISOString()}`);
     
