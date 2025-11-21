@@ -142,13 +142,17 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--since-date' && args[i + 1]) {
-      sinceDate = args[i + 1];
+    if (args[i] === '--since-date') {
+      const dateArg = args[i + 1];
+      if (!dateArg) {
+        throw new Error('--since-date flag requires a date value in YYYY-MM-DD format');
+      }
       // Validate date format (YYYY-MM-DD)
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(sinceDate)) {
-        throw new Error(`Invalid date format for --since-date. Expected YYYY-MM-DD, got: ${sinceDate}`);
+      if (!dateRegex.test(dateArg)) {
+        throw new Error(`Invalid date format for --since-date. Expected YYYY-MM-DD, got: ${dateArg}`);
       }
+      sinceDate = dateArg;
       console.log(`📅 Filtering posts created since: ${sinceDate}`);
       break;
     }
