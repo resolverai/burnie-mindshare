@@ -256,7 +256,7 @@ class SomniaDailyPointsYapperScript {
           AND cp.payment_status = 'completed'
           AND cp.purchase_price > 0
           AND (cp.network IS NULL OR cp.network != 'somnia_testnet')
-          AND cp."createdAt" >= $2
+          AND cp.created_at >= $2
       `;
       
       // Check Somnia testnet purchases (network = 'somnia_testnet')
@@ -268,7 +268,7 @@ class SomniaDailyPointsYapperScript {
           AND cp.payment_status = 'completed'
           AND cp.purchase_price > 0
           AND cp.network = 'somnia_testnet'
-          AND cp."createdAt" >= $2
+          AND cp.created_at >= $2
       `;
       
       // Get totals since campaign start
@@ -317,7 +317,7 @@ class SomniaDailyPointsYapperScript {
         AND cp.payment_status = 'completed'
         AND cp.purchase_price > 0
         AND (cp.network IS NULL OR cp.network != 'somnia_testnet')
-        AND cp."createdAt" >= $2
+        AND cp.created_at >= $2
     `;
     
     // Get Somnia testnet referral purchases
@@ -330,7 +330,7 @@ class SomniaDailyPointsYapperScript {
         AND cp.payment_status = 'completed'
         AND cp.purchase_price > 0
         AND cp.network = 'somnia_testnet'
-        AND cp."createdAt" >= $2
+        AND cp.created_at >= $2
     `;
     
     // Get totals since campaign start
@@ -711,6 +711,33 @@ class SomniaDailyPointsYapperScript {
    */
   async processUser(user: User): Promise<YapperCalculation[]> {
     console.log(`\n👤 Processing user: ${user.walletAddress}`);
+    
+    // Debug: Check what posts exist for this user
+    const debugPostsQuery = `
+      SELECT 
+        utp.id,
+        utp.content_id,
+        utp.wallet_address,
+        cm.id as cm_id,
+        cm."campaignId",
+        c.id as campaign_id,
+        c."projectId",
+        p.id as project_id,
+        p.name as project_name,
+        p.somnia_whitelisted
+      FROM user_twitter_posts utp
+      LEFT JOIN content_marketplace cm ON utp.content_id = cm.id
+      LEFT JOIN campaigns c ON cm."campaignId" = c.id
+      LEFT JOIN projects p ON c."projectId" = p.id
+      WHERE utp.wallet_address = $1
+      LIMIT 5
+    `;
+    const debugPosts = await this.dataSource.query(debugPostsQuery, [user.walletAddress]);
+    console.log(`  🔍 Debug: User has ${debugPosts.length} total posts (showing first 5):`);
+    for (const post of debugPosts) {
+      console.log(`    - Post ID: ${post.id}, Content ID: ${post.content_id}, Campaign ID: ${post.campaignId}, Project: ${post.project_name || 'NULL'} (ID: ${post.project_id || 'NULL'}), Somnia: ${post.somnia_whitelisted || 'NULL'}`);
+    }
+
 
     // Get Twitter connection
     const twitterConnection = await this.getUserTwitterConnection(user.id);
