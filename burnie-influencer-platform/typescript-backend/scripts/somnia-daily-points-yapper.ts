@@ -135,27 +135,21 @@ class SomniaDailyPointsYapperScript {
    * - Users who have referrals that made purchases (for referral points)
    */
   async getUsersWithTwitterConnections(): Promise<User[]> {
-    // Get users with Twitter connections
-    const twitterUsersQuery = `
+    // Combine all users using UNION (single parameter for all queries)
+    const combinedQuery = `
       SELECT DISTINCT u.id, u."walletAddress", u."createdAt", u."referralCount"
       FROM users u
       INNER JOIN yapper_twitter_connections ytc ON u.id = ytc."userId"
       WHERE ytc."isConnected" = true
         AND u."createdAt" >= $1
-    `;
-
-    // Get users who made purchases (for transaction milestones)
-    const purchasersQuery = `
+      UNION
       SELECT DISTINCT u.id, u."walletAddress", u."createdAt", u."referralCount"
       FROM users u
       INNER JOIN content_purchases cp ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
       WHERE cp.payment_status = 'completed'
         AND cp.purchase_price > 0
         AND cp.created_at >= $1
-    `;
-
-    // Get users who have referrals that made purchases (for referral points)
-    const referrersQuery = `
+      UNION
       SELECT DISTINCT u.id, u."walletAddress", u."createdAt", u."referralCount"
       FROM users u
       INNER JOIN user_referrals ur ON ur."directReferrerId" = u.id
@@ -164,19 +158,10 @@ class SomniaDailyPointsYapperScript {
       WHERE cp.payment_status = 'completed'
         AND cp.purchase_price > 0
         AND cp.created_at >= $1
-    `;
-
-    // Combine all users using UNION
-    const combinedQuery = `
-      ${twitterUsersQuery}
-      UNION
-      ${purchasersQuery}
-      UNION
-      ${referrersQuery}
       ORDER BY id
     `;
 
-    const users = await this.dataSource.query(combinedQuery, [CAMPAIGN_START_DATE, CAMPAIGN_START_DATE, CAMPAIGN_START_DATE]);
+    const users = await this.dataSource.query(combinedQuery, [CAMPAIGN_START_DATE]);
     const filteredUsers = users
       .map((user: any) => ({
         id: user.id,
