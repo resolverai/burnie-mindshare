@@ -104,12 +104,12 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
     // Get user tiers for each wallet - use referral_codes for latest tier
     const walletAddresses = topLeaderboard.map((entry: any) => entry.walletAddress);
     const userTiersQuery = await AppDataSource.query(
-      `SELECT DISTINCT ON (LOWER("walletAddress")) 
-              LOWER("walletAddress") as "walletAddress", 
+      `SELECT DISTINCT ON (LOWER("leaderWalletAddress")) 
+              LOWER("leaderWalletAddress") as "walletAddress", 
               tier 
        FROM referral_codes 
-       WHERE LOWER("walletAddress") = ANY($1::text[])
-       ORDER BY LOWER("walletAddress"), "updatedAt" DESC`,
+       WHERE LOWER("leaderWalletAddress") = ANY($1::text[])
+       ORDER BY LOWER("leaderWalletAddress"), "updatedAt" DESC`,
       [walletAddresses.map((addr: string) => addr.toLowerCase())]
     );
 
@@ -236,12 +236,12 @@ router.get('/rewards/season2/miner-leaderboard', async (req: Request, res: Respo
     // Get user tiers for each wallet - use referral_codes for latest tier
     const walletAddresses = topMiners.map((entry: any) => entry.walletAddress);
     const userTiersQuery = await AppDataSource.query(
-      `SELECT DISTINCT ON (LOWER("walletAddress")) 
-              LOWER("walletAddress") as "walletAddress", 
+      `SELECT DISTINCT ON (LOWER("leaderWalletAddress")) 
+              LOWER("leaderWalletAddress") as "walletAddress", 
               tier 
        FROM referral_codes 
-       WHERE LOWER("walletAddress") = ANY($1::text[])
-       ORDER BY LOWER("walletAddress"), "updatedAt" DESC`,
+       WHERE LOWER("leaderWalletAddress") = ANY($1::text[])
+       ORDER BY LOWER("leaderWalletAddress"), "updatedAt" DESC`,
       [walletAddresses.map((addr: string) => addr.toLowerCase())]
     );
 
