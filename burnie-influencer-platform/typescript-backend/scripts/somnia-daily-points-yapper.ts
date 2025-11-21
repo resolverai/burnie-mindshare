@@ -203,16 +203,16 @@ class SomniaDailyPointsYapperScript {
    */
   async getDreamathonPostsByProject(userId: number, sinceTimestamp: Date): Promise<Map<number, number>> {
     const query = `
-      SELECT DISTINCT p."projectId", COUNT(DISTINCT utp.id) as post_count
+      SELECT c."projectId", COUNT(DISTINCT utp.id) as post_count
       FROM user_twitter_posts utp
       INNER JOIN users u ON utp.wallet_address = u."walletAddress"
       INNER JOIN content_marketplace cm ON utp.content_id = cm.id
       INNER JOIN campaigns c ON cm."campaignId" = c.id
       INNER JOIN projects p ON c."projectId" = p.id
       WHERE u.id = $1
-        AND utp.created_at >= $2
+        AND utp."createdAt" >= $2
         AND p.somnia_whitelisted = true
-      GROUP BY p."projectId"
+      GROUP BY c."projectId"
       ORDER BY post_count DESC
       LIMIT 3
     `;
@@ -256,7 +256,7 @@ class SomniaDailyPointsYapperScript {
           AND cp.payment_status = 'completed'
           AND cp.purchase_price > 0
           AND (cp.network IS NULL OR cp.network != 'somnia_testnet')
-          AND cp.created_at >= $2
+          AND cp."createdAt" >= $2
       `;
       
       // Check Somnia testnet purchases (network = 'somnia_testnet')
@@ -268,7 +268,7 @@ class SomniaDailyPointsYapperScript {
           AND cp.payment_status = 'completed'
           AND cp.purchase_price > 0
           AND cp.network = 'somnia_testnet'
-          AND cp.created_at >= $2
+          AND cp."createdAt" >= $2
       `;
       
       // Get totals since campaign start
@@ -317,7 +317,7 @@ class SomniaDailyPointsYapperScript {
         AND cp.payment_status = 'completed'
         AND cp.purchase_price > 0
         AND (cp.network IS NULL OR cp.network != 'somnia_testnet')
-        AND cp.created_at >= $2
+        AND cp."createdAt" >= $2
     `;
     
     // Get Somnia testnet referral purchases
@@ -330,7 +330,7 @@ class SomniaDailyPointsYapperScript {
         AND cp.payment_status = 'completed'
         AND cp.purchase_price > 0
         AND cp.network = 'somnia_testnet'
-        AND cp.created_at >= $2
+        AND cp."createdAt" >= $2
     `;
     
     // Get totals since campaign start
@@ -384,23 +384,38 @@ class SomniaDailyPointsYapperScript {
     const posts = await this.dataSource.query(query, [walletAddress, projectId]);
     let totalImpressions = 0;
     
+    console.log(`    🔍 Debug: Found ${posts.length} posts for wallet ${walletAddress.substring(0, 10)}... project ${projectId}`);
+    
     for (const post of posts) {
       const metrics = post.engagement_metrics || {};
       
+      console.log(`    🔍 Debug: Post main_tweet_id=${post.main_tweet_id}, thread_tweet_ids=${JSON.stringify(post.thread_tweet_ids)}`);
+      console.log(`    🔍 Debug: engagement_metrics structure: ${JSON.stringify(metrics, null, 2)}`);
+      
       // Get views from main tweet
-      if (post.main_tweet_id && metrics[post.main_tweet_id]?.views) {
-        totalImpressions += metrics[post.main_tweet_id].views;
+      if (post.main_tweet_id && metrics[post.main_tweet_id]) {
+        const views = metrics[post.main_tweet_id].views || 0;
+        console.log(`    🔍 Debug: Main tweet ${post.main_tweet_id} has ${views} views`);
+        totalImpressions += views;
+      } else if (post.main_tweet_id) {
+        console.log(`    🔍 Debug: Main tweet ${post.main_tweet_id} has NO metrics`);
       }
       
       // Get views from thread tweets
       if (post.thread_tweet_ids && Array.isArray(post.thread_tweet_ids)) {
         for (const tweetId of post.thread_tweet_ids) {
-          if (metrics[tweetId]?.views) {
-            totalImpressions += metrics[tweetId].views;
+          if (metrics[tweetId]) {
+            const views = metrics[tweetId].views || 0;
+            console.log(`    🔍 Debug: Thread tweet ${tweetId} has ${views} views`);
+            totalImpressions += views;
+          } else {
+            console.log(`    🔍 Debug: Thread tweet ${tweetId} has NO metrics`);
           }
         }
       }
     }
+    
+    console.log(`    🔍 Debug: Total impressions for project ${projectId}: ${totalImpressions}`);
     
     return totalImpressions;
   }
@@ -1076,7 +1091,7 @@ async function main() {
   console.log(`   Database: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`);
   console.log(`   SSL: ${sslEnabled ? 'Enabled' : 'Disabled'}`);
   console.log(`   Mode: ${dryRun ? 'DRY RUN' : 'LIVE'}`);
-  console.log(`   Campaign: Nov 16 - Dec 7, 2025`);
+  console.log(`   Campaign: Nov 18 - Dec 9, 2025`);
   console.log('');
 
   const script = new SomniaDailyPointsYapperScript(AppDataSource);
