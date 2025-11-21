@@ -419,7 +419,7 @@ class SomniaDailyPointsYapperScript {
     const posts = await this.dataSource.query(query, [walletAddress, projectId]);
     let totalImpressions = 0;
     
-    console.log(`    🔍 Debug: Found ${posts.length} posts for wallet ${walletAddress.substring(0, 10)}... project ${projectId}`);
+    console.log(`    🔍 Debug: Found ${posts.length} posts for wallet ${walletAddress} project ${projectId}`);
     
     for (const post of posts) {
       const metrics = post.engagement_metrics || {};
@@ -493,7 +493,7 @@ class SomniaDailyPointsYapperScript {
         
         if (deltaImpressions > 0) {
           projectImpressions.set(user.walletAddress, deltaImpressions);
-          console.log(`    User ${user.walletAddress.substring(0, 10)}... Project ${projectId}: Current=${currentTotalImpressions}, Previous=${previousImpressions}, Delta=${deltaImpressions}`);
+          console.log(`    User ${user.walletAddress} Project ${projectId}: Current=${currentTotalImpressions}, Previous=${previousImpressions}, Delta=${deltaImpressions}`);
         }
       }
       
@@ -675,21 +675,39 @@ class SomniaDailyPointsYapperScript {
     
     // Get last recorded entry for this user and project
     const repo = this.dataSource.getRepository(SomniaDreamathonYapperPoints);
+    
+    // Handle null projectId for TypeORM query
+    const whereClause: any = { 
+      walletAddress: user.walletAddress.toLowerCase()
+    };
+    if (projectId !== null) {
+      whereClause.projectId = projectId;
+    } else {
+      whereClause.projectId = null;
+    }
+    
     const lastEntry = await repo.findOne({
-      where: { 
-        walletAddress: user.walletAddress.toLowerCase(),
-        projectId: projectId
-      },
+      where: whereClause,
       order: { createdAt: 'DESC' }
     });
 
     // Get cumulative points for this user and project
-    const sumResult = await repo
-      .createQueryBuilder('sdyp')
-      .select('SUM(sdyp.dailyPointsEarned)', 'cumulativePoints')
-      .where('sdyp.walletAddress = :walletAddress', { walletAddress: user.walletAddress.toLowerCase() })
-      .andWhere('sdyp.projectId = :projectId', { projectId })
-      .getRawOne();
+    let sumResult;
+    if (projectId !== null) {
+      sumResult = await repo
+        .createQueryBuilder('sdyp')
+        .select('SUM(sdyp.dailyPointsEarned)', 'cumulativePoints')
+        .where('sdyp.walletAddress = :walletAddress', { walletAddress: user.walletAddress.toLowerCase() })
+        .andWhere('sdyp.projectId = :projectId', { projectId })
+        .getRawOne();
+    } else {
+      sumResult = await repo
+        .createQueryBuilder('sdyp')
+        .select('SUM(sdyp.dailyPointsEarned)', 'cumulativePoints')
+        .where('sdyp.walletAddress = :walletAddress', { walletAddress: user.walletAddress.toLowerCase() })
+        .andWhere('sdyp.projectId IS NULL')
+        .getRawOne();
+    }
 
     const cumulativePoints = sumResult?.cumulativePoints ? parseFloat(sumResult.cumulativePoints) : 0;
     
