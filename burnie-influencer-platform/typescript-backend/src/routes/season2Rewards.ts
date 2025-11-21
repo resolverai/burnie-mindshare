@@ -277,24 +277,34 @@ router.get('/rewards/season2/points-breakdown', async (req: Request, res: Respon
       .addSelect('MAX(yapper.transactionMilestonePoints)', 'transactionMilestonePoints') // MAX to avoid double-counting
       .addSelect('SUM(yapper.impressionsPoints)', 'impressionsPoints')
       .addSelect('SUM(yapper.championBonusPoints)', 'championBonusPoints')
-      .addSelect('SUM(yapper.dailyPointsEarned)', 'dailyPointsEarned')
       .groupBy('DATE(yapper.createdAt)')
       .orderBy('DATE(yapper.createdAt)', 'DESC')
       .getRawMany();
 
-    // Calculate total points
-    const totalPoints = dailyRecords.reduce((sum, record) => sum + parseFloat(record.dailyPointsEarned || '0'), 0);
+    // Format daily points and calculate correct totals
+    const dailyPoints = dailyRecords.map((record: any) => {
+      const dreamathonContentPoints = parseInt(record.dreamathonContentPoints || '0');
+      const referralPoints = parseInt(record.referralPoints || '0');
+      const transactionMilestonePoints = parseInt(record.transactionMilestonePoints || '0');
+      const impressionsPoints = parseInt(record.impressionsPoints || '0');
+      const championBonusPoints = parseInt(record.championBonusPoints || '0');
+      
+      // Calculate correct daily total (content + referral + milestone + impressions + champion)
+      const dailyPointsEarned = dreamathonContentPoints + referralPoints + transactionMilestonePoints + impressionsPoints + championBonusPoints;
+      
+      return {
+        date: record.date,
+        dreamathonContentPoints,
+        referralPoints,
+        transactionMilestonePoints,
+        impressionsPoints,
+        championBonusPoints,
+        dailyPointsEarned
+      };
+    });
 
-    // Format daily points
-    const dailyPoints = dailyRecords.map((record: any) => ({
-      date: record.date,
-      dreamathonContentPoints: parseInt(record.dreamathonContentPoints || '0'),
-      referralPoints: parseInt(record.referralPoints || '0'),
-      transactionMilestonePoints: parseInt(record.transactionMilestonePoints || '0'),
-      impressionsPoints: parseInt(record.impressionsPoints || '0'),
-      championBonusPoints: parseInt(record.championBonusPoints || '0'),
-      dailyPointsEarned: parseInt(record.dailyPointsEarned || '0'),
-    }));
+    // Calculate total points (sum of all daily points)
+    const totalPoints = dailyPoints.reduce((sum, record) => sum + record.dailyPointsEarned, 0);
 
     return res.json({
       dailyPoints,
