@@ -58,8 +58,11 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
       .andWhere('yapper.createdAt <= :endDate', { endDate: now });
 
     // Filter by project if provided
-    if (projectId) {
+    if (projectId && projectId !== 'null') {
       query = query.andWhere('yapper.projectId = :projectId', { projectId: Number(projectId) });
+    } else if (!projectId) {
+      // For "All Projects", we need to handle global points (referral & milestone) specially
+      // to avoid double counting across project records
     }
 
     // Group by wallet address and aggregate points
@@ -67,7 +70,11 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
       .select('yapper.walletAddress', 'walletAddress')
       .addSelect('yapper.twitterHandle', 'twitterHandle')
       .addSelect('yapper.name', 'name')
-      .addSelect('SUM(yapper.totalPoints)', 'totalPoints')
+      .addSelect('SUM(yapper.dreamathonContentPoints)', 'dreamathonContentPoints')
+      .addSelect('MAX(yapper.referralPoints)', 'referralPoints') // MAX to avoid double-counting global points
+      .addSelect('MAX(yapper.transactionMilestonePoints)', 'transactionMilestonePoints') // MAX to avoid double-counting
+      .addSelect('SUM(yapper.championBonusPoints)', 'championBonusPoints')
+      .addSelect('SUM(yapper.impressionsPoints)', 'impressionsPoints')
       .addSelect('SUM(yapper.totalImpressions)', 'totalImpressions')
       .addSelect('SUM(yapper.weeklyRewards)', 'weeklyRewards')
       .addSelect('SUM(yapper.grandPrizeRewards)', 'grandPrizeRewards')
@@ -75,12 +82,27 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
       .groupBy('yapper.walletAddress')
       .addGroupBy('yapper.twitterHandle')
       .addGroupBy('yapper.name')
-      .orderBy('totalPoints', 'DESC')
-      .limit(100)
       .getRawMany();
 
+    // Calculate totalPoints correctly (content + referral + milestone + champion + impressions)
+    const leaderboardWithTotals = leaderboardData.map((entry: any) => ({
+      ...entry,
+      totalPoints: 
+        parseFloat(entry.dreamathonContentPoints || 0) +
+        parseFloat(entry.referralPoints || 0) +
+        parseFloat(entry.transactionMilestonePoints || 0) +
+        parseFloat(entry.championBonusPoints || 0) +
+        parseFloat(entry.impressionsPoints || 0)
+    }));
+
+    // Sort by totalPoints descending
+    leaderboardWithTotals.sort((a, b) => b.totalPoints - a.totalPoints);
+
+    // Limit to top 100
+    const topLeaderboard = leaderboardWithTotals.slice(0, 100);
+
     // Get user tiers for each wallet
-    const walletAddresses = leaderboardData.map((entry: any) => entry.walletAddress);
+    const walletAddresses = topLeaderboard.map((entry: any) => entry.walletAddress);
     const userTiersQuery = await AppDataSource.query(
       `SELECT DISTINCT ON ("walletAddress") "walletAddress", tier 
        FROM user_tiers 
@@ -110,13 +132,18 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
     });
 
     // Format leaderboard with ranks
-    const users = leaderboardData.map((entry: any, index: number) => ({
+    const users = topLeaderboard.map((entry: any, index: number) => ({
       rank: index + 1,
       walletAddress: entry.walletAddress,
       twitterHandle: entry.twitterHandle,
       name: entry.name,
       tier: tierMap[entry.walletAddress.toLowerCase()] || 'SILVER',
-      totalPoints: parseFloat(entry.totalPoints || '0'),
+      totalPoints: Math.round(entry.totalPoints),
+      dreamathonContentPoints: Math.round(parseFloat(entry.dreamathonContentPoints || 0)),
+      referralPoints: Math.round(parseFloat(entry.referralPoints || 0)),
+      transactionMilestonePoints: Math.round(parseFloat(entry.transactionMilestonePoints || 0)),
+      championBonusPoints: Math.round(parseFloat(entry.championBonusPoints || 0)),
+      impressionsPoints: Math.round(parseFloat(entry.impressionsPoints || 0)),
       mindshare: parseFloat(entry.totalImpressions || '0') / 1000000, // Convert to percentage
       activeReferrals: referralsMap[entry.walletAddress.toLowerCase()] || 0,
       totalReferrals: referralsMap[entry.walletAddress.toLowerCase()] || 0,
