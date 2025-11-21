@@ -1,3 +1,30 @@
+/**
+ * Update Engagement Metrics Script
+ * 
+ * Fetches latest engagement metrics (likes, retweets, replies, quotes, views) from Twitter API
+ * and updates the engagement_metrics column in user_twitter_posts table.
+ * 
+ * Usage:
+ *   # Fetch engagement for ALL posts (historical data included)
+ *   ts-node scripts/update-engagement-metrics.ts
+ * 
+ *   # Fetch engagement ONLY for posts created since a specific date (recommended for Season 2)
+ *   ts-node scripts/update-engagement-metrics.ts --since-date 2025-11-18
+ * 
+ *   # With SSL enabled
+ *   ts-node scripts/update-engagement-metrics.ts --since-date 2025-11-18 --ssl
+ * 
+ * Options:
+ *   --since-date YYYY-MM-DD   Only fetch engagement for posts created on or after this date
+ *                             (helps reduce Twitter API costs by filtering historical data)
+ *   --ssl                     Enable SSL for database connection
+ * 
+ * Environment Variables:
+ *   TWITTER_BEARER_TOKEN      Required. Twitter API bearer token
+ *   TWEET_LIMIT               Optional. Limit number of tweets to process (for testing)
+ *   DB_HOST, DB_PORT, etc.    Database connection settings
+ */
+
 import 'reflect-metadata';
 import 'dotenv/config';
 import { Pool } from 'pg';
@@ -110,6 +137,23 @@ async function fetchTweetsMetrics(
 async function main(): Promise<void> {
   const bearerToken = getEnvVar('TWITTER_BEARER_TOKEN');
 
+  // Parse command-line arguments
+  let sinceDate: string | null = null;
+  const args = process.argv.slice(2);
+  
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--since-date' && args[i + 1]) {
+      sinceDate = args[i + 1];
+      // Validate date format (YYYY-MM-DD)
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(sinceDate)) {
+        throw new Error(`Invalid date format for --since-date. Expected YYYY-MM-DD, got: ${sinceDate}`);
+      }
+      console.log(`📅 Filtering posts created since: ${sinceDate}`);
+      break;
+    }
+  }
+
   // Database config from .env
   const host = getEnvVar('DB_HOST', '127.0.0.1');
   const port = parseInt(getEnvVar('DB_PORT', '5434'));
@@ -131,10 +175,18 @@ async function main(): Promise<void> {
     ssl: useSSL ? { rejectUnauthorized } : undefined,
   });
 
-  console.log('🔍 Loading all user_twitter_posts...');
-  const res = await pool.query<DbPost>(
-    'SELECT id, main_tweet_id, thread_tweet_ids FROM user_twitter_posts'
-  );
+  console.log('🔍 Loading user_twitter_posts...');
+  
+  // Build query with optional date filter
+  let query = 'SELECT id, main_tweet_id, thread_tweet_ids FROM user_twitter_posts';
+  const queryParams: any[] = [];
+  
+  if (sinceDate) {
+    query += ' WHERE created_at >= $1';
+    queryParams.push(sinceDate);
+  }
+  
+  const res = await pool.query<DbPost>(query, queryParams);
   const posts = res.rows;
 
   if (posts.length === 0) {
@@ -142,6 +194,8 @@ async function main(): Promise<void> {
     await pool.end();
     return;
   }
+
+  console.log(`📊 Found ${posts.length} posts to update`);
 
   const allIdsSet = new Set<string>();
   for (const p of posts) {

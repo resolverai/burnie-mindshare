@@ -7,6 +7,7 @@ import { User } from '../models/User';
 import { YapperTwitterConnection } from '../models/YapperTwitterConnection';
 import { authenticateToken } from '../middleware/auth';
 import { ReferralCode, LeaderTier } from '../models/ReferralCode';
+import { logger } from '../config/logger';
 
 const router = express.Router();
 
@@ -763,6 +764,54 @@ router.get('/user-context/:walletAddress', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch user context' });
   }
   return;
+});
+
+/**
+ * Get mining stats for a specific wallet
+ * GET /api/rewards/mining-stats?walletAddress=0x...
+ */
+router.get('/mining-stats', async (req, res) => {
+  try {
+    const { walletAddress } = req.query;
+
+    if (!walletAddress || typeof walletAddress !== 'string') {
+      return res.status(400).json({ error: 'Wallet address is required' });
+    }
+
+    // Get content created from content_marketplace
+    const contentCreatedQuery = `
+      SELECT COUNT(*) as count
+      FROM content_marketplace
+      WHERE LOWER(wallet_address) = LOWER($1)
+    `;
+    const contentCreatedResult = await AppDataSource.query(contentCreatedQuery, [walletAddress]);
+    const contentCreated = parseInt(contentCreatedResult[0]?.count || '0');
+
+    // Get content sold and roast earned from content_purchases
+    const contentSoldQuery = `
+      SELECT 
+        COUNT(DISTINCT cp.id) as content_sold,
+        COALESCE(SUM(cp.miner_payout), 0) as roast_earned
+      FROM content_purchases cp
+      INNER JOIN content_marketplace cm ON cp.content_id = cm.id
+      WHERE LOWER(cm.wallet_address) = LOWER($1)
+        AND cp.payment_status = 'completed'
+    `;
+    const contentSoldResult = await AppDataSource.query(contentSoldQuery, [walletAddress]);
+    const contentSold = parseInt(contentSoldResult[0]?.content_sold || '0');
+    const roastEarned = parseFloat(contentSoldResult[0]?.roast_earned || '0');
+
+    logger.info(`Mining stats for ${walletAddress}: Created=${contentCreated}, Sold=${contentSold}, Earned=${roastEarned}`);
+
+    return res.json({
+      contentCreated,
+      contentSold,
+      roastEarned
+    });
+  } catch (error) {
+    logger.error('Error fetching mining stats:', error);
+    return res.status(500).json({ error: 'Failed to fetch mining stats' });
+  }
 });
 
 export default router;

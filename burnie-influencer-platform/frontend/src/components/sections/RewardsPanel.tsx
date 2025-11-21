@@ -3,7 +3,7 @@
 import { CheckIcon, ChevronDown, ChevronUp, GiftIcon, InfoIcon } from "lucide-react";
 import Image from "next/image";
 import React, { useEffect, useRef, useState } from "react";
-import { rewardsApi, UserStats, TierProgress, UserContext, PotentialEarnings, TierLevel } from "@/services/rewardsApi";
+import { rewardsApi, UserStats, TierProgress, UserContext, PotentialEarnings, TierLevel, Season2PointsBreakdown } from "@/services/rewardsApi";
 
 // Helper function to format ROAST values with K/M suffixes
 const formatRoastValue = (value: number): string => {
@@ -58,6 +58,7 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
     const [potentialEarnings, setPotentialEarnings] = useState<PotentialEarnings | null>(null);
     const [selectedTier, setSelectedTier] = useState<string>('SILVER');
     const [selectedReferrals, setSelectedReferrals] = useState<number>(0);
+    const [season2Breakdown, setSeason2Breakdown] = useState<Season2PointsBreakdown | null>(null);
 
     // Fetch user stats when wallet address is available
     useEffect(() => {
@@ -72,16 +73,18 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
 
         try {
             setLoading(true);
-            const [stats, progress, context] = await Promise.all([
+            const [stats, progress, context, breakdown] = await Promise.all([
                 rewardsApi.getUserStats(currentUserWallet),
                 rewardsApi.getTierProgress(currentUserWallet),
-                rewardsApi.getUserContext(currentUserWallet)
+                rewardsApi.getUserContext(currentUserWallet),
+                rewardsApi.getSeason2PointsBreakdown(currentUserWallet)
             ]);
             
             
             setUserStats(stats);
             setTierProgress(progress);
             setUserContext(context);
+            setSeason2Breakdown(breakdown);
             
             // Set default slider values to user's current values
             setSelectedTier(context.currentTier);
@@ -762,6 +765,94 @@ export default function RewardsPanel({ currentUserWallet }: { currentUserWallet?
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                {/* Season 2 Daily Points Breakdown Table */}
+                <div className="w-full max-w-[calc(100vw-1rem)] p-3 lg:p-6 rounded-2xl bg-[#382121] mx-2 lg:mx-0">
+                    <div className="flex items-center justify-between mb-4 lg:mb-6">
+                        <h3 className="text-white text-lg lg:text-xl font-semibold">Daily Points Breakdown</h3>
+                        {season2Breakdown && season2Breakdown.dailyPoints.length > 0 && (
+                            <div className="text-sm text-white/60">
+                                Total: <span className="text-[#FD7A10] font-semibold">{season2Breakdown.totalPoints.toLocaleString()}</span> points
+                            </div>
+                        )}
+                    </div>
+                    
+                    {/* Desktop Table */}
+                    <div className="hidden lg:block overflow-x-auto">
+                        <table className="w-full">
+                            <thead>
+                                <tr className="border-b border-white/10">
+                                    <th className="text-left py-3 px-4 text-white/70 font-medium text-sm">Date</th>
+                                    <th className="text-right py-3 px-4 text-white/70 font-medium text-sm">Posts</th>
+                                    <th className="text-right py-3 px-4 text-white/70 font-medium text-sm">Referrals</th>
+                                    <th className="text-right py-3 px-4 text-white/70 font-medium text-sm">Milestones</th>
+                                    <th className="text-right py-3 px-4 text-white/70 font-medium text-sm">Impressions</th>
+                                    <th className="text-right py-3 px-4 text-[#FD7A10] font-semibold text-sm">Daily Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {season2Breakdown && season2Breakdown.dailyPoints.length > 0 ? (
+                                    season2Breakdown.dailyPoints.map((day, index) => (
+                                        <tr key={index} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                            <td className="py-3 px-4 text-white text-sm">{new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                                            <td className="text-right py-3 px-4 text-white/80 text-sm">{day.dreamathonContentPoints.toLocaleString()}</td>
+                                            <td className="text-right py-3 px-4 text-white/80 text-sm">{day.referralPoints.toLocaleString()}</td>
+                                            <td className="text-right py-3 px-4 text-white/80 text-sm">{day.transactionMilestonePoints.toLocaleString()}</td>
+                                            <td className="text-right py-3 px-4 text-white/80 text-sm">{day.impressionsPoints.toLocaleString()}</td>
+                                            <td className="text-right py-3 px-4 text-[#FD7A10] font-semibold text-sm">{day.dailyPointsEarned.toLocaleString()}</td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={6} className="py-8 text-center text-white/50 text-sm">
+                                            No points data available yet. Start earning points to see your breakdown here!
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Mobile Cards */}
+                    <div className="lg:hidden">
+                        {season2Breakdown && season2Breakdown.dailyPoints.length > 0 ? (
+                            <div className="space-y-3">
+                                {season2Breakdown.dailyPoints.map((day, index) => (
+                                    <div key={index} className="bg-[#2a1616] rounded-lg p-4">
+                                        <div className="flex justify-between items-center mb-3 pb-2 border-b border-white/10">
+                                            <span className="text-white font-medium text-sm">{new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                            <span className="text-[#FD7A10] font-bold text-sm">{day.dailyPointsEarned.toLocaleString()} pts</span>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="flex justify-between">
+                                                <span className="text-white/60">Posts:</span>
+                                                <span className="text-white">{day.dreamathonContentPoints}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-white/60">Referrals:</span>
+                                                <span className="text-white">{day.referralPoints}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-white/60">Milestones:</span>
+                                                <span className="text-white">{day.transactionMilestonePoints}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-white/60">Impressions:</span>
+                                                <span className="text-white">{day.impressionsPoints}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="bg-[#2a1616] rounded-lg p-6 text-center">
+                                <div className="text-white/50 text-sm">
+                                    No points data available yet. Start earning points to see your breakdown here!
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

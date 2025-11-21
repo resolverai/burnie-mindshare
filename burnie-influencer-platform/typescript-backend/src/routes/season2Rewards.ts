@@ -226,5 +226,58 @@ router.get('/rewards/season2/miner-leaderboard', async (req: Request, res: Respo
   }
 });
 
+/**
+ * Get Season 2 Points Breakdown for a specific user
+ * GET /api/rewards/season2/points-breakdown?walletAddress=0x...
+ */
+router.get('/rewards/season2/points-breakdown', async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.query;
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'Wallet address is required' });
+    }
+
+    const yapperPointsRepo = AppDataSource.getRepository(SomniaDreamathonYapperPoints);
+
+    // Get all daily records for this user, grouped by date
+    const dailyRecords = await yapperPointsRepo
+      .createQueryBuilder('yapper')
+      .where('LOWER(yapper.walletAddress) = LOWER(:walletAddress)', { walletAddress })
+      .select('DATE(yapper.createdAt)', 'date')
+      .addSelect('SUM(yapper.dreamathonContentPoints)', 'dreamathonContentPoints')
+      .addSelect('MAX(yapper.referralPoints)', 'referralPoints') // MAX to avoid double-counting global points
+      .addSelect('MAX(yapper.transactionMilestonePoints)', 'transactionMilestonePoints') // MAX to avoid double-counting
+      .addSelect('SUM(yapper.impressionsPoints)', 'impressionsPoints')
+      .addSelect('SUM(yapper.championBonusPoints)', 'championBonusPoints')
+      .addSelect('SUM(yapper.dailyPointsEarned)', 'dailyPointsEarned')
+      .groupBy('DATE(yapper.createdAt)')
+      .orderBy('DATE(yapper.createdAt)', 'DESC')
+      .getRawMany();
+
+    // Calculate total points
+    const totalPoints = dailyRecords.reduce((sum, record) => sum + parseFloat(record.dailyPointsEarned || '0'), 0);
+
+    // Format daily points
+    const dailyPoints = dailyRecords.map((record: any) => ({
+      date: record.date,
+      dreamathonContentPoints: parseInt(record.dreamathonContentPoints || '0'),
+      referralPoints: parseInt(record.referralPoints || '0'),
+      transactionMilestonePoints: parseInt(record.transactionMilestonePoints || '0'),
+      impressionsPoints: parseInt(record.impressionsPoints || '0'),
+      championBonusPoints: parseInt(record.championBonusPoints || '0'),
+      dailyPointsEarned: parseInt(record.dailyPointsEarned || '0'),
+    }));
+
+    return res.json({
+      dailyPoints,
+      totalPoints: Math.round(totalPoints),
+    });
+  } catch (error) {
+    logger.error('Error fetching Season 2 points breakdown:', error);
+    return res.status(500).json({ error: 'Failed to fetch points breakdown' });
+  }
+});
+
 export default router;
 

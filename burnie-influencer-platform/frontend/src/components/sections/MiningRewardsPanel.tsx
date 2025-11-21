@@ -3,7 +3,7 @@
 import { InfoIcon, CheckIcon, GiftIcon } from "lucide-react";
 import Image from "next/image";
 import React, { useState, useRef, useEffect } from "react";
-import { rewardsApi, UserStats, TierLevel } from "@/services/rewardsApi";
+import { rewardsApi, UserStats, TierLevel, MiningStats } from "@/services/rewardsApi";
 
 // Helper function to format ROAST values with K/M suffixes
 const formatRoastValue = (value: number): string => {
@@ -37,11 +37,12 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
     const [copySuccess, setCopySuccess] = useState(false);
     const [loading, setLoading] = useState(false);
     const [userStats, setUserStats] = useState<UserStats | null>(null);
+    const [miningStats, setMiningStats] = useState<MiningStats | null>(null);
     
     // Sliders state (for potential earnings calculator)
-    const [contentMined, setContentMined] = useState(0);
-    const [contentSold, setContentSold] = useState(0);
-    const [potentialEarnings, setPotentialEarnings] = useState<any>(null);
+    const [referrals, setReferrals] = useState(0);
+    const [contentSoldDaily, setContentSoldDaily] = useState(0);
+    const [potentialEarnings, setPotentialEarnings] = useState<{ referralEarnings: number; contentEarnings: number; totalEarnings: number } | null>(null);
 
     // Refs for mobile tier growth carousel centering
     const mobileTierContainerRef = useRef<HTMLDivElement | null>(null);
@@ -60,8 +61,16 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
 
         try {
             setLoading(true);
-            const stats = await rewardsApi.getUserStats(currentUserWallet);
+            const [stats, miningData] = await Promise.all([
+                rewardsApi.getUserStats(currentUserWallet),
+                rewardsApi.getMiningStats(currentUserWallet)
+            ]);
             setUserStats(stats);
+            setMiningStats(miningData);
+            
+            // Set initial slider values from user data
+            setReferrals(stats.totalReferrals || 0);
+            setContentSoldDaily(0); // Can be adjusted based on actual data if available
         } catch (error) {
             console.error('Error fetching user stats:', error);
             // Component will use fallback static data
@@ -69,6 +78,23 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
             setLoading(false);
         }
     };
+
+    // Calculate potential earnings based on sliders
+    useEffect(() => {
+        // Referral earnings: $0.05 per referral per day * 30 days
+        const referralEarnings = referrals * 0.05 * 30;
+        
+        // Content earnings: $0.20 per content sold daily * 30 days
+        const contentEarnings = contentSoldDaily * 0.2 * 30;
+        
+        const totalEarnings = referralEarnings + contentEarnings;
+        
+        setPotentialEarnings({
+            referralEarnings,
+            contentEarnings,
+            totalEarnings
+        });
+    }, [referrals, contentSoldDaily]);
 
     // Default tier is SILVER
     const currentTier = userStats?.currentTier || 'SILVER';
@@ -131,7 +157,7 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                                 >
                                     <div className="text-xs md:text-sm text-white font-semibold">Content created</div>
                                     <div className="text-base md:text-2xl font-bold text-white">
-                                        No data
+                                        {loading ? 'Loading...' : (miningStats?.contentCreated ?? 'No data')}
                                     </div>
                                 </div>
 
@@ -148,7 +174,7 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                                 >
                                     <div className="text-xs md:text-sm text-white font-semibold">Content sold</div>
                                     <div className="text-base md:text-2xl font-bold text-white">
-                                        No data
+                                        {loading ? 'Loading...' : (miningStats?.contentSold ?? 'No data')}
                                     </div>
                                 </div>
 
@@ -165,10 +191,10 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                                 >
                                     <div className="text-xs md:text-sm text-white font-semibold">$ROAST earned</div>
                                     <div className="text-base md:text-2xl font-bold text-white">
-                                        No data
+                                        {loading ? 'Loading...' : (miningStats?.roastEarned ? formatRoastValue(miningStats.roastEarned) : 'No data')}
                                     </div>
                                     <div className="text-xs text-white/60 md:hidden sm:block">
-                                        ≈ USD 0.00
+                                        ≈ USD {miningStats?.roastEarned ? (miningStats.roastEarned * 0.01).toFixed(2) : '0.00'}
                                     </div>
                                 </div>
                             </div>
@@ -190,33 +216,7 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                                     <div className="flex items-center justify-between">
                                         <span className="text-white text-sm">Referrals</span>
                                         <div className="px-3 py-2 bg-[#220808] rounded-xs w-24 text-center">
-                                            <span className="text-white text-sm font-medium">45</span>
-                                        </div>
-                                    </div>
-                                    <div
-                                        className="w-full max-w-[calc(100vw-8rem)] lg:max-w-[400px] h-1.5 rounded-full relative"
-                                        style={{ background: "#FFFFFF1A" }}
-                                    >
-                                        <div
-                                            className="absolute left-0 top-0 h-full rounded-full"
-                                            style={{
-                                                width: "45%",
-                                                background: "linear-gradient(270deg, #FFFFFF 0%, rgba(255, 255, 255, 0.4) 100%)"
-                                            }}
-                                        />
-                                        <div
-                                            className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 shadow-lg"
-                                            style={{ left: "calc(45% - 6px)" }}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Content Mined & Sold Monthly Slider */}
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-white text-sm">Estimated Content Mined & Sold Monthly</span>
-                                        <div className="px-3 py-2 bg-[#220808] rounded-xs w-24 text-center">
-                                            <span className="text-white text-sm font-medium">{contentSold}</span>
+                                            <span className="text-white text-sm font-medium">{referrals}</span>
                                         </div>
                                     </div>
                                     <div
@@ -226,24 +226,57 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                                             const rect = e.currentTarget.getBoundingClientRect();
                                             const x = e.clientX - rect.left;
                                             const percentage = x / rect.width;
-                                            const value = Math.round(percentage * 1000);
-                                            setContentSold(Math.max(0, Math.min(1000, value)));
+                                            const value = Math.round(percentage * 100);
+                                            setReferrals(Math.max(0, Math.min(100, value)));
                                         }}
                                     >
                                         <div
                                             className="absolute left-0 top-0 h-full rounded-full transition-all duration-75"
                                             style={{
-                                                width: `${(contentSold / 1000) * 100}%`,
+                                                width: `${(referrals / 100) * 100}%`,
                                                 background: "linear-gradient(270deg, #FFFFFF 0%, rgba(255, 255, 255, 0.4) 100%)"
                                             }}
                                         />
                                         <div
                                             className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 shadow-lg cursor-grab active:cursor-grabbing"
-                                            style={{ left: `calc(${(contentSold / 1000) * 100}% - 6px)` }}
+                                            style={{ left: `calc(${(referrals / 100) * 100}% - 6px)` }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Content Sold Daily Slider */}
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-white text-sm">Estimated Content Sold Daily</span>
+                                        <div className="px-3 py-2 bg-[#220808] rounded-xs w-24 text-center">
+                                            <span className="text-white text-sm font-medium">{contentSoldDaily}</span>
+                                        </div>
+                                    </div>
+                                    <div
+                                        className="w-full max-w-[calc(100vw-8rem)] lg:max-w-[400px] h-1.5 rounded-full relative cursor-pointer"
+                                        style={{ background: "#FFFFFF1A" }}
+                                        onClick={(e) => {
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            const x = e.clientX - rect.left;
+                                            const percentage = x / rect.width;
+                                            const value = Math.round(percentage * 100);
+                                            setContentSoldDaily(Math.max(0, Math.min(100, value)));
+                                        }}
+                                    >
+                                        <div
+                                            className="absolute left-0 top-0 h-full rounded-full transition-all duration-75"
+                                            style={{
+                                                width: `${(contentSoldDaily / 100) * 100}%`,
+                                                background: "linear-gradient(270deg, #FFFFFF 0%, rgba(255, 255, 255, 0.4) 100%)"
+                                            }}
+                                        />
+                                        <div
+                                            className="absolute top-1/2 w-3 h-3 bg-white rounded-full transform -translate-y-1/2 shadow-lg cursor-grab active:cursor-grabbing"
+                                            style={{ left: `calc(${(contentSoldDaily / 100) * 100}% - 6px)` }}
                                         />
                                     </div>
                                     <p className="text-[#ffffff]/50 text-xs">
-                                        Average price of $0.50 per piece of content based on 7 b average rate for 30 days
+                                        Assuming $0.20 per content sold and $0.05 per referral per day
                                     </p>
                                 </div>
                             </div>
@@ -278,13 +311,20 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
 
                                     {showInfo && (
                                         <div 
-                                            className="fixed bg-black text-white text-sm px-4 py-4 rounded-2xl shadow-xl w-[260px] text-left leading-5 z-50 pointer-events-none"
+                                            className="fixed bg-black text-white text-sm px-4 py-4 rounded-2xl shadow-xl w-[280px] text-left leading-5 z-50 pointer-events-none"
                                             style={{
-                                                left: `${tooltipPosition.x - 130}px`,
-                                                top: `${tooltipPosition.y - 80}px`,
+                                                left: `${tooltipPosition.x - 140}px`,
+                                                top: `${tooltipPosition.y - 110}px`,
                                             }}
                                         >
-                                            Average price of $0.50 per piece of content based on 7 b average rate for 30 days
+                                            <div className="space-y-2">
+                                                <div className="font-semibold">Calculation:</div>
+                                                <div>• Referrals: {referrals} × $0.05/day × 30 = ${(referrals * 0.05 * 30).toFixed(2)}</div>
+                                                <div>• Content: {contentSoldDaily} × $0.20/day × 30 = ${(contentSoldDaily * 0.2 * 30).toFixed(2)}</div>
+                                                <div className="pt-1 border-t border-white/20">
+                                                    <strong>Total: ${potentialEarnings?.totalEarnings.toFixed(2) || '0.00'}/month</strong>
+                                                </div>
+                                            </div>
                                             <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-[10px] border-r-[10px] border-t-[10px] border-transparent border-t-black"></div>
                                         </div>
                                     )}
@@ -300,7 +340,7 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                                         backgroundClip: "text"
                                     }}
                                 >
-                                    {loading ? '...' : potentialEarnings?.totalEarnings ? `$${potentialEarnings.totalEarnings}` : 'No data'}
+                                    {potentialEarnings ? `$${potentialEarnings.totalEarnings.toFixed(2)}` : '$0.00'}
                                 </div>
                             </div>
                         </div>

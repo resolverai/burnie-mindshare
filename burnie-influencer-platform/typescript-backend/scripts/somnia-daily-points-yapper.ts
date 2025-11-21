@@ -100,7 +100,7 @@ let AppDataSource: DataSource;
 class SomniaDailyPointsYapperScript {
   private dataSource: DataSource;
   private allCalculations: YapperCalculation[] = [];
-  private impressionsData: Map<string, number> = new Map(); // twitterHandle -> impressions
+  private impressionsDataByProject: Map<number, Map<string, number>> = new Map(); // projectId -> (walletAddress -> impressions)
 
   constructor(dataSource: DataSource) {
     this.dataSource = dataSource;
@@ -198,17 +198,40 @@ class SomniaDailyPointsYapperScript {
   }
 
   /**
-   * Get Dreamathon content posts count for today (max 3 per project per day)
+   * Get Dreamathon content posts for Somnia whitelisted projects since timestamp
+   * Returns map of projectId -> post count (max 3 projects counted)
    */
-  async getDreamathonPostsCount(userId: number, projectId: number | null, sinceTimestamp: Date): Promise<number> {
-    // TODO: Query twitter_post_tracking or content_purchases table
-    // For now, return 0 (to be implemented with actual data source)
-    return 0;
+  async getDreamathonPostsByProject(userId: number, sinceTimestamp: Date): Promise<Map<number, number>> {
+    const query = `
+      SELECT DISTINCT p."projectId", COUNT(DISTINCT utp.id) as post_count
+      FROM user_twitter_posts utp
+      INNER JOIN users u ON utp.wallet_address = u."walletAddress"
+      INNER JOIN content_marketplace cm ON utp.content_id = cm.id
+      INNER JOIN campaigns c ON cm."campaignId" = c.id
+      INNER JOIN projects p ON c."projectId" = p.id
+      WHERE u.id = $1
+        AND utp.created_at >= $2
+        AND p.somnia_whitelisted = true
+      GROUP BY p."projectId"
+      ORDER BY post_count DESC
+      LIMIT 3
+    `;
+    
+    const results = await this.dataSource.query(query, [userId, sinceTimestamp]);
+    const projectPostsMap = new Map<number, number>();
+    
+    for (const row of results) {
+      projectPostsMap.set(row.projectId, parseInt(row.post_count));
+    }
+    
+    console.log(`  📝 Dreamathon posts by project: ${JSON.stringify(Array.from(projectPostsMap.entries()))}`);
+    
+    return projectPostsMap;
   }
 
   /**
    * Get new qualified referrals since last recorded entry
-   * Qualified: New user + 3 purchases on Base mainnet OR 10 purchases on Somnia testnet
+   * Qualified: New user + (3 purchases on Base mainnet OR 10 purchases on Somnia testnet)
    */
   async getNewQualifiedReferralsSince(userId: number, sinceTimestamp: Date): Promise<{ newReferralPoints: number; activeReferrals: number; newQualifiedReferrals: number }> {
     // Get all referrals for this user
@@ -224,25 +247,46 @@ class SomniaDailyPointsYapperScript {
     let newQualifiedReferrals = 0;
 
     for (const referral of referrals) {
-      // Check Base mainnet purchases
+      // Check Base mainnet purchases (network IS NULL or != 'somnia_testnet')
       const basePurchasesQuery = `
         SELECT COUNT(*) as count
         FROM content_purchases cp
         INNER JOIN users u ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
         WHERE u.id = $1
           AND cp.payment_status = 'completed'
-          AND cp.created_at >= $2
           AND cp.purchase_price > 0
+          AND (cp.network IS NULL OR cp.network != 'somnia_testnet')
+          AND cp.created_at >= $2
       `;
       
-      const totalPurchases = await this.dataSource.query(basePurchasesQuery, [referral.userId, CAMPAIGN_START_DATE]);
-      const purchasesSinceTimestamp = await this.dataSource.query(basePurchasesQuery, [referral.userId, sinceTimestamp]);
+      // Check Somnia testnet purchases (network = 'somnia_testnet')
+      const somniaPurchasesQuery = `
+        SELECT COUNT(*) as count
+        FROM content_purchases cp
+        INNER JOIN users u ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
+        WHERE u.id = $1
+          AND cp.payment_status = 'completed'
+          AND cp.purchase_price > 0
+          AND cp.network = 'somnia_testnet'
+          AND cp.created_at >= $2
+      `;
       
-      const totalCount = parseInt(totalPurchases[0]?.count || '0');
-      const newCount = parseInt(purchasesSinceTimestamp[0]?.count || '0');
+      // Get totals since campaign start
+      const totalBasePurchases = await this.dataSource.query(basePurchasesQuery, [referral.userId, CAMPAIGN_START_DATE]);
+      const totalSomniaPurchases = await this.dataSource.query(somniaPurchasesQuery, [referral.userId, CAMPAIGN_START_DATE]);
       
-      const wasQualifiedBefore = (totalCount - newCount) >= 3;
-      const isQualifiedNow = totalCount >= 3;
+      // Get new purchases since last timestamp
+      const newBasePurchases = await this.dataSource.query(basePurchasesQuery, [referral.userId, sinceTimestamp]);
+      const newSomniaPurchases = await this.dataSource.query(somniaPurchasesQuery, [referral.userId, sinceTimestamp]);
+      
+      const totalBaseCount = parseInt(totalBasePurchases[0]?.count || '0');
+      const totalSomniaCount = parseInt(totalSomniaPurchases[0]?.count || '0');
+      const newBaseCount = parseInt(newBasePurchases[0]?.count || '0');
+      const newSomniaCount = parseInt(newSomniaPurchases[0]?.count || '0');
+      
+      // Check if qualified before and now
+      const wasQualifiedBefore = ((totalBaseCount - newBaseCount) >= 3) || ((totalSomniaCount - newSomniaCount) >= 10);
+      const isQualifiedNow = (totalBaseCount >= 3) || (totalSomniaCount >= 10);
       
       if (isQualifiedNow) {
         activeReferrals += 1;
@@ -251,6 +295,7 @@ class SomniaDailyPointsYapperScript {
         if (!wasQualifiedBefore) {
           newReferralPoints += REFERRAL_QUALIFICATION_POINTS;
           newQualifiedReferrals += 1;
+          console.log(`    ✅ New qualified referral: userId ${referral.userId} (Base: ${totalBaseCount}, Somnia: ${totalSomniaCount})`);
         }
       }
     }
@@ -259,30 +304,57 @@ class SomniaDailyPointsYapperScript {
   }
 
   /**
-   * Get transaction milestone points (every 20 referral purchases)
+   * Get transaction milestone points (every 20 referral purchases on Base OR Somnia)
    */
   async getTransactionMilestonePoints(userId: number, sinceTimestamp: Date): Promise<{ milestonePoints: number; milestoneCount: number }> {
-    // Get total referral purchases
-    const totalQuery = `
+    // Get Base mainnet referral purchases
+    const baseQuery = `
       SELECT COUNT(*) as count
       FROM content_purchases cp
       INNER JOIN users u ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
       INNER JOIN user_referrals ur ON ur."userId" = u.id
       WHERE ur."directReferrerId" = $1
         AND cp.payment_status = 'completed'
-        AND cp.created_at >= $2
         AND cp.purchase_price > 0
+        AND (cp.network IS NULL OR cp.network != 'somnia_testnet')
+        AND cp.created_at >= $2
     `;
     
-    const totalResult = await this.dataSource.query(totalQuery, [userId, CAMPAIGN_START_DATE]);
-    const newResult = await this.dataSource.query(totalQuery, [userId, sinceTimestamp]);
+    // Get Somnia testnet referral purchases
+    const somniaQuery = `
+      SELECT COUNT(*) as count
+      FROM content_purchases cp
+      INNER JOIN users u ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
+      INNER JOIN user_referrals ur ON ur."userId" = u.id
+      WHERE ur."directReferrerId" = $1
+        AND cp.payment_status = 'completed'
+        AND cp.purchase_price > 0
+        AND cp.network = 'somnia_testnet'
+        AND cp.created_at >= $2
+    `;
     
-    const totalPurchases = parseInt(totalResult[0]?.count || '0');
-    const newPurchases = parseInt(newResult[0]?.count || '0');
+    // Get totals since campaign start
+    const totalBaseResult = await this.dataSource.query(baseQuery, [userId, CAMPAIGN_START_DATE]);
+    const totalSomniaResult = await this.dataSource.query(somniaQuery, [userId, CAMPAIGN_START_DATE]);
+    
+    // Get new purchases since last timestamp
+    const newBaseResult = await this.dataSource.query(baseQuery, [userId, sinceTimestamp]);
+    const newSomniaResult = await this.dataSource.query(somniaQuery, [userId, sinceTimestamp]);
+    
+    const totalBasePurchases = parseInt(totalBaseResult[0]?.count || '0');
+    const totalSomniaPurchases = parseInt(totalSomniaResult[0]?.count || '0');
+    const newBasePurchases = parseInt(newBaseResult[0]?.count || '0');
+    const newSomniaPurchases = parseInt(newSomniaResult[0]?.count || '0');
+    
+    // Combine Base + Somnia purchases for milestone calculation
+    const totalPurchases = totalBasePurchases + totalSomniaPurchases;
+    const newPurchases = newBasePurchases + newSomniaPurchases;
     
     const currentMilestones = Math.floor(totalPurchases / 20);
     const previousMilestones = Math.floor((totalPurchases - newPurchases) / 20);
     const newMilestones = currentMilestones - previousMilestones;
+    
+    console.log(`    💰 Transaction milestones: Base=${totalBasePurchases}, Somnia=${totalSomniaPurchases}, Total=${totalPurchases}, Milestones=${currentMilestones}`);
     
     return {
       milestonePoints: newMilestones * TRANSACTION_MILESTONE_POINTS,
@@ -291,73 +363,388 @@ class SomniaDailyPointsYapperScript {
   }
 
   /**
-   * Calculate impressions points (share of 200K daily pool among top 100)
+   * Get total cumulative impressions (views) from ALL user_twitter_posts for a specific project
+   * This returns the current total impressions across all posts (not filtered by date)
    */
-  calculateImpressionsPoints(twitterHandle: string | undefined): { impressionsPoints: number; totalImpressions: number } {
-    if (!twitterHandle) {
-      return { impressionsPoints: 0, totalImpressions: 0 };
-    }
-
-    const handleLower = twitterHandle.toLowerCase();
-    const impressions = this.impressionsData.get(handleLower) || 0;
+  async getTotalImpressionsForProject(walletAddress: string, projectId: number): Promise<number> {
+    const query = `
+      SELECT 
+        utp.main_tweet_id,
+        utp.thread_tweet_ids,
+        utp.engagement_metrics
+      FROM user_twitter_posts utp
+      INNER JOIN content_marketplace cm ON utp.content_id = cm.id
+      INNER JOIN campaigns c ON cm."campaignId" = c.id
+      INNER JOIN projects p ON c."projectId" = p.id
+      WHERE utp.wallet_address = $1
+        AND p.id = $2
+        AND p.somnia_whitelisted = true
+    `;
     
-    // TODO: Calculate proportional share from 200K pool based on impressions ranking
-    // For now, return 0 (to be implemented with actual impressions data)
-    return { impressionsPoints: 0, totalImpressions: impressions };
+    const posts = await this.dataSource.query(query, [walletAddress, projectId]);
+    let totalImpressions = 0;
+    
+    for (const post of posts) {
+      const metrics = post.engagement_metrics || {};
+      
+      // Get views from main tweet
+      if (post.main_tweet_id && metrics[post.main_tweet_id]?.views) {
+        totalImpressions += metrics[post.main_tweet_id].views;
+      }
+      
+      // Get views from thread tweets
+      if (post.thread_tweet_ids && Array.isArray(post.thread_tweet_ids)) {
+        for (const tweetId of post.thread_tweet_ids) {
+          if (metrics[tweetId]?.views) {
+            totalImpressions += metrics[tweetId].views;
+          }
+        }
+      }
+    }
+    
+    return totalImpressions;
   }
 
   /**
-   * Calculate incremental points since last recorded entry
+   * Get previous impressions from last recorded entry for this user+project
    */
-  async calculateIncrementalPoints(
+  async getPreviousImpressionsForProject(walletAddress: string, projectId: number): Promise<number> {
+    const repo = this.dataSource.getRepository(SomniaDreamathonYapperPoints);
+    const lastEntry = await repo.findOne({
+      where: { 
+        walletAddress: walletAddress.toLowerCase(),
+        projectId: projectId
+      },
+      order: { createdAt: 'DESC' }
+    });
+
+    return lastEntry?.totalImpressions || 0;
+  }
+
+  /**
+   * Populate delta impressions data for all users across all Somnia projects
+   * Delta = Current total impressions - Previous recorded impressions
+   */
+  async populateImpressionsData(users: User[], somniaProjects: number[]): Promise<void> {
+    console.log(`\n📊 Populating delta impressions data for ${users.length} users across ${somniaProjects.length} projects...`);
+    
+    for (const projectId of somniaProjects) {
+      const projectImpressions = new Map<string, number>();
+      
+      for (const user of users) {
+        // Get current total impressions from all posts
+        const currentTotalImpressions = await this.getTotalImpressionsForProject(user.walletAddress, projectId);
+        
+        // Get previous recorded impressions from last entry
+        const previousImpressions = await this.getPreviousImpressionsForProject(user.walletAddress, projectId);
+        
+        // Calculate delta (new impressions since last record)
+        const deltaImpressions = currentTotalImpressions - previousImpressions;
+        
+        if (deltaImpressions > 0) {
+          projectImpressions.set(user.walletAddress, deltaImpressions);
+          console.log(`    User ${user.walletAddress.substring(0, 10)}... Project ${projectId}: Current=${currentTotalImpressions}, Previous=${previousImpressions}, Delta=${deltaImpressions}`);
+        }
+      }
+      
+      this.impressionsDataByProject.set(projectId, projectImpressions);
+      console.log(`  ✅ Project ${projectId}: ${projectImpressions.size} users with new impressions`);
+    }
+  }
+
+  /**
+   * Calculate impressions points for a user and project (20K pool per project, top 10)
+   * Uses delta impressions for ranking, but returns current total for storage
+   */
+  async calculateImpressionsPoints(walletAddress: string, projectId: number): Promise<{ impressionsPoints: number; totalImpressions: number }> {
+    const projectData = this.impressionsDataByProject.get(projectId);
+    if (!projectData) {
+      // No delta impressions - get current total for storage
+      const currentTotal = await this.getTotalImpressionsForProject(walletAddress, projectId);
+      return { impressionsPoints: 0, totalImpressions: currentTotal };
+    }
+
+    const deltaImpressions = projectData.get(walletAddress) || 0;
+    
+    // Get current total impressions for storage
+    const currentTotalImpressions = await this.getTotalImpressionsForProject(walletAddress, projectId);
+    
+    if (deltaImpressions === 0) {
+      return { impressionsPoints: 0, totalImpressions: currentTotalImpressions };
+    }
+
+    // Sort all users by DELTA impressions for this project (descending)
+    const sortedUsers = Array.from(projectData.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10); // Top 10 only
+    
+    // Check if user is in top 10
+    const userRank = sortedUsers.findIndex(([addr]) => addr === walletAddress);
+    if (userRank === -1) {
+      // User not in top 10 - no points but still save total
+      return { impressionsPoints: 0, totalImpressions: currentTotalImpressions };
+    }
+    
+    // Calculate total DELTA impressions of top 10
+    const totalTop10DeltaImpressions = sortedUsers.reduce((sum, [_, views]) => sum + views, 0);
+    
+    // Calculate proportional share of 20K pool based on delta impressions
+    const IMPRESSIONS_POOL_PER_PROJECT = 20000;
+    const sharePercentage = deltaImpressions / totalTop10DeltaImpressions;
+    const impressionsPoints = Math.round(sharePercentage * IMPRESSIONS_POOL_PER_PROJECT);
+    
+    console.log(`    👁️ Impressions for project ${projectId}: Delta=${deltaImpressions} views (Total=${currentTotalImpressions}), rank ${userRank + 1}/10, points: ${impressionsPoints}`);
+    
+    return { impressionsPoints, totalImpressions: currentTotalImpressions };
+  }
+
+  /**
+   * Calculate champion bonus points (Top 5 per project on last day only)
+   */
+  async calculateChampionBonusPoints(projectId: number): Promise<Map<string, number>> {
+    const championBonusMap = new Map<string, number>();
+    
+    // Only award champion bonus on the last day of campaign
+    const today = new Date();
+    const isLastDay = today.toDateString() === CAMPAIGN_END_DATE.toDateString();
+    
+    if (!isLastDay) {
+      console.log(`  🏆 Champion bonus: Not last day yet (${today.toISOString()} vs ${CAMPAIGN_END_DATE.toISOString()})`);
+      return championBonusMap;
+    }
+    
+    console.log(`  🏆 LAST DAY - Calculating champion bonus for project ${projectId}...`);
+    
+    // Get top 5 users by total points for this project
+    const query = `
+      SELECT 
+        "walletAddress",
+        SUM("dailyPointsEarned") as total_points
+      FROM somnia_dreamathon_yapper_points
+      WHERE "projectId" = $1
+      GROUP BY "walletAddress"
+      ORDER BY total_points DESC
+      LIMIT 5
+    `;
+    
+    const topUsers = await this.dataSource.query(query, [projectId]);
+    
+    for (const user of topUsers) {
+      championBonusMap.set(user.walletAddress.toLowerCase(), CHAMPION_BONUS_POINTS);
+      console.log(`    ✅ Champion: ${user.walletAddress} (${user.total_points} points) → +${CHAMPION_BONUS_POINTS} bonus`);
+    }
+    
+    return championBonusMap;
+  }
+
+  /**
+   * Get all Somnia whitelisted project IDs
+   */
+  async getSomniaWhitelistedProjects(): Promise<number[]> {
+    const query = `
+      SELECT DISTINCT p.id
+      FROM projects p
+      WHERE p.somnia_whitelisted = true
+      ORDER BY p.id
+    `;
+    
+    const results = await this.dataSource.query(query);
+    return results.map((row: any) => row.id);
+  }
+
+  /**
+   * Calculate incremental points for a specific project
+   */
+  async calculateIncrementalPointsForProject(
     user: User, 
-    projectId: number | null,
+    projectId: number,
     lastRecordedEntry: SomniaDreamathonYapperPoints | null, 
-    twitterHandle?: string
+    globalReferralPoints: number,
+    globalMilestonePoints: number,
+    championBonusMap: Map<string, number>
   ): Promise<any> {
     const sinceTimestamp = lastRecordedEntry ? lastRecordedEntry.createdAt : user.createdAt;
     
-    console.log(`  🔄 Calculating incremental points since: ${sinceTimestamp.toISOString()}`);
-    
-    // 1. Dreamathon content points
-    const dreamathonPostsCount = await this.getDreamathonPostsCount(user.id, projectId, sinceTimestamp);
-    const dreamathonContentPoints = Math.min(dreamathonPostsCount, MAX_DAILY_POSTS_PER_PROJECT) * DREAMATHON_CONTENT_POINTS;
+    // 1. Dreamathon content points (project-specific)
+    const projectPostsMap = await this.getDreamathonPostsByProject(user.id, sinceTimestamp);
+    const dreamathonPostsCount = projectPostsMap.get(projectId) || 0;
+    const dreamathonContentPoints = dreamathonPostsCount * DREAMATHON_CONTENT_POINTS;
 
-    // 2. Referral points
-    const { newReferralPoints, activeReferrals, newQualifiedReferrals } = await this.getNewQualifiedReferralsSince(user.id, sinceTimestamp);
+    // 2. Referral points (GLOBAL - duplicated)
+    const referralPoints = globalReferralPoints;
     
-    // 3. Transaction milestone points
-    const { milestonePoints, milestoneCount } = await this.getTransactionMilestonePoints(user.id, sinceTimestamp);
+    // 3. Transaction milestone points (GLOBAL - duplicated)
+    const transactionMilestonePoints = globalMilestonePoints;
     
-    // 4. Champion bonus points (TODO: implement project leaderboard logic)
-    const championBonusPoints = 0;
+    // 4. Champion bonus points (project-specific, last day only)
+    const championBonusPoints = championBonusMap.get(user.walletAddress.toLowerCase()) || 0;
     
-    // 5. Impressions points
-    const { impressionsPoints, totalImpressions } = this.calculateImpressionsPoints(twitterHandle);
+    // 5. Impressions points (project-specific)
+    const { impressionsPoints, totalImpressions } = await this.calculateImpressionsPoints(user.walletAddress, projectId);
 
-    const totalIncrementalPoints = dreamathonContentPoints + newReferralPoints + milestonePoints + championBonusPoints + impressionsPoints;
-
-    console.log(`  📊 Incremental Points Breakdown:`);
-    console.log(`    Dreamathon Content: ${dreamathonPostsCount} posts = ${dreamathonContentPoints} points`);
-    console.log(`    Referrals: ${newQualifiedReferrals} new qualified = ${newReferralPoints} points`);
-    console.log(`    Transaction Milestones: ${milestoneCount} = ${milestonePoints} points`);
-    console.log(`    Champion Bonus: ${championBonusPoints} points`);
-    console.log(`    Impressions: ${totalImpressions} impressions = ${impressionsPoints} points`);
-    console.log(`    Total Incremental: ${totalIncrementalPoints} points`);
+    const totalIncrementalPoints = dreamathonContentPoints + referralPoints + transactionMilestonePoints + championBonusPoints + impressionsPoints;
 
     return { 
       dreamathonContentPoints,
-      referralPoints: newReferralPoints,
-      transactionMilestonePoints: milestonePoints,
+      referralPoints,
+      transactionMilestonePoints,
       championBonusPoints,
       impressionsPoints,
       totalImpressions,
-      activeReferrals,
       totalIncrementalPoints,
-      dailyDreamathonPostsCount: dreamathonPostsCount,
-      dailyNewQualifiedReferrals: newQualifiedReferrals,
-      dailyMilestoneCount: milestoneCount
+      dailyDreamathonPostsCount: dreamathonPostsCount
     };
+  }
+
+  /**
+   * Process a single user for a specific project
+   */
+  async processUserForProject(
+    user: User, 
+    projectId: number,
+    globalReferralPoints: number,
+    globalMilestonePoints: number,
+    globalActiveReferrals: number,
+    globalNewQualifiedReferrals: number,
+    globalMilestoneCount: number,
+    championBonusMap: Map<string, number>
+  ): Promise<YapperCalculation | null> {
+    // Get Twitter connection
+    const twitterConnection = await this.getUserTwitterConnection(user.id);
+    
+    // Get last recorded entry for this user and project
+    const repo = this.dataSource.getRepository(SomniaDreamathonYapperPoints);
+    const lastEntry = await repo.findOne({
+      where: { 
+        walletAddress: user.walletAddress.toLowerCase(),
+        projectId: projectId
+      },
+      order: { createdAt: 'DESC' }
+    });
+
+    // Get cumulative points for this user and project
+    const sumResult = await repo
+      .createQueryBuilder('sdyp')
+      .select('SUM(sdyp.dailyPointsEarned)', 'cumulativePoints')
+      .where('sdyp.walletAddress = :walletAddress', { walletAddress: user.walletAddress.toLowerCase() })
+      .andWhere('sdyp.projectId = :projectId', { projectId })
+      .getRawOne();
+
+    const cumulativePoints = sumResult?.cumulativePoints ? parseFloat(sumResult.cumulativePoints) : 0;
+    
+    // Calculate incremental points for this project
+    const incrementalResult = await this.calculateIncrementalPointsForProject(
+      user, 
+      projectId, 
+      lastEntry,
+      globalReferralPoints,
+      globalMilestonePoints,
+      championBonusMap
+    );
+    
+    // Skip if no points earned for this project
+    if (incrementalResult.totalIncrementalPoints === 0) {
+      return null;
+    }
+    
+    // Calculate new totals
+    const previousTotalPoints = cumulativePoints;
+    const dailyPointsEarned = incrementalResult.totalIncrementalPoints;
+    const newTotalPoints = previousTotalPoints + dailyPointsEarned;
+
+    // Determine tier (based on total points across ALL projects)
+    const currentTier = await this.getUserCurrentTier(user.walletAddress);
+    const newTier = this.determineUserTier(newTotalPoints);
+    const tierChanged = currentTier !== newTier;
+
+    const calculation: YapperCalculation = {
+      walletAddress: user.walletAddress,
+      projectId,
+      twitterHandle: twitterConnection?.twitterUsername,
+      name: twitterConnection?.twitterDisplayName,
+      totalReferrals: user.referralCount,
+      activeReferrals: globalActiveReferrals,
+      totalPoints: newTotalPoints,
+      dailyPointsEarned,
+      dreamathonContentPoints: incrementalResult.dreamathonContentPoints,
+      referralPoints: incrementalResult.referralPoints,
+      transactionMilestonePoints: incrementalResult.transactionMilestonePoints,
+      championBonusPoints: incrementalResult.championBonusPoints,
+      impressionsPoints: incrementalResult.impressionsPoints,
+      totalImpressions: incrementalResult.totalImpressions,
+      dailyDreamathonPostsCount: incrementalResult.dailyDreamathonPostsCount,
+      dailyNewQualifiedReferrals: globalNewQualifiedReferrals, // Global value
+      dailyMilestoneCount: globalMilestoneCount, // Global value
+      weeklyPoints: 0, // Will be calculated later
+      weeklyRank: 0,
+      weeklyRewards: 0,
+      grandPrizeRewards: 0,
+      bonusChampion: 0,
+      dailyRank: undefined,
+      projectRank: undefined,
+      previousTotalPoints,
+      currentTier,
+      newTier,
+      tierChanged
+    };
+    
+    return calculation;
+  }
+
+  /**
+   * Process a single user across all Somnia projects
+   */
+  async processUser(user: User): Promise<YapperCalculation[]> {
+    console.log(`\n👤 Processing user: ${user.walletAddress}`);
+
+    // Get Twitter connection
+    const twitterConnection = await this.getUserTwitterConnection(user.id);
+    const twitterHandle = twitterConnection?.twitterUsername || 'None';
+    
+    console.log(`  🐦 Twitter handle: ${twitterHandle}`);
+    
+    // Calculate GLOBAL points once (referrals + transaction milestones)
+    const lastGlobalEntry = await this.getLastRecordedEntry(user.walletAddress);
+    const sinceTimestamp = lastGlobalEntry.lastEntry ? lastGlobalEntry.lastEntry.createdAt : user.createdAt;
+    
+    console.log(`  📅 Calculating since: ${sinceTimestamp.toISOString()}`);
+    
+    const { newReferralPoints, activeReferrals, newQualifiedReferrals } = await this.getNewQualifiedReferralsSince(user.id, sinceTimestamp);
+    const { milestonePoints, milestoneCount } = await this.getTransactionMilestonePoints(user.id, sinceTimestamp);
+    
+    console.log(`  🌍 Global points: Referrals=${newReferralPoints}, Milestones=${milestonePoints}`);
+    
+    // Get all Somnia projects
+    const somniaProjects = await this.getSomniaWhitelistedProjects();
+    console.log(`  📋 Processing ${somniaProjects.length} Somnia projects`);
+    
+    const calculations: YapperCalculation[] = [];
+    
+    // Process each project
+    for (const projectId of somniaProjects) {
+      // Get champion bonus map for this project
+      const championBonusMap = await this.calculateChampionBonusPoints(projectId);
+      
+      const calculation = await this.processUserForProject(
+        user,
+        projectId,
+        newReferralPoints,
+        milestonePoints,
+        activeReferrals,
+        newQualifiedReferrals,
+        milestoneCount,
+        championBonusMap
+      );
+      
+      if (calculation) {
+        calculations.push(calculation);
+        console.log(`    ✅ Project ${projectId}: ${calculation.dailyPointsEarned} points`);
+      }
+    }
+    
+    console.log(`  📊 Total: ${calculations.length} project records created`);
+    
+    return calculations;
   }
 
   /**
@@ -390,73 +777,6 @@ class SomniaDailyPointsYapperScript {
 
     const result = await this.dataSource.query(query, [walletAddress]);
     return result[0]?.tier || TierLevel.SILVER;
-  }
-
-  /**
-   * Process a single user
-   */
-  async processUser(user: User, projectId: number | null = null): Promise<YapperCalculation> {
-    console.log(`Processing user: ${user.walletAddress} (project: ${projectId || 'all'})`);
-
-    // Get Twitter connection
-    const twitterConnection = await this.getUserTwitterConnection(user.id);
-    const twitterHandle = twitterConnection?.twitterUsername?.toLowerCase();
-    
-    console.log(`  Twitter handle: ${twitterHandle || 'None'}`);
-    
-    // Get last recorded entry
-    const { lastEntry, cumulativePoints } = await this.getLastRecordedEntry(user.walletAddress);
-    
-    // Calculate incremental points
-    const incrementalResult = await this.calculateIncrementalPoints(user, projectId, lastEntry, twitterHandle);
-    
-    // Calculate new totals
-    const previousTotalPoints = cumulativePoints;
-    const dailyPointsEarned = incrementalResult.totalIncrementalPoints;
-    const newTotalPoints = previousTotalPoints + dailyPointsEarned;
-    
-    console.log(`  📊 Points Calculation Summary:`);
-    console.log(`    Previous Total Points: ${previousTotalPoints}`);
-    console.log(`    Daily Points Earned: ${dailyPointsEarned}`);
-    console.log(`    New Total Points: ${newTotalPoints}`);
-
-    // Determine tier
-    const currentTier = await this.getUserCurrentTier(user.walletAddress);
-    const newTier = this.determineUserTier(newTotalPoints);
-    const tierChanged = currentTier !== newTier;
-
-    const calculation: YapperCalculation = {
-      walletAddress: user.walletAddress,
-      projectId,
-      twitterHandle: twitterConnection?.twitterUsername,
-      name: twitterConnection?.twitterDisplayName,
-      totalReferrals: user.referralCount,
-      activeReferrals: incrementalResult.activeReferrals,
-      totalPoints: newTotalPoints,
-      dailyPointsEarned,
-      dreamathonContentPoints: incrementalResult.dreamathonContentPoints,
-      referralPoints: incrementalResult.referralPoints,
-      transactionMilestonePoints: incrementalResult.transactionMilestonePoints,
-      championBonusPoints: incrementalResult.championBonusPoints,
-      impressionsPoints: incrementalResult.impressionsPoints,
-      totalImpressions: incrementalResult.totalImpressions,
-      dailyDreamathonPostsCount: incrementalResult.dailyDreamathonPostsCount,
-      dailyNewQualifiedReferrals: incrementalResult.dailyNewQualifiedReferrals,
-      dailyMilestoneCount: incrementalResult.dailyMilestoneCount,
-      weeklyPoints: 0, // Will be calculated later
-      weeklyRank: 0,
-      weeklyRewards: 0,
-      grandPrizeRewards: 0,
-      bonusChampion: 0,
-      dailyRank: undefined,
-      projectRank: undefined,
-      previousTotalPoints,
-      currentTier,
-      newTier,
-      tierChanged
-    };
-    
-    return calculation;
   }
 
   /**
@@ -519,11 +839,94 @@ class SomniaDailyPointsYapperScript {
   }
 
   /**
-   * Check if today is Monday (weekly calculation day)
+   * Check if today is Tuesday (weekly calculation day)
    */
   private isWeeklyCalculationDay(): boolean {
     const today = new Date();
-    return today.getDay() === 1; // Monday = 1
+    return today.getDay() === 2; // Tuesday = 2
+  }
+
+  /**
+   * Print dry run summary table
+   */
+  private printDryRunSummary(): void {
+    console.log('\n' + '='.repeat(150));
+    console.log('📊 DRY RUN SUMMARY - YAPPER POINTS BREAKDOWN');
+    console.log('='.repeat(150));
+    
+    // Group by wallet address to show all project records
+    const walletMap = new Map<string, YapperCalculation[]>();
+    
+    for (const calc of this.allCalculations) {
+      if (!walletMap.has(calc.walletAddress)) {
+        walletMap.set(calc.walletAddress, []);
+      }
+      walletMap.get(calc.walletAddress)!.push(calc);
+    }
+    
+    // Print header
+    console.log(
+      'Wallet Address'.padEnd(45) + 
+      'Project'.padEnd(10) + 
+      'Content'.padEnd(10) + 
+      'Referral'.padEnd(10) + 
+      'Milestone'.padEnd(10) + 
+      'Champion'.padEnd(10) + 
+      'Impressions'.padEnd(12) + 
+      'Daily Total'.padEnd(12) + 
+      'Total Points'
+    );
+    console.log('-'.repeat(150));
+    
+    // Print each wallet's project records
+    for (const [wallet, calculations] of walletMap.entries()) {
+      for (const calc of calculations) {
+        console.log(
+          wallet.substring(0, 42).padEnd(45) +
+          (calc.projectId?.toString() || 'N/A').padEnd(10) +
+          calc.dreamathonContentPoints.toString().padEnd(10) +
+          calc.referralPoints.toString().padEnd(10) +
+          calc.transactionMilestonePoints.toString().padEnd(10) +
+          calc.championBonusPoints.toString().padEnd(10) +
+          calc.impressionsPoints.toString().padEnd(12) +
+          calc.dailyPointsEarned.toString().padEnd(12) +
+          calc.totalPoints.toString()
+        );
+      }
+      console.log('-'.repeat(150));
+    }
+    
+    // Print totals
+    const totalRecords = this.allCalculations.length;
+    const totalContent = this.allCalculations.reduce((sum, c) => sum + c.dreamathonContentPoints, 0);
+    const totalReferral = this.allCalculations.reduce((sum, c) => sum + c.referralPoints, 0);
+    const totalMilestone = this.allCalculations.reduce((sum, c) => sum + c.transactionMilestonePoints, 0);
+    const totalChampion = this.allCalculations.reduce((sum, c) => sum + c.championBonusPoints, 0);
+    const totalImpressions = this.allCalculations.reduce((sum, c) => sum + c.impressionsPoints, 0);
+    const totalDaily = this.allCalculations.reduce((sum, c) => sum + c.dailyPointsEarned, 0);
+    
+    console.log('TOTALS:'.padEnd(45) + 
+      `${totalRecords} recs`.padEnd(10) +
+      totalContent.toString().padEnd(10) +
+      totalReferral.toString().padEnd(10) +
+      totalMilestone.toString().padEnd(10) +
+      totalChampion.toString().padEnd(10) +
+      totalImpressions.toString().padEnd(12) +
+      totalDaily.toString()
+    );
+    console.log('='.repeat(150));
+    
+    console.log(`\n📈 Summary Statistics:`);
+    console.log(`   Total Users: ${walletMap.size}`);
+    console.log(`   Total Project Records: ${totalRecords}`);
+    console.log(`   Avg Records per User: ${(totalRecords / walletMap.size).toFixed(2)}`);
+    console.log(`   Total Content Points: ${totalContent}`);
+    console.log(`   Total Referral Points: ${totalReferral}`);
+    console.log(`   Total Milestone Points: ${totalMilestone}`);
+    console.log(`   Total Champion Bonus: ${totalChampion}`);
+    console.log(`   Total Impressions Points: ${totalImpressions}`);
+    console.log(`   Total Daily Points: ${totalDaily}`);
+    console.log('='.repeat(150) + '\n');
   }
 
   /**
@@ -533,10 +936,11 @@ class SomniaDailyPointsYapperScript {
     try {
       console.log('🚀 Starting Somnia Dreamathon Yapper Points Calculation Script');
       console.log('📅 Date:', new Date().toISOString());
+      console.log(`🔧 Mode: ${dryRun ? 'DRY RUN' : 'PRODUCTION'}`);
 
       // Check if within campaign period
       if (!this.isWithinCampaignPeriod()) {
-        console.log('⚠️ Current date is outside campaign period (Nov 16 - Dec 7, 2025)');
+        console.log('⚠️ Current date is outside campaign period (Nov 18 - Dec 9, 2025)');
         console.log('   Exiting script');
         return;
       }
@@ -556,31 +960,53 @@ class SomniaDailyPointsYapperScript {
         return;
       }
 
-      // Process each user
+      // Get all Somnia projects
+      const somniaProjects = await this.getSomniaWhitelistedProjects();
+      console.log(`🎯 Found ${somniaProjects.length} Somnia whitelisted projects`);
+
+      // Populate delta impressions data for all users across all projects
+      // This calculates: Current total impressions - Previous recorded impressions
+      await this.populateImpressionsData(users, somniaProjects);
+
+      // Process each user (creates multiple records per user - one per project with activity)
+      let totalRecordsCreated = 0;
+      
       for (const user of users) {
         try {
-          const calculation = await this.processUser(user);
+          const calculations = await this.processUser(user);
           
           if (dryRun) {
-            this.allCalculations.push(calculation);
-            console.log(`📊 [DRY RUN] ${user.walletAddress} | Daily: ${calculation.dailyPointsEarned} pts | Total: ${calculation.totalPoints} pts`);
+            this.allCalculations.push(...calculations);
+            console.log(`  📊 [DRY RUN] Created ${calculations.length} project records`);
           } else {
-            await this.saveYapperDailyPoints(calculation);
-            await this.updateUserTier(calculation);
-            console.log(`✅ Processed: ${user.walletAddress} (${calculation.dailyPointsEarned} daily points)`);
+            for (const calculation of calculations) {
+              await this.saveYapperDailyPoints(calculation);
+              await this.updateUserTier(calculation);
+            }
+            totalRecordsCreated += calculations.length;
+            console.log(`  ✅ Saved ${calculations.length} project records`);
           }
         } catch (error) {
           console.error(`❌ Error processing user ${user.walletAddress}:`, error);
         }
       }
 
-      // Calculate weekly rewards if it's Monday
+      if (!dryRun) {
+        console.log(`\n📝 Total records created: ${totalRecordsCreated}`);
+      }
+
+      // Calculate weekly rewards if it's Tuesday
       if (this.isWeeklyCalculationDay() && !dryRun) {
-        console.log('\n🗓️ Monday detected - calculating weekly rewards...');
+        console.log('\n🗓️ Tuesday detected - calculating weekly rewards...');
         // TODO: Implement weekly rewards calculation
       }
 
-      console.log(`🎉 Somnia Yapper Points Calculation completed successfully!${dryRun ? ' [DRY RUN MODE]' : ''}`);
+      // Print dry run summary
+      if (dryRun) {
+        this.printDryRunSummary();
+      }
+
+      console.log(`\n🎉 Somnia Yapper Points Calculation completed successfully!${dryRun ? ' [DRY RUN MODE]' : ''}`);
 
     } catch (error) {
       console.error('💥 Script failed:', error);

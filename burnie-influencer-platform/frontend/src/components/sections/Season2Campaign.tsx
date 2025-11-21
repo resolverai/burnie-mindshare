@@ -68,6 +68,7 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
         { title: "Dreamathon Content", description: "Post about any of 20 Somnia Dreamathon projects", points: "100", maxDaily: "300 points per project" },
         { title: "Referrals", description: "New user + 3 purchases on Base Mainnet OR 10 on Somnia Testnet", points: "500", bonus: "5,000 $ROAST airdrop for both" },
         { title: "Transaction Milestones", description: "Every 20 referral purchases on Base mainnet", points: "10,000" },
+        { title: "Impressions Points", description: "20K pool per project split among top 10 based on post views", points: "Variable", bonus: "Proportional to engagement" },
         { title: "Champion Bonus", description: "Make it to top 5 of any project leaderboard", points: "10,000" },
     ]
 
@@ -161,7 +162,7 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
         {
             title: "Daily leaderboard",
             description: [
-                "200K impressions points divided among top 100 daily",
+                "20K impressions points per project divided among top 10 daily",
                 "Real-time updates throughout the day",
                 "Engagement-based ranking",
             ]
@@ -490,17 +491,17 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
                         {/* How Yappers Earn Points */}
                         <div>
                             <h2 className="text-white/90 font-semibold mb-6 text-xl">How to earn points</h2>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                                 {yapperHowToEarn.map((item, i) => (
                                     <div
                                         key={i}
-                                        className="rounded-lg p-6 text-white flex flex-col gap-3"
+                                        className="rounded-lg p-4 text-white flex flex-col gap-2 min-h-[200px]"
                                         style={{
                                             background: "radial-gradient(65.2% 93.53% at 49.94% 6.47%, rgba(255, 235, 104, 0.3) 0%, rgba(255, 255, 255, 0.1) 100%)",
                                         }}
                                     >
                                         <div
-                                            className="flex items-center justify-center text-sm font-semibold px-4 py-2 self-start"
+                                            className="flex items-center justify-center text-xs font-semibold px-3 py-1.5 self-start"
                                             style={{
                                                 borderRadius: "6px",
                                                 background: "linear-gradient(94.37deg, #FFE6B5 0%, #FCEC74 48.31%, #995C0B 103.6%)",
@@ -509,8 +510,8 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
                                         >
                                             {item.points} points
                                         </div>
-                                        <div className="text-base font-semibold">{item.title}</div>
-                                        <div className="text-sm text-white/80">{item.description}</div>
+                                        <div className="text-sm font-semibold">{item.title}</div>
+                                        <div className="text-xs text-white/80">{item.description}</div>
                                         {item.maxDaily && (
                                             <div className="text-xs text-white/60 italic">Max: {item.maxDaily}</div>
                                         )}

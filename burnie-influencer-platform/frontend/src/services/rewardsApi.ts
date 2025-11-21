@@ -79,6 +79,27 @@ export interface PotentialEarnings {
   };
 }
 
+export interface Season2DailyPoints {
+  date: string;
+  dreamathonContentPoints: number;
+  referralPoints: number;
+  transactionMilestonePoints: number;
+  impressionsPoints: number;
+  championBonusPoints: number;
+  dailyPointsEarned: number;
+}
+
+export interface Season2PointsBreakdown {
+  dailyPoints: Season2DailyPoints[];
+  totalPoints: number;
+}
+
+export interface MiningStats {
+  contentCreated: number;
+  contentSold: number;
+  roastEarned: number;
+}
+
 const BASE_URL = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api`;
 
 // Helper function to get auth token
@@ -183,6 +204,30 @@ export const rewardsApi = {
 
     if (!response.ok) {
       throw new Error('Failed to calculate potential earnings');
+    }
+
+    return response.json();
+  },
+
+  async getSeason2PointsBreakdown(walletAddress: string): Promise<Season2PointsBreakdown> {
+    const response = await fetch(`${BASE_URL}/rewards/season2/points-breakdown?walletAddress=${walletAddress}`, {
+      headers: getAuthHeaders()
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch Season 2 points breakdown');
+    }
+
+    return response.json();
+  },
+
+  async getMiningStats(walletAddress: string): Promise<MiningStats> {
+    const response = await fetch(`${BASE_URL}/rewards/mining-stats?walletAddress=${walletAddress}`, {
+      headers: getAuthHeaders()
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch mining stats');
     }
 
     return response.json();
