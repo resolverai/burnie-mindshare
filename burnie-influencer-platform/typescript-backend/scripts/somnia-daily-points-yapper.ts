@@ -66,13 +66,13 @@ const CHAMPION_BONUS_POINTS = 10000; // Top 5 in project leaderboard
 const DAILY_IMPRESSIONS_POOL = 200000; // 200K points divided among top 100
 const TOP_IMPRESSIONS_USERS_COUNT = 100;
 
-// Weekly rewards pool (distributed on Mondays at 10 AM ET)
+// Weekly rewards pool (distributed on Tuesdays at 10 AM ET)
 const WEEKLY_REWARDS_POOL = 600000; // 600K for Top 50
 const TOP_WEEKLY_USERS_COUNT = 50;
 
-// Campaign dates (Nov 16 - Dec 7, 2025)
-const CAMPAIGN_START_DATE = new Date('2025-11-16T15:00:00Z'); // 10 AM ET
-const CAMPAIGN_END_DATE = new Date('2025-12-07T15:00:00Z'); // 10 AM ET
+// Campaign dates (Nov 18 - Dec 9, 2025)
+const CAMPAIGN_START_DATE = new Date('2025-11-18T15:00:00Z'); // 10 AM ET
+const CAMPAIGN_END_DATE = new Date('2025-12-09T15:00:00Z'); // 10 AM ET
 
 // Tier requirements (Season 2)
 const TIER_REQUIREMENTS = {

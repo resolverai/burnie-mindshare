@@ -7,7 +7,8 @@ type PublicMetrics = {
   reply_count?: number;
   like_count?: number;
   quote_count?: number;
-  view_count?: number;
+  bookmark_count?: number;
+  impression_count?: number;
 };
 
 type TweetLookup = {
@@ -216,8 +217,8 @@ async function main(): Promise<void> {
           views?: number;
           last_updated: string;
         };
-        if (typeof m.view_count === 'number') {
-          base.views = m.view_count;
+        if (typeof m.impression_count === 'number') {
+          base.views = m.impression_count;
         }
         engagement[id] = base;
       }

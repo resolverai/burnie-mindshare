@@ -1,8 +1,9 @@
 "use client";
 
-import { InfoIcon, CheckIcon } from "lucide-react";
+import { InfoIcon, CheckIcon, GiftIcon } from "lucide-react";
 import Image from "next/image";
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
+import { rewardsApi, UserStats, TierLevel } from "@/services/rewardsApi";
 
 // Helper function to format ROAST values with K/M suffixes
 const formatRoastValue = (value: number): string => {
@@ -17,11 +18,25 @@ const formatRoastValue = (value: number): string => {
     }
 };
 
+// Helper function to get tier image based on current tier
+const getTierImage = (tier: TierLevel): string => {
+    const tierImages = {
+        'SILVER': '/silver.jpeg',
+        'GOLD': '/gold.jpeg', 
+        'PLATINUM': '/platinum.jpeg',
+        'EMERALD': '/emerald.jpeg',
+        'DIAMOND': '/diamond.jpeg',
+        'UNICORN': '/unicorn.jpeg'
+    };
+    return tierImages[tier] || '/silver.jpeg';
+};
+
 export default function MiningRewardsPanel({ currentUserWallet }: { currentUserWallet?: string }) {
     const [showInfo, setShowInfo] = useState(false);
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
     const [copySuccess, setCopySuccess] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [userStats, setUserStats] = useState<UserStats | null>(null);
     
     // Sliders state (for potential earnings calculator)
     const [contentMined, setContentMined] = useState(0);
@@ -32,23 +47,39 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
     const mobileTierContainerRef = useRef<HTMLDivElement | null>(null);
     const mobileTierItemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
-    // No data until backend connection
-    const userStats = {
-        contentCreated: 0,
-        contentSold: 0,
-        roastEarned: 0,
-        usdValue: 0,
-        referralLink: currentUserWallet ? `https://yap.burnie.io?ref=${currentUserWallet.slice(0, 6)}` : 'No referral link available',
-        currentTier: 'PLATINUM' // Default to Platinum as miners need Platinum tier to run nodes
+    // Fetch user stats when wallet address is available
+    useEffect(() => {
+        fetchUserData();
+    }, [currentUserWallet]);
+
+    const fetchUserData = async () => {
+        if (!currentUserWallet) {
+            console.log('No wallet address available, using static data');
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const stats = await rewardsApi.getUserStats(currentUserWallet);
+            setUserStats(stats);
+        } catch (error) {
+            console.error('Error fetching user stats:', error);
+            // Component will use fallback static data
+        } finally {
+            setLoading(false);
+        }
     };
 
+    // Default tier is SILVER
+    const currentTier = userStats?.currentTier || 'SILVER';
+
     const mobileTiers = [
-        { name: "Tier 1: Silver", req: "0 Referrals or 0 points", selected: userStats?.currentTier === 'SILVER', image: "/silver.svg" },
-        { name: "Tier 2: Gold", req: "10 Referrals or 10,000 points", selected: userStats?.currentTier === 'GOLD', image: "/gold.svg" },
-        { name: "Tier 3: Platinum", req: "20 Referrals or 20,000 points", selected: userStats?.currentTier === 'PLATINUM', image: "/platinum.svg" },
-        { name: "Tier 4: Emerald", req: "50 Referrals or 50,000 points", selected: userStats?.currentTier === 'EMERALD', image: "/emeraldbadge.png" },
-        { name: "Tier 5: Diamond", req: "100 Referrals or 100,000 points", selected: userStats?.currentTier === 'DIAMOND', image: "/diamond.svg" },
-        { name: "Tier 6: Unicorn", req: "500 Referrals or 500,000 points", selected: userStats?.currentTier === 'UNICORN', image: "/unicorn.svg" },
+        { name: "Tier 1: Silver", req: "0 Referrals or 0 points", selected: currentTier === 'SILVER', image: "/silver.svg" },
+        { name: "Tier 2: Gold", req: "10 Referrals or 10,000 points", selected: currentTier === 'GOLD', image: "/gold.svg" },
+        { name: "Tier 3: Platinum", req: "20 Referrals or 20,000 points", selected: currentTier === 'PLATINUM', image: "/platinum.svg" },
+        { name: "Tier 4: Emerald", req: "50 Referrals or 50,000 points", selected: currentTier === 'EMERALD', image: "/emeraldbadge.png" },
+        { name: "Tier 5: Diamond", req: "100 Referrals or 100,000 points", selected: currentTier === 'DIAMOND', image: "/diamond.svg" },
+        { name: "Tier 6: Unicorn", req: "500 Referrals or 500,000 points", selected: currentTier === 'UNICORN', image: "/unicorn.svg" },
     ];
 
     return (
@@ -62,7 +93,7 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                         <div 
                             className="absolute right-0 top-0 w-full h-full"
                             style={{
-                                backgroundImage: `url('/platinum.jpeg')`,
+                                backgroundImage: `url('${getTierImage(currentTier)}')`,
                                 backgroundRepeat: "no-repeat",
                                 backgroundPosition: "right center",
                                 backgroundSize: "auto 100%",
@@ -100,7 +131,7 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                                 >
                                     <div className="text-xs md:text-sm text-white font-semibold">Content created</div>
                                     <div className="text-base md:text-2xl font-bold text-white">
-                                        {userStats.contentCreated > 0 ? userStats.contentCreated.toLocaleString() : 'No data'}
+                                        No data
                                     </div>
                                 </div>
 
@@ -117,7 +148,7 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                                 >
                                     <div className="text-xs md:text-sm text-white font-semibold">Content sold</div>
                                     <div className="text-base md:text-2xl font-bold text-white">
-                                        {userStats.contentSold > 0 ? userStats.contentSold.toLocaleString() : 'No data'}
+                                        No data
                                     </div>
                                 </div>
 
@@ -134,10 +165,10 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
                                 >
                                     <div className="text-xs md:text-sm text-white font-semibold">$ROAST earned</div>
                                     <div className="text-base md:text-2xl font-bold text-white">
-                                        {userStats.roastEarned > 0 ? formatRoastValue(userStats.roastEarned) : 'No data'}
+                                        No data
                                     </div>
                                     <div className="text-xs text-white/60 md:hidden sm:block">
-                                        {userStats.usdValue > 0 ? `≈ USD ${userStats.usdValue.toFixed(2)}` : '≈ USD 0.00'}
+                                        ≈ USD 0.00
                                     </div>
                                 </div>
                             </div>
@@ -290,40 +321,47 @@ export default function MiningRewardsPanel({ currentUserWallet }: { currentUserW
 
                     {/* Right side - Content */}
                     <div className="w-full flex flex-col gap-4">
-                        <h3 className="text-white text-xl lg:text-3xl font-bold">Grow and earn with friends</h3>
+                        <h3 className="text-white text-base lg:text-3xl font-bold">Grow and earn with friends</h3>
 
-                        <div className="flex flex-col gap-4">
-                            {/* 7.5% button */}
+                        {/* Content container */}
+                        <div className="flex flex-col gap-4 lg:gap-8">
+                            {/* 10% content button */}
                             <button
-                                className="w-full lg:w-11/12 px-4 py-2 flex items-center justify-start gap-3 text-black font-semibold rounded-full"
-                                style={{ background: "#94FB48" }}
+                                className="w-full max-w-full lg:w-11/12 px-2 lg:px-5 py-1.5 lg:py-2 flex items-center justify-start gap-2 lg:gap-3 text-black font-semibold rounded-sm lg:rounded-full"
+                                style={{
+                                    background: "#94FB48"
+                                }}
                             >
-                                <span className="text-lg">🎁</span>
-                                <span className="text-sm lg:text-base text-start">
-                                    Get upto 7.5% of all content sales from your referrals
-                                </span>
+                                <span> <GiftIcon className="w-3 lg:w-4 h-3 lg:h-4" /></span>
+                                <span className="text-xs lg:text-base w-full text-start">Get upto 10% of all content sales from your referrals</span>
                             </button>
 
-                            {/* Referral link */}
-                            <div className="w-full h-[50px] flex items-center justify-between px-3 py-2 rounded-md bg-[#00000066]">
+                            {/* Referral link container */}
+                            <div
+                                className="w-full max-w-full h-[44px] lg:h-[50px] flex items-center justify-between px-2 py-2 rounded-md bg-[#00000066]"
+                            >
                                 <input
                                     type="text"
-                                    value={loading ? "Loading..." : userStats.referralLink}
+                                    value={loading ? "Loading..." : userStats?.referralLink || "No referral link available"}
                                     readOnly
-                                    className="flex-1 bg-transparent text-white text-sm outline-none px-2"
+                                    className="flex-1 bg-transparent text-white text-xs lg:text-md outline-none px-1 lg:px-2"
                                 />
                                 <button
                                     onClick={() => {
-                                        const linkToCopy = userStats.referralLink;
-                                        if (!linkToCopy || linkToCopy === 'No referral link available') {
+                                        const linkToCopy = userStats?.referralLink || null;
+                                        if (!linkToCopy) {
                                             console.log('No referral link available to copy');
                                             return;
                                         }
-                                        navigator.clipboard.writeText(linkToCopy);
-                                        setCopySuccess(true);
-                                        setTimeout(() => setCopySuccess(false), 2000);
+                                        navigator.clipboard.writeText(linkToCopy).then(() => {
+                                            console.log('Referral link copied to clipboard');
+                                            setCopySuccess(true);
+                                            setTimeout(() => setCopySuccess(false), 2000);
+                                        }).catch(err => {
+                                            console.error('Failed to copy referral link: ', err);
+                                        });
                                     }}
-                                    className="px-4 py-2 text-white text-sm font-medium rounded-sm"
+                                    className="px-2 lg:px-4 py-1.5 lg:py-2 text-white text-xs lg:text-sm font-medium rounded-sm flex-shrink-0"
                                     style={{
                                         background: copySuccess ? "#22C55E" : "#FD7A10",
                                         boxShadow: copySuccess ? "0px 8px 20px 0px #22C55E80" : "0px 8px 20px 0px #FF9E4F80"

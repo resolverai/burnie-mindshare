@@ -169,9 +169,9 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
         {
             title: "Weekly leaderboard",
             description: [
-                "Top 50 yappers split 600K $ROAST every Monday",
+                "Top 50 yappers split 600K $ROAST every Tuesday",
                 "Proportional distribution based on weekly points",
-                "Leaderboard resets every Monday",
+                "Leaderboard resets every Tuesday",
             ]
         },
         {
@@ -198,7 +198,7 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
             description: [
                 "Top 5 sellers split 1M $ROAST (seller bonus)",
                 "450K uptime pool for all nodes with 95%+ uptime",
-                "Weekly snapshots every Monday 10 AM ET",
+                "Weekly snapshots every Tuesday 10 AM ET",
             ]
         },
         {
@@ -340,15 +340,15 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
                         </div>
                         <div>
                             <div className="text-white text-sm">Weekly Snapshots</div>
-                            <div className="font-semibold text-lg">Monday 10 AM ET</div>
+                            <div className="font-semibold text-lg">Tuesday 10 AM ET</div>
                         </div>
                         <div>
                             <div className="text-white text-sm">Start Date</div>
-                            <div className="font-semibold text-lg">16 Nov 2025</div>
+                            <div className="font-semibold text-lg">18 Nov 2025</div>
                         </div>
                         <div>
                             <div className="text-white text-sm">End Date</div>
-                            <div className="font-semibold text-lg">07 Dec 2025</div>
+                            <div className="font-semibold text-lg">09 Dec 2025</div>
                         </div>
                     </div>
                     <div className="flex items-center justify-center mt-4 md:mt-0">
@@ -526,10 +526,10 @@ export default function Season2CampaignComponent({ mixpanel, onWalletConnect }: 
                         <div className="bg-white/10 rounded-xl p-6">
                             <h3 className="text-white font-semibold text-lg mb-4">Weekly Snapshot Details</h3>
                             <div className="text-white/80 space-y-2 text-sm">
-                                <p>• <strong>Every Monday 10 AM ET:</strong> Top 50 yappers split 600K $ROAST</p>
+                                <p>• <strong>Every Tuesday 10 AM ET:</strong> Top 50 yappers split 600K $ROAST</p>
                                 <p>• <strong>Proportional Distribution:</strong> Higher rank = larger share</p>
-                                <p>• <strong>Leaderboard Resets:</strong> Fresh start every Monday</p>
-                                <p>• <strong>Daily Points:</strong> Accumulate throughout the week for Monday snapshot</p>
+                                <p>• <strong>Leaderboard Resets:</strong> Fresh start every Tuesday</p>
+                                <p>• <strong>Daily Points:</strong> Accumulate throughout the week for Tuesday snapshot</p>
                             </div>
                         </div>
                     </div>

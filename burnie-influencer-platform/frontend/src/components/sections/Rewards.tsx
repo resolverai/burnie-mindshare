@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import RewardsPanel from "@/components/sections/RewardsPanel";
 import MiningRewardsPanel from "@/components/sections/MiningRewardsPanel";
 import { rewardsApi, LeaderboardUser, TierLevel } from "@/services/rewardsApi";
@@ -602,7 +603,7 @@ function Podium({ topThreeUsers, loading }: { topThreeUsers: LeaderboardUser[], 
 }
 
 // Leaderboard table component
-function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { leaderboardUsers: LeaderboardUser[], loading: boolean, activeTimePeriod: "now" | "7d" | "1m" }) {
+function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { leaderboardUsers: LeaderboardUser[], loading: boolean, activeTimePeriod: "7d" | "1m" }) {
   // Use API data only - no dummy data
   const users = leaderboardUsers;
   const currentUser = users.find(user => user.isCurrentUser);
@@ -760,61 +761,138 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
   };
   
   const [activeTab, setActiveTab] = useState<"yapping-rewards" | "mining-rewards" | "yapping-leaderboard" | "mining-leaderboard">(getInitialTab());
-  const [activeTimePeriod, setActiveTimePeriod] = useState<"now" | "7d" | "1m">("now");
+  const [activeTimePeriod, setActiveTimePeriod] = useState<"7d" | "1m">("7d");
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+  const [somniaProjects, setSomniaProjects] = useState<Array<{ id: number; name: string }>>([]);
   const [leaderboardUsers, setLeaderboardUsers] = useState<LeaderboardUser[]>([]);
   const [topThreeUsers, setTopThreeUsers] = useState<LeaderboardUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [userStats, setUserStats] = useState<any>(null);
+  
+  // Dropdown refs
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
   
   // Mixpanel tracking
   const mixpanel = useMixpanel();
   const { getTimeSpentSeconds } = useTimeTracking();
   const tabStartTime = useRef<number>(Date.now());
 
-  // Fetch leaderboard data function
-  const fetchLeaderboardData = async () => {
+  // Fetch Somnia whitelisted projects
+  const fetchSomniaProjects = async () => {
     try {
-      setLoading(true);
-      const [leaderboard, topThree] = await Promise.all([
-        rewardsApi.getLeaderboard(activeTimePeriod, 50, 1),
-        rewardsApi.getTopThree(activeTimePeriod)
-      ]);
-      
-      // Mark current user in leaderboard data
-      const updatedLeaderboardUsers = leaderboard.users.map(user => ({
-        ...user,
-        isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
-      }));
-      
-      const updatedTopThree = topThree.map(user => ({
-        ...user,
-        isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
-      }));
-      
-      setLeaderboardUsers(updatedLeaderboardUsers);
-      setTopThreeUsers(updatedTopThree);
-
-      // Track leaderboard view
-      const currentUser = updatedLeaderboardUsers.find(user => user.isCurrentUser);
-      if (currentUser) {
-        mixpanel.leaderboardViewed({
-          timePeriod: activeTimePeriod,
-          userRank: currentUser.rank,
-          totalUsers: leaderboard.pagination.total,
-          userInTopThree: currentUser.rank <= 3,
-          screenName: 'Rewards',
-          timeSpent: getTimeSpentSeconds()
-        });
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/projects/somnia-whitelisted`);
+      if (response.ok) {
+        const projects = await response.json();
+        setSomniaProjects(projects);
       }
     } catch (error) {
-      console.error('Error fetching leaderboard data:', error);
-      // Set empty arrays on error - no dummy data
-      setLeaderboardUsers([]);
-      setTopThreeUsers([]);
+      console.error('Error fetching Somnia projects:', error);
+    }
+  };
+
+  // Fetch Season 2 Yapper leaderboard data
+  const fetchYapperLeaderboardData = async () => {
+    try {
+      setLoading(true);
+      const projectParam = selectedProjectId ? `&projectId=${selectedProjectId}` : '';
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/rewards/season2/yapper-leaderboard?period=${activeTimePeriod}${projectParam}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(localStorage.getItem('auth_token') && { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` })
+          }
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Mark current user in leaderboard data
+        const updatedLeaderboardUsers = data.users.map((user: any) => ({
+          ...user,
+          isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
+        }));
+        
+        const updatedTopThree = data.topThree.map((user: any) => ({
+          ...user,
+          isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
+        }));
+        
+        setLeaderboardUsers(updatedLeaderboardUsers);
+        setTopThreeUsers(updatedTopThree);
+      }
+    } catch (error) {
+      console.error('Error fetching yapper leaderboard:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  // Fetch Season 2 Miner leaderboard data
+  const fetchMinerLeaderboardData = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/rewards/season2/miner-leaderboard?period=${activeTimePeriod}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            ...(localStorage.getItem('auth_token') && { 'Authorization': `Bearer ${localStorage.getItem('auth_token')}` })
+          }
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Mark current user in leaderboard data
+        const updatedLeaderboardUsers = data.users.map((user: any) => ({
+          ...user,
+          isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
+        }));
+        
+        const updatedTopThree = data.topThree.map((user: any) => ({
+          ...user,
+          isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
+        }));
+        
+        setLeaderboardUsers(updatedLeaderboardUsers);
+        setTopThreeUsers(updatedTopThree);
+      }
+    } catch (error) {
+      console.error('Error fetching miner leaderboard:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch leaderboard data function
+  const fetchLeaderboardData = async () => {
+    if (activeTab === "yapping-leaderboard") {
+      await fetchYapperLeaderboardData();
+    } else if (activeTab === "mining-leaderboard") {
+      await fetchMinerLeaderboardData();
+    }
+  };
+
+  // Load Somnia projects on mount
+  useEffect(() => {
+    fetchSomniaProjects();
+  }, []);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (projectDropdownRef.current && !projectDropdownRef.current.contains(event.target as Node)) {
+        setIsProjectDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Fetch user stats on mount
   useEffect(() => {
@@ -865,12 +943,12 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
     }
   }, [userStats, activeTab, mixpanel, getTimeSpentSeconds]);
 
-  // Fetch leaderboard data when tab or time period changes
+  // Fetch leaderboard data when tab, time period, or project changes
   useEffect(() => {
     if (activeTab === "yapping-leaderboard" || activeTab === "mining-leaderboard") {
       fetchLeaderboardData();
     }
-  }, [activeTab, activeTimePeriod]); // Removed fetchLeaderboardData to prevent infinite loop
+  }, [activeTab, activeTimePeriod, selectedProjectId]);
 
   // Handle tab change with tracking
   const handleTabChange = (newTab: "yapping-rewards" | "mining-rewards" | "yapping-leaderboard" | "mining-leaderboard") => {
@@ -896,7 +974,7 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
   };
 
   // Handle time period change with tracking
-  const handleTimePeriodChange = (newPeriod: "now" | "7d" | "1m") => {
+  const handleTimePeriodChange = (newPeriod: "7d" | "1m") => {
     if (newPeriod === activeTimePeriod) return;
     
     const currentUser = leaderboardUsers.find(user => user.isCurrentUser);
@@ -986,49 +1064,97 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
 
       {/* Time Period Selector - Only show on leaderboard tabs */}
       {(activeTab === "yapping-leaderboard" || activeTab === "mining-leaderboard") && (
-        <div className="flex justify-center md:justify-end">
-          <div
-            className="flex gap-1 items-center"
-            style={{
-              borderRadius: "8px",
-              padding: "4px",
-              background: "#4a2323",
-              backdropFilter: "blur(10px)"
-            }}
-          >
-            <button
-              onClick={() => handleTimePeriodChange("now")}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xs text-sm font-medium transition-all duration-200 ${
-                activeTimePeriod === "now"
-                  ? "bg-[#220808] text-white shadow-lg"
-                  : "text-white/70 hover:text-white"
-              }`}
+        <div className="flex flex-col md:flex-row justify-end items-start md:items-center gap-4 px-4 lg:px-0">
+          {/* Project Dropdown - Only for Yapping Leaderboard */}
+          {activeTab === "yapping-leaderboard" && (
+            <div className="relative w-full md:w-auto" ref={projectDropdownRef}>
+              <button
+                onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
+                className="w-full md:w-64 px-4 py-2.5 rounded-lg text-sm font-medium bg-[#4a2323] text-white border border-white/10 hover:border-[#FD7A10]/50 transition-all flex items-center justify-between group"
+              >
+                <span className="truncate">
+                  {selectedProjectId 
+                    ? somniaProjects.find(p => p.id === selectedProjectId)?.name || 'All Somnia Projects'
+                    : 'All Somnia Projects'
+                  }
+                </span>
+                <Image
+                  src="/arrowdown.svg"
+                  alt="Arrow down"
+                  width={12}
+                  height={12}
+                  className={`transition-transform duration-200 flex-shrink-0 ml-2 ${isProjectDropdownOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              {isProjectDropdownOpen && (
+                <div className="absolute top-full left-0 mt-2 w-full md:min-w-[256px] bg-[#492222] border border-white/20 rounded-lg shadow-lg z-50 overflow-hidden">
+                  <button
+                    onClick={() => {
+                      setSelectedProjectId(null);
+                      setIsProjectDropdownOpen(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left transition-colors flex items-center gap-2 ${
+                      selectedProjectId === null 
+                        ? 'bg-[#743636] text-white font-semibold' 
+                        : 'text-white hover:bg-white/10'
+                    }`}
+                  >
+                    All Somnia Projects
+                  </button>
+                  {somniaProjects.map((project) => (
+                    <button
+                      key={project.id}
+                      onClick={() => {
+                        setSelectedProjectId(project.id);
+                        setIsProjectDropdownOpen(false);
+                      }}
+                      className={`w-full px-4 py-3 text-left transition-colors flex items-center gap-2 ${
+                        selectedProjectId === project.id 
+                          ? 'bg-[#743636] text-white font-semibold' 
+                          : 'text-white hover:bg-white/10'
+                      }`}
+                    >
+                      {project.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Time Period Buttons */}
+          <div className="flex justify-end w-full md:w-auto">
+            <div
+              className="flex gap-1 items-center"
+              style={{
+                borderRadius: "8px",
+                padding: "4px",
+                background: "#4a2323",
+                backdropFilter: "blur(10px)"
+              }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm4.2 14.2L11 13V7h1.5v5.2l4.5 2.7-.8 1.3z"/>
-              </svg>
-              Now
-            </button>
-            <button
-              onClick={() => handleTimePeriodChange("7d")}
-              className={`px-3 py-2 rounded-xs text-sm font-medium transition-all duration-200 ${
-                activeTimePeriod === "7d"
-                  ? "bg-[#220808] text-white shadow-lg"
-                  : "text-white/70 hover:text-white"
-              }`}
-            >
-              7D
-            </button>
-            <button
-              onClick={() => handleTimePeriodChange("1m")}
-              className={`px-3 py-2 rounded-xs text-sm font-medium transition-all duration-200 ${
-                activeTimePeriod === "1m"
-                  ? "bg-[#220808] text-white shadow-lg"
-                  : "text-white/70 hover:text-white"
-              }`}
-            >
-              1M
-            </button>
+              <button
+                onClick={() => handleTimePeriodChange("7d")}
+                className={`px-3 py-2 rounded-xs text-sm font-medium transition-all duration-200 ${
+                  activeTimePeriod === "7d"
+                    ? "bg-[#220808] text-white shadow-lg"
+                    : "text-white/70 hover:text-white"
+                }`}
+              >
+                7D
+              </button>
+              <button
+                onClick={() => handleTimePeriodChange("1m")}
+                className={`px-3 py-2 rounded-xs text-sm font-medium transition-all duration-200 ${
+                  activeTimePeriod === "1m"
+                    ? "bg-[#220808] text-white shadow-lg"
+                    : "text-white/70 hover:text-white"
+                }`}
+              >
+                1M
+              </button>
+            </div>
           </div>
         </div>
       )}

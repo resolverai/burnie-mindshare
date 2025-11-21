@@ -27,37 +27,37 @@ function CountdownBanner({ isAuthenticated }: { isAuthenticated: boolean }) {
       const now = new Date()
       const currentET = new Date(now.toLocaleString("en-US", {timeZone: "America/New_York"}))
       
-      // Season 2: First weekly snapshot is Monday, Nov 17, 2025 at 10 AM ET
-      const firstSnapshot = new Date(2025, 10, 17, 10, 0, 0, 0) // Month is 0-indexed, so 10 = November
+      // Season 2: First weekly snapshot is Tuesday, Nov 18, 2025 at 10 AM ET
+      const firstSnapshot = new Date(2025, 10, 18, 10, 0, 0, 0) // Month is 0-indexed, so 10 = November
       
       let nextSnapshot: Date
       
       if (currentET < firstSnapshot) {
-        // Before first snapshot - countdown to Nov 17th, 2025 10 AM ET
+        // Before first snapshot - countdown to Nov 18th, 2025 10 AM ET
         nextSnapshot = firstSnapshot
       } else {
-        // After first snapshot - weekly Monday 10 AM ET snapshots
+        // After first snapshot - weekly Tuesday 10 AM ET snapshots
         nextSnapshot = new Date(currentET)
         
-        // Get current day of week (0 = Sunday, 1 = Monday, 6 = Saturday)
+        // Get current day of week (0 = Sunday, 1 = Monday, 2 = Tuesday, 6 = Saturday)
         const dayOfWeek = currentET.getDay()
         
-        // Calculate days until next Monday
-        let daysUntilMonday = dayOfWeek === 0 ? 1 : (8 - dayOfWeek) % 7
-        if (daysUntilMonday === 0) daysUntilMonday = 7; // If today is Monday but past 10 AM
+        // Calculate days until next Tuesday
+        let daysUntilTuesday = (2 - dayOfWeek + 7) % 7
+        if (daysUntilTuesday === 0) daysUntilTuesday = 7; // If today is Tuesday but past 10 AM
         
-        // If today is Monday
-        if (dayOfWeek === 1) {
-          // If it's already past 10 AM, next snapshot is next Monday
+        // If today is Tuesday
+        if (dayOfWeek === 2) {
+          // If it's already past 10 AM, next snapshot is next Tuesday
           if (currentET.getHours() >= 10) {
-            daysUntilMonday = 7
+            daysUntilTuesday = 7
           } else {
-            daysUntilMonday = 0
+            daysUntilTuesday = 0
           }
         }
         
-        // Set to next Monday at 10 AM
-        nextSnapshot.setDate(nextSnapshot.getDate() + daysUntilMonday)
+        // Set to next Tuesday at 10 AM
+        nextSnapshot.setDate(nextSnapshot.getDate() + daysUntilTuesday)
         nextSnapshot.setHours(10, 0, 0, 0) // 10 AM ET
       }
       

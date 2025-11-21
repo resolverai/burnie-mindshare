@@ -45,6 +45,7 @@ import carouselRoutes from './routes/carousel';
 import filterOptionsRoutes from './routes/filterOptions';
 import referralRoutes from './routes/referrals';
 import rewardsRoutes from './routes/rewards';
+import season2RewardsRoutes from './routes/season2Rewards';
 import waitlistRoutes from './routes/waitlist';
 import twitterPostingRoutes from './routes/twitterPosting';
 import executionRoutes from './routes/execution';
@@ -145,6 +146,9 @@ app.use('/health', healthRoutes); // Direct health endpoint for frontend
 app.use('/api/health', healthRoutes);
 app.use('/api/miners', minerRoutes);
 app.use('/api/campaigns', campaignRoutes);
+// Mount Season 2 rewards routes before projects routes to avoid route conflicts
+// (somnia-whitelisted route must be matched before :id routes in projectRoutes)
+app.use('/api', season2RewardsRoutes); // Season 2 rewards and leaderboard routes
 // Mount projectAuthStatusRoutes BEFORE projectRoutes to avoid route conflicts
 // (my-project route must be matched before :id routes)
 app.use('/api/projects', projectAuthStatusRoutes);
