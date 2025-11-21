@@ -246,12 +246,15 @@ class SomniaDailyPointsYapperScript {
     const daysSinceLastRun = Math.ceil((now.getTime() - sinceTimestamp.getTime()) / (1000 * 60 * 60 * 24));
     const maxPostsAllowed = MAX_DAILY_POSTS_PER_PROJECT * daysSinceLastRun;
     
+    console.log(`  📝 Since timestamp: ${sinceTimestamp.toISOString()}, Now: ${now.toISOString()}`);
     console.log(`  📝 Days since last run: ${daysSinceLastRun}, Max posts allowed per project: ${maxPostsAllowed}`);
     
     for (const row of results) {
+      const actualPostCount = parseInt(row.post_count);
       // Cap based on number of days (3 posts per day × number of days)
-      const postCount = Math.min(parseInt(row.post_count), maxPostsAllowed);
+      const postCount = Math.min(actualPostCount, maxPostsAllowed);
       projectPostsMap.set(row.projectId, postCount);
+      console.log(`  📝 Project ${row.projectId}: Actual posts=${actualPostCount}, Capped posts=${postCount}, Points=${postCount * 100}`);
     }
     
     console.log(`  📝 Dreamathon posts by project: ${JSON.stringify(Array.from(projectPostsMap.entries()))}`);
@@ -608,7 +611,13 @@ class SomniaDailyPointsYapperScript {
     globalMilestonePoints: number,
     championBonusMap: Map<string, number>
   ): Promise<any> {
-    const sinceTimestamp = lastRecordedEntry ? lastRecordedEntry.createdAt : user.createdAt;
+    let sinceTimestamp = lastRecordedEntry ? lastRecordedEntry.createdAt : user.createdAt;
+    
+    // Ensure sinceTimestamp is never before campaign start date
+    // This prevents counting posts/impressions from before Season 2
+    if (sinceTimestamp < CAMPAIGN_START_DATE) {
+      sinceTimestamp = CAMPAIGN_START_DATE;
+    }
     
     // For NULL projectId (global-only users), skip project-specific points
     let dreamathonContentPoints = 0;
