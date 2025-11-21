@@ -30,12 +30,13 @@ const normalizeUser = (user: any): LeaderboardUser => ({
   name: user.name,
   tier: user.tier as TierLevel,
   mindshare: user.mindshare || 0,
+  impressions: user.impressions || user.totalImpressions || 0, // Season 2: absolute impressions
   totalReferrals: user.totalReferrals || user.referrals || 0,
   activeReferrals: user.activeReferrals || 0,
   totalPoints: user.totalPoints || user.points || 0,
   totalRoastEarned: user.totalRoastEarned || 0,
   totalDailyRewards: user.totalDailyRewards === 'TBD' ? 'TBD' : (user.totalDailyRewards || 0),
-  profileImageUrl: user.profileImageUrl || user.avatar,
+  profileImageUrl: user.profileImageUrl || user.profileImage || user.avatar, // Support multiple field names
   isCurrentUser: user.isCurrentUser || false
 });
 
@@ -695,7 +696,7 @@ function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { lea
                   currentUser?.tier === "PLATINUM" ? "bg-gray-500/20 text-gray-400" :
                     "bg-yellow-500/20 text-yellow-400"}`}>{currentUser?.tier}</span>
               </div>
-              <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.mindshare ? (currentUser.mindshare * 100).toFixed(1) : '0.0'}%</div>
+              <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.impressions?.toLocaleString() || '0'}</div>
               <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.activeReferrals?.toLocaleString() || '0'}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{currentUser?.totalPoints?.toLocaleString() || '0'}</div>
               <div className="hidden md:block text-white text-center text-sm w-28">
@@ -730,7 +731,7 @@ function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { lea
                   {user.tier}
                 </span>
               </div>
-              <div className="hidden md:block text-white text-center text-sm w-24">{(user.mindshare * 100).toFixed(1)}%</div>
+              <div className="hidden md:block text-white text-center text-sm w-24">{user.impressions?.toLocaleString() || '0'}</div>
               <div className="hidden md:block text-white text-center text-sm w-24">{user.activeReferrals.toLocaleString()}</div>
               <div className="text-white text-right md:text-center text-sm font-medium w-20">{user.totalPoints.toLocaleString()}</div>
               <div className="hidden md:block text-white text-center text-sm w-28">
@@ -809,13 +810,13 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
       if (response.ok) {
         const data = await response.json();
         
-        // Mark current user in leaderboard data
-        const updatedLeaderboardUsers = data.users.map((user: any) => ({
+        // Normalize and mark current user in leaderboard data
+        const updatedLeaderboardUsers = data.users.map((user: any) => normalizeUser({
           ...user,
           isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
         }));
         
-        const updatedTopThree = data.topThree.map((user: any) => ({
+        const updatedTopThree = data.topThree.map((user: any) => normalizeUser({
           ...user,
           isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
         }));
@@ -847,13 +848,13 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
       if (response.ok) {
         const data = await response.json();
         
-        // Mark current user in leaderboard data
-        const updatedLeaderboardUsers = data.users.map((user: any) => ({
+        // Normalize and mark current user in leaderboard data
+        const updatedLeaderboardUsers = data.users.map((user: any) => normalizeUser({
           ...user,
           isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
         }));
         
-        const updatedTopThree = data.topThree.map((user: any) => ({
+        const updatedTopThree = data.topThree.map((user: any) => normalizeUser({
           ...user,
           isCurrentUser: Boolean(currentUserWallet && user.walletAddress.toLowerCase() === currentUserWallet.toLowerCase())
         }));

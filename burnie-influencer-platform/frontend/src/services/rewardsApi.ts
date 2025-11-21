@@ -8,7 +8,8 @@ export interface LeaderboardUser {
   twitterHandle?: string;
   name?: string;
   tier: TierLevel;
-  mindshare: number;
+  mindshare: number; // Legacy field for backward compatibility
+  impressions?: number; // Season 2: absolute impression count
   totalReferrals: number;
   activeReferrals: number;
   totalPoints: number;
