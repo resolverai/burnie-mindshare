@@ -219,7 +219,8 @@ class SomniaDailyPointsYapperScript {
 
   /**
    * Get Dreamathon content posts for Somnia whitelisted projects since timestamp
-   * Returns map of projectId -> post count (max 3 projects counted)
+   * Returns map of projectId -> post count (max 3 posts per project per day)
+   * Caps based on number of days since last run
    */
   async getDreamathonPostsByProject(userId: number, sinceTimestamp: Date): Promise<Map<number, number>> {
     const query = `
@@ -240,8 +241,17 @@ class SomniaDailyPointsYapperScript {
     const results = await this.dataSource.query(query, [userId, sinceTimestamp]);
     const projectPostsMap = new Map<number, number>();
     
+    // Calculate days since last run (for capping posts)
+    const now = new Date();
+    const daysSinceLastRun = Math.ceil((now.getTime() - sinceTimestamp.getTime()) / (1000 * 60 * 60 * 24));
+    const maxPostsAllowed = MAX_DAILY_POSTS_PER_PROJECT * daysSinceLastRun;
+    
+    console.log(`  📝 Days since last run: ${daysSinceLastRun}, Max posts allowed per project: ${maxPostsAllowed}`);
+    
     for (const row of results) {
-      projectPostsMap.set(row.projectId, parseInt(row.post_count));
+      // Cap based on number of days (3 posts per day × number of days)
+      const postCount = Math.min(parseInt(row.post_count), maxPostsAllowed);
+      projectPostsMap.set(row.projectId, postCount);
     }
     
     console.log(`  📝 Dreamathon posts by project: ${JSON.stringify(Array.from(projectPostsMap.entries()))}`);
@@ -1021,11 +1031,21 @@ class SomniaDailyPointsYapperScript {
     // Print totals
     const totalRecords = this.allCalculations.length;
     const totalContent = this.allCalculations.reduce((sum, c) => sum + c.dreamathonContentPoints, 0);
-    const totalReferral = this.allCalculations.reduce((sum, c) => sum + c.referralPoints, 0);
-    const totalMilestone = this.allCalculations.reduce((sum, c) => sum + c.transactionMilestonePoints, 0);
     const totalChampion = this.allCalculations.reduce((sum, c) => sum + c.championBonusPoints, 0);
     const totalImpressions = this.allCalculations.reduce((sum, c) => sum + c.impressionsPoints, 0);
-    const totalDaily = this.allCalculations.reduce((sum, c) => sum + c.dailyPointsEarned, 0);
+    
+    // For referral and milestone points, only count once per user (not duplicated across projects)
+    const uniqueUsers = new Map<string, { referral: number; milestone: number }>();
+    for (const calc of this.allCalculations) {
+      if (!uniqueUsers.has(calc.walletAddress)) {
+        uniqueUsers.set(calc.walletAddress, { referral: calc.referralPoints, milestone: calc.transactionMilestonePoints });
+      }
+    }
+    const totalReferral = Array.from(uniqueUsers.values()).reduce((sum, u) => sum + u.referral, 0);
+    const totalMilestone = Array.from(uniqueUsers.values()).reduce((sum, u) => sum + u.milestone, 0);
+    
+    // Daily total = content + referral (once) + milestone (once) + champion + impressions
+    const totalDaily = totalContent + totalReferral + totalMilestone + totalChampion + totalImpressions;
     
     console.log('TOTALS:'.padEnd(45) + 
       `${totalRecords} recs`.padEnd(10) +
@@ -1043,8 +1063,8 @@ class SomniaDailyPointsYapperScript {
     console.log(`   Total Project Records: ${totalRecords}`);
     console.log(`   Avg Records per User: ${(totalRecords / walletMap.size).toFixed(2)}`);
     console.log(`   Total Content Points: ${totalContent}`);
-    console.log(`   Total Referral Points: ${totalReferral}`);
-    console.log(`   Total Milestone Points: ${totalMilestone}`);
+    console.log(`   Total Referral Points: ${totalReferral} (counted once per user)`);
+    console.log(`   Total Milestone Points: ${totalMilestone} (counted once per user)`);
     console.log(`   Total Champion Bonus: ${totalChampion}`);
     console.log(`   Total Impressions Points: ${totalImpressions}`);
     console.log(`   Total Daily Points: ${totalDaily}`);
