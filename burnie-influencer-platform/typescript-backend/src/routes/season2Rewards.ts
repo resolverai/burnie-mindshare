@@ -101,19 +101,38 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
     // Limit to top 100
     const topLeaderboard = leaderboardWithTotals.slice(0, 100);
 
-    // Get user tiers for each wallet
+    // Get user tiers for each wallet - use referral_codes for latest tier
     const walletAddresses = topLeaderboard.map((entry: any) => entry.walletAddress);
     const userTiersQuery = await AppDataSource.query(
-      `SELECT DISTINCT ON ("walletAddress") "walletAddress", tier 
-       FROM user_tiers 
+      `SELECT DISTINCT ON (LOWER("walletAddress")) 
+              LOWER("walletAddress") as "walletAddress", 
+              tier 
+       FROM referral_codes 
        WHERE LOWER("walletAddress") = ANY($1::text[])
-       ORDER BY "walletAddress", "createdAt" DESC`,
+       ORDER BY LOWER("walletAddress"), "updatedAt" DESC`,
       [walletAddresses.map((addr: string) => addr.toLowerCase())]
     );
 
     const tierMap: { [key: string]: string } = {};
     userTiersQuery.forEach((row: any) => {
-      tierMap[row.walletAddress.toLowerCase()] = row.tier;
+      tierMap[row.walletAddress] = row.tier;
+    });
+
+    // Get Twitter profile images from yapper_twitter_connections
+    const twitterProfilesQuery = await AppDataSource.query(
+      `SELECT 
+        u."walletAddress",
+        ytc."twitterProfileImage"
+       FROM yapper_twitter_connections ytc
+       INNER JOIN users u ON ytc."userId" = u.id
+       WHERE LOWER(u."walletAddress") = ANY($1::text[])
+         AND ytc."isConnected" = true`,
+      [walletAddresses.map((addr: string) => addr.toLowerCase())]
+    );
+
+    const profileImageMap: { [key: string]: string } = {};
+    twitterProfilesQuery.forEach((row: any) => {
+      profileImageMap[row.walletAddress.toLowerCase()] = row.twitterProfileImage;
     });
 
     // Get active referrals for each wallet
@@ -137,6 +156,7 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
       walletAddress: entry.walletAddress,
       twitterHandle: entry.twitterHandle,
       name: entry.name,
+      profileImage: profileImageMap[entry.walletAddress.toLowerCase()] || null,
       tier: tierMap[entry.walletAddress.toLowerCase()] || 'SILVER',
       totalPoints: Math.round(entry.totalPoints),
       dreamathonContentPoints: Math.round(parseFloat(entry.dreamathonContentPoints || 0)),
@@ -144,7 +164,9 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
       transactionMilestonePoints: Math.round(parseFloat(entry.transactionMilestonePoints || 0)),
       championBonusPoints: Math.round(parseFloat(entry.championBonusPoints || 0)),
       impressionsPoints: Math.round(parseFloat(entry.impressionsPoints || 0)),
-      mindshare: parseFloat(entry.totalImpressions || '0') / 1000000, // Convert to percentage
+      totalImpressions: parseInt(entry.totalImpressions || '0'), // Absolute number, not percentage
+      impressions: parseInt(entry.totalImpressions || '0'), // For display
+      mindshare: parseFloat(entry.totalImpressions || '0') / 1000000, // Keep for compatibility
       activeReferrals: referralsMap[entry.walletAddress.toLowerCase()] || 0,
       totalReferrals: referralsMap[entry.walletAddress.toLowerCase()] || 0,
       totalRoastEarned: parseFloat(entry.weeklyRewards || '0') + parseFloat(entry.grandPrizeRewards || '0'),
@@ -203,27 +225,33 @@ router.get('/rewards/season2/miner-leaderboard', async (req: Request, res: Respo
       .addSelect('MAX(miner.updatedAt)', 'lastUpdated')
       .groupBy('miner.walletAddress')
       .addGroupBy('miner.name')
-      .orderBy('totalValueSold', 'DESC')
-      .limit(100)
       .getRawMany();
 
-    // Get user tiers for each wallet
-    const walletAddresses = leaderboardData.map((entry: any) => entry.walletAddress);
+    // Sort by totalValueSold descending in JavaScript
+    leaderboardData.sort((a, b) => parseFloat(b.totalValueSold || '0') - parseFloat(a.totalValueSold || '0'));
+    
+    // Limit to top 100
+    const topMiners = leaderboardData.slice(0, 100);
+
+    // Get user tiers for each wallet - use referral_codes for latest tier
+    const walletAddresses = topMiners.map((entry: any) => entry.walletAddress);
     const userTiersQuery = await AppDataSource.query(
-      `SELECT DISTINCT ON ("walletAddress") "walletAddress", tier 
-       FROM user_tiers 
+      `SELECT DISTINCT ON (LOWER("walletAddress")) 
+              LOWER("walletAddress") as "walletAddress", 
+              tier 
+       FROM referral_codes 
        WHERE LOWER("walletAddress") = ANY($1::text[])
-       ORDER BY "walletAddress", "createdAt" DESC`,
+       ORDER BY LOWER("walletAddress"), "updatedAt" DESC`,
       [walletAddresses.map((addr: string) => addr.toLowerCase())]
     );
 
     const tierMap: { [key: string]: string } = {};
     userTiersQuery.forEach((row: any) => {
-      tierMap[row.walletAddress.toLowerCase()] = row.tier;
+      tierMap[row.walletAddress] = row.tier;
     });
 
     // Format leaderboard with ranks
-    const users = leaderboardData.map((entry: any, index: number) => ({
+    const users = topMiners.map((entry: any, index: number) => ({
       rank: index + 1,
       walletAddress: entry.walletAddress,
       name: entry.name,
