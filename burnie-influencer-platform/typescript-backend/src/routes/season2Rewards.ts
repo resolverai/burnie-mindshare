@@ -122,7 +122,7 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
     const twitterProfilesQuery = await AppDataSource.query(
       `SELECT 
         u."walletAddress",
-        ytc."twitterProfileImage"
+        ytc."profileImageUrl"
        FROM yapper_twitter_connections ytc
        INNER JOIN users u ON ytc."userId" = u.id
        WHERE LOWER(u."walletAddress") = ANY($1::text[])
@@ -132,7 +132,7 @@ router.get('/rewards/season2/yapper-leaderboard', async (req: Request, res: Resp
 
     const profileImageMap: { [key: string]: string } = {};
     twitterProfilesQuery.forEach((row: any) => {
-      profileImageMap[row.walletAddress.toLowerCase()] = row.twitterProfileImage;
+      profileImageMap[row.walletAddress.toLowerCase()] = row.profileImageUrl;
     });
 
     // Get active referrals for each wallet
