@@ -78,14 +78,14 @@ router.get('/user/:walletAddress', async (req: Request, res: Response) => {
     });
     const hasTwitterConnected = !!twitterConnection;
 
-    // Get all agent configurations for this user
+    // Get all agent configurations for this user (including inactive ones)
     const agentRepository = AppDataSource.getRepository(AgentConfiguration);
     const agents = await agentRepository.find({
-      where: { userId: user.id, isActive: true },
-      order: { createdAt: 'DESC' }
+      where: { userId: user.id },
+      order: { createdAt: 'ASC' } // Oldest first (for default agent selection)
     });
 
-    // Transform to frontend format - show only user's single agent
+    // Transform to frontend format - show all agents (including inactive)
     const transformedAgents = agents.map(agent => ({
       id: agent.id.toString(),
       name: agent.agentName, // Use the actual agent name, not the internal config name
@@ -103,7 +103,8 @@ router.get('/user/:walletAddress', async (req: Request, res: Response) => {
       config: agent.configuration || {},
       agentType: 'personalized_agent', // Always show as personalized agent
       createdAt: agent.createdAt,
-      lastUpdated: agent.updatedAt
+      lastUpdated: agent.updatedAt,
+      isActive: agent.isActive // Include isActive status
     }));
 
     logger.info(`✅ Found ${agents.length} agent(s) for user ${user.id}`);
@@ -868,6 +869,89 @@ router.put('/:agentId/update', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to update agent configuration',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * PUT /agents/:agentId/toggle-active
+ * Toggle agent active/inactive status
+ */
+router.put('/:agentId/toggle-active', async (req: Request, res: Response) => {
+  try {
+    const { agentId } = req.params;
+    const { isActive, wallet_address } = req.body;
+    
+    if (!agentId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Agent ID is required'
+      });
+    }
+
+    if (typeof isActive !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'isActive field is required and must be a boolean'
+      });
+    }
+
+    if (!wallet_address) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet address is required'
+      });
+    }
+    
+    logger.info(`🔄 Toggling agent ${agentId} active status to: ${isActive}`);
+
+    // Find user by wallet address
+    const userRepository = AppDataSource.getRepository(User);
+    const user = await userRepository.findOne({ 
+      where: { walletAddress: wallet_address.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Find the specific agent and verify ownership
+    const agentRepository = AppDataSource.getRepository(AgentConfiguration);
+    const agent = await agentRepository.findOne({
+      where: { id: parseInt(agentId), userId: user.id }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        error: 'Agent not found or you do not have permission to modify it'
+      });
+    }
+
+    // Toggle the active status
+    agent.isActive = isActive;
+    const updatedAgent = await agentRepository.save(agent);
+
+    logger.info(`✅ Successfully ${isActive ? 'activated' : 'deactivated'} agent ${agentId}`);
+
+    return res.json({
+      success: true,
+      message: `Agent ${isActive ? 'activated' : 'deactivated'} successfully`,
+      data: {
+        id: updatedAgent.id.toString(),
+        isActive: updatedAgent.isActive
+      }
+    });
+
+  } catch (error) {
+    logger.error(`❌ Error toggling agent ${req.params.agentId} active status:`, error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to toggle agent status',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
   }

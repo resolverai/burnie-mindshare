@@ -204,11 +204,13 @@ async function reregisterContent(
     let fileUrl: string | null = null;
     let s3Key: string | null = null;
     
-    // Priority: contentImages > videoUrl
-    if (content.contentImages && Array.isArray(content.contentImages) && content.contentImages.length > 0) {
-      fileUrl = content.contentImages[0];
-    } else if (content.videoUrl) {
+    // Priority: videoUrl > contentImages (videos are the primary content if available)
+    if (content.videoUrl) {
       fileUrl = content.videoUrl;
+      logger.info(`📹 Using video for re-registration: ${fileUrl}`);
+    } else if (content.contentImages && Array.isArray(content.contentImages) && content.contentImages.length > 0) {
+      fileUrl = content.contentImages[0];
+      logger.info(`🖼️ Using image for re-registration: ${fileUrl}`);
     }
     
     if (!fileUrl) {

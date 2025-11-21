@@ -145,6 +145,16 @@ export class Campaign {
   @Column({ type: 'text', nullable: true })
   brandGuidelines?: string
 
+  // Admin-provided context for content generation
+  @Column({ type: 'jsonb', nullable: true })
+  documents_text?: any // Array of { name, url, text, timestamp, type }
+
+  @Column({ type: 'jsonb', nullable: true })
+  document_urls?: string[] // Array of S3 keys
+
+  @Column({ type: 'jsonb', nullable: true })
+  color_palette?: { primary?: string; secondary?: string; accent?: string }
+
   @Column({ type: 'decimal', precision: 10, scale: 4, nullable: true })
   predictedMindshare?: number
 

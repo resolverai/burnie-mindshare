@@ -70,6 +70,7 @@ import web2ContextManagementRoutes from './routes/web2ContextManagement';
 const web2GeneratedContentRoutes = require('./routes/web2GeneratedContent');
 import cacheRoutes from './routes/cache';
 import networkRoutes from './routes/networkRoutes';
+import miningContextRoutes from './routes/miningContext';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
 import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
@@ -181,6 +182,7 @@ app.use('/api/referrals', referralRoutes); // Referral system routes
 app.use('/api/rewards', rewardsRoutes); // Rewards and leaderboard routes
 app.use('/api/waitlist', waitlistRoutes); // Waitlist management routes
 app.use('/api/network', networkRoutes); // Network selection and Somnia integration routes
+app.use('/api/mining-context', miningContextRoutes); // Mining context management for user-controlled campaign context
 app.use('/api/twitter', twitterPostingRoutes); // Twitter posting and management routes
 app.use('/api/execution', executionRoutes); // Execution tracking for yapper interface
 app.use('/api/yapper-interface', yapperInterfaceRoutes); // Yapper interface content generation

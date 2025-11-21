@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccount } from 'wagmi'
 import { 
   PlusIcon, BeakerIcon, CpuChipIcon, AcademicCapIcon,
-  ArrowPathIcon, SparklesIcon, FireIcon, PencilIcon, LinkIcon
+  ArrowPathIcon, SparklesIcon, FireIcon, PencilIcon, LinkIcon,
+  PowerIcon
 } from '@heroicons/react/24/outline'
 import { CreateAgentModal } from './CreateAgentModal'
 
@@ -26,6 +27,7 @@ interface PersonalizedAgent {
   agentType?: string;
   createdAt?: string;
   lastUpdated?: string;
+  isActive?: boolean;
 }
 
 function Agents() {
@@ -311,6 +313,39 @@ function Agents() {
     }
   })
 
+  // Agent activation/deactivation mutation
+  const toggleAgentActiveMutation = useMutation({
+    mutationFn: async ({ agentId, isActive }: { agentId: string; isActive: boolean }) => {
+      if (!address) throw new Error('No wallet connected')
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BURNIE_API_URL || 'http://localhost:3001/api'}/agents/${agentId}/toggle-active`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          isActive,
+          wallet_address: address,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to toggle agent status')
+      }
+
+      return response.json()
+    },
+    onSuccess: () => {
+      // Refresh agent list after toggling status
+      queryClient.invalidateQueries({ queryKey: ['user-agents', address] })
+      console.log('✅ Agent status toggled successfully')
+    },
+    onError: (error: Error) => {
+      console.error('❌ Failed to toggle agent status:', error.message)
+    }
+  })
+
   const handleCreateAgent = (agentData: any) => {
     setShowCreateAgent(false)
     setEditingAgent(null)
@@ -333,6 +368,13 @@ function Agents() {
 
   const handleTwitterReconnect = () => {
     twitterReconnectMutation.mutate()
+  }
+
+  const handleToggleAgentActive = (agentId: string, currentStatus: boolean) => {
+    toggleAgentActiveMutation.mutate({ 
+      agentId, 
+      isActive: !currentStatus 
+    })
   }
 
   // Helper function to get agent analytics data for a specific agent
@@ -459,7 +501,26 @@ function Agents() {
               const agentLearningStatus = agentLearningStatuses.data?.[agent.id]
               
               return (
-                <div key={agent.id} className="bg-gradient-to-br from-gray-800/60 to-gray-900/60 backdrop-blur-sm border border-gray-700/50 rounded-xl p-6">
+                <div 
+                  key={agent.id} 
+                  className={`bg-gradient-to-br from-gray-800/60 to-gray-900/60 backdrop-blur-sm border rounded-xl p-6 ${
+                    agent.isActive === false 
+                      ? 'border-gray-700/30 opacity-60' 
+                      : 'border-gray-700/50'
+                  }`}
+                >
+                  {/* Deactivated Agent Banner */}
+                  {agent.isActive === false && (
+                    <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-600/30 rounded-lg">
+                      <div className="flex items-center space-x-2 text-yellow-400">
+                        <PowerIcon className="w-5 h-5" />
+                        <p className="text-sm font-medium">
+                          Agent Deactivated - This agent will not be used for content generation
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  
                   {/* Per-Agent Learning Status - Only show for regular miners */}
                   {!isDedicatedMiner && agentLearningStatus && (
                     <div className="mb-4 p-3 bg-gray-800/40 rounded-lg border border-gray-700/30">
@@ -549,11 +610,37 @@ function Agents() {
                         {/* Edit Agent Button */}
                         <button
                           onClick={() => handleEditAgent(agent)}
-                          className="flex items-center space-x-2 px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm rounded-lg transition-colors"
+                          disabled={agent.isActive === false}
+                          className="flex items-center space-x-2 px-3 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors"
                           title="Edit Agent"
                         >
                           <PencilIcon className="w-4 h-4" />
                           <span>Edit</span>
+                        </button>
+                        
+                        {/* Activate/Deactivate Button */}
+                        <button
+                          onClick={() => handleToggleAgentActive(agent.id, agent.isActive !== false)}
+                          disabled={toggleAgentActiveMutation.isPending}
+                          className={`flex items-center space-x-2 px-3 py-2 text-white text-sm rounded-lg transition-colors ${
+                            agent.isActive === false 
+                              ? 'bg-green-600 hover:bg-green-700 disabled:bg-green-700' 
+                              : 'bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-700'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          title={agent.isActive === false ? 'Activate Agent' : 'Deactivate Agent'}
+                        >
+                          {toggleAgentActiveMutation.isPending ? (
+                            <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <PowerIcon className="w-4 h-4" />
+                          )}
+                          <span>
+                            {toggleAgentActiveMutation.isPending 
+                              ? 'Processing...' 
+                              : agent.isActive === false 
+                                ? 'Activate' 
+                                : 'Deactivate'}
+                          </span>
                         </button>
                         
                         {/* Twitter Re-connect Button - Only show for regular miners */}

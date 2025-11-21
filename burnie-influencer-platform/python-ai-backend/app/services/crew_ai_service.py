@@ -64,6 +64,7 @@ from app.utils.mindshare_predictor import MindsharePredictor
 from app.services.llm_content_generators import unified_generator, UnifiedContentGenerator
 from app.tools.video_creation_tool import VideoCreationTool
 from app.tools.crew_video_creation_tool import CrewVideoCreationTool
+from app.services.mining_context_service import gather_miner_context
 
 logger = logging.getLogger(__name__)
 
@@ -395,6 +396,22 @@ class CrewAIService:
                     
                     self.model_preferences = model_prefs
                     
+                    # FOR DEDICATED MINERS: Always override image model to nano-banana/edit
+                    is_dedicated_miner = getattr(self.mining_session, 'source', None) == 'dedicated_miner'
+                    if is_dedicated_miner:
+                        logger.info(f"🔥 DEDICATED MINER DETECTED - Overriding image model to nano-banana/edit")
+                        self.model_preferences['image'] = {
+                            'provider': 'fal',
+                            'model': 'fal-ai/nano-banana/edit'
+                        }
+                        # Also ensure text uses Grok for dedicated miners
+                        if 'text' not in self.model_preferences or not self.model_preferences['text']:
+                            logger.info(f"🔥 DEDICATED MINER - Setting text model to grok-4-latest")
+                            self.model_preferences['text'] = {
+                                'provider': 'xai',
+                                'model': 'grok-4-latest'
+                            }
+                    
                     # Debug: Log the extracted model preferences
                     logger.info(f"🔧 Extracted model preferences: {json.dumps(self.model_preferences, indent=2)}")
                     
@@ -408,9 +425,19 @@ class CrewAIService:
                 else:
                     logger.warning(f"⚠️ No configuration found for agent {agent_id}")
                     self.model_preferences = self._get_default_model_preferences()
+                    
+                    # FOR DEDICATED MINERS: Ensure nano-banana/edit is set
+                    is_dedicated_miner = getattr(self.mining_session, 'source', None) == 'dedicated_miner'
+                    if is_dedicated_miner:
+                        logger.info(f"🔥 DEDICATED MINER (no config) - Setting defaults: nano-banana/edit + grok-4-latest")
             else:
                 self.user_agent_config = None
                 self.model_preferences = self._get_default_model_preferences()
+                
+                # FOR DEDICATED MINERS: Ensure nano-banana/edit is set
+                is_dedicated_miner = getattr(self.mining_session, 'source', None) == 'dedicated_miner'
+                if is_dedicated_miner:
+                    logger.info(f"🔥 DEDICATED MINER (no agent_id) - Setting defaults: nano-banana/edit + grok-4-latest")
             
             # Get Twitter insights for this agent
             self.twitter_insights = {}
@@ -477,12 +504,25 @@ class CrewAIService:
 
     def _get_default_model_preferences(self):
         """Get default model preferences if user hasn't configured any"""
-        return {
-            'text': {'provider': 'openai', 'model': 'gpt-4o'},
-            'image': {'provider': 'openai', 'model': 'dall-e-3'},
-            'video': {'provider': 'google', 'model': 'veo-3'},
-            'audio': {'provider': 'openai', 'model': 'tts-1-hd'}
-        }
+        # Check if this is a dedicated miner
+        is_dedicated_miner = getattr(self.mining_session, 'source', None) == 'dedicated_miner'
+        
+        if is_dedicated_miner:
+            # For dedicated miners, always use these defaults
+            return {
+                'text': {'provider': 'xai', 'model': 'grok-4-latest'},
+                'image': {'provider': 'fal', 'model': 'fal-ai/nano-banana/edit'},
+                'video': {'provider': 'google', 'model': 'veo-3'},
+                'audio': {'provider': 'openai', 'model': 'tts-1-hd'}
+            }
+        else:
+            # For regular miners and yapper interface
+            return {
+                'text': {'provider': 'openai', 'model': 'gpt-4o'},
+                'image': {'provider': 'openai', 'model': 'dall-e-3'},
+                'video': {'provider': 'google', 'model': 'veo-3'},
+                'audio': {'provider': 'openai', 'model': 'tts-1-hd'}
+            }
 
     async def _validate_api_keys(self) -> List[str]:
         """Validate that text generation API key is available (required) and log optional content types"""
@@ -715,83 +755,332 @@ class CrewAIService:
             logger.error(f"❌ Error getting campaign context: {e}")
             return "Campaign context unavailable"
 
-    async def _fetch_complete_campaign_context(self, campaign_id: int):
-        """Fetch complete campaign context from database instead of relying on frontend data"""
-
+    def _build_comprehensive_context_string(self) -> str:
+        """
+        Build comprehensive context string combining all sources.
+        
+        Includes:
+        - Admin context (campaigns/projects)
+        - User-specific context (user_mining_context)
+        - Document summaries
+        - Live search results
+        - Links and platform handles
+        
+        Handles all null/None values gracefully with empty string defaults.
+        """
         try:
-            logger.info(f"🔍 Fetching complete campaign context from database for campaign {campaign_id}")
+            context_parts = []
             
-
-            # Fetch campaign data from database
-            campaign_data = self.campaign_repo.get_campaign_by_id(campaign_id)
-
+            # Get comprehensive context if available (with safe defaults)
+            comp_ctx = getattr(self, 'comprehensive_context', {}) or {}
+            campaign_data = getattr(self, 'campaign_data', {}) or {}
             
-            if not campaign_data:
-
-                logger.error(f"❌ Campaign {campaign_id} not found in database")
-                return
+            # 1. CAMPAIGN INFO
+            context_parts.append(f"=== CAMPAIGN INFORMATION ===")
+            context_parts.append(f"Campaign: {campaign_data.get('title') or 'N/A'}")
+            context_parts.append(f"Project: {campaign_data.get('projectName') or 'N/A'}")
             
-
+            token_ticker = campaign_data.get('tokenTicker') or ''
+            if token_ticker and token_ticker != 'N/A':
+                context_parts.append(f"Token: ${token_ticker}")
             
-            logger.info(f"✅ Campaign data fetched: {campaign_data.get('title', 'Unknown')}")
+            project_handle = campaign_data.get('projectTwitterHandle') or ''
+            if project_handle:
+                context_parts.append(f"Twitter: {project_handle}")
             
-            # Extract all campaign information
-            campaign_context = {
-                'id': campaign_data.get('id'),
-                'title': campaign_data.get('title', ''),
-                'description': campaign_data.get('description', ''),
-                'category': campaign_data.get('category', ''),
-                'campaign_type': campaign_data.get('campaignType', ''),
-                'topic': campaign_data.get('category', ''),
-                'guidelines': campaign_data.get('brandGuidelines', ''),
-                'winner_reward': campaign_data.get('rewardPool', ''),
-                'platform_source': campaign_data.get('platformSource', 'twitter'),
+            description = campaign_data.get('description') or ''
+            if description:
+                context_parts.append(f"\nProject Description:\n{description}")
+            
+            guidelines = campaign_data.get('guidelines') or ''
+            if guidelines:
+                context_parts.append(f"\nBrand Guidelines:\n{guidelines}")
+            
+            # 2. USER-SPECIFIC CONTEXT (if available)
+            if comp_ctx.get('has_user_context'):
+                context_parts.append(f"\n=== PERSONALIZED CONTEXT ===")
                 
-                # Project information from campaigns table
-                'projectId': campaign_data.get('projectId'),
-                'projectName': campaign_data.get('projectName', ''),
-                'projectLogo': campaign_data.get('projectLogo', ''),
-                'tokenTicker': campaign_data.get('tokenTicker', ''),
-                'projectTwitterHandle': campaign_data.get('projectTwitterHandle', ''),
-            }
+                brand_values = comp_ctx.get('brand_values') or ''
+                if brand_values:
+                    context_parts.append(f"Project Details:\n{brand_values}")
+                
+                details_text = comp_ctx.get('details_text') or ''
+                if details_text:
+                    context_parts.append(f"\nDetails:\n{details_text}")
+                
+                keywords = comp_ctx.get('keywords') or ''
+                if keywords:
+                    context_parts.append(f"\nKeywords: {keywords}")
+                
+                goals = comp_ctx.get('goals') or ''
+                if goals:
+                    context_parts.append(f"\nGoals: {goals}")
+                
+                competitors = comp_ctx.get('competitors') or ''
+                if competitors:
+                    context_parts.append(f"\nCompetitors: {competitors}")
             
-
-            print(f"  - projectId: {campaign_context.get('projectId')}")
-            print(f"  - projectName: {campaign_context.get('projectName')}")
-            print(f"  - projectTwitterHandle from campaigns table: {campaign_context.get('projectTwitterHandle')}")
+            # 3. ADMIN DOCUMENTS (from campaigns table)
+            admin_documents = comp_ctx.get('admin_documents_text') or []
+            admin_documents = admin_documents if isinstance(admin_documents, list) else []
+            if admin_documents and len(admin_documents) > 0:
+                context_parts.append(f"\n=== ADMIN DOCUMENTS ({len(admin_documents)}) ===")
+                context_parts.append("(Official project documentation)")
+                for doc in admin_documents[:5]:  # Limit to 5 most recent
+                    doc_name = doc.get('name') or 'Unknown'
+                    doc_text = doc.get('text') or ''
+                    doc_timestamp = doc.get('timestamp') or 'Unknown'
+                    if doc_text:
+                        context_parts.append(f"\n[{doc_name}] (uploaded: {doc_timestamp}):")
+                        context_parts.append(f"{doc_text}")  # Full text, no truncation
             
-            # If no Twitter handle in campaigns table, fetch it from project_twitter_data table
-            project_id = campaign_context.get('projectId')
-            if project_id and not campaign_context.get('projectTwitterHandle'):
-
-                try:
-                    # Fetch Twitter handle from project_twitter_data table
-                    from app.services.project_twitter_integration import project_twitter_integration
-                    twitter_handle = await project_twitter_integration.get_project_twitter_handle(int(project_id))
-
-                    
-                    if twitter_handle:
-                        campaign_context['projectTwitterHandle'] = twitter_handle
-                except Exception as e:
-                    logger.error(f"❌ Error fetching Twitter handle for project {project_id}: {e}")
+            # 4. USER DOCUMENTS (with decay applied, sorted by timestamp descending)
+            documents = comp_ctx.get('documents_text') or []
+            documents = documents if isinstance(documents, list) else []
+            if documents and len(documents) > 0:
+                # Sort by timestamp descending (latest first)
+                sorted_docs = sorted(
+                    documents,
+                    key=lambda x: x.get('timestamp', '') or '',
+                    reverse=True
+                )
+                context_parts.append(f"\n=== USER-PROVIDED DOCUMENTS ({len(sorted_docs)}) ===")
+                context_parts.append("(Sorted by timestamp - latest first for prioritization)")
+                for doc in sorted_docs[:5]:  # Limit to 5 most recent
+                    doc_name = doc.get('name') or 'Unknown'
+                    doc_text = doc.get('text') or ''
+                    doc_timestamp = doc.get('timestamp') or 'Unknown'
+                    if doc_text:
+                        context_parts.append(f"\n[{doc_name}] (Uploaded: {doc_timestamp}):\n{doc_text}")  # FULL document text
             
-
-
-
+            # 4. LIVE SEARCH RESULTS (sorted by timestamp descending)
+            live_search = comp_ctx.get('live_search_data') or {}
+            live_search = live_search if isinstance(live_search, dict) else {}
+            if live_search:
+                # Web search results
+                web_context = live_search.get('web_context') or {}
+                web_context = web_context if isinstance(web_context, dict) else {}
+                if web_context:
+                    context_parts.append(f"\n=== LIVE WEB SEARCH ({len(web_context)} sources) ===")
+                    context_parts.append("(Latest information from provided links)")
+                    web_items = list(web_context.items())
+                    for domain, summary in web_items[:3]:  # Top 3
+                        if domain and summary:
+                            context_parts.append(f"\n[{domain}]:\n{summary}")  # FULL summary
+                
+                # Twitter search results
+                twitter_context = live_search.get('twitter_context') or {}
+                twitter_context = twitter_context if isinstance(twitter_context, dict) else {}
+                if twitter_context:
+                    context_parts.append(f"\n=== LIVE TWITTER SEARCH ({len(twitter_context)} handles) ===")
+                    context_parts.append("(Latest discussions from Twitter handles)")
+                    twitter_items = list(twitter_context.items())
+                    for handle, summary in twitter_items[:3]:  # Top 3
+                        if handle and summary:
+                            context_parts.append(f"\n[{handle}]:\n{summary}")  # FULL summary
             
-            # Store in mining session
-            if hasattr(self, 'mining_session') and self.mining_session:
-                self.mining_session.campaign_context = campaign_context
-                logger.info(f"✅ Updated mining session with database campaign context")
+            # 5. PLATFORM HANDLES
+            platform_handles = comp_ctx.get('platform_handles') or {}
+            platform_handles = platform_handles if isinstance(platform_handles, dict) else {}
+            if platform_handles:
+                twitter_handles = platform_handles.get('twitter') or []
+                twitter_handles = twitter_handles if isinstance(twitter_handles, list) else []
+                if twitter_handles:
+                    context_parts.append(f"\n=== TWITTER HANDLES ===")
+                    context_parts.append(", ".join([h for h in twitter_handles[:5] if h]))
             
-            # Store for easy access
-            self.campaign_data = campaign_context
+            # 6. LINKS
+            links = comp_ctx.get('links') or []
+            links = links if isinstance(links, list) else []
+            if links:
+                context_parts.append(f"\n=== REFERENCE LINKS ({len(links)}) ===")
+                for link in links[:5]:  # Top 5
+                    url = link.get('url', '') if isinstance(link, dict) else link
+                    if url:
+                        context_parts.append(f"- {url}")
             
-            # Fetch fresh Twitter data if project ID is available (with daily limit protection)
-            project_id = campaign_context.get('projectId')
+            # 7. COLOR PALETTE
+            color_palette = comp_ctx.get('color_palette') or {}
+            color_palette = color_palette if isinstance(color_palette, dict) else {}
+            if color_palette:
+                context_parts.append(f"\n=== BRAND COLORS ===")
+                primary = color_palette.get('primary') or ''
+                if primary:
+                    context_parts.append(f"Primary: {primary}")
+                secondary = color_palette.get('secondary') or ''
+                if secondary:
+                    context_parts.append(f"Secondary: {secondary}")
+                accent = color_palette.get('accent') or ''
+                if accent:
+                    context_parts.append(f"Accent: {accent}")
+            
+            final_context = "\n".join(context_parts)
+            logger.info(f"✅ Built comprehensive context: {len(final_context)} characters")
+            
+            return final_context
             
         except Exception as e:
-            logger.error(f"❌ Error fetching complete campaign context: {e}")
+            logger.error(f"❌ Error building comprehensive context: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Fallback to basic context
+            return self._get_campaign_context()
+
+    async def _fetch_complete_campaign_context(self, campaign_id: int):
+        """
+        Fetch comprehensive campaign context using new mining context service.
+        
+        Combines:
+        1. Admin context (campaigns + projects)
+        2. User-specific context (user_mining_context) 
+        3. Document decay
+        4. Live search (links + Twitter handles)
+        """
+        try:
+            logger.info("=" * 80)
+            logger.info(f"🔍 FETCHING COMPREHENSIVE MINING CONTEXT")
+            logger.info(f"   Campaign ID: {campaign_id}")
+            logger.info(f"   User ID: {getattr(self, 'user_id', 'N/A')}")
+            logger.info("=" * 80)
+            
+            # Get user_id from user_data or mining_session
+            user_id = getattr(self, 'user_id', None)
+            if not user_id and hasattr(self, 'user_data') and self.user_data:
+                user_id = self.user_data.get('id')
+            if not user_id and hasattr(self, 'mining_session') and self.mining_session:
+                user_id = self.mining_session.user_id
+            
+            if not user_id:
+                logger.warning("⚠️ No user_id available, fetching admin context only")
+                # Fallback to basic campaign data
+                campaign_data = self.campaign_repo.get_campaign_by_id(campaign_id)
+                if not campaign_data:
+                    logger.error(f"❌ Campaign {campaign_id} not found")
+                    return
+                
+                self.campaign_data = campaign_data
+                self.comprehensive_context = {}
+                logger.info(f"✅ Basic campaign context loaded (no user context)")
+                return
+            
+            # Use new mining context service to gather comprehensive context
+            comprehensive_context = await gather_miner_context(user_id, campaign_id)
+            
+            if not comprehensive_context:
+                logger.error(f"❌ Failed to gather mining context")
+                return
+            
+            # Store comprehensive context for agents
+            self.comprehensive_context = comprehensive_context
+            
+            # Print detailed context breakdown
+            print("\n" + "=" * 80)
+            print("📊 COMPREHENSIVE CONTEXT BREAKDOWN")
+            print("=" * 80)
+            
+            # Admin context
+            print("\n🏢 ADMIN CONTEXT (from campaigns/projects):")
+            print(f"   - Project Name: {comprehensive_context.get('project_name', 'N/A')}")
+            print(f"   - Description: {len(comprehensive_context.get('description', '') or '')} chars")
+            print(f"   - Brand Guidelines: {len(comprehensive_context.get('brand_guidelines', '') or '')} chars")
+            color_palette = comprehensive_context.get('color_palette', {})
+            print(f"   - Color Palette: {color_palette}")
+            admin_docs = comprehensive_context.get('admin_documents_text', [])
+            print(f"   - Admin Documents: {len(admin_docs)} docs")
+            if admin_docs:
+                for idx, doc in enumerate(admin_docs[:3]):
+                    doc_name = doc.get('name', 'Unknown') if isinstance(doc, dict) else 'Unknown'
+                    doc_text_len = len(doc.get('text', '') or '') if isinstance(doc, dict) else 0
+                    print(f"     • {doc_name}: {doc_text_len} chars")
+            
+            # User-specific context
+            print("\n👤 USER-SPECIFIC CONTEXT (from user_mining_context):")
+            user_ctx = comprehensive_context.get('user_context', {})
+            print(f"   - Brand Values: {len(user_ctx.get('brand_values', '') or '')} chars")
+            print(f"   - Details Text: {len(user_ctx.get('details_text', '') or '')} chars")
+            print(f"   - Content Text: {len(user_ctx.get('content_text', '') or '')} chars")
+            print(f"   - Keywords: {user_ctx.get('keywords', 'N/A')}")
+            print(f"   - Goals: {len(user_ctx.get('goals', '') or '')} chars")
+            
+            # User documents
+            user_docs = comprehensive_context.get('documents_text', [])
+            print(f"   - User Documents: {len(user_docs)} docs (after decay)")
+            if user_docs:
+                for idx, doc in enumerate(user_docs[:3]):
+                    doc_name = doc.get('name', 'Unknown') if isinstance(doc, dict) else 'Unknown'
+                    doc_text_len = len(doc.get('text', '') or '') if isinstance(doc, dict) else 0
+                    doc_timestamp = doc.get('timestamp', 'N/A') if isinstance(doc, dict) else 'N/A'
+                    print(f"     • {doc_name}: {doc_text_len} chars (uploaded: {doc_timestamp})")
+            
+            # Links
+            links = comprehensive_context.get('links', [])
+            print(f"\n🔗 LINKS FOR LIVE SEARCH: {len(links)} links")
+            if links:
+                for idx, link in enumerate(links[:3]):
+                    link_url = link.get('url', 'N/A') if isinstance(link, dict) else 'N/A'
+                    print(f"     • {link_url}")
+            
+            # Platform handles
+            platform_handles = comprehensive_context.get('platform_handles', {})
+            twitter_handles = platform_handles.get('twitter', []) if isinstance(platform_handles, dict) else []
+            print(f"\n🐦 TWITTER HANDLES FOR LIVE SEARCH: {len(twitter_handles)} handles")
+            if twitter_handles:
+                print(f"     {', '.join(['@' + h if not h.startswith('@') else h for h in twitter_handles[:5]])}")
+            
+            # Live search results
+            print("\n🔍 LIVE SEARCH RESULTS (from Grok):")
+            live_search_data = comprehensive_context.get('live_search_data', {})
+            if live_search_data:
+                web_context = live_search_data.get('web_context', {})
+                twitter_context = live_search_data.get('twitter_context', {})
+                print(f"   - Web Context: {len(web_context)} websites searched")
+                if web_context:
+                    for domain in list(web_context.keys())[:3]:
+                        summary_len = len(str(web_context[domain]))
+                        print(f"     • {domain}: {summary_len} chars summary")
+                print(f"   - Twitter Context: {len(twitter_context)} handles analyzed")
+                if twitter_context:
+                    for handle in list(twitter_context.keys())[:3]:
+                        summary_len = len(str(twitter_context[handle]))
+                        print(f"     • {handle}: {summary_len} chars summary")
+            else:
+                print("   ⚠️ No live search data (no links/handles provided)")
+            
+            print("\n" + "=" * 80)
+            
+            # Also store in old format for backward compatibility
+            self.campaign_data = {
+                'id': comprehensive_context.get('campaign_id'),
+                'title': comprehensive_context.get('campaign_title', ''),
+                'description': comprehensive_context.get('campaign_description', ''),
+                'category': comprehensive_context.get('campaign_category', ''),
+                'guidelines': comprehensive_context.get('brand_guidelines', ''),
+                'platform_source': comprehensive_context.get('platform_source', 'twitter'),
+                'projectId': comprehensive_context.get('project_id'),
+                'projectName': comprehensive_context.get('project_name', ''),
+                'projectLogo': comprehensive_context.get('project_logo', ''),
+                'tokenTicker': comprehensive_context.get('token_ticker', ''),
+                'projectTwitterHandle': comprehensive_context.get('project_twitter_handle', ''),
+            }
+            
+            # Store in mining session if available
+            if hasattr(self, 'mining_session') and self.mining_session:
+                self.mining_session.campaign_context = self.campaign_data
+            
+            logger.info("=" * 80)
+            logger.info("✅ COMPREHENSIVE CONTEXT LOADED:")
+            logger.info(f"   ✓ Campaign: {self.campaign_data.get('title')}")
+            logger.info(f"   ✓ Project: {self.campaign_data.get('projectName')}")
+            logger.info(f"   ✓ Has User Context: {comprehensive_context.get('has_user_context', False)}")
+            logger.info(f"   ✓ Has Live Search: {comprehensive_context.get('has_live_search', False)}")
+            logger.info(f"   ✓ Documents: {comprehensive_context.get('documents_count', 0)}")
+            logger.info(f"   ✓ Links: {comprehensive_context.get('links_count', 0)}")
+            logger.info("=" * 80)
+            
+        except Exception as e:
+            logger.error(f"❌ Error fetching comprehensive campaign context: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             # Don't fail the entire process, just log the error
 
     async def _initialize_text_only_session_data(self, mining_session: MiningSession, agent_id: int = None):
@@ -876,7 +1165,7 @@ class CrewAIService:
             self.model_preferences = {
                 'text': {
                     'provider': 'xai',
-                    'model': 'grok-3-mini'
+                    'model': 'grok-4-latest'
                 }
             }
             
@@ -1540,8 +1829,10 @@ class CrewAIService:
             print(f"   - Project Name: {self.campaign_data.get('projectName', 'N/A')}")
             print(f"   - Project Twitter Handle: {self.campaign_data.get('projectTwitterHandle', 'N/A')}")
             print(f"   - Token Ticker: {self.campaign_data.get('tokenTicker', 'N/A')}")
-            print(f"   - Description: {self.campaign_data.get('description', 'N/A')[:100]}...")
-            print(f"   - Brand Guidelines: {self.campaign_data.get('brandGuidelines', 'N/A')[:100]}...")
+            desc = self.campaign_data.get('description', 'N/A')
+            print(f"   - Description: {desc[:100] if desc and desc != 'N/A' else 'N/A'}...")
+            guidelines = self.campaign_data.get('brandGuidelines', 'N/A')
+            print(f"   - Brand Guidelines: {guidelines[:100] if guidelines and guidelines != 'N/A' else 'N/A'}...")
             print(f"   - Project ID: {self.campaign_data.get('projectId', 'N/A')}")
         else:
             print("❌ NO CAMPAIGN DATA AVAILABLE")
@@ -1610,18 +1901,19 @@ class CrewAIService:
                 api_key = self.user_api_keys.get('xai')
                 logger.info(f"🔑 Using user XAI API key: {'***' + api_key[-4:] if api_key else 'None'}")
             
-            # Get campaign category and context from campaign data
+            # Get campaign category and COMPREHENSIVE context
             campaign_category = None
-            campaign_context = ""
-            twitter_context = ""
+            comprehensive_campaign_context = ""
+            
             if self.campaign_data:
                 campaign_category = self.campaign_data.get('category', '')
-                campaign_context = self._get_campaign_context()
-                # Get Twitter context with recent tweets (last 15 days)
-                twitter_context = self._get_twitter_context()
+                
+                # Build comprehensive context from all sources
+                comprehensive_campaign_context = self._build_comprehensive_context_string()
+                
                 print(f"🎯 CAMPAIGN CATEGORY: {campaign_category}")
-                print(f"📊 CAMPAIGN CONTEXT: {campaign_context[:100]}...")
-                print(f"🐦 TWITTER CONTEXT: {twitter_context[:100]}...")
+                print(f"📊 COMPREHENSIVE CONTEXT LENGTH: {len(comprehensive_campaign_context)} chars")
+                print(f"📊 CONTEXT PREVIEW: {comprehensive_campaign_context[:200]}...")
             
             tools.append(GrokCategoryStyleTool(
                 api_key=api_key,
@@ -1629,8 +1921,8 @@ class CrewAIService:
                 wallet_address=self.wallet_address,
                 agent_id=self.agent_id,
                 campaign_category=campaign_category,
-                campaign_context=campaign_context,
-                twitter_context=twitter_context
+                campaign_context=comprehensive_campaign_context,
+                twitter_context=""  # Included in comprehensive context
             ))
         else:
             # For non-Grok models, use existing success pattern tools
@@ -2553,6 +2845,18 @@ class CrewAIService:
         include_brand_logo = getattr(self.mining_session, 'include_brand_logo', False)
         brand_logo_model = getattr(self.mining_session, 'brand_logo_model', 'flux-pro/kontext')
         
+        # FOR DEDICATED MINERS: Always include brand logo and force nano-banana/edit
+        is_dedicated_miner = getattr(self.mining_session, 'source', None) == 'dedicated_miner'
+        if is_dedicated_miner:
+            logger.info(f"🔥 DEDICATED MINER - Forcing include_brand_logo=True and image model to fal-ai/nano-banana/edit")
+            include_brand_logo = True
+            brand_logo_model = 'fal-ai/nano-banana/edit'  # Use nano-banana/edit for dedicated miners
+            # Also ensure image provider is set to fal
+            self.model_preferences['image'] = {
+                'provider': 'fal',
+                'model': 'fal-ai/nano-banana/edit'
+            }
+        
         # Check if video generation is requested
         include_video = getattr(self.mining_session, 'include_video', False)
         video_duration = getattr(self.mining_session, 'video_duration', 10)
@@ -2562,6 +2866,13 @@ class CrewAIService:
         image_model = self.model_preferences.get('image', {}).get('model', 'dall-e-3')
         video_provider = self.model_preferences.get('video', {}).get('provider', 'google')
         video_model = self.model_preferences.get('video', {}).get('model', 'veo-3')
+        
+        # FOR DEDICATED MINERS: Always force fal-ai/nano-banana/edit (additional safeguard)
+        is_dedicated_miner = getattr(self.mining_session, 'source', None) == 'dedicated_miner'
+        if is_dedicated_miner:
+            logger.info(f"🔥 DEDICATED MINER - Forcing image provider to fal and model to fal-ai/nano-banana/edit")
+            image_provider = 'fal'
+            image_model = 'fal-ai/nano-banana/edit'
         
         # If brand logo is requested, force fal-pro/kontext model regardless of user preference
         print(f"🔥 === VISUAL CREATOR AGENT SETUP ===")
@@ -2778,43 +3089,41 @@ class CrewAIService:
         tool_names = [tool.name for tool in tools] if tools else []
         logger.info(f"🔧 Visual Content Creator tools: {tool_names}")
         
+        # Get color palette from comprehensive context
+        comp_ctx = getattr(self, 'comprehensive_context', {})
+        color_palette = comp_ctx.get('color_palette', {})
+        primary_color = color_palette.get('primary', '#1DA1F2')
+        secondary_color = color_palette.get('secondary', '#14171A')
+        accent_color = color_palette.get('accent', '#FFAD1F')
+        
+        # Log color palette
+        logger.info(f"🎨 Color Palette for Visual Agent:")
+        logger.info(f"   Primary: {primary_color}")
+        logger.info(f"   Secondary: {secondary_color}")
+        logger.info(f"   Accent: {accent_color}")
+        
         return Agent(
             role="Visual Content Creator",
-            goal="Create professional visual content that perfectly aligns with text content and incorporates successful visual strategies",
-            backstory=f"""You are an intelligent visual content strategist with AUTONOMOUS DECISION-MAKING and TEXT-VISUAL ALIGNMENT capabilities:
+            goal="Create professional visual content that perfectly aligns with text content using brand colors",
+            backstory=f"""You are a professional visual content creator specializing in crypto/Web3 aesthetics (matching unified generation):
 
-            🤖 **AUTONOMOUS VISUAL DECISION-MAKING AUTHORITY**:
-            You have COMPLETE AUTONOMY to create visual content that perfectly aligns with text by choosing from:
-            1. **Text Content Analysis**: Analyze the text content output from Text Creator Agent
-            2. **Text-Visual Synergy**: Create visuals that enhance and complement the text message
-            3. **Dynamic Prompt Generation**: Generate optimal prompts combining text themes with visual creativity
-            
-            **YOUR VISUAL ALIGNMENT PROCESS**:
-            - FIRST: Receive and analyze text content from Text Creator Agent (main_tweet + thread_array)
-            - ANALYZE: Determine visual approach that best enhances the text content
-            - DECIDE: Choose visual strategy that creates cohesive text+visual content package
-            - EXECUTE: Generate dynamic prompt that combines text alignment with visual creativity
-            
-            **VIDEO GENERATION WORKFLOW** (when video tool is available):
-            - FIRST: Generate an image using the image generation tool
-            - SECOND: Use the video_creation_tool to create a professional video based on the generated image
-            - The video tool requires: tweet_text, initial_image_prompt, initial_image_url, logo_url, project_name, video_duration
-            - Video duration options: 10, 15, 20, or 25 seconds
-            - The video tool will generate dynamic frames, clips, and audio automatically
-            - IMPORTANT: Return BOTH image_url (initial image) and video_url (final video) in your JSON output
-            
-            
-            🎯 **TEXT-VISUAL ALIGNMENT REQUIREMENTS** (CRITICAL):
-            - Generated visuals MUST align with and enhance the text content themes
-            - Visual elements should complement the text message, not compete with it
-            - Create cohesive content packages where text + visuals work together seamlessly
-            - Extract visual cues from text content (tone, themes, messaging) for prompt generation
-            - Ensure brand consistency between text and visual elements
-            
-            🔧 YOUR AVAILABLE TOOLS (CRITICAL - ONLY USE THESE):
+🎨 **BRAND COLORS** (MANDATORY - USE IN ALL PROMPTS):
+- Primary: {primary_color}
+- Secondary: {secondary_color}
+- Accent: {accent_color}
+
+**CRITICAL COLOR PALETTE REQUIREMENTS**:
+1. **EXPLICITLY INCLUDE HEX CODES IN VISUAL DESCRIPTIONS**: You MUST explicitly mention the hex codes in your prompt description
+   - Example: "...with bright highlights in {primary_color}, smooth background gradient in {secondary_color}, and accent elements in {accent_color}..."
+   - Example: "...using {primary_color} for primary lighting, {secondary_color} for atmospheric tones, {accent_color} for UI elements..."
+2. **MANDATORY INSTRUCTION**: You MUST include this exact phrase at the END of every single image prompt:
+   ", use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
+3. **HEX CODES ARE FOR COLOR GENERATION ONLY**: The hex codes should guide the AI model's color choices, but they must NEVER appear as visible text, numbers, or symbols anywhere in the generated images themselves
+4. Use colors intelligently throughout the visual (backgrounds, accents, highlights, lighting, color grading, objects, atmosphere)
+5. **CORRECT STRUCTURE**: "[visual description] using {primary_color} for [element], {secondary_color} for [element], {accent_color} for [element], use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
+
+🔧 YOUR AVAILABLE TOOLS:
             {chr(10).join(capabilities_text) if capabilities_text else "- Visual Concept Tool (descriptions only)"}
-            
-            🚨 CRITICAL: PROVIDER-SPECIFIC TOOL USAGE - NO EXCEPTIONS
             
             USER'S PROVIDER CHOICES:
             - Image Provider: {image_provider.upper()} 
@@ -2822,33 +3131,37 @@ class CrewAIService:
             - Video Provider: {video_provider.upper()}
             - Video Model: {video_model}
             
-            **MANDATORY TOOL SELECTION RULES - NEVER DEVIATE**:
+**MANDATORY TOOL SELECTION**:
             - For IMAGE generation: ONLY use {image_provider}_image_generation tool
-            - For VIDEO generation: ONLY use {video_provider}_video_generation tool  
-            - NEVER use a different provider's tool than what the user selected
+- For VIDEO generation: ONLY use video_creation_tool (if available)
             - NEVER invent or hallucinate tools that don't exist
-            - The user specifically chose {image_provider.upper()} for images and {video_provider.upper()} for videos
-            {"🚫 VIDEO GENERATION DISABLED: When video_provider is 'none', you MUST generate IMAGES only, even if strategy suggests video content" if video_provider == 'none' else ""}
-            
-            **YOUR TOOL USAGE - VERIFY BEFORE USING**:
-            {f"✅ Use `{image_provider}_image_generation` tool for images with model: {image_model}" if has_image_tool else "❌ No image generation available"}
-            {f"✅ Use `video_creation_tool` for professional video generation with dynamic frames and audio" if 'custom_video' in available_video_providers else f"✅ Use `{video_provider}_video_generation` tool for videos with model: {video_model}" if has_video_tool else "❌ No video generation available"}
-            
-            🚨 **TOOL VERIFICATION CHECKLIST** (MANDATORY BEFORE EACH TOOL USE):
-            1. Check if the tool name exists in your available tools list above
-            2. Verify the tool name matches EXACTLY (case-sensitive)
-            3. If tool doesn't exist, DO NOT attempt to use it
-            4. Report the missing tool and use available alternatives
+
+**TEXT-VISUAL ALIGNMENT** (CRITICAL):
+- Generated visuals MUST align with and enhance the text content themes
+- Visual elements should complement the text message, not compete with it
+- Create cohesive content packages where text + visuals work together seamlessly
+- Extract visual cues from text content (tone, themes, messaging) for prompt generation
+
+**IMAGE PROMPT GENERATION PROCESS**:
+1. **Analyze Tweet Content**: Understand core message, emotions, and key concepts
+2. **Choose Visual Style**: Professional, Warm, Minimalist, Meme/Comic, etc.
+3. **Create Original Concept**: Generate unique visual that amplifies tweet's message
+4. **Integrate Brand Colors**: Use hex codes ({primary_color}, {secondary_color}, {accent_color}) in prompt
+5. **Add Mandatory Instruction**: End EVERY prompt with ", use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
+
+{logo_instructions}
+
+**NEGATIVE PROMPT** (for Fal.ai image generation):
+The tool will automatically add appropriate negative_prompt: "blurry, low quality, distorted, oversaturated, unrealistic proportions, hashtags, double logos, hex codes as text"
             
             🛡️ INTELLIGENT FALLBACK STRATEGY:
             {chr(10).join(fallback_strategy)}
-            {logo_instructions}
             
             📋 EXECUTION RULES:
             1. Always use the user's chosen provider tool
-            2. Use their specified model within that provider
-            3. Clearly indicate when fallbacks are used
-            4. Maintain quality regardless of which tools are available
+2. Use brand colors in EVERY image prompt
+3. ALWAYS end prompts with hex code instruction
+4. Create visuals that enhance text content
             5. Be transparent about capability limitations
             {"6. MANDATORY: Include brand logo placement in all generated image prompts when logo integration is enabled" if include_brand_logo else ""}
             
@@ -3428,10 +3741,27 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         
         # Check if tools are available
         has_image_tool = image_provider in ['openai', 'fal', 'google'] and self.user_api_keys.get(image_provider if image_provider != 'fal' else 'fal')
-        has_video_tool = (video_provider == 'google' and self.user_api_keys.get('google')) or (should_include_video and self.user_api_keys.get('fal'))
+        
+        # IMPORTANT: has_video_tool should check if video tool was actually added to the tools list
+        # The custom video tool (CrewVideoCreationTool) is added when video is enabled and FAL API key is available
+        has_video_tool = False
+        if should_include_video:
+            # Check if any video tool is in the available providers
+            # Custom video tool requires FAL API key (used for image generation in video workflow)
+            has_video_tool = self.user_api_keys.get('fal') is not None
+            logger.info(f"🎬 Video tool check: FAL key available = {has_video_tool}")
         
         # Validate tool availability and log for debugging
+        print(f"🔧 === VISUAL TASK TOOL VALIDATION ===")
+        print(f"  - should_include_video: {should_include_video}")
+        print(f"  - Image provider: {image_provider}, Available: {has_image_tool}")
+        print(f"  - Video provider: {video_provider}, Available: {has_video_tool}")
+        print(f"  - API keys: {list(self.user_api_keys.keys()) if self.user_api_keys else 'None'}")
+        print(f"  - has_video_tool final: {has_video_tool}")
+        print(f"========================================")
+        
         logger.info(f"🔧 Visual task tool validation:")
+        logger.info(f"  - should_include_video: {should_include_video}")
         logger.info(f"  - Image provider: {image_provider}, Available: {has_image_tool}")
         logger.info(f"  - Video provider: {video_provider}, Available: {has_video_tool}")
         logger.info(f"  - API keys: {list(self.user_api_keys.keys()) if self.user_api_keys else 'None'}")
@@ -3479,16 +3809,10 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
         file_format = 'MP4' if should_include_video and has_video_tool else 'JPEG'
         asset_type = 'video' if should_include_video and has_video_tool else 'image'
 
-        return Task(
-            description=f"""
-            **AUTONOMOUS VISUAL CONTENT CREATION TASK**
-            
-            **YOUR TOOLS**:
-            {f"- {image_provider}_image_generation (for images)" if has_image_tool else "- No image generation available"}
-            {f"- video_creation_tool (for professional video generation)" if should_include_video and has_video_tool else f"- {video_provider}_video_generation (for videos)" if has_video_tool else "- No video generation available"}
-            
-            {workflow_instructions}
-
+        # Build video instructions conditionally
+        video_metadata_instructions = ""
+        if should_include_video and has_video_tool:
+            video_metadata_instructions = """
             When video is generated, you MUST extract and include ALL metadata fields from the video_creation_tool output in your final JSON response:
             
             CRITICAL: The video_creation_tool returns a comprehensive JSON response. You must parse this JSON and extract ALL fields including:
@@ -3507,28 +3831,41 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
             - All other metadata fields from the tool response
             
             EXAMPLE: If video_creation_tool returns:
-            {{"success": true, "video_url": "https://s3.../video.mp4", "subsequent_frame_prompts": {{"frame2": "prompt"}}, "clip_prompts": {{"clip1": "prompt"}}, "audio_prompt": "audio prompt", "video_duration": 5, "frame_urls": ["https://s3.../frame1.jpg"], "clip_urls": ["https://s3.../clip1.mp4"], "video_metadata": {{"llm_provider": "grok"}}, "advanced_video_metadata": {{"duration_mode": "clip_based"}}}}
+            {"success": true, "video_url": "https://s3.../video.mp4", "subsequent_frame_prompts": {"frame2": "prompt"}, "clip_prompts": {"clip1": "prompt"}, "audio_prompt": "audio prompt", "video_duration": 5, "frame_urls": ["https://s3.../frame1.jpg"], "clip_urls": ["https://s3.../clip1.mp4"], "video_metadata": {"llm_provider": "grok"}, "advanced_video_metadata": {"duration_mode": "clip_based"}}
             
             Then your Final Answer MUST include ALL these fields:
-            {{
+            {
               "content_type": "VIDEO",
               "image_url": "https://s3.../initial_image.jpg",
               "video_url": "https://s3.../video.mp4",
-              "subsequent_frame_prompts": {{"frame2": "prompt"}},
-              "clip_prompts": {{"clip1": "prompt"}},
+              "subsequent_frame_prompts": {"frame2": "prompt"},
+              "clip_prompts": {"clip1": "prompt"},
               "audio_prompt": "audio prompt",
               "video_duration": 5,
               "frame_urls": ["https://s3.../frame1.jpg"],
               "clip_urls": ["https://s3.../clip1.mp4"],
-              "video_metadata": {{"llm_provider": "grok"}},
-              "advanced_video_metadata": {{"duration_mode": "clip_based"}},
+              "video_metadata": {"llm_provider": "grok"},
+              "advanced_video_metadata": {"duration_mode": "clip_based"},
               "provider_used": "FAL",
               "model_used": "flux-pro/kontext",
               "dimensions": "1920x1080px",
               "file_format": "MP4"
-            }}
+            }
             
             DO NOT just copy basic fields - extract and include the COMPLETE video tool response data.
+            """
+        
+        return Task(
+            description=f"""
+            **AUTONOMOUS VISUAL CONTENT CREATION TASK**
+            
+            **YOUR TOOLS**:
+            {f"- {image_provider}_image_generation (for images)" if has_image_tool else "- No image generation available"}
+            {f"- video_creation_tool (for professional video generation)" if (should_include_video and has_video_tool) else ""}
+            
+            {workflow_instructions}
+
+            {video_metadata_instructions}
             
             📖 **AUTONOMOUS PROMPT GENERATION PROCESS** (CRITICAL):
             You are an AI visual expert who creates original, compelling prompts without relying on templates. Your mission is to analyze tweet content and craft unique, high-impact visual prompts that perfectly complement the message.
@@ -3597,11 +3934,29 @@ Platform: {self.campaign_data.get("platform_source", "Twitter") if self.campaign
                - Add technical specifications (resolution, rendering quality)
                - Ensure Twitter-optimized dimensions and mobile readability
             
-            5. **Prompt Optimization**:
-               - Structure: [Main Visual Concept] + [Specific Details] + [Style] + [Text Handling] + [Quality Keywords] + [Technical Specs]
+            5. **Infographic Data Requirements** (CRITICAL):
+               - If generating image prompts for INFOGRAPHICS, DATA VISUALIZATIONS, CHARTS, or ANALYTICAL CONTENT:
+                 * You MUST extract ACTUAL DATA from the comprehensive context (campaign info, documents, live search) and explicitly include it in the image prompt
+                 * Include specific numbers, percentages, statistics, metrics, tokenomics data, TVL figures, APY rates, etc. from the context
+                 * DO NOT use placeholder data like "various metrics" or "relevant statistics"
+                 * Examples of required data types:
+                   - Token supply numbers (e.g., "1 billion FVS tokens")
+                   - Percentage allocations (e.g., "40% liquidity, 30% staking, 20% team")
+                   - APY/APR rates (e.g., "15-50% APY")
+                   - TVL figures (e.g., "$10M TVL")
+                   - Tokenomics breakdown (e.g., "400M liquidity, 300M staking, 200M team")
+                   - Launch dates (e.g., "Q1 2025 launch")
+                   - Any numerical data available in the comprehensive context (documents, live search, campaign info)
+                 * Format in prompt: "Infographic showing [specific data from context] with pie charts displaying [actual percentages], bar graphs showing [actual metrics]..."
+                 * The image MUST be able to render actual data, not generic placeholders
+                 * If context lacks specific data, clearly state what data should be shown based on available context
+            
+            6. **Prompt Optimization**:
+               - Structure: [Main Visual Concept] + [Specific Details] + [Style] + [Color Palette Integration] + [Data/Metrics for infographics] + [Text Handling] + [Quality Keywords] + [Technical Specs]
                - Keep prompts clear, specific, and actionable for AI models
                - Include emotional descriptors that match the tweet's tone
                - Ensure visual directly supports and amplifies the tweet message
+               - For infographics: Include actual data points and metrics from comprehensive context
             
             **VISUAL STYLE OPTIONS** (Choose autonomously based on content analysis):
             - **Professional**: Clean, modern, business-focused with corporate aesthetics
@@ -4796,7 +5151,7 @@ No image generated
             logger.info("🤖 Text-only mode detected - using Grok-3-mini for text regeneration")
             return ChatOpenAI(
                 openai_api_key=settings.xai_api_key,  # Use XAI API key for Grok
-                model_name="grok-3-mini",
+                model_name="grok-4-latest",
                 temperature=0.7,
                 max_tokens=4000,
                 base_url="https://api.x.ai/v1"  # XAI API endpoint
@@ -5891,96 +6246,213 @@ class GrokCategoryStyleTool(BaseTool):
 - Output format: Just the tweet text, nothing else"""
     
     def _run(self, prompt: str, post_type: str = 'tweet', image_prompt: str = '', selected_handle: str = '') -> str:
-        """Generate content using Grok models in the style of popular handles"""
-        try:
-            print("\n" + "="*60)
-            print("🤖 GROK CATEGORY STYLE TOOL - EXECUTION")
-            print("="*60)
-            print(f"📝 INPUT PROMPT: {prompt}")
-            print(f"🎯 CAMPAIGN CATEGORY: {self.campaign_category}")
+        """Generate content using Grok models in the style of popular handles with automatic retry on failure"""
+        
+        MAX_RETRIES = 3
+        attempt = 0
+        used_handles = []  # Track handles we've already tried
+        
+        while attempt < MAX_RETRIES:
+            attempt += 1
             
-            # Step 1: Use provided handle or select random handle
-            if selected_handle and selected_handle.strip():
-                # Use the provided handle
-                print(f"🎯 USING PROVIDED HANDLE: {selected_handle}")
-                print(f"📋 HANDLE SOURCE: Text-only regeneration request")
-            else:
-                # Select a random handle from ALL categories for unique style mixing
-                all_handles = []
-                for category_handles in self.HANDLE_CATEGORIES.values():
-                    all_handles.extend(category_handles)
+            try:
+                print("\n" + "="*60)
+                print(f"🤖 GROK CATEGORY STYLE TOOL - EXECUTION (Attempt {attempt}/{MAX_RETRIES})")
+                print("="*60)
+                print(f"📝 INPUT PROMPT: {prompt}")
+                print(f"🎯 CAMPAIGN CATEGORY: {self.campaign_category}")
                 
-                print(f"🎯 RANDOM HANDLE SELECTION FROM ALL CATEGORIES")
-                print(f"📋 TOTAL AVAILABLE HANDLES: {len(all_handles)}")
+                # Step 1: Use provided handle or select random handle
+                if selected_handle and selected_handle.strip() and attempt == 1:
+                    # Use the provided handle only on first attempt
+                    current_handle = selected_handle
+                    print(f"🎯 USING PROVIDED HANDLE: {current_handle}")
+                    print(f"📋 HANDLE SOURCE: Text-only regeneration request")
+                else:
+                    # Select a random handle from ALL categories for unique style mixing
+                    all_handles = []
+                    for category_handles in self.HANDLE_CATEGORIES.values():
+                        all_handles.extend(category_handles)
+                    
+                    # Filter out handles we've already tried
+                    available_handles = [h for h in all_handles if h not in used_handles]
+                    
+                    if not available_handles:
+                        print("❌ NO MORE HANDLES AVAILABLE TO TRY")
+                        return "❌ Failed to generate content after trying multiple handles."
+                    
+                    print(f"🎯 RANDOM HANDLE SELECTION FROM ALL CATEGORIES")
+                    print(f"📋 TOTAL AVAILABLE HANDLES: {len(all_handles)}")
+                    print(f"📋 ALREADY TRIED: {len(used_handles)} handles")
+                    print(f"📋 REMAINING: {len(available_handles)} handles")
+                    
+                    # Select random handle from remaining
+                    import random
+                    current_handle = random.choice(available_handles)
+                    print(f"🎲 RANDOMLY SELECTED HANDLE: {current_handle}")
+                    print(f"🎯 USING HANDLE STYLE: {current_handle} (randomly selected from all categories)")
+                    
+                    # Track this handle
+                    used_handles.append(current_handle)
                 
-                if not all_handles:
-                    print("❌ NO HANDLES AVAILABLE")
-                    return "❌ No handles available for selection."
+                # Step 2: Use the selected handle + campaign context + prompt for content generation
+                print(f"📝 CONTENT GENERATION CONTEXT:")
+                print(f"   - Selected Handle: {current_handle}")
+                print(f"   - Campaign Context: Available")
+                print(f"   - Prompt: {prompt}")
                 
-                # Select random handle
-                import random
-                selected_handle = random.choice(all_handles)
-                print(f"🎲 RANDOMLY SELECTED HANDLE: {selected_handle}")
-                print(f"🎯 USING HANDLE STYLE: {selected_handle} (randomly selected from all categories)")
-            
-            # Step 2: Use the selected handle + campaign context + prompt for content generation
-            print(f"📝 CONTENT GENERATION CONTEXT:")
-            print(f"   - Selected Handle: {selected_handle}")
-            print(f"   - Campaign Context: Available")
-            print(f"   - Prompt: {prompt}")
-            
-            # Get the text model preference
-            text_model = self.model_preferences.get('text', {}).get('model', 'grok-3-mini')
-            
-            # Generate content using Grok with handle style + campaign context
-            print(f"🤖 GENERATING CONTENT WITH GROK:")
-            print(f"   - Selected Handle: {selected_handle}")
-            print(f"   - Category: {self.campaign_category.upper() if self.campaign_category else 'RANDOM'}")
-            print(f"   - Model: {text_model}")
-            print(f"   - API Key Available: {'Yes' if self.api_key else 'No'}")
-            
-            # Use the post_type parameter passed to the method
-            print(f"   - Post Type: {post_type}")
-            
-            content = self._generate_grok_content(
-                selected_handle=selected_handle,
-                campaign_context=self._get_campaign_context_for_generation(),
-                prompt=prompt,
-                post_type=post_type,
-                model=text_model,
-                image_prompt=image_prompt
-            )
-            
-            if content:
+                # Get the text model preference
+                text_model = self.model_preferences.get('text', {}).get('model', 'grok-4-latest')
+                
+                # Generate content using Grok with handle style + campaign context
+                print(f"🤖 GENERATING CONTENT WITH GROK:")
+                print(f"   - Selected Handle: {current_handle}")
+                print(f"   - Category: {self.campaign_category.upper() if self.campaign_category else 'RANDOM'}")
+                print(f"   - Model: {text_model}")
+                print(f"   - API Key Available: {'Yes' if self.api_key else 'No'}")
+                print(f"   - Post Type: {post_type}")
+                
+                content = self._generate_grok_content(
+                    selected_handle=current_handle,
+                    campaign_context=self._get_campaign_context_for_generation(),
+                    prompt=prompt,
+                    post_type=post_type,
+                    model=text_model,
+                    image_prompt=image_prompt
+                )
+                
+                # Check if content was generated successfully
+                if not content:
+                    print(f"❌ NO CONTENT RETURNED (Attempt {attempt}/{MAX_RETRIES})")
+                    print(f"🔄 RETRYING WITH DIFFERENT HANDLE...")
+                    continue
+                
+                # Parse and validate the content
+                is_valid, error_msg = self._validate_generated_content(content, post_type)
+                
+                if not is_valid:
+                    print(f"⚠️ INVALID CONTENT DETECTED (Attempt {attempt}/{MAX_RETRIES})")
+                    print(f"   - Reason: {error_msg}")
+                    print(f"   - Content Preview: {content[:200]}...")
+                    print(f"🔄 RETRYING WITH DIFFERENT HANDLE...")
+                    continue
+                
+                # Content is valid! Return it
                 print(f"✅ CONTENT GENERATED SUCCESSFULLY:")
                 print(f"   - Length: {len(content)} characters")
                 print(f"   - Preview: {content[:100]}...")
                 
                 result = f"""🎯 RANDOM STYLE GENERATION:
 
-Selected Handle: {selected_handle}
+Selected Handle: {current_handle}
 Model: {text_model}
 
 Generated Content:
 {content}
 
-Style Reference: Generated in the style of {selected_handle} (randomly selected for unique style mixing)"""
+Style Reference: Generated in the style of {current_handle} (randomly selected for unique style mixing)"""
                 
                 print("="*60)
-                print("🎯 GROK TOOL EXECUTION COMPLETE")
+                print(f"🎯 GROK TOOL EXECUTION COMPLETE (Success on attempt {attempt})")
                 print("="*60 + "\n")
                 
                 return result
-            else:
-                print(f"❌ FAILED TO GENERATE CONTENT")
-                print("="*60)
-                print("🎯 GROK TOOL EXECUTION FAILED")
-                print("="*60 + "\n")
-                return f"❌ Failed to generate content using {selected_handle} style"
                 
+            except Exception as e:
+                logger.error(f"❌ Error in GrokCategoryStyleTool (Attempt {attempt}/{MAX_RETRIES}): {e}")
+                print(f"❌ EXCEPTION OCCURRED (Attempt {attempt}/{MAX_RETRIES}): {e}")
+                
+                if attempt < MAX_RETRIES:
+                    print(f"🔄 RETRYING WITH DIFFERENT HANDLE...")
+                    continue
+                else:
+                    return f"❌ Category style generation failed after {MAX_RETRIES} attempts: {str(e)}"
+        
+        # If we've exhausted all retries
+        print(f"❌ FAILED TO GENERATE CONTENT AFTER {MAX_RETRIES} ATTEMPTS")
+        print(f"   - Tried handles: {', '.join(used_handles)}")
+        print("="*60)
+        print("🎯 GROK TOOL EXECUTION FAILED")
+        print("="*60 + "\n")
+        return f"❌ Failed to generate valid content after {MAX_RETRIES} attempts with different handles"
+    
+    def _validate_generated_content(self, content: str, post_type: str) -> tuple[bool, str]:
+        """
+        Validate that Grok generated actual content (not an error message).
+        Returns (is_valid, error_message)
+        """
+        if not content or not content.strip():
+            return False, "Empty content"
+        
+        content_lower = content.lower()
+        
+        # Check for common error patterns (LLM might phrase errors in many ways)
+        error_indicators = [
+            "unable to generate",
+            "cannot generate",
+            "can't generate",
+            "failed to generate",
+            "error generating",
+            "sorry, i",
+            "apologize",
+            "i don't have",
+            "i do not have",
+            "insufficient information",
+            "not enough information",
+            "unable to create",
+            "cannot create",
+            "can't create",
+            "failed to create",
+            "i'm unable",
+            "i am unable",
+            "i cannot",
+            "i can't",
+            "no information about",
+            "don't have information",
+            "do not have information",
+            "no context",
+            "missing information",
+            "need more information",
+            "require more information",
+            "provide more",
+            "please provide"
+        ]
+        
+        # Check if content contains error indicators
+        for indicator in error_indicators:
+            if indicator in content_lower:
+                return False, f"Error pattern detected: '{indicator}'"
+        
+        # Check if content looks like valid JSON for our expected format
+        try:
+            import json
+            # Try to parse as JSON
+            parsed = json.loads(content)
+            
+            # Check if it has expected structure
+            if not isinstance(parsed, dict):
+                return False, "Not a valid JSON object"
+            
+            if 'main_tweet' not in parsed:
+                return False, "Missing 'main_tweet' field in JSON"
+            
+            if not parsed['main_tweet'] or not parsed['main_tweet'].strip():
+                return False, "Empty 'main_tweet' field"
+            
+            # Check if main_tweet contains error messages
+            main_tweet_lower = parsed['main_tweet'].lower()
+            for indicator in error_indicators:
+                if indicator in main_tweet_lower:
+                    return False, f"Error message in main_tweet: '{indicator}'"
+            
+            # All checks passed!
+            return True, ""
+            
+        except json.JSONDecodeError:
+            # If it's not valid JSON, it's definitely not valid content
+            return False, "Not valid JSON"
         except Exception as e:
-            logger.error(f"❌ Error in GrokCategoryStyleTool: {e}")
-            return f"❌ Category style generation failed: {str(e)}"
+            return False, f"Validation error: {str(e)}"
     
     def _parse_prompt(self, prompt: str) -> tuple[str, Dict[str, Any]]:
         """Parse the prompt to extract category and context data"""
@@ -6063,11 +6535,26 @@ Style Reference: Generated in the style of {selected_handle} (randomly selected 
             logger.error(f"❌ Error parsing prompt: {e}")
             return 'other', {'prompt': prompt, 'category': 'other'}
     
-    def _generate_grok_content(self, selected_handle: str, campaign_context: str, prompt: str, post_type: str = 'tweet', model: str = 'grok-3-mini', image_prompt: str = '') -> str:
-        """Generate content using Grok models in the style of the selected handle"""
+    def _generate_grok_content(self, selected_handle: str, campaign_context: str, prompt: str, post_type: str = 'tweet', model: str = 'grok-4-latest', image_prompt: str = '') -> str:
+        """Generate content using Grok models in the style of the selected handle (matching unified generation)"""
         try:
             if not self.api_key:
+                logger.error("❌ No API key available for Grok content generation")
                 return None
+            
+            # LOG CONTEXT BEING USED
+            print("\n" + "="*80)
+            print("🎯 TEXT CONTENT GENERATION - CONTEXT VERIFICATION")
+            print("="*80)
+            print(f"📊 POST TYPE: {post_type}")
+            print(f"🤖 MODEL: {model}")
+            print(f"🎭 STYLE HANDLE: {selected_handle}")
+            print(f"🖼️ IMAGE PROMPT: {image_prompt[:100] if image_prompt else 'None'}...")
+            print(f"\n📚 CAMPAIGN CONTEXT ({len(campaign_context)} chars):")
+            print("-" * 80)
+            print(campaign_context[:1000] + "..." if len(campaign_context) > 1000 else campaign_context)
+            print("-" * 80)
+            print("="*80 + "\n")
             
             # Initialize Grok client
             from xai_sdk import Client
@@ -6084,57 +6571,92 @@ Style Reference: Generated in the style of {selected_handle} (randomly selected 
             # Build post type specific instructions
             post_type_instructions = self._get_post_type_instructions(post_type)
             
-            # Check if token ticker is available in campaign context
-            token_available = 'tokenTicker' in campaign_context and campaign_context and 'tokenTicker' in str(campaign_context)
-            
-            # Build the system prompt - generic, no handle mention (like tweet_generation.py)
-            system_prompt = f"""You are Grok, a witty and relatable AI assistant that mimics the style of handles asked by user. Just do what user says. Nothing extra. Don't give hashtags.
+            # Build the system prompt - SIMPLIFIED to match unified generation
+            system_prompt = f"""You are a real crypto Twitter user who shares authentic alpha with the community:
 
-CRITICAL RULES:
-- Generate ONLY valid JSON output as specified in the user prompt
-- Do NOT include any explanations, backstory, or meta-content
-- Do NOT include any text outside the JSON object
-- The JSON should contain 'main_tweet' and 'thread_array' fields
-- Output ONLY the JSON object, nothing else
-- NEVER mention Twitter handle names (like @username) in your generated content
-- Write content IN THE STYLE of the requested handle but WITHOUT mentioning the handle name itself
+CONTEXT FUSION MASTERY:
+- INTELLIGENTLY WEAVE all available context (project info, documents, links, live search results)
+- EXTRACT actionable insights from uploaded documents and web research
+- TRANSFORM raw data into compelling narratives that feel like insider alpha sharing
+- SYNTHESIZE multiple sources to create unique perspectives
 
-🎯 **OPENING VARIETY REQUIREMENTS**:
-- AVOID repetitive openings like "Yo," "Hey," "Guys," etc.
-- Use DIVERSE and AUTHENTIC opening styles that match the specific handle
-- Each handle has their own unique voice - capture their AUTHENTIC opening patterns
-- Prioritize NATURAL variety in how tweets begin
-- Don't force any specific greeting or opening pattern
+DOCUMENT & DATA PRIORITIZATION (CRITICAL):
+- Documents are sorted by timestamp (latest first) - PRIORITIZE information from most recent documents
+- When conflicting information exists (e.g., different numbers, dates, metrics), ALWAYS use data from the LATEST document
+- Check document timestamps to determine which information is most current
+- Older documents may contain outdated information - defer to newer documents when there's a conflict
+- Live search results contain the freshest information - prioritize these over older uploaded documents
 
-🎯 **INTELLIGENT SUB-CONTEXT SELECTION**:
-- Analyze the provided campaign context and intelligently select the most relevant and engaging aspects
-- Focus on specific themes (e.g., growth metrics, partnerships, technical features, user adoption, TVL, tokenomics) rather than trying to cover everything
-- Pick ONE focused sub-context that would make the most compelling tweet content
-- Generate focused, engaging content based on your selected sub-context
-- Avoid generic project descriptions when specific, interesting details are available
-- Use the most tweet-worthy information from the available context
+CRITICAL: SUBCONTEXT VARIATION FOR UNIQUE CONTENT:
+When generating content, VARY the specific subcontexts you focus on to ensure uniqueness:
+- Use DIFFERENT combinations of context sources for diverse perspectives
+- Example variations:
+  * Focus on live web search data (websites + links) + recent documents
+  * Focus on Twitter/X handle discussions + competitors + brand values
+  * Focus on combined live search insights + goals + keywords
+  * Focus on document context (older but relevant) + details_text + content_text
+  * Mix and match creatively!
+- This ensures content feels unique and taps into different aspects of the provided context
+- NEVER mention that you're varying subcontexts - do it silently and naturally
+- Write as if you naturally know all this information from different angles
+
+CRITICAL DATE/TIME HANDLING (MUST FOLLOW):
+- **TODAY'S DATE**: {datetime.now().strftime('%B %d, %Y (%Y-%m-%d)')} - Use this ONLY for your internal reference to determine if events are PAST or FUTURE
+- **NEVER mention today's date** in tweet text or image prompts - It's purely for your analysis
+- Compare dates mentioned in documents/context with TODAY'S DATE to determine temporal status
+- Documents may contain old information where dates that are now PAST were referred to as FUTURE at document creation time
+- **Determining Past vs Future**:
+  * If a document mentions "launching in Q1 2024" and today is after Q1 2024 → PAST event (already happened)
+  * If a document mentions "launching in Q1 2025" and today is before Q1 2025 → FUTURE event (upcoming)
+  * Always compare dates from context against TODAY'S DATE (but don't mention today's date in output)
+- **For PAST events**: Use EXACT dates from context (e.g., "launched in Q4 2024", "announced in January 2024")
+  * Do NOT fabricate future dates for historical facts
+- **For FUTURE events**: Use PRESENT or FUTURE dates only (e.g., "Q1 2025", "Coming in 2025", "Launching next month")
+  * Do NOT use past dates for planned/upcoming events
+- **NEVER use vague past references** for planned events like "Last year", "Previous quarter", "Last month"
+- **Examples**:
+  * FUTURE: "Q1 2025 launch" ✅, "Coming in 2025" ✅, "Launching next month" ✅
+  * PAST: "We launched in Q4 2024" ✅, "Announced in January 2024" ✅
+
+ENGAGING STORYTELLING STYLE:
+- Write like you're sharing exciting news with a friend who loves crypto
+- Use storytelling techniques: set up intrigue, reveal key details, create anticipation
+- Make readers feel like they're discovering something special
+- Create "wow moments" and emotional hooks
+
+LIVE SEARCH & DOCUMENTS INTEGRATION:
+- PRIORITIZE live search results from web links and Twitter handles (most current information)
+- Use uploaded documents for deep project understanding (sorted by timestamp - latest first)
+- Extract specific metrics, dates, partnerships from documents (prefer latest document data)
+- Reference fresh developments from live search
+- **NEVER mention that you're using context sources** - Write as if you naturally know this information
+
+AUTHENTIC VOICE RULES:
+- Use personal voice: "I", "my", "me" for authentic engagement
+- Use "they/their" when referring to the project team
+- Write like a crypto community member sharing alpha
+- Generate in the style of {selected_handle}
+
+CHARACTER LIMITS:
+- Main tweet: ≤240 characters
+- Thread tweets: ≤260 characters each
+- Longpost: 8000-12000 characters (MARKDOWN format)
 
 {post_type_instructions}
 
-Context Information:
+CONTEXT INFORMATION:
 {campaign_context}"""
             
             chat.append(system(system_prompt))
             
-            # Build user prompt with image alignment context (no handle mention in output)
+            # Build user prompt
             user_prompt = f"Generate a {post_type} about this project: {prompt}"
             if image_prompt and image_prompt.strip():
                 user_prompt += f"\n\nIMPORTANT: The text must align with this existing image: {image_prompt}. Make sure the content complements and enhances the visual message."
             user_prompt += f". Generate in the style of {selected_handle}."
             
-            # Add instruction to NOT mention the handle name in the generated content
+            # Add instruction to NOT mention the handle name
             user_prompt += f"\n\nCRITICAL: Do NOT mention '{selected_handle}' or any Twitter handle names in your generated content. Write the content IN THE STYLE of {selected_handle} but without mentioning the handle name itself."
-            
-            # Add variety instructions
-            user_prompt += f"\n\n🎯 **OPENING VARIETY**: Avoid repetitive openings like 'Yo,' 'Hey,' 'Guys,' etc. Use {selected_handle}'s authentic opening style with natural variety. Each tweet should start differently."
-            
-            # Add sub-context selection instructions
-            user_prompt += f"\n\n🎯 **FOCUS INSTRUCTIONS**: Analyze the campaign context and pick the most interesting/relevant aspect (e.g., growth metrics, partnerships, technical features) to focus your content on. Don't try to cover everything - pick ONE compelling theme and go deep into it."
             
             # Add JSON output format instructions based on post type
             if post_type == 'thread':
@@ -6146,21 +6668,30 @@ Context Information:
             
             chat.append(user(user_prompt))
             
-            # Generate content using sample() method (correct for xai_sdk)
+            # Generate content using sample() method
             print(f"🤖 CALLING GROK API: {model}")
+            logger.info(f"🤖 Calling Grok API for {post_type} generation")
+            
             response = chat.sample()
+            
             print(f"✅ GROK API RESPONSE RECEIVED")
+            logger.info(f"✅ Grok API response received")
             
             if response and response.content:
                 content = response.content.strip()
-                print(f"📝 GENERATED CONTENT: {content[:100]}...")
+                print(f"📝 GENERATED CONTENT ({len(content)} chars):")
+                print(f"   Preview: {content[:200]}...")
+                logger.info(f"📝 Generated content: {len(content)} chars")
                 return content
             else:
                 print(f"❌ NO CONTENT IN RESPONSE")
+                logger.error(f"❌ No content in Grok response")
                 return None
                 
         except Exception as e:
             logger.error(f"❌ Error generating Grok content: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
 
 # Yapper-Specific Success Pattern Tool (for yapper interface requests)

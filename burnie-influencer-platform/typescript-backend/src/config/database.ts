@@ -97,6 +97,9 @@ import { ProjectGeneratedContent } from '../models/ProjectGeneratedContent';
 import { Web3PostsSchedule } from '../models/Web3PostsSchedule';
 import { Web3ProjectTwitterPost } from '../models/Web3ProjectTwitterPost';
 
+// Import User Mining Context entity
+import { UserMiningContext } from '../models/UserMiningContext';
+
 // Import Somnia integration entities
 import { UserNetwork } from '../models/UserNetwork';
 import { SomniaAirdrop } from '../models/SomniaAirdrop';
@@ -200,6 +203,8 @@ export const AppDataSource = new DataSource({
     Web3ProjectConfiguration,
     Web3PostsSchedule,
     Web3ProjectTwitterPost,
+    // User Mining Context entity
+    UserMiningContext,
     // Somnia integration entities
     UserNetwork,
     SomniaAirdrop,

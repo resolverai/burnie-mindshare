@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import axios from 'axios';
+import { v4 as uuidv4 } from 'uuid';
 import { AppDataSource } from '../config/database';
 import { Admin } from '../models/Admin';
 import { Campaign, CampaignStatus, CampaignType, CampaignCategory, PlatformSource } from '../models/Campaign';
@@ -10,7 +13,12 @@ import { ContentPurchase } from '../models/ContentPurchase';
 import { ContentMarketplace } from '../models/ContentMarketplace';
 import { logger } from '../config/logger';
 import { convertROASTToUSD } from '../services/priceService';
+import { s3Service } from '../services/S3Service';
 import { Repository } from 'typeorm';
+
+// Multer setup for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
 const router = Router();
 
@@ -248,6 +256,101 @@ router.get('/projects/search', verifyAdminToken, async (req: Request, res: Respo
 });
 
 /**
+ * @route POST /api/admin/campaigns/extract-documents
+ * @desc Upload and extract text from documents for campaigns
+ */
+router.post('/campaigns/extract-documents', upload.array('documents'), async (req: Request, res: Response) => {
+  try {
+    const files = req.files as Express.Multer.File[];
+    const AI_BACKEND_URL = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'No documents uploaded' });
+    }
+
+    logger.info(`📄 Uploading ${files.length} admin campaign documents to S3`);
+
+    // Upload files to S3 with proper structure
+    const uploadPromises = files.map(async (file) => {
+      const fileName = `${uuidv4()}-${file.originalname}`;
+      const s3Result = await s3Service.uploadFile(
+        file.buffer,
+        fileName,
+        file.mimetype,
+        'campaign-context-documents'
+      );
+      return { 
+        name: file.originalname, 
+        url: s3Result.s3Url,  // Full S3 URL for text extraction
+        key: s3Result.s3Key,  // S3 key for storage in DB
+        mimetype: file.mimetype 
+      };
+    });
+
+    const uploadedFiles = await Promise.all(uploadPromises);
+    logger.info(`✅ Uploaded ${uploadedFiles.length} files to S3`);
+
+    // Extract text from documents
+    const documentResults = [];
+    
+    for (const file of uploadedFiles) {
+      let extractedText = '';
+      
+      try {
+        // Try to extract text using the same endpoint as web3 projects
+        const extractResp = await axios.post(
+          `${AI_BACKEND_URL}/api/utils/extract-text-from-url`,
+          { 
+            url: file.url,  // Full S3 URL
+            s3_key: file.key // S3 key
+          },
+          { timeout: 120000 } // 2 minute timeout
+        );
+        
+        if (extractResp && extractResp.status === 200) {
+          extractedText = extractResp.data?.text || '';
+          logger.info(`✅ Extracted ${extractedText.length} characters from ${file.name}`);
+        }
+      } catch (extractError: any) {
+        logger.error(`⚠️ Failed to extract text from ${file.name}:`, {
+          message: extractError.message,
+          status: extractError.response?.status,
+        });
+        // Continue with empty text
+      }
+      
+      const docResult = {
+        name: file.name,
+        url: file.key, // Store S3 key instead of full URL
+        text: extractedText,
+        timestamp: new Date().toISOString(),
+        type: 'document',
+      };
+      
+      documentResults.push(docResult);
+    }
+    
+    // Extract S3 keys for document_urls column
+    const documentS3Keys = documentResults.map(doc => doc.url);
+    
+    logger.info(`✅ Processed ${documentResults.length} documents (${documentResults.filter(d => d.text).length} with extracted text)`);
+    
+    // Return both documents_text structure and document_urls array
+    return res.json({ 
+      success: true, 
+      data: documentResults,              // For documents_text column (full details with text)
+      document_urls: documentS3Keys   // For document_urls column (just S3 keys)
+    });
+  } catch (error: any) {
+    logger.error('❌ Error uploading/processing files:', {
+      message: error.message,
+      code: error.code,
+    });
+    return res.status(500).json({ error: 'Failed to upload and process files' });
+  }
+});
+
+/**
  * @route POST /api/admin/campaigns
  * @desc Create a new campaign (admin only)
  */
@@ -277,7 +380,10 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       startDate,
       endDate,
       guidelines,
-      somniaWhitelisted // Add Somnia whitelist flag
+      somniaWhitelisted, // Add Somnia whitelist flag
+      documents_text, // Admin context documents
+      document_urls, // Document S3 keys
+      color_palette // Brand colors
     } = req.body;
 
     logger.info('📝 Admin creating new campaign:', { title, rewardPool, category, projectLogo, campaignBanner, admin: req.admin.username });
@@ -394,7 +500,11 @@ router.post('/campaigns', verifyAdminToken, async (req: Request, res: Response) 
       rewardToken: tokenTicker || '',
       targetAudience: 'General',
       predictedMindshare: 80, // Default mindshare score
-      currentSubmissions: 0
+      currentSubmissions: 0,
+      // New fields for admin context
+      documents_text: documents_text || undefined,
+      document_urls: document_urls || undefined,
+      color_palette: color_palette || undefined
     };
 
     const newCampaign = campaignRepository.create(campaignData);
@@ -451,7 +561,10 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       startDate,
       endDate,
       guidelines,
-      somniaWhitelisted // Add Somnia whitelist flag for updates
+      somniaWhitelisted, // Add Somnia whitelist flag for updates
+      documents_text, // Admin context documents
+      document_urls, // Document S3 keys
+      color_palette // Brand colors
     } = req.body;
 
     logger.info('📝 Admin updating campaign:', { campaignId, title, projectLogo, campaignBanner, admin: req.admin.username });
@@ -575,6 +688,10 @@ router.put('/campaigns/:id', verifyAdminToken, async (req: Request, res: Respons
       projectId: projectId || undefined,
       platformSource: (platformSource as PlatformSource) || PlatformSource.BURNIE,
       rewardToken: tokenTicker || '',
+      // New fields for admin context
+      documents_text: documents_text || undefined,
+      document_urls: document_urls || undefined,
+      color_palette: color_palette || undefined
     };
 
     // Update the campaign

@@ -48,9 +48,24 @@ export class IPFSService {
         
         // Extract filename from URL or generate one
         const urlParts = filePath.split('?')[0].split('/');
-        const fileName = (urlParts[urlParts.length - 1] && urlParts[urlParts.length - 1].length > 0) 
+        let fileName = (urlParts[urlParts.length - 1] && urlParts[urlParts.length - 1].length > 0) 
           ? urlParts[urlParts.length - 1] 
-          : `content_${contentId}_${Date.now()}.jpg`;
+          : null;
+        
+        // If no filename or it's generic, generate based on content type
+        if (!fileName) {
+          // Detect if it's a video based on URL patterns or default to image
+          const isVideo = filePath.toLowerCase().includes('video') || 
+                         filePath.toLowerCase().includes('.mp4') || 
+                         filePath.toLowerCase().includes('.mov') ||
+                         filePath.toLowerCase().includes('.avi') ||
+                         filePath.toLowerCase().includes('.webm');
+          
+          const extension = isVideo ? 'mp4' : 'jpg';
+          fileName = `content_${contentId}_${Date.now()}.${extension}`;
+          logger.info(`📝 Generated filename: ${fileName} (detected type: ${isVideo ? 'video' : 'image'})`);
+        }
+        
         tempFilePath = path.join(tempDir, fileName);
         
         // Download file from S3
@@ -74,6 +89,13 @@ export class IPFSService {
       }
 
       // Upload to Lighthouse
+      logger.info(`📤 Uploading to IPFS via Lighthouse...`);
+      
+      // Detect content type for logging
+      const fileExtension = actualFilePath.split('.').pop()?.toLowerCase() || '';
+      const isVideo = ['mp4', 'mov', 'avi', 'webm', 'mkv'].includes(fileExtension);
+      logger.info(`📦 File type: ${isVideo ? '📹 Video' : '🖼️ Image'} (${fileExtension})`);
+      
       const uploadResponse = await lighthouse.upload(actualFilePath, this.apiKey);
 
       if (!uploadResponse || !uploadResponse.data) {

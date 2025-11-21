@@ -19,6 +19,7 @@ interface HotCampaignPostType {
   ratio: number | undefined; // undefined for new campaigns with no content
   totalCampaignPurchases: number;
   tokenTicker?: string; // Add token ticker field
+  isSomniaWhitelisted?: boolean; // Add somnia whitelisted flag for priority sorting
 }
 
 // GET /api/hot-campaigns - Get top 10 campaigns by purchase volume, then identify hot post_types
@@ -56,11 +57,13 @@ router.get('/hot-campaigns', async (req, res) => {
     const purchaseRepository = AppDataSource.getRepository(ContentPurchase);
 
     // Step 1: Get campaigns with end_date >= current_date
+    // Join with projects table to get somnia_whitelisted status
     const activeCampaigns = await campaignRepository
       .createQueryBuilder('campaign')
+      .leftJoinAndSelect('campaign.project', 'project')
       .where('campaign.endDate >= :currentDate', { currentDate: new Date() })
       .andWhere('campaign.isActive = :isActive', { isActive: true })
-      .select(['campaign.id', 'campaign.title', 'campaign.projectName', 'campaign.endDate'])
+      .select(['campaign.id', 'campaign.title', 'campaign.projectName', 'campaign.endDate', 'campaign.projectId', 'project.id', 'project.somniaWhitelisted'])
       .getMany();
 
     if (activeCampaigns.length === 0) {
@@ -98,42 +101,62 @@ router.get('/hot-campaigns', async (req, res) => {
           .andWhere('content.approvalStatus = :status', { status: 'approved' })
           .getCount();
 
+        // Get somnia_whitelisted status from project relation
+        const isSomniaWhitelisted = campaign.project?.somniaWhitelisted || false;
+
         return {
           campaign,
           totalPurchases,
           totalContentCount,
-          totalAvailablePosts
+          totalAvailablePosts,
+          isSomniaWhitelisted
         };
       })
     );
 
     // Step 3: Identify hot campaigns based on multiple criteria
-    // 1. Top 10 by purchase volume (existing logic)
-    // 2. Campaigns with NO content at all (newly created)
-    // 3. Campaigns with purchases > 0 but total available posts = 0
+    // PRIORITY 1: All Somnia whitelisted campaigns (regardless of other metrics)
+    // PRIORITY 2: Top 10 by purchase volume (existing logic)
+    // PRIORITY 3: Campaigns with NO content at all (newly created)
+    // PRIORITY 4: Campaigns with purchases > 0 but total available posts = 0
     
+    // PRIORITY 1: Somnia whitelisted campaigns (ALWAYS HOT)
+    const somniaWhitelistedCampaigns = campaignData
+      .filter(item => item.isSomniaWhitelisted);
+    
+    // PRIORITY 2: Top 10 by purchase volume (existing logic)
     const top10ByPurchases = campaignData
       .filter(item => item.totalPurchases > 0)
       .sort((a, b) => b.totalPurchases - a.totalPurchases)
       .slice(0, 10);
 
-    // Campaigns with no content at all (newly created)
+    // PRIORITY 3: Campaigns with no content at all (newly created)
     const campaignsWithNoContent = campaignData
       .filter(item => item.totalContentCount === 0);
 
-    // Campaigns with purchases > 0 but total available posts = 0
+    // PRIORITY 4: Campaigns with purchases > 0 but total available posts = 0
     const campaignsWithPurchasesButNoAvailable = campaignData
       .filter(item => item.totalPurchases > 0 && item.totalAvailablePosts === 0);
 
     // Combine all hot campaigns (unique by campaign ID)
+    // IMPORTANT: Somnia whitelisted campaigns are added FIRST for priority
     const hotCampaignSet = new Set<number>();
-    [...top10ByPurchases, ...campaignsWithNoContent, ...campaignsWithPurchasesButNoAvailable].forEach(item => {
+    [
+      ...somniaWhitelistedCampaigns,  // ← PRIORITY 1: Always first!
+      ...top10ByPurchases, 
+      ...campaignsWithNoContent, 
+      ...campaignsWithPurchasesButNoAvailable
+    ].forEach(item => {
       hotCampaignSet.add(item.campaign.id);
     });
 
     const hotCampaignsList = campaignData.filter(item => hotCampaignSet.has(item.campaign.id));
 
-    logger.info(`🔥 Found ${hotCampaignsList.length} hot campaigns: ${hotCampaignsList.length - top10ByPurchases.length} newly identified (no content or purchases but no available)`);
+    logger.info(`🔥 Found ${hotCampaignsList.length} hot campaigns:`);
+    logger.info(`   - ${somniaWhitelistedCampaigns.length} Somnia whitelisted (PRIORITY)`);
+    logger.info(`   - ${top10ByPurchases.length} top by purchases`);
+    logger.info(`   - ${campaignsWithNoContent.length} newly created (no content)`);
+    logger.info(`   - ${campaignsWithPurchasesButNoAvailable.length} sold out (purchases but no available)`);
 
     if (hotCampaignsList.length === 0) {
       logger.info('📋 No hot campaigns found');
@@ -148,7 +171,7 @@ router.get('/hot-campaigns', async (req, res) => {
     const hotCampaigns: HotCampaignPostType[] = [];
     const postTypes = ['thread', 'shitpost', 'longpost'];
 
-    for (const { campaign, totalPurchases, totalContentCount, totalAvailablePosts } of hotCampaignsList) {
+    for (const { campaign, totalPurchases, totalContentCount, totalAvailablePosts, isSomniaWhitelisted } of hotCampaignsList) {
       // Determine if this campaign should have all post types as hot
       const isNewlyCreated = totalContentCount === 0;
       const hasPurchasesButNoAvailable = totalPurchases > 0 && totalAvailablePosts === 0;
@@ -209,16 +232,32 @@ router.get('/hot-campaigns', async (req, res) => {
             purchaseCount,
             ratio: ratio === undefined ? undefined : (ratio === Infinity ? 999999 : ratio),
             totalCampaignPurchases: totalPurchases,
-            tokenTicker: campaign.tokenTicker || '' // Include token ticker from database
+            tokenTicker: campaign.tokenTicker || '', // Include token ticker from database
+            isSomniaWhitelisted // Include somnia whitelisted flag for priority sorting
           });
 
           const ratioStr = ratio === undefined ? 'undefined (new campaign)' : (ratio === Infinity ? 'Infinity' : ratio.toFixed(2));
-          logger.info(`🔥 Hot post_type found: ${campaign.title} (${postType}) - Ratio: ${ratioStr}, Available: ${availableCount}, Purchased: ${purchaseCount}`);
+          const priorityFlag = isSomniaWhitelisted ? ' [SOMNIA PRIORITY]' : '';
+          logger.info(`🔥 Hot post_type found: ${campaign.title} (${postType})${priorityFlag} - Ratio: ${ratioStr}, Available: ${availableCount}, Purchased: ${purchaseCount}`);
         }
       }
     }
 
     logger.info(`🔥 Found ${hotCampaigns.length} hot campaign post_types from ${hotCampaignsList.length} hot campaigns`);
+
+    // Sort hot campaigns: Somnia whitelisted campaigns FIRST, then others
+    hotCampaigns.sort((a, b) => {
+      // Prioritize Somnia whitelisted campaigns
+      if (a.isSomniaWhitelisted && !b.isSomniaWhitelisted) return -1;
+      if (!a.isSomniaWhitelisted && b.isSomniaWhitelisted) return 1;
+      
+      // For campaigns with same priority, sort by ratio (highest first)
+      const ratioA = a.ratio === undefined ? 0 : a.ratio;
+      const ratioB = b.ratio === undefined ? 0 : b.ratio;
+      return ratioB - ratioA;
+    });
+
+    logger.info(`✅ Hot campaigns sorted with Somnia whitelisted projects prioritized`);
 
     return res.json({
       success: true,

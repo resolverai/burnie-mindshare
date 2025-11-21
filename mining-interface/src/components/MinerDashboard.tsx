@@ -17,13 +17,15 @@ import {
   KeyIcon,
   BoltIcon,
   Bars3Icon,
-  DocumentTextIcon
+  DocumentTextIcon,
+  PencilSquareIcon
 } from '@heroicons/react/24/outline'
 
 import Dashboard from './Dashboard'
 import Agents from './Agents'
 import Mining from './Mining'
 import MinerMyContent from './MinerMyContent'
+import MiningContext from './MiningContext'
 import Portfolio from './Portfolio'
 import { NeuralKeysModal } from './NeuralKeysModal'
 
@@ -89,6 +91,7 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
   const baseNavigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: HomeIcon, iconSolid: HomeIcon, route: '/dashboard' },
     { id: 'agents', label: 'Agents', icon: CpuChipIcon, iconSolid: CpuChipIcon, route: '/agents' },
+    { id: 'context', label: 'Context', icon: PencilSquareIcon, iconSolid: PencilSquareIcon, route: '/context' },
     { id: 'mining', label: 'Mining', icon: MegaphoneIcon, iconSolid: MegaphoneIcon, route: '/mining' },
     { id: 'mycontent', label: 'My Content', icon: DocumentTextIcon, iconSolid: DocumentTextIcon, route: '/my-content' },
     { id: 'portfolio', label: 'Portfolio', icon: ChartBarIcon, iconSolid: ChartBarIcon, route: '/portfolio' },
@@ -105,6 +108,8 @@ export default function MinerDashboard({ activeSection = 'dashboard' }: MinerDas
         return <Dashboard />
       case 'agents': 
         return <Agents />
+      case 'context': 
+        return <MiningContext />
       case 'mining': 
         // Redirect miners away from mining screen
         if (isMinerMode) {

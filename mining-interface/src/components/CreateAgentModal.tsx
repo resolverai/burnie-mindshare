@@ -408,19 +408,19 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
         maxTokens: editingAgent.config?.maxTokens || 150,
       })
       setModelPreferences({
-        text: editingAgent.config?.modelPreferences?.text || { provider: 'openai', model: 'gpt-4o' },
-        image: editingAgent.config?.modelPreferences?.image || { provider: 'openai', model: 'gpt-4o' },
-        video: editingAgent.config?.modelPreferences?.video || { provider: 'replicate', model: 'runway-ml/gen-2' },
-        audio: editingAgent.config?.modelPreferences?.audio || { provider: 'openai', model: 'tts-1-hd' }
+        text: editingAgent.config?.modelPreferences?.text || { provider: 'xai', model: 'grok-4-latest' },
+        image: editingAgent.config?.modelPreferences?.image || { provider: 'fal', model: 'fal-ai/nano-banana/edit' },
+        video: editingAgent.config?.modelPreferences?.video || { provider: 'openai', model: 'sora' },
+        audio: editingAgent.config?.modelPreferences?.audio || { provider: 'elevenlabs', model: 'eleven_multilingual_v2' }
       })
     }
   }, [editingAgent])
 
   const [modelPreferences, setModelPreferences] = useState<ContentTypeModelPreferences>({
-    text: editingAgent?.config?.modelPreferences?.text || { provider: 'openai', model: 'gpt-4o' },
-    image: editingAgent?.config?.modelPreferences?.image || { provider: 'openai', model: 'gpt-4o' },
-    video: editingAgent?.config?.modelPreferences?.video || { provider: 'replicate', model: 'runway-ml/gen-2' },
-    audio: editingAgent?.config?.modelPreferences?.audio || { provider: 'openai', model: 'tts-1-hd' }
+    text: editingAgent?.config?.modelPreferences?.text || { provider: 'xai', model: 'grok-4-latest' },
+    image: editingAgent?.config?.modelPreferences?.image || { provider: 'fal', model: 'fal-ai/nano-banana/edit' },
+    video: editingAgent?.config?.modelPreferences?.video || { provider: 'openai', model: 'sora' },
+    audio: editingAgent?.config?.modelPreferences?.audio || { provider: 'elevenlabs', model: 'eleven_multilingual_v2' }
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -681,7 +681,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
                       onChange={(e) => handleModelPreferenceChange('text', 'provider', e.target.value)}
                       className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                     >
-                      {PROVIDER_OPTIONS.filter(p => p.textModels.length > 0).map(provider => (
+                      {PROVIDER_OPTIONS.filter(p => p.value === 'xai' && p.textModels.length > 0).map(provider => (
                         <option key={provider.value} value={provider.value}>
                     {provider.name} {hasApiKey(provider.value) ? '✅' : '❌'}
                   </option>
@@ -722,7 +722,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
                       onChange={(e) => handleModelPreferenceChange('image', 'provider', e.target.value)}
                       className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                     >
-                      {PROVIDER_OPTIONS.filter(p => p.imageModels.length > 0).map(provider => (
+                      {PROVIDER_OPTIONS.filter(p => p.value === 'fal' && p.imageModels.length > 0).map(provider => (
                         <option key={provider.value} value={provider.value}>
                           {provider.name} {hasApiKey(provider.value) ? '✅' : '❌'}
                         </option>
@@ -746,9 +746,9 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
             </div>
           </div>
 
-              {/* Video Content */}
+              {/* Video Content (Optional) */}
               <div className="bg-gray-700/30 rounded-lg p-4">
-                <h5 className="text-white font-medium mb-3">🎥 Video Content</h5>
+                <h5 className="text-white font-medium mb-3">🎥 Video Content <span className="text-gray-400 text-sm">(Optional)</span></h5>
                 <div className="space-y-3">
                   <div>
                     <label className="block text-sm text-gray-300 mb-1">Provider</label>
@@ -757,7 +757,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
                       onChange={(e) => handleModelPreferenceChange('video', 'provider', e.target.value)}
                       className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                     >
-                      {PROVIDER_OPTIONS.filter(p => p.videoModels.length > 0).map(provider => (
+                      {PROVIDER_OPTIONS.filter(p => p.value === 'openai' && p.videoModels.length > 0).map(provider => (
                         <option key={provider.value} value={provider.value}>
                           {provider.name} {hasApiKey(provider.value) ? '✅' : '❌'}
                         </option>
@@ -781,9 +781,9 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
                 </div>
           </div>
 
-              {/* Audio Content */}
+              {/* Audio Content (Optional) */}
               <div className="bg-gray-700/30 rounded-lg p-4">
-                <h5 className="text-white font-medium mb-3">🎵 Audio Content</h5>
+                <h5 className="text-white font-medium mb-3">🎵 Audio Content <span className="text-gray-400 text-sm">(Optional)</span></h5>
                 <div className="space-y-3">
                   <div>
                     <label className="block text-sm text-gray-300 mb-1">Provider</label>
@@ -792,7 +792,7 @@ export function CreateAgentModal({ onClose, onAgentCreated, editingAgent }: Crea
                       onChange={(e) => handleModelPreferenceChange('audio', 'provider', e.target.value)}
                       className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                     >
-                      {PROVIDER_OPTIONS.filter(p => p.audioModels.length > 0).map(provider => (
+                      {PROVIDER_OPTIONS.filter(p => p.value === 'elevenlabs' && p.audioModels.length > 0).map(provider => (
                         <option key={provider.value} value={provider.value}>
                           {provider.name} {hasApiKey(provider.value) ? '✅' : '❌'}
                         </option>

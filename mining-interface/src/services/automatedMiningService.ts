@@ -81,7 +81,10 @@ class AutomatedMiningService {
       }
 
       const agentsData = await agentsResponse.json();
-      const hasAgents = agentsData.data && agentsData.data.length > 0;
+      const allAgents = agentsData.data || [];
+      // Check for active agents specifically
+      const activeAgents = allAgents.filter((agent: any) => agent.isActive !== false);
+      const hasAgents = activeAgents.length > 0;
 
       // THIRD CHECK: Does user have neural keys configured?
       const apiKeys = localStorage.getItem(`burnie_api_keys_${walletAddress}`);
@@ -108,7 +111,7 @@ class AutomatedMiningService {
         message = 'Ready to start automated mining';
       } else {
         const missing = [];
-        if (!hasAgents) missing.push('Agents');
+        if (!hasAgents) missing.push('Active Agents');
         if (!hasNeuralKeys) missing.push('Neural Keys');
         message = `Missing: ${missing.join(' and ')}`;
       }
@@ -249,8 +252,41 @@ class AutomatedMiningService {
         return false;
       }
 
-      // Use the first available agent
-      const selectedAgent = agents[0];
+      // Filter only active agents and sort by createdAt (oldest first)
+      const activeAgents = agents
+        .filter((agent: any) => agent.isActive !== false)
+        .sort((a: any, b: any) => {
+          const dateA = new Date(a.createdAt || 0).getTime();
+          const dateB = new Date(b.createdAt || 0).getTime();
+          return dateA - dateB; // Oldest first
+        });
+
+      if (activeAgents.length === 0) {
+        console.error('No active agents found for miner. Please activate at least one agent.');
+        
+        // Mark execution as failed if we have an executionId
+        if (executionId) {
+          try {
+            await fetch(buildApiUrl(`executions/${executionId}/failed`), {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                errorMessage: 'No active agents found. Please activate at least one agent in the Agents screen.'
+              })
+            });
+          } catch (markFailedError) {
+            console.error('Failed to mark execution as failed:', markFailedError);
+          }
+        }
+        
+        return false;
+      }
+
+      // Use the oldest active agent as the default agent for dedicated miners
+      const selectedAgent = activeAgents[0];
+      console.log(`🤖 Using oldest active agent: ${selectedAgent.name} (ID: ${selectedAgent.id})`);
 
       // Get neural keys from localStorage
       const neuralKeys = localStorage.getItem(`burnie_api_keys_${walletAddress}`);

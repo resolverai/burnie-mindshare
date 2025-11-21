@@ -1226,9 +1226,12 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                         arguments["image_urls"] = [accessible_logo_url]
                         arguments.update({
                             "num_images": model_params.get("num_images", 1),
-                            "output_format": model_params.get("output_format", "jpeg")
+                            "output_format": model_params.get("output_format", "jpeg"),
+                            "aspect_ratio": model_params.get("aspect_ratio", "1:1"),
+                            "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, hashtags, double logos"
                         })
                         logger.info(f"🏷️ Using nano-banana/edit format with image_urls array")
+                        logger.info(f"🏷️ nano-banana parameters: aspect_ratio={arguments['aspect_ratio']}, negative_prompt=set")
                     else:
                         # flux-pro/kontext uses image_url as a single string
                         arguments["image_url"] = accessible_logo_url
@@ -1248,6 +1251,15 @@ CRITICAL VISUAL QUALITY REQUIREMENTS:
                 # Flux models may have additional parameters
                 if 'kontext' not in model.lower():  # Standard flux models
                     pass
+            elif 'nano-banana/edit' in model.lower():
+                # nano-banana/edit specific parameters (if not already set via logo integration)
+                if 'aspect_ratio' not in arguments:
+                    arguments.update({
+                        "aspect_ratio": "1:1",
+                        "output_format": "jpeg",
+                        "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, hashtags, double logos"
+                    })
+                    logger.info(f"🎨 Added nano-banana/edit default parameters (no logo integration)")
             elif 'stable-diffusion' in model.lower():
                 arguments.update({
                     "num_inference_steps": 28,

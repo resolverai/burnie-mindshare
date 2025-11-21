@@ -81,10 +81,25 @@ export default function AdminDashboard() {
     startDate: '',
     endDate: '',
     guidelines: '',
-    somniaWhitelisted: false // Add Somnia whitelist checkbox
+    somniaWhitelisted: false, // Add Somnia whitelist checkbox
+    // New fields for admin context
+    colorPalette: {
+      primary: '',
+      secondary: '',
+      accent: ''
+    }
   })
   const [logoPreview, setLogoPreview] = useState<string>('')
   const [bannerPreview, setBannerPreview] = useState<string>('')
+  const [uploadedDocuments, setUploadedDocuments] = useState<Array<{
+    name: string
+    url: string
+    text?: string
+    timestamp: string
+    type: string
+    error?: string
+  }>>([])
+  const [isDragging, setIsDragging] = useState(false)
   
   // Project search states
   const [projectSearchResults, setProjectSearchResults] = useState<Array<{id: number, name: string, logo?: string}>>([])
@@ -396,6 +411,66 @@ export default function AdminDashboard() {
     }
   }
 
+  // Document upload functions
+  const uploadDocuments = async (filesToUpload: File[]) => {
+    if (filesToUpload.length === 0) return
+
+    try {
+      const formDataToSend = new FormData()
+      filesToUpload.forEach((file) => formDataToSend.append('documents', file))
+
+      const resp = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/admin/campaigns/extract-documents`, {
+        method: 'POST',
+        body: formDataToSend,
+      })
+
+      if (resp.ok) {
+        const result = await resp.json()
+        
+        // Add timestamps if not present
+        const docsWithTimestamps = result.data.map((doc: any) => ({
+          ...doc,
+          timestamp: doc.timestamp || new Date().toISOString(),
+        }))
+        
+        setUploadedDocuments(prev => [...prev, ...docsWithTimestamps])
+        
+        console.log(`✅ Uploaded ${filesToUpload.length} files`)
+        alert(`${filesToUpload.length} document(s) uploaded successfully`)
+      } else {
+        throw new Error('Failed to upload documents')
+      }
+    } catch (error) {
+      console.error('Document upload failed:', error)
+      alert('Failed to upload documents')
+    }
+  }
+
+  const handleFileDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+
+    const files = Array.from(e.dataTransfer.files).filter(file => 
+      file.type === 'application/pdf' || 
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.type === 'application/msword'
+    )
+
+    if (files.length > 0) {
+      await uploadDocuments(files)
+    } else {
+      alert('Please upload only PDF or DOC files')
+    }
+  }
+
+  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files)
+      await uploadDocuments(files)
+      e.target.value = '' // Reset input
+    }
+  }
+
   const handleEditCampaign = async (campaign: Campaign) => {
     setEditingCampaign(campaign)
     setFormData({
@@ -414,8 +489,16 @@ export default function AdminDashboard() {
       startDate: campaign.startDate ? new Date(campaign.startDate).toISOString().split('T')[0] : '',
       endDate: campaign.endDate ? new Date(campaign.endDate).toISOString().split('T')[0] : '',
       guidelines: campaign.brandGuidelines || '',
-      somniaWhitelisted: (campaign as any).project?.somniaWhitelisted || false // Get from project relation
+      somniaWhitelisted: (campaign as any).project?.somniaWhitelisted || false, // Get from project relation
+      colorPalette: (campaign as any).color_palette || { primary: '', secondary: '', accent: '' }
     })
+    
+    // Load documents if present
+    if ((campaign as any).documents_text) {
+      setUploadedDocuments((campaign as any).documents_text)
+    } else {
+      setUploadedDocuments([])
+    }
     
     // Set logo preview if campaign has a project logo
     if (campaign.projectLogo) {
@@ -504,6 +587,8 @@ export default function AdminDashboard() {
       }
 
       // Prepare campaign data
+      const documentS3Keys = uploadedDocuments.map(doc => doc.url).filter(url => url)
+      
       const campaignData = {
         title: formData.title,
         description: formData.description,
@@ -520,7 +605,10 @@ export default function AdminDashboard() {
         startDate: formData.startDate,
         endDate: formData.endDate,
         guidelines: formData.guidelines,
-        somniaWhitelisted: formData.somniaWhitelisted // Send Somnia whitelist status
+        somniaWhitelisted: formData.somniaWhitelisted, // Send Somnia whitelist status
+        documents_text: uploadedDocuments, // Full details with text and timestamps
+        document_urls: documentS3Keys, // Just S3 keys for quick access
+        color_palette: formData.colorPalette
       }
 
       console.log('📝 Updating campaign with data:', campaignData)
@@ -561,10 +649,12 @@ export default function AdminDashboard() {
           startDate: '',
           endDate: '',
           guidelines: '',
-          somniaWhitelisted: false // Reset Somnia checkbox
+          somniaWhitelisted: false, // Reset Somnia checkbox
+          colorPalette: { primary: '', secondary: '', accent: '' }
         })
         setLogoPreview('')
         setBannerPreview('')
+        setUploadedDocuments([])
         setShowEditForm(false)
         setEditingCampaign(null)
         
@@ -625,6 +715,8 @@ export default function AdminDashboard() {
       }
 
       // Prepare campaign data
+      const documentS3Keys = uploadedDocuments.map(doc => doc.url).filter(url => url)
+      
       const campaignData = {
           title: formData.title,
           description: formData.description,
@@ -640,7 +732,10 @@ export default function AdminDashboard() {
         startDate: formData.startDate,
         endDate: formData.endDate,
         guidelines: formData.guidelines,
-        somniaWhitelisted: formData.somniaWhitelisted // Send Somnia whitelist status
+        somniaWhitelisted: formData.somniaWhitelisted, // Send Somnia whitelist status
+        documents_text: uploadedDocuments, // Full details with text and timestamps
+        document_urls: documentS3Keys, // Just S3 keys for quick access
+        color_palette: formData.colorPalette
       }
 
       console.log('📊 Creating campaign with data:', campaignData)
@@ -675,10 +770,12 @@ export default function AdminDashboard() {
           startDate: '',
           endDate: '',
           guidelines: '',
-          somniaWhitelisted: false // Reset Somnia checkbox
+          somniaWhitelisted: false, // Reset Somnia checkbox
+          colorPalette: { primary: '', secondary: '', accent: '' }
         })
         setLogoPreview('')
         setBannerPreview('')
+        setUploadedDocuments([])
         setShowCreateForm(false)
         
         // Refresh campaigns list
@@ -1032,10 +1129,12 @@ export default function AdminDashboard() {
                   startDate: '',
                   endDate: '',
                   guidelines: '',
-                  somniaWhitelisted: false // Reset Somnia checkbox
+                  somniaWhitelisted: false, // Reset Somnia checkbox
+                  colorPalette: { primary: '', secondary: '', accent: '' }
                 })
                 setLogoPreview('')
                 setBannerPreview('')
+                setUploadedDocuments([])
                 setShowCreateForm(true)
               }}
               className="px-2 py-1.5 bg-orange-600 text-white text-xs rounded-lg hover:bg-orange-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
@@ -1275,10 +1374,12 @@ export default function AdminDashboard() {
                       startDate: '',
                       endDate: '',
                       guidelines: '',
-                      somniaWhitelisted: false // Reset Somnia checkbox
+                      somniaWhitelisted: false, // Reset Somnia checkbox
+                      colorPalette: { primary: '', secondary: '', accent: '' }
                     })
                     setLogoPreview('')
                     setBannerPreview('')
+                    setUploadedDocuments([])
                   }}
                   className="text-gray-400 hover:text-gray-600 transition-colors"
                 >
@@ -1504,6 +1605,183 @@ export default function AdminDashboard() {
                     (Enable purchases with TOAST on Somnia Testnet)
                   </span>
                 </label>
+              </div>
+
+              {/* Document Upload Section */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Admin Context Documents (Optional)
+                </label>
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    setIsDragging(true)
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault()
+                    setIsDragging(false)
+                  }}
+                  onDrop={handleFileDrop}
+                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                    isDragging
+                      ? 'border-orange-500 bg-orange-50'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx"
+                    onChange={handleFileInput}
+                    className="hidden"
+                    id="document-upload"
+                  />
+                  <label
+                    htmlFor="document-upload"
+                    className="cursor-pointer flex flex-col items-center"
+                  >
+                    <svg className="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <span className="text-sm text-gray-600">
+                      Drop PDF or DOC files here, or click to browse
+                    </span>
+                    <span className="text-xs text-gray-500 mt-1">
+                      Upload project documentation, whitepapers, etc.
+                    </span>
+                  </label>
+                </div>
+
+                {/* Uploaded Documents List */}
+                {uploadedDocuments.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm font-medium text-gray-700">
+                      Uploaded Documents ({uploadedDocuments.length})
+                    </p>
+                    {uploadedDocuments.map((doc, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200"
+                      >
+                        <div className="flex items-center space-x-3 flex-1 min-w-0">
+                          <svg className="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {doc.name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {doc.text ? `Text extracted (${doc.text.length} chars)` : doc.error || 'Processing...'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUploadedDocuments(uploadedDocuments.filter((_, i) => i !== idx))
+                          }}
+                          className="px-3 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-xs transition-colors ml-3 flex-shrink-0"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Color Palette Section */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Brand Colors (Optional)
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="primaryColor" className="block text-xs text-gray-600 mb-1">
+                      Primary Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="primaryColor"
+                        value={formData.colorPalette.primary || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.primary || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.primary || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="secondaryColor" className="block text-xs text-gray-600 mb-1">
+                      Secondary Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="secondaryColor"
+                        value={formData.colorPalette.secondary || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.secondary || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.secondary || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="accentColor" className="block text-xs text-gray-600 mb-1">
+                      Accent Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="accentColor"
+                        value={formData.colorPalette.accent || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.accent || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.accent || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -1882,6 +2160,183 @@ export default function AdminDashboard() {
                     (Enable purchases with TOAST on Somnia Testnet)
                   </span>
                 </label>
+              </div>
+
+              {/* Document Upload Section */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Admin Context Documents (Optional)
+                </label>
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    setIsDragging(true)
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault()
+                    setIsDragging(false)
+                  }}
+                  onDrop={handleFileDrop}
+                  className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                    isDragging
+                      ? 'border-orange-500 bg-orange-50'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                >
+                  <input
+                    type="file"
+                    multiple
+                    accept=".pdf,.doc,.docx"
+                    onChange={handleFileInput}
+                    className="hidden"
+                    id="document-upload"
+                  />
+                  <label
+                    htmlFor="document-upload"
+                    className="cursor-pointer flex flex-col items-center"
+                  >
+                    <svg className="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    <span className="text-sm text-gray-600">
+                      Drop PDF or DOC files here, or click to browse
+                    </span>
+                    <span className="text-xs text-gray-500 mt-1">
+                      Upload project documentation, whitepapers, etc.
+                    </span>
+                  </label>
+                </div>
+
+                {/* Uploaded Documents List */}
+                {uploadedDocuments.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm font-medium text-gray-700">
+                      Uploaded Documents ({uploadedDocuments.length})
+                    </p>
+                    {uploadedDocuments.map((doc, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200"
+                      >
+                        <div className="flex items-center space-x-3 flex-1 min-w-0">
+                          <svg className="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {doc.name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {doc.text ? `Text extracted (${doc.text.length} chars)` : doc.error || 'Processing...'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUploadedDocuments(uploadedDocuments.filter((_, i) => i !== idx))
+                          }}
+                          className="px-3 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-xs transition-colors ml-3 flex-shrink-0"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Color Palette Section */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Brand Colors (Optional)
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="primaryColor" className="block text-xs text-gray-600 mb-1">
+                      Primary Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="primaryColor"
+                        value={formData.colorPalette.primary || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.primary || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.primary || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="secondaryColor" className="block text-xs text-gray-600 mb-1">
+                      Secondary Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="secondaryColor"
+                        value={formData.colorPalette.secondary || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.secondary || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.secondary || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="accentColor" className="block text-xs text-gray-600 mb-1">
+                      Accent Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="accentColor"
+                        value={formData.colorPalette.accent || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.accent || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.accent || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div>

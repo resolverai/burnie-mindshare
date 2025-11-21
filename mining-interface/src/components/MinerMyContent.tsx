@@ -308,6 +308,35 @@ export default function MinerMyContent() {
     }
   }, [isMinerMode, address])
 
+  // MINER mode: Recheck mining readiness when page becomes visible (e.g., after navigating to/from Agents screen)
+  useEffect(() => {
+    if (isMinerMode && address) {
+      const handleVisibilityChange = () => {
+        if (!document.hidden) {
+          // Page is now visible - recheck mining readiness
+          automatedMiningService.checkMiningReadiness(address).then(newReadiness => {
+            setMiningReadiness(newReadiness)
+            
+            // If mining is running but readiness is lost, stop mining immediately
+            if (!newReadiness.canStart && miningStatus.isRunning && !manuallyStopped) {
+              console.log('⚠️ Mining readiness lost (detected on page focus) - stopping automated mining')
+              automatedMiningService.stopMining()
+              showToast('Automated mining stopped: ' + newReadiness.message, 'warning')
+            }
+          }).catch(error => {
+            console.error('Error checking mining readiness on visibility change:', error)
+          })
+        }
+      }
+
+      document.addEventListener('visibilitychange', handleVisibilityChange)
+
+      return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+      }
+    }
+  }, [isMinerMode, address, miningStatus.isRunning, manuallyStopped])
+
   // MINER mode: Start mining automatically when ready (only if not manually stopped)
   useEffect(() => {
     if (isMinerMode && address && miningReadiness?.canStart && !miningStatus.isRunning && !manuallyStopped) {

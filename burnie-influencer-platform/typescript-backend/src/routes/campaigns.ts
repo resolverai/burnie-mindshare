@@ -204,6 +204,8 @@ router.get('/marketplace-ready', async (req: Request, res: Response) => {
       projectName: campaign.projectName,
       projectLogo: campaign.projectLogo,
       tokenTicker: campaign.tokenTicker,
+      // Include color palette for admin-set brand colors
+      color_palette: campaign.color_palette || null,
       project: campaign.project ? {
         id: campaign.project.id,
         name: campaign.project.name,
@@ -1191,11 +1193,16 @@ router.post('/:id/sync-content', async (req: Request, res: Response) => {
     
     if (creator?.walletAddress) {
       // Determine file path for IPFS upload
+      // Priority: video_url > content_images
       let filePath = null;
-      if (content_data.content_images && Array.isArray(content_data.content_images) && content_data.content_images.length > 0) {
-        filePath = content_data.content_images[0]; // Use first image
-      } else if (content_data.video_url) {
+      if (content_data.video_url) {
+        // If video exists, use video for IPFS upload
         filePath = content_data.video_url;
+        logger.info(`📹 Using video for IPFS upload: ${filePath}`);
+      } else if (content_data.content_images && Array.isArray(content_data.content_images) && content_data.content_images.length > 0) {
+        // Otherwise, use first image
+        filePath = content_data.content_images[0];
+        logger.info(`🖼️ Using image for IPFS upload: ${filePath}`);
       }
 
       if (filePath) {

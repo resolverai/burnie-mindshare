@@ -80,6 +80,7 @@ interface PersonalizedAgent {
   system_message: string;
   config: any;
   agentType: string;
+  isActive?: boolean;
 }
 
 interface CampaignSelection {
@@ -177,14 +178,14 @@ export default function Mining() {
         if (response.ok) {
           const data = await response.json()
           console.log('✅ Mining: Successfully fetched campaigns:', data.data?.length || 0, 'campaigns')
-          return data.data || []
+          return data  // Return the full response object
         }
         console.error('❌ Mining: Backend response not ok:', response.status, response.statusText)
         throw new Error(`Backend responded with ${response.status}`)
       } catch (error) {
         console.error('❌ Mining: Failed to fetch campaigns from backend:', error)
-        // Return empty array if backend is not available - no mock data
-        return []
+        // Return empty response structure if backend is not available
+        return { data: [] }
       }
     },
     refetchInterval: 30000,
@@ -219,8 +220,11 @@ export default function Mining() {
     enabled: !!address,
   })
 
+  // Extract campaigns array from response
+  const campaigns = campaignsData?.data || []
+
   // Filter campaigns based on search term
-  const filteredCampaigns = (campaignsData || []).filter(campaign => 
+  const filteredCampaigns = campaigns.filter((campaign: Campaign) => 
     campaign.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     campaign.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
     campaign.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -237,6 +241,32 @@ export default function Mining() {
   useEffect(() => {
     setCurrentPage(1)
   }, [searchTerm])
+
+  // Clear selected agents that have been deactivated
+  useEffect(() => {
+    if (userAgents && selectedCampaigns.length > 0) {
+      const updatedSelections = selectedCampaigns.map(selection => {
+        // If agent is selected but is now inactive, clear the selection
+        if (selection.selectedAgent && selection.selectedAgent.isActive === false) {
+          console.log(`⚠️ Agent "${selection.selectedAgent.name}" was deactivated - clearing selection for campaign: ${selection.campaign.title}`)
+          return {
+            ...selection,
+            selectedAgent: null
+          }
+        }
+        return selection
+      })
+      
+      // Only update if something changed
+      const hasChanges = updatedSelections.some((sel, idx) => 
+        sel.selectedAgent !== selectedCampaigns[idx].selectedAgent
+      )
+      
+      if (hasChanges) {
+        setSelectedCampaigns(updatedSelections)
+      }
+    }
+  }, [userAgents, selectedCampaigns])
 
   const startMining = async () => {
     if (selectedCampaigns.length === 0) return
@@ -259,7 +289,7 @@ export default function Mining() {
         return
       }
 
-      // Check for agent selection
+      // Check for agent selection and validate agent is active
       for (const selection of selectedCampaigns) {
         if (!selection.selectedAgent) {
           setMiningStatus({ 
@@ -267,6 +297,17 @@ export default function Mining() {
             progress: 0, 
             currentStep: `Please select an agent for campaign: ${selection.campaign.title}`,
             error: 'Missing agent selection'
+          })
+          return
+        }
+
+        // CRITICAL: Check if selected agent is active
+        if (selection.selectedAgent.isActive === false) {
+          setMiningStatus({ 
+            status: 'error', 
+            progress: 0, 
+            currentStep: `Agent "${selection.selectedAgent.name}" is deactivated. Please select an active agent for campaign: ${selection.campaign.title}`,
+            error: 'Inactive agent selected'
           })
           return
         }
@@ -1421,9 +1462,10 @@ export default function Mining() {
                                {agentsLoading ? 'Loading agents...' : 
                                 !address ? 'Connect wallet first' :
                                 !userAgents || userAgents.length === 0 ? 'No agents found - create one in Agents screen' :
+                                userAgents.filter((agent: PersonalizedAgent) => agent.isActive !== false).length === 0 ? 'No active agents - activate one in Agents screen' :
                                 'Choose an agent...'}
                              </option>
-                             {userAgents?.map((agent: PersonalizedAgent) => (
+                             {userAgents?.filter((agent: PersonalizedAgent) => agent.isActive !== false).map((agent: PersonalizedAgent) => (
                                <option key={agent.id} value={agent.id}>
                                  {agent.name} ({agent.personality})
                                </option>
@@ -1649,9 +1691,15 @@ export default function Mining() {
               )}
               <button
                 onClick={startMining}
-                disabled={selectedCampaigns.length === 0 || selectedCampaigns.some(selection => !selection.selectedAgent)}
+                disabled={
+                  selectedCampaigns.length === 0 || 
+                  selectedCampaigns.some(selection => !selection.selectedAgent) ||
+                  selectedCampaigns.some(selection => selection.selectedAgent?.isActive === false)
+                }
                 className={`px-8 py-4 rounded-lg font-semibold transition-all flex items-center mx-auto ${
-                  selectedCampaigns.length > 0 && selectedCampaigns.every(selection => selection.selectedAgent)
+                  selectedCampaigns.length > 0 && 
+                  selectedCampaigns.every(selection => selection.selectedAgent) &&
+                  selectedCampaigns.every(selection => selection.selectedAgent?.isActive !== false)
                     ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600'
                     : 'bg-gray-600 text-gray-400 cursor-not-allowed'
                 }`}
