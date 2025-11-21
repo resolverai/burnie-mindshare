@@ -808,8 +808,12 @@ class SomniaDailyPointsYapperScript {
     yapperPoints.weeklyRewards = calculation.weeklyRewards;
     yapperPoints.grandPrizeRewards = calculation.grandPrizeRewards;
     yapperPoints.bonusChampion = calculation.bonusChampion;
-    yapperPoints.dailyRank = calculation.dailyRank;
-    yapperPoints.projectRank = calculation.projectRank;
+    if (calculation.dailyRank !== undefined) {
+      yapperPoints.dailyRank = calculation.dailyRank;
+    }
+    if (calculation.projectRank !== undefined) {
+      yapperPoints.projectRank = calculation.projectRank;
+    }
 
     await repo.save(yapperPoints);
   }
