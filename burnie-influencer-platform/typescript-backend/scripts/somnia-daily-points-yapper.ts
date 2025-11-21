@@ -129,19 +129,54 @@ class SomniaDailyPointsYapperScript {
   }
 
   /**
-   * Get all users with Twitter connections who are whitelisted for Somnia
+   * Get all users who should be eligible for Season 2 points:
+   * - Users with Twitter connections (for content points)
+   * - Users who made purchases (for transaction milestones)
+   * - Users who have referrals that made purchases (for referral points)
    */
   async getUsersWithTwitterConnections(): Promise<User[]> {
-    const query = `
+    // Get users with Twitter connections
+    const twitterUsersQuery = `
       SELECT DISTINCT u.id, u."walletAddress", u."createdAt", u."referralCount"
       FROM users u
       INNER JOIN yapper_twitter_connections ytc ON u.id = ytc."userId"
       WHERE ytc."isConnected" = true
         AND u."createdAt" >= $1
-      ORDER BY u.id
     `;
 
-    const users = await this.dataSource.query(query, [CAMPAIGN_START_DATE]);
+    // Get users who made purchases (for transaction milestones)
+    const purchasersQuery = `
+      SELECT DISTINCT u.id, u."walletAddress", u."createdAt", u."referralCount"
+      FROM users u
+      INNER JOIN content_purchases cp ON LOWER(cp.buyer_wallet_address) = LOWER(u."walletAddress")
+      WHERE cp.payment_status = 'completed'
+        AND cp.purchase_price > 0
+        AND cp.created_at >= $1
+    `;
+
+    // Get users who have referrals that made purchases (for referral points)
+    const referrersQuery = `
+      SELECT DISTINCT u.id, u."walletAddress", u."createdAt", u."referralCount"
+      FROM users u
+      INNER JOIN user_referrals ur ON ur."directReferrerId" = u.id
+      INNER JOIN users referred_user ON ur."userId" = referred_user.id
+      INNER JOIN content_purchases cp ON LOWER(cp.buyer_wallet_address) = LOWER(referred_user."walletAddress")
+      WHERE cp.payment_status = 'completed'
+        AND cp.purchase_price > 0
+        AND cp.created_at >= $1
+    `;
+
+    // Combine all users using UNION
+    const combinedQuery = `
+      ${twitterUsersQuery}
+      UNION
+      ${purchasersQuery}
+      UNION
+      ${referrersQuery}
+      ORDER BY id
+    `;
+
+    const users = await this.dataSource.query(combinedQuery, [CAMPAIGN_START_DATE, CAMPAIGN_START_DATE, CAMPAIGN_START_DATE]);
     const filteredUsers = users
       .map((user: any) => ({
         id: user.id,
@@ -568,11 +603,11 @@ class SomniaDailyPointsYapperScript {
   }
 
   /**
-   * Calculate incremental points for a specific project
+   * Calculate incremental points for a specific project (or NULL for global-only)
    */
   async calculateIncrementalPointsForProject(
     user: User, 
-    projectId: number,
+    projectId: number | null,
     lastRecordedEntry: SomniaDreamathonYapperPoints | null, 
     globalReferralPoints: number,
     globalMilestonePoints: number,
@@ -580,22 +615,33 @@ class SomniaDailyPointsYapperScript {
   ): Promise<any> {
     const sinceTimestamp = lastRecordedEntry ? lastRecordedEntry.createdAt : user.createdAt;
     
-    // 1. Dreamathon content points (project-specific)
-    const projectPostsMap = await this.getDreamathonPostsByProject(user.id, sinceTimestamp);
-    const dreamathonPostsCount = projectPostsMap.get(projectId) || 0;
-    const dreamathonContentPoints = dreamathonPostsCount * DREAMATHON_CONTENT_POINTS;
+    // For NULL projectId (global-only users), skip project-specific points
+    let dreamathonContentPoints = 0;
+    let championBonusPoints = 0;
+    let impressionsPoints = 0;
+    let totalImpressions = 0;
+    let dreamathonPostsCount = 0;
+    
+    if (projectId !== null) {
+      // 1. Dreamathon content points (project-specific)
+      const projectPostsMap = await this.getDreamathonPostsByProject(user.id, sinceTimestamp);
+      dreamathonPostsCount = projectPostsMap.get(projectId) || 0;
+      dreamathonContentPoints = dreamathonPostsCount * DREAMATHON_CONTENT_POINTS;
 
-    // 2. Referral points (GLOBAL - duplicated)
+      // 4. Champion bonus points (project-specific, last day only)
+      championBonusPoints = championBonusMap.get(user.walletAddress.toLowerCase()) || 0;
+      
+      // 5. Impressions points (project-specific)
+      const impressionsResult = await this.calculateImpressionsPoints(user.walletAddress, projectId);
+      impressionsPoints = impressionsResult.impressionsPoints;
+      totalImpressions = impressionsResult.totalImpressions;
+    }
+
+    // 2. Referral points (GLOBAL - duplicated across all records)
     const referralPoints = globalReferralPoints;
     
-    // 3. Transaction milestone points (GLOBAL - duplicated)
+    // 3. Transaction milestone points (GLOBAL - duplicated across all records)
     const transactionMilestonePoints = globalMilestonePoints;
-    
-    // 4. Champion bonus points (project-specific, last day only)
-    const championBonusPoints = championBonusMap.get(user.walletAddress.toLowerCase()) || 0;
-    
-    // 5. Impressions points (project-specific)
-    const { impressionsPoints, totalImpressions } = await this.calculateImpressionsPoints(user.walletAddress, projectId);
 
     const totalIncrementalPoints = dreamathonContentPoints + referralPoints + transactionMilestonePoints + championBonusPoints + impressionsPoints;
 
@@ -616,7 +662,7 @@ class SomniaDailyPointsYapperScript {
    */
   async processUserForProject(
     user: User, 
-    projectId: number,
+    projectId: number | null,
     globalReferralPoints: number,
     globalMilestonePoints: number,
     globalActiveReferrals: number,
@@ -781,6 +827,27 @@ class SomniaDailyPointsYapperScript {
       if (calculation) {
         calculations.push(calculation);
         console.log(`    ✅ Project ${projectId}: ${calculation.dailyPointsEarned} points`);
+      }
+    }
+    
+    // If user has global points but no project-specific records, create one record with NULL project
+    // This handles users who make purchases or have referrals but don't post content
+    if (calculations.length === 0 && (newReferralPoints > 0 || milestonePoints > 0)) {
+      console.log(`  📝 Creating global record for user with referral/milestone points only`);
+      const globalCalculation = await this.processUserForProject(
+        user,
+        null, // NULL project means "All Projects"
+        newReferralPoints,
+        milestonePoints,
+        activeReferrals,
+        newQualifiedReferrals,
+        milestoneCount,
+        new Map() // No champion bonus for global record
+      );
+      
+      if (globalCalculation) {
+        calculations.push(globalCalculation);
+        console.log(`    ✅ Global record: ${globalCalculation.dailyPointsEarned} points`);
       }
     }
     
