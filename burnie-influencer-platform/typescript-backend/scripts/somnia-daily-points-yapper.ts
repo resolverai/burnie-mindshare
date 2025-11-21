@@ -991,9 +991,9 @@ class SomniaDailyPointsYapperScript {
    * Print dry run summary table
    */
   private printDryRunSummary(): void {
-    console.log('\n' + '='.repeat(150));
+    console.log('\n' + '='.repeat(168));
     console.log('📊 DRY RUN SUMMARY - YAPPER POINTS BREAKDOWN');
-    console.log('='.repeat(150));
+    console.log('='.repeat(168));
     
     // Group by wallet address to show all project records
     const walletMap = new Map<string, YapperCalculation[]>();
@@ -1008,6 +1008,7 @@ class SomniaDailyPointsYapperScript {
     // Print header
     console.log(
       'Wallet Address'.padEnd(45) + 
+      'Twitter'.padEnd(18) +
       'Project'.padEnd(10) + 
       'Content'.padEnd(10) + 
       'Referral'.padEnd(10) + 
@@ -1017,13 +1018,14 @@ class SomniaDailyPointsYapperScript {
       'Daily Total'.padEnd(12) + 
       'Total Points'
     );
-    console.log('-'.repeat(150));
+    console.log('-'.repeat(168));
     
     // Print each wallet's project records
     for (const [wallet, calculations] of walletMap.entries()) {
       for (const calc of calculations) {
         console.log(
           wallet.substring(0, 42).padEnd(45) +
+          (calc.twitterHandle || 'N/A').substring(0, 16).padEnd(18) +
           (calc.projectId?.toString() || 'N/A').padEnd(10) +
           calc.dreamathonContentPoints.toString().padEnd(10) +
           calc.referralPoints.toString().padEnd(10) +
@@ -1034,7 +1036,7 @@ class SomniaDailyPointsYapperScript {
           calc.totalPoints.toString()
         );
       }
-      console.log('-'.repeat(150));
+      console.log('-'.repeat(168));
     }
     
     // Print totals
@@ -1057,6 +1059,7 @@ class SomniaDailyPointsYapperScript {
     const totalDaily = totalContent + totalReferral + totalMilestone + totalChampion + totalImpressions;
     
     console.log('TOTALS:'.padEnd(45) + 
+      ''.padEnd(18) +
       `${totalRecords} recs`.padEnd(10) +
       totalContent.toString().padEnd(10) +
       totalReferral.toString().padEnd(10) +
@@ -1065,7 +1068,7 @@ class SomniaDailyPointsYapperScript {
       totalImpressions.toString().padEnd(12) +
       totalDaily.toString()
     );
-    console.log('='.repeat(150));
+    console.log('='.repeat(168));
     
     console.log(`\n📈 Summary Statistics:`);
     console.log(`   Total Users: ${walletMap.size}`);
@@ -1077,7 +1080,7 @@ class SomniaDailyPointsYapperScript {
     console.log(`   Total Champion Bonus: ${totalChampion}`);
     console.log(`   Total Impressions Points: ${totalImpressions}`);
     console.log(`   Total Daily Points: ${totalDaily}`);
-    console.log('='.repeat(150) + '\n');
+    console.log('='.repeat(168) + '\n');
   }
 
   /**
