@@ -778,22 +778,28 @@ router.get('/mining-stats', async (req, res) => {
       return res.status(400).json({ error: 'Wallet address is required' });
     }
 
-    // Get content created from content_marketplace
+    // Get content created from dedicated_miner_executions (only dedicated mining)
     const contentCreatedQuery = `
       SELECT COUNT(*) as count
-      FROM content_marketplace
-      WHERE LOWER(wallet_address) = LOWER($1)
+      FROM dedicated_miner_executions
+      WHERE LOWER(miner_wallet_address) = LOWER($1)
+        AND status = 'completed'
     `;
     const contentCreatedResult = await AppDataSource.query(contentCreatedQuery, [walletAddress]);
     const contentCreated = parseInt(contentCreatedResult[0]?.count || '0');
 
     // Get content sold and roast earned from content_purchases
+    // Join with dedicated_miner_executions to ensure only dedicated mining content
     const contentSoldQuery = `
       SELECT 
         COUNT(DISTINCT cp.id) as content_sold,
         COALESCE(SUM(cp.miner_payout), 0) as roast_earned
       FROM content_purchases cp
       INNER JOIN content_marketplace cm ON cp.content_id = cm.id
+      INNER JOIN dedicated_miner_executions dme 
+        ON LOWER(dme.miner_wallet_address) = LOWER(cm.wallet_address)
+        AND dme.campaign_id = cm."campaignId"
+        AND dme.status = 'completed'
       WHERE LOWER(cm.wallet_address) = LOWER($1)
         AND cp.payment_status = 'completed'
     `;

@@ -207,24 +207,28 @@ router.get('/rewards/season2/miner-leaderboard', async (req: Request, res: Respo
       startDate.setMonth(now.getMonth() - 1);
     }
 
-    // Build query
+    // Build query - aggregate across ALL projects for each miner
     const leaderboardData = await minerPointsRepo
       .createQueryBuilder('miner')
+      .leftJoin('users', 'u', 'LOWER(u.walletAddress) = LOWER(miner.walletAddress)')
+      .leftJoin('yapper_twitter_connections', 'ytc', 'ytc.userId = u.id AND ytc.isConnected = true')
       .where('miner.createdAt >= :startDate', { startDate })
       .andWhere('miner.createdAt <= :endDate', { endDate: now })
       .select('miner.walletAddress', 'walletAddress')
       .addSelect('miner.name', 'name')
+      .addSelect('ytc.twitterHandle', 'twitterHandle')
+      .addSelect('ytc.profileImageUrl', 'profileImage')
       .addSelect('SUM(miner.dailyContentGenerated)', 'contentCreated')
       .addSelect('SUM(miner.dailyContentSold)', 'contentSold')
       .addSelect('SUM(miner.dailySalesRevenue)', 'totalValueSold')
-      .addSelect('SUM(miner.dailyRevenueShare)', 'revShare')
       .addSelect('SUM(miner.dailyRevenueShare)', 'earnings')
       .addSelect('SUM(miner.weeklyTopSellerBonus)', 'bonus')
       .addSelect('SUM(miner.weeklyUptimeRewards) + SUM(miner.weeklyTopSellerBonus) + SUM(miner.grandPrizeRewards)', 'rewards')
-      .addSelect('AVG(miner.dailyUptimePercentage)', 'avgUptime')
       .addSelect('MAX(miner.updatedAt)', 'lastUpdated')
       .groupBy('miner.walletAddress')
       .addGroupBy('miner.name')
+      .addGroupBy('ytc.twitterHandle')
+      .addGroupBy('ytc.profileImageUrl')
       .getRawMany();
 
     // Sort by totalValueSold descending in JavaScript
@@ -254,16 +258,17 @@ router.get('/rewards/season2/miner-leaderboard', async (req: Request, res: Respo
     const users = topMiners.map((entry: any, index: number) => ({
       rank: index + 1,
       walletAddress: entry.walletAddress,
+      twitterHandle: entry.twitterHandle,
       name: entry.name,
-      tier: tierMap[entry.walletAddress.toLowerCase()] || 'PLATINUM',
+      profileImage: entry.profileImage,
+      tier: tierMap[entry.walletAddress.toLowerCase()] || 'SILVER',
       contentCreated: parseInt(entry.contentCreated || '0'),
       contentSold: parseInt(entry.contentSold || '0'),
       totalValueSold: parseFloat(entry.totalValueSold || '0'),
-      revShare: parseFloat(entry.revShare || '0'),
-      earnings: parseFloat(entry.earnings || '0'),
+      revShare: 70, // Always 70% (return as percentage)
+      earnings: parseFloat(entry.earnings || '0'), // Absolute value in $ROAST
       bonus: parseFloat(entry.bonus || '0'),
       rewards: parseFloat(entry.rewards || '0'),
-      avgUptime: parseFloat(entry.avgUptime || '0'),
     }));
 
     // Get top 3 for podium
