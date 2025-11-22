@@ -107,6 +107,15 @@ router.post('/executions/check-and-reserve', async (req, res) => {
       .andWhere('content.approvalStatus = :status', { status: 'approved' })
       .getCount();
 
+    // Count total content (approved + pending) to prevent infinite generation
+    // This includes content awaiting admin approval
+    const totalPostTypeContent = await contentRepository
+      .createQueryBuilder('content')
+      .where('content.campaignId = :campaignId', { campaignId: parseInt(campaignId) })
+      .andWhere('content.postType = :postType', { postType })
+      .andWhere('content.approvalStatus IN (:...statuses)', { statuses: ['approved', 'pending'] })
+      .getCount();
+
     const purchaseCount = await purchaseRepository
       .createQueryBuilder('purchase')
       .innerJoin('purchase.content', 'content')
@@ -134,14 +143,16 @@ router.post('/executions/check-and-reserve', async (req, res) => {
       // Case 3: Existing logic - available is 0 but purchases > 0 for this post type
       isHot = true;
       neededPieces = 5; // Need at least 5 pieces to rebuild inventory
-    } else if (availableCount < 5 && availableCount > 0) {
-      // Case 4: Low inventory threshold - available < 5 for hot campaigns
+    } else if (totalPostTypeContent < 5) {
+      // Case 4: Low inventory threshold - total content (approved + pending) < 5 for hot campaigns
       // This ensures hot campaigns always maintain minimum inventory of 5 pieces
+      // IMPORTANT: Use totalPostTypeContent (not availableCount) to include pending content
+      // This prevents infinite generation while content awaits admin approval
       isHot = true;
-      neededPieces = 5 - availableCount; // Generate enough to reach 5 pieces
-      logger.info(`🔥 Low inventory for campaign ${campaignId} (${postType}): ${availableCount} < 5, need ${neededPieces} more`);
-    } else if (availableCount >= 5) {
-      // Case 5: Existing logic - ratio > 1 for this post type
+      neededPieces = 5 - totalPostTypeContent; // Generate enough to reach 5 pieces total
+      logger.info(`🔥 Low inventory for campaign ${campaignId} (${postType}): total=${totalPostTypeContent} < 5 (available=${availableCount}, pending=${totalPostTypeContent - availableCount}), need ${neededPieces} more`);
+    } else if (totalPostTypeContent >= 5) {
+      // Case 5: Existing logic - ratio > 1 for this post type (only when we have enough inventory)
       const ratio = purchaseCount / availableCount;
       if (ratio > 1) {
         isHot = true;

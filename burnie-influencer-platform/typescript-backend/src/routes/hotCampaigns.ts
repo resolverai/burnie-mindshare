@@ -179,6 +179,15 @@ router.get('/hot-campaigns', async (req, res) => {
           .andWhere('content.approvalStatus = :status', { status: 'approved' })
           .getCount();
 
+        // Count total content (approved + pending) to prevent infinite generation
+        // This includes content awaiting admin approval
+        const totalContentCount = await contentRepository
+          .createQueryBuilder('content')
+          .where('content.campaignId = :campaignId', { campaignId: campaign.id })
+          .andWhere('content.postType = :postType', { postType })
+          .andWhere('content.approvalStatus IN (:...statuses)', { statuses: ['approved', 'pending'] })
+          .getCount();
+
         // Use Content Meter logic: Purchased = real purchases from content_purchases table
         const purchaseCount = await purchaseRepository
           .createQueryBuilder('purchase')
@@ -206,15 +215,17 @@ router.get('/hot-campaigns', async (req, res) => {
           isHot = true;
           ratio = Infinity;
         }
-        // Case 4: Low inventory threshold - available < 5 for hot campaigns
+        // Case 4: Low inventory threshold - total content (approved + pending) < 5 for hot campaigns
         // This ensures hot campaigns always maintain minimum inventory of 5 pieces
-        else if (availableCount < 5 && availableCount > 0) {
+        // IMPORTANT: Use totalContentCount (not availableCount) to include pending content
+        // This prevents infinite generation while content awaits admin approval
+        else if (totalContentCount < 5 && totalContentCount >= 0) {
           isHot = true;
           ratio = undefined; // Special case for low inventory maintenance
-          logger.info(`🔥 Low inventory detected for ${campaign.title} (${postType}): ${availableCount} < 5 - marking as hot`);
+          logger.info(`🔥 Low inventory detected for ${campaign.title} (${postType}): total=${totalContentCount} < 5 (available=${availableCount}, pending=${totalContentCount - availableCount}) - marking as hot`);
         }
-        // Case 5: Existing logic - ratio > 1 for this post type
-        else if (availableCount >= 5) {
+        // Case 5: Existing logic - ratio > 1 for this post type (only when we have enough inventory)
+        else if (totalContentCount >= 5) {
           ratio = purchaseCount / availableCount;
           if (ratio > 1) {
             isHot = true;
