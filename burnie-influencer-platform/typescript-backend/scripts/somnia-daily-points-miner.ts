@@ -197,7 +197,7 @@ class SomniaDailyPointsMinerScript {
       FROM content_purchases cp
       INNER JOIN content_marketplace cm ON cp.content_id = cm.id
       INNER JOIN campaigns c ON cm."campaignId" = c.id
-      WHERE LOWER(cm."minerWallet") = LOWER($1)
+      WHERE LOWER(cm.wallet_address) = LOWER($1)
         AND cp.payment_status = 'completed'
         AND cp.created_at >= $2
         AND c."projectId" IS NOT NULL
