@@ -210,14 +210,10 @@ router.get('/rewards/season2/miner-leaderboard', async (req: Request, res: Respo
     // Build query - aggregate across ALL projects for each miner
     const leaderboardData = await minerPointsRepo
       .createQueryBuilder('miner')
-      .leftJoin('users', 'u', 'LOWER(u.walletAddress) = LOWER(miner.walletAddress)')
-      .leftJoin('yapper_twitter_connections', 'ytc', 'ytc.userId = u.id AND ytc.isConnected = true')
       .where('miner.createdAt >= :startDate', { startDate })
       .andWhere('miner.createdAt <= :endDate', { endDate: now })
       .select('miner.walletAddress', 'walletAddress')
       .addSelect('miner.name', 'name')
-      .addSelect('ytc.twitterHandle', 'twitterHandle')
-      .addSelect('ytc.profileImageUrl', 'profileImage')
       .addSelect('SUM(miner.dailyContentGenerated)', 'contentCreated')
       .addSelect('SUM(miner.dailyContentSold)', 'contentSold')
       .addSelect('SUM(miner.dailySalesRevenue)', 'totalValueSold')
@@ -227,8 +223,6 @@ router.get('/rewards/season2/miner-leaderboard', async (req: Request, res: Respo
       .addSelect('MAX(miner.updatedAt)', 'lastUpdated')
       .groupBy('miner.walletAddress')
       .addGroupBy('miner.name')
-      .addGroupBy('ytc.twitterHandle')
-      .addGroupBy('ytc.profileImageUrl')
       .getRawMany();
 
     // Sort by totalValueSold descending in JavaScript
@@ -254,22 +248,46 @@ router.get('/rewards/season2/miner-leaderboard', async (req: Request, res: Respo
       tierMap[row.walletAddress] = row.tier;
     });
 
+    // Get Twitter handles and profile images from yapper_twitter_connections
+    const twitterProfilesQuery = await AppDataSource.query(
+      `SELECT 
+        LOWER(u."walletAddress") as "walletAddress",
+        ytc."twitterUsername" as "twitterHandle",
+        ytc."profileImageUrl" as "profileImage"
+       FROM yapper_twitter_connections ytc
+       INNER JOIN users u ON ytc."userId" = u.id
+       WHERE LOWER(u."walletAddress") = ANY($1::text[])
+         AND ytc."isConnected" = true`,
+      [walletAddresses.map((addr: string) => addr.toLowerCase())]
+    );
+
+    const twitterMap: { [key: string]: { twitterHandle: string; profileImage: string } } = {};
+    twitterProfilesQuery.forEach((row: any) => {
+      twitterMap[row.walletAddress] = {
+        twitterHandle: row.twitterHandle,
+        profileImage: row.profileImage
+      };
+    });
+
     // Format leaderboard with ranks
-    const users = topMiners.map((entry: any, index: number) => ({
-      rank: index + 1,
-      walletAddress: entry.walletAddress,
-      twitterHandle: entry.twitterHandle,
-      name: entry.name,
-      profileImage: entry.profileImage,
-      tier: tierMap[entry.walletAddress.toLowerCase()] || 'SILVER',
-      contentCreated: parseInt(entry.contentCreated || '0'),
-      contentSold: parseInt(entry.contentSold || '0'),
-      totalValueSold: parseFloat(entry.totalValueSold || '0'),
-      revShare: 70, // Always 70% (return as percentage)
-      earnings: parseFloat(entry.earnings || '0'), // Absolute value in $ROAST
-      bonus: parseFloat(entry.bonus || '0'),
-      rewards: parseFloat(entry.rewards || '0'),
-    }));
+    const users = topMiners.map((entry: any, index: number) => {
+      const twitter = twitterMap[entry.walletAddress.toLowerCase()];
+      return {
+        rank: index + 1,
+        walletAddress: entry.walletAddress,
+        twitterHandle: twitter?.twitterHandle || null,
+        name: entry.name,
+        profileImage: twitter?.profileImage || null,
+        tier: tierMap[entry.walletAddress.toLowerCase()] || 'SILVER',
+        contentCreated: parseInt(entry.contentCreated || '0'),
+        contentSold: parseInt(entry.contentSold || '0'),
+        totalValueSold: parseFloat(entry.totalValueSold || '0'),
+        revShare: 70, // Always 70% (return as percentage)
+        earnings: parseFloat(entry.earnings || '0'), // Absolute value in $ROAST
+        bonus: parseFloat(entry.bonus || '0'),
+        rewards: parseFloat(entry.rewards || '0'),
+      };
+    });
 
     // Get top 3 for podium
     const topThree = users.slice(0, 3);
