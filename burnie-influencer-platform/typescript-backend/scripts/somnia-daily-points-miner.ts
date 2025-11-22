@@ -45,8 +45,8 @@ const MIN_UPTIME_FOR_REWARDS = 95; // 95% minimum uptime to qualify
 const WEEKLY_UPTIME_POOL = 450000; // 450K divided equally among qualifying nodes
 const WEEKLY_TOP_SELLER_POOL = 1000000; // 1M distributed proportionally based on sales
 
-// Campaign dates (Nov 18 - Dec 9, 2025)
-const CAMPAIGN_START_DATE = new Date('2025-11-18T15:00:00Z'); // 10 AM ET
+// Campaign dates (Nov 16 - Dec 9, 2025)
+const CAMPAIGN_START_DATE = new Date('2025-11-16T15:00:00Z'); // 10 AM ET
 const CAMPAIGN_END_DATE = new Date('2025-12-09T15:00:00Z'); // 10 AM ET
 
 // Excluded wallets (lowercase)
@@ -492,7 +492,7 @@ class SomniaDailyPointsMinerScript {
 
       // Check if within campaign period
       if (!this.isWithinCampaignPeriod()) {
-        console.log('⚠️ Current date is outside campaign period (Nov 18 - Dec 9, 2025)');
+        console.log('⚠️ Current date is outside campaign period (Nov 16 - Dec 9, 2025)');
         console.log('   Exiting script');
         return;
       }
@@ -669,7 +669,7 @@ async function main() {
   console.log(`   Database: ${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`);
   console.log(`   SSL: ${sslEnabled ? 'Enabled' : 'Disabled'}`);
   console.log(`   Mode: ${dryRun ? 'DRY RUN' : 'LIVE'}`);
-  console.log(`   Campaign: Nov 18 - Dec 9, 2025`);
+  console.log(`   Campaign: Nov 16 - Dec 9, 2025`);
   console.log('');
 
   const script = new SomniaDailyPointsMinerScript(AppDataSource);
