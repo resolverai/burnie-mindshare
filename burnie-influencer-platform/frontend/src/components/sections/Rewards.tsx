@@ -37,7 +37,15 @@ const normalizeUser = (user: any): LeaderboardUser => ({
   totalRoastEarned: user.totalRoastEarned || 0,
   totalDailyRewards: user.totalDailyRewards === 'TBD' ? 'TBD' : (user.totalDailyRewards || 0),
   profileImageUrl: user.profileImageUrl || user.profileImage || user.avatar, // Support multiple field names
-  isCurrentUser: user.isCurrentUser || false
+  isCurrentUser: user.isCurrentUser || false,
+  // Mining-specific fields (Season 2)
+  contentCreated: user.contentCreated,
+  contentSold: user.contentSold,
+  totalValueSold: user.totalValueSold,
+  revShare: user.revShare,
+  earnings: user.earnings,
+  bonus: user.bonus,
+  rewards: user.rewards
 });
 
 // Avatar component that shows profile image or initials

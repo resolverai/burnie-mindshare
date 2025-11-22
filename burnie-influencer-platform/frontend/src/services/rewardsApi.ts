@@ -18,6 +18,14 @@ export interface LeaderboardUser {
   totalMilestonePoints?: number; // Only for 7D and 1M periods
   profileImageUrl?: string;
   isCurrentUser?: boolean;
+  // Mining-specific fields (Season 2)
+  contentCreated?: number;
+  contentSold?: number;
+  totalValueSold?: number;
+  revShare?: number;
+  earnings?: number;
+  bonus?: number;
+  rewards?: number;
 }
 
 export interface UserStats {
