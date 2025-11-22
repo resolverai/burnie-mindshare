@@ -225,8 +225,15 @@ router.get('/rewards/season2/miner-leaderboard', async (req: Request, res: Respo
       .addGroupBy('miner.name')
       .getRawMany();
 
-    // Sort by totalValueSold descending in JavaScript
-    leaderboardData.sort((a, b) => parseFloat(b.totalValueSold || '0') - parseFloat(a.totalValueSold || '0'));
+    // Sort by totalValueSold descending, then by contentCreated descending
+    leaderboardData.sort((a, b) => {
+      const totalValueSoldDiff = parseFloat(b.totalValueSold || '0') - parseFloat(a.totalValueSold || '0');
+      if (totalValueSoldDiff !== 0) {
+        return totalValueSoldDiff;
+      }
+      // If totalValueSold is the same, sort by contentCreated
+      return parseInt(b.contentCreated || '0') - parseInt(a.contentCreated || '0');
+    });
     
     // Limit to top 100
     const topMiners = leaderboardData.slice(0, 100);

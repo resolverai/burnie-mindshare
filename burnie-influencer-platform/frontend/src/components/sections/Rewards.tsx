@@ -22,6 +22,26 @@ const formatRoastValue = (value: number): string => {
     }
 };
 
+// Helper function to get tier badge styling
+const getTierBadgeClass = (tier: string): string => {
+  switch (tier) {
+    case 'SILVER':
+      return 'bg-gray-400/20 text-gray-300';
+    case 'GOLD':
+      return 'bg-yellow-500/20 text-yellow-400';
+    case 'PLATINUM':
+      return 'bg-gray-500/20 text-gray-400';
+    case 'EMERALD':
+      return 'bg-emerald-500/20 text-emerald-400';
+    case 'DIAMOND':
+      return 'bg-blue-400/20 text-blue-300';
+    case 'UNICORN':
+      return 'bg-purple-500/20 text-purple-400';
+    default:
+      return 'bg-gray-400/20 text-gray-300';
+  }
+};
+
 // Helper function to normalize data from different sources
 const normalizeUser = (user: any): LeaderboardUser => ({
   rank: user.rank,
@@ -330,13 +350,13 @@ function MiningLeaderboardTable({ leaderboardUsers, loading }: { leaderboardUser
                     <span className="text-white text-sm truncate" title={currentUser.twitterHandle || currentUser.name}>@{currentUser.twitterHandle || currentUser.name}</span>
                   </div>
                   <div className="hidden md:block w-20 text-center">
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTierBadgeClass(currentUser.tier)}`}>
                       {currentUser.tier}
                     </span>
                   </div>
                   <div className="hidden md:block w-24 text-center text-sm">{currentUser.contentCreated || 0}</div>
                   <div className="text-right md:text-center text-sm w-28">{formatRoastValue(currentUser.totalValueSold || 0)}</div>
-                  <div className="hidden md:block w-24 text-center text-sm">{formatRoastValue(currentUser.revShare || 0)}</div>
+                  <div className="hidden md:block w-24 text-center text-sm">{currentUser.revShare || 0}%</div>
                   <div className="hidden md:block w-24 text-center text-sm">{formatRoastValue(currentUser.earnings || 0)}</div>
                   <div className="hidden md:block w-20 text-center text-sm">{formatRoastValue(currentUser.bonus || 0)}</div>
                   <div className="hidden md:block w-28 text-center text-sm font-semibold">{formatRoastValue(currentUser.rewards || 0)}</div>
@@ -362,13 +382,13 @@ function MiningLeaderboardTable({ leaderboardUsers, loading }: { leaderboardUser
                     <span className="text-white text-sm truncate" title={user.twitterHandle || user.name}>@{user.twitterHandle || user.name}</span>
                   </div>
                   <div className="hidden md:block w-20 text-center">
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTierBadgeClass(user.tier)}`}>
                       {user.tier}
                     </span>
                   </div>
                   <div className="hidden md:block w-24 text-center text-sm">{user.contentCreated || 0}</div>
                   <div className="text-right md:text-center text-sm w-28">{formatRoastValue(user.totalValueSold || 0)}</div>
-                  <div className="hidden md:block w-24 text-center text-sm">{formatRoastValue(user.revShare || 0)}</div>
+                  <div className="hidden md:block w-24 text-center text-sm">{user.revShare || 0}%</div>
                   <div className="hidden md:block w-24 text-center text-sm">{formatRoastValue(user.earnings || 0)}</div>
                   <div className="hidden md:block w-20 text-center text-sm">{formatRoastValue(user.bonus || 0)}</div>
                   <div className="hidden md:block w-28 text-center text-sm font-semibold">{formatRoastValue(user.rewards || 0)}</div>
@@ -700,9 +720,7 @@ function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { lea
                 <span className="text-white text-sm truncate" title={currentUser?.twitterHandle || currentUser?.name}>@{currentUser?.twitterHandle || currentUser?.name}</span>
               </div>
               <div className="hidden md:block w-20 text-center">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${currentUser?.tier === "EMERALD" ? "bg-emerald-500/20 text-emerald-400" :
-                  currentUser?.tier === "PLATINUM" ? "bg-gray-500/20 text-gray-400" :
-                    "bg-yellow-500/20 text-yellow-400"}`}>{currentUser?.tier}</span>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTierBadgeClass(currentUser?.tier || 'SILVER')}`}>{currentUser?.tier}</span>
               </div>
               <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.impressions?.toLocaleString() || '0'}</div>
               <div className="hidden md:block text-white text-center text-sm w-24">{currentUser?.activeReferrals?.toLocaleString() || '0'}</div>
@@ -732,10 +750,7 @@ function LeaderboardTable({ leaderboardUsers, loading, activeTimePeriod }: { lea
                 <span className="text-white text-sm truncate" title={user.twitterHandle || user.name}>@{user.twitterHandle || user.name}</span>
               </div>
               <div className="hidden md:block w-20 text-center">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${user.tier === "EMERALD" ? "bg-emerald-500/20 text-emerald-400" :
-                    user.tier === "PLATINUM" ? "bg-gray-500/20 text-gray-400" :
-                      "bg-yellow-500/20 text-yellow-400"
-                  }`}>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getTierBadgeClass(user.tier)}`}>
                   {user.tier}
                 </span>
               </div>
