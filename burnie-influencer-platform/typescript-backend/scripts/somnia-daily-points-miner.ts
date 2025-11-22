@@ -268,9 +268,17 @@ class SomniaDailyPointsMinerScript {
     minerPoints.weeklyUptimeRewards = calculation.weeklyUptimeRewards;
     minerPoints.weeklyTopSellerBonus = calculation.weeklyTopSellerBonus;
     minerPoints.grandPrizeRewards = calculation.grandPrizeRewards;
-    minerPoints.dailySalesRank = calculation.dailySalesRank;
+    
+    // Handle optional properties
+    if (calculation.dailySalesRank !== undefined) {
+      minerPoints.dailySalesRank = calculation.dailySalesRank;
+    }
+    
     minerPoints.weeklyTopSellerRank = calculation.weeklyTopSellerRank;
-    minerPoints.overallRank = calculation.overallRank;
+    
+    if (calculation.overallRank !== undefined) {
+      minerPoints.overallRank = calculation.overallRank;
+    }
 
     await repo.save(minerPoints);
   }
