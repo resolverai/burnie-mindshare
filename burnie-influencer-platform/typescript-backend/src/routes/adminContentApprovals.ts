@@ -165,12 +165,16 @@ router.put('/admin-content-approvals/:approvalId/approve', async (req, res) => {
     if (approval.content) {
       approval.content.approvalStatus = 'approved';
       approval.content.isBiddable = biddingEnabled || false;
+      // IMPORTANT: Set isAvailable to true so content appears in marketplace
+      approval.content.isAvailable = true;
       // IMPORTANT: Set wallet_address to miner wallet address on approval
       approval.content.walletAddress = approval.minerWalletAddress.toLowerCase();
       if (biddingEnabled) {
         approval.content.biddingEnabledAt = new Date();
       }
       await contentRepository.save(approval.content);
+      
+      logger.info(`✅ Content ${approval.content.id} updated: approvalStatus=approved, isAvailable=true, isBiddable=${biddingEnabled}`);
     }
 
     logger.info(`✅ Admin ${adminWallet} approved content ${approval.contentId}, wallet_address set to ${approval.minerWalletAddress}`);

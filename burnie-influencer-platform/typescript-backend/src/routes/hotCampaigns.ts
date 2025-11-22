@@ -115,34 +115,27 @@ router.get('/hot-campaigns', async (req, res) => {
     );
 
     // Step 3: Identify hot campaigns based on multiple criteria
-    // PRIORITY 1: All Somnia whitelisted campaigns (regardless of other metrics)
-    // PRIORITY 2: Top 10 by purchase volume (existing logic)
-    // PRIORITY 3: Campaigns with NO content at all (newly created)
-    // PRIORITY 4: Campaigns with purchases > 0 but total available posts = 0
+    // PRIORITY 1: Top 10 by purchase volume (existing logic)
+    // PRIORITY 2: Campaigns with NO content at all (newly created)
+    // PRIORITY 3: Campaigns with purchases > 0 but total available posts = 0
     
-    // PRIORITY 1: Somnia whitelisted campaigns (ALWAYS HOT)
-    const somniaWhitelistedCampaigns = campaignData
-      .filter(item => item.isSomniaWhitelisted);
-    
-    // PRIORITY 2: Top 10 by purchase volume (existing logic)
+    // PRIORITY 1: Top 10 by purchase volume (existing logic)
     const top10ByPurchases = campaignData
       .filter(item => item.totalPurchases > 0)
       .sort((a, b) => b.totalPurchases - a.totalPurchases)
       .slice(0, 10);
 
-    // PRIORITY 3: Campaigns with no content at all (newly created)
+    // PRIORITY 2: Campaigns with no content at all (newly created)
     const campaignsWithNoContent = campaignData
       .filter(item => item.totalContentCount === 0);
 
-    // PRIORITY 4: Campaigns with purchases > 0 but total available posts = 0
+    // PRIORITY 3: Campaigns with purchases > 0 but total available posts = 0
     const campaignsWithPurchasesButNoAvailable = campaignData
       .filter(item => item.totalPurchases > 0 && item.totalAvailablePosts === 0);
 
     // Combine all hot campaigns (unique by campaign ID)
-    // IMPORTANT: Somnia whitelisted campaigns are added FIRST for priority
     const hotCampaignSet = new Set<number>();
     [
-      ...somniaWhitelistedCampaigns,  // ← PRIORITY 1: Always first!
       ...top10ByPurchases, 
       ...campaignsWithNoContent, 
       ...campaignsWithPurchasesButNoAvailable
@@ -153,7 +146,6 @@ router.get('/hot-campaigns', async (req, res) => {
     const hotCampaignsList = campaignData.filter(item => hotCampaignSet.has(item.campaign.id));
 
     logger.info(`🔥 Found ${hotCampaignsList.length} hot campaigns:`);
-    logger.info(`   - ${somniaWhitelistedCampaigns.length} Somnia whitelisted (PRIORITY)`);
     logger.info(`   - ${top10ByPurchases.length} top by purchases`);
     logger.info(`   - ${campaignsWithNoContent.length} newly created (no content)`);
     logger.info(`   - ${campaignsWithPurchasesButNoAvailable.length} sold out (purchases but no available)`);
@@ -214,8 +206,15 @@ router.get('/hot-campaigns', async (req, res) => {
           isHot = true;
           ratio = Infinity;
         }
-        // Case 4: Existing logic - ratio > 1 for this post type
-        else if (availableCount > 0) {
+        // Case 4: Low inventory threshold - available < 5 for hot campaigns
+        // This ensures hot campaigns always maintain minimum inventory of 5 pieces
+        else if (availableCount < 5 && availableCount > 0) {
+          isHot = true;
+          ratio = undefined; // Special case for low inventory maintenance
+          logger.info(`🔥 Low inventory detected for ${campaign.title} (${postType}): ${availableCount} < 5 - marking as hot`);
+        }
+        // Case 5: Existing logic - ratio > 1 for this post type
+        else if (availableCount >= 5) {
           ratio = purchaseCount / availableCount;
           if (ratio > 1) {
             isHot = true;

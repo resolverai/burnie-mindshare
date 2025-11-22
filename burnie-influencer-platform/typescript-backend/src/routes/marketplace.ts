@@ -2497,8 +2497,20 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
         .getMany();
 
       // 3. Format approval content with admin approval info
-      const approvalContents = approvals.map(approval => {
+      // IMPORTANT: Refresh presigned URLs for miner-generated content so admins can see images
+      logger.info(`🔄 Refreshing presigned URLs for ${approvals.length} miner-generated content items for admin ${walletAddress}`);
+      const approvalContents = await Promise.all(approvals.map(async (approval) => {
         const content = approval.content;
+        
+        // Log original URLs for debugging
+        logger.info(`🔍 Content ${content.id} - Original images: ${JSON.stringify(content.contentImages?.slice(0, 1).map((url: string) => url?.substring(0, 80)))}`);
+        
+        // Refresh presigned URLs for images and videos so admins can view them
+        await refreshUrlsForMinerContent(content);
+        
+        // Log refreshed URLs
+        logger.info(`✅ Content ${content.id} - Refreshed images: ${JSON.stringify(content.contentImages?.slice(0, 1).map((url: string) => url?.substring(0, 80)))}`);
+        
         return {
           id: content.id,
           content_text: content.contentText,
@@ -2541,7 +2553,7 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
           admin_notes: approval.adminNotes,
           sort_date: approval.assignedAt.getTime() // For sorting
         };
-      });
+      }));
 
       // 4. Format admin-created content
       const formattedAdminContent = adminCreatedContent.map(content => {

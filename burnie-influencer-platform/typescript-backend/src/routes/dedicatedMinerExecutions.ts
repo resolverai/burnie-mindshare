@@ -126,16 +126,22 @@ router.post('/executions/check-and-reserve', async (req, res) => {
 
     if (isNewlyCreated) {
       isHot = true;
-      neededPieces = 1; // Need at least 1 piece for new campaigns
+      neededPieces = 5; // Need at least 5 pieces for new campaigns to build inventory
     } else if (hasPurchasesButNoAvailable) {
       isHot = true;
-      neededPieces = 1; // Need at least 1 piece to make it available
+      neededPieces = 5; // Need at least 5 pieces to rebuild inventory
     } else if (availableCount === 0 && purchaseCount > 0) {
       // Case 3: Existing logic - available is 0 but purchases > 0 for this post type
       isHot = true;
-      neededPieces = 1; // Need at least 1 piece to make it available
-    } else if (availableCount > 0) {
-      // Case 4: Existing logic - ratio > 1 for this post type
+      neededPieces = 5; // Need at least 5 pieces to rebuild inventory
+    } else if (availableCount < 5 && availableCount > 0) {
+      // Case 4: Low inventory threshold - available < 5 for hot campaigns
+      // This ensures hot campaigns always maintain minimum inventory of 5 pieces
+      isHot = true;
+      neededPieces = 5 - availableCount; // Generate enough to reach 5 pieces
+      logger.info(`🔥 Low inventory for campaign ${campaignId} (${postType}): ${availableCount} < 5, need ${neededPieces} more`);
+    } else if (availableCount >= 5) {
+      // Case 5: Existing logic - ratio > 1 for this post type
       const ratio = purchaseCount / availableCount;
       if (ratio > 1) {
         isHot = true;

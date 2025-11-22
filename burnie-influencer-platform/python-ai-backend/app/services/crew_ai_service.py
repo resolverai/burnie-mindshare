@@ -6357,7 +6357,7 @@ Style Reference: Generated in the style of {current_handle} (randomly selected f
                 print("="*60 + "\n")
                 
                 return result
-                
+            
             except Exception as e:
                 logger.error(f"❌ Error in GrokCategoryStyleTool (Attempt {attempt}/{MAX_RETRIES}): {e}")
                 print(f"❌ EXCEPTION OCCURRED (Attempt {attempt}/{MAX_RETRIES}): {e}")
