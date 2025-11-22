@@ -1197,12 +1197,12 @@ export default function Rewards({ currentUserWallet }: { currentUserWallet?: str
 
           {/* Top 3 Podium */}
           <div className="flex justify-center mt-20">
-            <Podium topThreeUsers={[]} loading={loading} />
+            <Podium topThreeUsers={topThreeUsers} loading={loading} />
           </div>
 
           {/* Mining Leaderboard Table */}
           <div className="flex justify-center">
-            <MiningLeaderboardTable leaderboardUsers={[]} loading={loading} />
+            <MiningLeaderboardTable leaderboardUsers={leaderboardUsers} loading={loading} />
           </div>
         </div>
       )}
