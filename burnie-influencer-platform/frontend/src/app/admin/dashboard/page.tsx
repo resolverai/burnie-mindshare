@@ -1492,6 +1492,99 @@ export default function AdminDashboard() {
                 )}
               </div>
 
+              {/* Color Palette Section */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Brand Colors (Optional)
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="primaryColor" className="block text-xs text-gray-600 mb-1">
+                      Primary Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="primaryColor"
+                        value={formData.colorPalette.primary || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.primary || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.primary || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono text-gray-900"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="secondaryColor" className="block text-xs text-gray-600 mb-1">
+                      Secondary Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="secondaryColor"
+                        value={formData.colorPalette.secondary || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.secondary || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.secondary || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono text-gray-900"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="accentColor" className="block text-xs text-gray-600 mb-1">
+                      Accent Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="accentColor"
+                        value={formData.colorPalette.accent || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.accent || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.accent || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono text-gray-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label htmlFor="campaignBanner" className="block text-sm font-medium text-gray-700 mb-2">
                   Campaign Banner (Optional)
@@ -1691,98 +1784,6 @@ export default function AdminDashboard() {
                 )}
               </div>
 
-              {/* Color Palette Section */}
-              <div className="space-y-3">
-                <label className="block text-sm font-medium text-gray-700">
-                  Brand Colors (Optional)
-                </label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label htmlFor="primaryColor" className="block text-xs text-gray-600 mb-1">
-                      Primary Color
-                    </label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="color"
-                        id="primaryColor"
-                        value={formData.colorPalette.primary || '#000000'}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
-                        })}
-                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
-                        style={{ backgroundColor: formData.colorPalette.primary || '#000000' }}
-                      />
-                      <input
-                        type="text"
-                        value={formData.colorPalette.primary || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
-                        })}
-                        placeholder="#000000"
-                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="secondaryColor" className="block text-xs text-gray-600 mb-1">
-                      Secondary Color
-                    </label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="color"
-                        id="secondaryColor"
-                        value={formData.colorPalette.secondary || '#000000'}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
-                        })}
-                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
-                        style={{ backgroundColor: formData.colorPalette.secondary || '#000000' }}
-                      />
-                      <input
-                        type="text"
-                        value={formData.colorPalette.secondary || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
-                        })}
-                        placeholder="#000000"
-                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="accentColor" className="block text-xs text-gray-600 mb-1">
-                      Accent Color
-                    </label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="color"
-                        id="accentColor"
-                        value={formData.colorPalette.accent || '#000000'}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
-                        })}
-                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
-                        style={{ backgroundColor: formData.colorPalette.accent || '#000000' }}
-                      />
-                      <input
-                        type="text"
-                        value={formData.colorPalette.accent || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
-                        })}
-                        placeholder="#000000"
-                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               <div>
                 <label htmlFor="guidelines" className="block text-sm font-medium text-gray-700 mb-2">
@@ -2047,6 +2048,99 @@ export default function AdminDashboard() {
                 )}
               </div>
 
+              {/* Color Palette Section */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">
+                  Brand Colors (Optional)
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="primaryColorEdit" className="block text-xs text-gray-600 mb-1">
+                      Primary Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="primaryColorEdit"
+                        value={formData.colorPalette.primary || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.primary || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.primary || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono text-gray-900"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="secondaryColorEdit" className="block text-xs text-gray-600 mb-1">
+                      Secondary Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="secondaryColorEdit"
+                        value={formData.colorPalette.secondary || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.secondary || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.secondary || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono text-gray-900"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label htmlFor="accentColorEdit" className="block text-xs text-gray-600 mb-1">
+                      Accent Color
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        id="accentColorEdit"
+                        value={formData.colorPalette.accent || '#000000'}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
+                        })}
+                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
+                        style={{ backgroundColor: formData.colorPalette.accent || '#000000' }}
+                      />
+                      <input
+                        type="text"
+                        value={formData.colorPalette.accent || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
+                        })}
+                        placeholder="#000000"
+                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono text-gray-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label htmlFor="campaignBannerEdit" className="block text-sm font-medium text-gray-700 mb-2">
                   Campaign Banner (Optional)
@@ -2246,98 +2340,6 @@ export default function AdminDashboard() {
                 )}
               </div>
 
-              {/* Color Palette Section */}
-              <div className="space-y-3">
-                <label className="block text-sm font-medium text-gray-700">
-                  Brand Colors (Optional)
-                </label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label htmlFor="primaryColor" className="block text-xs text-gray-600 mb-1">
-                      Primary Color
-                    </label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="color"
-                        id="primaryColor"
-                        value={formData.colorPalette.primary || '#000000'}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
-                        })}
-                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
-                        style={{ backgroundColor: formData.colorPalette.primary || '#000000' }}
-                      />
-                      <input
-                        type="text"
-                        value={formData.colorPalette.primary || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, primary: e.target.value }
-                        })}
-                        placeholder="#000000"
-                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="secondaryColor" className="block text-xs text-gray-600 mb-1">
-                      Secondary Color
-                    </label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="color"
-                        id="secondaryColor"
-                        value={formData.colorPalette.secondary || '#000000'}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
-                        })}
-                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
-                        style={{ backgroundColor: formData.colorPalette.secondary || '#000000' }}
-                      />
-                      <input
-                        type="text"
-                        value={formData.colorPalette.secondary || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, secondary: e.target.value }
-                        })}
-                        placeholder="#000000"
-                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="accentColor" className="block text-xs text-gray-600 mb-1">
-                      Accent Color
-                    </label>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="color"
-                        id="accentColor"
-                        value={formData.colorPalette.accent || '#000000'}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
-                        })}
-                        className="w-20 h-12 rounded border-2 border-gray-300 cursor-pointer"
-                        style={{ backgroundColor: formData.colorPalette.accent || '#000000' }}
-                      />
-                      <input
-                        type="text"
-                        value={formData.colorPalette.accent || ''}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          colorPalette: { ...formData.colorPalette, accent: e.target.value }
-                        })}
-                        placeholder="#000000"
-                        className="w-28 px-2 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               <div>
                 <label htmlFor="guidelines" className="block text-sm font-medium text-gray-700 mb-2">
