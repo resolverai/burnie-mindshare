@@ -97,10 +97,10 @@ class SomniaDailyPointsMinerScript {
    */
   async getMiners(): Promise<MinerWallet[]> {
     const query = `
-      SELECT DISTINCT dme."walletAddress", MIN(dme."createdAt") as "createdAt"
+      SELECT DISTINCT dme.miner_wallet_address as "walletAddress", MIN(dme.created_at) as "createdAt"
       FROM dedicated_miner_executions dme
-      WHERE dme."createdAt" >= $1
-      GROUP BY dme."walletAddress"
+      WHERE dme.created_at >= $1
+      GROUP BY dme.miner_wallet_address
       ORDER BY "createdAt"
     `;
 
@@ -312,14 +312,14 @@ class SomniaDailyPointsMinerScript {
     // Calculate uptime directly from dedicated_miner_executions (not from stored dailyUptimePercentage)
     const uptimeQuery = `
       SELECT 
-        LOWER("walletAddress") as "walletAddress",
+        LOWER(miner_wallet_address) as "walletAddress",
         COUNT(*) as total_attempts,
-        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successful_attempts,
-        (SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)::decimal * 100) as uptime_percentage
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as successful_attempts,
+        (SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)::decimal * 100) as uptime_percentage
       FROM dedicated_miner_executions
-      WHERE "createdAt" >= $1 AND "createdAt" < $2
-      GROUP BY LOWER("walletAddress")
-      HAVING (SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)::decimal * 100) >= $3
+      WHERE created_at >= $1 AND created_at < $2
+      GROUP BY LOWER(miner_wallet_address)
+      HAVING (SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)::decimal * 100) >= $3
     `;
     
     const qualifyingMiners = await this.dataSource.query(uptimeQuery, [lastTuesday, thisTuesday, MIN_UPTIME_FOR_REWARDS]);
