@@ -2556,7 +2556,18 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
       }));
 
       // 4. Format admin-created content
-      const formattedAdminContent = adminCreatedContent.map(content => {
+      // IMPORTANT: Also refresh presigned URLs for admin's own content
+      logger.info(`🔄 Refreshing presigned URLs for ${adminCreatedContent.length} admin-created content items for admin ${walletAddress}`);
+      const formattedAdminContent = await Promise.all(adminCreatedContent.map(async (content) => {
+        // Log original URLs for debugging
+        logger.info(`🔍 Admin Content ${content.id} - Original images: ${JSON.stringify(content.contentImages?.slice(0, 1).map((url: string) => url?.substring(0, 80)))}`);
+        
+        // Refresh presigned URLs for images and videos so admins can view their own content
+        await refreshUrlsForMinerContent(content);
+        
+        // Log refreshed URLs
+        logger.info(`✅ Admin Content ${content.id} - Refreshed images: ${JSON.stringify(content.contentImages?.slice(0, 1).map((url: string) => url?.substring(0, 80)))}`);
+        
         return {
           id: content.id,
           content_text: content.contentText,
@@ -2599,7 +2610,7 @@ router.get('/my-content/miner/wallet/:walletAddress', async (req: Request, res: 
           admin_notes: null,
           sort_date: content.createdAt.getTime() // For sorting
         };
-      });
+      }));
 
       // 5. Combine both sets, remove duplicates by content ID, and sort by date (newest first)
       const contentMap = new Map<number, any>();
