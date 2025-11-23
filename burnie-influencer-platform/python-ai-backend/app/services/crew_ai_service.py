@@ -3089,12 +3089,17 @@ class CrewAIService:
         tool_names = [tool.name for tool in tools] if tools else []
         logger.info(f"🔧 Visual Content Creator tools: {tool_names}")
         
-        # Get color palette from comprehensive context
-        comp_ctx = getattr(self, 'comprehensive_context', {})
-        color_palette = comp_ctx.get('color_palette', {})
-        primary_color = color_palette.get('primary', '#1DA1F2')
-        secondary_color = color_palette.get('secondary', '#14171A')
-        accent_color = color_palette.get('accent', '#FFAD1F')
+        # Get color palette from comprehensive context with robust fallbacks
+        comp_ctx = getattr(self, 'comprehensive_context', {}) or {}
+        color_palette = comp_ctx.get('color_palette') or {}
+        
+        # Ensure color_palette is a dict and has valid values
+        if not isinstance(color_palette, dict):
+            color_palette = {}
+        
+        primary_color = color_palette.get('primary') or '#1DA1F2'
+        secondary_color = color_palette.get('secondary') or '#14171A'
+        accent_color = color_palette.get('accent') or '#FFAD1F'
         
         # Log color palette
         logger.info(f"🎨 Color Palette for Visual Agent:")

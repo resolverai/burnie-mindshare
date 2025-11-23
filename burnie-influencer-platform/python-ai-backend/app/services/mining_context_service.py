@@ -377,15 +377,15 @@ async def gather_miner_context(user_id: int, campaign_id: int) -> Dict:
         'project_logo': campaign_data.get('projectLogo', ''),
         'token_ticker': campaign_data.get('tokenTicker', ''),
         'project_twitter_handle': campaign_data.get('projectTwitterHandle', ''),
-        'admin_documents_text': campaign_data.get('documents_text', []),  # ADMIN DOCUMENTS
-        'admin_color_palette': campaign_data.get('color_palette', {}),    # ADMIN COLOR PALETTE
+        'admin_documents_text': campaign_data.get('documents_text') or [],  # ADMIN DOCUMENTS (ensure list)
+        'admin_color_palette': campaign_data.get('color_palette') or {},    # ADMIN COLOR PALETTE (ensure dict)
     }
     
     print(f"\n🔍 === ADMIN CONTEXT LOADED ===")
-    print(f"   - Description: {len(admin_context['campaign_description'] or '')} chars")
-    print(f"   - Brand Guidelines: {len(admin_context['brand_guidelines'] or '')} chars")
-    print(f"   - Admin Documents: {len(admin_context['admin_documents_text'])} docs")
-    print(f"   - Admin Color Palette: {admin_context['admin_color_palette']}")
+    print(f"   - Description: {len(admin_context.get('campaign_description') or '')} chars")
+    print(f"   - Brand Guidelines: {len(admin_context.get('brand_guidelines') or '')} chars")
+    print(f"   - Admin Documents: {len(admin_context.get('admin_documents_text') or [])} docs")
+    print(f"   - Admin Color Palette: {admin_context.get('admin_color_palette') or {}}")
     print(f"================================\n")
     
     logger.info(f"✅ Admin context fetched: {admin_context['project_name']}")
@@ -497,8 +497,12 @@ async def gather_miner_context(user_id: int, campaign_id: int) -> Dict:
         # Add 'description' key for backward compatibility (points to campaign description)
         'description': admin_context['campaign_description'],
         
-        # Color palette: User overrides admin if set, otherwise use admin
-        'color_palette': user_context.get('color_palette') or admin_context['admin_color_palette'],
+        # Color palette: User overrides admin if set, otherwise use admin, with final fallback to defaults
+        'color_palette': user_context.get('color_palette') or admin_context.get('admin_color_palette') or {
+            'primary': '#1DA1F2',
+            'secondary': '#14171A',
+            'accent': '#FFAD1F'
+        },
         
         # User-specific context fields (prefixed to avoid conflicts)
         'user_context': user_context,
