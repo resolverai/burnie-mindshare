@@ -255,24 +255,36 @@ router.get('/hot-campaigns', async (req, res) => {
 
     logger.info(`🔥 Found ${hotCampaigns.length} hot campaign post_types from ${hotCampaignsList.length} hot campaigns`);
 
-    // Sort hot campaigns: Somnia whitelisted campaigns FIRST, then others
-    hotCampaigns.sort((a, b) => {
-      // Prioritize Somnia whitelisted campaigns
-      if (a.isSomniaWhitelisted && !b.isSomniaWhitelisted) return -1;
-      if (!a.isSomniaWhitelisted && b.isSomniaWhitelisted) return 1;
-      
-      // For campaigns with same priority, sort by ratio (highest first)
-      const ratioA = a.ratio === undefined ? 0 : a.ratio;
-      const ratioB = b.ratio === undefined ? 0 : b.ratio;
-      return ratioB - ratioA;
-    });
+    // Separate Somnia whitelisted campaigns from others
+    const somniaHotCampaigns = hotCampaigns.filter(c => c.isSomniaWhitelisted);
+    const regularHotCampaigns = hotCampaigns.filter(c => !c.isSomniaWhitelisted);
 
-    logger.info(`✅ Hot campaigns sorted with Somnia whitelisted projects prioritized`);
+    // Shuffle function for fair distribution
+    const shuffleArray = <T>(array: T[]): T[] => {
+      const shuffled = [...array];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    };
+
+    // Shuffle both groups independently for fair distribution
+    const shuffledSomnia = shuffleArray(somniaHotCampaigns);
+    const shuffledRegular = shuffleArray(regularHotCampaigns);
+
+    // Combine: Somnia campaigns first (shuffled), then regular campaigns (shuffled)
+    const finalHotCampaigns = [...shuffledSomnia, ...shuffledRegular];
+
+    logger.info(`✅ Hot campaigns shuffled for fair distribution:`);
+    logger.info(`   - ${shuffledSomnia.length} Somnia whitelisted campaigns (prioritized)`);
+    logger.info(`   - ${shuffledRegular.length} regular hot campaigns`);
+    logger.info(`   - Total: ${finalHotCampaigns.length} campaigns ready for mining`);
 
     return res.json({
       success: true,
-      data: hotCampaigns,
-      message: `Found ${hotCampaigns.length} hot campaign post_types from ${hotCampaignsList.length} hot campaigns`
+      data: finalHotCampaigns,
+      message: `Found ${finalHotCampaigns.length} hot campaign post_types from ${hotCampaignsList.length} hot campaigns`
     });
 
   } catch (error) {
