@@ -259,12 +259,15 @@ router.get('/hot-campaigns', async (req, res) => {
     const somniaHotCampaigns = hotCampaigns.filter(c => c.isSomniaWhitelisted);
     const regularHotCampaigns = hotCampaigns.filter(c => !c.isSomniaWhitelisted);
 
-    // Shuffle function for fair distribution
+    // Shuffle function for fair distribution (Fisher-Yates algorithm)
     const shuffleArray = <T>(array: T[]): T[] => {
       const shuffled = [...array];
       for (let i = shuffled.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        // Swap elements using temporary variable with type assertion
+        const temp = shuffled[i] as T;
+        shuffled[i] = shuffled[j] as T;
+        shuffled[j] = temp;
       }
       return shuffled;
     };
