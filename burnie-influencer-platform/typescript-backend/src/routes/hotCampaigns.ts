@@ -118,6 +118,7 @@ router.get('/hot-campaigns', async (req, res) => {
     // PRIORITY 1: Top 10 by purchase volume (existing logic)
     // PRIORITY 2: Campaigns with NO content at all (newly created)
     // PRIORITY 3: Campaigns with purchases > 0 but total available posts = 0
+    // PRIORITY 4: ALL campaigns (to check for low inventory < 5 per post type)
     
     // PRIORITY 1: Top 10 by purchase volume (existing logic)
     const top10ByPurchases = campaignData
@@ -133,22 +134,29 @@ router.get('/hot-campaigns', async (req, res) => {
     const campaignsWithPurchasesButNoAvailable = campaignData
       .filter(item => item.totalPurchases > 0 && item.totalAvailablePosts === 0);
 
+    // PRIORITY 4: Include ALL active campaigns for low inventory check
+    // This ensures campaigns with < 5 pieces per post type are checked
+    // (Previously, only top 10 campaigns were checked for low inventory)
+    const allActiveCampaigns = campaignData;
+
     // Combine all hot campaigns (unique by campaign ID)
     const hotCampaignSet = new Set<number>();
     [
       ...top10ByPurchases, 
       ...campaignsWithNoContent, 
-      ...campaignsWithPurchasesButNoAvailable
+      ...campaignsWithPurchasesButNoAvailable,
+      ...allActiveCampaigns  // Include all campaigns for low inventory check
     ].forEach(item => {
       hotCampaignSet.add(item.campaign.id);
     });
 
     const hotCampaignsList = campaignData.filter(item => hotCampaignSet.has(item.campaign.id));
 
-    logger.info(`🔥 Found ${hotCampaignsList.length} hot campaigns:`);
+    logger.info(`🔥 Found ${hotCampaignsList.length} hot campaigns (all active campaigns will be checked for low inventory):`);
     logger.info(`   - ${top10ByPurchases.length} top by purchases`);
     logger.info(`   - ${campaignsWithNoContent.length} newly created (no content)`);
     logger.info(`   - ${campaignsWithPurchasesButNoAvailable.length} sold out (purchases but no available)`);
+    logger.info(`   - ${allActiveCampaigns.length} total active campaigns (checking for low inventory < 5)`);
 
     if (hotCampaignsList.length === 0) {
       logger.info('📋 No hot campaigns found');
