@@ -42,9 +42,6 @@ interface PriceUpdateResult {
 function calculateNewPrice(content: ContentMarketplace): { shouldUpdate: boolean; newPrice: number; reason: string } {
   const currentPrice = parseFloat(content.biddingAskPrice || '0');
   
-  // Check if it's a video
-  const isVideo = content.isVideo && content.videoUrl;
-  
   // Condition A: biddingAskPrice is 999
   if (currentPrice === 999) {
     return {
@@ -63,14 +60,7 @@ function calculateNewPrice(content: ContentMarketplace): { shouldUpdate: boolean
     };
   }
   
-  // Condition C: Content is a video
-  if (isVideo) {
-    return {
-      shouldUpdate: true,
-      newPrice: currentPrice * 2,
-      reason: 'Content is a video',
-    };
-  }
+  // Condition C removed: Do NOT update video prices
   
   return {
     shouldUpdate: false,
