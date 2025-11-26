@@ -115,12 +115,12 @@ async function updateContentPrice(
       const contentRepository = AppDataSource.getRepository(ContentMarketplace);
       content.biddingAskPrice = newPrice as any;
       await contentRepository.save(content);
-      logger.info(`✅ Updated price in database only: ${oldPrice} -> ${newPrice} TOAST`);
+      logger.info(`✅ Updated price in database only: ${dbPrice} -> ${newPrice} TOAST`);
       
       return {
         contentId: content.id,
         success: true,
-        oldPrice,
+        oldPrice: dbPrice,
         newPrice,
         reason: `${reason} - DB updated, blockchain skipped (not approved)`,
         blockchainUpdated: false,
