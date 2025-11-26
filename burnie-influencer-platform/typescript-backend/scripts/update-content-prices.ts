@@ -408,7 +408,9 @@ async function main() {
       results.push(result);
       
       // Small delay between updates to avoid rate limiting
-      if (i < eligibleContent.length - 1) {
+      // Skip delay if content was already updated (optimization)
+      const wasSkipped = result.reason?.includes('Already updated to') || result.reason?.includes('Already synced');
+      if (i < eligibleContent.length - 1 && !wasSkipped) {
         logger.info('⏳ Waiting 3 seconds before next update...');
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
