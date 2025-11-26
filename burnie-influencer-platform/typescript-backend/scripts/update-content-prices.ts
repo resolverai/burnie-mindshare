@@ -40,7 +40,7 @@ interface PriceUpdateResult {
  * Calculate new price based on conditions
  */
 function calculateNewPrice(content: ContentMarketplace): { shouldUpdate: boolean; newPrice: number; reason: string } {
-  const currentPrice = parseFloat(content.biddingAskPrice || '0');
+  const currentPrice = parseFloat(String(content.biddingAskPrice || '0'));
   
   // Condition A: biddingAskPrice is 999
   if (currentPrice === 999) {
@@ -79,7 +79,7 @@ async function updateContentPrice(
   try {
     logger.info(`\n🔄 Processing content ${content.id}...`);
     
-    const oldPrice = parseFloat(content.biddingAskPrice || '0');
+    const oldPrice = parseFloat(String(content.biddingAskPrice || '0'));
     
     // Calculate new price
     const { shouldUpdate, newPrice, reason } = calculateNewPrice(content);
@@ -113,7 +113,7 @@ async function updateContentPrice(
       
       // Still update database
       const contentRepository = AppDataSource.getRepository(ContentMarketplace);
-      content.biddingAskPrice = newPrice.toString();
+      content.biddingAskPrice = newPrice as any;
       await contentRepository.save(content);
       logger.info(`✅ Updated price in database only: ${oldPrice} -> ${newPrice} TOAST`);
       
@@ -131,7 +131,7 @@ async function updateContentPrice(
     
     // Update database
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);
-    content.biddingAskPrice = newPrice.toString();
+    content.biddingAskPrice = newPrice as any;
     await contentRepository.save(content);
     logger.info(`✅ Updated price in database: ${oldPrice} -> ${newPrice} TOAST`);
     
@@ -197,7 +197,7 @@ async function updateContentPrice(
     return {
       contentId: content.id,
       success: false,
-      oldPrice: parseFloat(content.biddingAskPrice || '0'),
+      oldPrice: parseFloat(String(content.biddingAskPrice || '0')),
       error: errorMessage,
     };
   }
@@ -302,6 +302,9 @@ async function main() {
     // Process each content
     for (let i = 0; i < eligibleContent.length; i++) {
       const content = eligibleContent[i];
+      
+      if (!content) continue; // Skip if undefined
+      
       const isRegistered = contentRegistrationStatus.get(content.id) || false;
       
       if (!isRegistered) {
