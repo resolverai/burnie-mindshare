@@ -11,6 +11,8 @@
  *    c) Content is a video (is_video: true, video_url not null) -> double it
  * 3. Updates both content_marketplace table AND blockchain
  * 4. Handles cases where content doesn't exist on blockchain
+ * 5. Skips content that has been sold (exists in content_purchases) to save gas
+ * 6. Skips 3-second delay for already-updated or sold content
  * 
  * Usage:
  * npm run update-prices
@@ -22,6 +24,7 @@
 import { AppDataSource } from '../src/config/database';
 import { ContentMarketplace } from '../src/models/ContentMarketplace';
 import { ContentBlockchainTransaction } from '../src/models/ContentBlockchainTransaction';
+import { ContentPurchase } from '../src/models/ContentPurchase';
 import { SomniaBlockchainService } from '../src/services/somniaBlockchainService';
 import { logger } from '../src/config/logger';
 import { MoreThan } from 'typeorm';
@@ -80,6 +83,25 @@ async function updateContentPrice(
     logger.info(`\n🔄 Processing content ${content.id}...`);
     
     const dbPrice = parseFloat(String(content.biddingAskPrice || '0'));
+    
+    // Check if content has been sold (exists in content_purchases)
+    const contentPurchaseRepository = AppDataSource.getRepository(ContentPurchase);
+    const purchaseRecord = await contentPurchaseRepository.findOne({
+      where: {
+        contentId: content.id,
+      },
+    });
+    
+    if (purchaseRecord) {
+      logger.info(`🛒 Content ${content.id} has been sold (purchase ID: ${purchaseRecord.id}) - skipping price update to save gas`);
+      return {
+        contentId: content.id,
+        success: true,
+        oldPrice: dbPrice,
+        reason: `Skipped - Content already sold`,
+        blockchainUpdated: false,
+      };
+    }
     
     // Check if content has confirmed approval in database FIRST
     const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
