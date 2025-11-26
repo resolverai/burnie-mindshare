@@ -635,7 +635,7 @@ export default function MinerMyContent() {
     
     if (isEnabled) {
       // Immediately enable bidding with default pricing
-      const defaultPrice = postType === 'longpost' ? 1999 : 999
+      const defaultPrice = postType === 'longpost' ? 3998 : 1998
       console.log(`💰 Setting default price for ${postType}: ${defaultPrice} ROAST`)
       
       // Make the call asynchronous - don't await
