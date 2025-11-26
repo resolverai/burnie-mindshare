@@ -151,9 +151,11 @@ export class ContentIntegrationService {
         return { success: false, error: 'Content not found' };
       }
 
-      // Check if content was registered on-chain
+      // Check if content was registered on-chain (with retry logic for pending registrations)
       const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
-      const registrationTx = await blockchainTxRepository.findOne({
+      
+      // First check for confirmed registration
+      let registrationTx = await blockchainTxRepository.findOne({
         where: {
           contentId,
           transactionType: 'registration',
@@ -161,8 +163,64 @@ export class ContentIntegrationService {
         },
       });
 
+      // If not found, check if registration is pending
       if (!registrationTx) {
-        return { success: false, error: 'Content not registered on blockchain' };
+        const pendingRegistration = await blockchainTxRepository.findOne({
+          where: {
+            contentId,
+            transactionType: 'registration',
+            status: 'pending',
+          },
+        });
+
+        if (pendingRegistration) {
+          logger.info(`⏳ Content ${contentId} registration is pending, waiting for confirmation...`);
+          
+          // Wait up to 30 seconds for registration to confirm
+          const maxWaitTime = 30000; // 30 seconds
+          const checkInterval = 2000; // 2 seconds
+          const maxAttempts = Math.floor(maxWaitTime / checkInterval);
+          
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            
+            registrationTx = await blockchainTxRepository.findOne({
+              where: {
+                contentId,
+                transactionType: 'registration',
+                status: 'confirmed',
+              },
+            });
+            
+            if (registrationTx) {
+              logger.info(`✅ Content ${contentId} registration confirmed after ${(attempt + 1) * checkInterval / 1000}s`);
+              break;
+            }
+          }
+        }
+      }
+
+      if (!registrationTx) {
+        logger.warn(`⚠️ Content ${contentId} not registered on blockchain yet - skipping approval`);
+        return { success: false, error: 'Content not registered on blockchain yet' };
+      }
+
+      // Check if content is already approved on blockchain
+      const existingApproval = await blockchainTxRepository.findOne({
+        where: {
+          contentId,
+          transactionType: 'approval',
+          status: 'confirmed',
+        },
+      });
+
+      if (existingApproval) {
+        logger.info(`⏭️ Content ${contentId} is already approved on blockchain (tx: ${existingApproval.transactionHash}), skipping...`);
+        return {
+          success: true,
+          transactionHash: existingApproval.transactionHash || undefined,
+          error: 'Already approved on blockchain (skipped)',
+        };
       }
 
       const blockchainContentId = registrationTx.blockchainContentId!;

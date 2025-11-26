@@ -42,7 +42,8 @@ export class AirdropService {
 
       return existingAirdrop !== null;
     } catch (error) {
-      logger.error('❌ Failed to check airdrop status:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Failed to check airdrop status: ${errorMessage}`);
       return false;
     }
   }
@@ -128,10 +129,12 @@ export class AirdropService {
         amount: this.airdropAmount,
       };
     } catch (error) {
-      logger.error('❌ Airdrop failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorCode = (error as any).code || 'UNKNOWN';
+      logger.error(`❌ Airdrop failed: ${errorMessage} (Code: ${errorCode})`);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
       };
     } finally {
       // Always remove from processing set
@@ -154,7 +157,8 @@ export class AirdropService {
 
       return airdrops;
     } catch (error) {
-      logger.error('❌ Failed to get user airdrops:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Failed to get user airdrops: ${errorMessage}`);
       return [];
     }
   }
@@ -183,7 +187,8 @@ export class AirdropService {
         totalUsers: uniqueUsers,
       };
     } catch (error) {
-      logger.error('❌ Failed to get airdrop stats:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Failed to get airdrop stats: ${errorMessage}`);
       return {
         totalAirdrops: 0,
         totalAmount: '0',

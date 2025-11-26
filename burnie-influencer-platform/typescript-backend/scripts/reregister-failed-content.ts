@@ -72,7 +72,8 @@ function extractS3KeyFromUrl(url: string): string | null {
     
     return key;
   } catch (error) {
-    logger.error(`Failed to extract S3 key from URL: ${url}`, error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error(`Failed to extract S3 key from URL ${url}: ${errorMessage}`);
     return null;
   }
 }
@@ -91,7 +92,9 @@ async function getFreshPresignedUrl(s3Key: string): Promise<string> {
     const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
     return presignedUrl;
   } catch (error) {
-    logger.error(`Failed to generate presigned URL for ${s3Key}:`, error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorCode = (error as any).code || 'UNKNOWN';
+    logger.error(`Failed to generate presigned URL for ${s3Key}: ${errorMessage} (Code: ${errorCode})`);
     throw error;
   }
 }
@@ -466,7 +469,12 @@ async function main() {
     logger.info('✅ Script completed successfully!\n');
     
   } catch (error) {
-    logger.error('❌ Script failed:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : '';
+    logger.error(`❌ Script failed: ${errorMessage}`);
+    if (errorStack) {
+      logger.error(`Stack trace: ${errorStack}`);
+    }
     process.exit(1);
   } finally {
     // Close database connection

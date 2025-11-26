@@ -69,6 +69,18 @@ import web2AccountConfigurationsRoutes from './routes/web2AccountConfigurations'
 import web2AccountConnectionsRoutes from './routes/web2AccountConnections';
 import web2ContextManagementRoutes from './routes/web2ContextManagement';
 const web2GeneratedContentRoutes = require('./routes/web2GeneratedContent');
+import dvybAuthRoutes from './routes/dvybAuth';
+import dvybAccountRoutes from './routes/dvybAccount';
+import dvybContextRoutes from './routes/dvybContext';
+import dvybUploadRoutes from './routes/dvybUpload';
+import dvybTopicsRoutes from './routes/dvybTopics';
+import dvybGenerationRoutes from './routes/dvybGeneration';
+import dvybAdhocGenerationRoutes from './routes/dvybAdhocGeneration';
+import dvybDashboardRoutes from './routes/dvybDashboard';
+import dvybPostingRoutes from './routes/dvybPosting';
+import dvybInternalRoutes from './routes/dvybInternal';
+import dvybAnalyticsRoutes from './routes/dvybAnalytics';
+import dvybSocialAuthRoutes from './routes/dvybSocialAuth';
 import cacheRoutes from './routes/cache';
 import networkRoutes from './routes/networkRoutes';
 import miningContextRoutes from './routes/miningContext';
@@ -209,6 +221,18 @@ app.use('/api/web2-social', web2SocialConnectionsRoutes); // Web2 social media c
 app.use('/api/web2-account-configurations', web2AccountConfigurationsRoutes); // Web2 account configuration settings
 app.use('/api/web2-account-connections', web2AccountConnectionsRoutes); // Web2 social media connection management
 app.use('/api/web2-generated-content', web2GeneratedContentRoutes); // Web2 generated content management
+app.use('/api/dvyb/auth', dvybAuthRoutes); // DVYB authentication routes
+app.use('/api/dvyb/auth', dvybSocialAuthRoutes); // DVYB social media OAuth routes (Instagram, LinkedIn, TikTok)
+app.use('/api/dvyb/account', dvybAccountRoutes); // DVYB account management
+app.use('/api/dvyb/context', dvybContextRoutes); // DVYB context management
+app.use('/api/dvyb/upload', dvybUploadRoutes); // DVYB file upload routes
+app.use('/api/dvyb/topics', dvybTopicsRoutes); // DVYB topic generation
+app.use('/api/dvyb/analytics', dvybAnalyticsRoutes); // DVYB analytics for home page
+app.use('/api/dvyb/dashboard', dvybDashboardRoutes); // DVYB dashboard and analytics
+app.use('/api/dvyb/posts', dvybPostingRoutes); // DVYB Twitter posting
+app.use('/api/dvyb/internal', dvybInternalRoutes); // DVYB internal routes (Python AI backend)
+app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes
+app.use('/api/dvyb/adhoc', dvybAdhocGenerationRoutes); // DVYB ad-hoc generation (proxies to Python backend)
 app.use('/api/cache', cacheRoutes); // Redis URL cache management
 
 // Start server

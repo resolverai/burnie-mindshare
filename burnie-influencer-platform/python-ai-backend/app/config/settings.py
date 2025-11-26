@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = Field(default=None, env="ANTHROPIC_API_KEY")
     xai_api_key: Optional[str] = Field(default=None, env="XAI_API_KEY")
     fal_api_key: Optional[str] = Field(default=None, env="FAL_API_KEY")
+    kling_api_key: Optional[str] = Field(default=None, env="KLING_API_KEY")
     
     # Twitter API Keys
     twitter_bearer_token: Optional[str] = Field(default=None, env="TWITTER_BEARER_TOKEN")

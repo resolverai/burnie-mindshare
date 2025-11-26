@@ -53,6 +53,10 @@ from app.routes.web2_content_generation import router as web2_content_router
 from app.routes.web2_unified_generation import router as web2_unified_router
 from app.routes.web2_unified_generation_edit import router as web2_unified_edit_router
 from app.routes.project_unified_generation import router as project_unified_router
+from app.routes.dvyb_unified_generation import router as dvyb_unified_router
+from app.routes.dvyb_adhoc_generation import router as dvyb_adhoc_router
+from app.routes.dvyb_website_analysis import router as dvyb_website_analysis_router
+from app.routes.dvyb_topic_generation import router as dvyb_topic_generation_router
 from app.routes.utils import router as utils_router
 
 # Setup logging
@@ -142,6 +146,10 @@ app.include_router(web2_content_router, prefix="/api/web2", tags=["web2-content"
 app.include_router(web2_unified_router, tags=["web2-unified"])
 app.include_router(web2_unified_edit_router, tags=["web2-unified-edit"])
 app.include_router(project_unified_router, tags=["project-unified"])
+app.include_router(dvyb_unified_router, tags=["dvyb-unified"])
+app.include_router(dvyb_adhoc_router, prefix="/api/dvyb/adhoc", tags=["dvyb-adhoc"])
+app.include_router(dvyb_website_analysis_router, tags=["dvyb-website-analysis"])
+app.include_router(dvyb_topic_generation_router, prefix="/api/dvyb/topics", tags=["dvyb-topic-generation"])
 app.include_router(utils_router, prefix="/api/utils", tags=["utils"])
 
 

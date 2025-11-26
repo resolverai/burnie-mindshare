@@ -119,6 +119,30 @@ const envSchema = Joi.object({
   ORIGINALITY_WEIGHT: Joi.number().min(0).max(1).default(0.20),
   RELEVANCE_WEIGHT: Joi.number().min(0).max(1).default(0.15),
   PERSONALITY_WEIGHT: Joi.number().min(0).max(1).default(0.05),
+
+  // DVYB OAuth Configuration
+  // Twitter OAuth 2.0
+  DVYB_TWITTER_CLIENT_ID: Joi.string().allow('').default(''),
+  DVYB_TWITTER_CLIENT_SECRET: Joi.string().allow('').default(''),
+  DVYB_TWITTER_CALLBACK_URL: Joi.string().uri().allow('').default(''),
+
+  // Instagram OAuth (Facebook Graph API)
+  DVYB_INSTAGRAM_APP_ID: Joi.string().allow('').default(''),
+  DVYB_INSTAGRAM_APP_SECRET: Joi.string().allow('').default(''),
+  DVYB_INSTAGRAM_CALLBACK_URL: Joi.string().uri().allow('').default(''),
+
+  // LinkedIn OAuth 2.0
+  DVYB_LINKEDIN_CLIENT_ID: Joi.string().allow('').default(''),
+  DVYB_LINKEDIN_CLIENT_SECRET: Joi.string().allow('').default(''),
+  DVYB_LINKEDIN_CALLBACK_URL: Joi.string().uri().allow('').default(''),
+
+  // TikTok OAuth 2.0
+  DVYB_TIKTOK_CLIENT_KEY: Joi.string().allow('').default(''),
+  DVYB_TIKTOK_CLIENT_SECRET: Joi.string().allow('').default(''),
+  DVYB_TIKTOK_CALLBACK_URL: Joi.string().uri().allow('').default(''),
+
+  // DVYB Frontend URL
+  DVYB_FRONTEND_URL: Joi.string().uri().allow('').default('http://localhost:3005'),
 }).unknown();
 
 // Validate environment variables
@@ -286,5 +310,30 @@ export const env = {
     originalityWeight: envVars.ORIGINALITY_WEIGHT,
     relevanceWeight: envVars.RELEVANCE_WEIGHT,
     personalityWeight: envVars.PERSONALITY_WEIGHT,
+  },
+
+  // DVYB OAuth Configuration
+  dvybOAuth: {
+    twitter: {
+      clientId: envVars.DVYB_TWITTER_CLIENT_ID,
+      clientSecret: envVars.DVYB_TWITTER_CLIENT_SECRET,
+      callbackUrl: envVars.DVYB_TWITTER_CALLBACK_URL,
+    },
+    instagram: {
+      appId: envVars.DVYB_INSTAGRAM_APP_ID,
+      appSecret: envVars.DVYB_INSTAGRAM_APP_SECRET,
+      callbackUrl: envVars.DVYB_INSTAGRAM_CALLBACK_URL,
+    },
+    linkedin: {
+      clientId: envVars.DVYB_LINKEDIN_CLIENT_ID,
+      clientSecret: envVars.DVYB_LINKEDIN_CLIENT_SECRET,
+      callbackUrl: envVars.DVYB_LINKEDIN_CALLBACK_URL,
+    },
+    tiktok: {
+      clientKey: envVars.DVYB_TIKTOK_CLIENT_KEY,
+      clientSecret: envVars.DVYB_TIKTOK_CLIENT_SECRET,
+      callbackUrl: envVars.DVYB_TIKTOK_CALLBACK_URL,
+    },
+    frontendUrl: envVars.DVYB_FRONTEND_URL,
   },
 } as const; 

@@ -222,7 +222,9 @@ export class SomniaBlockchainService {
 
         return receipt.hash;
       } catch (error) {
-        logger.error('❌ Failed to register content on-chain:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorCode = (error as any).code || 'UNKNOWN';
+        logger.error(`❌ Failed to register content on-chain: ${errorMessage} (Code: ${errorCode})`);
         throw error;
       }
     });
@@ -252,7 +254,9 @@ export class SomniaBlockchainService {
 
         return receipt.hash;
       } catch (error) {
-        logger.error('❌ Failed to approve content on-chain:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorCode = (error as any).code || 'UNKNOWN';
+        logger.error(`❌ Failed to approve content on-chain: ${errorMessage} (Code: ${errorCode})`);
         throw error;
       }
     });
@@ -282,7 +286,9 @@ export class SomniaBlockchainService {
 
         return receipt.hash;
       } catch (error) {
-        logger.error('❌ Failed to update price on-chain:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorCode = (error as any).code || 'UNKNOWN';
+        logger.error(`❌ Failed to update price on-chain: ${errorMessage} (Code: ${errorCode})`);
         throw error;
       }
     });
@@ -313,7 +319,9 @@ export class SomniaBlockchainService {
         contentType: content.contentType,
       };
     } catch (error) {
-      logger.error('❌ Failed to get content from blockchain:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorCode = (error as any).code || 'UNKNOWN';
+      logger.error(`❌ Failed to get content from blockchain: ${errorMessage} (Code: ${errorCode})`);
       throw error;
     }
   }
@@ -327,7 +335,8 @@ export class SomniaBlockchainService {
     try {
       return await this.contentRegistry.isContentAvailable(contentId);
     } catch (error) {
-      logger.error('❌ Failed to check content availability:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Failed to check content availability: ${errorMessage}`);
       return false;
     }
   }
@@ -342,7 +351,8 @@ export class SomniaBlockchainService {
       const balance = await this.toastToken.balanceOf(address);
       return ethers.formatEther(balance);
     } catch (error) {
-      logger.error('❌ Failed to get TOAST balance:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Failed to get TOAST balance: ${errorMessage}`);
       return '0';
     }
   }
@@ -372,7 +382,9 @@ export class SomniaBlockchainService {
 
         return receipt.hash;
       } catch (error) {
-        logger.error('❌ Failed to transfer TOAST:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorCode = (error as any).code || 'UNKNOWN';
+        logger.error(`❌ Failed to transfer TOAST: ${errorMessage} (Code: ${errorCode})`);
         throw error;
       }
     });
@@ -405,10 +417,12 @@ export class SomniaBlockchainService {
           throw new Error('Transaction receipt is null');
         }
         logger.info(`✅ STT transferred: ${receipt.hash}`);
-
+        
         return receipt.hash;
       } catch (error) {
-        logger.error('❌ Failed to transfer STT:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorCode = (error as any).code || 'UNKNOWN';
+        logger.error(`❌ Failed to transfer STT: ${errorMessage} (Code: ${errorCode})`);
         throw error;
       }
     });
@@ -447,10 +461,12 @@ export class SomniaBlockchainService {
           throw new Error('Transaction receipt is null');
         }
         logger.info(`✅ Referral registered on-chain: ${receipt.hash}`);
-
+        
         return receipt.hash;
       } catch (error) {
-        logger.error('❌ Failed to register referral on-chain:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorCode = (error as any).code || 'UNKNOWN';
+        logger.error(`❌ Failed to register referral on-chain: ${errorMessage} (Code: ${errorCode})`);
         throw error;
       }
     });
@@ -483,7 +499,9 @@ export class SomniaBlockchainService {
         totalReferrals: data[5]
       };
     } catch (error) {
-      logger.error('❌ Failed to get referral data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorCode = (error as any).code || 'UNKNOWN';
+      logger.error(`❌ Failed to get referral data: ${errorMessage} (Code: ${errorCode})`);
       throw error;
     }
   }

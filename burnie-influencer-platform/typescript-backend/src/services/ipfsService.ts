@@ -131,14 +131,20 @@ export class IPFSService {
         uploadId: ipfsUpload.id,
       };
     } catch (error) {
-      logger.error('❌ IPFS upload failed:', error);
+      // Extract safe error information without circular references
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorCode = (error as any).code || 'UNKNOWN';
+      const errorStatus = (error as any).response?.status || 'N/A';
+      
+      logger.error(`❌ IPFS upload failed: ${errorMessage} (Code: ${errorCode}, Status: ${errorStatus})`);
       
       // Clean up temp file on error
       if (tempFilePath && fs.existsSync(tempFilePath)) {
         try {
           fs.unlinkSync(tempFilePath);
         } catch (cleanupError) {
-          logger.error('❌ Failed to clean up temp file:', cleanupError);
+          const cleanupMsg = cleanupError instanceof Error ? cleanupError.message : 'Unknown error';
+          logger.error(`❌ Failed to clean up temp file: ${cleanupMsg}`);
         }
       }
       
@@ -160,7 +166,8 @@ export class IPFSService {
 
       logger.info(`✅ Updated transaction hash for upload ${uploadId}: ${transactionHash}`);
     } catch (error) {
-      logger.error('❌ Failed to update transaction hash:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Failed to update transaction hash: ${errorMessage}`);
       throw error;
     }
   }
@@ -179,7 +186,8 @@ export class IPFSService {
 
       return upload;
     } catch (error) {
-      logger.error('❌ Failed to get IPFS upload:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error(`❌ Failed to get IPFS upload: ${errorMessage}`);
       throw error;
     }
   }
@@ -228,7 +236,9 @@ export class IPFSService {
 
       return result;
     } catch (error) {
-      logger.error('❌ Failed to upload text content:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorCode = (error as any).code || 'UNKNOWN';
+      logger.error(`❌ Failed to upload text content: ${errorMessage} (Code: ${errorCode})`);
       throw error;
     }
   }

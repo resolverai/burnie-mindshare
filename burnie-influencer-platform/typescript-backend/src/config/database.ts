@@ -106,6 +106,22 @@ import { SomniaAirdrop } from '../models/SomniaAirdrop';
 import { ContentIpfsUpload } from '../models/ContentIpfsUpload';
 import { ContentBlockchainTransaction } from '../models/ContentBlockchainTransaction';
 
+// Import DVYB entities
+import { DvybAccount } from '../models/DvybAccount';
+import { DvybTwitterConnection } from '../models/DvybTwitterConnection';
+import { DvybInstagramConnection } from '../models/DvybInstagramConnection';
+import { DvybTikTokConnection } from '../models/DvybTikTokConnection';
+import { DvybLinkedInConnection } from '../models/DvybLinkedInConnection';
+import { DvybContext } from '../models/DvybContext';
+import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
+import { DvybTwitterPost } from '../models/DvybTwitterPost';
+import { DvybLinkedInPost } from '../models/DvybLinkedInPost';
+import { DvybInstagramPost } from '../models/DvybInstagramPost';
+import { DvybTikTokPost } from '../models/DvybTikTokPost';
+import { DvybSchedule } from '../models/DvybSchedule';
+import { DvybContentLibrary } from '../models/DvybContentLibrary';
+import { DvybBrandTopics } from '../models/DvybBrandTopics';
+
 // Import seed data functions
 import { seedDatabase } from './seedData';
 
@@ -210,6 +226,21 @@ export const AppDataSource = new DataSource({
     SomniaAirdrop,
     ContentIpfsUpload,
     ContentBlockchainTransaction,
+    // DVYB entities
+    DvybAccount,
+    DvybTwitterConnection,
+    DvybInstagramConnection,
+    DvybTikTokConnection,
+    DvybLinkedInConnection,
+    DvybContext,
+    DvybGeneratedContent,
+    DvybTwitterPost,
+    DvybLinkedInPost,
+    DvybInstagramPost,
+    DvybTikTokPost,
+    DvybSchedule,
+    DvybContentLibrary,
+    DvybBrandTopics,
   ],
   migrations: [],
   subscribers: [],

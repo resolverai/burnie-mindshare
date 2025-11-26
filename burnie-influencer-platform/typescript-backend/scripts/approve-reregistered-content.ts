@@ -309,7 +309,12 @@ async function main() {
     logger.info('✅ Content approval process completed!\n');
     
   } catch (error) {
-    logger.error('❌ Fatal error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : '';
+    logger.error(`❌ Fatal error: ${errorMessage}`);
+    if (errorStack) {
+      logger.error(`Stack trace: ${errorStack}`);
+    }
     process.exit(1);
   } finally {
     // Close database connection
