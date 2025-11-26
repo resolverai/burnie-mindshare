@@ -104,6 +104,49 @@ async function updateContentPrice(
     
     logger.info(`✅ Content ${content.id} has confirmed approval (tx: ${approvalTx.transactionHash})`);
     
+    // Calculate what the price should be based on criteria
+    const { shouldUpdate, newPrice, reason } = calculateNewPrice(content);
+    
+    // Check if a price_update transaction already exists with the target price (1998 or 3998)
+    const existingPriceUpdate = await blockchainTxRepository.findOne({
+      where: {
+        contentId: content.id,
+        transactionType: 'price_update',
+        network: 'somnia_testnet',
+        status: 'confirmed',
+      },
+      order: {
+        confirmedAt: 'DESC', // Get the most recent one
+      },
+    });
+    
+    if (existingPriceUpdate) {
+      const existingPrice = parseFloat(existingPriceUpdate.price || '0');
+      
+      // If there's a confirmed price_update with 1998 or 3998, skip
+      if (existingPrice === 1998 || existingPrice === 3998) {
+        logger.info(`✅ Content ${content.id} already has confirmed price_update to ${existingPrice} TOAST (tx: ${existingPriceUpdate.transactionHash})`);
+        
+        // Also check if DB price matches, update DB if needed
+        if (dbPrice !== existingPrice) {
+          logger.warn(`⚠️ DB price (${dbPrice}) doesn't match blockchain (${existingPrice}), syncing DB...`);
+          const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+          content.biddingAskPrice = existingPrice as any;
+          await contentRepository.save(content);
+          logger.info(`✅ Synced DB price to match blockchain: ${dbPrice} -> ${existingPrice} TOAST`);
+        }
+        
+        return {
+          contentId: content.id,
+          success: true,
+          oldPrice: existingPrice,
+          newPrice: existingPrice,
+          reason: `Already updated to ${existingPrice} TOAST (skipped)`,
+          blockchainUpdated: false,
+        };
+      }
+    }
+    
     // Check current blockchain price from approval transaction
     let blockchainPrice: number | null = null;
     try {
@@ -113,9 +156,6 @@ async function updateContentPrice(
     } catch (error) {
       logger.warn(`⚠️ Could not get blockchain price from approval transaction`);
     }
-    
-    // Calculate what the price should be based on criteria
-    const { shouldUpdate, newPrice, reason } = calculateNewPrice(content);
     
     // Determine final price and what needs updating
     let needsDbUpdate = false;
