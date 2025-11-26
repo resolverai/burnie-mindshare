@@ -81,23 +81,7 @@ async function updateContentPrice(
     
     const dbPrice = parseFloat(String(content.biddingAskPrice || '0'));
     
-    // Calculate new price based on criteria
-    const { shouldUpdate, newPrice, reason } = calculateNewPrice(content);
-    
-    if (!shouldUpdate) {
-      logger.info(`⏭️ Content ${content.id}: ${reason} (current DB price: ${dbPrice} TOAST)`);
-      return {
-        contentId: content.id,
-        success: true,
-        oldPrice: dbPrice,
-        reason: `Skipped - ${reason}`,
-      };
-    }
-    
-    logger.info(`💰 Content ${content.id}: Updating price ${dbPrice} -> ${newPrice} TOAST`);
-    logger.info(`   Reason: ${reason}`);
-    
-    // Check if content has confirmed approval in database
+    // Check if content has confirmed approval in database FIRST
     const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
     const approvalTx = await blockchainTxRepository.findOne({
       where: {
@@ -109,27 +93,18 @@ async function updateContentPrice(
     });
     
     if (!approvalTx) {
-      logger.warn(`⚠️ Content ${content.id} has no confirmed approval transaction in database - skipping blockchain update`);
-      
-      // Still update database
-      const contentRepository = AppDataSource.getRepository(ContentMarketplace);
-      content.biddingAskPrice = newPrice as any;
-      await contentRepository.save(content);
-      logger.info(`✅ Updated price in database only: ${dbPrice} -> ${newPrice} TOAST`);
-      
+      logger.warn(`⚠️ Content ${content.id} has no confirmed approval transaction in database - skipping`);
       return {
         contentId: content.id,
         success: true,
         oldPrice: dbPrice,
-        newPrice,
-        reason: `${reason} - DB updated, blockchain skipped (not approved)`,
-        blockchainUpdated: false,
+        reason: `Skipped - Not approved on blockchain`,
       };
     }
     
     logger.info(`✅ Content ${content.id} has confirmed approval (tx: ${approvalTx.transactionHash})`);
     
-    // Check current blockchain price
+    // Check current blockchain price from approval transaction
     let blockchainPrice: number | null = null;
     try {
       const onChainPrice = parseFloat(approvalTx.price || '0');
@@ -139,23 +114,49 @@ async function updateContentPrice(
       logger.warn(`⚠️ Could not get blockchain price from approval transaction`);
     }
     
-    // Determine if we need to update database and/or blockchain
+    // Calculate what the price should be based on criteria
+    const { shouldUpdate, newPrice, reason } = calculateNewPrice(content);
+    
+    // Determine final price and what needs updating
     let needsDbUpdate = false;
     let needsBlockchainUpdate = false;
     let finalPrice = dbPrice;
+    let updateReason = reason;
     
-    // If DB price doesn't match new calculated price, update DB
-    if (dbPrice !== newPrice) {
-      needsDbUpdate = true;
-      finalPrice = newPrice;
-    }
-    
-    // If blockchain price doesn't match the final price, update blockchain
-    if (blockchainPrice !== null && blockchainPrice !== finalPrice) {
-      needsBlockchainUpdate = true;
-    } else if (blockchainPrice === null) {
-      // If we can't determine blockchain price, update it to be safe
-      needsBlockchainUpdate = true;
+    if (shouldUpdate) {
+      // Price meets criteria (999->1998 or 1999->3998)
+      logger.info(`💰 Content ${content.id}: Should update price ${dbPrice} -> ${newPrice} TOAST`);
+      logger.info(`   Reason: ${reason}`);
+      
+      if (dbPrice !== newPrice) {
+        needsDbUpdate = true;
+        finalPrice = newPrice;
+      }
+      
+      if (blockchainPrice !== null && blockchainPrice !== newPrice) {
+        needsBlockchainUpdate = true;
+      } else if (blockchainPrice === null) {
+        needsBlockchainUpdate = true;
+      }
+    } else {
+      // Price doesn't meet criteria, but check if blockchain needs sync
+      logger.info(`⏭️ Content ${content.id}: ${reason} (DB: ${dbPrice} TOAST)`);
+      
+      // Even if DB price doesn't meet update criteria, sync blockchain if out of sync
+      if (blockchainPrice !== null && blockchainPrice !== dbPrice) {
+        logger.info(`⚠️ Blockchain out of sync! Blockchain: ${blockchainPrice} TOAST, DB: ${dbPrice} TOAST`);
+        needsBlockchainUpdate = true;
+        finalPrice = dbPrice; // Use DB price as source of truth
+        updateReason = `Blockchain sync (${blockchainPrice} -> ${dbPrice})`;
+      } else {
+        // Both in sync, nothing to do
+        return {
+          contentId: content.id,
+          success: true,
+          oldPrice: dbPrice,
+          reason: `Skipped - ${reason} and blockchain in sync`,
+        };
+      }
     }
     
     // Update database if needed
@@ -164,8 +165,8 @@ async function updateContentPrice(
       content.biddingAskPrice = finalPrice as any;
       await contentRepository.save(content);
       logger.info(`✅ Updated price in database: ${dbPrice} -> ${finalPrice} TOAST`);
-    } else {
-      logger.info(`⏭️ Database price already correct (${dbPrice} TOAST)`);
+    } else if (needsBlockchainUpdate) {
+      logger.info(`⏭️ Database price already correct (${dbPrice} TOAST), will sync to blockchain`);
     }
     
     // Update blockchain (only if needed)
@@ -176,9 +177,9 @@ async function updateContentPrice(
       return {
         contentId: content.id,
         success: true,
-        oldPrice: dbPrice,
+        oldPrice: blockchainPrice || dbPrice,
         newPrice: finalPrice,
-        reason: `${reason} - Already synced`,
+        reason: `${updateReason} - Already synced`,
         blockchainUpdated: false,
       };
     }
@@ -226,19 +227,19 @@ async function updateContentPrice(
         success: true,
         oldPrice: dbPrice,
         newPrice: finalPrice,
-        reason: `${reason} - DB updated, blockchain failed: ${errorMessage}`,
+        reason: `${updateReason} - DB updated, blockchain failed: ${errorMessage}`,
         blockchainUpdated: false,
       };
     }
     
-    return {
-      contentId: content.id,
-      success: true,
-      oldPrice: blockchainPrice || dbPrice,
-      newPrice: finalPrice,
-      reason,
-      blockchainUpdated,
-    };
+      return {
+        contentId: content.id,
+        success: true,
+        oldPrice: blockchainPrice || dbPrice,
+        newPrice: finalPrice,
+        reason: updateReason,
+        blockchainUpdated,
+      };
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
