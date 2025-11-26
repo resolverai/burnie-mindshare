@@ -2,7 +2,7 @@
  * Script to update content prices on Somnia Testnet
  * 
  * This script:
- * 1. Finds all content created after Nov 16, 2024 that meets criteria:
+ * 1. Finds all content created after Nov 16, 2025 that meets criteria:
  *    - Registered on Somnia (has confirmed registration in content_blockchain_transactions)
  *    - isAvailable: true, isBiddable: true, approvalStatus: 'approved'
  * 2. Doubles the price if:
@@ -79,22 +79,22 @@ async function updateContentPrice(
   try {
     logger.info(`\n🔄 Processing content ${content.id}...`);
     
-    const oldPrice = parseFloat(String(content.biddingAskPrice || '0'));
+    const dbPrice = parseFloat(String(content.biddingAskPrice || '0'));
     
-    // Calculate new price
+    // Calculate new price based on criteria
     const { shouldUpdate, newPrice, reason } = calculateNewPrice(content);
     
     if (!shouldUpdate) {
-      logger.info(`⏭️ Content ${content.id}: ${reason} (current: ${oldPrice} TOAST)`);
+      logger.info(`⏭️ Content ${content.id}: ${reason} (current DB price: ${dbPrice} TOAST)`);
       return {
         contentId: content.id,
         success: true,
-        oldPrice,
+        oldPrice: dbPrice,
         reason: `Skipped - ${reason}`,
       };
     }
     
-    logger.info(`💰 Content ${content.id}: Updating price ${oldPrice} -> ${newPrice} TOAST`);
+    logger.info(`💰 Content ${content.id}: Updating price ${dbPrice} -> ${newPrice} TOAST`);
     logger.info(`   Reason: ${reason}`);
     
     // Check if content has confirmed approval in database
@@ -129,22 +129,67 @@ async function updateContentPrice(
     
     logger.info(`✅ Content ${content.id} has confirmed approval (tx: ${approvalTx.transactionHash})`);
     
-    // Update database
-    const contentRepository = AppDataSource.getRepository(ContentMarketplace);
-    content.biddingAskPrice = newPrice as any;
-    await contentRepository.save(content);
-    logger.info(`✅ Updated price in database: ${oldPrice} -> ${newPrice} TOAST`);
+    // Check current blockchain price
+    let blockchainPrice: number | null = null;
+    try {
+      const onChainPrice = parseFloat(approvalTx.price || '0');
+      blockchainPrice = onChainPrice;
+      logger.info(`📊 Current blockchain price: ${blockchainPrice} TOAST, DB price: ${dbPrice} TOAST`);
+    } catch (error) {
+      logger.warn(`⚠️ Could not get blockchain price from approval transaction`);
+    }
     
-    // Update blockchain (only if approved in database)
+    // Determine if we need to update database and/or blockchain
+    let needsDbUpdate = false;
+    let needsBlockchainUpdate = false;
+    let finalPrice = dbPrice;
+    
+    // If DB price doesn't match new calculated price, update DB
+    if (dbPrice !== newPrice) {
+      needsDbUpdate = true;
+      finalPrice = newPrice;
+    }
+    
+    // If blockchain price doesn't match the final price, update blockchain
+    if (blockchainPrice !== null && blockchainPrice !== finalPrice) {
+      needsBlockchainUpdate = true;
+    } else if (blockchainPrice === null) {
+      // If we can't determine blockchain price, update it to be safe
+      needsBlockchainUpdate = true;
+    }
+    
+    // Update database if needed
+    if (needsDbUpdate) {
+      const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+      content.biddingAskPrice = finalPrice as any;
+      await contentRepository.save(content);
+      logger.info(`✅ Updated price in database: ${dbPrice} -> ${finalPrice} TOAST`);
+    } else {
+      logger.info(`⏭️ Database price already correct (${dbPrice} TOAST)`);
+    }
+    
+    // Update blockchain (only if needed)
     let blockchainUpdated = false;
     
+    if (!needsBlockchainUpdate) {
+      logger.info(`⏭️ Blockchain price already correct (${blockchainPrice} TOAST)`);
+      return {
+        contentId: content.id,
+        success: true,
+        oldPrice: dbPrice,
+        newPrice: finalPrice,
+        reason: `${reason} - Already synced`,
+        blockchainUpdated: false,
+      };
+    }
+    
     try {
-      logger.info(`⛓️ Updating price on blockchain for content ${content.id}...`);
+      logger.info(`⛓️ Updating price on blockchain for content ${content.id}... (${blockchainPrice} -> ${finalPrice} TOAST)`);
       
       // Queue the price update transaction
       const txHash = await somniaBlockchainService.updatePrice(
         content.id,
-        newPrice.toString()
+        finalPrice.toString()
       );
       
       logger.info(`✅ Price updated on blockchain: ${txHash}`);
@@ -162,7 +207,7 @@ async function updateContentPrice(
         creatorWalletAddress: approvalTx.creatorWalletAddress,
         currentOwnerWallet: approvalTx.currentOwnerWallet,
         ipfsCid: approvalTx.ipfsCid,
-        price: newPrice.toString(),
+        price: finalPrice.toString(),
         currency: 'TOAST',
         confirmedAt: new Date(),
       });
@@ -179,8 +224,8 @@ async function updateContentPrice(
       return {
         contentId: content.id,
         success: true,
-        oldPrice,
-        newPrice,
+        oldPrice: dbPrice,
+        newPrice: finalPrice,
         reason: `${reason} - DB updated, blockchain failed: ${errorMessage}`,
         blockchainUpdated: false,
       };
@@ -189,8 +234,8 @@ async function updateContentPrice(
     return {
       contentId: content.id,
       success: true,
-      oldPrice,
-      newPrice,
+      oldPrice: blockchainPrice || dbPrice,
+      newPrice: finalPrice,
       reason,
       blockchainUpdated,
     };
@@ -238,8 +283,8 @@ async function main() {
     const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
     const somniaBlockchainService = new SomniaBlockchainService();
     
-    // Define the date filter (November 16, 2024)
-    const cutoffDate = new Date('2024-11-16T00:00:00.000Z');
+    // Define the date filter (November 16, 2025)
+    const cutoffDate = new Date('2025-11-16T00:00:00.000Z');
     logger.info(`📅 Filtering content created after: ${cutoffDate.toISOString()}\n`);
     
     // Build query for eligible content
