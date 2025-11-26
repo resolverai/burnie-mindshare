@@ -97,21 +97,37 @@ async function updateContentPrice(
     logger.info(`💰 Content ${content.id}: Updating price ${oldPrice} -> ${newPrice} TOAST`);
     logger.info(`   Reason: ${reason}`);
     
-    // Check if content exists on blockchain
-    let blockchainExists = false;
-    let isApprovedOnChain = false;
+    // Check if content has confirmed approval in database
+    const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
+    const approvalTx = await blockchainTxRepository.findOne({
+      where: {
+        contentId: content.id,
+        transactionType: 'approval',
+        network: 'somnia_testnet',
+        status: 'confirmed',
+      },
+    });
     
-    try {
-      const blockchainContent = await somniaBlockchainService.getContent(content.id);
-      blockchainExists = true;
-      isApprovedOnChain = blockchainContent.isApproved;
+    if (!approvalTx) {
+      logger.warn(`⚠️ Content ${content.id} has no confirmed approval transaction in database - skipping blockchain update`);
       
-      logger.info(`✅ Content ${content.id} exists on blockchain (approved: ${isApprovedOnChain})`);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.warn(`⚠️ Content ${content.id} does not exist on blockchain: ${errorMessage}`);
-      blockchainExists = false;
+      // Still update database
+      const contentRepository = AppDataSource.getRepository(ContentMarketplace);
+      content.biddingAskPrice = newPrice.toString();
+      await contentRepository.save(content);
+      logger.info(`✅ Updated price in database only: ${oldPrice} -> ${newPrice} TOAST`);
+      
+      return {
+        contentId: content.id,
+        success: true,
+        oldPrice,
+        newPrice,
+        reason: `${reason} - DB updated, blockchain skipped (not approved)`,
+        blockchainUpdated: false,
+      };
     }
+    
+    logger.info(`✅ Content ${content.id} has confirmed approval (tx: ${approvalTx.transactionHash})`);
     
     // Update database
     const contentRepository = AppDataSource.getRepository(ContentMarketplace);
@@ -119,57 +135,50 @@ async function updateContentPrice(
     await contentRepository.save(content);
     logger.info(`✅ Updated price in database: ${oldPrice} -> ${newPrice} TOAST`);
     
-    // Update blockchain (only if content exists and is approved)
+    // Update blockchain (only if approved in database)
     let blockchainUpdated = false;
     
-    if (blockchainExists && isApprovedOnChain) {
-      try {
-        logger.info(`⛓️ Updating price on blockchain for content ${content.id}...`);
-        
-        // Queue the price update transaction
-        const txHash = await somniaBlockchainService.updatePrice(
-          content.id,
-          newPrice.toString()
-        );
-        
-        logger.info(`✅ Price updated on blockchain: ${txHash}`);
-        
-        // Record the transaction
-        const blockchainTxRepository = AppDataSource.getRepository(ContentBlockchainTransaction);
-        const priceTx = blockchainTxRepository.create({
-          contentId: content.id,
-          blockchainContentId: content.id,
-          network: 'somnia_testnet',
-          chainId: 50312,
-          transactionType: 'price_update',
-          transactionHash: txHash,
-          status: 'confirmed',
-          contractAddress: process.env.CONTENT_REGISTRY_ADDRESS || null,
-          confirmedAt: new Date(),
-        });
-        await blockchainTxRepository.save(priceTx);
-        
-        blockchainUpdated = true;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const errorCode = (error as any).code || 'UNKNOWN';
-        logger.error(`❌ Failed to update price on blockchain for content ${content.id}: ${errorMessage} (Code: ${errorCode})`);
-        
-        // Don't fail the entire operation if blockchain update fails
-        // Database is already updated, which is the source of truth
-        return {
-          contentId: content.id,
-          success: true,
-          oldPrice,
-          newPrice,
-          reason: `${reason} - DB updated, blockchain failed: ${errorMessage}`,
-          blockchainUpdated: false,
-        };
-      }
-    } else if (!blockchainExists) {
-      logger.warn(`⚠️ Content ${content.id} not registered on blockchain - skipping blockchain update`);
-    } else if (!isApprovedOnChain) {
-      logger.warn(`⚠️ Content ${content.id} not approved on blockchain - skipping blockchain update`);
+    try {
+      logger.info(`⛓️ Updating price on blockchain for content ${content.id}...`);
+      
+      // Queue the price update transaction
+      const txHash = await somniaBlockchainService.updatePrice(
+        content.id,
+        newPrice.toString()
+      );
+      
+      logger.info(`✅ Price updated on blockchain: ${txHash}`);
+      
+      // Record the transaction
+      const priceTx = blockchainTxRepository.create({
+        contentId: content.id,
+        blockchainContentId: content.id,
+        network: 'somnia_testnet',
+        chainId: 50312,
+        transactionType: 'price_update',
+        transactionHash: txHash,
+        status: 'confirmed',
+        contractAddress: process.env.CONTENT_REGISTRY_ADDRESS || null,
+        confirmedAt: new Date(),
+      });
+      await blockchainTxRepository.save(priceTx);
+      
+      blockchainUpdated = true;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorCode = (error as any).code || 'UNKNOWN';
+      logger.error(`❌ Failed to update price on blockchain for content ${content.id}: ${errorMessage} (Code: ${errorCode})`);
+      
+      // Don't fail the entire operation if blockchain update fails
+      // Database is already updated, which is the source of truth
+      return {
+        contentId: content.id,
+        success: true,
+        oldPrice,
+        newPrice,
+        reason: `${reason} - DB updated, blockchain failed: ${errorMessage}`,
+        blockchainUpdated: false,
+      };
     }
     
     return {
