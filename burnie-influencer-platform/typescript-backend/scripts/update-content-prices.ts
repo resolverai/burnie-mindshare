@@ -149,7 +149,7 @@ async function updateContentPrice(
       
       logger.info(`✅ Price updated on blockchain: ${txHash}`);
       
-      // Record the transaction
+      // Record the transaction (get creator_wallet_address from approval transaction)
       const priceTx = blockchainTxRepository.create({
         contentId: content.id,
         blockchainContentId: content.id,
@@ -159,6 +159,11 @@ async function updateContentPrice(
         transactionHash: txHash,
         status: 'confirmed',
         contractAddress: process.env.CONTENT_REGISTRY_ADDRESS || null,
+        creatorWalletAddress: approvalTx.creatorWalletAddress,
+        currentOwnerWallet: approvalTx.currentOwnerWallet,
+        ipfsCid: approvalTx.ipfsCid,
+        price: newPrice.toString(),
+        currency: 'TOAST',
         confirmedAt: new Date(),
       });
       await blockchainTxRepository.save(priceTx);
