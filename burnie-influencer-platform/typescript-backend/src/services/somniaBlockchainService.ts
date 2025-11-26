@@ -146,10 +146,22 @@ export class SomniaBlockchainService {
           return await txFunction(nonce);
         } catch (error: any) {
           // If nonce error, reset and retry once
-          if (error.code === 'NONCE_EXPIRED' || error.message?.includes('nonce')) {
-            logger.warn('⚠️ Nonce error detected, resetting and retrying...');
+          const errorMessage = error.message?.toLowerCase() || '';
+          const isNonceError = error.code === 'NONCE_EXPIRED' || 
+                              error.code === 'REPLACEMENT_UNDERPRICED' ||
+                              errorMessage.includes('nonce') || 
+                              errorMessage.includes('nonce too low') ||
+                              errorMessage.includes('nonce has already been used');
+          
+          if (isNonceError) {
+            logger.warn(`⚠️ Nonce error detected (${error.code || 'UNKNOWN'}), resetting and retrying...`);
             this.resetContractOwnerNonce();
+            
+            // Add a small delay before retry to let pending tx confirm
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
             const nonce = await this.getContractOwnerNonce();
+            logger.info(`🔄 Retrying with fresh nonce: ${nonce}`);
             return await txFunction(nonce);
           }
           throw error;
@@ -173,10 +185,22 @@ export class SomniaBlockchainService {
           return await txFunction(nonce);
         } catch (error: any) {
           // If nonce error, reset and retry once
-          if (error.code === 'NONCE_EXPIRED' || error.message?.includes('nonce')) {
-            logger.warn('⚠️ Nonce error detected, resetting and retrying...');
+          const errorMessage = error.message?.toLowerCase() || '';
+          const isNonceError = error.code === 'NONCE_EXPIRED' || 
+                              error.code === 'REPLACEMENT_UNDERPRICED' ||
+                              errorMessage.includes('nonce') || 
+                              errorMessage.includes('nonce too low') ||
+                              errorMessage.includes('nonce has already been used');
+          
+          if (isNonceError) {
+            logger.warn(`⚠️ Nonce error detected (${error.code || 'UNKNOWN'}), resetting and retrying...`);
             this.resetTreasuryNonce();
+            
+            // Add a small delay before retry to let pending tx confirm
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
             const nonce = await this.getTreasuryNonce();
+            logger.info(`🔄 Retrying with fresh nonce: ${nonce}`);
             return await txFunction(nonce);
           }
           throw error;
