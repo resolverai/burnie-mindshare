@@ -3,6 +3,14 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Accept build arguments for NEXT_PUBLIC_ variables
+ARG NEXT_PUBLIC_API_URL
+ARG NODE_ENV
+
+# Set environment variables from build args
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NODE_ENV=${NODE_ENV:-production}
+
 # Copy package files for dependency caching
 COPY package*.json ./
 COPY bun.lock* ./
@@ -10,7 +18,7 @@ COPY bun.lock* ./
 # Install dependencies (cached layer if package files unchanged)
 RUN npm install
 
-# Copy .env files if they exist (for NEXT_PUBLIC_ variables during build)
+# Copy .env files if they exist (fallback for NEXT_PUBLIC_ variables during build)
 COPY .env* ./
 
 # Copy source code (only invalidates cache when source changes)
@@ -22,7 +30,7 @@ RUN rm -rf node_modules
 # Reinstall to ensure clean state
 RUN npm ci
 
-# Build the application (NEXT_PUBLIC_ vars from .env will be embedded)
+# Build the application (NEXT_PUBLIC_ vars from build args + .env will be embedded)
 RUN npm run build
 
 # Production stage
