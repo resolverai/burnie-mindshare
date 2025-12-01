@@ -16,7 +16,7 @@ COPY package*.json ./
 COPY bun.lock* ./
 
 # Install dependencies (cached layer if package files unchanged)
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy .env files if they exist (fallback for NEXT_PUBLIC_ variables during build)
 COPY .env* ./
@@ -28,7 +28,7 @@ COPY . .
 RUN rm -rf node_modules
 
 # Reinstall to ensure clean state
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 # Build the application (NEXT_PUBLIC_ vars from build args + .env will be embedded)
 RUN npm run build
