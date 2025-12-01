@@ -30,6 +30,9 @@ export const CalendarView = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // URL cache: Map<S3 key, presigned URL>
+  const [urlCache, setUrlCache] = useState<Map<string, string>>(new Map());
 
   // Mobile: Track which day index is currently being viewed (0-6)
   const [mobileDayIndex, setMobileDayIndex] = useState(() => {
@@ -40,6 +43,68 @@ export const CalendarView = () => {
     const todayIndex = initialDays.findIndex(day => day.date.getTime() === today.getTime());
     return todayIndex >= 0 ? todayIndex : 0;
   });
+
+  // Extract S3 key from URL (handles both presigned URLs and direct S3 keys)
+  const extractS3Key = (url: string): string => {
+    if (!url) return '';
+    
+    try {
+      // If it contains query parameters, extract the path before them
+      if (url.includes('?')) {
+        const urlObj = new URL(url);
+        // Remove leading slash and decode
+        return decodeURIComponent(urlObj.pathname.substring(1));
+      }
+      
+      // If it's an S3 URL (https://bucket.s3.region.amazonaws.com/key)
+      if (url.includes('s3') && url.includes('amazonaws.com')) {
+        const urlObj = new URL(url);
+        return decodeURIComponent(urlObj.pathname.substring(1));
+      }
+      
+      // Otherwise, assume it's already an S3 key
+      return url;
+    } catch {
+      // If URL parsing fails, return as-is
+      return url;
+    }
+  };
+
+  // Get fresh presigned URL with caching
+  const getFreshPresignedUrl = async (s3KeyOrUrl: string): Promise<string> => {
+    if (!s3KeyOrUrl) {
+      console.warn('⚠️ getFreshPresignedUrl: Empty URL provided');
+      return '';
+    }
+    
+    const s3Key = extractS3Key(s3KeyOrUrl);
+    console.log('🔑 Extracted S3 key:', s3Key.substring(0, 50) + '...');
+    
+    // Check cache first
+    if (urlCache.has(s3Key)) {
+      console.log('✅ Using cached presigned URL for:', s3Key.substring(0, 50) + '...');
+      return urlCache.get(s3Key)!;
+    }
+    
+    try {
+      console.log('📡 Generating fresh presigned URL for:', s3Key.substring(0, 50) + '...');
+      const response = await dvybApi.upload.getPresignedUrlFromKey(s3Key);
+      
+      if (response.success && response.presigned_url) {
+        console.log('✅ Fresh presigned URL generated successfully');
+        // Update cache
+        setUrlCache(prev => new Map(prev).set(s3Key, response.presigned_url));
+        return response.presigned_url;
+      }
+      
+      // Fallback to original URL if presigned generation fails
+      console.warn('⚠️ No presigned URL returned, using original URL');
+      return s3KeyOrUrl;
+    } catch (error) {
+      console.error('❌ Failed to get presigned URL for', s3Key, error);
+      return s3KeyOrUrl; // Fallback to original
+    }
+  };
 
   // Helper: Get current week's Monday
   function getCurrentWeekMonday() {
@@ -173,10 +238,12 @@ export const CalendarView = () => {
         const response = await postingApi.getSchedules(); // No contentId = get all schedules
         
         if (response.success && response.data) {
-          // Transform schedule data to calendar format
-          const transformed = response.data
-            .filter((schedule: any) => schedule.status === 'pending') // Only show pending schedules
-            .map((schedule: any) => {
+          // Filter pending schedules first
+          const pendingSchedules = response.data.filter((schedule: any) => schedule.status === 'pending');
+          
+          // Transform schedule data to calendar format with fresh presigned URLs
+          const transformed = await Promise.all(
+            pendingSchedules.map(async (schedule: any) => {
               const scheduledDate = new Date(schedule.scheduledFor);
               const postMetadata = schedule.postMetadata || {};
               const content = postMetadata.content || {};
@@ -194,6 +261,17 @@ export const CalendarView = () => {
               const firstPlatform = platforms[0] || 'instagram';
               const topic = platformTexts[firstPlatform] || content.caption || 'Scheduled post';
               
+              // Generate fresh presigned URL for media (with caching)
+              let freshMediaUrl = content.mediaUrl;
+              if (content.mediaUrl) {
+                try {
+                  freshMediaUrl = await getFreshPresignedUrl(content.mediaUrl);
+                } catch (error) {
+                  console.error('Failed to get presigned URL for schedule', schedule.id, error);
+                  // Keep original URL as fallback
+                }
+              }
+              
               return {
                 id: schedule.id,
                 scheduleId: schedule.id,
@@ -202,14 +280,15 @@ export const CalendarView = () => {
                 postTime: postTime,
                 contentType: content.mediaType === 'video' ? 'Video' : 'Post',
                 platformText: platformTexts,
-                mediaUrl: content.mediaUrl,
+                mediaUrl: freshMediaUrl, // Use fresh presigned URL
                 status: schedule.status,
                 platforms: platforms,
               } as ScheduledPost;
-            });
+            })
+          );
           
           setScheduledPosts(transformed);
-          console.log(`✅ Loaded ${transformed.length} scheduled posts`);
+          console.log(`✅ Loaded ${transformed.length} scheduled posts with fresh presigned URLs`);
         }
       } catch (error) {
         console.error("Failed to fetch scheduled posts:", error);
