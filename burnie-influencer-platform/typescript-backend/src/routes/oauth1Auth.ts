@@ -8,9 +8,7 @@ import { YapperTwitterConnection } from '../models/YapperTwitterConnection';
 import { User } from '../models/User';
 import { 
   getRequestToken, 
-  getAuthorizationUrl, 
-  getAccessToken,
-  OAuth1RequestTokens,
+  exchangeOAuthToken as getAccessToken,
   OAuth1Tokens
 } from '../utils/oauth1Utils';
 
@@ -58,7 +56,7 @@ router.post('/init', async (req: Request, res: Response): Promise<void> => {
 
     // Get request token from Twitter with callback URL
     const callbackUrl = `${process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://localhost:3004'}/oauth1-twitter-callback`;
-    const { requestToken, requestTokenSecret } = await getRequestToken(callbackUrl);
+    const { oauthToken: requestToken, oauthTokenSecret: requestTokenSecret } = await getRequestToken(callbackUrl);
 
     // Store request token temporarily (expires in 15 minutes)
     const sessionId = `${userId}_${Date.now()}`;
@@ -71,7 +69,7 @@ router.post('/init', async (req: Request, res: Response): Promise<void> => {
 
     // Generate authorization URL - we'll handle the redirect in our callback page
     // Generate authorization URL with callback
-    const authUrl = getAuthorizationUrl(requestToken, callbackUrl);
+    const authUrl = `https://api.twitter.com/oauth/authorize?oauth_token=${requestToken}`;
 
     res.json({
       success: true,

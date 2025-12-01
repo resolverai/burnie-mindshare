@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Twitter, Loader2, Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { authApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import Image from "next/image";
@@ -13,37 +13,40 @@ import dvybLogo from "@/assets/dvyb-logo.png";
 export default function AuthLoginPage() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { isAuthenticated, isLoading, checkAuth } = useAuth();
+  const { isAuthenticated, onboardingComplete, isLoading, checkAuth } = useAuth();
   const router = useRouter();
 
-  // If already authenticated, redirect to brand profile
+  // If already authenticated, redirect based on onboarding status
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      router.push('/onboarding/brand-profile');
+      if (onboardingComplete) {
+        console.log('✅ Already authenticated & onboarded - redirecting to /home');
+        router.push('/home');
+      } else {
+        console.log('⚠️ Authenticated but onboarding incomplete - redirecting to brand-profile');
+        router.push('/onboarding/brand-profile');
+      }
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, onboardingComplete, isLoading, router]);
 
-  const handleTwitterLogin = async () => {
+  const handleGoogleLogin = async () => {
     if (isConnecting) return; // Prevent multiple clicks
     
     setIsConnecting(true);
     setError(null);
 
     try {
-      const response = await authApi.getTwitterLoginUrl();
+      const response = await authApi.getGoogleLoginUrl();
       
       if (response.success && response.data.oauth_url) {
-        console.log('✅ Got OAuth URL, opening popup...');
+        console.log('✅ Got Google OAuth URL, opening popup...');
         
         // Store state for later verification
         if (response.data.state) {
-          localStorage.setItem('dvyb_twitter_oauth_state', response.data.state);
-        }
-        if ('code_challenge' in response.data && response.data.code_challenge) {
-          localStorage.setItem('dvyb_twitter_code_challenge', response.data.code_challenge as string);
+          localStorage.setItem('dvyb_google_oauth_state', response.data.state);
         }
 
-        // Open Twitter OAuth in a popup window (like web3 projects)
+        // Open Google OAuth in a popup window
         const width = 500;
         const height = 600;
         const left = window.screenX + (window.outerWidth - width) / 2;
@@ -51,7 +54,7 @@ export default function AuthLoginPage() {
         
         const authWindow = window.open(
           response.data.oauth_url,
-          'dvyb-twitter-auth',
+          'dvyb-google-auth',
           `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
         );
 
@@ -62,9 +65,9 @@ export default function AuthLoginPage() {
             return; // Ignore messages from other origins
           }
 
-          if (event.data.type === 'DVYB_TWITTER_AUTH_SUCCESS') {
+          if (event.data.type === 'DVYB_GOOGLE_AUTH_SUCCESS') {
             messageReceived = true;
-            console.log('✅ Twitter auth successful!', event.data);
+            console.log('✅ Google auth successful!', event.data);
             
             // Clean up
             window.removeEventListener('message', handleMessage);
@@ -74,8 +77,8 @@ export default function AuthLoginPage() {
             if (event.data.account_id) {
               localStorage.setItem('dvyb_account_id', event.data.account_id.toString());
             }
-            if (event.data.twitter_handle) {
-              localStorage.setItem('dvyb_twitter_handle', event.data.twitter_handle);
+            if (event.data.account_name) {
+              localStorage.setItem('dvyb_account_name', event.data.account_name);
             }
             
             // Refresh auth state
@@ -83,28 +86,40 @@ export default function AuthLoginPage() {
             checkAuth().then(() => {
               // Small delay to ensure auth state propagates
               setTimeout(() => {
-                // Check if analysis data exists
-                const hasAnalysis = localStorage.getItem('dvyb_website_analysis');
+                // Check if onboarding was already complete
+                const onboardingComplete = event.data.onboarding_complete;
                 
-                console.log('🔄 Redirecting user...', { hasAnalysis: !!hasAnalysis });
+                console.log('🔄 Redirecting user...', { 
+                  onboardingComplete, 
+                  isNewAccount: event.data.is_new_account 
+                });
                 
-                if (hasAnalysis) {
-                  // Redirect to analysis details page (handles both authenticated and unauthenticated)
-                  console.log('→ Going to analysis-details');
-                  router.push('/onboarding/analysis-details');
+                if (onboardingComplete) {
+                  // User has already completed onboarding - go to home
+                  console.log('→ Onboarding complete - going to /home');
+                  router.push('/home');
                 } else {
-                  // Redirect to brand profile
-                  console.log('→ Going to brand-profile');
-                  router.push('/onboarding/brand-profile');
+                  // Onboarding not complete - continue onboarding flow
+                  const hasAnalysis = localStorage.getItem('dvyb_website_analysis');
+                  
+                  if (hasAnalysis) {
+                    // Redirect to analysis details page
+                    console.log('→ Has analysis - going to analysis-details');
+                    router.push('/onboarding/analysis-details');
+                  } else {
+                    // Redirect to brand profile to start onboarding
+                    console.log('→ No analysis - going to brand-profile');
+                    router.push('/onboarding/brand-profile');
+                  }
                 }
               }, 300); // 300ms delay for auth state to propagate
             });
-          } else if (event.data.type === 'DVYB_TWITTER_AUTH_ERROR') {
+          } else if (event.data.type === 'DVYB_GOOGLE_AUTH_ERROR') {
             messageReceived = true;
-            console.error('❌ Twitter auth error:', event.data.message);
+            console.error('❌ Google auth error:', event.data.message);
             
             window.removeEventListener('message', handleMessage);
-            setError(event.data.message || 'Twitter authentication failed');
+            setError(event.data.message || 'Google authentication failed');
             setIsConnecting(false);
           }
         };
@@ -130,11 +145,11 @@ export default function AuthLoginPage() {
           }
         }, 300000);
       } else {
-        throw new Error('Failed to get Twitter login URL');
+        throw new Error('Failed to get Google login URL');
       }
     } catch (err: any) {
-      console.error('Twitter login error:', err);
-      setError(err.message || 'Failed to connect with Twitter');
+      console.error('Google login error:', err);
+      setError(err.message || 'Failed to connect with Google');
       setIsConnecting(false);
     }
   };
@@ -173,21 +188,26 @@ export default function AuthLoginPage() {
 
           <div className="space-y-4">
             <Button
-              onClick={handleTwitterLogin}
+              onClick={handleGoogleLogin}
               disabled={isConnecting}
-              className="w-full bg-[#1DA1F2] hover:bg-[#1a8cd8] text-white font-semibold h-12 md:h-14 text-base md:text-lg rounded-xl transition-all transform hover:scale-[1.02] disabled:hover:scale-100"
+              className="w-full bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 font-semibold h-12 md:h-14 text-base md:text-lg rounded-xl transition-all transform hover:scale-[1.02] disabled:hover:scale-100"
               size="lg"
             >
               {isConnecting ? (
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  <span className="hidden sm:inline">Connecting to Twitter...</span>
+                  <span className="hidden sm:inline">Connecting to Google...</span>
                   <span className="sm:hidden">Connecting...</span>
                 </>
               ) : (
                 <>
-                  <Twitter className="w-5 h-5 mr-2" />
-                  Sign in with Twitter
+                  <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                  </svg>
+                  Sign in with Google
                 </>
               )}
             </Button>

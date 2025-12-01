@@ -1,23 +1,19 @@
-/**
- * OAuth 1.0a Utility Functions for Twitter API
- * Based on working test script implementation
- */
-
 import crypto from 'crypto';
-import fetch from 'node-fetch';
 import FormData from 'form-data';
+import fetch from 'node-fetch';
+import { env } from '../config/env';
+import { getS3PresignedUrlService } from '../services/S3PresignedUrlService';
 
-// OAuth 1.0a Consumer Credentials
-const TWITTER_CONSUMER_KEY = process.env.TWITTER_CONSUMER_KEY;
-const TWITTER_CONSUMER_SECRET = process.env.TWITTER_CONSUMER_SECRET;
+// Twitter OAuth1 credentials (same for all projects)
+const TWITTER_CONSUMER_KEY = process.env.TWITTER_CONSUMER_KEY || '';
+const TWITTER_CONSUMER_SECRET = process.env.TWITTER_CONSUMER_SECRET || '';
 
+// Verify credentials are loaded (log only on startup, not on every call)
 if (!TWITTER_CONSUMER_KEY || !TWITTER_CONSUMER_SECRET) {
-  throw new Error('Twitter OAuth 1.0a credentials not found in environment variables');
+  console.error('⚠️ WARNING: Twitter OAuth1 credentials not found in environment variables');
+  console.error('   TWITTER_CONSUMER_KEY:', TWITTER_CONSUMER_KEY ? '✅ Set' : '❌ Missing');
+  console.error('   TWITTER_CONSUMER_SECRET:', TWITTER_CONSUMER_SECRET ? '✅ Set' : '❌ Missing');
 }
-
-// Type assertions after validation
-const consumerKey: string = TWITTER_CONSUMER_KEY;
-const consumerSecret: string = TWITTER_CONSUMER_SECRET;
 
 export interface OAuth1Tokens {
   accessToken: string;
@@ -25,196 +21,287 @@ export interface OAuth1Tokens {
   screenName: string;
 }
 
-export interface OAuth1RequestTokens {
-  requestToken: string;
-  requestTokenSecret: string;
-}
-
 /**
- * Generate OAuth 1.0a signature for requests
+ * Generate OAuth 1.0a signature base string
  */
-export function generateOAuthSignature(
-  method: string, 
-  url: string, 
-  params: Record<string, string>, 
-  consumerSecret: string, 
-  tokenSecret: string = ''
+function generateSignatureBaseString(
+  method: string,
+  url: string,
+  params: Record<string, string>
 ): string {
-  // Parse URL to separate base URL and query parameters
-  const urlObj = new URL(url);
-  const baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
-  
-  // Combine OAuth parameters with query parameters
-  const allParams = { ...params };
-  
-  // Add query parameters to the signature parameters
-  for (const [key, value] of urlObj.searchParams.entries()) {
-    allParams[key] = value;
-  }
-
-  // Create parameter string
-  const sortedParams = Object.keys(allParams)
+  const sortedParams = Object.keys(params)
     .sort()
-    .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(allParams[key] || '')}`)
+    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(params[key] || '')}`)
     .join('&');
 
-  // Create signature base string using base URL (without query parameters)
-  const signatureBaseString = [
-    method.toUpperCase(),
-    encodeURIComponent(baseUrl),
-    encodeURIComponent(sortedParams)
-  ].join('&');
-
-  // Create signing key
-  const signingKey = `${encodeURIComponent(consumerSecret)}&${encodeURIComponent(tokenSecret)}`;
-
-  // Generate signature
-  const signature = crypto
-    .createHmac('sha1', signingKey)
-    .update(signatureBaseString)
-    .digest('base64');
-
-  return signature;
+  return `${method.toUpperCase()}&${encodeURIComponent(url)}&${encodeURIComponent(sortedParams)}`;
 }
 
 /**
- * Generate OAuth 1.0a Authorization header
+ * Generate OAuth 1.0a signature
+ */
+function generateSignature(
+  baseString: string,
+  consumerSecret: string,
+  tokenSecret: string = ''
+): string {
+  const signingKey = `${encodeURIComponent(consumerSecret)}&${encodeURIComponent(tokenSecret)}`;
+  return crypto.createHmac('sha1', signingKey).update(baseString).digest('base64');
+}
+
+/**
+ * Generate OAuth 1.0a header
  */
 export function generateOAuthHeader(
-  method: string, 
-  url: string, 
-  accessToken?: string,
-  accessTokenSecret?: string,
+  method: string,
+  url: string,
+  accessToken: string,
+  accessTokenSecret: string,
   additionalParams: Record<string, string> = {}
 ): string {
-  const timestamp = Math.floor(Date.now() / 1000);
-  const nonce = crypto.randomBytes(16).toString('hex');
-
   const oauthParams: Record<string, string> = {
-    oauth_consumer_key: consumerKey,
-    oauth_nonce: nonce,
+    oauth_consumer_key: TWITTER_CONSUMER_KEY,
     oauth_signature_method: 'HMAC-SHA1',
-    oauth_timestamp: timestamp.toString(),
+    oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
+    oauth_nonce: crypto.randomBytes(32).toString('base64').replace(/\W/g, ''),
     oauth_version: '1.0',
-    ...additionalParams
   };
 
-  // Add access token if available
+  // Only include oauth_token if accessToken is provided (not needed for request token step)
   if (accessToken) {
     oauthParams.oauth_token = accessToken;
   }
 
-  // Generate signature
-  const signature = generateOAuthSignature(
-    method,
-    url,
-    oauthParams,
-    consumerSecret,
-    accessTokenSecret || ''
-  );
+  const allParams = { ...oauthParams, ...additionalParams };
+  const baseString = generateSignatureBaseString(method, url, allParams);
+  const signature = generateSignature(baseString, TWITTER_CONSUMER_SECRET, accessTokenSecret);
 
   oauthParams.oauth_signature = signature;
 
-  // Build authorization header
-  const authHeader = 'OAuth ' + Object.keys(oauthParams)
-    .map(key => `${encodeURIComponent(key)}="${encodeURIComponent(oauthParams[key] || '')}"`)
-    .join(', ');
+  // For request token, include oauth_callback in the header
+  // For other requests, additionalParams might contain other params
+  const headerParams = { ...oauthParams };
+  if (additionalParams.oauth_callback) {
+    headerParams.oauth_callback = additionalParams.oauth_callback;
+  }
+
+  const authHeader =
+    'OAuth ' +
+    Object.keys(headerParams)
+      .map((key) => `${encodeURIComponent(key)}="${encodeURIComponent(headerParams[key] || '')}"`)
+      .join(', ');
 
   return authHeader;
 }
 
 /**
- * Step 1: Get OAuth 1.0a Request Token
+ * Get request token for OAuth1 flow
  */
-export async function getRequestToken(callbackUrl?: string): Promise<OAuth1RequestTokens> {
+export async function getRequestToken(callbackUrl: string): Promise<{
+  oauthToken: string;
+  oauthTokenSecret: string;
+}> {
   const url = 'https://api.twitter.com/oauth/request_token';
-  const authHeader = generateOAuthHeader('POST', url, undefined, undefined, {
-    oauth_callback: callbackUrl || 'oob' // Use callback URL or out-of-band
-  });
+  const params = {
+    oauth_callback: callbackUrl,
+  };
+
+  console.log('🔍 OAuth1 Request Token Parameters:');
+  console.log('   URL:', url);
+  console.log('   Callback:', callbackUrl);
+  console.log('   Consumer Key:', TWITTER_CONSUMER_KEY ? `${TWITTER_CONSUMER_KEY.substring(0, 10)}...` : 'MISSING');
+  console.log('   Consumer Secret:', TWITTER_CONSUMER_SECRET ? `${TWITTER_CONSUMER_SECRET.substring(0, 10)}...` : 'MISSING');
+
+  const authHeader = generateOAuthHeader('POST', url, '', '', params);
+  
+  console.log('🔍 OAuth1 Authorization Header:', authHeader.substring(0, 100) + '...');
 
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': authHeader,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    }
+      Authorization: authHeader,
+    },
   });
 
+  console.log('🔍 Twitter Response Status:', response.status);
+
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Request token failed: ${response.status} - ${errorText}`);
+    const error = await response.text();
+    console.log('🔍 Twitter Error Response:', error);
+    throw new Error(`Failed to get request token: ${error}`);
   }
 
-  const responseText = await response.text();
+  const body = await response.text();
+  const parsed = new URLSearchParams(body);
+  const oauthToken = parsed.get('oauth_token');
+  const oauthTokenSecret = parsed.get('oauth_token_secret');
 
-  // Parse response
-  const params = new URLSearchParams(responseText);
-  const requestToken = params.get('oauth_token');
-  const requestTokenSecret = params.get('oauth_token_secret');
-
-  if (!requestToken || !requestTokenSecret) {
-    throw new Error('Invalid request token response');
+  if (!oauthToken || !oauthTokenSecret) {
+    throw new Error('Invalid response from Twitter');
   }
 
-  return { requestToken, requestTokenSecret };
+  return { oauthToken, oauthTokenSecret };
 }
 
 /**
- * Step 2: Generate authorization URL
+ * Exchange OAuth verifier for access token
  */
-export function getAuthorizationUrl(requestToken: string, callbackUrl?: string): string {
-  let url = `https://api.twitter.com/oauth/authorize?oauth_token=${requestToken}`;
-  if (callbackUrl) {
-    url += `&oauth_callback=${encodeURIComponent(callbackUrl)}`;
-  }
-  return url;
-}
-
-/**
- * Step 3: Exchange request token + PIN for access token
- */
-export async function getAccessToken(
-  requestToken: string, 
-  requestTokenSecret: string, 
-  verifier: string
+export async function exchangeOAuthToken(
+  oauthToken: string,
+  oauthTokenSecret: string,
+  oauthVerifier: string
 ): Promise<OAuth1Tokens> {
   const url = 'https://api.twitter.com/oauth/access_token';
+  const params = {
+    oauth_verifier: oauthVerifier,
+  };
+
+  console.log('🔍 OAuth1 Token Exchange Parameters:');
+  console.log('   URL:', url);
+  console.log('   oauth_token:', oauthToken ? `${oauthToken.substring(0, 15)}...` : 'MISSING');
+  console.log('   oauth_token_secret:', oauthTokenSecret ? `${oauthTokenSecret.substring(0, 15)}...` : 'MISSING');
+  console.log('   oauth_verifier:', oauthVerifier ? `${oauthVerifier.substring(0, 15)}...` : 'MISSING');
+
+  const authHeader = generateOAuthHeader('POST', url, oauthToken, oauthTokenSecret, params);
   
-  const authHeader = generateOAuthHeader('POST', url, requestToken, requestTokenSecret, {
-    oauth_verifier: verifier
-  });
+  console.log('🔍 OAuth1 Exchange Authorization Header:', authHeader.substring(0, 100) + '...');
+
+  // Create form data for POST body with oauth_verifier
+  const formData = new URLSearchParams();
+  formData.append('oauth_verifier', oauthVerifier);
+
+  console.log('🔍 POST body params:', formData.toString());
 
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': authHeader,
-      'Content-Type': 'application/x-www-form-urlencoded'
+      Authorization: authHeader,
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: `oauth_verifier=${verifier}`
+    body: formData.toString(),
   });
 
+  console.log('🔍 Twitter Exchange Response Status:', response.status);
+
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Access token failed: ${response.status} - ${errorText}`);
+    const error = await response.text();
+    console.log('🔍 Twitter Exchange Error:', error);
+    throw new Error(`Failed to exchange token: ${error}`);
   }
 
-  const responseText = await response.text();
-
-  // Parse response
-  const params = new URLSearchParams(responseText);
-  const accessToken = params.get('oauth_token');
-  const accessTokenSecret = params.get('oauth_token_secret');
-  const screenName = params.get('screen_name');
+  const body = await response.text();
+  const parsed = new URLSearchParams(body);
+  const accessToken = parsed.get('oauth_token');
+  const accessTokenSecret = parsed.get('oauth_token_secret');
+  const screenName = parsed.get('screen_name');
 
   if (!accessToken || !accessTokenSecret) {
     throw new Error('Invalid access token response');
   }
 
-  return { 
-    accessToken, 
-    accessTokenSecret, 
-    screenName: screenName || 'unknown' 
+  return {
+    accessToken,
+    accessTokenSecret,
+    screenName: screenName || 'unknown',
   };
+}
+
+/**
+ * Generate fresh presigned URL from S3 key or existing presigned URL
+ */
+async function generateFreshPresignedUrl(url: string): Promise<string> {
+  try {
+    // If it's already a full URL (contains http), extract the S3 key
+    if (url.includes('http')) {
+      // Extract S3 key from presigned URL or direct S3 URL
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      // Remove leading slash and decode
+      const s3Key = decodeURIComponent(pathname.substring(1));
+      
+      console.log(`📎 Extracted S3 key from URL: ${s3Key}`);
+      
+      // Generate fresh presigned URL
+      const s3Service = getS3PresignedUrlService();
+      const freshUrl = await s3Service.generatePresignedUrl(s3Key);
+      if (!freshUrl) {
+        throw new Error('Failed to generate presigned URL for S3 key');
+      }
+      console.log(`✅ Generated fresh presigned URL`);
+      return freshUrl;
+    }
+    
+    // If it's just an S3 key, generate presigned URL
+    console.log(`📎 Using S3 key directly: ${url}`);
+    const s3Service = getS3PresignedUrlService();
+    const freshUrl = await s3Service.generatePresignedUrl(url);
+    if (!freshUrl) {
+      throw new Error('Failed to generate presigned URL');
+    }
+    console.log(`✅ Generated fresh presigned URL`);
+    return freshUrl;
+  } catch (error) {
+    console.error('⚠️ Failed to generate fresh presigned URL, using original:', error);
+    return url; // Fallback to original URL
+  }
+}
+
+/**
+ * Upload image to Twitter using OAuth 1.0a (v1.1 endpoint)
+ * Twitter media upload endpoint only supports OAuth 1.0a, NOT OAuth 2.0
+ */
+export async function uploadImageOAuth1(
+  imageUrl: string,
+  accessToken: string,
+  accessTokenSecret: string
+): Promise<string> {
+  // Generate fresh presigned URL first
+  const freshImageUrl = await generateFreshPresignedUrl(imageUrl);
+  
+  // Download image
+  console.log('📥 Downloading image for Twitter upload...');
+  const imageResponse = await fetch(freshImageUrl);
+  if (!imageResponse.ok) {
+    throw new Error(`Failed to download image: ${imageResponse.statusText}`);
+  }
+
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+  const imageSizeKB = (imageBuffer.length / 1024).toFixed(2);
+  
+  console.log(`🖼️ Starting OAuth 1.0a image upload (${imageSizeKB} KB)`);
+
+  // Upload using simple upload endpoint (not chunked - for images under 5MB)
+  const uploadUrl = 'https://upload.twitter.com/1.1/media/upload.json';
+  const formData = new FormData();
+  formData.append('media', imageBuffer, {
+    filename: 'image.jpg',
+    contentType: 'image/jpeg',
+  });
+
+  const authHeader = generateOAuthHeader('POST', uploadUrl, accessToken, accessTokenSecret);
+  
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': authHeader,
+      ...formData.getHeaders(),
+    },
+    body: formData,
+  });
+
+  console.log('🔍 Image upload response status:', uploadResponse.status);
+
+  if (!uploadResponse.ok) {
+    const errorText = await uploadResponse.text();
+    console.error('❌ Image upload failed:', uploadResponse.status, errorText);
+    throw new Error(`Image upload failed: ${uploadResponse.status} - ${errorText}`);
+  }
+
+  const data = await uploadResponse.json() as { media_id_string: string };
+  const mediaId = data.media_id_string;
+
+  console.log(`✅ Image uploaded successfully. Media ID: ${mediaId}`);
+  return mediaId;
 }
 
 /**
@@ -274,35 +361,32 @@ export async function uploadVideoOAuth1(
 
   if (!initResponse.ok) {
     const errorText = await initResponse.text();
-    console.error('❌ INIT failed with error:', errorText);
-    throw new Error(`INIT failed: ${initResponse.status} - ${errorText}`);
+    console.error('❌ INIT failed:', initResponse.status, errorText);
+    throw new Error(`Video upload INIT failed: ${errorText}`);
   }
 
-  const initData = await initResponse.json() as any;
-  console.log('🔍 INIT response data:', JSON.stringify(initData, null, 2));
+  const initData = await initResponse.json() as { media_id_string: string };
   const mediaId = initData.media_id_string;
-  console.log(`✅ Video upload initialized (Media ID: ${mediaId})`);
+  console.log('✅ INIT successful. Media ID:', mediaId);
 
-  // Step 2: APPEND chunks
+  // Step 2: APPEND (chunked upload)
+  console.log('📦 Step 2/3: Uploading video in chunks...');
   const chunkSize = 5 * 1024 * 1024; // 5MB chunks
   const totalChunks = Math.ceil(totalBytes / chunkSize);
-  console.log(`📦 Step 2/3: Uploading ${totalChunks} video chunks...`);
+  console.log(`📊 Total chunks: ${totalChunks}`);
 
-  for (let segmentIndex = 0; segmentIndex < totalChunks; segmentIndex++) {
-    const start = segmentIndex * chunkSize;
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * chunkSize;
     const end = Math.min(start + chunkSize, totalBytes);
     const chunk = videoBuffer.slice(start, end);
-    const chunkMB = (chunk.length / 1024 / 1024).toFixed(2);
     
-    console.log(`📤 Uploading chunk ${segmentIndex + 1}/${totalChunks} (${chunkMB} MB)...`);
-
-    const appendFormData = new FormData();
-    appendFormData.append('command', 'APPEND');
-    appendFormData.append('media_id', mediaId);
-    appendFormData.append('segment_index', segmentIndex.toString());
-    appendFormData.append('media', chunk, {
-      filename: `chunk_${segmentIndex}.mp4`,
-      contentType: 'video/mp4'
+    const chunkFormData = new FormData();
+    chunkFormData.append('command', 'APPEND');
+    chunkFormData.append('media_id', mediaId);
+    chunkFormData.append('segment_index', i.toString());
+    chunkFormData.append('media', chunk, {
+      filename: 'chunk.mp4',
+      contentType: 'application/octet-stream',
     });
 
     const appendAuthHeader = generateOAuthHeader('POST', initUrl, accessToken, accessTokenSecret);
@@ -310,34 +394,31 @@ export async function uploadVideoOAuth1(
     const appendResponse = await fetch(initUrl, {
       method: 'POST',
       headers: {
-        'Authorization': appendAuthHeader
+        'Authorization': appendAuthHeader,
+        ...chunkFormData.getHeaders(),
       },
-      body: appendFormData
+      body: chunkFormData,
     });
 
     if (!appendResponse.ok) {
       const errorText = await appendResponse.text();
-      throw new Error(`APPEND chunk ${segmentIndex} failed: ${appendResponse.status} - ${errorText}`);
+      console.error(`❌ Chunk ${i} upload failed:`, errorText);
+      throw new Error(`Video chunk ${i} upload failed: ${errorText}`);
     }
-    
-    console.log(`✅ Chunk ${segmentIndex + 1}/${totalChunks} uploaded successfully`);
+
+    const progress = ((i + 1) / totalChunks * 100).toFixed(1);
+    console.log(`✅ Uploaded chunk ${i + 1}/${totalChunks} (${progress}%)`);
   }
-  
-  console.log('🎉 All video chunks uploaded successfully!');
+
+  console.log('✅ All chunks uploaded');
 
   // Step 3: FINALIZE
-  console.log('🔄 Step 3/3: Finalizing video upload...');
+  console.log('🔄 Step 3/3: Finalizing upload...');
   const finalizeFormData = new FormData();
   finalizeFormData.append('command', 'FINALIZE');
   finalizeFormData.append('media_id', mediaId);
 
-  console.log('🔍 FINALIZE request parameters:', {
-    command: 'FINALIZE',
-    media_id: mediaId
-  });
-
   const finalizeAuthHeader = generateOAuthHeader('POST', initUrl, accessToken, accessTokenSecret);
-  console.log('🔍 FINALIZE auth header (first 50 chars):', finalizeAuthHeader.substring(0, 50) + '...');
   
   const finalizeResponse = await fetch(initUrl, {
     method: 'POST',
@@ -347,144 +428,62 @@ export async function uploadVideoOAuth1(
     body: finalizeFormData
   });
 
-  console.log('🔍 FINALIZE response status:', finalizeResponse.status);
-  console.log('🔍 FINALIZE response headers:', Object.fromEntries(finalizeResponse.headers.entries()));
-
   if (!finalizeResponse.ok) {
     const errorText = await finalizeResponse.text();
-    console.error('❌ FINALIZE failed with error:', errorText);
-    throw new Error(`FINALIZE failed: ${finalizeResponse.status} - ${errorText}`);
+    console.error('❌ FINALIZE failed:', errorText);
+    throw new Error(`Video upload FINALIZE failed: ${errorText}`);
   }
 
-  const finalizeData = await finalizeResponse.json() as any;
-  console.log('✅ Video upload finalized successfully');
+  const finalizeData = await finalizeResponse.json() as { processing_info?: { state: string } };
+  console.log('✅ FINALIZE successful');
 
   // Step 4: Check processing status if needed
-  console.log('🔍 Finalize response data:', JSON.stringify(finalizeData, null, 2));
-  
   if (finalizeData.processing_info) {
-    console.log('⏳ Video requires processing, waiting for completion...');
-    console.log('🔍 Processing info:', JSON.stringify(finalizeData.processing_info, null, 2));
-    await waitForProcessing(mediaId, accessToken, accessTokenSecret);
-  } else {
-    console.log('🎬 Video ready immediately (no processing required)');
-  }
+    console.log('⏳ Video is processing, checking status...');
+    let attempts = 0;
+    const maxAttempts = 60; // 2 minutes max
 
-  const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(1);
-  console.log(`🎉 OAuth 1.0a video upload completed! Media ID: ${mediaId} (took ${uploadDuration}s)`);
-  return mediaId;
-}
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+      
+      const statusFormData = new FormData();
+      statusFormData.append('command', 'STATUS');
+      statusFormData.append('media_id', mediaId);
 
-/**
- * Wait for video processing to complete
- */
-async function waitForProcessing(
-  mediaId: string,
-  accessToken: string,
-  accessTokenSecret: string
-): Promise<void> {
-  const maxAttempts = 60;
-  let attempts = 0;
-
-  console.log('🔄 Monitoring video processing status...');
-  console.log('🔍 Media ID:', mediaId);
-  console.log('🔍 Access Token (first 10 chars):', accessToken.substring(0, 10) + '...');
-
-  while (attempts < maxAttempts) {
-    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
-    attempts++;
-    
-    console.log(`⏳ Checking processing status (attempt ${attempts}/${maxAttempts})...`);
-
-    const statusUrl = `https://upload.twitter.com/1.1/media/upload.json?command=STATUS&media_id=${mediaId}`;
-    console.log('🔍 Status URL:', statusUrl);
-    
-    const statusAuthHeader = generateOAuthHeader('GET', statusUrl, accessToken, accessTokenSecret);
-    console.log('🔍 Auth header (first 50 chars):', statusAuthHeader.substring(0, 50) + '...');
-
-    try {
-      const statusResponse = await fetch(statusUrl, {
+      const statusAuthHeader = generateOAuthHeader('GET', `${initUrl}?command=STATUS&media_id=${mediaId}`, accessToken, accessTokenSecret);
+      
+      const statusResponse = await fetch(`${initUrl}?command=STATUS&media_id=${mediaId}`, {
         method: 'GET',
         headers: {
           'Authorization': statusAuthHeader
         }
       });
 
-      console.log('🔍 Status response status:', statusResponse.status);
-      console.log('🔍 Status response headers:', Object.fromEntries(statusResponse.headers.entries()));
-
       if (statusResponse.ok) {
-        const statusData = await statusResponse.json() as any;
-        console.log('🔍 Full status response:', JSON.stringify(statusData, null, 2));
-
-        if (!statusData.processing_info) {
-          console.log('✅ Video processing completed (no processing info)');
-          return; // Exit the function immediately when no processing needed
-        }
-
-        const state = statusData.processing_info.state;
-        const progress = statusData.processing_info.progress_percent || 0;
+        const statusData = await statusResponse.json() as { processing_info?: { state: string; check_after_secs?: number } };
+        const state = statusData.processing_info?.state;
         
-        console.log(`📊 Processing status: ${state} (${progress}% complete)`);
-
+        console.log(`🔄 Processing status: ${state} (attempt ${attempts + 1}/${maxAttempts})`);
+        
         if (state === 'succeeded') {
-          console.log('🎉 Video processing completed successfully!');
-          return; // Exit the function immediately when succeeded
+          console.log('✅ Video processing completed');
+          break;
         } else if (state === 'failed') {
-          const error = statusData.processing_info.error?.message || 'Unknown error';
-          console.error('❌ Video processing failed with error:', JSON.stringify(statusData.processing_info.error, null, 2));
-          throw new Error(`Video processing failed: ${error}`);
-        } else if (state === 'in_progress') {
-          console.log(`⏳ Video still processing... ${progress}% complete`);
-        } else {
-          console.warn('⚠️ Unknown processing state:', state);
+          throw new Error('Video processing failed');
         }
-      } else {
-        const errorText = await statusResponse.text();
-        console.error('❌ Status check HTTP error:', statusResponse.status, errorText);
-        console.warn('⚠️ Status check failed with HTTP error, continuing...');
+        
+        // Wait for the recommended time if provided
+        if (statusData.processing_info?.check_after_secs) {
+          await new Promise(resolve => setTimeout(resolve, statusData.processing_info!.check_after_secs! * 1000));
+        }
       }
-    } catch (error: any) {
-      console.error('❌ Status check exception:', error.message);
-      console.error('❌ Full error:', error);
-      console.warn('⚠️ Status check failed with exception, continuing...');
+      
+      attempts++;
     }
   }
-  
-  console.error('❌ Video processing timed out after 60 attempts (5 minutes)');
-  throw new Error('Video processing timed out');
-}
 
-/**
- * Generate fresh presigned URL for S3 video
- */
-async function generateFreshPresignedUrl(s3Url: string): Promise<string> {
-  // Extract S3 key from URL
-  const urlParts = s3Url.split('/');
-  const bucketIndex = urlParts.findIndex(part => part.includes('s3.amazonaws.com'));
-  if (bucketIndex === -1) {
-    throw new Error('Invalid S3 URL format');
-  }
+  const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(1);
+  console.log(`✅ Video upload completed in ${uploadDuration}s. Media ID: ${mediaId}`);
   
-  const s3Key = urlParts.slice(bucketIndex + 1).join('/').split('?')[0];
-  
-  if (!s3Key) {
-    throw new Error('Could not extract S3 key from URL');
-  }
-  
-  // Call the Python backend to generate fresh presigned URL
-  const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
-  const response = await fetch(`${pythonBackendUrl}/api/s3/generate-presigned-url?s3_key=${encodeURIComponent(s3Key)}&expiration=3600`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Failed to generate presigned URL: ${response.status} ${response.statusText}`);
-  }
-  
-  const data = await response.json() as any;
-  return data.presigned_url;
+  return mediaId;
 }

@@ -118,6 +118,22 @@ services:
       - python-ai-backend
     restart: unless-stopped
 
+  # DVYB Frontend (Brand Scheduler)
+  dvyb-frontend:
+    build:
+      context: ./dvyb
+      dockerfile: Dockerfile
+    container_name: burnie-dvyb-frontend
+    ports:
+      - "3005:3005"
+    env_file:
+      - ./dvyb/.env
+    networks:
+      - burnie-network
+    depends_on:
+      - typescript-backend
+    restart: unless-stopped
+
 networks:
   burnie-network:
     driver: bridge

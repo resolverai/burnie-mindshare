@@ -69,6 +69,7 @@ check_env_files() {
         "burnie-influencer-platform/typescript-backend/.env"
         "burnie-influencer-platform/python-ai-backend/.env"
         "mining-interface/.env"
+        "dvyb/.env"
     )
     
     missing_files=()
@@ -142,7 +143,7 @@ check_health() {
     
     sleep 10  # Wait for containers to start
     
-    containers=("burnie-frontend" "burnie-typescript-backend" "burnie-python-ai-backend" "burnie-mining-interface")
+    containers=("burnie-frontend" "burnie-typescript-backend" "burnie-python-ai-backend" "burnie-mining-interface" "burnie-dvyb-frontend")
     
     for container in "${containers[@]}"; do
         if docker ps --filter "name=$container" --filter "status=running" | grep -q "$container"; then
@@ -163,7 +164,7 @@ show_quick_logs() {
     print_status "📋 Quick status check - Recent logs from all services:"
     echo ""
     
-    services=("frontend" "typescript-backend" "python-ai-backend" "mining-interface")
+    services=("frontend" "typescript-backend" "python-ai-backend" "mining-interface" "dvyb-frontend")
     
     for service in "${services[@]}"; do
         echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
@@ -182,13 +183,14 @@ show_status() {
     echo "🔗 TypeScript Backend (API): https://mindshareapi.burnie.io (port 3001)"  
     echo "🤖 Python AI Backend: https://attentionai.burnie.io (port 8000)"
     echo "⛏️  Mining Interface: https://mining.burnie.io (port 3000)"
+    echo "📅 DVYB Frontend (Brand Scheduler): https://dvyb.burnie.io (port 3005)"
     echo ""
     echo "📊 To view container logs:"
     echo "  docker-compose logs -f [service-name]                    # Follow logs for specific service"
     echo "  docker-compose logs -f --tail=100 [service-name]         # Last 100 lines with follow"
     echo "  docker logs [container-name] --colors -f                 # Colored logs for specific container"
     echo ""
-    echo "🔍 Available services: frontend, typescript-backend, python-ai-backend, mining-interface"
+    echo "🔍 Available services: frontend, typescript-backend, python-ai-backend, mining-interface, dvyb-frontend"
     echo ""
     echo "🎨 For colored live logs, use:"
     echo "  ./deploy.sh logs [service-name]                          # Follow colored logs for a service"
@@ -236,6 +238,7 @@ show_logs() {
         echo "  - typescript-backend" 
         echo "  - python-ai-backend"
         echo "  - mining-interface"
+        echo "  - dvyb-frontend"
         echo ""
         echo -e "${BLUE}Usage: ./deploy.sh logs [service-name]${NC}"
         exit 1

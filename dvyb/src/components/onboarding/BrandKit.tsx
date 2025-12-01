@@ -111,7 +111,7 @@ export const BrandKit = ({ onContinue }: BrandKitProps) => {
       const response = await uploadApi.uploadLogo(files[0]);
       if (response.success) {
         // Store the regular S3 URL in state temporarily
-        setLogoUrl(response.data.url);
+        setLogoUrl((response as any).data.url || (response as any).data.s3_key);
         
         // Re-fetch context to get the presigned URL
         setTimeout(async () => {
@@ -125,7 +125,7 @@ export const BrandKit = ({ onContinue }: BrandKitProps) => {
           }
         }, 1000);
         
-        return [response.data.url];
+        return [(response as any).data.url || (response as any).data.s3_key];
       }
       throw new Error('Upload failed');
     } catch (error) {

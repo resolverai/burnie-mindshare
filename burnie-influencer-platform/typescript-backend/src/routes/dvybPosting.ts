@@ -1,9 +1,61 @@
 import { Router, Response } from 'express';
 import { logger } from '../config/logger';
+import { DvybPostingService, PostNowRequest } from '../services/DvybPostingService';
 import { DvybTwitterPostingService } from '../services/DvybTwitterPostingService';
+import { DvybTokenValidationService } from '../services/DvybTokenValidationService';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
+import { AppDataSource } from '../config/database';
 
 const router = Router();
+
+/**
+ * POST /api/dvyb/post/now
+ * Post content immediately to selected platforms
+ */
+router.post('/now', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const { platforms, content } = req.body;
+
+    if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'platforms array is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!content || !content.caption || !content.mediaUrl || !content.mediaType) {
+      return res.status(400).json({
+        success: false,
+        error: 'content object with caption, mediaUrl, and mediaType is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const request: PostNowRequest = {
+      accountId,
+      platforms,
+      content,
+    };
+
+    const result = await DvybPostingService.postNow(request);
+
+    return res.json({
+      success: result.success,
+      data: result,
+      message: result.message,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error('❌ DVYB post now error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to post content',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
 
 /**
  * POST /api/dvyb/post/tweet
@@ -86,14 +138,16 @@ router.post('/thread', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
 });
 
 /**
- * POST /api/dvyb/post/schedule
- * Schedule a post
+ * POST /api/dvyb/posts/schedule
+ * Schedule a post to multiple platforms
+ * Body: { scheduledFor, platforms, content: { caption, mediaUrl, mediaType, generatedContentId, postIndex } }
  */
 router.post('/schedule', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId!;
-    const { scheduledFor, generatedContentId, platform, metadata } = req.body;
+    const { scheduledFor, platforms, content, timezone } = req.body;
 
+    // Validate inputs
     if (!scheduledFor) {
       return res.status(400).json({
         success: false,
@@ -102,16 +156,129 @@ router.post('/schedule', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
       });
     }
 
-    const schedule = await DvybTwitterPostingService.schedulePost(accountId, {
-      scheduledFor: new Date(scheduledFor),
-      generatedContentId,
-      platform,
-      metadata,
-    });
+    if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'platforms array is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (!content || !content.caption || !content.mediaUrl || !content.mediaType) {
+      return res.status(400).json({
+        success: false,
+        error: 'content object with caption, mediaUrl, and mediaType is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Validate scheduledFor is a valid future date
+    const scheduledDate = new Date(scheduledFor);
+    if (isNaN(scheduledDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid scheduledFor date format',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (scheduledDate <= new Date()) {
+      return res.status(400).json({
+        success: false,
+        error: 'scheduledFor must be in the future',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Import DvybScheduledPostQueueService
+    const { queueDvybScheduledPost, removeScheduledPost } = await import('../services/DvybScheduledPostQueueService');
+    const { DvybSchedule } = await import('../models/DvybSchedule');
+    
+    const scheduleRepo = AppDataSource.getRepository(DvybSchedule);
+
+    // Check if a schedule already exists for this content/post
+    let schedule: any = null;
+    
+    if (content.generatedContentId && content.postIndex !== undefined) {
+      // Try to find existing pending schedule for this specific content and post
+      const existingSchedules = await scheduleRepo
+        .createQueryBuilder('schedule')
+        .where('schedule.accountId = :accountId', { accountId })
+        .andWhere('schedule.generatedContentId = :generatedContentId', { 
+          generatedContentId: content.generatedContentId 
+        })
+        .andWhere('schedule.status = :status', { status: 'pending' })
+        .getMany();
+      
+      // Filter by postIndex in postMetadata
+      schedule = existingSchedules.find(s => {
+        const metadata = s.postMetadata || {};
+        return metadata.postIndex === content.postIndex;
+      });
+      
+      if (schedule) {
+        logger.info(`📝 Found existing schedule ${schedule.id} - updating instead of creating new`);
+        
+        // Remove old BullMQ job before updating
+        try {
+          await removeScheduledPost(schedule.id);
+          logger.info(`🗑️ Removed old BullMQ job for schedule ${schedule.id}`);
+        } catch (error: any) {
+          logger.warn(`⚠️ Could not remove old BullMQ job: ${error.message}`);
+        }
+        
+        // Update existing schedule
+        schedule.scheduledFor = scheduledDate;
+        schedule.timezone = timezone || 'UTC';
+        schedule.platform = platforms.join(',');
+        schedule.postMetadata = {
+          platforms,
+          content,
+          postIndex: content.postIndex,
+        };
+      }
+    }
+    
+    // If no existing schedule found, create new one
+    if (!schedule) {
+      logger.info(`✨ Creating new schedule for content ${content.generatedContentId}, post ${content.postIndex}`);
+      schedule = scheduleRepo.create({
+        accountId,
+        generatedContentId: content.generatedContentId || null,
+        scheduledFor: scheduledDate,
+        timezone: timezone || 'UTC',
+        platform: platforms.join(','),
+        status: 'pending',
+        postMetadata: {
+          platforms,
+          content,
+          postIndex: content.postIndex,
+        },
+        postedAt: null,
+        errorMessage: null,
+      });
+    }
+
+    await scheduleRepo.save(schedule);
+    logger.info(`✅ ${schedule.id ? 'Updated' : 'Created'} DVYB schedule ${schedule.id} for account ${accountId}`);
+
+    // Queue to BullMQ
+    try {
+      await queueDvybScheduledPost(schedule.id, scheduledDate);
+      logger.info(`📅 Queued DVYB schedule ${schedule.id} for execution`);
+    } catch (error: any) {
+      logger.error(`❌ Failed to queue DVYB schedule ${schedule.id}: ${error.message}`);
+      // Don't fail the request - cron service will pick it up
+    }
 
     return res.json({
       success: true,
-      data: schedule,
+      data: {
+        scheduleId: schedule.id,
+        scheduledFor: schedule.scheduledFor,
+        platforms,
+        status: schedule.status,
+      },
       message: 'Post scheduled successfully',
       timestamp: new Date().toISOString(),
     });
@@ -120,6 +287,85 @@ router.post('/schedule', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to schedule post',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/posts/validate-tokens
+ * Validate tokens for multiple platforms before scheduling
+ * Body: { platforms: string[], requireOAuth1ForTwitterVideo: boolean }
+ */
+router.post('/validate-tokens', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const { platforms, requireOAuth1ForTwitterVideo } = req.body;
+
+    if (!platforms || !Array.isArray(platforms) || platforms.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'platforms array is required',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const validation = await DvybTokenValidationService.validatePlatformTokens(
+      accountId,
+      platforms,
+      requireOAuth1ForTwitterVideo || false
+    );
+
+    return res.json({
+      success: true,
+      data: validation,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error('❌ Token validation error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to validate tokens',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/dvyb/posts/schedules
+ * Get schedules for generated content
+ */
+router.get('/schedules', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    const generatedContentId = req.query.generatedContentId 
+      ? parseInt(req.query.generatedContentId as string) 
+      : null;
+
+    const { DvybSchedule } = await import('../models/DvybSchedule');
+    const scheduleRepo = AppDataSource.getRepository(DvybSchedule);
+
+    let query = scheduleRepo.createQueryBuilder('schedule')
+      .where('schedule.accountId = :accountId', { accountId });
+
+    if (generatedContentId) {
+      query = query.andWhere('schedule.generatedContentId = :generatedContentId', { generatedContentId });
+    }
+
+    const schedules = await query
+      .orderBy('schedule.scheduledFor', 'DESC')
+      .getMany();
+
+    return res.json({
+      success: true,
+      data: schedules,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error('❌ Get schedules error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get schedules',
       timestamp: new Date().toISOString(),
     });
   }
@@ -235,4 +481,3 @@ router.post('/:postId/refresh-metrics', dvybAuthMiddleware, async (req: DvybAuth
 });
 
 export default router;
-

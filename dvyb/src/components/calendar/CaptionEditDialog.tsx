@@ -23,7 +23,7 @@ export const CaptionEditDialog = ({ open, onOpenChange, initialCaption, onSave }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl z-[110]">
         <DialogHeader>
           <DialogTitle>Edit Caption</DialogTitle>
         </DialogHeader>

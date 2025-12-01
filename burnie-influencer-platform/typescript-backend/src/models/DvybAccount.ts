@@ -1,18 +1,16 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
 @Entity({ name: 'dvyb_accounts' })
 export class DvybAccount {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ type: 'varchar', length: 255, unique: true })
-  twitterUserId!: string;
-
-  @Column({ type: 'varchar', length: 255 })
-  twitterHandle!: string;
-
   @Column({ type: 'varchar', length: 255 })
   accountName!: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: false, unique: true })
+  @Index()
+  primaryEmail!: string;
 
   @Column({ 
     type: 'varchar', 
@@ -29,9 +27,6 @@ export class DvybAccount {
 
   @Column({ type: 'varchar', length: 512, nullable: true })
   website!: string | null;
-
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  email!: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   industry!: string | null;

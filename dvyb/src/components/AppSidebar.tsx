@@ -9,7 +9,8 @@ import {
   FolderOpen,
   ChevronLeft,
   ChevronRight,
-  Menu
+  Menu,
+  LogOut
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -20,17 +21,20 @@ import { contextApi } from "@/lib/api";
 interface AppSidebarProps {
   activeView: string;
   onViewChange: (view: string) => void;
+  isMobileOpen?: boolean;
+  onMobileClose?: () => void;
+  forceCollapsed?: boolean;
 }
 
 const menuItems = [
-  { id: "home", label: "Home", icon: Home },
-  { id: "calendar", label: "Calendar", icon: Calendar },
-  { id: "content-library", label: "Content Library", icon: FolderOpen },
-  { id: "brand-plan", label: "Brand Plan", icon: FileText },
-  { id: "brand-kit", label: "Brand Kit", icon: Palette },
+  { id: "home", label: "Home", icon: Home, disabled: false },
+  { id: "calendar", label: "Calendar", icon: Calendar, disabled: false },
+  { id: "content-library", label: "Content Library", icon: FolderOpen, disabled: false },
+  { id: "brand-plan", label: "Brand Plan", icon: FileText, disabled: true, badge: "coming soon" },
+  { id: "brand-kit", label: "Brand Kit", icon: Palette, disabled: false },
 ];
 
-export const AppSidebar = ({ activeView, onViewChange }: AppSidebarProps) => {
+export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onMobileClose, forceCollapsed = false }: AppSidebarProps) => {
   // Collapsed by default on mobile/tablet, expanded on desktop
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -39,7 +43,18 @@ export const AppSidebar = ({ activeView, onViewChange }: AppSidebarProps) => {
     return false;
   });
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const { accountId } = useAuth();
+  const { accountId, logout } = useAuth();
+
+  // Determine if sidebar should be collapsed (either manually or forced)
+  const collapsed = forceCollapsed || isCollapsed;
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error('Failed to logout:', error);
+    }
+  };
 
   // Handle window resize for responsive sidebar state
   useEffect(() => {
@@ -77,75 +92,131 @@ export const AppSidebar = ({ activeView, onViewChange }: AppSidebarProps) => {
     fetchLogo();
   }, [accountId]);
 
+  const handleMenuItemClick = (itemId: string, disabled: boolean) => {
+    if (!disabled) {
+      onViewChange(itemId);
+      // Close mobile drawer when menu item is clicked
+      if (onMobileClose) {
+        onMobileClose();
+      }
+    }
+  };
+
   return (
-    <aside 
-      className={cn(
-        "bg-sidebar border-r border-sidebar-border h-screen flex flex-col transition-all duration-300 relative",
-        isCollapsed ? "w-16" : "w-64"
+    <>
+      {/* Mobile Overlay */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-[60] md:hidden"
+          onClick={onMobileClose}
+        />
       )}
-    >
-      {/* Logo Section */}
-      <div className={cn(
-        "p-4 flex items-center justify-center border-b border-sidebar-border",
-        isCollapsed ? "p-2" : "p-4"
-      )}>
-        {logoUrl ? (
-          <img 
-            src={logoUrl} 
-            alt="Logo" 
-            className={cn(
-              "object-contain",
-              isCollapsed ? "h-8 w-8" : "h-16 w-auto"
-            )}
-          />
-        ) : (
-          <Image 
-            src={dvybLogo} 
-            alt="Dvyb Logo" 
-            className={cn(
-              "object-contain",
-              isCollapsed ? "h-8 w-8" : "h-16 w-auto"
-            )}
-            priority 
-          />
-        )}
-      </div>
 
-      {/* Collapse Toggle Button */}
-      <button
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute -right-3 top-20 bg-sidebar border border-sidebar-border rounded-full p-1 hover:bg-sidebar-accent transition-colors z-10"
-        title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+      {/* Sidebar */}
+      <aside 
+        className={cn(
+          "bg-sidebar border-r border-sidebar-border h-screen flex flex-col transition-all duration-300 relative",
+          // Mobile: Fixed positioning, slide in/out
+          "fixed md:static top-0 left-0 z-[70]",
+          isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+          // Width based on collapsed state (only applies to tablet/desktop)
+          collapsed ? "w-64 md:w-16" : "w-64"
+        )}
       >
-        {isCollapsed ? (
-          <ChevronRight className="w-4 h-4 text-sidebar-foreground" />
-        ) : (
-          <ChevronLeft className="w-4 h-4 text-sidebar-foreground" />
-        )}
-      </button>
+        {/* Logo Section */}
+        <div className={cn(
+          "p-4 flex items-center justify-center border-b border-sidebar-border",
+          collapsed ? "md:p-2" : "p-4"
+        )}>
+          {logoUrl ? (
+            <img 
+              src={logoUrl} 
+              alt="Logo" 
+              className={cn(
+                "object-contain",
+                collapsed ? "h-16 md:h-8 w-auto md:w-8" : "h-16 w-auto"
+              )}
+            />
+          ) : (
+            <Image 
+              src={dvybLogo} 
+              alt="Dvyb Logo" 
+              className={cn(
+                "object-contain",
+                collapsed ? "h-16 md:h-8 w-auto md:w-8" : "h-16 w-auto"
+              )}
+              priority 
+            />
+          )}
+        </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto">
-        {menuItems.map((item) => (
+        {/* Collapse Toggle Button (Hidden on mobile and when force collapsed) */}
+        {!forceCollapsed && (
           <button
-            key={item.id}
-            onClick={() => onViewChange(item.id)}
-            className={cn(
-              "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors",
-              activeView === item.id
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-sidebar-foreground hover:bg-sidebar-accent/50",
-              isCollapsed && "justify-center"
-            )}
-            title={isCollapsed ? item.label : undefined}
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="hidden md:block absolute -right-3 top-20 bg-sidebar border border-sidebar-border rounded-full p-1 hover:bg-sidebar-accent transition-colors z-10"
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            <item.icon className="w-5 h-5 flex-shrink-0" />
-            {!isCollapsed && (
-              <span className="flex-1 text-left">{item.label}</span>
+            {collapsed ? (
+              <ChevronRight className="w-4 h-4 text-sidebar-foreground" />
+            ) : (
+              <ChevronLeft className="w-4 h-4 text-sidebar-foreground" />
             )}
           </button>
-        ))}
-      </nav>
-    </aside>
+        )}
+
+        {/* Navigation */}
+        <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto">
+          {menuItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => handleMenuItemClick(item.id, item.disabled)}
+              disabled={item.disabled}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors",
+                activeView === item.id
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent/50",
+                collapsed && "md:justify-center",
+                item.disabled && "opacity-50 cursor-not-allowed hover:bg-transparent"
+              )}
+              title={collapsed ? item.label : undefined}
+            >
+              <item.icon className="w-5 h-5 flex-shrink-0" />
+              <span className={cn(
+                "flex-1 text-left flex items-center gap-2",
+                collapsed && "md:hidden"
+              )}>
+                {item.label}
+                {item.badge && (
+                  <span className="text-xs text-muted-foreground">({item.badge})</span>
+                )}
+              </span>
+            </button>
+          ))}
+        </nav>
+
+        {/* Logout Button */}
+        <div className="px-3 py-4 border-t border-sidebar-border">
+          <button
+            onClick={handleLogout}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors",
+              "text-sidebar-foreground hover:bg-destructive/10 hover:text-destructive",
+              collapsed && "md:justify-center"
+            )}
+            title={collapsed ? "Log out" : undefined}
+          >
+            <LogOut className="w-5 h-5 flex-shrink-0" />
+            <span className={cn(
+              "flex-1 text-left",
+              collapsed && "md:hidden"
+            )}>
+              Log out
+            </span>
+          </button>
+        </div>
+      </aside>
+    </>
   );
 };

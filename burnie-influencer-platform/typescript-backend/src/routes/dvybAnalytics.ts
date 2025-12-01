@@ -6,11 +6,9 @@ import { DvybTikTokPost } from '../models/DvybTikTokPost';
 import { DvybLinkedInPost } from '../models/DvybLinkedInPost';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { logger } from '../config/logger';
-import { S3Service } from '../services/S3Service';
-import { UrlCacheService } from '../services/UrlCacheService';
+import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 
 const router = Router();
-const s3Service = new S3Service();
 
 const emptyAnalytics = {
   success: true,
@@ -44,7 +42,7 @@ router.get('/instagram', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
     const { days = 30 } = req.query;
 
     const instagramRepo = AppDataSource.getRepository(DvybInstagramPost);
-    const isRedisAvailable = await UrlCacheService.isRedisAvailable();
+    const s3Service = new S3PresignedUrlService();
 
     // Get date range
     const startDate = new Date();
@@ -54,32 +52,20 @@ router.get('/instagram', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
     const posts = await instagramRepo
       .createQueryBuilder('post')
       .where('post.accountId = :accountId', { accountId })
-      .andWhere('post.status = :status', { status: 'posted' })
       .andWhere('post.postedAt >= :startDate', { startDate })
+      .andWhere('post.postedAt IS NOT NULL', {})
       .orderBy('post.postedAt', 'DESC')
       .limit(5)
       .getMany();
 
-    // Generate presigned URLs for media
+    // Generate presigned URLs for media using S3PresignedUrlService
     const postsWithPresignedUrls = await Promise.all(
       posts.map(async (post) => {
         let presignedMediaUrl = post.mediaUrl;
-        if (post.mediaUrl && post.mediaUrl.includes('s3.amazonaws.com')) {
-          const urlParts = post.mediaUrl.split('.com/');
-          if (urlParts.length > 1) {
-            const s3Key = urlParts[1];
-            if (s3Key) {
-              const cachedUrl = isRedisAvailable ? await UrlCacheService.getCachedUrl(s3Key) : null;
-              if (cachedUrl) {
-                presignedMediaUrl = cachedUrl;
-              } else {
-                const newPresignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
-                presignedMediaUrl = newPresignedUrl;
-                if (isRedisAvailable && newPresignedUrl) {
-                  await UrlCacheService.cacheUrl(s3Key, newPresignedUrl);
-                }
-              }
-            }
+        if (post.mediaUrl) {
+          const newUrl = await s3Service.generatePresignedUrl(post.mediaUrl, 3600, true);
+          if (newUrl) {
+            presignedMediaUrl = newUrl;
           }
         }
         return {
@@ -93,8 +79,8 @@ router.get('/instagram', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
     const allPosts = await instagramRepo
       .createQueryBuilder('post')
       .where('post.accountId = :accountId', { accountId })
-      .andWhere('post.status = :status', { status: 'posted' })
       .andWhere('post.postedAt >= :startDate', { startDate })
+      .andWhere('post.postedAt IS NOT NULL', {})
       .getMany();
 
     const metrics = allPosts.reduce(
@@ -147,7 +133,7 @@ router.get('/twitter', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
     const { days = 30 } = req.query;
 
     const twitterRepo = AppDataSource.getRepository(DvybTwitterPost);
-    const isRedisAvailable = await UrlCacheService.isRedisAvailable();
+    const s3Service = new S3PresignedUrlService();
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - Number(days));
@@ -155,8 +141,8 @@ router.get('/twitter', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
     const posts = await twitterRepo
       .createQueryBuilder('post')
       .where('post.accountId = :accountId', { accountId })
-      .andWhere('post.status = :status', { status: 'posted' })
       .andWhere('post.postedAt >= :startDate', { startDate })
+      .andWhere('post.postedAt IS NOT NULL', {})
       .orderBy('post.postedAt', 'DESC')
       .limit(5)
       .getMany();
@@ -166,43 +152,19 @@ router.get('/twitter', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
         let presignedImageUrl = post.imageUrl;
         let presignedVideoUrl = post.videoUrl;
         
-        // Generate presigned URL for image if exists
-        if (post.imageUrl && post.imageUrl.includes('s3.amazonaws.com')) {
-          const urlParts = post.imageUrl.split('.com/');
-          if (urlParts.length > 1) {
-            const s3Key = urlParts[1];
-            if (s3Key) {
-              const cachedUrl = isRedisAvailable ? await UrlCacheService.getCachedUrl(s3Key) : null;
-              if (cachedUrl) {
-                presignedImageUrl = cachedUrl;
-              } else {
-                const newPresignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
-                presignedImageUrl = newPresignedUrl;
-                if (isRedisAvailable && newPresignedUrl) {
-                  await UrlCacheService.cacheUrl(s3Key, newPresignedUrl);
-                }
-              }
-            }
+        // Generate presigned URL for image using S3PresignedUrlService
+        if (post.imageUrl) {
+          const newUrl = await s3Service.generatePresignedUrl(post.imageUrl, 3600, true);
+          if (newUrl) {
+            presignedImageUrl = newUrl;
           }
         }
         
-        // Generate presigned URL for video if exists
-        if (post.videoUrl && post.videoUrl.includes('s3.amazonaws.com')) {
-          const urlParts = post.videoUrl.split('.com/');
-          if (urlParts.length > 1) {
-            const s3Key = urlParts[1];
-            if (s3Key) {
-              const cachedUrl = isRedisAvailable ? await UrlCacheService.getCachedUrl(s3Key) : null;
-              if (cachedUrl) {
-                presignedVideoUrl = cachedUrl;
-              } else {
-                const newPresignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
-                presignedVideoUrl = newPresignedUrl;
-                if (isRedisAvailable && newPresignedUrl) {
-                  await UrlCacheService.cacheUrl(s3Key, newPresignedUrl);
-                }
-              }
-            }
+        // Generate presigned URL for video using S3PresignedUrlService
+        if (post.videoUrl) {
+          const newUrl = await s3Service.generatePresignedUrl(post.videoUrl, 3600, true);
+          if (newUrl) {
+            presignedVideoUrl = newUrl;
           }
         }
         
@@ -217,8 +179,8 @@ router.get('/twitter', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
     const allPosts = await twitterRepo
       .createQueryBuilder('post')
       .where('post.accountId = :accountId', { accountId })
-      .andWhere('post.status = :status', { status: 'posted' })
       .andWhere('post.postedAt >= :startDate', { startDate })
+      .andWhere('post.postedAt IS NOT NULL', {})
       .getMany();
 
     const metrics = allPosts.reduce(
@@ -267,7 +229,7 @@ router.get('/tiktok', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Resp
     const { days = 30 } = req.query;
 
     const tiktokRepo = AppDataSource.getRepository(DvybTikTokPost);
-    const isRedisAvailable = await UrlCacheService.isRedisAvailable();
+    const s3Service = new S3PresignedUrlService();
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - Number(days));
@@ -275,8 +237,8 @@ router.get('/tiktok', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Resp
     const posts = await tiktokRepo
       .createQueryBuilder('post')
       .where('post.accountId = :accountId', { accountId })
-      .andWhere('post.status = :status', { status: 'posted' })
       .andWhere('post.postedAt >= :startDate', { startDate })
+      .andWhere('post.postedAt IS NOT NULL', {})
       .orderBy('post.postedAt', 'DESC')
       .limit(5)
       .getMany();
@@ -286,41 +248,19 @@ router.get('/tiktok', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Resp
         let presignedVideoUrl = post.videoUrl;
         let presignedCoverUrl = post.coverImageUrl;
 
-        if (post.videoUrl && post.videoUrl.includes('s3.amazonaws.com')) {
-          const urlParts = post.videoUrl.split('.com/');
-          if (urlParts.length > 1) {
-            const s3Key = urlParts[1];
-            if (s3Key) {
-              const cachedUrl = isRedisAvailable ? await UrlCacheService.getCachedUrl(s3Key) : null;
-              if (cachedUrl) {
-                presignedVideoUrl = cachedUrl;
-              } else {
-                const newPresignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
-                presignedVideoUrl = newPresignedUrl;
-                if (isRedisAvailable && newPresignedUrl) {
-                  await UrlCacheService.cacheUrl(s3Key, newPresignedUrl);
-                }
-              }
-            }
+        // Generate presigned URL for video using S3PresignedUrlService
+        if (post.videoUrl) {
+          const newUrl = await s3Service.generatePresignedUrl(post.videoUrl, 3600, true);
+          if (newUrl) {
+            presignedVideoUrl = newUrl;
           }
         }
 
-        if (post.coverImageUrl && post.coverImageUrl.includes('s3.amazonaws.com')) {
-          const urlParts = post.coverImageUrl.split('.com/');
-          if (urlParts.length > 1) {
-            const s3Key = urlParts[1];
-            if (s3Key) {
-              const cachedUrl = isRedisAvailable ? await UrlCacheService.getCachedUrl(s3Key) : null;
-              if (cachedUrl) {
-                presignedCoverUrl = cachedUrl;
-              } else {
-                const newPresignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
-                presignedCoverUrl = newPresignedUrl;
-                if (isRedisAvailable && newPresignedUrl) {
-                  await UrlCacheService.cacheUrl(s3Key, newPresignedUrl);
-                }
-              }
-            }
+        // Generate presigned URL for cover image using S3PresignedUrlService
+        if (post.coverImageUrl) {
+          const newUrl = await s3Service.generatePresignedUrl(post.coverImageUrl, 3600, true);
+          if (newUrl) {
+            presignedCoverUrl = newUrl;
           }
         }
 
@@ -335,8 +275,8 @@ router.get('/tiktok', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Resp
     const allPosts = await tiktokRepo
       .createQueryBuilder('post')
       .where('post.accountId = :accountId', { accountId })
-      .andWhere('post.status = :status', { status: 'posted' })
       .andWhere('post.postedAt >= :startDate', { startDate })
+      .andWhere('post.postedAt IS NOT NULL', {})
       .getMany();
 
     const metrics = allPosts.reduce(
@@ -384,7 +324,7 @@ router.get('/linkedin', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Re
     const { days = 30 } = req.query;
 
     const linkedinRepo = AppDataSource.getRepository(DvybLinkedInPost);
-    const isRedisAvailable = await UrlCacheService.isRedisAvailable();
+    const s3Service = new S3PresignedUrlService();
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - Number(days));
@@ -392,8 +332,8 @@ router.get('/linkedin', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Re
     const posts = await linkedinRepo
       .createQueryBuilder('post')
       .where('post.accountId = :accountId', { accountId })
-      .andWhere('post.status = :status', { status: 'posted' })
       .andWhere('post.postedAt >= :startDate', { startDate })
+      .andWhere('post.postedAt IS NOT NULL', {})
       .orderBy('post.postedAt', 'DESC')
       .limit(5)
       .getMany();
@@ -401,22 +341,10 @@ router.get('/linkedin', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Re
     const postsWithPresignedUrls = await Promise.all(
       posts.map(async (post) => {
         let presignedMediaUrl = post.mediaUrl;
-        if (post.mediaUrl && post.mediaUrl.includes('s3.amazonaws.com')) {
-          const urlParts = post.mediaUrl.split('.com/');
-          if (urlParts.length > 1) {
-            const s3Key = urlParts[1];
-            if (s3Key) {
-              const cachedUrl = isRedisAvailable ? await UrlCacheService.getCachedUrl(s3Key) : null;
-              if (cachedUrl) {
-                presignedMediaUrl = cachedUrl;
-              } else {
-                const newPresignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
-                presignedMediaUrl = newPresignedUrl;
-                if (isRedisAvailable && newPresignedUrl) {
-                  await UrlCacheService.cacheUrl(s3Key, newPresignedUrl);
-                }
-              }
-            }
+        if (post.mediaUrl) {
+          const newUrl = await s3Service.generatePresignedUrl(post.mediaUrl, 3600, true);
+          if (newUrl) {
+            presignedMediaUrl = newUrl;
           }
         }
         return {
@@ -429,8 +357,8 @@ router.get('/linkedin', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Re
     const allPosts = await linkedinRepo
       .createQueryBuilder('post')
       .where('post.accountId = :accountId', { accountId })
-      .andWhere('post.status = :status', { status: 'posted' })
       .andWhere('post.postedAt >= :startDate', { startDate })
+      .andWhere('post.postedAt IS NOT NULL', {})
       .getMany();
 
     const metrics = allPosts.reduce(
@@ -466,6 +394,153 @@ router.get('/linkedin', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Re
   } catch (error: any) {
     logger.warn(`LinkedIn analytics error (returning empty data): ${error.message}`);
     return res.json(emptyAnalytics);
+  }
+});
+
+/**
+ * Get growth metrics comparison (current period vs previous period)
+ * GET /api/dvyb/analytics/growth
+ */
+router.get('/growth', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId;
+    const { days = 30 } = req.query;
+    const daysNum = Number(days);
+
+    const calculatePeriodMetrics = async (startDate: Date, endDate: Date) => {
+      const repos = {
+        instagram: AppDataSource.getRepository(DvybInstagramPost),
+        twitter: AppDataSource.getRepository(DvybTwitterPost),
+        tiktok: AppDataSource.getRepository(DvybTikTokPost),
+        linkedin: AppDataSource.getRepository(DvybLinkedInPost),
+      };
+
+      const results: any = {
+        instagram: { impressions: 0, engagement: 0, followers: 0 },
+        twitter: { impressions: 0, engagement: 0, followers: 0 },
+        tiktok: { views: 0, engagement: 0, followers: 0 },
+        linkedin: { impressions: 0, engagement: 0, followers: 0 },
+      };
+
+      // Instagram
+      const instagramPosts = await repos.instagram
+        .createQueryBuilder('post')
+        .where('post.accountId = :accountId', { accountId })
+        .andWhere('post.postedAt >= :startDate', { startDate })
+        .andWhere('post.postedAt < :endDate', { endDate })
+        .andWhere('post.postedAt IS NOT NULL')
+        .getMany();
+
+      instagramPosts.forEach(post => {
+        const metrics = post.engagementMetrics || {};
+        results.instagram.impressions += metrics.impressions || 0;
+        results.instagram.engagement += (metrics.likes || 0) + (metrics.comments || 0) + (metrics.shares || 0);
+        // Followers would need to be tracked differently - using latest value
+      });
+
+      // Twitter
+      const twitterPosts = await repos.twitter
+        .createQueryBuilder('post')
+        .where('post.accountId = :accountId', { accountId })
+        .andWhere('post.postedAt >= :startDate', { startDate })
+        .andWhere('post.postedAt < :endDate', { endDate })
+        .andWhere('post.postedAt IS NOT NULL')
+        .getMany();
+
+      twitterPosts.forEach(post => {
+        const metrics = post.engagementMetrics || {};
+        results.twitter.impressions += metrics.impressions || 0;
+        results.twitter.engagement += (metrics.likes || 0) + (metrics.retweets || 0) + (metrics.replies || 0);
+      });
+
+      // TikTok
+      const tiktokPosts = await repos.tiktok
+        .createQueryBuilder('post')
+        .where('post.accountId = :accountId', { accountId })
+        .andWhere('post.postedAt >= :startDate', { startDate })
+        .andWhere('post.postedAt < :endDate', { endDate })
+        .andWhere('post.postedAt IS NOT NULL')
+        .getMany();
+
+      tiktokPosts.forEach(post => {
+        const metrics = post.engagementMetrics || {};
+        results.tiktok.views += metrics.views || 0;
+        results.tiktok.engagement += (metrics.likes || 0) + (metrics.comments || 0) + (metrics.shares || 0);
+      });
+
+      // LinkedIn
+      const linkedinPosts = await repos.linkedin
+        .createQueryBuilder('post')
+        .where('post.accountId = :accountId', { accountId })
+        .andWhere('post.postedAt >= :startDate', { startDate })
+        .andWhere('post.postedAt < :endDate', { endDate })
+        .andWhere('post.postedAt IS NOT NULL')
+        .getMany();
+
+      linkedinPosts.forEach(post => {
+        const metrics = post.engagementMetrics || {};
+        results.linkedin.impressions += metrics.impressions || 0;
+        results.linkedin.engagement += (metrics.reactions || 0) + (metrics.comments || 0) + (metrics.shares || 0);
+      });
+
+      return results;
+    };
+
+    const calculateGrowth = (current: number, previous: number): string => {
+      if (previous === 0) return current > 0 ? '+100%' : '+0%';
+      const growth = ((current - previous) / previous) * 100;
+      const sign = growth >= 0 ? '+' : '';
+      return `${sign}${Math.round(growth)}%`;
+    };
+
+    // Current period
+    const currentEnd = new Date();
+    const currentStart = new Date();
+    currentStart.setDate(currentStart.getDate() - daysNum);
+
+    // Previous period
+    const previousEnd = new Date(currentStart);
+    const previousStart = new Date(previousEnd);
+    previousStart.setDate(previousStart.getDate() - daysNum);
+
+    const currentMetrics = await calculatePeriodMetrics(currentStart, currentEnd);
+    const previousMetrics = await calculatePeriodMetrics(previousStart, previousEnd);
+
+    const growth = {
+      instagram: {
+        impressions: calculateGrowth(currentMetrics.instagram.impressions, previousMetrics.instagram.impressions),
+        engagement: calculateGrowth(currentMetrics.instagram.engagement, previousMetrics.instagram.engagement),
+        followers: calculateGrowth(currentMetrics.instagram.followers, previousMetrics.instagram.followers),
+      },
+      twitter: {
+        impressions: calculateGrowth(currentMetrics.twitter.impressions, previousMetrics.twitter.impressions),
+        engagement: calculateGrowth(currentMetrics.twitter.engagement, previousMetrics.twitter.engagement),
+        followers: calculateGrowth(currentMetrics.twitter.followers, previousMetrics.twitter.followers),
+      },
+      tiktok: {
+        views: calculateGrowth(currentMetrics.tiktok.views, previousMetrics.tiktok.views),
+        engagement: calculateGrowth(currentMetrics.tiktok.engagement, previousMetrics.tiktok.engagement),
+        followers: calculateGrowth(currentMetrics.tiktok.followers, previousMetrics.tiktok.followers),
+      },
+      linkedin: {
+        impressions: calculateGrowth(currentMetrics.linkedin.impressions, previousMetrics.linkedin.impressions),
+        engagement: calculateGrowth(currentMetrics.linkedin.engagement, previousMetrics.linkedin.engagement),
+        followers: calculateGrowth(currentMetrics.linkedin.followers, previousMetrics.linkedin.followers),
+      },
+    };
+
+    return res.json({
+      success: true,
+      data: growth,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    logger.error(`Growth metrics error: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to calculate growth metrics',
+      timestamp: new Date().toISOString(),
+    });
   }
 });
 

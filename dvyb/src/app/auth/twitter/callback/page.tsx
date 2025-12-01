@@ -39,10 +39,10 @@ function DvybTwitterCallbackContent() {
         if (window.opener) {
           window.opener.postMessage({
             type: 'DVYB_TWITTER_AUTH_SUCCESS',
-            account_id: response.data?.account_id,
-            twitter_handle: response.data?.twitter_handle,
-            is_new_account: response.data?.is_new_account,
-            onboarding_complete: response.data?.onboarding_complete
+            account_id: (response as any).data?.account_id,
+            twitter_handle: (response as any).data?.twitter_handle,
+            is_new_account: (response as any).data?.is_new_account,
+            onboarding_complete: (response as any).data?.onboarding_complete
           }, window.location.origin)
         }
         

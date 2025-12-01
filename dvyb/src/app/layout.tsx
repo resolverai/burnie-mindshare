@@ -10,9 +10,13 @@ import { Providers } from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Brand Strategy Builder | AI-Powered Marketing Onboarding",
+  title: "DVYB | AI-Powered Content Creation Platform",
   description: "Create your complete brand profile, marketing strategy, and content calendar with AI-powered business analysis and social media planning.",
   authors: [{ name: "DVYB" }],
+  icons: {
+    icon: '/icon.png',
+    apple: '/icon.png',
+  },
 };
 
 export default function RootLayout({

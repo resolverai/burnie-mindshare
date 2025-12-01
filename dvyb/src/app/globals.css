@@ -108,3 +108,41 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  /* Calendar date range styling - Fix color conflicts */
+  
+  /* Remove today's orange background when any date is selected */
+  .rdp-day_selected,
+  .rdp-day[aria-selected="true"] {
+    background-color: hsl(var(--primary)) !important;
+    color: hsl(var(--primary-foreground)) !important;
+  }
+  
+  /* Range middle dates - lighter background */
+  .rdp-day_range_middle,
+  .rdp-day[aria-selected="true"]:not(.rdp-day_range_start):not(.rdp-day_range_end) {
+    background-color: hsl(var(--primary) / 0.2) !important;
+    color: hsl(var(--foreground)) !important;
+  }
+  
+  /* Range start and end - full primary color */
+  .rdp-day_range_start,
+  .rdp-day_range_end,
+  .rdp-day[aria-selected="true"].rdp-day_range_start,
+  .rdp-day[aria-selected="true"].rdp-day_range_end {
+    background-color: hsl(var(--primary)) !important;
+    color: hsl(var(--primary-foreground)) !important;
+  }
+  
+  /* Today indicator - only show when NOT selected */
+  .rdp-day_today:not([aria-selected="true"]) {
+    background-color: hsl(var(--accent) / 0.5);
+    color: hsl(var(--accent-foreground));
+  }
+  
+  /* Completely remove today background when selected */
+  .rdp-day_today[aria-selected="true"] {
+    background-color: hsl(var(--primary)) !important;
+  }
+}

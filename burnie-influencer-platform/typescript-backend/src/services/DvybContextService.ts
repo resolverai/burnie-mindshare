@@ -27,11 +27,19 @@ export class DvybContextService {
       const contextRepo = AppDataSource.getRepository(DvybContext);
       let context = await contextRepo.findOne({ where: { accountId } });
 
+      logger.info(`📝 Upserting context for account ${accountId}. contextData:`, JSON.stringify(contextData, null, 2));
+
       if (context) {
         // Update existing context
         Object.assign(context, contextData);
+        
+        logger.info(`💾 About to save context. brandStyles:`, context.brandStyles);
+        logger.info(`💾 About to save context. brandVoices:`, context.brandVoices);
+        
         context = await contextRepo.save(context);
-        logger.info(`✅ Updated DVYB context for account ${accountId}`);
+        
+        logger.info(`✅ Updated DVYB context for account ${accountId}. Saved brandStyles:`, context.brandStyles);
+        logger.info(`✅ Updated DVYB context for account ${accountId}. Saved brandVoices:`, context.brandVoices);
       } else {
         // Create new context
         context = contextRepo.create({

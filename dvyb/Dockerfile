@@ -1,0 +1,57 @@
+# Build stage
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files for dependency caching
+COPY package*.json ./
+COPY bun.lock* ./
+
+# Install dependencies (cached layer if package files unchanged)
+RUN npm install
+
+# Copy .env files if they exist (for NEXT_PUBLIC_ variables during build)
+COPY .env* ./
+
+# Copy source code (only invalidates cache when source changes)
+COPY . .
+
+# Remove node_modules if accidentally copied
+RUN rm -rf node_modules
+
+# Reinstall to ensure clean state
+RUN npm ci
+
+# Build the application (NEXT_PUBLIC_ vars from .env will be embedded)
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy built application
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+# Create cache directory with proper permissions
+RUN mkdir -p .next/cache && chown -R nextjs:nodejs .next/cache
+RUN mkdir -p /tmp/next-cache && chown -R nextjs:nodejs /tmp/next-cache
+
+# Set correct permissions
+USER nextjs
+
+EXPOSE 3005
+
+ENV NODE_ENV=production
+ENV PORT=3005
+# Set cache directory to writable location
+ENV NEXT_CACHE_DIR=/tmp/next-cache
+
+CMD ["node", "server.js"]
+

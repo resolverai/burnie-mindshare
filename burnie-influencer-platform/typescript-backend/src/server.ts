@@ -80,8 +80,12 @@ import dvybDashboardRoutes from './routes/dvybDashboard';
 import dvybPostingRoutes from './routes/dvybPosting';
 import dvybInternalRoutes from './routes/dvybInternal';
 import dvybAnalyticsRoutes from './routes/dvybAnalytics';
+import dvybContentLibraryRoutes from './routes/dvybContentLibrary';
+import dvybScheduleDebugRoutes from './routes/dvybScheduleDebug';
 import dvybSocialAuthRoutes from './routes/dvybSocialAuth';
+import dvybOAuth1AuthRoutes from './routes/dvybOAuth1Auth';
 import cacheRoutes from './routes/cache';
+import s3PresignedRoutes from './routes/s3Presigned';
 import networkRoutes from './routes/networkRoutes';
 import miningContextRoutes from './routes/miningContext';
 import { scheduledCleanupService } from './services/ScheduledCleanupService';
@@ -89,6 +93,7 @@ import { twitterQueueCronService } from './services/TwitterQueueCronService';
 import { platformYapperCronService } from './services/PlatformYapperCronService';
 import { scheduledPostCronService } from './services/ScheduledPostCronService';
 import { scheduledPostWorker, scheduledPostQueue } from './services/ScheduledPostQueueService';
+import { dvybScheduledPostWorker, dvybScheduledPostQueue } from './services/DvybScheduledPostQueueService';
 // DISABLED: Commented out to prevent automatic fetching of latest tweets data
 // import { PopularTwitterHandlesCronService } from './services/PopularTwitterHandlesCronService';
 import { AppDataSource } from './config/database';
@@ -223,6 +228,7 @@ app.use('/api/web2-account-connections', web2AccountConnectionsRoutes); // Web2 
 app.use('/api/web2-generated-content', web2GeneratedContentRoutes); // Web2 generated content management
 app.use('/api/dvyb/auth', dvybAuthRoutes); // DVYB authentication routes
 app.use('/api/dvyb/auth', dvybSocialAuthRoutes); // DVYB social media OAuth routes (Instagram, LinkedIn, TikTok)
+app.use('/api/dvyb/auth/oauth1', dvybOAuth1AuthRoutes); // DVYB OAuth1 routes for Twitter video uploads
 app.use('/api/dvyb/account', dvybAccountRoutes); // DVYB account management
 app.use('/api/dvyb/context', dvybContextRoutes); // DVYB context management
 app.use('/api/dvyb/upload', dvybUploadRoutes); // DVYB file upload routes
@@ -231,9 +237,12 @@ app.use('/api/dvyb/analytics', dvybAnalyticsRoutes); // DVYB analytics for home 
 app.use('/api/dvyb/dashboard', dvybDashboardRoutes); // DVYB dashboard and analytics
 app.use('/api/dvyb/posts', dvybPostingRoutes); // DVYB Twitter posting
 app.use('/api/dvyb/internal', dvybInternalRoutes); // DVYB internal routes (Python AI backend)
+app.use('/api/dvyb/content-library', dvybContentLibraryRoutes);
+app.use('/api/dvyb/debug/schedules', dvybScheduleDebugRoutes); // DVYB content library
 app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes
 app.use('/api/dvyb/adhoc', dvybAdhocGenerationRoutes); // DVYB ad-hoc generation (proxies to Python backend)
 app.use('/api/cache', cacheRoutes); // Redis URL cache management
+app.use('/api/s3', s3PresignedRoutes); // S3 presigned URL generation (local TypeScript service)
 
 // Start server
 const startServer = async () => {
@@ -309,9 +318,11 @@ const startServer = async () => {
     twitterQueueCronService.start();
     logger.info('🐦 Twitter queue cron service started');
     
-    // Start scheduled post cron service and worker
-    // Note: Worker is created when module is imported, but we verify it's ready
-    logger.info('👷 Scheduled post worker status check...');
+    // Start scheduled post cron service and workers
+    // Note: Workers are created when modules are imported, but we verify they're ready
+    logger.info('👷 Scheduled post workers status check...');
+    logger.info('   - Web3 scheduled post worker: ready');
+    logger.info('   - DVYB scheduled post worker: ready');
     scheduledPostCronService.start();
     logger.info('📅 Scheduled post cron service started');
     
@@ -376,9 +387,10 @@ const gracefulShutdown = async (signal: string) => {
     // platformYapperCronService.stop(); // DISABLED: Service not started
     scheduledCleanupService.stop();
     scheduledPostCronService.stop();
-    // Close scheduled post worker
+    // Close scheduled post workers
     await scheduledPostWorker.close();
-    logger.info('⏹️ Cron services stopped');
+    await dvybScheduledPostWorker.close();
+    logger.info('⏹️ Cron services and workers stopped');
     
     // Close server
     server.close(() => {

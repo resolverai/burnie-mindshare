@@ -29,6 +29,29 @@ export class DvybTikTokService {
   }
 
   /**
+   * Connect TikTok to an existing account (called from popup flow)
+   */
+  static async connectToAccount(
+    accountId: number,
+    code: string,
+    state: string
+  ): Promise<DvybTikTokConnection> {
+    try {
+      // Verify the state matches the accountId
+      const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+      if (decodedState.accountId !== accountId) {
+        throw new Error('State mismatch - account ID does not match');
+      }
+
+      const { connection } = await this.handleCallback(code, state);
+      return connection;
+    } catch (error) {
+      logger.error(`❌ TikTok connection error for account ${accountId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Handle OAuth callback and exchange code for tokens
    */
   static async handleCallback(code: string, state: string): Promise<{
@@ -225,6 +248,37 @@ export class DvybTikTokService {
     } catch (error) {
       logger.error(`❌ Error checking TikTok connection:`, error);
       return false;
+    }
+  }
+
+  /**
+   * Get TikTok connection status with detailed state
+   */
+  static async getConnectionStatus(accountId: number): Promise<'connected' | 'expired' | 'not_connected'> {
+    try {
+      const connectionRepo = AppDataSource.getRepository(DvybTikTokConnection);
+      const connection = await connectionRepo.findOne({ where: { accountId } });
+
+      if (!connection) {
+        return 'not_connected';
+      }
+
+      if (connection.status !== 'active') {
+        return 'expired';
+      }
+
+      const now = Date.now();
+      const refreshExpiresAt = new Date(connection.refreshTokenExpiresAt).getTime();
+
+      // Check if refresh token is expired (if expired, can't refresh access token)
+      if (refreshExpiresAt <= now) {
+        return 'expired';
+      }
+
+      return 'connected';
+    } catch (error) {
+      logger.error(`❌ Error checking TikTok connection status:`, error);
+      return 'not_connected';
     }
   }
 

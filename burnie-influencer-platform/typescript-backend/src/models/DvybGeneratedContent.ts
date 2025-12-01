@@ -41,6 +41,10 @@ export class DvybGeneratedContent {
   @Column({ type: 'int', nullable: true })
   numberOfPosts!: number | null;
 
+  // Platforms selected by user for this generation (for "Post Now" targeting)
+  @Column({ type: 'jsonb', nullable: true })
+  requestedPlatforms!: string[] | null;
+
   // All platform-specific texts (one entry per post)
   // Structure: [{ post_index: 0, platforms: { instagram: "text", twitter: "text" }, topic: "..." }]
   @Column({ type: 'jsonb', nullable: true })

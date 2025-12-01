@@ -126,6 +126,11 @@ const envSchema = Joi.object({
   DVYB_TWITTER_CLIENT_SECRET: Joi.string().allow('').default(''),
   DVYB_TWITTER_CALLBACK_URL: Joi.string().uri().allow('').default(''),
 
+  // Google OAuth 2.0
+  GOOGLE_CLIENT_ID: Joi.string().allow('').default(''),
+  GOOGLE_CLIENT_SECRET: Joi.string().allow('').default(''),
+  GOOGLE_REDIRECT_URI: Joi.string().uri().allow('').default(''),
+
   // Instagram OAuth (Facebook Graph API)
   DVYB_INSTAGRAM_APP_ID: Joi.string().allow('').default(''),
   DVYB_INSTAGRAM_APP_SECRET: Joi.string().allow('').default(''),
@@ -318,6 +323,11 @@ export const env = {
       clientId: envVars.DVYB_TWITTER_CLIENT_ID,
       clientSecret: envVars.DVYB_TWITTER_CLIENT_SECRET,
       callbackUrl: envVars.DVYB_TWITTER_CALLBACK_URL,
+    },
+    google: {
+      clientId: envVars.GOOGLE_CLIENT_ID,
+      clientSecret: envVars.GOOGLE_CLIENT_SECRET,
+      redirectUri: envVars.GOOGLE_REDIRECT_URI,
     },
     instagram: {
       appId: envVars.DVYB_INSTAGRAM_APP_ID,

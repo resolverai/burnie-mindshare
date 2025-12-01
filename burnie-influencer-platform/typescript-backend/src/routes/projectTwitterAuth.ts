@@ -6,8 +6,7 @@ import { logger } from '../config/logger';
 import crypto from 'crypto';
 import { 
   getRequestToken, 
-  getAuthorizationUrl, 
-  getAccessToken,
+  exchangeOAuthToken as getAccessToken,
 } from '../utils/oauth1Utils';
 
 const router = Router();
@@ -413,7 +412,7 @@ router.post('/:projectId/twitter-auth/oauth1/initiate', async (req: Request, res
 
     // Get request token from Twitter with callback URL
     const callbackUrl = `${process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://localhost:3000'}/projects/${projectId}/daily-posts?oauth1_callback=true`;
-    const { requestToken, requestTokenSecret } = await getRequestToken(callbackUrl);
+    const { oauthToken: requestToken, oauthTokenSecret: requestTokenSecret } = await getRequestToken(callbackUrl);
 
     // Store request token temporarily (expires in 15 minutes)
     const sessionId = `project_${projectId}_${Date.now()}`;
@@ -425,7 +424,7 @@ router.post('/:projectId/twitter-auth/oauth1/initiate', async (req: Request, res
     });
 
     // Generate authorization URL
-    const authUrl = getAuthorizationUrl(requestToken, callbackUrl);
+    const authUrl = `https://api.twitter.com/oauth/authorize?oauth_token=${requestToken}`;
 
     logger.info(`🔗 Generated OAuth1 URL for project ${projectId}`);
 

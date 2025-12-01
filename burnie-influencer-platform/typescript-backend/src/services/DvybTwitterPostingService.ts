@@ -4,6 +4,7 @@ import { DvybTwitterConnection } from '../models/DvybTwitterConnection';
 import { DvybTwitterPost } from '../models/DvybTwitterPost';
 import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
 import { DvybSchedule } from '../models/DvybSchedule';
+import { DvybAuthService } from './DvybAuthService';
 
 export class DvybTwitterPostingService {
   /**
@@ -20,22 +21,15 @@ export class DvybTwitterPostingService {
     }
   ): Promise<DvybTwitterPost> {
     try {
-      // Get Twitter connection
-      const connectionRepo = AppDataSource.getRepository(DvybTwitterConnection);
-      const connection = await connectionRepo.findOne({
-        where: { accountId, isActive: true },
-      });
-
-      if (!connection || !connection.oauth2AccessToken) {
-        throw new Error('No active Twitter connection found');
-      }
+      // Get valid Twitter token (auto-refreshes if needed)
+      const accessToken = await DvybAuthService.getValidToken(accountId);
 
       // Post to Twitter using OAuth2
       const twitterResponse = await fetch('https://api.twitter.com/2/tweets', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${connection.oauth2AccessToken}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           text: params.tweetText,
@@ -101,14 +95,8 @@ export class DvybTwitterPostingService {
     }
   ): Promise<DvybTwitterPost> {
     try {
-      const connectionRepo = AppDataSource.getRepository(DvybTwitterConnection);
-      const connection = await connectionRepo.findOne({
-        where: { accountId, isActive: true },
-      });
-
-      if (!connection || !connection.oauth2AccessToken) {
-        throw new Error('No active Twitter connection found');
-      }
+      // Get valid Twitter token (auto-refreshes if needed)
+      const accessToken = await DvybAuthService.getValidToken(accountId);
 
       const threadTweetIds: string[] = [];
       let previousTweetId: string | null = null;
@@ -121,7 +109,7 @@ export class DvybTwitterPostingService {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${connection.oauth2AccessToken}`,
+            Authorization: `Bearer ${accessToken}`,
           },
           body: JSON.stringify({
             text: tweetText,
@@ -283,21 +271,15 @@ export class DvybTwitterPostingService {
         throw new Error('Post not found');
       }
 
-      const connectionRepo = AppDataSource.getRepository(DvybTwitterConnection);
-      const connection = await connectionRepo.findOne({
-        where: { accountId, isActive: true },
-      });
-
-      if (!connection || !connection.oauth2AccessToken) {
-        throw new Error('No active Twitter connection');
-      }
+      // Get valid Twitter token (auto-refreshes if needed)
+      const accessToken = await DvybAuthService.getValidToken(accountId);
 
       // Fetch tweet metrics from Twitter API
       const twitterResponse = await fetch(
         `https://api.twitter.com/2/tweets/${post.mainTweetId}?tweet.fields=public_metrics`,
         {
           headers: {
-            Authorization: `Bearer ${connection.oauth2AccessToken}`,
+            Authorization: `Bearer ${accessToken}`,
           },
         }
       );

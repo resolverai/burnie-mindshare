@@ -9,7 +9,6 @@ import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
-import { contextApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 interface AnalysisDetailsProps {
@@ -100,7 +99,6 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [isMounted, setIsMounted] = useState(false);
-  const [isLoadingFromBackend, setIsLoadingFromBackend] = useState(false);
   const [editingSection, setEditingSection] = useState<EditSection>(null);
   const [isSaving, setIsSaving] = useState(false);
   const { isAuthenticated: authContextAuthenticated } = useAuth();
@@ -119,66 +117,50 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
     }
   };
 
-  // Handle save for a section
+  // Handle save for a section - only updates localStorage, not database
+  // Database save happens when clicking "Continue to Brand Kit"
   const handleSave = async (section: EditSection, content: string) => {
     if (!section || !analysisData) return;
 
     setIsSaving(true);
     try {
-      // Map section to API field name
-      const fieldMap: Record<string, string> = {
-        overview: 'businessOverview',
-        demographics: 'customerDemographics',
-        products: 'popularProducts',
-        why: 'whyCustomersChoose',
-        story: 'brandStory',
+      // Map section to local state key
+      const dataMap: Record<string, keyof AnalysisData> = {
+        overview: 'business_overview_and_positioning',
+        demographics: 'customer_demographics_and_psychographics',
+        products: 'most_popular_products_and_services',
+        why: 'why_customers_choose',
+        story: 'brand_story',
       };
 
-      const fieldName = fieldMap[section];
-      const updateData: any = { [fieldName]: content };
+      const dataKey = dataMap[section];
+      
+      // For products, convert to array
+      const updatedValue = section === 'products' 
+        ? content.split('\n').filter(p => p.trim())
+        : content;
 
-      // For products, split by newlines if it's a text string
-      if (section === 'products') {
-        const productsArray = content.split('\n').filter(p => p.trim());
-        updateData[fieldName] = productsArray;
+      // Update local state
+      setAnalysisData(prev => prev ? {
+        ...prev,
+        [dataKey]: updatedValue
+      } : null);
+
+      // Update localStorage
+      const storedAnalysis = localStorage.getItem('dvyb_website_analysis');
+      if (storedAnalysis) {
+        const parsed = JSON.parse(storedAnalysis);
+        parsed[dataKey] = updatedValue;
+        localStorage.setItem('dvyb_website_analysis', JSON.stringify(parsed));
+        console.log('✅ Updated localStorage with edited content');
       }
 
-      // Call API to update
-      const response = await contextApi.updateContext(updateData);
+      toast({
+        title: "Saved!",
+        description: "Your changes have been saved locally.",
+      });
 
-      if (response.success) {
-        // Update local state
-        const dataMap: Record<string, keyof AnalysisData> = {
-          overview: 'business_overview_and_positioning',
-          demographics: 'customer_demographics_and_psychographics',
-          products: 'most_popular_products_and_services',
-          why: 'why_customers_choose',
-          story: 'brand_story',
-        };
-
-        const dataKey = dataMap[section];
-        setAnalysisData(prev => prev ? {
-          ...prev,
-          [dataKey]: section === 'products' ? updateData[fieldName] : content
-        } : null);
-
-        // Also update localStorage
-        const storedAnalysis = localStorage.getItem('dvyb_website_analysis');
-        if (storedAnalysis) {
-          const parsed = JSON.parse(storedAnalysis);
-          parsed[dataKey] = section === 'products' ? updateData[fieldName] : content;
-          localStorage.setItem('dvyb_website_analysis', JSON.stringify(parsed));
-        }
-
-        toast({
-          title: "Saved!",
-          description: "Your changes have been saved successfully.",
-        });
-
-        setEditingSection(null);
-      } else {
-        throw new Error('Failed to save');
-      }
+      setEditingSection(null);
     } catch (error) {
       console.error('Failed to save section:', error);
       toast({
@@ -194,76 +176,40 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
   useEffect(() => {
     setIsMounted(true);
     
-    const loadAnalysisData = async () => {
-      // For authenticated users, fetch from backend
-      if (isAuthenticated) {
-        console.log('🔍 Authenticated user - fetching analysis from backend...');
-        setIsLoadingFromBackend(true);
-        
-        try {
-          const response = await contextApi.getContext();
-          
-          if (response.success && response.data) {
-            const context = response.data;
-            console.log('✅ Fetched context from backend:', context);
-            
-            // Transform backend data to frontend format
-            const transformedData: AnalysisData = {
-              base_name: context.accountName || '',
-              business_overview_and_positioning: context.businessOverview || '',
-              customer_demographics_and_psychographics: context.customerDemographics || '',
-              most_popular_products_and_services: context.popularProducts || [],
-              why_customers_choose: context.whyCustomersChoose || '',
-              brand_story: context.brandStory || '',
-              color_palette: context.colorPalette || {},
-            };
-            
-            setAnalysisData(transformedData);
-            setWebsiteUrl(context.website || '');
-          } else {
-            console.warn('⚠️ No context found in backend, falling back to localStorage');
-            loadFromLocalStorage();
-          }
-        } catch (error) {
-          console.error('❌ Failed to fetch context from backend:', error);
-          loadFromLocalStorage();
-        } finally {
-          setIsLoadingFromBackend(false);
-        }
-      } else {
-        // For unauthenticated users, load from localStorage
-        console.log('ℹ️ Unauthenticated user - loading from localStorage');
-        loadFromLocalStorage();
-      }
-    };
-    
+    // ALWAYS load from localStorage on this page
+    // Database save happens only when clicking "Continue to Brand Kit"
     const loadFromLocalStorage = () => {
+      console.log('ℹ️ Loading analysis from localStorage...');
       const storedAnalysis = localStorage.getItem('dvyb_website_analysis');
       const storedUrl = localStorage.getItem('dvyb_pending_website_url');
       
       if (storedAnalysis) {
         setAnalysisData(JSON.parse(storedAnalysis));
+        console.log('✅ Analysis loaded from localStorage');
+      } else {
+        console.warn('⚠️ No analysis found in localStorage');
       }
+      
       if (storedUrl) {
         setWebsiteUrl(storedUrl);
       }
     };
     
-    loadAnalysisData();
-  }, [isAuthenticated]);
+    loadFromLocalStorage();
+  }, []);
 
   // Don't render until mounted (prevents hydration mismatch)
   if (!isMounted) {
     return null;
   }
 
-  if (isLoadingFromBackend || !analysisData) {
+  if (!analysisData) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 md:p-6 bg-gradient-to-br from-background via-background to-muted">
         <div className="text-center space-y-3">
           <div className="w-10 h-10 mx-auto border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
           <p className="text-muted-foreground">
-            {isAuthenticated ? 'Loading your brand analysis...' : 'Loading analysis...'}
+            Loading analysis...
           </p>
         </div>
       </div>

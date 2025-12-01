@@ -1,5 +1,7 @@
 import { Router, Response } from 'express';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
+import { DvybAuthService } from '../services/DvybAuthService';
+import { DvybGoogleAuthService } from '../services/DvybGoogleAuthService';
 import { DvybLinkedInService } from '../services/DvybLinkedInService';
 import { DvybTikTokService } from '../services/DvybTikTokService';
 import { DvybInstagramService } from '../services/DvybInstagramService';
@@ -13,11 +15,11 @@ const router = Router();
 // ============================================
 
 /**
- * @route GET /api/dvyb/auth/linkedin
+ * @route GET /api/dvyb/auth/linkedin/auth-url
  * @description Initiate LinkedIn OAuth flow
  * @access Private
  */
-router.get('/linkedin', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+router.get('/linkedin/auth-url', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId;
     if (!accountId) {
@@ -33,33 +35,52 @@ router.get('/linkedin', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Re
 });
 
 /**
- * @route GET /api/dvyb/auth/linkedin/callback
- * @description Handle LinkedIn OAuth callback
- * @access Public
+ * @route POST /api/dvyb/auth/linkedin/connect
+ * @description Handle LinkedIn OAuth callback (called from frontend popup)
+ * @access Private (requires authentication)
  */
-router.get('/linkedin/callback', async (req, res) => {
-  const { code, state, error, error_description } = req.query;
-
-  if (error) {
-    logger.error(`LinkedIn OAuth error: ${error} - ${error_description}`);
-    return res.redirect(`${env.dvybOAuth.frontendUrl}?error=${encodeURIComponent(error_description as string || error as string)}`);
-  }
-
-  if (!code || !state) {
-    return res.redirect(`${env.dvybOAuth.frontendUrl}?error=Missing code or state`);
-  }
-
+router.post('/linkedin/connect', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
-    const { accountId, connection } = await DvybLinkedInService.handleCallback(
-      code as string,
-      state as string
+    const { code, state } = req.body;
+    const accountId = req.dvybAccountId;
+
+    if (!accountId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User must be logged in to connect LinkedIn',
+      });
+    }
+
+    if (!code || !state) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing code or state',
+      });
+    }
+
+    logger.info(`🔄 Connecting LinkedIn to account ${accountId}...`);
+
+    // Connect LinkedIn using the service
+    const connection = await DvybLinkedInService.connectToAccount(
+      accountId,
+      code,
+      state
     );
 
-    // Redirect back to frontend with success
-    return res.redirect(`${env.dvybOAuth.frontendUrl}/home?linkedin_connected=true`);
+    logger.info(`✅ LinkedIn connected successfully to account ${accountId}`);
+
+    return res.json({
+      success: true,
+      data: {
+        message: 'LinkedIn connected successfully',
+      },
+    });
   } catch (error: any) {
-    logger.error('LinkedIn callback error:', error);
-    return res.redirect(`${env.dvybOAuth.frontendUrl}?error=${encodeURIComponent(error.message)}`);
+    logger.error('❌ LinkedIn connection error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'LinkedIn connection failed',
+    });
   }
 });
 
@@ -108,11 +129,11 @@ router.delete('/linkedin/disconnect', dvybAuthMiddleware, async (req: DvybAuthRe
 // ============================================
 
 /**
- * @route GET /api/dvyb/auth/tiktok
+ * @route GET /api/dvyb/auth/tiktok/auth-url
  * @description Initiate TikTok OAuth flow
  * @access Private
  */
-router.get('/tiktok', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+router.get('/tiktok/auth-url', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId;
     if (!accountId) {
@@ -128,33 +149,52 @@ router.get('/tiktok', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Resp
 });
 
 /**
- * @route GET /api/dvyb/auth/tiktok/callback
- * @description Handle TikTok OAuth callback
- * @access Public
+ * @route POST /api/dvyb/auth/tiktok/connect
+ * @description Handle TikTok OAuth callback (called from frontend popup)
+ * @access Private (requires authentication)
  */
-router.get('/tiktok/callback', async (req, res) => {
-  const { code, state, error, error_description } = req.query;
-
-  if (error) {
-    logger.error(`TikTok OAuth error: ${error} - ${error_description}`);
-    return res.redirect(`${env.dvybOAuth.frontendUrl}?error=${encodeURIComponent(error_description as string || error as string)}`);
-  }
-
-  if (!code || !state) {
-    return res.redirect(`${env.dvybOAuth.frontendUrl}?error=Missing code or state`);
-  }
-
+router.post('/tiktok/connect', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
-    const { accountId, connection } = await DvybTikTokService.handleCallback(
-      code as string,
-      state as string
+    const { code, state } = req.body;
+    const accountId = req.dvybAccountId;
+
+    if (!accountId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User must be logged in to connect TikTok',
+      });
+    }
+
+    if (!code || !state) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing code or state',
+      });
+    }
+
+    logger.info(`🔄 Connecting TikTok to account ${accountId}...`);
+
+    // Connect TikTok using the service
+    const connection = await DvybTikTokService.connectToAccount(
+      accountId,
+      code,
+      state
     );
 
-    // Redirect back to frontend with success
-    return res.redirect(`${env.dvybOAuth.frontendUrl}/home?tiktok_connected=true`);
+    logger.info(`✅ TikTok connected successfully to account ${accountId}`);
+
+    return res.json({
+      success: true,
+      data: {
+        message: 'TikTok connected successfully',
+      },
+    });
   } catch (error: any) {
-    logger.error('TikTok callback error:', error);
-    return res.redirect(`${env.dvybOAuth.frontendUrl}?error=${encodeURIComponent(error.message)}`);
+    logger.error('❌ TikTok connection error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'TikTok connection failed',
+    });
   }
 });
 
@@ -203,11 +243,11 @@ router.delete('/tiktok/disconnect', dvybAuthMiddleware, async (req: DvybAuthRequ
 // ============================================
 
 /**
- * @route GET /api/dvyb/auth/instagram
+ * @route GET /api/dvyb/auth/instagram/auth-url
  * @description Initiate Instagram OAuth flow
  * @access Private
  */
-router.get('/instagram', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+router.get('/instagram/auth-url', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId;
     if (!accountId) {
@@ -223,33 +263,53 @@ router.get('/instagram', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
 });
 
 /**
- * @route GET /api/dvyb/auth/instagram/callback
- * @description Handle Instagram OAuth callback
- * @access Public
+ * @route POST /api/dvyb/auth/instagram/connect
+ * @description Handle Instagram OAuth callback (called from frontend popup)
+ * @access Private (requires authentication)
  */
-router.get('/instagram/callback', async (req, res) => {
-  const { code, state, error, error_description } = req.query;
-
-  if (error) {
-    logger.error(`Instagram OAuth error: ${error} - ${error_description}`);
-    return res.redirect(`${env.dvybOAuth.frontendUrl}?error=${encodeURIComponent(error_description as string || error as string)}`);
-  }
-
-  if (!code || !state) {
-    return res.redirect(`${env.dvybOAuth.frontendUrl}?error=Missing code or state`);
-  }
-
+router.post('/instagram/connect', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
-    const { accountId, connection } = await DvybInstagramService.handleCallback(
-      code as string,
-      state as string
+    const { code, state } = req.body;
+    const accountId = req.dvybAccountId;
+
+    if (!accountId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User must be logged in to connect Instagram',
+      });
+    }
+
+    if (!code || !state) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing code or state',
+      });
+    }
+
+    logger.info(`🔄 Connecting Instagram to account ${accountId}...`);
+
+    // Connect Instagram using the service
+    const connection = await DvybInstagramService.connectToAccount(
+      accountId,
+      code,
+      state
     );
 
-    // Redirect back to frontend with success
-    return res.redirect(`${env.dvybOAuth.frontendUrl}/home?instagram_connected=true`);
+    logger.info(`✅ Instagram connected successfully to account ${accountId}`);
+
+    return res.json({
+      success: true,
+      data: {
+        message: 'Instagram connected successfully',
+        username: connection.username,
+      },
+    });
   } catch (error: any) {
-    logger.error('Instagram callback error:', error);
-    return res.redirect(`${env.dvybOAuth.frontendUrl}?error=${encodeURIComponent(error.message)}`);
+    logger.error('❌ Instagram connection error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Instagram connection failed',
+    });
   }
 });
 
@@ -309,18 +369,26 @@ router.get('/connections/status', dvybAuthMiddleware, async (req: DvybAuthReques
       return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
 
-    const [instagramConnected, linkedinConnected, tiktokConnected] = await Promise.all([
-      DvybInstagramService.isConnectionValid(accountId),
-      DvybLinkedInService.isConnectionValid(accountId),
-      DvybTikTokService.isConnectionValid(accountId),
+    // Get detailed status for each platform using new getConnectionStatus methods
+    const [googleStatus, twitterStatus, instagramStatus, linkedinStatus, tiktokStatus] = await Promise.all([
+      (async () => {
+        const valid = await DvybGoogleAuthService.hasValidGoogleConnection(accountId);
+        return valid ? 'connected' : 'not_connected';
+      })(),
+      DvybAuthService.getTwitterConnectionStatus(accountId),
+      DvybInstagramService.getConnectionStatus(accountId),
+      DvybLinkedInService.getConnectionStatus(accountId),
+      DvybTikTokService.getConnectionStatus(accountId),
     ]);
 
     return res.json({
       success: true,
       data: {
-        instagram: instagramConnected,
-        linkedin: linkedinConnected,
-        tiktok: tiktokConnected,
+        google: googleStatus,
+        twitter: twitterStatus,
+        instagram: instagramStatus,
+        linkedin: linkedinStatus,
+        tiktok: tiktokStatus,
       },
     });
   } catch (error: any) {

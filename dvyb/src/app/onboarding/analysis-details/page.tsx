@@ -3,48 +3,99 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { usePendingWebsiteAnalysis } from "@/hooks/usePendingWebsiteAnalysis";
 import { AnalysisDetails } from "@/components/onboarding/AnalysisDetails";
 import { Loader2 } from "lucide-react";
+import { contextApi } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 export default function AnalysisDetailsPage() {
-  const { isAuthenticated, isLoading, checkAuth } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
-  const { isSaving, saveComplete } = usePendingWebsiteAnalysis(isAuthenticated);
-  const [showContent, setShowContent] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const { toast } = useToast();
 
-  // Re-check authentication with backend when page loads
+  // Fix hydration warning
   useEffect(() => {
-    console.log('🔄 Analysis Details: Re-checking authentication with backend...');
-    checkAuth();
+    setIsMounted(true);
   }, []);
 
-  useEffect(() => {
-    if (!isLoading) {
-      console.log('✅ Analysis Details: Auth check complete, isAuthenticated:', isAuthenticated);
-      setShowContent(true);
-    }
-  }, [isLoading, isAuthenticated]);
-
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!isAuthenticated) {
-      // Not authenticated - go to login
+      // Not authenticated - go to Twitter auth
+      console.log('👤 Not authenticated - redirecting to Twitter auth');
       router.push('/auth/login');
     } else {
-      // Authenticated - go to brand profile (data is in backend now)
-      router.push('/onboarding/brand-profile');
+      // Authenticated - save to database and proceed to brand profile
+      console.log('✅ Authenticated - saving context to database and proceeding to brand profile');
+      setIsSaving(true);
+      
+      try {
+        // Get analysis from localStorage
+        const storedAnalysis = localStorage.getItem('dvyb_website_analysis');
+        const storedUrl = localStorage.getItem('dvyb_pending_website_url');
+        
+        if (!storedAnalysis || !storedUrl) {
+          throw new Error('No analysis data found');
+        }
+        
+        const analysisData = JSON.parse(storedAnalysis);
+        
+        // Save to database
+        const response = await contextApi.updateContext({
+          website: storedUrl,
+          accountName: analysisData.base_name,
+          businessOverview: analysisData.business_overview_and_positioning,
+          customerDemographics: analysisData.customer_demographics_and_psychographics,
+          popularProducts: analysisData.most_popular_products_and_services,
+          whyCustomersChoose: analysisData.why_customers_choose,
+          brandStory: analysisData.brand_story,
+          colorPalette: analysisData.color_palette,
+        });
+        
+        if (response.success) {
+          console.log('✅ Context saved to database');
+          toast({
+            title: "Success!",
+            description: "Your brand analysis has been saved.",
+          });
+          
+          // Proceed to brand profile
+          router.push('/onboarding/brand-profile');
+        } else {
+          throw new Error('Failed to save context');
+        }
+      } catch (error) {
+        console.error('❌ Failed to save context:', error);
+        toast({
+          title: "Error",
+          description: "Failed to save your brand analysis. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsSaving(false);
+      }
     }
   };
 
-  if (isLoading || !showContent) {
+  if (!isMounted || isLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted">
         <Loader2 className="w-10 h-10 md:w-12 md:h-12 animate-spin text-primary" />
-        {isSaving && (
-          <p className="mt-4 text-base md:text-lg text-muted-foreground text-center">
-            Saving your brand analysis...
-          </p>
-        )}
+        <p className="mt-4 text-base md:text-lg text-muted-foreground text-center">
+          Loading...
+        </p>
+      </div>
+    );
+  }
+
+  if (isSaving) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted">
+        <Loader2 className="w-10 h-10 md:w-12 md:h-12 animate-spin text-primary" />
+        <p className="mt-4 text-base md:text-lg text-muted-foreground text-center">
+          Saving your brand analysis...
+        </p>
       </div>
     );
   }

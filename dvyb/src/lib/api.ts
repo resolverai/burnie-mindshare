@@ -29,9 +29,35 @@ async function apiRequest<T>(
 
 // Authentication API
 export const authApi = {
+  async getGoogleLoginUrl() {
+    return apiRequest<{ success: boolean; data: { oauth_url: string; state: string } }>(
+      '/dvyb/auth/google/login'
+    );
+  },
+
+  async handleGoogleCallback(code: string, state: string) {
+    return apiRequest<{ 
+      success: boolean; 
+      data: { 
+        account_id: number; 
+        account_name: string;
+        email: string;
+        is_new_account: boolean;
+        onboarding_complete: boolean;
+      } 
+    }>(
+      '/dvyb/auth/google/callback',
+      {
+        method: 'POST',
+        body: JSON.stringify({ code, state }),
+      }
+    );
+  },
+
+  // Twitter connection (not for login, only for connecting to existing account)
   async getTwitterLoginUrl() {
     return apiRequest<{ success: boolean; data: { oauth_url: string; state: string } }>(
-      '/dvyb/auth/twitter/login'
+      '/dvyb/auth/twitter/connect'
     );
   },
 
@@ -39,10 +65,7 @@ export const authApi = {
     return apiRequest<{ 
       success: boolean; 
       data: { 
-        account_id: number; 
-        twitter_handle: string; 
-        is_new_account: boolean;
-        onboarding_complete: boolean;
+        message: string;
       } 
     }>(
       '/dvyb/auth/twitter/callback',
@@ -59,6 +82,7 @@ export const authApi = {
       data: { 
         authenticated: boolean; 
         accountId?: number; 
+        hasValidGoogleConnection?: boolean;
         hasValidTwitterConnection?: boolean;
         onboardingComplete?: boolean;
       };
@@ -92,6 +116,24 @@ export const accountApi = {
   async getTwitterConnection() {
     return apiRequest<{ success: boolean; data: any }>(
       '/dvyb/account/twitter-connection'
+    );
+  },
+
+  async getInstagramConnection() {
+    return apiRequest<{ success: boolean; data: any }>(
+      '/dvyb/account/instagram-connection'
+    );
+  },
+
+  async getLinkedInConnection() {
+    return apiRequest<{ success: boolean; data: any }>(
+      '/dvyb/account/linkedin-connection'
+    );
+  },
+
+  async getTikTokConnection() {
+    return apiRequest<{ success: boolean; data: any }>(
+      '/dvyb/account/tiktok-connection'
     );
   },
 };
@@ -187,11 +229,32 @@ export const uploadApi = {
     const formData = new FormData();
     formData.append('logo', file);
 
-    return apiRequest<{ success: boolean; data: { s3_key: string; url: string } }>(
+    return apiRequest<{ success: boolean; data: { s3_key: string; presignedUrl: string } }>(
       '/dvyb/upload/logo',
       {
         method: 'POST',
         headers: {}, // Let browser set Content-Type for FormData
+        body: formData,
+      }
+    );
+  },
+
+  async uploadAdditionalLogos(files: File[]) {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('logos', file);
+    });
+
+    return apiRequest<{
+      success: boolean;
+      data: {
+        logos: Array<{ url: string; presignedUrl: string; timestamp: string }>;
+      };
+    }>(
+      '/dvyb/upload/additional-logos',
+      {
+        method: 'POST',
+        headers: {},
         body: formData,
       }
     );
@@ -227,7 +290,82 @@ export const uploadApi = {
     );
   },
 
-  async getPresignedUrl(filename: string, contentType: string, uploadType = 'general') {
+  async uploadDocuments(files: File[]) {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('documents', file);
+    });
+
+    return apiRequest<{ 
+      success: boolean; 
+      data: { 
+        documents_text: Array<{
+          name: string;
+          url: string; // S3 key
+          text: string;
+          timestamp: string;
+        }>;
+        document_urls: string[];
+      } 
+    }>(
+      '/dvyb/upload/documents',
+      {
+        method: 'POST',
+        headers: {},
+        body: formData,
+      }
+    );
+  },
+
+  async uploadMedia(files: File[]) {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append('media', file);
+    });
+
+    return apiRequest<{
+      success: boolean;
+      data: {
+        images: Array<{ url: string; presignedUrl: string; timestamp: string }>;
+        videos: Array<{ url: string; presignedUrl: string; timestamp: string }>;
+      };
+    }>(
+      '/dvyb/upload/media',
+      {
+        method: 'POST',
+        headers: {},
+        body: formData,
+      }
+    );
+  },
+
+  async getPresignedUrl(s3Key: string): Promise<string | null> {
+    try {
+      const response = await apiRequest<{ success: boolean; presigned_url: string }>(
+        '/dvyb/upload/presigned-url-from-key',
+        {
+          method: 'POST',
+          body: JSON.stringify({ s3_key: s3Key }),
+        }
+      );
+      return response.success ? response.presigned_url : null;
+    } catch (error) {
+      console.error('Failed to get presigned URL:', error);
+      return null;
+    }
+  },
+
+  async getPresignedUrlFromKey(s3Key: string) {
+    return apiRequest<{ success: boolean; presigned_url: string; timestamp: string }>(
+      '/dvyb/upload/presigned-url-from-key',
+      {
+        method: 'POST',
+        body: JSON.stringify({ s3_key: s3Key }),
+      }
+    );
+  },
+
+  async getPresignedUrlOld(filename: string, contentType: string, uploadType = 'general') {
     return apiRequest<{ success: boolean; data: { presigned_url: string; public_url: string; s3_key: string } }>(
       '/dvyb/upload/presigned-url',
       {
@@ -362,18 +500,67 @@ export const postingApi = {
     );
   },
 
-  async schedulePost(params: {
+  async postNow(data: {
+    platforms: string[];
+    content: {
+      caption: string;
+      platformTexts?: any;
+      mediaUrl: string;
+      mediaType: 'image' | 'video';
+      generatedContentId?: number;
+      postIndex?: number;
+    };
+  }) {
+    return apiRequest<{ success: boolean; data: any }>(
+      '/dvyb/posts/now',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  },
+
+  async validateTokens(data: {
+    platforms: string[];
+    requireOAuth1ForTwitterVideo?: boolean;
+  }) {
+    return apiRequest<{ success: boolean; data: any }>(
+      '/dvyb/posts/validate-tokens',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+  },
+
+  async schedulePost(data: {
     scheduledFor: string;
-    generatedContentId?: number;
-    platform?: string;
-    metadata?: any;
+    platforms: string[];
+    content: {
+      caption: string;
+      platformTexts?: any;
+      mediaUrl: string;
+      mediaType: 'image' | 'video';
+      generatedContentId?: number;
+      postIndex?: number;
+    };
+    timezone?: string;
   }) {
     return apiRequest<{ success: boolean; data: any }>(
       '/dvyb/posts/schedule',
       {
         method: 'POST',
-        body: JSON.stringify(params),
+        body: JSON.stringify(data),
       }
+    );
+  },
+
+  async getSchedules(generatedContentId?: number) {
+    const params = generatedContentId 
+      ? `?generatedContentId=${generatedContentId}` 
+      : '';
+    return apiRequest<{ success: boolean; data: any[] }>(
+      `/dvyb/posts/schedules${params}`
     );
   },
 
@@ -405,6 +592,64 @@ export const postingApi = {
   },
 };
 
+// OAuth1 API for Twitter video uploads
+export const oauth1Api = {
+  async initiateOAuth1() {
+    return apiRequest<{ 
+      success: boolean; 
+      data: { 
+        authUrl: string; 
+        state: string;
+        oauthToken: string;
+        oauthTokenSecret: string;
+      } 
+    }>(
+      '/dvyb/auth/oauth1/initiate'
+    );
+  },
+
+  async handleOAuth1Callback(params: {
+    oauthToken: string;
+    oauthVerifier: string;
+    state: string;
+    oauthTokenSecret: string;
+  }) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        message: string;
+        screenName: string;
+      };
+    }>(
+      '/dvyb/auth/oauth1/callback',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          oauth_token: params.oauthToken,
+          oauth_verifier: params.oauthVerifier,
+          state: params.state,
+          oauth_token_secret: params.oauthTokenSecret,
+        }),
+      }
+    );
+  },
+
+  async getOAuth1Status() {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        hasOAuth1: boolean;
+        oauth1Valid: boolean;
+        oauth2Valid: boolean;
+        twitterHandle?: string;
+        message: string;
+      };
+    }>(
+      '/dvyb/auth/oauth1/status'
+    );
+  },
+};
+
 // Combined API export for convenience
 // Analytics API
 export const analyticsApi = {
@@ -431,6 +676,38 @@ export const analyticsApi = {
       `/dvyb/analytics/linkedin?days=${days}`
     );
   },
+
+  async getGrowthMetrics(days = 30) {
+    return apiRequest<{ success: boolean; data: any }>(
+      `/dvyb/analytics/growth?days=${days}`
+    );
+  },
+};
+
+// Content Library API
+export const contentLibraryApi = {
+  async getContentLibrary(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    showPosted?: boolean;
+  }) {
+    const queryParams = new URLSearchParams();
+    if (params?.page) queryParams.append('page', params.page.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.search) queryParams.append('search', params.search);
+    if (params?.dateFrom) queryParams.append('dateFrom', params.dateFrom);
+    if (params?.dateTo) queryParams.append('dateTo', params.dateTo);
+    if (params?.showPosted !== undefined) queryParams.append('showPosted', params.showPosted.toString());
+    
+    const url = queryParams.toString() 
+      ? `/dvyb/content-library?${queryParams.toString()}`
+      : '/dvyb/content-library';
+    
+    return apiRequest<{ success: boolean; data: any; pagination: any }>(url);
+  },
 };
 
 // Social Media Connections API
@@ -440,9 +717,11 @@ export const socialConnectionsApi = {
     return apiRequest<{ 
       success: boolean; 
       data: { 
-        instagram: boolean; 
-        linkedin: boolean; 
-        tiktok: boolean; 
+        google: 'connected' | 'expired' | 'not_connected';
+        twitter: 'connected' | 'expired' | 'not_connected';
+        instagram: 'connected' | 'expired' | 'not_connected';
+        linkedin: 'connected' | 'expired' | 'not_connected';
+        tiktok: 'connected' | 'expired' | 'not_connected';
       } 
     }>(
       `/dvyb/auth/connections/status`
@@ -452,7 +731,24 @@ export const socialConnectionsApi = {
   // Instagram
   async getInstagramAuthUrl() {
     return apiRequest<{ success: boolean; data: { authUrl: string } }>(
-      `/dvyb/auth/instagram`
+      `/dvyb/auth/instagram/auth-url`
+    );
+  },
+
+  async handleInstagramConnectCallback(code: string, state: string) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        accountId: number;
+        username: string;
+        isConnected: boolean;
+      };
+    }>(
+      `/dvyb/auth/instagram/connect`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ code, state }),
+      }
     );
   },
 
@@ -472,7 +768,24 @@ export const socialConnectionsApi = {
   // LinkedIn
   async getLinkedInAuthUrl() {
     return apiRequest<{ success: boolean; data: { authUrl: string } }>(
-      `/dvyb/auth/linkedin`
+      `/dvyb/auth/linkedin/auth-url`
+    );
+  },
+
+  async handleLinkedInConnectCallback(code: string, state: string) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        accountId: number;
+        username: string;
+        isConnected: boolean;
+      };
+    }>(
+      `/dvyb/auth/linkedin/connect`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ code, state }),
+      }
     );
   },
 
@@ -492,7 +805,24 @@ export const socialConnectionsApi = {
   // TikTok
   async getTikTokAuthUrl() {
     return apiRequest<{ success: boolean; data: { authUrl: string } }>(
-      `/dvyb/auth/tiktok`
+      `/dvyb/auth/tiktok/auth-url`
+    );
+  },
+
+  async handleTikTokConnectCallback(code: string, state: string) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        accountId: number;
+        username: string;
+        isConnected: boolean;
+      };
+    }>(
+      `/dvyb/auth/tiktok/connect`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ code, state }),
+      }
     );
   },
 
@@ -505,6 +835,22 @@ export const socialConnectionsApi = {
   async disconnectTikTok() {
     return apiRequest<{ success: boolean; message: string }>(
       `/dvyb/auth/tiktok/disconnect`,
+      { method: 'DELETE' }
+    );
+  },
+
+  // Google
+  async disconnectGoogle() {
+    return apiRequest<{ success: boolean; message: string }>(
+      `/dvyb/auth/google/disconnect`,
+      { method: 'DELETE' }
+    );
+  },
+
+  // Twitter
+  async disconnectTwitter() {
+    return apiRequest<{ success: boolean; message: string }>(
+      `/dvyb/auth/twitter/disconnect`,
       { method: 'DELETE' }
     );
   },
@@ -561,7 +907,20 @@ export const adhocGenerationApi = {
       throw new Error(data.error || 'Upload failed');
     }
 
+    // Return presigned URL for preview (FileDropZone uses this to display images)
     return data.s3_url;
+  },
+
+  // Get S3 keys from presigned URLs for API submission
+  extractS3Key(presignedUrl: string): string {
+    try {
+      const url = new URL(presignedUrl);
+      // Extract path and remove leading slash
+      return url.pathname.substring(1).split('?')[0];
+    } catch {
+      // If it's already an S3 key (no protocol), return as is
+      return presignedUrl;
+    }
   },
 };
 

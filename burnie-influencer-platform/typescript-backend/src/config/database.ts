@@ -109,6 +109,7 @@ import { ContentBlockchainTransaction } from '../models/ContentBlockchainTransac
 // Import DVYB entities
 import { DvybAccount } from '../models/DvybAccount';
 import { DvybTwitterConnection } from '../models/DvybTwitterConnection';
+import { DvybGoogleConnection } from '../models/DvybGoogleConnection';
 import { DvybInstagramConnection } from '../models/DvybInstagramConnection';
 import { DvybTikTokConnection } from '../models/DvybTikTokConnection';
 import { DvybLinkedInConnection } from '../models/DvybLinkedInConnection';
@@ -229,6 +230,7 @@ export const AppDataSource = new DataSource({
     // DVYB entities
     DvybAccount,
     DvybTwitterConnection,
+    DvybGoogleConnection,
     DvybInstagramConnection,
     DvybTikTokConnection,
     DvybLinkedInConnection,

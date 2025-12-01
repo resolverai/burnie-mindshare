@@ -215,7 +215,15 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
       try {
         const presignedImageUrls: string[] = [];
 
-        for (const imageUrl of responseData.brandImages) {
+        for (const imageItem of responseData.brandImages) {
+          // Handle both old format (string) and new format (object with url/timestamp)
+          const imageUrl = typeof imageItem === 'string' ? imageItem : (imageItem as any)?.url;
+          
+          if (!imageUrl || typeof imageUrl !== 'string') {
+            logger.warn('Skipping invalid image item:', imageItem);
+            continue;
+          }
+
           const imageS3Key = s3Service.extractS3Key(imageUrl);
           if (imageS3Key) {
             // Try to get cached presigned URL
@@ -273,11 +281,35 @@ router.put('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     const accountId = req.dvybAccountId!;
     const contextData = req.body;
 
+    logger.info(`📝 Updating DVYB context for account ${accountId}:`, JSON.stringify(contextData, null, 2));
+
     const context = await DvybContextService.upsertContext(accountId, contextData);
+    
+    logger.info(`✅ Context saved for account ${accountId}. brandStyles:`, context.brandStyles);
+
+    // Convert context to plain object for modification
+    const responseData: any = { ...context };
+
+    // Generate presigned URL for logo if it exists
+    if (responseData.logoUrl) {
+      try {
+        const logoS3Key = s3Service.extractS3Key(responseData.logoUrl);
+        if (logoS3Key) {
+          const presignedUrl = await s3Service.generatePresignedUrl(logoS3Key, 3600);
+          responseData.logoPresignedUrl = presignedUrl;
+        }
+      } catch (error: any) {
+        logger.error(`Error generating presigned URL for logo: ${error.message}`);
+        responseData.logoPresignedUrl = responseData.logoUrl;
+      }
+    }
+
+    logger.info(`📤 Sending response. brandStyles in response:`, responseData.brandStyles);
+    logger.info(`📤 Sending response. brandVoices in response:`, responseData.brandVoices);
 
     return res.json({
       success: true,
-      data: context,
+      data: responseData,
       message: 'Context saved successfully',
       timestamp: new Date().toISOString(),
     });

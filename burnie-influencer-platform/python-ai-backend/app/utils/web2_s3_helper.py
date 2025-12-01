@@ -251,6 +251,100 @@ class Web2S3Helper:
         except Exception as e:
             logger.error(f"❌ Failed to generate fresh presigned URL: {e}")
             return None
+    
+    def upload_from_url(self, url: str, folder: str, filename: str) -> str:
+        """
+        Download file from URL and upload to S3
+        
+        Args:
+            url: URL to download from
+            folder: S3 folder path
+            filename: Filename to save as
+            
+        Returns:
+            S3 key (NOT presigned URL)
+        """
+        import requests
+        import tempfile
+        
+        try:
+            logger.info(f"📥 Downloading from URL: {url[:100]}...")
+            
+            # Download file
+            response = requests.get(url, timeout=60)
+            response.raise_for_status()
+            
+            # Save to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp_file:
+                temp_file.write(response.content)
+                temp_path = temp_file.name
+            
+            # Determine content type
+            content_type = response.headers.get('Content-Type', 'application/octet-stream')
+            
+            # Upload to S3
+            s3_key = f"{folder}/{filename}"
+            result = self.upload_file_to_s3(temp_path, s3_key, content_type)
+            
+            # Clean up temp file
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+            
+            if result['success']:
+                logger.info(f"✅ Uploaded from URL to S3: {s3_key}")
+                return s3_key  # Return S3 key, NOT presigned URL
+            else:
+                logger.error(f"❌ Failed to upload to S3: {result.get('error')}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to upload from URL: {e}")
+            return None
+    
+    def upload_from_file(self, file_path: str, folder: str, filename: str) -> str:
+        """
+        Upload local file to S3
+        
+        Args:
+            file_path: Local file path
+            folder: S3 folder path
+            filename: Filename to save as
+            
+        Returns:
+            S3 key (NOT presigned URL)
+        """
+        try:
+            s3_key = f"{folder}/{filename}"
+            
+            # Determine content type
+            ext = os.path.splitext(filename)[1].lower()
+            content_type_map = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.gif': 'image/gif',
+                '.mp4': 'video/mp4',
+                '.mov': 'video/quicktime',
+                '.avi': 'video/x-msvideo',
+                '.wav': 'audio/wav',
+                '.mp3': 'audio/mpeg'
+            }
+            content_type = content_type_map.get(ext, 'application/octet-stream')
+            
+            result = self.upload_file_to_s3(file_path, s3_key, content_type)
+            
+            if result['success']:
+                logger.info(f"✅ Uploaded file to S3: {s3_key}")
+                return s3_key  # Return S3 key, NOT presigned URL
+            else:
+                logger.error(f"❌ Failed to upload file: {result.get('error')}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to upload file: {e}")
+            return None
 
 
 # Global instance

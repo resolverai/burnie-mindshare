@@ -7,15 +7,46 @@ import { env } from '../config/env';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import axios from 'axios';
 
 const router = Router();
+
+// Helper function to generate presigned URLs using local TypeScript S3 service
+// This avoids blocking the Python backend during long-running video generation
+async function generatePresignedUrl(s3Key: string): Promise<string | null> {
+  try {
+    // Use the local TypeScript S3 service (non-blocking)
+    const { getS3PresignedUrlService } = await import('../services/S3PresignedUrlService');
+    const s3Service = getS3PresignedUrlService();
+    
+    const presignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600, true); // 1 hour expiration, use cache
+    
+    if (presignedUrl) {
+      logger.debug(`✅ Generated presigned URL for S3 key: ${s3Key.substring(0, 80)}...`);
+    } else {
+      logger.error(`❌ Failed to generate presigned URL for S3 key: ${s3Key}`);
+    }
+    
+    return presignedUrl;
+  } catch (error) {
+    logger.error(`Error generating presigned URL for S3 key: ${s3Key}`, error);
+    return null;
+  }
+}
 
 // Apply authorization middleware to ALL routes
 router.use(dvybAuthMiddleware);
 
+// Ensure upload directory exists
+const uploadDir = '/tmp/dvyb-uploads';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+  logger.info(`✅ Created upload directory: ${uploadDir}`);
+}
+
 // Configure multer for file uploads
 const upload = multer({
-  dest: '/tmp/dvyb-uploads',
+  dest: uploadDir,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB max
   },
@@ -36,16 +67,25 @@ const upload = multer({
  */
 router.post('/upload', upload.single('file'), async (req: DvybAuthRequest, res: Response) => {
   try {
+    logger.info('📤 Received file upload request');
+    logger.info(`  File: ${req.file ? req.file.originalname : 'NO FILE'}`);
+    logger.info(`  Size: ${req.file ? req.file.size : 'N/A'} bytes`);
+    logger.info(`  Type: ${req.file ? req.file.mimetype : 'N/A'}`);
+    
     if (!req.file) {
+      logger.error('❌ No file uploaded in request');
       return res.status(400).json({ success: false, error: 'No file uploaded' });
     }
 
     const accountId = req.dvybAccountId;
+    logger.info(`  Account ID from session: ${accountId || 'NOT FOUND'}`);
+    
     if (!accountId) {
+      logger.error('❌ No accountId in session - user not authenticated');
       return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
 
-    // Forward file to Python backend
+    // Forward file to Python backend using axios (better FormData support)
     const pythonBackendUrl = env.ai.pythonBackendUrl;
     if (!pythonBackendUrl) {
       return res.status(500).json({ success: false, error: 'Python AI backend URL not configured' });
@@ -54,35 +94,81 @@ router.post('/upload', upload.single('file'), async (req: DvybAuthRequest, res: 
     const FormData = require('form-data');
     const formData = new FormData();
     
-    // Read file and append to form data
+    // Use file stream for axios
     const fileStream = fs.createReadStream(req.file.path);
-    formData.append('file', fileStream, req.file.originalname);
+    formData.append('file', fileStream, {
+      filename: req.file.originalname,
+      contentType: req.file.mimetype,
+    });
     formData.append('accountId', accountId.toString());
 
-    const response = await fetch(`${pythonBackendUrl}/api/dvyb/adhoc/upload`, {
-      method: 'POST',
-      body: formData,
-      headers: formData.getHeaders(),
-    });
+    logger.info(`📤 Forwarding to Python backend: ${pythonBackendUrl}/api/dvyb/adhoc/upload`);
+    logger.info(`  File: ${req.file.originalname}, Size: ${req.file.size} bytes`);
 
-    // Clean up temp file
-    fs.unlinkSync(req.file.path);
+    try {
+      const response = await axios.post(
+        `${pythonBackendUrl}/api/dvyb/adhoc/upload`,
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+        }
+      );
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      return res.status(response.status).json({ success: false, error: errorText });
+      // Clean up temp file
+      fs.unlinkSync(req.file.path);
+
+      logger.info(`✅ Upload successful, S3 key: ${response.data.s3_key}`);
+      return res.json(response.data);
+    } catch (error: any) {
+      // Clean up temp file on error
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+
+      if (error.response) {
+        // Python backend returned an error
+        logger.error(`❌ Python backend error (${error.response.status}): ${JSON.stringify(error.response.data)}`);
+        return res.status(error.response.status).json({
+          success: false,
+          error: error.response.data.detail || error.response.data.error || 'Upload failed',
+        });
+      } else {
+        // Network or other error
+        logger.error(`❌ Failed to reach Python backend: ${error.message}`);
+        throw error;
+      }
     }
-
-    const data = await response.json();
-    return res.json(data);
   } catch (error: any) {
     logger.error('❌ Failed to upload image:', error);
+    logger.error(`  Error details: ${error.message}`);
+    logger.error(`  Stack: ${error.stack}`);
+    
     // Clean up temp file on error
     if (req.file?.path && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
+      logger.info(`  ✅ Cleaned up temp file: ${req.file.path}`);
     }
     return res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// Add error handling middleware for multer errors
+router.use((err: any, req: any, res: any, next: any) => {
+  if (err instanceof multer.MulterError) {
+    logger.error(`❌ Multer error: ${err.message}`, err);
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ success: false, error: 'File size too large. Maximum 10MB allowed.' });
+    }
+    return res.status(400).json({ success: false, error: `Upload error: ${err.message}` });
+  } else if (err) {
+    logger.error(`❌ Upload error: ${err.message}`, err);
+    return res.status(400).json({ success: false, error: err.message });
+  }
+  next();
 });
 
 /**
@@ -185,26 +271,75 @@ router.get('/status', async (req: DvybAuthRequest, res: Response) => {
       });
     }
 
+    // Generate presigned URLs for all S3 assets before sending to frontend
+    const generationWithPresignedUrls = { ...generation };
+
+    // Generate presigned URLs for final images
+    if (generation.generatedImageUrls && generation.generatedImageUrls.length > 0) {
+      const presignedImageUrls = await Promise.all(
+        generation.generatedImageUrls.map(async (s3Key: string | null) => {
+          if (!s3Key) return null; // Keep nulls for index alignment
+          const presignedUrl = await generatePresignedUrl(s3Key);
+          return presignedUrl || s3Key; // Fallback to original if generation fails
+        })
+      );
+      generationWithPresignedUrls.generatedImageUrls = presignedImageUrls as any; // Keep nulls for index alignment
+    }
+
+    // Generate presigned URLs for final videos
+    if (generation.generatedVideoUrls && generation.generatedVideoUrls.length > 0) {
+      const presignedVideoUrls = await Promise.all(
+        generation.generatedVideoUrls.map(async (s3Key: string | null) => {
+          if (!s3Key) return null; // Keep nulls for index alignment
+          const presignedUrl = await generatePresignedUrl(s3Key);
+          return presignedUrl || s3Key;
+        })
+      );
+      generationWithPresignedUrls.generatedVideoUrls = presignedVideoUrls as any; // Keep nulls for index alignment
+    }
+
+    // Generate presigned URLs for progressive content
+    if (generation.metadata?.progressiveContent) {
+      const progressiveWithPresigned = await Promise.all(
+        generation.metadata.progressiveContent.map(async (item: any) => {
+          const presignedUrl = await generatePresignedUrl(item.contentUrl);
+          return {
+            ...item,
+            contentUrl: presignedUrl || item.contentUrl
+          };
+        })
+      );
+      generationWithPresignedUrls.metadata = {
+        ...generation.metadata,
+        progressiveContent: progressiveWithPresigned
+      };
+    }
+
+    // Remove IP-sensitive fields before sending to frontend
+    delete (generationWithPresignedUrls as any).framePrompts;
+    delete (generationWithPresignedUrls as any).clipPrompts;
+
     return res.json({
       success: true,
-      status: generation.status,
-      progress_percent: generation.progressPercent,
-      progress_message: generation.progressMessage,
+      status: generationWithPresignedUrls.status,
+      progress_percent: generationWithPresignedUrls.progressPercent,
+      progress_message: generationWithPresignedUrls.progressMessage,
       data: {
-        uuid: generation.uuid,
-        jobId: generation.jobId,
-        topic: generation.topic,
-        numberOfPosts: generation.numberOfPosts,
-        platformTexts: generation.platformTexts,
-        framePrompts: generation.framePrompts,
-        clipPrompts: generation.clipPrompts,
-        generatedImageUrls: generation.generatedImageUrls,
-        generatedVideoUrls: generation.generatedVideoUrls,
-        status: generation.status,
-        progressPercent: generation.progressPercent,
-        progressMessage: generation.progressMessage,
-        createdAt: generation.createdAt,
-        updatedAt: generation.updatedAt,
+        uuid: generationWithPresignedUrls.uuid,
+        jobId: generationWithPresignedUrls.jobId,
+        topic: generationWithPresignedUrls.topic,
+        numberOfPosts: generationWithPresignedUrls.numberOfPosts,
+        platformTexts: generationWithPresignedUrls.platformTexts,
+        framePrompts: null, // IP-protected
+        clipPrompts: null, // IP-protected
+        generatedImageUrls: generationWithPresignedUrls.generatedImageUrls,
+        generatedVideoUrls: generationWithPresignedUrls.generatedVideoUrls,
+        status: generationWithPresignedUrls.status,
+        progressPercent: generationWithPresignedUrls.progressPercent,
+        progressMessage: generationWithPresignedUrls.progressMessage,
+        createdAt: generationWithPresignedUrls.createdAt,
+        updatedAt: generationWithPresignedUrls.updatedAt,
+        metadata: generationWithPresignedUrls.metadata,
       },
     });
   } catch (error: any) {

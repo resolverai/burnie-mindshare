@@ -22,8 +22,8 @@ export class DvybLinkedInConnection {
   @Column({ type: 'text' })
   accessToken!: string;
 
-  @Column({ type: 'text' })
-  refreshToken!: string;
+  @Column({ type: 'text', nullable: true })
+  refreshToken!: string | null;
 
   @Column({ type: 'timestamp' })
   tokenExpiresAt!: Date;

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../config/logger';
 import { DvybAuthService } from '../services/DvybAuthService';
+import { DvybGoogleAuthService } from '../services/DvybGoogleAuthService';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 
 const router = Router();
@@ -19,10 +20,10 @@ setInterval(() => {
 }, 10 * 60 * 1000);
 
 /**
- * GET /api/dvyb/auth/twitter/login
- * Initiate Twitter OAuth flow
+ * GET /api/dvyb/auth/twitter/connect
+ * Initiate Twitter OAuth flow for connecting account (not login)
  */
-router.get('/twitter/login', async (req: Request, res: Response) => {
+router.get('/twitter/connect', async (req: Request, res: Response) => {
   try {
     const { oauthUrl, state, codeVerifier } = await DvybAuthService.generateTwitterOAuthUrl();
 
@@ -32,7 +33,7 @@ router.get('/twitter/login', async (req: Request, res: Response) => {
       timestamp: Date.now(),
     });
 
-    logger.info('✅ DVYB Twitter login initiated');
+    logger.info('✅ DVYB Twitter connection initiated');
 
     return res.json({
       success: true,
@@ -43,10 +44,10 @@ router.get('/twitter/login', async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    logger.error('❌ DVYB Twitter login error:', error);
+    logger.error('❌ DVYB Twitter connection error:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to initiate Twitter login',
+      error: 'Failed to initiate Twitter connection',
       timestamp: new Date().toISOString(),
     });
   }
@@ -54,7 +55,7 @@ router.get('/twitter/login', async (req: Request, res: Response) => {
 
 /**
  * POST /api/dvyb/auth/twitter/callback
- * Handle Twitter OAuth callback
+ * Handle Twitter OAuth callback for connecting account (not login)
  */
 router.post('/twitter/callback', async (req: Request, res: Response) => {
   try {
@@ -81,45 +82,136 @@ router.post('/twitter/callback', async (req: Request, res: Response) => {
     const { codeVerifier } = stateData;
     oauthStates.delete(state); // Clean up
 
-    // Handle callback
-    const { account, isNewAccount } = await DvybAuthService.handleTwitterCallback(
+    // Get account ID from cookies (user must be logged in)
+    const accountId = req.cookies?.dvyb_account_id;
+    if (!accountId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User must be logged in to connect Twitter',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Connect Twitter to existing account
+    await DvybAuthService.connectTwitterToAccount(
+      parseInt(accountId as string, 10),
       code,
       state,
       codeVerifier
     );
 
-    // Check if onboarding is complete
-    const onboardingComplete = await DvybAuthService.isOnboardingComplete(account.id);
+    logger.info(`✅ Twitter connected to account ${accountId}`);
 
-    // Set cookies for authentication
+    return res.json({
+      success: true,
+      data: {
+        message: 'Twitter connected successfully',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ DVYB Twitter connection callback error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Twitter connection failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/dvyb/auth/google/login
+ * Initiate Google OAuth flow for authentication
+ */
+router.get('/google/login', async (req: Request, res: Response) => {
+  try {
+    const { oauthUrl, state } = await DvybGoogleAuthService.generateGoogleOAuthUrl();
+
+    // Store state for validation
+    oauthStates.set(state, {
+      codeVerifier: '', // Google doesn't use PKCE code verifier
+      timestamp: Date.now(),
+    });
+
+    logger.info('✅ DVYB Google login initiated');
+
+    return res.json({
+      success: true,
+      data: {
+        oauth_url: oauthUrl,
+        state,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ DVYB Google login error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to initiate Google login',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/auth/google/callback
+ * Handle Google OAuth callback
+ */
+router.post('/google/callback', async (req: Request, res: Response) => {
+  try {
+    const { code, state } = req.body;
+
+    if (!code || !state) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing code or state',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Verify state
+    const stateData = oauthStates.get(state);
+    if (!stateData) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid or expired state',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    oauthStates.delete(state); // Clean up
+
+    // Handle callback
+    const { account, isNewAccount, onboardingComplete } = await DvybGoogleAuthService.handleGoogleCallback(
+      code,
+      state
+    );
+
+    // Set authentication cookie
     res.cookie('dvyb_account_id', account.id.toString(), {
       httpOnly: false,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       sameSite: 'lax',
     });
-    res.cookie('dvyb_twitter_handle', account.twitterHandle, {
-      httpOnly: false,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      sameSite: 'lax',
-    });
 
-    logger.info(`✅ DVYB Twitter callback successful for account ${account.id}, onboarding complete: ${onboardingComplete}`);
+    logger.info(`✅ DVYB Google authentication successful for account ${account.id}, onboarding complete: ${onboardingComplete}`);
 
     return res.json({
       success: true,
       data: {
         account_id: account.id,
-        twitter_handle: account.twitterHandle,
+        account_name: account.accountName,
+        email: account.primaryEmail,
         is_new_account: isNewAccount,
         onboarding_complete: onboardingComplete,
       },
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    logger.error('❌ DVYB Twitter callback error:', error);
+    logger.error('❌ DVYB Google callback error:', error);
     return res.status(500).json({
       success: false,
-      error: 'Twitter authentication failed',
+      error: 'Google authentication failed',
       timestamp: new Date().toISOString(),
     });
   }
@@ -144,37 +236,46 @@ router.get('/status', async (req: DvybAuthRequest, res: Response) => {
       });
     }
 
-    // Verify that account and Twitter connection actually exist in database
+    // Verify that account actually exists in database
     const accountIdNum = parseInt(accountId as string, 10);
-    const hasValidConnection = await DvybAuthService.hasValidTwitterConnection(accountIdNum);
+    const accountExists = await DvybAuthService.accountExists(accountIdNum);
 
-    if (!hasValidConnection) {
-      logger.info(`📊 DVYB Auth Status: No valid Twitter connection for account ${accountId}`);
+    if (!accountExists) {
+      logger.info(`📊 DVYB Auth Status: Account ${accountId} does not exist in database`);
       
-      // Clear invalid cookies
+      // Clear invalid cookies - account was deleted
       res.clearCookie('dvyb_account_id');
-      res.clearCookie('dvyb_twitter_handle');
       
       return res.json({
         success: true,
         data: {
           authenticated: false,
+          accountExists: false,
         },
         timestamp: new Date().toISOString(),
       });
     }
 
+    // Account exists - user is authenticated via Google
+    // Check if Google connection is valid (not expired)
+    const hasValidGoogleConnection = await DvybGoogleAuthService.hasValidGoogleConnection(accountIdNum);
+    
+    // Check if Twitter connection exists (optional, for engagement tracking)
+    const hasValidTwitterConnection = await DvybAuthService.hasValidTwitterConnection(accountIdNum);
+    
     // Check if onboarding is complete
     const onboardingComplete = await DvybAuthService.isOnboardingComplete(accountIdNum);
 
-    logger.info(`📊 DVYB Auth Status: Account ${accountId} authenticated, onboarding complete: ${onboardingComplete}`);
+    logger.info(`📊 DVYB Auth Status: Account ${accountId} authenticated, onboarding: ${onboardingComplete}, Google: ${hasValidGoogleConnection ? 'valid' : 'expired'}, Twitter: ${hasValidTwitterConnection ? 'connected' : 'not connected'}`);
     
     return res.json({
       success: true,
       data: {
-        authenticated: true,
+        authenticated: true, // ✅ User is authenticated if account exists
         accountId: accountIdNum,
-        hasValidTwitterConnection: hasValidConnection,
+        accountExists: true,
+        hasValidGoogleConnection,
+        hasValidTwitterConnection,
         onboardingComplete,
       },
       timestamp: new Date().toISOString(),
@@ -201,7 +302,6 @@ router.post('/logout', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
 
     // Clear cookies
     res.clearCookie('dvyb_account_id');
-    res.clearCookie('dvyb_twitter_handle');
 
     logger.info(`✅ DVYB account ${accountId} logged out successfully`);
 
@@ -215,6 +315,58 @@ router.post('/logout', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
     return res.status(500).json({
       success: false,
       error: 'Logout failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * DELETE /api/dvyb/auth/google/disconnect
+ * Disconnect Google account
+ */
+router.delete('/google/disconnect', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    await DvybGoogleAuthService.disconnect(accountId);
+
+    logger.info(`✅ Google disconnected for DVYB account ${accountId}`);
+
+    return res.json({
+      success: true,
+      message: 'Google disconnected successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ Google disconnect error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to disconnect Google',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * DELETE /api/dvyb/auth/twitter/disconnect
+ * Disconnect Twitter account
+ */
+router.delete('/twitter/disconnect', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId!;
+    await DvybAuthService.disconnectTwitter(accountId);
+
+    logger.info(`✅ Twitter disconnected for DVYB account ${accountId}`);
+
+    return res.json({
+      success: true,
+      message: 'Twitter disconnected successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ Twitter disconnect error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to disconnect Twitter',
       timestamp: new Date().toISOString(),
     });
   }

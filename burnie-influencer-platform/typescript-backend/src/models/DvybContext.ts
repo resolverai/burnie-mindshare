@@ -24,8 +24,25 @@ export class DvybContext {
   @Column({ type: 'text', nullable: true })
   targetAudience!: string | null;
 
+  @Column({ type: 'jsonb', nullable: true })
+  brandVoices!: {
+    purpose?: string;
+    audience?: string;
+    tone?: string[];
+    emotions?: string[];
+    character?: string[];
+    syntax?: string[];
+    language?: string;
+  } | null;
+
   @Column({ type: 'text', nullable: true })
-  brandVoice!: string | null;
+  brandVoice!: string | null; // Keeping for backward compatibility
+
+  @Column({ type: 'jsonb', nullable: true })
+  brandStyles!: {
+    visual_identity_description?: string[];
+    visual_identity_keywords?: string[];
+  } | null;
 
   @Column({ type: 'jsonb', nullable: true })
   contentPillars!: any | null; // Array of content themes
@@ -87,6 +104,9 @@ export class DvybContext {
   logoUrl!: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
+  additionalLogoUrls!: Array<{ url: string; presignedUrl: string; timestamp: string }> | null;
+
+  @Column({ type: 'jsonb', nullable: true })
   brandImages!: string[] | null; // Array of S3 URLs
 
   @Column({ type: 'jsonb', nullable: true })
@@ -121,6 +141,38 @@ export class DvybContext {
 
   @Column({ type: 'int', nullable: true, default: 7 })
   postsPerWeek!: number | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  contentPreferences!: {
+    // Design Preferences
+    featuredMedia?: {
+      text?: boolean;
+      image?: boolean;
+      video?: boolean;
+    };
+    brandKitMediaPriority?: 'only_brand_kit' | 'brand_kit_first' | 'only_stock';
+    brandKitMediaReuse?: 'never_reuse' | 'reuse_after_3_weeks';
+    alwaysIncludeBlogImages?: boolean;
+    
+    // Content Preferences
+    contentLanguage?: string; // e.g., 'en-us'
+    topicsToAvoid?: string[];
+    wordsToAvoid?: string[];
+    blogKeywords?: string[];
+    alwaysIncludeExternalLinks?: boolean;
+    externalUrlsToAvoid?: string[];
+    hashtags?: {
+      avoid?: string[];
+      include?: string[];
+    };
+    hashtagFrequency?: 'never' | 'sometimes' | 'always';
+    logoFrequency?: 'never' | 'sometimes' | 'always';
+    
+    // Call-to-Action Preferences
+    ctaLinks?: string[];
+    ctaCopy?: string;
+    ctaFrequency?: 'never' | 'sometimes' | 'always';
+  } | null;
 
   // Web3 specific fields
   @Column({ type: 'text', nullable: true })

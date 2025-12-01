@@ -15,6 +15,12 @@ export class DvybTwitterConnection {
   @Column({ type: 'varchar', length: 255 })
   twitterHandle!: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  name!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  profileImageUrl!: string | null;
+
   @Column({ type: 'text', nullable: true })
   oauth2AccessToken!: string | null;
 
