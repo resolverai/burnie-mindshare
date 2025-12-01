@@ -1,8 +1,6 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Loader2, XCircle, CheckCircle } from 'lucide-react'
 import { oauth1Api } from '@/lib/api'
@@ -125,6 +123,19 @@ function OAuth1CallbackContent() {
 }
 
 export default function OAuth1CallbackPage() {
-  return <OAuth1CallbackContent />
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-background via-background to-muted">
+        <div className="p-6 md:p-8 rounded-lg border bg-card border-border">
+          <div className="flex flex-col items-center space-y-4">
+            <Loader2 className="w-12 h-12 md:w-16 md:h-16 animate-spin text-primary" />
+            <p className="text-sm md:text-base text-center text-foreground">Loading...</p>
+          </div>
+        </div>
+      </div>
+    }>
+      <OAuth1CallbackContent />
+    </Suspense>
+  )
 }
 
