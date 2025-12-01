@@ -167,9 +167,36 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
 
       const platforms = post.requestedPlatforms || [];
       const mediaUrl = post.image; // S3 URL
-      // Detect video by checking the media URL
-      const isVideo = post.image && (post.image.includes('video') || post.image.includes('.mp4'));
-      const mediaType = isVideo ? 'video' : 'image';
+      
+      // Robust video detection - check multiple indicators
+      const detectMediaType = (url: string | undefined): 'image' | 'video' => {
+        if (!url) return 'image';
+        
+        const urlLower = url.toLowerCase();
+        
+        // Check file extension
+        if (urlLower.includes('.mp4') || urlLower.includes('.mov') || 
+            urlLower.includes('.avi') || urlLower.includes('.webm') ||
+            urlLower.includes('.mkv')) {
+          return 'video';
+        }
+        
+        // Check if URL contains 'video' keyword
+        if (urlLower.includes('video') || urlLower.includes('stitched_video')) {
+          return 'video';
+        }
+        
+        // Check post.type if available
+        if ((post as any).type === 'Video') {
+          return 'video';
+        }
+        
+        // Default to image
+        return 'image';
+      };
+      
+      const mediaType = detectMediaType(post.image);
+      console.log(`📋 Media type detected: ${mediaType} for URL: ${post.image?.substring(0, 80)}...`);
 
       // Get the full platform texts (not truncated)
       // Use fullPlatformTexts if available, otherwise fall back to description

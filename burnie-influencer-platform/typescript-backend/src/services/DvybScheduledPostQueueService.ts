@@ -88,11 +88,61 @@ export async function processDvybScheduledPost(job: Job): Promise<void> {
     logger.info(`📤 Posting to platforms: ${platforms.join(', ')}`);
     logger.info(`📝 Content type: ${content.mediaType}`);
     
-    // Call DvybPostingService to post to all platforms
+    // Generate fresh presigned URL if mediaUrl is expired or old
+    let freshMediaUrl = content.mediaUrl;
+    if (content.mediaUrl) {
+      try {
+        // Extract S3 key from URL (handles presigned URLs, direct URLs, and keys)
+        const extractS3Key = (url: string): string => {
+          if (!url) return '';
+          
+          try {
+            // Remove query parameters
+            if (url.includes('?')) {
+              const urlObj = new URL(url);
+              return decodeURIComponent(urlObj.pathname.substring(1));
+            }
+            
+            // Handle S3 URLs
+            if (url.includes('s3') && url.includes('amazonaws.com')) {
+              const urlObj = new URL(url);
+              return decodeURIComponent(urlObj.pathname.substring(1));
+            }
+            
+            // Already an S3 key
+            return url;
+          } catch {
+            return url;
+          }
+        };
+        
+        const s3Key = extractS3Key(content.mediaUrl);
+        logger.info(`🔑 Extracted S3 key: ${s3Key.substring(0, 80)}...`);
+        
+        // Generate fresh presigned URL
+        const { S3PresignedUrlService } = await import('./S3PresignedUrlService');
+        const s3Service = new S3PresignedUrlService();
+        const presignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600, true);
+        
+        if (presignedUrl) {
+          freshMediaUrl = presignedUrl;
+          logger.info(`✅ Generated fresh presigned URL for scheduled post`);
+        } else {
+          logger.warn(`⚠️ Failed to generate fresh presigned URL, using original`);
+        }
+      } catch (error: any) {
+        logger.warn(`⚠️ Error generating fresh presigned URL: ${error.message}, using original`);
+      }
+    }
+    
+    // Call DvybPostingService to post to all platforms with fresh URL
     const result = await DvybPostingService.postNow({
       accountId: schedule.accountId,
       platforms,
-      content,
+      content: {
+        ...content,
+        mediaUrl: freshMediaUrl, // Use fresh presigned URL
+      },
     });
     
     // Update schedule based on results

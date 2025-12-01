@@ -172,6 +172,24 @@ router.post('/schedule', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
       });
     }
 
+    // Server-side validation: Verify mediaType matches mediaUrl to prevent upload failures
+    const urlLower = content.mediaUrl.toLowerCase();
+    const isVideoUrl = urlLower.includes('.mp4') || urlLower.includes('.mov') || 
+                       urlLower.includes('.avi') || urlLower.includes('.webm') ||
+                       urlLower.includes('video') || urlLower.includes('stitched_video');
+    
+    if (isVideoUrl && content.mediaType === 'image') {
+      logger.warn(`⚠️ Media type mismatch detected! URL suggests video but mediaType is 'image'. Auto-correcting to 'video'`);
+      logger.warn(`   URL: ${content.mediaUrl.substring(0, 100)}...`);
+      content.mediaType = 'video'; // Auto-correct to prevent upload failures
+    } else if (!isVideoUrl && content.mediaType === 'video') {
+      logger.warn(`⚠️ Media type mismatch detected! URL suggests image but mediaType is 'video'. Auto-correcting to 'image'`);
+      logger.warn(`   URL: ${content.mediaUrl.substring(0, 100)}...`);
+      content.mediaType = 'image'; // Auto-correct to prevent upload failures
+    }
+    
+    logger.info(`✅ Media type validated: ${content.mediaType} for URL: ${content.mediaUrl.substring(0, 80)}...`);
+
     // Validate scheduledFor is a valid future date
     const scheduledDate = new Date(scheduledFor);
     if (isNaN(scheduledDate.getTime())) {
@@ -200,14 +218,22 @@ router.post('/schedule', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
     let schedule: any = null;
     
     if (content.generatedContentId && content.postIndex !== undefined) {
-      // Try to find existing pending schedule for this specific content and post
+      // Try to find existing schedule for this specific content and post
+      // Search for: pending, failed, OR posted-with-errors (to allow retries)
       const existingSchedules = await scheduleRepo
         .createQueryBuilder('schedule')
         .where('schedule.accountId = :accountId', { accountId })
         .andWhere('schedule.generatedContentId = :generatedContentId', { 
           generatedContentId: content.generatedContentId 
         })
-        .andWhere('schedule.status = :status', { status: 'pending' })
+        .andWhere(
+          '(schedule.status = :pendingStatus OR schedule.status = :failedStatus OR (schedule.status = :postedStatus AND schedule.errorMessage IS NOT NULL))',
+          { 
+            pendingStatus: 'pending', 
+            failedStatus: 'failed',
+            postedStatus: 'posted'
+          }
+        )
         .getMany();
       
       // Filter by postIndex in postMetadata
@@ -217,9 +243,9 @@ router.post('/schedule', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
       });
       
       if (schedule) {
-        logger.info(`📝 Found existing schedule ${schedule.id} - updating instead of creating new`);
+        logger.info(`📝 Found existing schedule ${schedule.id} (status: ${schedule.status}) - updating for retry`);
         
-        // Remove old BullMQ job before updating
+        // Remove old BullMQ job before updating (if any)
         try {
           await removeScheduledPost(schedule.id);
           logger.info(`🗑️ Removed old BullMQ job for schedule ${schedule.id}`);
@@ -227,15 +253,20 @@ router.post('/schedule', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
           logger.warn(`⚠️ Could not remove old BullMQ job: ${error.message}`);
         }
         
-        // Update existing schedule
+        // Update existing schedule and reset to pending
         schedule.scheduledFor = scheduledDate;
         schedule.timezone = timezone || 'UTC';
         schedule.platform = platforms.join(',');
+        schedule.status = 'pending'; // Reset to pending for retry
+        schedule.postedAt = null; // Clear postedAt for retry
+        schedule.errorMessage = null; // Clear previous errors
         schedule.postMetadata = {
           platforms,
           content,
           postIndex: content.postIndex,
         };
+        
+        logger.info(`🔄 Schedule ${schedule.id} reset to pending for retry at ${scheduledDate.toISOString()}`);
       }
     }
     
