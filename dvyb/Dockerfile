@@ -15,20 +15,17 @@ ENV NODE_ENV=${NODE_ENV:-production}
 COPY package*.json ./
 COPY bun.lock* ./
 
+# Set npm config to use legacy-peer-deps globally (so Next.js auto-installs also use it)
+RUN npm config set legacy-peer-deps true
+
 # Install dependencies (cached layer if package files unchanged)
-RUN npm install --legacy-peer-deps
+RUN npm ci
 
 # Copy .env files if they exist (fallback for NEXT_PUBLIC_ variables during build)
 COPY .env* ./
 
 # Copy source code (only invalidates cache when source changes)
 COPY . .
-
-# Remove node_modules if accidentally copied
-RUN rm -rf node_modules
-
-# Reinstall to ensure clean state
-RUN npm ci --legacy-peer-deps
 
 # Build the application (NEXT_PUBLIC_ vars from build args + .env will be embedded)
 RUN npm run build
