@@ -110,22 +110,10 @@ export const BrandKit = ({ onContinue }: BrandKitProps) => {
     try {
       const response = await uploadApi.uploadLogo(files[0]);
       if (response.success) {
-        // Store the regular S3 URL in state temporarily
-        setLogoUrl((response as any).data.url || (response as any).data.s3_key);
+        // Use the presigned URL from the upload response immediately
+        setLogoUrl(response.data.presignedUrl || response.data.s3_key);
         
-        // Re-fetch context to get the presigned URL
-        setTimeout(async () => {
-          try {
-            const contextResponse = await contextApi.getContext();
-            if (contextResponse.success && contextResponse.data) {
-              setLogoUrl((contextResponse.data as any).logoPresignedUrl || contextResponse.data.logoUrl || null);
-            }
-          } catch (error) {
-            console.error('Failed to fetch updated context:', error);
-          }
-        }, 1000);
-        
-        return [(response as any).data.url || (response as any).data.s3_key];
+        return [response.data.presignedUrl || response.data.s3_key];
       }
       throw new Error('Upload failed');
     } catch (error) {

@@ -199,6 +199,7 @@ export function FileDropZone({
                   width={150}
                   height={150}
                   className="object-contain max-h-[150px]"
+                  unoptimized
                 />
                 {onRemove && (
                   <button
@@ -262,6 +263,7 @@ export function FileDropZone({
                   width={150}
                   height={150}
                   className="w-full h-24 sm:h-28 md:h-32 object-cover rounded-lg"
+                  unoptimized
                 />
                 {onRemove && (
                   <button

@@ -56,7 +56,7 @@ class DvybAdhocGenerationRequest(BaseModel):
     user_prompt: Optional[str] = None
     user_images: Optional[List[str]] = None  # S3 URLs
     inspiration_links: Optional[List[str]] = None
-    clips_per_video: Optional[int] = 2  # Default 2 clips (16s), can be 1 (8s) or 3 (24s)
+    clips_per_video: Optional[int] = 1  # Default 1 clip (8s), can be 2 (16s) or 3 (24s)
 
 
 class DvybAdhocGenerationResponse(BaseModel):
@@ -987,7 +987,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     
     # Video configuration (Veo3.1 specific)
     # Configurable: 1 clip = 8s, 2 clips = 16s, 3 clips = 24s, etc.
-    CLIPS_PER_VIDEO = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 2
+    CLIPS_PER_VIDEO = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 1
     CLIP_DURATION = 8  # Veo3.1 only supports 8-second clips
     VIDEO_DURATION = CLIPS_PER_VIDEO * CLIP_DURATION
     
@@ -1817,10 +1817,10 @@ CRITICAL REQUIREMENTS:
         print(f"  Nudge: {nudge}")
         print(f"  Web3: {web3}")
         
-        # Store video configuration
-        CLIPS_PER_VIDEO = 2  # From earlier definition
-        CLIP_DURATION = 8
-        VIDEO_DURATION = CLIPS_PER_VIDEO * CLIP_DURATION
+        # Store video configuration (use the value from request)
+        # CLIPS_PER_VIDEO is already defined earlier in the function
+        # CLIPS_PER_VIDEO = 1 (default), CLIP_DURATION = 8s, VIDEO_DURATION = 8s
+        # No need to redefine here - just use the existing variables
         
         # Extract image prompts for image-only posts
         image_only_indices = [i for i in range(number_of_posts) if i not in video_indices]

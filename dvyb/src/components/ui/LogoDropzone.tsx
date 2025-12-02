@@ -69,6 +69,7 @@ export function LogoDropzone({ logoUrl, onUpload, uploading }: LogoDropzoneProps
               alt="Logo"
               fill
               className="object-contain p-2"
+              unoptimized
             />
           </div>
           <p className="text-xs text-muted-foreground">Drag & drop to replace</p>

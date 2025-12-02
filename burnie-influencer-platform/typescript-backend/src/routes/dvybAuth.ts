@@ -190,6 +190,7 @@ router.post('/google/callback', async (req: Request, res: Response) => {
     // Set authentication cookie
     res.cookie('dvyb_account_id', account.id.toString(), {
       httpOnly: false,
+      secure: process.env.NODE_ENV === 'production', // Required for HTTPS
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       sameSite: 'lax',
     });
