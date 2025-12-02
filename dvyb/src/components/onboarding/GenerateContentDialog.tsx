@@ -13,7 +13,7 @@ import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin } from "lu
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { adhocGenerationApi, postingApi, oauth1Api } from "@/lib/api";
+import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
@@ -22,6 +22,7 @@ import { FileDropZone } from "@/components/ui/file-drop-zone";
 interface GenerateContentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialJobId?: string | null; // For onboarding auto-generation
 }
 
 type Step = "topic" | "platform" | "context" | "review" | "generating" | "results";
@@ -60,7 +61,7 @@ const PLATFORMS = [
   },
 ];
 
-export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDialogProps) => {
+export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: GenerateContentDialogProps) => {
   const [step, setStep] = useState<Step>("topic");
   const [selectedTopic, setSelectedTopic] = useState<string>("");
   const [customTopic, setCustomTopic] = useState("");
@@ -70,6 +71,8 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
   const [uploadedS3Urls, setUploadedS3Urls] = useState<string[]>([]);
   const [inspirationLinks, setInspirationLinks] = useState<string[]>([""]);
   const [postCount, setPostCount] = useState([2]);
+  const [sliderMax, setSliderMax] = useState(4);
+  const [usageData, setUsageData] = useState<any>(null);
   const [generatedPosts, setGeneratedPosts] = useState<any[]>([]);
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [showPostDetail, setShowPostDetail] = useState(false);
@@ -88,7 +91,91 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
   const [progressMessage, setProgressMessage] = useState("");
   const [postSchedules, setPostSchedules] = useState<Record<string, any>>({});
   const [generatedContentId, setGeneratedContentId] = useState<number | null>(null);
+  const [showAuthDialog, setShowAuthDialog] = useState(false);
+  const [authPlatforms, setAuthPlatforms] = useState<string[]>([]);
+  const [currentAuthIndex, setCurrentAuthIndex] = useState(0);
   const { toast } = useToast();
+
+  // Fetch usage data when dialog opens
+  useEffect(() => {
+    if (open) {
+      const fetchUsageData = async () => {
+        try {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
+            credentials: 'include',
+          });
+          const data = await response.json();
+          
+          console.log('📊 Usage data fetched:', data.data);
+          
+          if (data.success && data.data) {
+            setUsageData(data.data);
+            
+            // Calculate slider max: min(4, remainingPosts)
+            const remainingPosts = data.data.remainingImages + data.data.remainingVideos;
+            const maxPosts = Math.min(4, Math.max(1, remainingPosts)); // At least 1, max 4
+            
+            console.log(`🎚️ Setting slider max to ${maxPosts} (remaining: ${remainingPosts})`);
+            setSliderMax(maxPosts);
+            
+            // Adjust current post count if it exceeds new max
+            if (postCount[0] > maxPosts) {
+              console.log(`⚠️ Adjusting postCount from ${postCount[0]} to ${maxPosts}`);
+              setPostCount([maxPosts]);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to fetch usage data:', error);
+        }
+      };
+      
+      fetchUsageData();
+    } else {
+      // Reset when dialog closes
+      setSliderMax(4);
+      setPostCount([2]);
+      setUsageData(null);
+    }
+  }, [open]);
+
+  // Handle onboarding auto-generation
+  useEffect(() => {
+    if (open && initialJobId) {
+      console.log('🎉 Auto-opening with onboarding generation job:', initialJobId);
+      
+      // Set initial state for onboarding generation
+      setSelectedTopic('Product Launch');
+      setSelectedPlatforms(['twitter']);  // Twitter only for faster demo
+      setJobId(initialJobId);
+      setGenerationUuid(initialJobId); // May be uuid format
+      setPostCount([2]);
+      
+      // Create placeholder posts
+      const placeholders = Array.from({ length: 2 }, (_, i) => ({
+        id: String(i + 1),
+        date: new Date().toISOString().split('T')[0],
+        time: "10:00 AM",
+        type: "Loading",
+        platforms: ['twitter'],  // Twitter only for faster demo
+        requestedPlatforms: ['twitter'],  // Twitter only for faster demo
+        title: 'Product Launch',
+        description: "Generating content...",
+        image: null,
+        platformTexts: {},
+        isGenerating: true,
+      }));
+      
+      setGeneratedPosts(placeholders);
+      
+      // Skip directly to results step
+      setStep("results");
+      
+      // Start polling immediately
+      setTimeout(() => {
+        pollGenerationStatus();
+      }, 1000);
+    }
+  }, [open, initialJobId]);
 
   const handleFilesSelected = async (files: File[]): Promise<string[]> => {
     try {
@@ -110,7 +197,40 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
   };
 
   const handleGenerate = async () => {
-    const topic = selectedTopic || customTopic;
+    const topic = customTopic || selectedTopic;
+    
+    // Calculate mix based on remaining limits
+    let numberOfImages = 0;
+    let numberOfVideos = 0;
+    
+    if (usageData) {
+      const totalPosts = postCount[0];
+      const { remainingImages, remainingVideos } = usageData;
+      
+      // Default: 2 videos, 2 images (maximize videos for odd numbers)
+      // But respect remaining limits
+      const defaultVideos = Math.ceil(totalPosts / 2);
+      const defaultImages = totalPosts - defaultVideos;
+      
+      // Apply limits
+      numberOfVideos = Math.min(defaultVideos, remainingVideos);
+      numberOfImages = Math.min(defaultImages, remainingImages);
+      
+      // If we couldn't get enough videos, convert to images
+      const shortfall = totalPosts - (numberOfVideos + numberOfImages);
+      if (shortfall > 0 && remainingImages > numberOfImages) {
+        numberOfImages += Math.min(shortfall, remainingImages - numberOfImages);
+      }
+      
+      // If we couldn't get enough images, convert to videos
+      if (numberOfVideos + numberOfImages < totalPosts && remainingVideos > numberOfVideos) {
+        numberOfVideos += Math.min(totalPosts - (numberOfVideos + numberOfImages), remainingVideos - numberOfVideos);
+      }
+      
+      console.log(`📊 Generating ${totalPosts} posts: ${numberOfImages} images, ${numberOfVideos} videos`);
+      console.log(`📊 Remaining limits: ${remainingImages} images, ${remainingVideos} videos`);
+      console.log(`📊 Default split: ${defaultVideos} videos, ${defaultImages} images`);
+    }
     
     // Immediately show grid with placeholder posts
     const placeholders = Array.from({ length: postCount[0] }, (_, i) => ({
@@ -140,6 +260,8 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
         topic,
         platforms: selectedPlatforms,
         number_of_posts: postCount[0],
+        number_of_images: numberOfImages,
+        number_of_videos: numberOfVideos,
         user_prompt: contextText || undefined,
         user_images: s3Keys,  // Send S3 keys, not presigned URLs
         inspiration_links: inspirationLinks.filter(link => link.trim()).length > 0 
@@ -194,16 +316,30 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
               if (progressiveItem) {
                 // Use progressive content (real-time update)
                 const isVideo = progressiveItem.contentType === 'video';
+                const platformTextsObj = progressiveItem.platformText?.platforms || {};
+                const firstPlatform = selectedPlatforms[0] || 'instagram';
+                
+                // Ensure requestedPlatforms is always an array
+                const platforms = Array.isArray(data?.requestedPlatforms) && data.requestedPlatforms.length > 0
+                  ? data.requestedPlatforms
+                  : selectedPlatforms;
+                
+                console.log('🔍 Progressive update - Post', index, ':', {
+                  'data.requestedPlatforms': data?.requestedPlatforms,
+                  'selectedPlatforms': selectedPlatforms,
+                  'final platforms': platforms
+                });
+                
                 return {
                   ...post,
                   type: isVideo ? "Video" : "Post",
                   title: progressiveItem.platformText?.topic || post.title,
-                  description: progressiveItem.platformText?.platforms?.[selectedPlatforms[0]] || post.description,
+                  description: platformTextsObj[firstPlatform] || Object.values(platformTextsObj)[0] || "Content ready",
                   image: progressiveItem.contentUrl,
-                  platformTexts: progressiveItem.platformText?.platforms || {},
+                  platformTexts: platformTextsObj,
                   generatedContentId: data?.id, // Store the dvyb_generated_content.id
                   postIndex: index, // Store the index within the arrays
-                  requestedPlatforms: data?.requestedPlatforms || selectedPlatforms, // Store platforms from backend
+                  requestedPlatforms: platforms, // Store platforms with fallback
                   isGenerating: false,
                 };
               }
@@ -217,16 +353,30 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
               
               // If media is available, update the placeholder
               if (mediaUrl && textEntry) {
+                const platformTextsObj = textEntry.platforms || {};
+                const firstPlatform = selectedPlatforms[0] || 'instagram';
+                
+                // Ensure requestedPlatforms is always an array
+                const platforms = Array.isArray(data?.requestedPlatforms) && data.requestedPlatforms.length > 0
+                  ? data.requestedPlatforms
+                  : selectedPlatforms;
+                
+                console.log('🔍 Fallback update - Post', index, ':', {
+                  'data.requestedPlatforms': data?.requestedPlatforms,
+                  'selectedPlatforms': selectedPlatforms,
+                  'final platforms': platforms
+                });
+                
                 return {
                   ...post,
                   type: isClip ? "Video" : "Post",
                   title: textEntry.topic || post.title,
-                  description: textEntry.platforms?.[selectedPlatforms[0]] || post.description,
+                  description: platformTextsObj[firstPlatform] || Object.values(platformTextsObj)[0] || "Content ready",
                   image: mediaUrl,
-                  platformTexts: textEntry.platforms || {},
+                  platformTexts: platformTextsObj,
                   generatedContentId: data?.id, // Store the dvyb_generated_content.id
                   postIndex: index, // Store the index within the arrays
-                  requestedPlatforms: data?.requestedPlatforms || selectedPlatforms, // Store platforms from backend
+                  requestedPlatforms: platforms, // Store platforms with fallback
                   isGenerating: false,
                 };
               }
@@ -296,7 +446,38 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
   };
 
   const handleScheduleClick = (post: any) => {
-    setSelectedPost(post);
+    // Use platforms from post data (saved during generation), not current state
+    // Multiple fallbacks to ensure platforms are never empty
+    let platforms = post.requestedPlatforms || post.platforms || selectedPlatforms;
+    
+    // Extra safeguard: If still empty (shouldn't happen), use auto-gen default
+    if (!platforms || platforms.length === 0) {
+      platforms = ['twitter']; // Default for auto-generation (Twitter only for faster demo)
+      console.warn('⚠️ No platforms found in handleScheduleClick, using default:', platforms);
+    }
+    
+    // Create updated post object with guaranteed platforms and generatedContentId
+    const updatedPost = {
+      ...post,
+      requestedPlatforms: platforms,
+      platforms: platforms,
+      generatedContentId: post.generatedContentId || generatedContentId,
+    };
+    
+    console.log('🗓️ handleScheduleClick - Post data:', {
+      'post.generatedContentId': post.generatedContentId,
+      'state generatedContentId': generatedContentId,
+      'final generatedContentId': updatedPost.generatedContentId,
+      'post.requestedPlatforms': post.requestedPlatforms,
+      'post.platforms': post.platforms,
+      'selectedPlatforms': selectedPlatforms,
+      'final platforms': platforms,
+      'platforms length': platforms?.length,
+      'post.postIndex': post.postIndex,
+      'updatedPost': updatedPost
+    });
+    
+    setSelectedPost(updatedPost);
     setShowScheduleDialog(true);
   };
 
@@ -307,36 +488,267 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
     }
   };
 
+  const handleAuthPlatform = async () => {
+    if (currentAuthIndex >= authPlatforms.length) {
+      // All OAuth2 platforms authorized, now check OAuth1 for Twitter videos
+      setShowAuthDialog(false);
+      
+      if (pendingPost) {
+        const platforms = pendingPost.requestedPlatforms || selectedPlatforms;
+        
+        // If Twitter video, check OAuth1 AFTER OAuth2 is complete
+        if (platforms.includes('twitter') && pendingPost.type === 'Video') {
+          try {
+            const oauth1Status = await oauth1Api.getOAuth1Status();
+            if (!oauth1Status.data.oauth1Valid) {
+              // Show OAuth1 authorization needed
+              toast({
+                title: "Additional Authorization Required",
+                description: "Video posting to Twitter requires OAuth1 authorization",
+                variant: "default",
+              });
+              await initiateOAuth1Flow();
+              return; // OAuth1 flow will call startPosting when complete
+            }
+          } catch (error) {
+            console.error('OAuth1 check error:', error);
+          }
+        }
+        
+        // All auth complete, proceed with posting
+        await startPosting(pendingPost);
+      }
+      return;
+    }
+
+    const platform = authPlatforms[currentAuthIndex];
+
+    try {
+      let authUrlResponse;
+      
+      switch (platform) {
+        case 'twitter':
+          authUrlResponse = await authApi.getTwitterLoginUrl();
+          break;
+        case 'instagram':
+          authUrlResponse = await socialConnectionsApi.getInstagramAuthUrl();
+          break;
+        case 'linkedin':
+          authUrlResponse = await socialConnectionsApi.getLinkedInAuthUrl();
+          break;
+        case 'tiktok':
+          authUrlResponse = await socialConnectionsApi.getTikTokAuthUrl();
+          break;
+        default:
+          throw new Error(`Unsupported platform: ${platform}`);
+      }
+
+      // Open auth popup
+      const width = 600;
+      const height = 700;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+
+      const popup = window.open(
+        authUrlResponse.data.authUrl || authUrlResponse.data.oauth_url,
+        `${platform}_auth`,
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+
+      // Listen for auth completion
+      const handleMessage = async (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        
+        // Handle different message types for different platforms
+        const successTypes = [
+          'twitter_connected',
+          'instagram_connected', 
+          'linkedin_connected',
+          'tiktok_connected',
+          `${platform}_auth_success`
+        ];
+        
+        if (successTypes.includes(event.data.type)) {
+          window.removeEventListener('message', handleMessage);
+          popup?.close();
+          
+          toast({
+            title: "Connected!",
+            description: `${platform.charAt(0).toUpperCase() + platform.slice(1)} OAuth2 connected`,
+          });
+          
+          // If this is Twitter AND it's a video, check OAuth1 before moving to next platform
+          if (platform === 'twitter' && pendingPost?.type === 'Video') {
+            try {
+              const oauth1Status = await oauth1Api.getOAuth1Status();
+              if (!oauth1Status.data.oauth1Valid) {
+                // Need OAuth1 for Twitter video
+                toast({
+                  title: "Video Authorization Required",
+                  description: "Twitter video posting requires additional authorization (OAuth1)",
+                  variant: "default",
+                });
+                
+                // Hide OAuth2 dialog temporarily
+                setShowAuthDialog(false);
+                
+                // Initiate OAuth1 flow
+                await initiateOAuth1Flow();
+                
+                // After OAuth1 completes, it will call startPosting
+                // But we need to continue with other platforms first
+                // So we'll handle this differently - move to next platform after OAuth1
+                return;
+              }
+            } catch (error) {
+              console.error('OAuth1 check error:', error);
+            }
+          }
+          
+          // Move to next platform or finish
+          if (currentAuthIndex + 1 < authPlatforms.length) {
+            setCurrentAuthIndex(currentAuthIndex + 1);
+            // Dialog stays open for next platform
+          } else {
+            // All OAuth2 platforms done - close dialog and proceed
+            setShowAuthDialog(false);
+            
+            // Check if Twitter video needs OAuth1
+            if (pendingPost && pendingPost.type === 'Video' && 
+                (pendingPost.requestedPlatforms || []).includes('twitter')) {
+              try {
+                const oauth1Status = await oauth1Api.getOAuth1Status();
+                if (!oauth1Status.data.oauth1Valid) {
+                  toast({
+                    title: "Additional Authorization Required",
+                    description: "Video posting to Twitter requires OAuth1 authorization",
+                    variant: "default",
+                  });
+                  await initiateOAuth1Flow();
+                  return; // OAuth1 flow will call startPosting when complete
+                }
+              } catch (error) {
+                console.error('OAuth1 check error:', error);
+              }
+            }
+            
+            // All auth complete, proceed with posting
+            if (pendingPost) {
+              await startPosting(pendingPost);
+            }
+          }
+        }
+      };
+
+      window.addEventListener('message', handleMessage);
+
+      // Check if popup was blocked
+      if (!popup) {
+        throw new Error('Popup blocked. Please allow popups for this site.');
+      }
+      
+      // Cleanup after 5 minutes
+      setTimeout(() => {
+        window.removeEventListener('message', handleMessage);
+      }, 5 * 60 * 1000);
+    } catch (error: any) {
+      toast({
+        title: "Authorization Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      setShowAuthDialog(false);
+    }
+  };
+
   const handlePostNowClick = async (post: any) => {
-    setSelectedPost(post);
-    setPendingPost(post);
-
     // Use platforms from post data (saved during generation), not current state
-    const platforms = post.requestedPlatforms || selectedPlatforms;
+    // Multiple fallbacks to ensure platforms are never empty
+    let platforms = post.requestedPlatforms || post.platforms || selectedPlatforms;
+    
+    // Extra safeguard: If still empty (shouldn't happen), use auto-gen default
+    if (!platforms || platforms.length === 0) {
+      platforms = ['twitter']; // Default for auto-generation (Twitter only for faster demo)
+      console.warn('⚠️ No platforms found in handlePostNowClick, using default:', platforms);
+    }
+    
+    // Create updated post object with guaranteed platforms
+    const updatedPost = {
+      ...post,
+      requestedPlatforms: platforms,
+      platforms: platforms,
+    };
+    
+    setSelectedPost(updatedPost);
+    setPendingPost(updatedPost);
+    
+    const mediaType = post.type === 'Video' ? 'video' : 'image';
+    
+    console.log('🚀 handlePostNowClick - Platforms:', {
+      'post.requestedPlatforms': post.requestedPlatforms,
+      'post.platforms': post.platforms,
+      'selectedPlatforms': selectedPlatforms,
+      'final platforms': platforms,
+      'platforms length': platforms?.length,
+    });
 
-    // Check if Twitter video and needs OAuth1 (only videos require OAuth1)
-    if (platforms.includes('twitter') && post.type === 'Video') {
-      try {
+    try {
+      // IMPORTANT: Always validate OAuth2 only (not OAuth1) to avoid confusion
+      // OAuth1 for Twitter videos is checked separately below
+      const validation = await postingApi.validateTokens({
+        platforms,
+        requireOAuth1ForTwitterVideo: false, // ✅ Always false - check OAuth1 separately
+      });
+
+      console.log('🔍 Token validation result:', validation.data);
+
+      // Check if any platforms need OAuth2 reauth or are not connected
+      const platformsNeedingAuth = validation.data.platforms
+        .filter((p: any) => p.requiresReauth || !p.connected)
+        .map((p: any) => p.platform);
+
+      if (platformsNeedingAuth.length > 0) {
+        // Platforms need OAuth2 - use sequential auth flow
+        console.log('🔐 Platforms needing OAuth2:', platformsNeedingAuth);
+        setAuthPlatforms(platformsNeedingAuth);
+        setCurrentAuthIndex(0);
+        setShowAuthDialog(true);
+        return; // OAuth2 flow will handle OAuth1 check after completion
+      }
+
+      // All OAuth2 tokens valid - now check OAuth1 for Twitter videos
+      if (platforms.includes('twitter') && post.type === 'Video') {
+        console.log('📹 Twitter video detected - checking OAuth1 status');
         const oauth1Status = await oauth1Api.getOAuth1Status();
+        console.log('🔍 OAuth1 status:', oauth1Status.data);
+        
         // Check if OAuth1 token is valid (not just present)
         if (!oauth1Status.data.oauth1Valid) {
+          console.log('⚠️ OAuth1 not valid - initiating OAuth1 flow');
           setNeedsOAuth1(true);
           toast({
-            title: "Additional Authorization Required",
-            description: "Video posting to Twitter requires OAuth1 authorization. Please authorize in the popup.",
+            title: "Video Authorization Required",
+            description: "Twitter video posting requires additional authorization (OAuth1). Please authorize in the popup.",
             variant: "default",
           });
           // Initiate OAuth1 flow
           await initiateOAuth1Flow();
           return;
         }
-      } catch (error) {
-        console.error('Error checking OAuth1 status:', error);
+        console.log('✅ OAuth1 valid - proceeding with posting');
       }
-    }
 
-    // Proceed with posting
-    await startPosting(post);
+      // All validations passed, proceed with posting
+      console.log('🚀 All auth checks passed - starting post');
+      await startPosting(post);
+    } catch (error: any) {
+      console.error('Error in Post Now flow:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to validate platform connections",
+        variant: "destructive",
+      });
+    }
   };
 
   const initiateOAuth1Flow = async () => {
@@ -388,9 +800,16 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
             description: "You can now post videos to Twitter!",
           });
 
-          // Proceed with posting if we have a pending post
-          if (pendingPost) {
-            await startPosting(pendingPost);
+          // Check if we're in multi-platform auth flow
+          if (authPlatforms.length > 0 && currentAuthIndex + 1 < authPlatforms.length) {
+            // More platforms need auth - move to next platform
+            setCurrentAuthIndex(currentAuthIndex + 1);
+            setShowAuthDialog(true); // Re-show dialog for next platform
+    } else {
+            // All platforms authorized (or single platform flow), proceed with posting
+            if (pendingPost) {
+              await startPosting(pendingPost);
+            }
           }
         } else if (event.data.type === 'oauth1_error') {
           window.removeEventListener('message', handleMessage);
@@ -433,7 +852,22 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
       const mediaType = post.type === 'Video' ? 'video' : 'image';
       
       // Use platforms from post data (saved during generation), not current state
-      const platforms = post.requestedPlatforms || selectedPlatforms;
+      // Multiple fallbacks to ensure platforms are never empty
+      let platforms = post.requestedPlatforms || selectedPlatforms;
+      
+      // Extra safeguard: If still empty (shouldn't happen), use auto-gen default
+      if (!platforms || platforms.length === 0) {
+        platforms = ['twitter']; // Default for auto-generation (Twitter only for faster demo)
+        console.warn('⚠️ No platforms found, using default:', platforms);
+      }
+      
+      console.log('🚀 Start Posting - Post data:', {
+        'post.requestedPlatforms': post.requestedPlatforms,
+        'selectedPlatforms': selectedPlatforms,
+        'final platforms': platforms,
+        'platforms length': platforms?.length,
+        'post': post
+      });
 
       // Call posting API
       const response = await postingApi.postNow({
@@ -518,22 +952,26 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
     switch (step) {
       case "topic":
         return (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-5 md:space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Choose a topic</h2>
-              <p className="text-muted-foreground">Select a topic or add your own</p>
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2">Choose a topic</h2>
+              <p className="text-sm sm:text-base text-muted-foreground">Select a topic or add your own</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
               {TOPICS.map((topic) => (
                 <Card
                   key={topic}
-                  className={`p-6 cursor-pointer transition-all hover:border-primary ${
+                  className={`p-4 sm:p-5 md:p-6 cursor-pointer transition-all hover:border-primary ${
                     selectedTopic === topic ? "border-primary bg-primary/5" : ""
                   }`}
-                  onClick={() => setSelectedTopic(topic)}
+                  onClick={() => {
+                    setSelectedTopic(topic);
+                    setCustomTopic(""); // Clear custom topic when selecting a predefined topic
+                    setShowCustomTopic(false); // Hide custom topic input
+                  }}
                 >
-                  <p className="font-medium text-center">{topic}</p>
+                  <p className="font-medium text-center text-sm sm:text-base">{topic}</p>
                 </Card>
               ))}
             </div>
@@ -543,14 +981,18 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
                 <Input
                   placeholder="Enter your custom topic..."
                   value={customTopic}
-                  onChange={(e) => setCustomTopic(e.target.value)}
+                  onChange={(e) => {
+                    setCustomTopic(e.target.value);
+                    setSelectedTopic(""); // Clear selected topic when typing custom topic
+                  }}
+                  className="text-sm sm:text-base"
                   autoFocus
                 />
               </div>
             ) : (
               <Button
                 variant="outline"
-                className="w-full gap-2"
+                className="w-full gap-2 text-sm sm:text-base h-10 sm:h-11"
                 onClick={() => setShowCustomTopic(true)}
               >
                 <Plus className="w-4 h-4" />
@@ -559,7 +1001,7 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
             )}
 
             <Button
-              className="w-full"
+              className="w-full text-sm sm:text-base h-10 sm:h-11"
               disabled={!selectedTopic && !customTopic}
               onClick={() => setStep("platform")}
             >
@@ -570,17 +1012,17 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
 
       case "platform":
         return (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-5 md:space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Choose platform(s)</h2>
-              <p className="text-muted-foreground">Select where you want to post</p>
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2">Choose platform(s)</h2>
+              <p className="text-sm sm:text-base text-muted-foreground">Select where you want to post</p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 md:gap-4">
               {PLATFORMS.map((platform) => (
                 <Card
                   key={platform.id}
-                  className={`p-6 cursor-pointer transition-all hover:border-primary ${
+                  className={`p-4 sm:p-5 md:p-6 cursor-pointer transition-all hover:border-primary ${
                     selectedPlatforms.includes(platform.id) ? "border-primary bg-primary/5" : ""
                   }`}
                   onClick={() => {
@@ -591,22 +1033,22 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
                     );
                   }}
                 >
-                  <div className="flex flex-col items-center gap-2">
-                    <div className={`w-12 h-12 rounded-full ${platform.color} flex items-center justify-center text-white`}>
-                      <platform.IconComponent className="w-6 h-6" />
+                  <div className="flex flex-col items-center gap-1.5 sm:gap-2">
+                    <div className={`w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full ${platform.color} flex items-center justify-center text-white`}>
+                      <platform.IconComponent className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7" />
                     </div>
-                    <p className="font-medium">{platform.name}</p>
+                    <p className="font-medium text-xs sm:text-sm md:text-base text-center">{platform.name}</p>
                   </div>
                 </Card>
               ))}
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setStep("topic")}>
+              <Button variant="outline" className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("topic")}>
                 Back
               </Button>
               <Button
-                className="flex-1"
+                className="flex-1 text-sm sm:text-base h-10 sm:h-11"
                 disabled={selectedPlatforms.length === 0}
                 onClick={() => setStep("context")}
               >
@@ -618,25 +1060,26 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
 
       case "context":
         return (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-5 md:space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Add context</h2>
-              <p className="text-muted-foreground">Provide additional details for better content</p>
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2">Add context</h2>
+              <p className="text-sm sm:text-base text-muted-foreground">Provide additional details for better content</p>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium mb-2 block">Instructions</label>
+                <label className="text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 block">Instructions</label>
                 <Textarea
                   placeholder="Add any specific instructions or context..."
                   value={contextText}
                   onChange={(e) => setContextText(e.target.value)}
                   rows={4}
+                  className="text-sm sm:text-base"
                 />
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-2 block">Upload files</label>
+                <label className="text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 block">Upload files</label>
                 <FileDropZone
                   onFilesSelected={handleFilesSelected}
                   accept="image/*"
@@ -650,7 +1093,7 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-2 block">Inspiration links</label>
+                <label className="text-xs sm:text-sm font-medium mb-1.5 sm:mb-2 block">Inspiration links</label>
                 <div className="space-y-2">
                   {inspirationLinks.map((link, idx) => (
                     <div key={idx} className="flex gap-2">
@@ -662,11 +1105,13 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
                           newLinks[idx] = e.target.value;
                           setInspirationLinks(newLinks);
                         }}
+                        className="text-sm sm:text-base"
                       />
                       {inspirationLinks.length > 1 && (
                         <Button
                           variant="ghost"
                           size="icon"
+                          className="h-10 w-10 flex-shrink-0"
                           onClick={() => setInspirationLinks(prev => prev.filter((_, i) => i !== idx))}
                         >
                           <X className="w-4 h-4" />
@@ -677,21 +1122,21 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-2"
+                    className="gap-2 text-sm h-9 sm:h-10"
                     onClick={() => setInspirationLinks(prev => [...prev, ""])}
                   >
-                    <Plus className="w-4 h-4" />
-                    Add another link
+                    <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <span className="text-xs sm:text-sm">Add another link</span>
                   </Button>
                 </div>
               </div>
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setStep("platform")}>
+              <Button variant="outline" className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("platform")}>
                 Back
               </Button>
-              <Button className="flex-1" onClick={() => setStep("review")}>
+              <Button className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("review")}>
                 Continue
               </Button>
             </div>
@@ -700,27 +1145,27 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
 
       case "review":
         return (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-5 md:space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">Review & Generate</h2>
-              <p className="text-muted-foreground">Review your selections and generate content</p>
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2">Review & Generate</h2>
+              <p className="text-sm sm:text-base text-muted-foreground">Review your selections and generate content</p>
             </div>
 
-            <div className="space-y-4">
-              <Card className="p-4">
-                <h3 className="font-medium mb-2">Topic</h3>
-                <p className="text-muted-foreground">{selectedTopic || customTopic}</p>
+            <div className="space-y-3 sm:space-y-4">
+              <Card className="p-3 sm:p-4">
+                <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Topic</h3>
+                <p className="text-sm sm:text-base text-muted-foreground">{customTopic || selectedTopic}</p>
               </Card>
 
-              <Card className="p-4">
-                <h3 className="font-medium mb-2">Platforms</h3>
-                <div className="flex gap-2 flex-wrap">
+              <Card className="p-3 sm:p-4">
+                <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Platforms</h3>
+                <div className="flex gap-1.5 sm:gap-2 flex-wrap">
                   {selectedPlatforms.map(id => {
                     const platform = PLATFORMS.find(p => p.id === id);
                     if (!platform) return null;
                     return (
-                      <Badge key={id} variant="secondary" className="flex items-center gap-1.5 py-1.5 px-3">
-                        <platform.IconComponent className="w-4 h-4" />
+                      <Badge key={id} variant="secondary" className="flex items-center gap-1 sm:gap-1.5 py-1 sm:py-1.5 px-2 sm:px-3 text-xs sm:text-sm">
+                        <platform.IconComponent className="w-3 h-3 sm:w-4 sm:h-4" />
                         <span>{platform.name}</span>
                       </Badge>
                     );
@@ -729,38 +1174,54 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
               </Card>
 
               {contextText && (
-                <Card className="p-4">
-                  <h3 className="font-medium mb-2">Instructions</h3>
-                  <p className="text-sm text-muted-foreground">{contextText}</p>
+                <Card className="p-3 sm:p-4">
+                  <h3 className="font-medium mb-1.5 sm:mb-2 text-sm sm:text-base">Instructions</h3>
+                  <p className="text-xs sm:text-sm text-muted-foreground">{contextText}</p>
                 </Card>
               )}
 
               <div>
-                <label className="text-sm font-medium mb-3 block">
+                <label className="text-xs sm:text-sm font-medium mb-2 sm:mb-3 block">
                   Number of posts: {postCount[0]}
                 </label>
                 <Slider
+                  key={`slider-${sliderMax}`}
                   value={postCount}
-                  onValueChange={setPostCount}
+                  onValueChange={(value) => {
+                    // Ensure value doesn't exceed sliderMax
+                    const newValue = Math.min(value[0], sliderMax);
+                    setPostCount([newValue]);
+                  }}
                   min={1}
-                  max={4}
+                  max={sliderMax}
                   step={1}
                   className="mb-2"
+                  disabled={sliderMax === 0}
                 />
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>1</span>
-                  <span>2</span>
-                  <span>3</span>
-                  <span>4</span>
+                  {Array.from({ length: Math.min(sliderMax, 4) }, (_, i) => (
+                    <span key={i + 1}>{i + 1}</span>
+                  ))}
                 </div>
+                {usageData && (
+                  <p className="text-xs text-gray-600 mt-2">
+                    Based on your plan, you can generate <span className="font-semibold">{usageData.remainingImages + usageData.remainingVideos}</span> additional posts
+                    {usageData.remainingImages > 0 && usageData.remainingVideos === 0 && (
+                      <span> (images only, video limit reached)</span>
+                    )}
+                    {usageData.remainingVideos > 0 && usageData.remainingImages === 0 && (
+                      <span> (videos only, image limit reached)</span>
+                    )}
+                  </p>
+                )}
               </div>
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setStep("context")}>
+              <Button variant="outline" className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("context")}>
                 Back
               </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={handleGenerate}>
+              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-sm sm:text-base h-10 sm:h-11" onClick={handleGenerate}>
                 Generate
               </Button>
             </div>
@@ -771,37 +1232,37 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
         const isGenerating = generatedPosts.some(post => post.isGenerating);
         
         return (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-5 md:space-y-6">
             <div>
-              <h2 className="text-2xl font-semibold mb-2">
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2">
                 {isGenerating ? "Generating your content..." : "Your content is ready!"}
               </h2>
-              <p className="text-muted-foreground">
+              <p className="text-sm sm:text-base text-muted-foreground">
                 {isGenerating ? "Content will appear as it's generated" : "Select a post to schedule or publish"}
               </p>
             </div>
 
             {isGenerating && (
               <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{progressMessage || "Preparing..."}</span>
-                  <span className="font-medium">{progressPercent}%</span>
+                <div className="flex items-center justify-between text-xs sm:text-sm">
+                  <span className="text-muted-foreground line-clamp-1">{progressMessage || "Preparing..."}</span>
+                  <span className="font-medium ml-2">{progressPercent}%</span>
                 </div>
-                <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
+                <div className="w-full bg-secondary rounded-full h-1.5 sm:h-2 overflow-hidden">
                   <div 
                     className="bg-primary h-full transition-all duration-300 ease-out"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
                 {progressMessage.includes("video") && (
-                  <p className="text-xs text-muted-foreground italic">
+                  <p className="text-[10px] sm:text-xs text-muted-foreground italic">
                     ⏱️ Video generation in progress - this may take a few minutes...
                   </p>
                 )}
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               {generatedPosts.map((post) => (
                 <Card
                   key={post.id}
@@ -813,32 +1274,32 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
                   onClick={() => !post.isGenerating && handlePostClick(post)}
                 >
                   <div className="relative">
-                    {post.image ? (
-                      post.type === "Video" ? (
-                        <div className="w-full aspect-square bg-black">
-                          <video
-                            src={post.image}
-                            controls
-                            playsInline
-                            muted
-                            className="w-full h-full object-contain"
-                            onError={(e) => {
-                              console.error("Video load error:", e);
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <img
+                  {post.image ? (
+                    post.type === "Video" ? (
+                      <div className="w-full aspect-square bg-black">
+                        <video
                           src={post.image}
-                          alt={post.title}
-                          className="w-full aspect-square object-cover"
+                          controls
+                          playsInline
+                          muted
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            console.error("Video load error:", e);
+                          }}
                         />
-                      )
-                    ) : (
-                      <div className="w-full aspect-square bg-muted flex items-center justify-center">
-                        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
                       </div>
-                    )}
+                    ) : (
+                      <img
+                        src={post.image}
+                        alt={post.title}
+                        className="w-full aspect-square object-cover"
+                      />
+                    )
+                  ) : (
+                    <div className="w-full aspect-square bg-muted flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
                     
                     {/* Schedule/Posted Badges */}
                     {(() => {
@@ -880,17 +1341,17 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
                       );
                     })()}
                   </div>
-                  <div className="p-3">
-                    <p className="font-medium text-sm line-clamp-2">{post.title}</p>
-                    <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                  <div className="p-2.5 sm:p-3">
+                    <p className="font-medium text-xs sm:text-sm line-clamp-2">{post.title}</p>
+                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1 line-clamp-1">
                       {post.description}
                     </p>
                     {!post.isGenerating && (
-                      <div className="flex gap-2 mt-3">
+                      <div className="flex gap-1.5 sm:gap-2 mt-2 sm:mt-3">
                         <Button
                           size="sm"
                           variant="outline"
-                          className="flex-1"
+                          className="flex-1 text-xs sm:text-sm h-8 sm:h-9"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleScheduleClick(post);
@@ -900,7 +1361,7 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
                         </Button>
                         <Button
                           size="sm"
-                          className="flex-1 bg-blue-600 hover:bg-blue-700"
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm h-8 sm:h-9"
                           onClick={(e) => {
                             e.stopPropagation();
                             handlePostNowClick(post);
@@ -911,7 +1372,7 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
                       </div>
                     )}
                     {post.isGenerating && (
-                      <div className="flex items-center justify-center mt-3 text-xs text-muted-foreground">
+                      <div className="flex items-center justify-center mt-2 sm:mt-3 text-[10px] sm:text-xs text-muted-foreground">
                         <Loader2 className="w-3 h-3 animate-spin mr-1" />
                         Generating...
                       </div>
@@ -924,7 +1385,7 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
             <div className="flex gap-2">
               <Button 
                 variant="outline" 
-                className="flex-1" 
+                className="flex-1 text-sm sm:text-base h-10 sm:h-11" 
                 onClick={handleClose}
                 disabled={isGenerating}
               >
@@ -932,7 +1393,7 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
               </Button>
               <Button 
                 variant="outline" 
-                className="flex-1" 
+                className="flex-1 text-sm sm:text-base h-10 sm:h-11" 
                 onClick={() => setStep("review")}
                 disabled={isGenerating}
               >
@@ -950,11 +1411,11 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
   return (
     <>
       <Dialog open={open && !showPostDetail && !showScheduleDialog} onOpenChange={handleClose}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] sm:w-[90vw] md:w-[85vw] lg:w-[70vw] xl:max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <VisuallyHidden>
             <DialogTitle>Generate Content</DialogTitle>
           </VisuallyHidden>
-          <div className="py-6">
+          <div className="py-2 sm:py-4 md:py-6">
             {renderStep()}
           </div>
         </DialogContent>
@@ -970,12 +1431,34 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
       />
 
       <ScheduleDialog
-        post={selectedPost ? {
-          ...selectedPost,
-          fullPlatformTexts: selectedPost.platformTexts, // Map platformTexts to fullPlatformTexts
-          generatedContentId: selectedPost.generatedContentId,
-          postIndex: selectedPost.postIndex,
-        } : null}
+        post={selectedPost ? (() => {
+          // Use state generatedContentId as fallback if post doesn't have it
+          const finalGeneratedContentId = selectedPost.generatedContentId || generatedContentId;
+          
+          // Ensure platforms are always set with multiple fallbacks
+          const finalPlatforms = selectedPost.requestedPlatforms || selectedPost.platforms || selectedPlatforms || ['twitter'];
+          
+          const postData = {
+            ...selectedPost,
+            fullPlatformTexts: selectedPost.platformTexts, // Map platformTexts to fullPlatformTexts
+            generatedContentId: finalGeneratedContentId,
+            postIndex: selectedPost.postIndex,
+            requestedPlatforms: finalPlatforms,
+            platforms: finalPlatforms,
+          };
+          console.log('📋 GenerateContentDialog - Passing to ScheduleDialog:', {
+            'selectedPost.generatedContentId': selectedPost.generatedContentId,
+            'state generatedContentId': generatedContentId,
+            'final generatedContentId': finalGeneratedContentId,
+            'selectedPost.requestedPlatforms': selectedPost.requestedPlatforms,
+            'selectedPost.platforms': selectedPost.platforms,
+            'selectedPlatforms state': selectedPlatforms,
+            'final platforms': finalPlatforms,
+            'selectedPost.postIndex': selectedPost.postIndex,
+            'postData': postData,
+          });
+          return postData;
+        })() : null}
         open={showScheduleDialog}
         onOpenChange={setShowScheduleDialog}
         onScheduleComplete={() => {
@@ -987,47 +1470,47 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
       />
 
       <AlertDialog open={showPostingDialog} onOpenChange={setShowPostingDialog}>
-        <AlertDialogContent className="max-w-md">
+        <AlertDialogContent className="w-[90vw] sm:w-[85vw] md:max-w-md p-4 sm:p-6">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-center">
+            <AlertDialogTitle className="text-center text-lg sm:text-xl">
               {!postingComplete ? "Posting..." : "Posting Results"}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-center">
               {!postingComplete && (
-                <div className="flex flex-col items-center justify-center py-6">
-                  <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-                  <p>Publishing your content to selected platforms...</p>
+                <div className="flex flex-col items-center justify-center py-4 sm:py-6">
+                  <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-primary mb-3 sm:mb-4" />
+                  <p className="text-sm sm:text-base">Publishing your content to selected platforms...</p>
                 </div>
               )}
               {postingComplete && (
-                <div className="py-4 space-y-3">
+                <div className="py-3 sm:py-4 space-y-2 sm:space-y-3">
                   {postingResults.length === 0 ? (
-                    <p className="text-lg">No results available</p>
+                    <p className="text-base sm:text-lg">No results available</p>
                   ) : (
                     <div className="space-y-2">
                       {postingResults.map((result, idx) => (
                         <div
                           key={idx}
-                          className={`p-3 rounded-lg border ${
+                          className={`p-2.5 sm:p-3 rounded-lg border ${
                             result.success
                               ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
                               : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
                           }`}
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-medium capitalize">{result.platform}</span>
-                            <Badge variant={result.success ? "default" : "destructive"}>
+                            <span className="font-medium capitalize text-sm sm:text-base">{result.platform}</span>
+                            <Badge variant={result.success ? "default" : "destructive"} className="text-xs">
                               {result.success ? "✓ Posted" : "✗ Failed"}
                             </Badge>
                           </div>
                           {result.error && (
-                            <p className="text-xs text-muted-foreground mt-1">{result.error}</p>
+                            <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">{result.error}</p>
                           )}
                           {result.needsOAuth1 && (
                             <Button
                               size="sm"
                               variant="outline"
-                              className="mt-2 w-full"
+                              className="mt-2 w-full text-xs sm:text-sm h-8 sm:h-9"
                               onClick={initiateOAuth1Flow}
                             >
                               Authorize for Video
@@ -1044,7 +1527,7 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
           {postingComplete && (
             <AlertDialogFooter>
               <Button
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-sm sm:text-base h-10 sm:h-11"
                 onClick={() => {
                   setShowPostingDialog(false);
                   setPostingResults([]);
@@ -1074,6 +1557,56 @@ export const GenerateContentDialog = ({ open, onOpenChange }: GenerateContentDia
             </Button>
             <Button onClick={handleReplaceAndPost} className="bg-blue-600 hover:bg-blue-700">
               Replace & Post
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Multi-Platform Authorization Dialog */}
+      <AlertDialog open={showAuthDialog} onOpenChange={setShowAuthDialog}>
+        <AlertDialogContent className="w-[90vw] sm:w-[85vw] md:max-w-md p-4 sm:p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-center text-lg sm:text-xl">
+              Connect Your Account
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-center">
+              <div className="py-4 space-y-4">
+                <p className="text-sm sm:text-base">
+                  To post to {authPlatforms.map((p, i) => (
+                    <span key={p}>
+                      <span className="font-semibold capitalize">{p}</span>
+                      {i < authPlatforms.length - 2 && ', '}
+                      {i === authPlatforms.length - 2 && ' and '}
+                    </span>
+                  ))}, you need to connect your account{authPlatforms.length > 1 ? 's' : ''}.
+                </p>
+                
+                {authPlatforms.length > 0 && (
+                  <div className="bg-muted rounded-lg p-3 sm:p-4">
+                    <p className="text-sm font-medium mb-2">
+                      Step {currentAuthIndex + 1} of {authPlatforms.length}
+                    </p>
+                    <p className="text-base sm:text-lg font-semibold capitalize">
+                      {authPlatforms[currentAuthIndex]}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowAuthDialog(false)}
+              className="w-full sm:w-auto text-sm sm:text-base"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAuthPlatform}
+              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-sm sm:text-base"
+            >
+              Connect {authPlatforms[currentAuthIndex]?.charAt(0).toUpperCase()}{authPlatforms[currentAuthIndex]?.slice(1)}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

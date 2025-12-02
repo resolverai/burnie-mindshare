@@ -30,8 +30,11 @@ export default function BrandProfilePage() {
   }, [isAuthenticated, isLoading, router]);
 
   const handleContinue = () => {
-    // Navigate to next onboarding step
-    router.push('/onboarding/content-channels');
+    // Mark onboarding as complete (skip all intermediate steps)
+    localStorage.setItem("dvyb_is_new_account", "false");
+    
+    // Navigate directly to home (hassle-free onboarding!)
+    router.push('/home');
   };
 
   if (isLoading || !showContent) {

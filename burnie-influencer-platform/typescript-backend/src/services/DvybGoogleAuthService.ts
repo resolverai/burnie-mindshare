@@ -3,6 +3,8 @@ import { logger } from '../config/logger';
 import { DvybAccount } from '../models/DvybAccount';
 import { DvybGoogleConnection } from '../models/DvybGoogleConnection';
 import { DvybContext } from '../models/DvybContext';
+import { DvybPricingPlan } from '../models/DvybPricingPlan';
+import { DvybAccountPlan } from '../models/DvybAccountPlan';
 import { env } from '../config/env';
 import crypto from 'crypto';
 
@@ -195,6 +197,9 @@ export class DvybGoogleAuthService {
           await googleConnRepo.save(googleConnection);
 
           logger.info(`✅ Created new account ${account.id} with Google connection`);
+
+          // 🎁 Auto-associate Free Trial plan with new account
+          await this.associateFreeTrialPlan(account.id);
         }
       }
 
@@ -356,6 +361,45 @@ export class DvybGoogleAuthService {
     } catch (error) {
       logger.error('❌ Google disconnect error:', error);
       throw error;
+    }
+  }
+
+  /**
+   * 🎁 Auto-associate Free Trial plan with new account
+   */
+  static async associateFreeTrialPlan(accountId: number): Promise<void> {
+    try {
+      const planRepo = AppDataSource.getRepository(DvybPricingPlan);
+      const accountPlanRepo = AppDataSource.getRepository(DvybAccountPlan);
+
+      // Find the free trial plan
+      const freeTrialPlan = await planRepo.findOne({
+        where: { isFreeTrialPlan: true, isActive: true },
+      });
+
+      if (!freeTrialPlan) {
+        logger.warn(`⚠️ No active free trial plan found for account ${accountId} - skipping auto-association`);
+        return;
+      }
+
+      // Create account plan association (default to monthly frequency)
+      const newAccountPlan = accountPlanRepo.create({
+        accountId,
+        planId: freeTrialPlan.id,
+        selectedFrequency: 'monthly', // Default to monthly for free trial
+        startDate: new Date(),
+        endDate: null,
+        status: 'active',
+        changeType: 'initial',
+        notes: 'Auto-assigned free trial plan on account creation',
+      });
+
+      await accountPlanRepo.save(newAccountPlan);
+
+      logger.info(`🎁 Auto-associated Free Trial plan "${freeTrialPlan.planName}" (ID: ${freeTrialPlan.id}) with new account ${accountId}`);
+    } catch (error) {
+      logger.error(`❌ Failed to auto-associate free trial plan with account ${accountId}:`, error);
+      // Don't throw - account creation should succeed even if plan association fails
     }
   }
 }

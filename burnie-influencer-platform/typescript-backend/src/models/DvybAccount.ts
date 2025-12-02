@@ -31,6 +31,9 @@ export class DvybAccount {
   @Column({ type: 'varchar', length: 100, nullable: true })
   industry!: string | null;
 
+  @Column({ type: 'boolean', default: true })
+  isActive!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 

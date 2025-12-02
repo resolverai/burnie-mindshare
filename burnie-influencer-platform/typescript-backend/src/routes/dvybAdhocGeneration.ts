@@ -187,6 +187,8 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
       topic,
       platforms,
       number_of_posts,
+      number_of_images,
+      number_of_videos,
       user_prompt,
       user_images,
       inspiration_links,
@@ -207,6 +209,7 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
     }
 
     logger.info(`🚀 Starting ad-hoc generation for account ${accountId}`);
+    logger.info(`   Mix: ${number_of_images || 'auto'} images, ${number_of_videos || 'auto'} videos`);
 
     const response = await fetch(`${pythonBackendUrl}/api/dvyb/adhoc/generate`, {
       method: 'POST',
@@ -216,6 +219,8 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
         topic,
         platforms,
         number_of_posts,
+        number_of_images,
+        number_of_videos,
         user_prompt,
         user_images,
         inspiration_links,

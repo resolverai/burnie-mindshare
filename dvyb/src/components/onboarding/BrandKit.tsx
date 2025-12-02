@@ -483,10 +483,20 @@ export const BrandKit = ({ onContinue }: BrandKitProps) => {
           </Card>
         </div>
 
-        <div className="flex justify-center md:justify-end pt-4 md:pt-6">
-          <Button onClick={onContinue} size="lg" className="w-full md:w-auto md:min-w-[200px]">
-            Continue to Content Channels
+        <div className="flex flex-col items-center md:items-end gap-2 pt-4 md:pt-6">
+          <Button 
+            onClick={onContinue} 
+            size="lg" 
+            className="w-full md:w-auto md:min-w-[200px]"
+            disabled={!logoUrl}
+          >
+            Complete Setup
           </Button>
+          {!logoUrl && (
+            <p className="text-sm text-muted-foreground">
+              Please upload your brand logo to continue
+            </p>
+          )}
         </div>
       </div>
 

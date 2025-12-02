@@ -1143,7 +1143,8 @@ export default function AdminDashboard() {
               <span>Create Campaign</span>
             </button>
             
-            <button
+            {/* Snapshot tab hidden - not needed anymore */}
+            {/* <button
               onClick={() => router.push('/admin/snapshots')}
               className="px-2 py-1.5 bg-orange-600 text-white text-xs rounded-lg hover:bg-orange-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
             >
@@ -1151,7 +1152,7 @@ export default function AdminDashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
               <span>Snapshots</span>
-            </button>
+            </button> */}
             
             <button
               onClick={() => router.push('/admin/referrals')}
@@ -1191,6 +1192,36 @@ export default function AdminDashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
               <span>Twitter Handles</span>
+            </button>
+            
+            <button
+              onClick={() => router.push('/admin/dvyb-accounts')}
+              className="px-2 py-1.5 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+              <span>Dvyb Accounts</span>
+            </button>
+            
+            <button
+              onClick={() => router.push('/admin/dvyb-plans')}
+              className="px-2 py-1.5 bg-pink-600 text-white text-xs rounded-lg hover:bg-pink-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>Dvyb Plans</span>
+            </button>
+
+            <button
+              onClick={() => router.push('/admin/dvyb-upgrade-requests')}
+              className="px-2 py-1.5 bg-orange-600 text-white text-xs rounded-lg hover:bg-orange-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+              <span>Dvyb Upgrade Requests</span>
             </button>
             
             <button

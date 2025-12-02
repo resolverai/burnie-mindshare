@@ -741,11 +741,11 @@ export const CalendarView = () => {
                                 </div>
                               </>
                             ) : (
-                              <img 
-                                src={post.mediaUrl} 
-                                alt={textContent}
-                                className="w-full h-full object-cover"
-                              />
+                            <img 
+                              src={post.mediaUrl} 
+                              alt={textContent}
+                              className="w-full h-full object-cover"
+                            />
                             )}
                           </div>
                         )}

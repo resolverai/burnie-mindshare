@@ -53,6 +53,8 @@ class DvybAdhocGenerationRequest(BaseModel):
     topic: str
     platforms: List[str]  # e.g., ["instagram", "twitter", "linkedin", "tiktok"]
     number_of_posts: int  # 1-4
+    number_of_images: Optional[int] = None  # Specific number of image posts (calculated by frontend based on limits)
+    number_of_videos: Optional[int] = None  # Specific number of video posts (calculated by frontend based on limits)
     user_prompt: Optional[str] = None
     user_images: Optional[List[str]] = None  # S3 URLs
     inspiration_links: Optional[List[str]] = None
@@ -565,14 +567,22 @@ async def mix_voiceover_with_background_music(video_with_music_s3_url: str, voic
 # ============================================
 
 async def gather_context(request: DvybAdhocGenerationRequest) -> Dict:
-    """Gather all context for generation"""
+    """
+    Gather all context for generation including:
+    - Topic, platforms, user prompt
+    - DVYB context (brand info, voices, styles, logos, images, documents, links)
+    - Random selection from arrays for variety
+    - Document/link decay filtering
+    """
     import httpx
+    from datetime import datetime, timedelta
     
     context = {
         "topic": request.topic,
         "platforms": request.platforms,
         "number_of_posts": request.number_of_posts,
         "user_prompt": request.user_prompt,
+        "current_date": datetime.utcnow().isoformat(),  # For document/link decay
     }
     
     # Fetch dvyb_context from backend (internal endpoint, no auth required)
@@ -588,8 +598,134 @@ async def gather_context(request: DvybAdhocGenerationRequest) -> Dict:
             result = response.json()
             
             if result.get("success") and result.get("data"):
-                context["dvyb_context"] = result["data"]
-                logger.info(f"✅ Fetched dvyb_context for account {request.account_id}")
+                dvyb_data = result["data"]
+                context["dvyb_context"] = dvyb_data
+                
+                # Process brandVoices, brandVoice, brandStyles (JSON columns)
+                # These will be passed to Grok for random selection
+                context["brand_voices"] = dvyb_data.get("brandVoices") if dvyb_data.get("brandVoices") else None
+                context["brand_voice"] = dvyb_data.get("brandVoice") if dvyb_data.get("brandVoice") else None
+                context["brand_styles"] = dvyb_data.get("brandStyles") if dvyb_data.get("brandStyles") else None
+                
+                # Process additionalLogoUrls - randomly pick one logo (from logoUrl or additionalLogoUrls)
+                logo_url = dvyb_data.get("logoUrl")
+                additional_logos = dvyb_data.get("additionalLogoUrls")
+                
+                available_logos = []
+                if logo_url:
+                    available_logos.append(logo_url)
+                if additional_logos and isinstance(additional_logos, list):
+                    available_logos.extend([url for url in additional_logos if url])
+                
+                if available_logos:
+                    selected_logo = random.choice(available_logos)
+                    context["selected_logo_url"] = selected_logo
+                    logger.info(f"🎨 Selected logo from {len(available_logos)} available: {selected_logo[:50]}...")
+                else:
+                    context["selected_logo_url"] = None
+                    logger.info("⚠️ No logo URLs available")
+                
+                # Process brandImages - randomly pick one for inventory analysis
+                brand_images = dvyb_data.get("brandImages")
+                if brand_images and isinstance(brand_images, list) and len(brand_images) > 0:
+                    selected_brand_image = random.choice([img for img in brand_images if img])
+                    context["selected_brand_image"] = selected_brand_image
+                    logger.info(f"🖼️ Selected brand image from {len(brand_images)} available: {selected_brand_image[:50]}...")
+                else:
+                    context["selected_brand_image"] = None
+                
+                # Process linksJson - filter by 10-day decay and pick one random link
+                links_json = dvyb_data.get("linksJson")
+                if links_json and isinstance(links_json, list):
+                    cutoff_date = datetime.utcnow() - timedelta(days=10)
+                    valid_links = []
+                    
+                    for link_obj in links_json:
+                        if not isinstance(link_obj, dict):
+                            continue
+                        
+                        timestamp_str = link_obj.get("timestamp")
+                        url = link_obj.get("url")
+                        
+                        if not url:
+                            continue
+                        
+                        # Check timestamp (filter out links older than 10 days)
+                        if timestamp_str:
+                            try:
+                                link_date = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                                if link_date.tzinfo:
+                                    link_date = link_date.replace(tzinfo=None)
+                                
+                                if link_date >= cutoff_date:
+                                    valid_links.append(link_obj)
+                            except Exception as e:
+                                logger.warning(f"⚠️ Error parsing link timestamp: {e}")
+                                # Include link if timestamp parsing fails
+                                valid_links.append(link_obj)
+                        else:
+                            # Include link if no timestamp
+                            valid_links.append(link_obj)
+                    
+                    if valid_links:
+                        selected_link = random.choice(valid_links)
+                        context["selected_link"] = selected_link.get("url")
+                        logger.info(f"🔗 Selected link from {len(valid_links)} valid (after 10-day filter): {selected_link.get('url')[:50]}...")
+                    else:
+                        context["selected_link"] = None
+                        logger.info(f"⚠️ No valid links found (filtered {len(links_json)} total by 10-day decay)")
+                else:
+                    context["selected_link"] = None
+                
+                # Process documentsText - apply 30-day decay and pass with timestamps
+                documents_text = dvyb_data.get("documentsText")
+                if documents_text and isinstance(documents_text, list):
+                    cutoff_date = datetime.utcnow() - timedelta(days=30)
+                    valid_documents = []
+                    
+                    for doc in documents_text:
+                        if not isinstance(doc, dict):
+                            continue
+                        
+                        timestamp_str = doc.get("timestamp")
+                        if timestamp_str:
+                            try:
+                                doc_date = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                                if doc_date.tzinfo:
+                                    doc_date = doc_date.replace(tzinfo=None)
+                                
+                                if doc_date >= cutoff_date:
+                                    # Calculate age in days for Grok context
+                                    days_old = (datetime.utcnow() - doc_date).days
+                                    valid_documents.append({
+                                        "name": doc.get("name", ""),
+                                        "text": doc.get("text", ""),
+                                        "url": doc.get("url", ""),
+                                        "timestamp": timestamp_str,
+                                        "age_days": days_old
+                                    })
+                            except Exception as e:
+                                logger.warning(f"⚠️ Error parsing document timestamp: {e}")
+                                # Include document if timestamp parsing fails
+                                valid_documents.append({
+                                    "name": doc.get("name", ""),
+                                    "text": doc.get("text", ""),
+                                    "url": doc.get("url", ""),
+                                })
+                        else:
+                            # Include document if no timestamp
+                            valid_documents.append({
+                                "name": doc.get("name", ""),
+                                "text": doc.get("text", ""),
+                                "url": doc.get("url", ""),
+                            })
+                    
+                    context["documents_text"] = valid_documents
+                    logger.info(f"📚 Documents after 30-day decay: {len(valid_documents)}/{len(documents_text)}")
+                else:
+                    context["documents_text"] = []
+                
+                logger.info(f"✅ Fetched and processed dvyb_context for account {request.account_id}")
             else:
                 logger.warning(f"⚠️ No dvyb_context found for account {request.account_id}")
                 context["dvyb_context"] = {}
@@ -640,6 +776,8 @@ async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
         user_images_presigned = context.get('user_images_presigned', {})
         
         presigned_urls = []
+        brand_image_index = None  # Track which image is the brand image
+        
         for s3_key in user_images:
             if s3_key in user_images_presigned:
                 presigned_urls.append(user_images_presigned[s3_key])
@@ -653,7 +791,20 @@ async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
                     logger.error(f"❌ Failed to generate presigned URL for {s3_key}: {e}")
                     presigned_urls.append(s3_key)  # Last resort fallback
         
-        print(f"🔗 Using {len(presigned_urls)} presigned URLs for Grok analysis")
+        # Add selected brand image (if available) as an inspirational image
+        selected_brand_image = context.get('selected_brand_image')
+        if selected_brand_image:
+            print(f"🎨 Adding brand image as inspiration: {selected_brand_image[:50]}...")
+            try:
+                brand_image_url = web2_s3_helper.generate_presigned_url(selected_brand_image)
+                if brand_image_url:
+                    presigned_urls.append(brand_image_url)
+                    brand_image_index = len(presigned_urls)  # 1-based index
+                    print(f"  ✅ Brand image added at index {brand_image_index}")
+            except Exception as e:
+                logger.error(f"❌ Failed to generate presigned URL for brand image: {e}")
+        
+        print(f"🔗 Using {len(presigned_urls)} presigned URLs for Grok analysis (including {1 if brand_image_index else 0} brand image)")
         
         # Call Grok inventory analysis with brand context
         from xai_sdk import Client
@@ -661,6 +812,8 @@ async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
         import json
         
         # Build comprehensive product/inspiration/model classification prompt
+        brand_image_note = f"\n\n🎨 **BRAND IMAGE**: Image {brand_image_index} is a brand-provided inspirational image. It MUST be classified as INSPIRATION IMAGE." if brand_image_index else ""
+        
         analysis_prompt = f"""You are an expert visual analyst for {brand_info['account_name']}.
 
 BRAND CONTEXT:
@@ -670,7 +823,7 @@ BRAND CONTEXT:
 - What we do: {brand_info['business_overview'][:500] if brand_info['business_overview'] else 'N/A'}
 - Target Customers: {brand_info['customer_demographics'][:300] if brand_info['customer_demographics'] else 'N/A'}
 - Popular Products/Services: {brand_info['popular_products'][:300] if isinstance(brand_info['popular_products'], str) else str(brand_info['popular_products'])[:300] if brand_info['popular_products'] else 'N/A'}
-- Brand Voice: {brand_info['brand_voice'][:200] if brand_info['brand_voice'] else 'N/A'}
+- Brand Voice: {brand_info['brand_voice'][:200] if brand_info['brand_voice'] else 'N/A'}{brand_image_note}
 
 🎯 YOUR CRITICAL TASK:
 Classify each uploaded image into ONE of these 3 categories:
@@ -977,13 +1130,75 @@ Return a concise summary of insights from all links combined."""
 # PROMPT GENERATION
 # ============================================
 
+def _format_enhanced_context(context: Dict) -> str:
+    """
+    Format enhanced brand context (brandVoices, brandStyles, documentsText) for Grok.
+    Provides instructions for random selection and temporal context.
+    """
+    from datetime import datetime
+    sections = []
+    
+    # Brand Voices
+    brand_voices = context.get('brand_voices')
+    if brand_voices:
+        sections.append(f"**Brand Voices**: {brand_voices}")
+        sections.append("  → If comma-separated, pick ONE at random for THIS generation to add variety")
+    
+    # Brand Voice (single)
+    brand_voice = context.get('brand_voice')
+    if brand_voice:
+        sections.append(f"**Brand Voice (Primary)**: {brand_voice}")
+    
+    # Brand Styles
+    brand_styles = context.get('brand_styles')
+    if brand_styles:
+        sections.append(f"**Brand Styles**: {brand_styles}")
+        sections.append("  → If comma-separated, pick ONE at random for THIS generation to add variety")
+    
+    # Documents Text with temporal context
+    documents_text = context.get('documents_text', [])
+    if documents_text and len(documents_text) > 0:
+        sections.append(f"\n**BRAND DOCUMENTS** ({len(documents_text)} document(s) within 30 days):")
+        sections.append("  ℹ️ These documents contain important brand information. Consider temporal context:")
+        sections.append(f"  📅 Today's Date: {context.get('current_date', 'N/A')[:10]}")
+        
+        for i, doc in enumerate(documents_text[:5], 1):  # Limit to 5 docs to save tokens
+            name = doc.get('name', f'Document {i}')
+            text_preview = doc.get('text', '')[:300] if doc.get('text') else 'N/A'
+            age_days = doc.get('age_days')
+            
+            if age_days is not None:
+                sections.append(f"\n  📄 {name} ({age_days} days old):")
+            else:
+                sections.append(f"\n  📄 {name}:")
+            
+            sections.append(f"     {text_preview}...")
+            
+            if age_days is not None and age_days > 7:
+                sections.append(f"     ⚠️ Note: This document is {age_days} days old. Events mentioned may be in the past.")
+    
+    if not sections:
+        return "No enhanced context available"
+    
+    return "\n".join(sections)
+
+
 async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, context: Dict) -> Dict:
     """Generate image and clip prompts with Grok - Multi-clip Veo3.1 support"""
     
     # Calculate number of images and clips
     number_of_posts = request.number_of_posts
-    num_clips = math.ceil(number_of_posts / 2)
-    num_images = number_of_posts - num_clips
+    
+    # If frontend provides specific mix (based on plan limits), use it
+    if request.number_of_images is not None and request.number_of_videos is not None:
+        num_images = request.number_of_images
+        num_clips = request.number_of_videos
+        print(f"✅ Using frontend-calculated mix: {num_images} images, {num_clips} videos (based on plan limits)")
+    else:
+        # Default logic: 2 videos, 2 images (maximize videos for odd numbers)
+        num_clips = math.ceil(number_of_posts / 2)
+        num_images = number_of_posts - num_clips
+        print(f"⚠️ Frontend didn't provide mix, using default (maximize videos): {num_clips} videos, {num_images} images")
     
     # Video configuration (Veo3.1 specific)
     # Configurable: 1 clip = 8s, 2 clips = 16s, 3 clips = 24s, etc.
@@ -1480,7 +1695,27 @@ BRAND CONTEXT:
 - Business Overview: {dvyb_context.get('businessOverview', 'N/A')[:500] if dvyb_context.get('businessOverview') else 'N/A'}
 - Popular Products/Services: {str(dvyb_context.get('popularProducts', 'N/A'))[:300] if dvyb_context.get('popularProducts') else 'N/A'}
 
+ENHANCED BRAND CONTEXT (Use for variety in content):
+{_format_enhanced_context(context)}
+
+🚨 CRITICAL - RELEVANCE FILTERING:
+- The above documents, links, voices, and styles are provided as OPTIONAL context
+- **ONLY USE IF RELEVANT** to:
+  * Current topic: "{request.topic}"
+  * Brand: {dvyb_context.get('accountName', 'N/A')}
+  * Industry: {dvyb_context.get('industry', 'N/A')}
+  * User instructions: {request.user_prompt if request.user_prompt else 'None'}
+- **IGNORE IRRELEVANT DATA**: Users may have uploaded unrelated documents/links by mistake
+- Examples of what to IGNORE:
+  * If topic is "Summer Sale" → ignore documents about "Winter Holiday Party"
+  * If generating product content → ignore HR policies or internal memos
+  * If brand sells software → ignore documents about restaurant operations
+  * If link is about unrelated industry → ignore it
+- **USE YOUR JUDGMENT**: Intelligently decide relevance before incorporating any data
+
 USER INSTRUCTIONS: {request.user_prompt if request.user_prompt else 'None'}
+
+CURRENT DATE: {context.get('current_date', datetime.utcnow().isoformat())[:10]} (for temporal context in documents)
 
 UPLOADED IMAGES ANALYSIS (Classified into 3 categories):
 {inventory_analysis_str}
@@ -1550,6 +1785,7 @@ UPLOADED IMAGES ANALYSIS (Classified into 3 categories):
 
 INSPIRATION LINKS ANALYSIS:
 {link_analysis_str}
+⚠️ NOTE: Only incorporate link insights if RELEVANT to topic "{request.topic}" and brand context. Ignore if unrelated.
 
 GENERATE:
 
@@ -1967,9 +2203,10 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     VIDEO_DURATION = prompts["video_duration"]
     
     dvyb_context = context.get('dvyb_context', {})
-    logo_url_raw = dvyb_context.get('logoUrl')
+    # Use randomly selected logo from logoUrl or additionalLogoUrls
+    logo_url_raw = context.get('selected_logo_url')
     
-    print(f"📝 Raw logo URL from dvyb_context: {logo_url_raw}")
+    print(f"📝 Using randomly selected logo: {logo_url_raw}")
     
     # Extract S3 key from logoUrl (could be full URL or S3 key)
     logo_s3_url = None
@@ -1982,11 +2219,11 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             parsed = urlparse(logo_url_raw)
             # Remove leading slash from path
             logo_s3_url = parsed.path.lstrip('/')
-            print(f"📝 Extracted S3 key from logo URL: {logo_s3_url}")
+            print(f"📝 Extracted S3 key from selected logo: {logo_s3_url}")
         else:
             # Already an S3 key
             logo_s3_url = logo_url_raw
-            print(f"📝 Logo S3 key: {logo_s3_url}")
+            print(f"📝 Selected logo S3 key: {logo_s3_url}")
     
     # Extract model image info from inventory analysis
     inventory_analysis = context.get('inventory_analysis', {})
@@ -2952,12 +3189,19 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
             print("⏭️ Skipping inventory analysis - no user images provided")
         
         # Step 3: Analyze inspiration links (25%)
+        # Check both user-provided links and selected_link from linksJson (with 10-day decay)
+        links_to_analyze = []
         if request.inspiration_links:
+            links_to_analyze.extend(request.inspiration_links)
+        if context.get('selected_link'):
+            links_to_analyze.append(context['selected_link'])
+        
+        if links_to_analyze:
             await update_progress_in_db(request.account_id, 25, "Analyzing inspiration links...", generation_uuid)
-            link_analysis = await analyze_inspiration_links(request.inspiration_links)
+            link_analysis = await analyze_inspiration_links(links_to_analyze)
             context["link_analysis"] = link_analysis
         else:
-            print("⏭️ Skipping link analysis - no inspiration links provided")
+            print("⏭️ Skipping link analysis - no inspiration links provided (user or linksJson)")
         
         # Step 4: Generate prompts (35%)
         await update_progress_in_db(request.account_id, 35, "Generating prompts...", generation_uuid)

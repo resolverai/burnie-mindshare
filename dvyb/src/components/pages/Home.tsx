@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sparkles, Loader2, Instagram, Twitter, Linkedin, Menu, Pencil, Check } from "lucide-react";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { PostViewDialog } from "@/components/pages/PostViewDialog";
+import { UpgradeDialog } from "@/components/UpgradeDialog";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -51,6 +52,9 @@ interface PlatformAnalytics {
 
 export const Home = () => {
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const [usageData, setUsageData] = useState<any>(null);
+  const [onboardingJobId, setOnboardingJobId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState("home");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [accountName, setAccountName] = useState("User");
@@ -167,6 +171,25 @@ export const Home = () => {
   useEffect(() => {
     fetchAnalytics();
   }, [accountId, selectedDays]);
+
+  // Check for onboarding generation and auto-open dialog
+  useEffect(() => {
+    const storedJobId = localStorage.getItem('dvyb_onboarding_generation_job_id');
+    if (storedJobId && !isLoading) {
+      console.log('🎉 Onboarding generation detected, auto-opening dialog with job:', storedJobId);
+      
+      // Store in state for dialog
+      setOnboardingJobId(storedJobId);
+      
+      // Clear the flag immediately to prevent re-opening
+      localStorage.removeItem('dvyb_onboarding_generation_job_id');
+      
+      // Small delay to ensure home page is fully loaded
+      setTimeout(() => {
+        setShowGenerateDialog(true);
+      }, 500);
+    }
+  }, [isLoading]);
 
   const handleViewChange = (view: string) => {
     setActiveView(view);
@@ -454,7 +477,32 @@ export const Home = () => {
               <div className="flex gap-3 mt-4 md:mt-6">
                 <Button 
                   className="gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm md:text-base"
-                  onClick={() => setShowGenerateDialog(true)}
+                  onClick={async () => {
+                    // Check usage limits first
+                    try {
+                      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
+                        credentials: 'include',
+                      });
+                      const data = await response.json();
+                      
+                      if (data.success && data.data) {
+                        setUsageData(data.data);
+                        
+                        if (data.data.limitExceeded && (data.data.remainingImages === 0 && data.data.remainingVideos === 0)) {
+                          // No posts left at all - show upgrade dialog
+                          // (Dialog will show different message if request already exists)
+                          setShowUpgradeDialog(true);
+                        } else {
+                          // Has some posts remaining - proceed with generation
+                          setShowGenerateDialog(true);
+                        }
+                      }
+                    } catch (error) {
+                      console.error('Failed to check usage:', error);
+                      // Proceed anyway on error
+                      setShowGenerateDialog(true);
+                    }
+                  }}
                 >
               <Sparkles className="w-4 h-4" />
               Generate content now
@@ -1173,7 +1221,23 @@ export const Home = () => {
             <span className="text-xs text-muted-foreground">Joe • 1m</span>
           </div>
 
-          <GenerateContentDialog open={showGenerateDialog} onOpenChange={setShowGenerateDialog} />
+          <GenerateContentDialog 
+            open={showGenerateDialog} 
+            onOpenChange={(open) => {
+              setShowGenerateDialog(open);
+              // Clear onboarding job ID when dialog closes
+              if (!open) {
+                setOnboardingJobId(null);
+              }
+            }}
+            initialJobId={onboardingJobId}
+          />
+          
+          <UpgradeDialog 
+            open={showUpgradeDialog} 
+            onOpenChange={setShowUpgradeDialog}
+            usageData={usageData}
+          />
           
           <PostViewDialog
             post={selectedPost}

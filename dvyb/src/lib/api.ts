@@ -862,6 +862,8 @@ export const adhocGenerationApi = {
     topic: string;
     platforms: string[];
     number_of_posts: number;
+    number_of_images?: number;
+    number_of_videos?: number;
     user_prompt?: string;
     user_images?: string[];
     inspiration_links?: string[];

@@ -33,23 +33,24 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
 
   useEffect(() => {
     if (isAnalyzing && !analysisComplete) {
+      // Step progression: advances every 2 seconds
       const stepInterval = setInterval(() => {
         setCurrentStep((prev) => {
           if (prev < analysisSteps.length - 1) return prev + 1;
-          return prev;
+          return prev; // Stay at last step "Understanding your brand..."
         });
-      }, 1500);
+      }, 2000); // 2 seconds per step
 
+      // Progress bar: reaches 100% in ~7 seconds
       const progressInterval = setInterval(() => {
         setProgress((prev) => {
           if (prev >= 100) {
-            clearInterval(progressInterval);
-            clearInterval(stepInterval);
+            clearInterval(progressInterval); // Stop progress bar only
             return 100;
           }
-          return prev + 2;
+          return prev + 1.5; // Slower increment (100 / (7000ms / 100ms) ≈ 1.4)
         });
-      }, 60);
+      }, 100); // Update every 100ms
 
       return () => {
         clearInterval(stepInterval);
@@ -85,10 +86,8 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
           localStorage.setItem('dvyb_website_analysis', JSON.stringify(response.data));
           console.log("✅ Website analysis completed and stored in localStorage");
           
-          // Wait for animation to finish
-          setTimeout(() => {
-            setAnalysisComplete(true);
-          }, 6000); // 100 steps * 60ms = 6 seconds
+          // Mark as complete (will trigger navigation after 500ms)
+          setAnalysisComplete(true);
         } else {
           throw new Error('Website analysis failed');
         }
@@ -149,7 +148,7 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
               <div className="space-y-3 md:space-y-4">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <span className="text-primary font-medium text-sm md:text-base">{analysisSteps[currentStep]}</span>
-                  <span className="text-primary font-bold text-lg md:text-xl">{progress}%</span>
+                  <span className="text-primary font-bold text-lg md:text-xl">{Math.round(progress)}%</span>
                 </div>
                 <div className="h-2 md:h-2.5 bg-background rounded-full overflow-hidden">
                   <div

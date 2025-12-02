@@ -43,6 +43,13 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
     return false;
   });
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [planInfo, setPlanInfo] = useState<{
+    planName: string;
+    selectedFrequency: 'monthly' | 'annual';
+    imagePostsLimit: number;
+    videoPostsLimit: number;
+    isFreeTrialPlan: boolean;
+  } | null>(null);
   const { accountId, logout } = useAuth();
 
   // Determine if sidebar should be collapsed (either manually or forced)
@@ -90,6 +97,25 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
     };
 
     fetchLogo();
+  }, [accountId]);
+
+  useEffect(() => {
+    const fetchPlan = async () => {
+      if (!accountId) return;
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/plan`, {
+          credentials: 'include',
+        });
+        const data = await response.json();
+        if (data.success && data.data) {
+          setPlanInfo(data.data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch plan:", error);
+      }
+    };
+
+    fetchPlan();
   }, [accountId]);
 
   const handleMenuItemClick = (itemId: string, disabled: boolean) => {
@@ -149,6 +175,18 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
             />
           )}
         </div>
+
+        {/* Plan Info Section */}
+        {planInfo && (
+          <div className={cn(
+            "px-4 py-2 border-b border-sidebar-border",
+            collapsed && "md:hidden" // Hide on desktop/tablet when collapsed, but always show on mobile
+          )}>
+            <div className="text-xs text-sidebar-foreground/70 text-center">
+              {planInfo.planName}
+            </div>
+          </div>
+        )}
 
         {/* Collapse Toggle Button (Hidden on mobile and when force collapsed) */}
         {!forceCollapsed && (

@@ -106,25 +106,43 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
     setIsScheduling(true);
 
     try {
-      // Get platforms and content from post
-      const platforms = post.requestedPlatforms || [];
+      // Get platforms with multiple fallbacks to ensure never empty
+      let platforms = post.requestedPlatforms || post.platforms || [];
+      
+      // Extra safeguard: If still empty, use default
+      if (!platforms || platforms.length === 0) {
+        platforms = ['twitter']; // Default fallback
+        console.warn('⚠️ No platforms found in ScheduleDialog handleSchedule, using default:', platforms);
+      }
+      
+      console.log('📅 ScheduleDialog handleSchedule - Platforms:', {
+        'post.requestedPlatforms': post.requestedPlatforms,
+        'post.platforms': post.platforms,
+        'final platforms': platforms,
+        'platforms length': platforms?.length,
+      });
+      
       // Detect video by checking the media URL
       const isVideo = post.image && (post.image.includes('video') || post.image.includes('.mp4'));
       const mediaType = isVideo ? 'video' : 'image';
       
-      // Validate tokens for all platforms
+      // IMPORTANT: Always validate OAuth2 only (not OAuth1) to avoid confusion
+      // OAuth1 for Twitter videos is handled by the posting service
       const validation = await postingApi.validateTokens({
         platforms,
-        requireOAuth1ForTwitterVideo: platforms.includes('twitter') && mediaType === 'video',
+        requireOAuth1ForTwitterVideo: false, // ✅ Always false - OAuth1 not needed for scheduling
       });
 
-      // Check if any platforms need reauth
+      console.log('🔍 ScheduleDialog - Token validation result:', validation.data);
+
+      // Check if any platforms need OAuth2 reauth
       const platformsNeedingAuth = validation.data.platforms
         .filter((p: any) => p.requiresReauth || !p.connected)
         .map((p: any) => p.platform);
 
       if (platformsNeedingAuth.length > 0) {
-        // Show auth dialog and initiate auth flow
+        // Show auth dialog and initiate OAuth2 flow
+        console.log('🔐 ScheduleDialog - Platforms needing OAuth2:', platformsNeedingAuth);
         setAuthPlatforms(platformsNeedingAuth);
         setCurrentAuthIndex(0);
         setShowAuthDialog(true);
@@ -132,7 +150,9 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
         return;
       }
 
-      // All tokens valid, proceed with scheduling
+      console.log('✅ ScheduleDialog - All OAuth2 tokens valid, proceeding with scheduling');
+      // All OAuth2 tokens valid, proceed with scheduling
+      // Note: OAuth1 for Twitter videos will be checked when the scheduled post is actually posted
       await performSchedule();
     } catch (error: any) {
       console.error('Error scheduling:', error);
@@ -165,7 +185,22 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
         return;
       }
 
-      const platforms = post.requestedPlatforms || [];
+      // Get platforms with multiple fallbacks to ensure never empty
+      let platforms = post.requestedPlatforms || post.platforms || [];
+      
+      // Extra safeguard: If still empty, use default
+      if (!platforms || platforms.length === 0) {
+        platforms = ['twitter']; // Default fallback
+        console.warn('⚠️ No platforms found in ScheduleDialog performSchedule, using default:', platforms);
+      }
+      
+      console.log('📅 ScheduleDialog performSchedule - Platforms:', {
+        'post.requestedPlatforms': post.requestedPlatforms,
+        'post.platforms': post.platforms,
+        'final platforms': platforms,
+        'platforms length': platforms?.length,
+      });
+      
       const mediaUrl = post.image; // S3 URL
       
       // Robust video detection - check multiple indicators
@@ -201,6 +236,13 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
       // Get the full platform texts (not truncated)
       // Use fullPlatformTexts if available, otherwise fall back to description
       const fullPlatformTexts = (post as any).fullPlatformTexts || {};
+      
+      console.log('📤 ScheduleDialog - Sending to API:', {
+        'post.generatedContentId': post.generatedContentId,
+        'post.postIndex': post.postIndex,
+        'post object': post,
+        'fullPlatformTexts': fullPlatformTexts,
+      });
       
       // Call schedule API
       const response = await postingApi.schedulePost({
@@ -283,9 +325,25 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
 
       // Listen for auth completion
       const handleMessage = (event: MessageEvent) => {
-        if (event.data.type === `${platform}_auth_success`) {
+        if (event.origin !== window.location.origin) return;
+        
+        // Handle different message types for different platforms
+        const successTypes = [
+          'twitter_connected',
+          'instagram_connected', 
+          'linkedin_connected',
+          'tiktok_connected',
+          `${platform}_auth_success`
+        ];
+        
+        if (successTypes.includes(event.data.type)) {
           window.removeEventListener('message', handleMessage);
           popup?.close();
+          
+          toast({
+            title: "Connected!",
+            description: `${platform.charAt(0).toUpperCase() + platform.slice(1)} connected successfully`,
+          });
           
           // Move to next platform
           if (currentAuthIndex + 1 < authPlatforms.length) {

@@ -41,7 +41,7 @@ export default function AnalysisDetailsPage() {
         
         const analysisData = JSON.parse(storedAnalysis);
         
-        // Save to database
+        // Save to database (including logo S3 key if extracted)
         const response = await contextApi.updateContext({
           website: storedUrl,
           accountName: analysisData.base_name,
@@ -51,6 +51,7 @@ export default function AnalysisDetailsPage() {
           whyCustomersChoose: analysisData.why_customers_choose,
           brandStory: analysisData.brand_story,
           colorPalette: analysisData.color_palette,
+          logoUrl: analysisData.logo_s3_key || null, // Save extracted logo S3 key
         });
         
         if (response.success) {
@@ -59,6 +60,32 @@ export default function AnalysisDetailsPage() {
             title: "Success!",
             description: "Your brand analysis has been saved.",
           });
+          
+          // Start automatic content generation in background (wow experience!)
+          console.log('🎨 Starting automatic content generation...');
+          try {
+            const { adhocGenerationApi } = await import('@/lib/api');
+            const genResponse = await adhocGenerationApi.generateContent({
+              topic: 'Product Launch',
+              platforms: ['twitter'],  // Twitter only for faster demo
+              number_of_posts: 2,
+              number_of_images: 2,
+              number_of_videos: 0,
+              user_prompt: 'Generate Posts to showcase new feature launch on our platform',
+            });
+            
+            if (genResponse.success && (genResponse.job_id || genResponse.uuid)) {
+              const jobId = genResponse.job_id || genResponse.uuid;
+              console.log('✅ Content generation started:', jobId);
+              // Store job_id for home screen to pick up
+              localStorage.setItem('dvyb_onboarding_generation_job_id', jobId);
+            } else {
+              console.warn('⚠️ Content generation failed to start:', genResponse.error);
+            }
+          } catch (genError) {
+            console.error('⚠️ Could not start automatic generation:', genError);
+            // Don't block onboarding if generation fails
+          }
           
           // Proceed to brand profile
           router.push('/onboarding/brand-profile');

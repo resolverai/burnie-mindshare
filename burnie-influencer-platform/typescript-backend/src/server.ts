@@ -56,6 +56,9 @@ import contentRequestRoutes from './routes/contentRequestRoutes';
 import hotCampaignsRoutes from './routes/hotCampaigns';
 import adminContentApprovalsRoutes from './routes/adminContentApprovals';
 import dedicatedMinerExecutionsRoutes from './routes/dedicatedMinerExecutions';
+import adminDvybAccountsRoutes from './routes/adminDvybAccounts';
+import adminDvybPlansRoutes from './routes/adminDvybPlans';
+import adminDvybUpgradeRequestsRoutes from './routes/adminDvybUpgradeRequests';
 import approvedMinersRoutes from './routes/approvedMiners';
 import twitterHandlesRoutes from './routes/twitterHandles';
 import editTweetRoutes from './routes/editTweet';
@@ -73,6 +76,7 @@ import dvybAuthRoutes from './routes/dvybAuth';
 import dvybAccountRoutes from './routes/dvybAccount';
 import dvybContextRoutes from './routes/dvybContext';
 import dvybUploadRoutes from './routes/dvybUpload';
+import dvybUpgradeRequestsRoutes from './routes/dvybUpgradeRequests';
 import dvybTopicsRoutes from './routes/dvybTopics';
 import dvybGenerationRoutes from './routes/dvybGeneration';
 import dvybAdhocGenerationRoutes from './routes/dvybAdhocGeneration';
@@ -215,6 +219,9 @@ app.use('/api', adminContentApprovalsRoutes); // Admin content approvals for min
 app.use('/api', dedicatedMinerExecutionsRoutes); // Dedicated miner execution tracking
 app.use('/api', approvedMinersRoutes); // Approved miners management
 app.use('/api/admin/twitter-handles', twitterHandlesRoutes); // Twitter handles management
+app.use('/api/admin/dvyb-accounts', adminDvybAccountsRoutes); // DVYB accounts management
+app.use('/api/admin/dvyb-plans', adminDvybPlansRoutes); // DVYB pricing plans management
+app.use('/api/admin/dvyb-upgrade-requests', adminDvybUpgradeRequestsRoutes); // DVYB upgrade requests management
 app.use('/api/edit-tweet', editTweetRoutes); // Edit tweet functionality with avatar fusion
 app.use('/api/user-twitter-posts', userTwitterPostsRoutes); // User Twitter posts tracking and engagement
 app.use('/api', videoAnalyticsRoutes); // Video analytics and performance metrics
@@ -232,6 +239,7 @@ app.use('/api/dvyb/auth/oauth1', dvybOAuth1AuthRoutes); // DVYB OAuth1 routes fo
 app.use('/api/dvyb/account', dvybAccountRoutes); // DVYB account management
 app.use('/api/dvyb/context', dvybContextRoutes); // DVYB context management
 app.use('/api/dvyb/upload', dvybUploadRoutes); // DVYB file upload routes
+app.use('/api/dvyb/upgrade-requests', dvybUpgradeRequestsRoutes); // DVYB upgrade requests
 app.use('/api/dvyb/topics', dvybTopicsRoutes); // DVYB topic generation
 app.use('/api/dvyb/analytics', dvybAnalyticsRoutes); // DVYB analytics for home page
 app.use('/api/dvyb/dashboard', dvybDashboardRoutes); // DVYB dashboard and analytics

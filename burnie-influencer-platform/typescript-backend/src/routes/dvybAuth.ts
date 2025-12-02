@@ -244,8 +244,11 @@ router.get('/status', async (req: DvybAuthRequest, res: Response) => {
     if (!accountExists) {
       logger.info(`📊 DVYB Auth Status: Account ${accountId} does not exist in database`);
       
-      // Clear invalid cookies - account was deleted
-      res.clearCookie('dvyb_account_id');
+      // Clear invalid cookies - account was deleted (use same options as when cookie was set)
+      res.clearCookie('dvyb_account_id', {
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      });
       
       return res.json({
         success: true,
@@ -301,8 +304,11 @@ router.post('/logout', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
 
     await DvybAuthService.logout(accountId);
 
-    // Clear cookies
-    res.clearCookie('dvyb_account_id');
+    // Clear cookies with same options as when they were set
+    res.clearCookie('dvyb_account_id', {
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    });
 
     logger.info(`✅ DVYB account ${accountId} logged out successfully`);
 

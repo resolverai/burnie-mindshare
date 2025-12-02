@@ -1,0 +1,740 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { 
+  ArrowLeft, 
+  Search, 
+  Plus,
+  CheckCircle,
+  XCircle,
+  DollarSign,
+  Edit2,
+  Trash2,
+  Image as ImageIcon,
+  Video,
+  Gift
+} from 'lucide-react';
+
+interface PricingPlan {
+  id: number;
+  planName: string;
+  description: string | null;
+  monthlyPrice: number;
+  annualPrice: number;
+  monthlyImageLimit: number;
+  monthlyVideoLimit: number;
+  annualImageLimit: number;
+  annualVideoLimit: number;
+  extraImagePostPrice: number;
+  extraVideoPostPrice: number;
+  isActive: boolean;
+  isFreeTrialPlan: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+}
+
+interface ApiResponse {
+  success: boolean;
+  data: PricingPlan[];
+  pagination: Pagination;
+}
+
+export default function DvybPlansPage() {
+  const router = useRouter();
+  const [plans, setPlans] = useState<PricingPlan[]>([]);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, pages: 0 });
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [showModal, setShowModal] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<PricingPlan | null>(null);
+  const [formData, setFormData] = useState({
+    planName: '',
+    description: '',
+    monthlyPrice: '',
+    annualPrice: '',
+    monthlyImageLimit: '',
+    monthlyVideoLimit: '',
+    annualImageLimit: '',
+    annualVideoLimit: '',
+    extraImagePostPrice: '',
+    extraVideoPostPrice: '',
+    isFreeTrialPlan: false,
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  // Fetch plans
+  const fetchPlans = async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams({
+        page: pagination.page.toString(),
+        limit: pagination.limit.toString(),
+        ...(searchTerm && { search: searchTerm }),
+        ...(statusFilter !== 'ALL' && { status: statusFilter.toLowerCase() })
+      });
+
+      const response = await fetch(`/api/admin/dvyb-plans?${params}`);
+      const data: ApiResponse = await response.json();
+
+      if (data.success) {
+        setPlans(data.data);
+        setPagination(data.pagination);
+      }
+    } catch (error) {
+      console.error('Error fetching plans:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPlans();
+  }, [pagination.page, searchTerm, statusFilter]);
+
+  // Open modal for creating/editing
+  const openModal = (plan?: PricingPlan) => {
+    if (plan) {
+      setEditingPlan(plan);
+      setFormData({
+        planName: plan.planName,
+        description: plan.description || '',
+        monthlyPrice: plan.monthlyPrice.toString(),
+        annualPrice: plan.annualPrice.toString(),
+        monthlyImageLimit: plan.monthlyImageLimit.toString(),
+        monthlyVideoLimit: plan.monthlyVideoLimit.toString(),
+        annualImageLimit: plan.annualImageLimit.toString(),
+        annualVideoLimit: plan.annualVideoLimit.toString(),
+        extraImagePostPrice: plan.extraImagePostPrice.toString(),
+        extraVideoPostPrice: plan.extraVideoPostPrice.toString(),
+        isFreeTrialPlan: plan.isFreeTrialPlan,
+      });
+    } else {
+      setEditingPlan(null);
+      setFormData({
+        planName: '',
+        description: '',
+        monthlyPrice: '',
+        annualPrice: '',
+        monthlyImageLimit: '',
+        monthlyVideoLimit: '',
+        annualImageLimit: '',
+        annualVideoLimit: '',
+        extraImagePostPrice: '',
+        extraVideoPostPrice: '',
+        isFreeTrialPlan: false,
+      });
+    }
+    setShowModal(true);
+  };
+
+  // Handle submit
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      setSubmitting(true);
+      const url = editingPlan 
+        ? `/api/admin/dvyb-plans/${editingPlan.id}`
+        : '/api/admin/dvyb-plans';
+      
+      const method = editingPlan ? 'PATCH' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planName: formData.planName,
+          description: formData.description || null,
+          monthlyPrice: parseFloat(formData.monthlyPrice),
+          annualPrice: parseFloat(formData.annualPrice),
+          monthlyImageLimit: parseInt(formData.monthlyImageLimit),
+          monthlyVideoLimit: parseInt(formData.monthlyVideoLimit),
+          annualImageLimit: parseInt(formData.annualImageLimit),
+          annualVideoLimit: parseInt(formData.annualVideoLimit),
+          extraImagePostPrice: parseFloat(formData.extraImagePostPrice),
+          extraVideoPostPrice: parseFloat(formData.extraVideoPostPrice),
+          isFreeTrialPlan: formData.isFreeTrialPlan,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setShowModal(false);
+        fetchPlans();
+        alert(data.message);
+      } else {
+        alert(data.error);
+      }
+    } catch (error) {
+      console.error('Error saving plan:', error);
+      alert('Failed to save plan');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Handle delete
+  const handleDelete = async (planId: number) => {
+    if (!confirm('Are you sure you want to delete this plan?')) return;
+
+    try {
+      const response = await fetch(`/api/admin/dvyb-plans/${planId}`, {
+        method: 'DELETE',
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        fetchPlans();
+        alert(data.message);
+      } else {
+        alert(data.error);
+      }
+    } catch (error) {
+      console.error('Error deleting plan:', error);
+      alert('Failed to delete plan');
+    }
+  };
+
+  const formatCurrency = (amount: number | string) => {
+    const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+    return `$${numAmount.toFixed(2)}`;
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.back()}
+                className="flex items-center gap-2 text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+              <h1 className="text-3xl font-bold text-gray-900">DVYB Pricing Plans</h1>
+            </div>
+            <Button
+              onClick={() => openModal()}
+              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              <Plus className="h-4 w-4" />
+              Create Plan
+            </Button>
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Active Plans</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {plans.filter(p => p.isActive).length}
+                  </p>
+                </div>
+                <CheckCircle className="h-8 w-8 text-green-500" />
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Inactive Plans</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {plans.filter(p => !p.isActive).length}
+                  </p>
+                </div>
+                <XCircle className="h-8 w-8 text-red-500" />
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Total Plans</p>
+                  <p className="text-2xl font-bold text-gray-900">{pagination.total}</p>
+                </div>
+                <DollarSign className="h-8 w-8 text-blue-500" />
+              </div>
+            </div>
+          </div>
+
+          {/* Search and Filters */}
+          <div className="bg-white rounded-lg shadow p-4 mb-6">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search plans..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setPagination({ ...pagination, page: 1 });
+                  }}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPagination({ ...pagination, page: 1 });
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white text-gray-900"
+              >
+                <option value="ALL">All Status</option>
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Plans Table */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+            </div>
+          ) : plans.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+              <DollarSign className="h-16 w-16 mb-4 opacity-50" />
+              <p className="text-lg font-medium">No plans found</p>
+              <p className="text-sm">Create your first pricing plan</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Plan
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Price
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Limits
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Overage Pricing
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {plans.map((plan) => (
+                    <tr key={plan.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-medium text-gray-900">{plan.planName}</div>
+                            {plan.isFreeTrialPlan && (
+                              <span className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full flex items-center gap-1">
+                                <Gift className="h-3 w-3" />
+                                Free Trial
+                              </span>
+                            )}
+                          </div>
+                          {plan.description && (
+                            <div className="text-sm text-gray-500">{plan.description}</div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm font-bold text-gray-900">
+                          {formatCurrency(plan.monthlyPrice)}/mo
+                        </div>
+                        <div className="text-sm text-gray-700">
+                          {formatCurrency(plan.annualPrice)}/yr
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-xs text-gray-600 font-semibold mb-1">Monthly:</div>
+                        <div className="text-sm text-gray-900 flex items-center gap-3">
+                          <span className="flex items-center gap-1">
+                            <ImageIcon className="h-4 w-4 text-gray-500" />
+                            {plan.monthlyImageLimit}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Video className="h-4 w-4 text-gray-500" />
+                            {plan.monthlyVideoLimit}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-600 font-semibold mt-2 mb-1">Annual:</div>
+                        <div className="text-sm text-gray-900 flex items-center gap-3">
+                          <span className="flex items-center gap-1">
+                            <ImageIcon className="h-4 w-4 text-gray-500" />
+                            {plan.annualImageLimit}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Video className="h-4 w-4 text-gray-500" />
+                            {plan.annualVideoLimit}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-600">
+                          +{formatCurrency(plan.extraImagePostPrice)} / image
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          +{formatCurrency(plan.extraVideoPostPrice)} / video
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            plan.isActive
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-red-100 text-red-800'
+                          }`}
+                        >
+                          {plan.isActive ? (
+                            <>
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Active
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Inactive
+                            </>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => openModal(plan)}
+                            size="sm"
+                            variant="outline"
+                            className="flex items-center gap-1 text-gray-900 border-gray-300 hover:bg-gray-50"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                            Edit
+                          </Button>
+                          <Button
+                            onClick={() => handleDelete(plan.id)}
+                            size="sm"
+                            variant="destructive"
+                            className="flex items-center gap-1"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {!loading && pagination.pages > 1 && (
+            <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
+              <div className="flex-1 flex justify-between sm:hidden">
+                <Button
+                  onClick={() => setPagination({ ...pagination, page: Math.max(1, pagination.page - 1) })}
+                  disabled={pagination.page === 1}
+                  variant="outline"
+                  size="sm"
+                  className="text-gray-900"
+                >
+                  Previous
+                </Button>
+                <Button
+                  onClick={() => setPagination({ ...pagination, page: Math.min(pagination.pages, pagination.page + 1) })}
+                  disabled={pagination.page === pagination.pages}
+                  variant="outline"
+                  size="sm"
+                  className="text-gray-900"
+                >
+                  Next
+                </Button>
+              </div>
+              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-gray-700">
+                    Showing{' '}
+                    <span className="font-medium">
+                      {(pagination.page - 1) * pagination.limit + 1}
+                    </span>{' '}
+                    to{' '}
+                    <span className="font-medium">
+                      {Math.min(pagination.page * pagination.limit, pagination.total)}
+                    </span>{' '}
+                    of{' '}
+                    <span className="font-medium">{pagination.total}</span>{' '}
+                    plans
+                  </p>
+                </div>
+                <div>
+                  <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+                    <Button
+                      onClick={() => setPagination({ ...pagination, page: Math.max(1, pagination.page - 1) })}
+                      disabled={pagination.page === 1}
+                      variant="outline"
+                      size="sm"
+                      className="rounded-l-md text-gray-900"
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      onClick={() => setPagination({ ...pagination, page: Math.min(pagination.pages, pagination.page + 1) })}
+                      disabled={pagination.page === pagination.pages}
+                      variant="outline"
+                      size="sm"
+                      className="rounded-r-md text-gray-900"
+                    >
+                      Next
+                    </Button>
+                  </nav>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Create/Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">
+                {editingPlan ? 'Edit Plan' : 'Create New Plan'}
+              </h2>
+            </div>
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Plan Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.planName}
+                    onChange={(e) => setFormData({ ...formData, planName: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="e.g., Free Trial, Pro, Enterprise"
+                  />
+                </div>
+
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    rows={2}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="Brief description of the plan"
+                  />
+                </div>
+
+                {/* Pricing Section */}
+                <div className="col-span-2">
+                  <h3 className="text-md font-semibold text-gray-900 mb-3">Pricing</h3>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Monthly Price ($) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={formData.monthlyPrice}
+                    onChange={(e) => setFormData({ ...formData, monthlyPrice: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Annual Price ($) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={formData.annualPrice}
+                    onChange={(e) => setFormData({ ...formData, annualPrice: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                {/* Monthly Limits */}
+                <div className="col-span-2 mt-4">
+                  <h3 className="text-md font-semibold text-gray-900 mb-3">Monthly Limits</h3>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Monthly Image Posts *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={formData.monthlyImageLimit}
+                    onChange={(e) => setFormData({ ...formData, monthlyImageLimit: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="0"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Monthly Video Posts *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={formData.monthlyVideoLimit}
+                    onChange={(e) => setFormData({ ...formData, monthlyVideoLimit: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="0"
+                  />
+                </div>
+
+                {/* Annual Limits */}
+                <div className="col-span-2 mt-4">
+                  <h3 className="text-md font-semibold text-gray-900 mb-3">Annual Limits</h3>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Annual Image Posts *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={formData.annualImageLimit}
+                    onChange={(e) => setFormData({ ...formData, annualImageLimit: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="0"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Annual Video Posts *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={formData.annualVideoLimit}
+                    onChange={(e) => setFormData({ ...formData, annualVideoLimit: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="0"
+                  />
+                </div>
+
+                {/* Overage Pricing */}
+                <div className="col-span-2 mt-4">
+                  <h3 className="text-md font-semibold text-gray-900 mb-3">Overage Pricing</h3>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Extra Image Price ($) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={formData.extraImagePostPrice}
+                    onChange={(e) => setFormData({ ...formData, extraImagePostPrice: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Extra Video Price ($) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={formData.extraVideoPostPrice}
+                    onChange={(e) => setFormData({ ...formData, extraVideoPostPrice: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                {/* Free Trial Flag */}
+                <div className="col-span-2 mt-4">
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.isFreeTrialPlan}
+                      onChange={(e) => setFormData({ ...formData, isFreeTrialPlan: e.target.checked })}
+                      className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                    />
+                    <span className="ml-2 text-sm font-medium text-gray-900 flex items-center gap-1">
+                      <Gift className="h-4 w-4" />
+                      This is a Free Trial Plan
+                    </span>
+                  </label>
+                  <p className="text-xs text-gray-500 mt-1 ml-6">
+                    If checked, this plan will be automatically assigned to all new accounts upon registration
+                  </p>
+                </div>
+
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  variant="outline"
+                  className="flex-1 text-gray-900 border-gray-300 hover:bg-gray-50"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  {submitting ? 'Saving...' : editingPlan ? 'Update Plan' : 'Create Plan'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+

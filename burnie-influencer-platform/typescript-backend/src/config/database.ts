@@ -122,6 +122,9 @@ import { DvybTikTokPost } from '../models/DvybTikTokPost';
 import { DvybSchedule } from '../models/DvybSchedule';
 import { DvybContentLibrary } from '../models/DvybContentLibrary';
 import { DvybBrandTopics } from '../models/DvybBrandTopics';
+import { DvybPricingPlan } from '../models/DvybPricingPlan';
+import { DvybAccountPlan } from '../models/DvybAccountPlan';
+import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -243,6 +246,9 @@ export const AppDataSource = new DataSource({
     DvybSchedule,
     DvybContentLibrary,
     DvybBrandTopics,
+    DvybPricingPlan,
+    DvybAccountPlan,
+    DvybUpgradeRequest,
   ],
   migrations: [],
   subscribers: [],

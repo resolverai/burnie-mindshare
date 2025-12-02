@@ -24,11 +24,11 @@ router.post('/analyze-website-guest', async (req, res) => {
       });
     }
 
-    logger.info(`🔍 Starting guest website analysis: ${url}`);
+    logger.info(`⚡ Starting FAST guest website analysis: ${url}`);
 
-    // Call Python AI backend for website analysis
+    // Call Python AI backend for website analysis (FAST endpoint - 3-4x faster)
     const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
-    const response = await fetch(`${pythonBackendUrl}/api/dvyb/analyze-website`, {
+    const response = await fetch(`${pythonBackendUrl}/api/dvyb/analyze-website-fast`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -347,9 +347,9 @@ router.post('/analyze-website', dvybAuthMiddleware, async (req: DvybAuthRequest,
 
     // If analysis data not provided, fetch from Python backend
     if (!finalAnalysisData) {
-      logger.info(`🔄 No cached analysis data, calling Python backend...`);
+      logger.info(`⚡ No cached analysis data, calling FAST Python backend...`);
       const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
-      const response = await fetch(`${pythonBackendUrl}/api/dvyb/analyze-website`, {
+      const response = await fetch(`${pythonBackendUrl}/api/dvyb/analyze-website-fast`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -388,6 +388,7 @@ router.post('/analyze-website', dvybAuthMiddleware, async (req: DvybAuthRequest,
       whyCustomersChoose: analysisDataToUse.why_customers_choose || null,
       brandStory: analysisDataToUse.brand_story || null,
       colorPalette: analysisDataToUse.color_palette || null,
+      logoUrl: analysisDataToUse.logo_s3_key || null, // Save extracted logo S3 key
     });
 
     logger.info(`✅ Website analysis saved for account ${accountId}`);

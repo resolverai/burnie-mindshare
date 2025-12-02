@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Loader2, XCircle } from 'lucide-react'
+import { socialConnectionsApi } from '@/lib/api'
 
 function LinkedInCallbackContent() {
   const searchParams = useSearchParams()
-  const [status, setStatus] = useState('Processing authentication...')
+  const [status, setStatus] = useState('Processing LinkedIn connection...')
   const [isError, setIsError] = useState(false)
   const processingRef = useRef(false)
 
@@ -26,35 +27,25 @@ function LinkedInCallbackContent() {
         }
         
         if (!code || !state) {
-          throw new Error('Missing code or state')
+          throw new Error('Missing code or state from LinkedIn callback')
         }
         
-        console.log('Processing LinkedIn callback...', { code: code.substring(0, 10) + '...', state: state.substring(0, 10) + '...' })
+        console.log('Processing LinkedIn callback...', { code: code.substring(0, 10) + '...', state })
         
         // Call the backend to complete LinkedIn connection
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api'
-        const response = await fetch(`${API_URL}/dvyb/auth/linkedin/connect`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include', // Include cookies for authentication
-          body: JSON.stringify({ code, state }),
-        })
+        const response = await socialConnectionsApi.handleLinkedInConnectCallback(code, state)
         
-        const data = await response.json()
-        
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || 'LinkedIn connection failed')
+        if (!response.success) {
+          throw new Error(String(('error' in response ? response.error : undefined) || 'Callback failed'))
         }
         
-        setStatus('Connected! Closing...')
+        setStatus('LinkedIn connected! Closing window...')
         
         // Send success message to parent window
         if (window.opener) {
           window.opener.postMessage({
             type: 'linkedin_connected',
-            success: true,
+            account_id: response.data?.accountId,
           }, window.location.origin)
         }
         
@@ -63,13 +54,13 @@ function LinkedInCallbackContent() {
       } catch (error: any) {
         console.error('LinkedIn callback error:', error)
         setIsError(true)
-        setStatus(error?.message || 'Connection failed')
+        setStatus(error?.message || 'LinkedIn connection failed')
         
         // Send error message to parent window
         if (window.opener) {
           window.opener.postMessage({
             type: 'linkedin_error',
-            message: error?.message || 'Connection failed'
+            message: error?.message || 'LinkedIn connection failed'
           }, window.location.origin)
         }
         
@@ -121,4 +112,3 @@ export default function LinkedInCallbackPage() {
     </Suspense>
   )
 }
-

@@ -12,7 +12,6 @@ import { ChevronRight, Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Spa
 import { CaptionEditDialog } from "./CaptionEditDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
 import { accountApi } from "@/lib/api";
-import { TikTokIcon } from "@/components/icons/TikTokIcon";
 
 interface Post {
   id: string;
@@ -37,7 +36,7 @@ interface PostDetailDialogProps {
   onScheduleComplete?: () => void;
 }
 
-type Platform = "instagram" | "tiktok" | "linkedin" | "twitter";
+type Platform = "instagram" | "linkedin" | "twitter";
 
 export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeChange, onScheduleComplete }: PostDetailDialogProps) => {
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>("instagram");
@@ -60,18 +59,16 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
     twitter?: { handle: string; name?: string; profileImageUrl?: string };
     instagram?: { username: string; name?: string; profilePicture?: string };
     linkedin?: { name: string; picture?: string };
-    tiktok?: { displayName: string; avatarUrl?: string };
   }>({});
 
   // Fetch platform connections on mount
   useEffect(() => {
     const fetchConnections = async () => {
       try {
-        const [twitterRes, instagramRes, linkedinRes, tiktokRes] = await Promise.all([
+        const [twitterRes, instagramRes, linkedinRes] = await Promise.all([
           accountApi.getTwitterConnection().catch(() => null),
           accountApi.getInstagramConnection().catch(() => null),
           accountApi.getLinkedInConnection().catch(() => null),
-          accountApi.getTikTokConnection().catch(() => null),
         ]);
 
         const connections: any = {};
@@ -104,16 +101,6 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
                  linkedinRes.data.email || 
                  'Professional Account',
             picture: linkedinRes.data.profileData?.picture
-          };
-        }
-
-        // TikTok - use displayName from connection or profileData
-        if (tiktokRes?.data) {
-          connections.tiktok = { 
-            displayName: tiktokRes.data.displayName || 
-                        tiktokRes.data.profileData?.display_name || 
-                        'tiktok_account',
-            avatarUrl: tiktokRes.data.profileData?.avatar_url
           };
         }
 
@@ -197,7 +184,6 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
 
   const allPlatformOptions: { id: Platform; label: string; icon: string }[] = [
     { id: "instagram", label: "Instagram", icon: "🟣" },
-    { id: "tiktok", label: "TikTok", icon: "⚫" },
     { id: "linkedin", label: "LinkedIn", icon: "🔷" },
     { id: "twitter", label: "X / Twitter", icon: "⚫" },
   ];
@@ -393,76 +379,6 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
           </div>
         );
       
-      case "tiktok":
-        return (
-          <div className="bg-black rounded-lg overflow-hidden shadow-lg w-full max-w-sm mx-auto relative aspect-[9/16]">
-            {/* TikTok Media - Always 9:16 */}
-            <div className="absolute inset-0">
-              {isVideo ? (
-                <video 
-                  src={post.image} 
-                  controls
-                  playsInline
-                  loop
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <img 
-                  src={post.image} 
-                  alt={post.title}
-                  className="w-full h-full object-cover"
-                />
-              )}
-            </div>
-            
-            {/* TikTok UI Overlay */}
-            <div className="absolute inset-0 pointer-events-none">
-              {/* Right Side Actions */}
-              <div className="absolute right-2 bottom-20 flex flex-col gap-4 items-center">
-                <div className="flex flex-col items-center gap-1">
-                  {platformConnections.tiktok?.avatarUrl ? (
-                    <img 
-                      src={platformConnections.tiktok.avatarUrl} 
-                      alt="Avatar"
-                      className="w-10 h-10 rounded-full border-2 border-white object-cover"
-                    />
-                  ) : (
-                    <div className="w-10 h-10 rounded-full bg-gray-400 border-2 border-white" />
-                  )}
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <Heart className="w-8 h-8 text-white" fill="white" />
-                  <span className="text-white text-xs font-semibold">125K</span>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <MessageCircle className="w-8 h-8 text-white" fill="white" />
-                  <span className="text-white text-xs font-semibold">1,234</span>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <Bookmark className="w-8 h-8 text-white" fill="white" />
-                  <span className="text-white text-xs font-semibold">5,678</span>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <Send className="w-8 h-8 text-white" fill="white" />
-                </div>
-              </div>
-              
-              {/* Bottom Info */}
-              <div className="absolute bottom-2 left-2 right-16 text-white">
-                <div className="font-semibold text-sm mb-1">
-                  @{platformConnections.tiktok?.displayName || 'tiktok_account'}
-                </div>
-                <div className="text-xs mb-2 line-clamp-2">
-                  {getPlatformCaption('tiktok')}
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <Music className="w-3 h-3" />
-                  <span className="truncate">Original Sound</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
     }
   };
 
@@ -614,14 +530,17 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
                       <span className="mr-1 md:mr-2">📝</span>
                       Edit Caption
                     </Button>
-                    <Button 
-                      variant={showEditDesign ? "default" : "outline"} 
-                      className="flex-1 text-xs md:text-sm"
-                      onClick={() => handleEditDesignToggle(!showEditDesign)}
-                    >
-                      <span className="mr-1 md:mr-2">🎨</span>
-                      Edit Design
-                    </Button>
+                    <div className="flex-1 flex flex-col gap-1">
+                      <Button 
+                        variant={showEditDesign ? "default" : "outline"} 
+                        className="w-full text-xs md:text-sm"
+                        disabled={true}
+                      >
+                        <span className="mr-1 md:mr-2">🎨</span>
+                        Edit Design
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>
+                    </div>
                       </div>
                     </div>
                     
@@ -695,14 +614,17 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
                       <span className="mr-2">📝</span>
                       Edit Caption
                     </Button>
-                    <Button 
-                      variant={showEditDesign ? "default" : "outline"} 
-                      className="flex-1 text-sm"
-                      onClick={() => handleEditDesignToggle(!showEditDesign)}
-                    >
-                      <span className="mr-2">🎨</span>
-                      Edit Design
-                    </Button>
+                    <div className="flex-1 flex flex-col gap-1">
+                      <Button 
+                        variant={showEditDesign ? "default" : "outline"} 
+                        className="w-full text-sm"
+                        disabled={true}
+                      >
+                        <span className="mr-2">🎨</span>
+                        Edit Design
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>
+                    </div>
                   </div>
                 </div>
                 
@@ -885,14 +807,17 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
                       <span className="mr-1.5 md:mr-2">📝</span>
                       Edit Caption
                     </Button>
-                    <Button 
-                      variant={showEditDesign ? "default" : "outline"} 
-                      className="flex-1 text-xs md:text-sm h-10 md:h-10"
-                      onClick={() => handleEditDesignToggle(!showEditDesign)}
-                    >
-                      <span className="mr-1.5 md:mr-2">🎨</span>
-                      Edit Design
-                    </Button>
+                    <div className="flex-1 flex flex-col gap-1">
+                      <Button 
+                        variant={showEditDesign ? "default" : "outline"} 
+                        className="w-full text-xs md:text-sm h-10 md:h-10"
+                        disabled={true}
+                      >
+                        <span className="mr-1.5 md:mr-2">🎨</span>
+                        Edit Design
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>
+                    </div>
                   </div>
                 </div>
                 

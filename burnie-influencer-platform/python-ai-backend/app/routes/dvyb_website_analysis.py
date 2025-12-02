@@ -23,6 +23,10 @@ from collections import Counter
 
 from openai import OpenAI
 import os
+import boto3
+from botocore.exceptions import ClientError
+import uuid
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -265,6 +269,145 @@ def extract_colors_from_website(url: str, html: str, soup: BeautifulSoup) -> Dic
             "secondary": None,
             "accent": None,
         }
+
+
+def extract_logo_url_from_html(url: str, soup: BeautifulSoup) -> Optional[str]:
+    """
+    Extract logo URL from website HTML.
+    Tries multiple strategies to find the best logo.
+    """
+    try:
+        logo_url = None
+        
+        # Strategy 1: Look for Open Graph image (og:image)
+        og_image = soup.find("meta", property="og:image")
+        if og_image and og_image.get("content"):
+            logo_url = og_image.get("content")
+            logger.info(f"  → Found og:image: {logo_url}")
+        
+        # Strategy 2: Apple touch icon (usually high quality)
+        if not logo_url:
+            apple_icon = soup.find("link", rel=lambda v: v and 'apple-touch-icon' in v)
+            if apple_icon and apple_icon.get("href"):
+                logo_url = apple_icon.get("href")
+                logger.info(f"  → Found apple-touch-icon: {logo_url}")
+        
+        # Strategy 3: Standard favicon
+        if not logo_url:
+            favicon = soup.find("link", rel=lambda v: v and 'icon' in v)
+            if favicon and favicon.get("href"):
+                logo_url = favicon.get("href")
+                logger.info(f"  → Found favicon: {logo_url}")
+        
+        # Strategy 4: Default favicon location
+        if not logo_url:
+            parsed_url = urllib.parse.urlparse(url)
+            logo_url = f"{parsed_url.scheme}://{parsed_url.netloc}/favicon.ico"
+            logger.info(f"  → Using default favicon: {logo_url}")
+        
+        # Convert relative URL to absolute
+        if logo_url:
+            logo_url = urllib.parse.urljoin(url, logo_url)
+            logger.info(f"  → Final logo URL: {logo_url}")
+        
+        return logo_url
+        
+    except Exception as e:
+        logger.error(f"Error extracting logo URL: {e}")
+        return None
+
+
+async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int] = None) -> Optional[Dict[str, str]]:
+    """
+    Download logo from URL and upload to S3.
+    Returns dict with S3 key and presigned URL if successful, None otherwise.
+    """
+    try:
+        logger.info(f"📥 Downloading logo from: {logo_url}")
+        
+        # Download logo
+        headers = {
+            "User-Agent": "DVYB-WebsiteAnalyzer/1.0 (+https://dvyb.ai)"
+        }
+        response = requests.get(logo_url, headers=headers, timeout=10, allow_redirects=True)
+        response.raise_for_status()
+        
+        # Check if it's an image
+        content_type = response.headers.get('content-type', '')
+        if not content_type.startswith('image/'):
+            logger.warning(f"  ⚠️ Not an image: {content_type}")
+            return None
+        
+        # Get file extension from content type
+        ext_map = {
+            'image/png': 'png',
+            'image/jpeg': 'jpg',
+            'image/jpg': 'jpg',
+            'image/gif': 'gif',
+            'image/webp': 'webp',
+            'image/svg+xml': 'svg',
+            'image/x-icon': 'ico',
+            'image/vnd.microsoft.icon': 'ico',
+        }
+        ext = ext_map.get(content_type.lower(), 'png')
+        
+        logger.info(f"  → Downloaded {len(response.content)} bytes ({content_type})")
+        
+        # Upload to S3
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+            region_name=os.getenv('AWS_REGION', 'us-east-1')
+        )
+        
+        bucket_name = os.getenv('S3_BUCKET_NAME')  # Correct env var name
+        if not bucket_name:
+            logger.error("  ❌ S3_BUCKET_NAME not configured")
+            return None
+        
+        # Generate S3 key
+        account_folder = f"dvyb/logos/{account_id}" if account_id else "dvyb/logos/temp"
+        filename = f"{uuid.uuid4()}.{ext}"
+        s3_key = f"{account_folder}/{filename}"
+        
+        # Upload
+        s3_client.upload_fileobj(
+            io.BytesIO(response.content),
+            bucket_name,
+            s3_key,
+            ExtraArgs={
+                'ContentType': content_type,
+                'CacheControl': 'max-age=31536000',  # 1 year cache
+            }
+        )
+        
+        logger.info(f"  ✅ Uploaded logo to S3: {s3_key}")
+        
+        # Generate presigned URL (expires in 1 hour)
+        presigned_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': bucket_name,
+                'Key': s3_key
+            },
+            ExpiresIn=3600  # 1 hour
+        )
+        
+        print(f"\n🖼️  LOGO EXTRACTED AND UPLOADED TO S3:")
+        print(f"   S3 Key: {s3_key}")
+        print(f"   Presigned URL: {presigned_url[:80]}...")
+        print(f"   Size: {len(response.content)} bytes")
+        print(f"   Type: {content_type}\n")
+        
+        return {
+            "s3_key": s3_key,
+            "presigned_url": presigned_url
+        }
+        
+    except Exception as e:
+        logger.error(f"  ❌ Failed to download/upload logo: {e}")
+        return None
 
 
 def build_openai_prompt(base_name: str, url: str, site_snippet: str, extracted_colors: Dict) -> str:
@@ -665,6 +808,248 @@ async def analyze_website_endpoint(request: WebsiteAnalysisRequest):
         
     except Exception as e:
         logger.error(f"❌ Website analysis endpoint error: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+
+
+# ============================================
+# FAST ANALYSIS (Direct Fetch + GPT-4o)
+# ============================================
+
+def build_fast_analysis_prompt(base_name: str, url: str, site_text: str, extracted_colors: Dict) -> str:
+    """
+    Build prompt for GPT-4o Chat Completions API (no web search).
+    Analyzes ONLY the provided website content.
+    """
+    color_hints = [c for c in [extracted_colors.get("primary"), extracted_colors.get("secondary"), extracted_colors.get("accent")] if c]
+    color_hint_str = ", ".join(color_hints) if color_hints else "none found"
+    
+    prompt = f"""You are a business analyst. Analyze the following website content for {base_name} ({url}) and provide a comprehensive business analysis.
+
+**Website Content Extracted:**
+{site_text[:6000]}
+
+**Extracted Brand Colors:** {color_hint_str}
+
+**Task:** Based ONLY on the website content provided above, create a detailed business analysis. Infer information intelligently from the content, product descriptions, messaging, and tone.
+
+Return a JSON object with this EXACT structure:
+
+{{
+  "base_name": "{base_name}",
+  "business_overview_and_positioning": "Core Identity: [2-3 sentences based on website content]\\n\\nMarket Positioning:\\n• Primary Positioning: [inferred from messaging and value props]\\n• Secondary Positioning: [inferred from product offerings]\\n• Tertiary Positioning: [inferred from target market]\\n\\nDirect Competitors:\\nGlobal Competitors:\\n• [Competitor 1 - infer from industry/category mentions]\\n• [Competitor 2 - similar tools/services]\\n• [Competitor 3 - alternative solutions]\\n• [Competitor 4 - competing platforms]\\n• [Competitor 5 - market alternatives]\\n\\nCompetitive Advantages:\\n1. [Advantage from features/benefits]: [explanation from content]\\n2. [Advantage from differentiation]: [explanation from content]\\n3. [Advantage from value props]: [explanation from content]\\n4. [Advantage from unique approach]: [explanation from content]",
+  "customer_demographics_and_psychographics": "Primary Customer Segments:\\n\\n1. [Segment inferred from messaging] (40%)\\n• [characteristic from content]\\n• [characteristic from tone]\\nKey need: [identified from value props]\\n\\n2. [Segment from use cases] (35%)\\n• [characteristic]\\n• [characteristic]\\nPain points: [from problem statements]\\n\\n3. [Segment from features] (25%)\\n• [characteristic]\\n• [characteristic]\\nKey interest: [from benefits]",
+  "most_popular_products_and_services": ["Product/Service 1: [Description from website]", "Product/Service 2: [Description]", "Product/Service 3: [Description]", "Product/Service 4: [Description]", "Product/Service 5: [Description]"],
+  "why_customers_choose": "Primary Value Drivers:\\n1. [Driver from benefits]: [explanation from content]\\n2. [Driver from features]: [explanation]\\n3. [Driver from outcomes]: [explanation]\\n4. [Driver from differentiation]: [explanation]\\n\\nEmotional Benefits:\\n• [Benefit from messaging]: [how it's delivered per content]\\n• [Benefit from brand voice]: [delivery method]\\n• [Benefit from value props]: [delivery approach]",
+  "brand_story": "The Hero's Journey: [origin story from About page, or inferred from mission]\\n\\nMission Statement: [actual mission from content or inferred from purpose]\\n\\nBrand Personality:\\n• Archetype: [archetype inferred from voice and messaging]\\n• Voice: [tone inferred from content style]\\n• Values: [values from messaging and positioning]\\n\\n[Closing statement about brand evolution or vision]",
+  "color_palette": {{
+    "primary": "{color_hints[0] if len(color_hints) > 0 else '#000000'}",
+    "secondary": "{color_hints[1] if len(color_hints) > 1 else '#000000'}",
+    "accent": "{color_hints[2] if len(color_hints) > 2 else '#000000'}"
+  }},
+  "source_urls": ["{url}"]
+}}
+
+**CRITICAL REQUIREMENTS:**
+
+1. **Base Analysis on Provided Content:** Use ONLY the website text provided above. Be specific and factual.
+
+2. **Competitors:** Infer likely competitors based on the industry, product category, and use cases mentioned in the content. If the website is for "AI video generation", competitors would be other AI video tools. Be intelligent about this.
+
+3. **Customer Segments:** Infer from the language, features, pricing, and use cases described in the content.
+
+4. **Products/Services:** Extract from the actual offerings, features, and solutions described on the website.
+
+5. **Value Drivers:** Identify from the benefits, outcomes, and unique selling points in the messaging.
+
+6. **Brand Story:** Look for About, Mission, Vision, or Team sections. If not explicit, infer from the brand's purpose and positioning.
+
+7. **Color Palette:** Use the extracted colors ({color_hint_str}). These were extracted from the website's CSS and design.
+
+8. **Be Specific:** Avoid generic statements. Use actual content from the website. Quote features, benefits, and messaging where relevant.
+
+9. **JSON Only:** Return ONLY the JSON object. No markdown blocks, no explanatory text, no preamble.
+
+Return the JSON now:"""
+    
+    return prompt
+
+
+async def call_gpt4o_chat(prompt: str) -> str:
+    """
+    Call OpenAI Chat Completions API with GPT-4o.
+    Fast, no web search, analyzes provided content only.
+    """
+    try:
+        logger.info("🤖 Calling OpenAI Chat Completions API (gpt-4o)...")
+        
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a business analysis assistant that returns valid JSON. Analyze website content and provide detailed, specific insights based on the provided text."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            max_tokens=2000,
+            temperature=0.7
+        )
+        
+        response_text = response.choices[0].message.content.strip()
+        
+        logger.info(f"✅ GPT-4o response received ({len(response_text)} chars)")
+        logger.debug(f"Response preview: {response_text[:200]}...")
+        
+        return response_text
+        
+    except Exception as e:
+        logger.error(f"❌ OpenAI API error: {e}")
+        raise
+
+
+async def analyze_website_fast(url: str) -> Dict[str, Any]:
+    """
+    Fast website analysis using direct content fetch + GPT-4o.
+    No web search - analyzes only the fetched website content.
+    
+    Args:
+        url: Website URL to analyze
+        
+    Returns:
+        Dictionary with extracted business information
+    """
+    try:
+        logger.info(f"⚡ Starting FAST website analysis for: {url}")
+        
+        # Step 1: Extract base name
+        base_name = extract_base_name(url)
+        logger.info(f"  → Base name: {base_name}")
+        
+        # Step 2: Fetch website HTML
+        logger.info(f"  → Fetching website content...")
+        try:
+            resp = fetch_url(url)
+            html = resp.text
+            logger.info(f"  → Fetched {len(html)} chars of HTML")
+        except Exception as e:
+            logger.error(f"  ✗ Failed to fetch website: {e}")
+            html = ""
+        
+        # Step 3: Parse HTML
+        soup = BeautifulSoup(html, "html.parser")
+        
+        # Step 4: Extract text snippets (more text since no web search)
+        site_text = extract_text_snippets(soup, max_chars=6000)  # More text for GPT-4o
+        logger.info(f"  → Extracted {len(site_text)} chars of text")
+        
+        # Step 5: Extract colors (same as before)
+        logger.info(f"  → Extracting color palette...")
+        color_palette = extract_colors_from_website(url, html, soup)
+        logger.info(f"  → Extracted Colors: {color_palette}")
+        print(f"\n🎨 EXTRACTED COLOR PALETTE FROM WEBSITE:")
+        print(f"   Primary: {color_palette.get('primary')}")
+        print(f"   Secondary: {color_palette.get('secondary')}")
+        print(f"   Accent: {color_palette.get('accent')}\n")
+        
+        # Step 6: Extract and upload logo
+        logger.info(f"  → Extracting logo...")
+        logo_url = extract_logo_url_from_html(url, soup)
+        logo_data = None
+        if logo_url:
+            logo_data = await download_and_upload_logo_to_s3(logo_url, None)  # account_id will be set later when saved
+        
+        # Step 7: Build GPT-4o prompt (no web search)
+        prompt = build_fast_analysis_prompt(base_name, url, site_text, color_palette)
+        
+        # Step 8: Call GPT-4o (Chat Completions, no web search)
+        response_text = await call_gpt4o_chat(prompt)
+        
+        # LOG THE RAW LLM RESPONSE FOR DEBUGGING
+        logger.info("=" * 80)
+        logger.info("RAW GPT-4O RESPONSE (FAST ANALYSIS):")
+        logger.info("=" * 80)
+        logger.info(response_text[:1000])
+        logger.info("=" * 80)
+        
+        # Step 9: Parse JSON from response
+        json_str = extract_json_from_response(response_text)
+        
+        import json
+        analysis_data = json.loads(json_str)
+        
+        # Ensure color_palette is present and uses extracted colors
+        if "color_palette" not in analysis_data or not analysis_data["color_palette"]:
+            analysis_data["color_palette"] = color_palette
+        else:
+            # Override with extracted colors if LLM provided different ones
+            analysis_data["color_palette"] = {
+                "primary": color_palette.get("primary") or analysis_data["color_palette"].get("primary"),
+                "secondary": color_palette.get("secondary") or analysis_data["color_palette"].get("secondary"),
+                "accent": color_palette.get("accent") or analysis_data["color_palette"].get("accent"),
+            }
+        
+        # Add logo data if extracted
+        if logo_data:
+            analysis_data["logo_s3_key"] = logo_data["s3_key"]
+            analysis_data["logo_presigned_url"] = logo_data["presigned_url"]
+        
+        logger.info("✅ Fast website analysis complete!")
+        print("\n✅ FAST ANALYSIS COMPLETE")
+        print(f"   Base Name: {analysis_data.get('base_name')}")
+        print(f"   Colors: {analysis_data.get('color_palette')}")
+        print(f"   Logo S3 Key: {analysis_data.get('logo_s3_key')}")
+        print(f"   Logo Presigned URL: {analysis_data.get('logo_presigned_url', 'N/A')[:80]}...")
+        print(f"   Products: {len(analysis_data.get('most_popular_products_and_services', []))} items\n")
+        
+        return analysis_data
+        
+    except Exception as e:
+        logger.error(f"❌ Fast website analysis failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise
+
+
+@router.post("/api/dvyb/analyze-website-fast")
+async def analyze_website_fast_endpoint(request: WebsiteAnalysisRequest):
+    """
+    ⚡ FAST website analysis endpoint.
+    
+    This endpoint:
+    1. Fetches the website HTML directly (no web search)
+    2. Extracts text content and colors
+    3. Uses GPT-4o Chat Completions API to analyze the content
+    4. Returns structured business information
+    
+    Much faster than the web-search version but analyzes only the website content.
+    """
+    try:
+        if not openai_client:
+            raise HTTPException(
+                status_code=500,
+                detail="OpenAI API not configured. Please set OPENAI_API_KEY."
+            )
+        
+        logger.info(f"⚡ Received FAST website analysis request for: {request.url}")
+        
+        # Analyze website (fast method)
+        result = await analyze_website_fast(request.url)
+        
+        return {
+            "success": True,
+            "data": result,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Fast website analysis endpoint error: {e}")
         return {
             "success": False,
             "error": str(e),
