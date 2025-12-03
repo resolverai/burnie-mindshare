@@ -140,21 +140,45 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
         .getMany(),
     ]);
 
-    // Helper function to clean S3 URL (remove presigned params and extract key)
+    // Helper function to extract S3 key from any URL format (presigned, full URL, or raw key)
     const cleanS3Url = (url: string | null | undefined): string => {
       if (!url) return '';
       
-      // Remove query parameters
-      const cleanUrl = url.split('?')[0];
+      // Remove query parameters first (handles presigned URLs)
+      const cleanUrl: string = url.split('?')[0] || '';
+      if (!cleanUrl) return '';
       
-      // Extract S3 key (everything after the bucket name)
-      // Handle both formats: s3://bucket/key and https://bucket.s3.region.amazonaws.com/key
-      if (cleanUrl && (cleanUrl.includes('s3.amazonaws.com/') || cleanUrl.includes('.amazonaws.com/'))) {
-        const parts = cleanUrl.split('.com/');
-        return parts.length > 1 ? (parts[parts.length - 1] || '') : cleanUrl;
+      // Handle various URL formats and extract S3 key
+      
+      // Format 1: Full S3 URL - https://bucket.s3.region.amazonaws.com/key
+      // Format 2: S3 URL - https://bucket.s3.amazonaws.com/key
+      if (cleanUrl.includes('.s3.') && cleanUrl.includes('.amazonaws.com/')) {
+        const parts = cleanUrl.split('.amazonaws.com/');
+        if (parts.length > 1) {
+          return parts[1] || '';
+        }
       }
       
-      return cleanUrl || '';
+      // Format 3: CloudFront URL - https://d123.cloudfront.net/key
+      if (cleanUrl.includes('.cloudfront.net/')) {
+        const parts = cleanUrl.split('.cloudfront.net/');
+        if (parts.length > 1) {
+          return parts[1] || '';
+        }
+      }
+      
+      // Format 4: S3 protocol URL - s3://bucket/key
+      if (cleanUrl.startsWith('s3://')) {
+        const parts = cleanUrl.split('/');
+        // s3://bucket/key1/key2 -> key1/key2
+        if (parts.length > 3) {
+          return parts.slice(3).join('/');
+        }
+      }
+      
+      // Format 5: Already a clean key (dvyb/images/123/abc.png) or relative path
+      // Just return as-is after removing any leading slashes
+      return cleanUrl.replace(/^\/+/, '');
     };
 
     // Create maps for posted media with analytics
@@ -260,6 +284,13 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
 
     // Create a map of generatedContentId to schedules
     const scheduleMap = new Map<number, any[]>();
+    
+    // Also create a map of media URLs to schedules (for fallback matching)
+    const mediaUrlToSchedules = new Map<string, any[]>();
+    
+    // Track schedules without generatedContentId for fallback matching
+    const orphanSchedules: any[] = [];
+    
     allSchedules.forEach(schedule => {
       if (schedule.generatedContentId) {
         if (!scheduleMap.has(schedule.generatedContentId)) {
@@ -267,14 +298,35 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
         }
         scheduleMap.get(schedule.generatedContentId)!.push(schedule);
       } else {
-        logger.warn(`⚠️ Schedule ${schedule.id} has no generatedContentId!`);
+        // No generatedContentId - try to match by mediaUrl
+        // mediaUrl is stored at postMetadata.content.mediaUrl (nested inside content object)
+        const mediaUrl = schedule.postMetadata?.content?.mediaUrl || schedule.postMetadata?.mediaUrl;
+        if (mediaUrl) {
+          const cleanKey = cleanS3Url(mediaUrl);
+          if (cleanKey) {
+            if (!mediaUrlToSchedules.has(cleanKey)) {
+              mediaUrlToSchedules.set(cleanKey, []);
+            }
+            mediaUrlToSchedules.get(cleanKey)!.push(schedule);
+            logger.info(`📎 Schedule ${schedule.id} has no generatedContentId, will match by mediaUrl: ${cleanKey.substring(0, 80)}...`);
+          } else {
+            orphanSchedules.push(schedule);
+            logger.warn(`⚠️ Schedule ${schedule.id} has no generatedContentId and no valid mediaUrl!`);
+          }
+        } else {
+          orphanSchedules.push(schedule);
+          logger.warn(`⚠️ Schedule ${schedule.id} has no generatedContentId and no mediaUrl in postMetadata! postMetadata keys: ${Object.keys(schedule.postMetadata || {}).join(', ')}`);
+        }
       }
     });
     
-    logger.info(`📊 Schedule map has ${scheduleMap.size} content IDs with schedules`);
+    logger.info(`📊 Schedule map: ${scheduleMap.size} content IDs, ${mediaUrlToSchedules.size} media URLs for fallback`);
     scheduleMap.forEach((schedules, contentId) => {
       logger.info(`  Content ${contentId}: ${schedules.length} schedules`);
     });
+    if (orphanSchedules.length > 0) {
+      logger.warn(`⚠️ ${orphanSchedules.length} orphan schedules with no matching criteria`);
+    }
 
     // Process content into individual posts (each platformText is a separate post)
     const processedContent = await Promise.all(
@@ -341,36 +393,71 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
             const { mediaUrl, originalMediaUrl } = mapping;
 
             // Get schedules for this specific content and post index
-            const allSchedules = scheduleMap.get(content.id) || [];
+            // First try by generatedContentId
+            let contentSchedules = scheduleMap.get(content.id) || [];
+            
+            // FALLBACK: Also check by mediaUrl if we have the original media URL
+            if (originalMediaUrl) {
+              const cleanKey = cleanS3Url(originalMediaUrl);
+              const mediaUrlSchedules = mediaUrlToSchedules.get(cleanKey) || [];
+              if (mediaUrlSchedules.length > 0) {
+                logger.info(`📎 Found ${mediaUrlSchedules.length} schedules by mediaUrl fallback for content ${content.id}, postIndex ${postIndex}`);
+                // Merge with existing schedules (avoid duplicates)
+                const existingIds = new Set(contentSchedules.map(s => s.id));
+                mediaUrlSchedules.forEach(s => {
+                  if (!existingIds.has(s.id)) {
+                    contentSchedules.push(s);
+                    logger.info(`  ➕ Added schedule ${s.id} via mediaUrl fallback`);
+                  }
+                });
+              }
+            }
             
             // Debug: Log what we're looking for
-            if (allSchedules.length > 0 || content.id === 9 || content.id === 8) {
-              logger.info(`🔍 Checking content ${content.id}, postIndex ${postIndex}: ${allSchedules.length} schedules in map`);
-              if (allSchedules.length > 0) {
-                allSchedules.forEach(s => {
-                  logger.info(`  - Schedule ${s.id}: postMetadata.postIndex = ${s.postMetadata?.postIndex} (type: ${typeof s.postMetadata?.postIndex})`);
+            if (contentSchedules.length > 0 || content.id === 9 || content.id === 8) {
+              logger.info(`🔍 Checking content ${content.id}, postIndex ${postIndex}: ${contentSchedules.length} schedules (after fallback)`);
+              if (contentSchedules.length > 0) {
+                contentSchedules.forEach(s => {
+                  logger.info(`  - Schedule ${s.id}: postMetadata.postIndex = ${s.postMetadata?.postIndex} (type: ${typeof s.postMetadata?.postIndex}), generatedContentId=${s.generatedContentId}`);
                 });
               }
             }
             
             // Filter schedules by postIndex (stored in postMetadata)
-            const schedules = allSchedules.filter(schedule => {
+            // For mediaUrl-matched schedules that may not have postIndex, also include them if they match this post
+            const schedules = contentSchedules.filter(schedule => {
               const metadata = schedule.postMetadata || {};
-              // Compare postIndex - handle both number and string types
               const schedulePostIndex = metadata.postIndex;
-              const matches = schedulePostIndex !== undefined && schedulePostIndex !== null && 
-                             Number(schedulePostIndex) === Number(postIndex);
               
-              if (allSchedules.length > 0) {
-                logger.info(`  - Comparing: schedule.postIndex=${schedulePostIndex} vs post.postIndex=${postIndex}, match=${matches}`);
+              // If schedule has a postIndex, match it
+              if (schedulePostIndex !== undefined && schedulePostIndex !== null) {
+                const matches = Number(schedulePostIndex) === Number(postIndex);
+                if (contentSchedules.length > 0) {
+                  logger.info(`  - Comparing: schedule.postIndex=${schedulePostIndex} vs post.postIndex=${postIndex}, match=${matches}`);
+                }
+                return matches;
               }
               
-              return matches;
+              // If schedule has no postIndex but was matched by mediaUrl, it belongs to this post
+              // (mediaUrl-matched schedules are already specific to this post's media)
+              // Check both postMetadata.content.mediaUrl and postMetadata.mediaUrl
+              const scheduleMediaUrl = metadata.content?.mediaUrl || metadata.mediaUrl;
+              if (!schedule.generatedContentId && scheduleMediaUrl) {
+                const scheduleMediaClean = cleanS3Url(scheduleMediaUrl);
+                const postMediaClean = cleanS3Url(originalMediaUrl);
+                const matches = scheduleMediaClean === postMediaClean;
+                if (matches) {
+                  logger.info(`  - Schedule ${schedule.id} matched by mediaUrl (no postIndex): ${scheduleMediaClean.substring(0, 60)}...`);
+                }
+                return matches;
+              }
+              
+              return false;
             });
             
             // Debug log for troubleshooting
-            if (allSchedules.length > 0 || schedules.length > 0) {
-              logger.info(`✅ Content ${content.id}, postIndex ${postIndex}: Found ${schedules.length} matching schedules out of ${allSchedules.length} total`);
+            if (contentSchedules.length > 0 || schedules.length > 0) {
+              logger.info(`✅ Content ${content.id}, postIndex ${postIndex}: Found ${schedules.length} matching schedules out of ${contentSchedules.length} total`);
             }
             
             // Check if this specific media has been posted

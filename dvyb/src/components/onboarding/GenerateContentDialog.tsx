@@ -1603,6 +1603,9 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
         })() : null}
         open={showScheduleDialog}
         onOpenChange={setShowScheduleDialog}
+        // Pass generatedContentId directly as override prop to ensure it's always available
+        // This handles the case where post.generatedContentId might be undefined during generation
+        generatedContentIdOverride={generatedContentId}
         onScheduleComplete={() => {
           handleScheduleComplete();
           setShowScheduleDialog(false);

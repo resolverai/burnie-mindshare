@@ -19,6 +19,8 @@ interface ScheduleDialogProps {
   onOpenChange: (open: boolean) => void;
   post: any;
   onScheduleComplete: () => void;
+  // Optional prop to pass generatedContentId directly from parent (ensures it's always available)
+  generatedContentIdOverride?: number | null;
 }
 
 // Mock scheduled posts
@@ -29,7 +31,7 @@ const scheduledPosts = [
   { date: new Date(2024, 10, 16), time: "09:00", title: "Power to creators" },
 ];
 
-export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }: ScheduleDialogProps) => {
+export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, generatedContentIdOverride }: ScheduleDialogProps) => {
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [selectedTime, setSelectedTime] = useState("12:00");
   const [showOverlapDialog, setShowOverlapDialog] = useState(false);
@@ -114,11 +116,18 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
     }
 
     // Capture post data at the start of scheduling to ensure it doesn't change during OAuth flows
-    const postSnapshot = { ...post };
+    // Use generatedContentIdOverride prop if post doesn't have generatedContentId (handles GenerateContentDialog flow)
+    const effectiveGeneratedContentId = post.generatedContentId || generatedContentIdOverride;
+    const postSnapshot = { 
+      ...post,
+      generatedContentId: effectiveGeneratedContentId, // Ensure generatedContentId is always set
+    };
     setCapturedPost(postSnapshot);
     
     console.log('📸 ScheduleDialog - Captured post snapshot:', {
-      'generatedContentId': postSnapshot.generatedContentId,
+      'post.generatedContentId': post.generatedContentId,
+      'generatedContentIdOverride prop': generatedContentIdOverride,
+      'effective generatedContentId': effectiveGeneratedContentId,
       'postIndex': postSnapshot.postIndex,
     });
 
@@ -319,8 +328,14 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
         console.warn('⚠️ No platforms found in ScheduleDialog performSchedule, using default:', platforms);
       }
       
+      // CRITICAL: Final fallback for generatedContentId
+      // Use override prop if postToSchedule doesn't have it (handles async state updates during OAuth flow)
+      const finalGeneratedContentId = postToSchedule.generatedContentId || generatedContentIdOverride;
+      
       console.log('📅 ScheduleDialog performSchedule - Using captured post:', {
         'postToSchedule.generatedContentId': postToSchedule.generatedContentId,
+        'generatedContentIdOverride': generatedContentIdOverride,
+        'final generatedContentId': finalGeneratedContentId,
         'postToSchedule.postIndex': postToSchedule.postIndex,
         'postToSchedule.requestedPlatforms': postToSchedule.requestedPlatforms,
         'postToSchedule.platforms': postToSchedule.platforms,
@@ -375,14 +390,16 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
       });
       
       console.log('📤 ScheduleDialog - Sending to API:', {
-        'generatedContentId': postToSchedule.generatedContentId,
+        'postToSchedule.generatedContentId': postToSchedule.generatedContentId,
+        'generatedContentIdOverride': generatedContentIdOverride,
+        'final generatedContentId': finalGeneratedContentId,
         'postIndex': postToSchedule.postIndex,
         'originalPlatformTexts': originalPlatformTexts,
         'editedCaptions': editedCaptions,
         'finalPlatformTexts': finalPlatformTexts,
       });
       
-      // Call schedule API
+      // Call schedule API - use finalGeneratedContentId which has fallback to override prop
       const response = await postingApi.schedulePost({
         scheduledFor: scheduledDateTime.toISOString(),
         platforms,
@@ -391,7 +408,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
           platformTexts: finalPlatformTexts, // Full texts with edited captions taking priority
           mediaUrl,
           mediaType,
-          generatedContentId: postToSchedule.generatedContentId,
+          generatedContentId: finalGeneratedContentId, // Use final value with fallbacks
           postIndex: postToSchedule.postIndex,
         },
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -495,11 +512,14 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
               handleAuthPlatform(nextIndex);
             }, 500);
           } else {
-            // All OAuth2 done - check if OAuth1 needed for Twitter video
+            // All OAuth2 done - IMMEDIATELY close the auth dialog
+            console.log('✅ ScheduleDialog - All OAuth2 done, closing auth dialog');
             setShowAuthDialog(false);
+            setAuthPlatforms([]);
+            setCurrentAuthIndex(0);
             
             // Check if this is a Twitter video post needing OAuth1
-            const platforms = post?.requestedPlatforms || post?.platforms || [];
+            const platforms = capturedPost?.requestedPlatforms || capturedPost?.platforms || post?.requestedPlatforms || post?.platforms || [];
             if (isVideoPost && platforms.includes('twitter')) {
               console.log('🎬 ScheduleDialog - OAuth2 complete, checking OAuth1 for Twitter video...');
               try {
@@ -520,6 +540,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
             }
             
             // All authorizations complete, proceed with scheduling
+            console.log('🚀 ScheduleDialog - All authorizations complete, proceeding with scheduling');
             setIsScheduling(true);
             performSchedule();
           }
