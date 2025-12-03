@@ -468,9 +468,7 @@ export const Home = () => {
                     )}
                   </div>
                   <p className="text-sm md:text-base text-muted-foreground leading-relaxed">
-                    Your current schedule includes 1 Instagram story focused on &quot;Join the AI roast revolution and meme your
-                    way to the top!&quot; Connect your integrations to unlock post insights, impressions, and audience growth
-                    trends.
+                    Connect your integrations to unlock post insights, impressions, and audience growth trends.
                   </p>
                 </div>
               </div>

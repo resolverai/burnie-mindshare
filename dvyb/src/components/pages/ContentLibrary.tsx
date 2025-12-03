@@ -99,21 +99,42 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
           const transformContent = (item: any, status: string): ContentItem => {
             // Get platform text for this specific post
             const platformText = item.platformText || {};
+            const requestedPlatforms = item.requestedPlatforms || [];
+            const editedCaptions = item.editedCaptions || {};
             
-            // Extract title from topic or first caption
-            const title = platformText.topic || 
-                         (platformText.platforms?.instagram || 
-                          platformText.platforms?.twitter ||
-                          platformText.platforms?.linkedin ||
-                          platformText.platforms?.tiktok || 
-                          'Untitled Post').substring(0, 60);
+            // Helper to get caption for a platform (prioritize edited captions)
+            const getCaptionForPlatform = (platform: string): string => {
+              // First check edited captions (highest priority)
+              if (editedCaptions[platform]) {
+                return editedCaptions[platform];
+              }
+              // Then check platformText.platforms (system-generated, may also have edited merged in)
+              if (platformText.platforms?.[platform]) {
+                return platformText.platforms[platform];
+              }
+              return '';
+            };
             
-            // Extract description
-            const description = platformText.platforms?.instagram || 
-                               platformText.platforms?.twitter ||
-                               platformText.platforms?.linkedin ||
-                               platformText.platforms?.tiktok || 
-                               '';
+            // Get caption based on first requested platform, then fall back to any available
+            const getDescription = (): string => {
+              // First try requested platforms in order
+              for (const platform of requestedPlatforms) {
+                const caption = getCaptionForPlatform(platform.toLowerCase());
+                if (caption) return caption;
+              }
+              // Fall back to any available platform
+              const fallbackOrder = ['twitter', 'instagram', 'linkedin', 'tiktok'];
+              for (const platform of fallbackOrder) {
+                const caption = getCaptionForPlatform(platform);
+                if (caption) return caption;
+              }
+              return '';
+            };
+            
+            const description = getDescription();
+            
+            // Extract title from topic or first caption (using same logic)
+            const title = platformText.topic || description.substring(0, 60) || 'Untitled Post';
             
             // Collect all platform captions for search
             const allCaptions = [

@@ -4,17 +4,27 @@
 const ROAST_TOKEN_ADDRESS = process.env.ROAST_TOKEN_CONTRACT || process.env.NEXT_PUBLIC_CONTRACT_ROAST_TOKEN || '0x06fe6D0EC562e19cFC491C187F0A02cE8D5083E4';
 
 // Cache for price data
-let priceCache: { price: number; timestamp: number } | null = null;
-const CACHE_DURATION = 60000; // 1 minute cache
+let priceCache: { price: number; timestamp: number; isFallback: boolean } | null = null;
+const CACHE_DURATION = 60000; // 1 minute cache for successful fetches
+const ERROR_CACHE_DURATION = 300000; // 5 minute cache after errors (to prevent rate limiting)
+const FALLBACK_PRICE = 0.01;
 
 /**
  * Fetch ROAST token price in USD from DEXScreener
  */
 export async function fetchROASTPrice(): Promise<number> {
+  const now = Date.now();
+  
   // Check cache first
-  if (priceCache && Date.now() - priceCache.timestamp < CACHE_DURATION) {
-    console.log(`Using cached ROAST price: $${priceCache.price} USD`);
-    return priceCache.price;
+  if (priceCache) {
+    const cacheDuration = priceCache.isFallback ? ERROR_CACHE_DURATION : CACHE_DURATION;
+    if (now - priceCache.timestamp < cacheDuration) {
+      // Only log occasionally to reduce noise
+      if (!priceCache.isFallback) {
+        console.log(`Using cached ROAST price: $${priceCache.price} USD`);
+      }
+      return priceCache.price;
+    }
   }
 
   console.log(`Fetching fresh ROAST price for token: ${ROAST_TOKEN_ADDRESS}`);
@@ -50,7 +60,7 @@ export async function fetchROASTPrice(): Promise<number> {
         
         const price = parseFloat(bestPair.priceUsd);
         if (price > 0) {
-          priceCache = { price, timestamp: Date.now() };
+          priceCache = { price, timestamp: now, isFallback: false };
           console.log(`✅ ROAST price updated: $${price} USD (from ${bestPair.dexId})`);
           return price;
         }
@@ -60,7 +70,7 @@ export async function fetchROASTPrice(): Promise<number> {
         if (anyPair?.priceUsd) {
           const price = parseFloat(anyPair.priceUsd);
           if (price > 0) {
-            priceCache = { price, timestamp: Date.now() };
+            priceCache = { price, timestamp: now, isFallback: false };
             console.log(`✅ ROAST price updated (non-Base): $${price} USD`);
             return price;
           }
@@ -72,10 +82,11 @@ export async function fetchROASTPrice(): Promise<number> {
   } catch (error) {
     console.error('❌ Error fetching ROAST price:', error);
     
-    // Return fallback price
-    const fallbackPrice = 0.01;
-    console.warn(`⚠️ Using fallback ROAST price: $${fallbackPrice} USD`);
-    return fallbackPrice;
+    // Cache the fallback price to prevent hammering the API
+    // Use longer cache duration after errors to avoid rate limiting
+    priceCache = { price: FALLBACK_PRICE, timestamp: now, isFallback: true };
+    console.warn(`⚠️ Using fallback ROAST price: $${FALLBACK_PRICE} USD (cached for 5 minutes)`);
+    return FALLBACK_PRICE;
   }
 }
 
