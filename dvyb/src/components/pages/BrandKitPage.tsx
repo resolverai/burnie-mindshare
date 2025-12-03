@@ -2078,8 +2078,9 @@ export const BrandKitPage = () => {
                           <Button 
                             variant="default" 
                             size="sm"
-                            onClick={() => {
-                              setHasUnsavedChanges(true);
+                            onClick={async () => {
+                              // Save immediately to database
+                              await handleSave({ colorPalette: editData.colorPalette });
                               setEditingSection(null);
                             }}
                             disabled={isSaving}
@@ -2165,8 +2166,9 @@ export const BrandKitPage = () => {
                           <Button 
                             variant="default" 
                             size="sm"
-                            onClick={() => {
-                              setHasUnsavedChanges(true);
+                            onClick={async () => {
+                              // Save immediately to database
+                              await handleSave({ brandFonts: editData.brandFonts });
                               setEditingSection(null);
                             }}
                             disabled={isSaving}
