@@ -7,7 +7,7 @@ import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddl
 const router = Router();
 
 // Store OAuth states temporarily (in production, use Redis)
-const oauthStates = new Map<string, { codeVerifier: string; timestamp: number }>();
+const oauthStates = new Map<string, { codeVerifier: string; accountId?: number; timestamp: number }>();
 
 // Cleanup old states every 10 minutes
 setInterval(() => {
@@ -23,13 +23,15 @@ setInterval(() => {
  * GET /api/dvyb/auth/twitter/connect
  * Initiate Twitter OAuth flow for connecting account (not login)
  */
-router.get('/twitter/connect', async (req: Request, res: Response) => {
+router.get('/twitter/connect', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
+    const accountId = req.dvybAccountId!;
     const { oauthUrl, state, codeVerifier } = await DvybAuthService.generateTwitterOAuthUrl();
 
-    // Store state and code verifier
+    // Store state, code verifier, AND accountId
     oauthStates.set(state, {
       codeVerifier,
+      accountId, // Store accountId for callback
       timestamp: Date.now(),
     });
 
@@ -69,7 +71,7 @@ router.post('/twitter/callback', async (req: Request, res: Response) => {
       });
     }
 
-    // Retrieve code verifier
+    // Retrieve code verifier and accountId from stored state
     const stateData = oauthStates.get(state);
     if (!stateData) {
       return res.status(400).json({
@@ -79,22 +81,24 @@ router.post('/twitter/callback', async (req: Request, res: Response) => {
       });
     }
 
-    const { codeVerifier } = stateData;
-    oauthStates.delete(state); // Clean up
-
-    // Get account ID from cookies (user must be logged in)
-    const accountId = req.cookies?.dvyb_account_id;
+    const { codeVerifier, accountId } = stateData as any;
+    
     if (!accountId) {
-      return res.status(401).json({
+      logger.error('❌ No accountId in stored state for Twitter callback');
+      return res.status(400).json({
         success: false,
-        error: 'User must be logged in to connect Twitter',
+        error: 'Invalid state data',
         timestamp: new Date().toISOString(),
       });
     }
+    
+    oauthStates.delete(state); // Clean up
+
+    logger.info(`🔄 Connecting Twitter to account ${accountId} from popup callback`);
 
     // Connect Twitter to existing account
     await DvybAuthService.connectTwitterToAccount(
-      parseInt(accountId as string, 10),
+      accountId,
       code,
       state,
       codeVerifier

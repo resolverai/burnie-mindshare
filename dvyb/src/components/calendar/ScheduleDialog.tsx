@@ -204,16 +204,35 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
       const response = await oauth1Api.initiateOAuth1();
       
       if (response.data?.authUrl) {
+        const { authUrl, state, oauthTokenSecret } = response.data;
+        
+        // Store state and token secret in localStorage for popup callback to access
+        localStorage.setItem('oauth1_state', state);
+        localStorage.setItem('oauth1_token_secret', oauthTokenSecret);
+        
         const width = 600;
         const height = 700;
         const left = window.screen.width / 2 - width / 2;
         const top = window.screen.height / 2 - height / 2;
         
         const popup = window.open(
-          response.data.authUrl,
+          authUrl,
           'twitter_oauth1',
           `width=${width},height=${height},left=${left},top=${top}`
         );
+        
+        // Monitor popup - cleanup localStorage if closed without completing
+        const checkPopup = setInterval(() => {
+          if (popup && popup.closed) {
+            clearInterval(checkPopup);
+            // Cleanup localStorage if popup was closed without completing
+            const storedState = localStorage.getItem('oauth1_state');
+            if (storedState) {
+              localStorage.removeItem('oauth1_state');
+              localStorage.removeItem('oauth1_token_secret');
+            }
+          }
+        }, 500);
         
         // Listen for OAuth1 completion
         const handleMessage = async (event: MessageEvent) => {
@@ -221,6 +240,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
           
           if (event.data.type === 'oauth1_success' || event.data.type === 'twitter_oauth1_connected') {
             window.removeEventListener('message', handleMessage);
+            clearInterval(checkPopup);
             popup?.close();
             
             setNeedsOAuth1(false);
@@ -235,7 +255,12 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
             await performSchedule();
           } else if (event.data.type === 'oauth1_error') {
             window.removeEventListener('message', handleMessage);
+            clearInterval(checkPopup);
             popup?.close();
+            
+            // Cleanup localStorage
+            localStorage.removeItem('oauth1_state');
+            localStorage.removeItem('oauth1_token_secret');
             
             toast({
               title: "Video Authorization Failed",

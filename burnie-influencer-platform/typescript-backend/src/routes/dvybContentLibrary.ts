@@ -6,6 +6,7 @@ import { DvybInstagramPost } from '../models/DvybInstagramPost';
 import { DvybTwitterPost } from '../models/DvybTwitterPost';
 import { DvybLinkedInPost } from '../models/DvybLinkedInPost';
 import { DvybTikTokPost } from '../models/DvybTikTokPost';
+import { DvybCaption } from '../models/DvybCaption';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
@@ -99,6 +100,21 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
         logger.info(`  Schedule ${s.id}: contentId=${s.generatedContentId}, postIndex=${s.postMetadata?.postIndex}, status=${s.status}`);
       });
     }
+
+    // Get all edited captions for this account
+    const captionRepo = AppDataSource.getRepository(DvybCaption);
+    const allCaptions = accountId ? await captionRepo.find({
+      where: { accountId },
+    }) : [];
+    
+    // Create a lookup map: key = "contentId-postIndex-platform" -> caption
+    const captionMap = new Map<string, string>();
+    allCaptions.forEach(caption => {
+      const key = `${caption.generatedContentId}-${caption.postIndex}-${caption.platform}`;
+      captionMap.set(key, caption.caption);
+    });
+    
+    logger.info(`✏️ Found ${allCaptions.length} edited captions for account ${accountId}`);
 
     // Get all posted content
     const [instagramPosts, twitterPosts, linkedinPosts, tiktokPosts] = await Promise.all([
@@ -391,13 +407,47 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
                 )
               : null;
 
+            // Get edited captions for this content/postIndex
+            const editedCaptions: Record<string, string> = {};
+            ['twitter', 'instagram', 'linkedin', 'tiktok'].forEach(platform => {
+              const key = `${content.id}-${postIndex}-${platform}`;
+              const editedCaption = captionMap.get(key);
+              if (editedCaption) {
+                editedCaptions[platform] = editedCaption;
+                logger.info(`✏️ Found edited caption for content ${content.id}, post ${postIndex}, platform ${platform}: "${editedCaption.substring(0, 50)}..."`);
+              }
+            });
+
+            // Merge edited captions into platformText.platforms for display
+            // platformText structure: { post_index, topic, content_type, platforms: { twitter, instagram, ... } }
+            const mergedPlatformText = { 
+              ...platformText,
+              platforms: { ...(platformText?.platforms || {}) }
+            };
+            
+            // Override with edited captions if they exist
+            if (editedCaptions.twitter) {
+              mergedPlatformText.platforms.twitter = editedCaptions.twitter;
+            }
+            if (editedCaptions.instagram) {
+              mergedPlatformText.platforms.instagram = editedCaptions.instagram;
+            }
+            if (editedCaptions.linkedin) {
+              mergedPlatformText.platforms.linkedin = editedCaptions.linkedin;
+            }
+            if (editedCaptions.tiktok) {
+              mergedPlatformText.platforms.tiktok = editedCaptions.tiktok;
+            }
+
             return {
               id: `${content.id}-${postIndex}`,
               contentId: content.id,
               postIndex,
               uuid: content.uuid,
               requestedPlatforms: content.requestedPlatforms || [],
-              platformText,
+              platformText: mergedPlatformText, // Now includes edited captions
+              originalPlatformText: platformText, // Keep original for reference
+              editedCaptions, // Separate map for frontend to know what was edited
               mediaUrl,
               originalMediaUrl,
               contentType,

@@ -37,24 +37,33 @@ router.get('/linkedin/auth-url', dvybAuthMiddleware, async (req: DvybAuthRequest
 /**
  * @route POST /api/dvyb/auth/linkedin/connect
  * @description Handle LinkedIn OAuth callback (called from frontend popup)
- * @access Private (requires authentication)
+ * @access Public (accountId extracted from state to avoid cookie dependency in popups)
  */
-router.post('/linkedin/connect', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+router.post('/linkedin/connect', async (req: DvybAuthRequest, res: Response) => {
   try {
     const { code, state } = req.body;
-    const accountId = req.dvybAccountId;
-
-    if (!accountId) {
-      return res.status(401).json({
-        success: false,
-        error: 'User must be logged in to connect LinkedIn',
-      });
-    }
 
     if (!code || !state) {
       return res.status(400).json({
         success: false,
         error: 'Missing code or state',
+      });
+    }
+
+    // Extract accountId from state (base64 encoded JSON)
+    let accountId: number;
+    try {
+      const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+      accountId = decodedState.accountId;
+      
+      if (!accountId) {
+        throw new Error('accountId not found in state');
+      }
+    } catch (error) {
+      logger.error('❌ Failed to decode state:', error);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid state parameter',
       });
     }
 
@@ -151,24 +160,33 @@ router.get('/tiktok/auth-url', dvybAuthMiddleware, async (req: DvybAuthRequest, 
 /**
  * @route POST /api/dvyb/auth/tiktok/connect
  * @description Handle TikTok OAuth callback (called from frontend popup)
- * @access Private (requires authentication)
+ * @access Public (accountId extracted from state to avoid cookie dependency in popups)
  */
-router.post('/tiktok/connect', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+router.post('/tiktok/connect', async (req: DvybAuthRequest, res: Response) => {
   try {
     const { code, state } = req.body;
-    const accountId = req.dvybAccountId;
-
-    if (!accountId) {
-      return res.status(401).json({
-        success: false,
-        error: 'User must be logged in to connect TikTok',
-      });
-    }
 
     if (!code || !state) {
       return res.status(400).json({
         success: false,
         error: 'Missing code or state',
+      });
+    }
+
+    // Extract accountId from state (base64 encoded JSON)
+    let accountId: number;
+    try {
+      const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+      accountId = decodedState.accountId;
+      
+      if (!accountId) {
+        throw new Error('accountId not found in state');
+      }
+    } catch (error) {
+      logger.error('❌ Failed to decode state:', error);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid state parameter',
       });
     }
 
@@ -265,24 +283,33 @@ router.get('/instagram/auth-url', dvybAuthMiddleware, async (req: DvybAuthReques
 /**
  * @route POST /api/dvyb/auth/instagram/connect
  * @description Handle Instagram OAuth callback (called from frontend popup)
- * @access Private (requires authentication)
+ * @access Public (accountId extracted from state to avoid cookie dependency in popups)
  */
-router.post('/instagram/connect', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+router.post('/instagram/connect', async (req: DvybAuthRequest, res: Response) => {
   try {
     const { code, state } = req.body;
-    const accountId = req.dvybAccountId;
-
-    if (!accountId) {
-      return res.status(401).json({
-        success: false,
-        error: 'User must be logged in to connect Instagram',
-      });
-    }
 
     if (!code || !state) {
       return res.status(400).json({
         success: false,
         error: 'Missing code or state',
+      });
+    }
+
+    // Extract accountId from state (base64 encoded JSON)
+    let accountId: number;
+    try {
+      const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+      accountId = decodedState.accountId;
+      
+      if (!accountId) {
+        throw new Error('accountId not found in state');
+      }
+    } catch (error) {
+      logger.error('❌ Failed to decode state:', error);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid state parameter',
       });
     }
 

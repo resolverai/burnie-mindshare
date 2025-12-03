@@ -638,7 +638,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
           if (currentAuthIndex + 1 < authPlatforms.length) {
             setCurrentAuthIndex(currentAuthIndex + 1);
             // Dialog stays open for next platform
-          } else {
+    } else {
             // All OAuth2 platforms done - close dialog
             console.log('✅ All OAuth2 platforms authorized');
             setShowAuthDialog(false);
@@ -1254,11 +1254,11 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
 
               <div className="space-y-4">
                 {/* Image Posts Slider */}
-                <div>
+              <div>
                   <label className="text-xs sm:text-sm font-medium mb-2 block">
                     Image posts: {imagePostCount[0]}
-                  </label>
-                  <Slider
+                </label>
+                <Slider
                     key={`image-slider-${imageSliderMax}`}
                     value={imagePostCount}
                     onValueChange={(value) => {
@@ -1276,15 +1276,15 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
                     }}
                     min={0}
                     max={imageSliderMax}
-                    step={1}
-                    className="mb-2"
+                  step={1}
+                  className="mb-2"
                     disabled={imageSliderMax === 0}
-                  />
-                  <div className="flex justify-between text-xs text-muted-foreground">
+                />
+                <div className="flex justify-between text-xs text-muted-foreground">
                     {Array.from({ length: Math.min(imageSliderMax, 4) + 1 }, (_, i) => (
                       <span key={i}>{i}</span>
                     ))}
-                  </div>
+                </div>
                   {usageData && (
                     <p className="text-xs text-gray-500 mt-1">
                       {usageData.remainingImages} remaining
@@ -1399,7 +1399,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
                       ? "opacity-60" 
                       : post.isFailed
                         ? "opacity-70 border-red-200"
-                        : "cursor-pointer hover:border-primary group"
+                      : "cursor-pointer hover:border-primary group"
                   }`}
                   onClick={() => !post.isGenerating && !post.isFailed && handlePostClick(post)}
                 >

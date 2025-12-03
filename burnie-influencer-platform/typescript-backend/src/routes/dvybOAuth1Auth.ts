@@ -93,19 +93,18 @@ router.get('/initiate', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Re
 /**
  * POST /api/dvyb/auth/oauth1/callback
  * Handle OAuth1 callback from frontend (receives oauth_token, oauth_verifier from frontend)
+ * NOTE: Does NOT use dvybAuthMiddleware because cookies may not be sent from popup
  */
-router.post('/callback', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+router.post('/callback', async (req: Request, res: Response) => {
   try {
     // Frontend sends snake_case parameters
     const { oauth_token, oauth_verifier, state, oauth_token_secret } = req.body;
-    const accountId = req.dvybAccountId!;
     
     logger.info(`📥 OAuth1 callback received from frontend`);
     logger.info(`   oauth_token: ${oauth_token?.substring(0, 15)}...`);
     logger.info(`   oauth_verifier: ${oauth_verifier?.substring(0, 15)}...`);
     logger.info(`   oauth_token_secret: ${oauth_token_secret?.substring(0, 15)}...`);
     logger.info(`   state: ${state?.substring(0, 15)}...`);
-    logger.info(`   accountId: ${accountId}`);
     
     if (!oauth_token || !oauth_verifier || !state || !oauth_token_secret) {
       logger.error('❌ Missing OAuth1 callback parameters', { 
@@ -120,18 +119,21 @@ router.post('/callback', dvybAuthMiddleware, async (req: DvybAuthRequest, res: R
       });
     }
     
-    // Verify state
+    // Verify state and get accountId from stored state
     const storedState = oauth1States.get(state);
-    if (!storedState || storedState.accountId !== accountId) {
+    if (!storedState) {
       logger.error('❌ Invalid or expired state', {
-        stored_exists: !!storedState,
-        account_match: storedState?.accountId === accountId
+        state,
+        stored_exists: false
       });
       return res.status(400).json({
         success: false,
         error: 'Invalid or expired state parameter',
       });
     }
+    
+    const accountId = storedState.accountId;
+    logger.info(`   accountId from state: ${accountId}`);
     
     // Exchange request token for access token
     logger.info('🔄 Exchanging OAuth1 request token for access token...');
