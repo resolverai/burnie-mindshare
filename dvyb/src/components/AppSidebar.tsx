@@ -10,7 +10,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  LogOut
+  LogOut,
+  ImageIcon,
+  Video
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -182,8 +184,24 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
             "px-4 py-2 border-b border-sidebar-border",
             collapsed && "md:hidden" // Hide on desktop/tablet when collapsed, but always show on mobile
           )}>
-            <div className="text-xs text-sidebar-foreground/70 text-center">
-              {planInfo.planName}
+            <div className="text-center space-y-1">
+              {/* Plan Name + Frequency */}
+              <div className="text-xs text-sidebar-foreground">
+                <span className="font-medium">{planInfo.planName}</span>
+                <span className="text-sidebar-foreground/60"> · {planInfo.selectedFrequency === 'annual' ? 'Annual' : 'Monthly'}</span>
+              </div>
+              
+              {/* Usage Limits */}
+              <div className="flex items-center justify-center gap-3 text-xs text-sidebar-foreground/70">
+                <span className="flex items-center gap-1">
+                  <ImageIcon className="w-3 h-3" />
+                  {planInfo.imagePostsLimit}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Video className="w-3 h-3" />
+                  {planInfo.videoPostsLimit}
+                </span>
+              </div>
             </div>
           </div>
         )}

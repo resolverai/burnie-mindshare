@@ -378,7 +378,7 @@ export class DvybAuthService {
 
   /**
    * Check if user has completed onboarding
-   * Onboarding is complete when mediaChannels field is set in dvyb_context
+   * Onboarding is complete when logoUrl is set in dvyb_context (brand-profile step completed)
    */
   static async isOnboardingComplete(accountId: number): Promise<boolean> {
     try {
@@ -389,8 +389,8 @@ export class DvybAuthService {
         return false;
       }
 
-      // Check if media channels have been selected (content-channels step completed)
-      return !!(context.mediaChannels && Object.keys(context.mediaChannels).length > 0);
+      // Onboarding is complete when user has uploaded their logo (brand-profile step)
+      return !!(context.logoUrl && context.logoUrl.trim() !== '');
     } catch (error) {
       logger.error('❌ Error checking onboarding status:', error);
       return false;

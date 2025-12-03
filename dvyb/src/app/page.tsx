@@ -10,6 +10,7 @@ export default function HomePage() {
   const router = useRouter();
   const { isAuthenticated, accountId, onboardingComplete, isLoading } = useAuth();
   const [isMounted, setIsMounted] = useState(false);
+  const [shouldShowLanding, setShouldShowLanding] = useState(false);
 
   // Fix hydration warning by only rendering after client mount
   useEffect(() => {
@@ -19,43 +20,48 @@ export default function HomePage() {
   useEffect(() => {
     if (!isMounted || isLoading) return;
 
-    const checkUserStatus = async () => {
-      // If user is authenticated and onboarding is complete, redirect to home
-      if (isAuthenticated && accountId && onboardingComplete) {
-        console.log("✅ User authenticated & onboarded - redirecting to /home");
-        router.push("/home");
+    const checkAndRedirect = async () => {
+      // PRIORITY 1: Authenticated user
+      if (isAuthenticated && accountId) {
+        console.log("📍 User is authenticated, checking onboarding status...", { 
+          onboardingComplete,
+          accountId 
+        });
+        
+        if (onboardingComplete) {
+          // User has completed onboarding - ALWAYS go to home
+          console.log("✅ Onboarding complete - redirecting to /home");
+          // Clear old analysis data to prevent confusion
+          localStorage.removeItem('dvyb_website_analysis');
+          router.replace("/home");
+          return;
+        }
+        
+        // Onboarding NOT complete - check if we have analysis to continue
+        const hasAnalysis = localStorage.getItem('dvyb_website_analysis');
+        console.log("⚠️ Onboarding incomplete, hasAnalysis:", !!hasAnalysis);
+        
+        if (hasAnalysis) {
+          // Continue onboarding from analysis details
+          console.log("→ Has analysis - redirecting to analysis-details");
+          router.replace("/onboarding/analysis-details");
+          return;
+        }
+        
+        // No analysis - show landing page to start/continue onboarding
+        console.log("→ No analysis - showing website analysis form");
+        setShouldShowLanding(true);
         return;
       }
 
-      // If user is authenticated but onboarding incomplete, check if we have analysis
-      if (isAuthenticated && accountId && !onboardingComplete) {
-        const analysisResult = localStorage.getItem('dvyb_website_analysis');
-        if (analysisResult) {
-          console.log("✅ User authenticated, analysis exists - redirecting to analysis-details");
-          router.push("/onboarding/analysis-details");
-          return;
-        }
-        // Otherwise show website analysis (authenticated user without analysis)
-      }
-
-      // If not authenticated, check if user has logged in before
+      // PRIORITY 2: Not authenticated - show landing page
       if (!isAuthenticated) {
-        const hasAccountReference = localStorage.getItem('dvyb_account_id');
-        
-        if (hasAccountReference) {
-          // User has an account but session expired/logged out
-          // Redirect to Twitter auth to re-establish session
-          console.log("🔄 Account exists but no session - redirecting to Twitter auth");
-          router.push("/auth/login");
-          return;
-        }
-        
-        // Fresh new user - show website analysis form (landing page)
-        console.log("👤 New user - showing website analysis form");
+        console.log("👤 User not authenticated - showing landing page");
+        setShouldShowLanding(true);
       }
     };
 
-    checkUserStatus();
+    checkAndRedirect();
   }, [isAuthenticated, accountId, onboardingComplete, isLoading, isMounted, router]);
 
   const handleAnalysisComplete = (url: string) => {
@@ -63,7 +69,8 @@ export default function HomePage() {
     console.log("Analysis completed for:", url);
   };
 
-  if (!isMounted || isLoading) {
+  // Show loading while checking auth or if we haven't determined what to show yet
+  if (!isMounted || isLoading || (!shouldShowLanding && !isAuthenticated)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted">
         <div className="text-center">
@@ -74,6 +81,18 @@ export default function HomePage() {
     );
   }
 
-  // Landing page is ALWAYS unauthenticated - shows website analysis form
+  // Only show landing page if explicitly allowed
+  if (!shouldShowLanding) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted">
+        <div className="text-center">
+          <Loader2 className="w-10 h-10 animate-spin mx-auto mb-4 text-primary" />
+          <p className="text-muted-foreground">Redirecting...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Landing page - for logged out users OR logged in users without website analysis
   return <WebsiteAnalysis onComplete={handleAnalysisComplete} />;
 }

@@ -354,6 +354,73 @@ router.post('/update-progressive-content', async (req, res) => {
 });
 
 /**
+ * Maps technical progress messages from Python backend to user-friendly, engaging messages
+ * Based on actual messages from dvyb_adhoc_generation.py
+ */
+function mapProgressMessageToUserFriendly(technicalMessage: string | null): string {
+  if (!technicalMessage) return 'Getting started...';
+  
+  // Exact matches for setup phases
+  if (technicalMessage === 'Starting generation...') {
+    return 'Getting started...';
+  }
+  if (technicalMessage === 'Gathering context...') {
+    return 'Understanding your brand...';
+  }
+  if (technicalMessage === 'Analyzing uploaded images...') {
+    return 'Analyzing your images...';
+  }
+  if (technicalMessage === 'Analyzing inspiration links...') {
+    return 'Getting inspiration from your links...';
+  }
+  if (technicalMessage === 'Generating prompts...') {
+    return 'Crafting the perfect content for you...';
+  }
+  if (technicalMessage === 'Generating images and clips...') {
+    return 'Creating your content...';
+  }
+  if (technicalMessage === 'Saving content...') {
+    return 'Almost there, finalizing your content...';
+  }
+  if (technicalMessage === 'Generation completed!') {
+    return 'Your content is ready!';
+  }
+  
+  // Pattern matches for content generation - use engaging rotating messages
+  // For individual image/video generation, show catchy messages
+  if (technicalMessage.match(/^Generated image \d+$/) || 
+      technicalMessage.match(/^Generated video \d+$/)) {
+    // Return different engaging messages based on the index
+    const numMatch = technicalMessage.match(/\d+/);
+    const idx = numMatch ? parseInt(numMatch[0]) : 0;
+    const engagingMessages = [
+      'Making magic happen...',
+      'Bringing your ideas to life...',
+      'Almost there, looking great...',
+      'Adding the finishing touches...',
+      'Creating something amazing...',
+      'Your content is taking shape...',
+      'Perfecting every detail...',
+      'Working on something special...',
+    ];
+    return engagingMessages[idx % engagingMessages.length] || 'Creating your content...';
+  }
+  
+  // Video generation message - keep it simple
+  if (technicalMessage.includes('Generating videos')) {
+    return 'Creating your videos (this may take a few minutes)...';
+  }
+  
+  // Fallback: return a cleaned version (remove emojis)
+  const cleaned = technicalMessage.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim();
+  // If it still looks technical, return a generic engaging message
+  if (cleaned.match(/^\d+$/) || cleaned.includes('idx') || cleaned.includes('video_') || cleaned.includes('image_')) {
+    return 'Creating your content...';
+  }
+  return cleaned || 'Creating your content...';
+}
+
+/**
  * @route GET /api/dvyb/latest
  * @description Get the latest generation for an account (internal - no auth)
  * @access Internal (Python backend)
@@ -432,6 +499,13 @@ router.get('/latest', async (req, res) => {
     // Remove IP-sensitive fields (framePrompts, clipPrompts) before sending to frontend
     delete (generationWithPresignedUrls as any).framePrompts;
     delete (generationWithPresignedUrls as any).clipPrompts;
+
+    // Map progress message to user-friendly version
+    if ((generationWithPresignedUrls as any).progressMessage) {
+      (generationWithPresignedUrls as any).progressMessage = mapProgressMessageToUserFriendly(
+        (generationWithPresignedUrls as any).progressMessage
+      );
+    }
 
     return res.json({
       success: true,

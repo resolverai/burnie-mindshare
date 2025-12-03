@@ -926,6 +926,43 @@ export const adhocGenerationApi = {
   },
 };
 
+// Captions API (user-edited captions)
+export const captionsApi = {
+  async getCaptions(generatedContentId: number, postIndex: number) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        captions: Record<string, string>; // { platform: caption }
+        raw: any[];
+      };
+    }>(`/dvyb/captions?generatedContentId=${generatedContentId}&postIndex=${postIndex}`);
+  },
+
+  async saveCaption(data: {
+    generatedContentId: number;
+    postIndex: number;
+    platform: string;
+    caption: string;
+  }) {
+    return apiRequest<{
+      success: boolean;
+      data: any;
+    }>('/dvyb/captions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteCaption(captionId: number) {
+    return apiRequest<{
+      success: boolean;
+      message: string;
+    }>(`/dvyb/captions/${captionId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 export const dvybApi = {
   auth: authApi,
   account: accountApi,
@@ -938,4 +975,5 @@ export const dvybApi = {
   analytics: analyticsApi,
   socialConnections: socialConnectionsApi,
   adhocGeneration: adhocGenerationApi,
+  captions: captionsApi,
 };

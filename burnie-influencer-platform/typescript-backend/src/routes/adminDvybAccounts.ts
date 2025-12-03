@@ -4,6 +4,7 @@ import { DvybAccount } from '../models/DvybAccount';
 import { DvybContext } from '../models/DvybContext';
 import { DvybAccountPlan } from '../models/DvybAccountPlan';
 import { DvybPricingPlan } from '../models/DvybPricingPlan';
+import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 import { UrlCacheService } from '../services/UrlCacheService';
@@ -57,6 +58,8 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Fetch context data and current plan for each account
     const accountPlanRepo = AppDataSource.getRepository(DvybAccountPlan);
+    const generatedContentRepo = AppDataSource.getRepository(DvybGeneratedContent);
+    
     const accountsWithContext = await Promise.all(
       accounts.map(async (account) => {
         const context = await contextRepo.findOne({
@@ -73,6 +76,30 @@ router.get('/', async (req: Request, res: Response) => {
           relations: ['plan'],
           order: { createdAt: 'DESC' },
         });
+
+        // Calculate usage (images and videos generated)
+        const generatedContent = await generatedContentRepo.find({
+          where: {
+            accountId: account.id,
+            status: 'completed',
+          },
+        });
+
+        let totalImagesGenerated = 0;
+        let totalVideosGenerated = 0;
+
+        generatedContent.forEach((content) => {
+          // Count only non-null image URLs
+          if (content.generatedImageUrls && Array.isArray(content.generatedImageUrls)) {
+            totalImagesGenerated += content.generatedImageUrls.filter((url) => url !== null && url !== undefined).length;
+          }
+          // Count only non-null video URLs
+          if (content.generatedVideoUrls && Array.isArray(content.generatedVideoUrls)) {
+            totalVideosGenerated += content.generatedVideoUrls.filter((url) => url !== null && url !== undefined).length;
+          }
+        });
+
+        logger.info(`📊 Account ${account.id} usage: ${totalImagesGenerated} images, ${totalVideosGenerated} videos from ${generatedContent.length} completed records`);
 
         let logoPresignedUrl: string | null = null;
 
@@ -130,8 +157,8 @@ router.get('/', async (req: Request, res: Response) => {
 
         return {
           id: account.id,
-          accountName: account.accountName,
-          primaryEmail: account.primaryEmail,
+          accountName: context?.accountName || account.accountName, // ✅ Use context accountName first, fallback to account
+          primaryEmail: account.primaryEmail, // Always from dvyb_accounts
           accountType: account.accountType,
           isActive: account.isActive,
           createdAt: account.createdAt,
@@ -141,6 +168,11 @@ router.get('/', async (req: Request, res: Response) => {
           logoUrl: context?.logoUrl || null,
           logoPresignedUrl,
           hasContext: !!context,
+          // Usage data
+          usage: {
+            imagesGenerated: totalImagesGenerated,
+            videosGenerated: totalVideosGenerated,
+          },
           // Current plan data
           currentPlan: currentPlan
             ? {

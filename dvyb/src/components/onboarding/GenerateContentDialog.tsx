@@ -70,8 +70,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
   const [contextText, setContextText] = useState("");
   const [uploadedS3Urls, setUploadedS3Urls] = useState<string[]>([]);
   const [inspirationLinks, setInspirationLinks] = useState<string[]>([""]);
-  const [postCount, setPostCount] = useState([2]);
-  const [sliderMax, setSliderMax] = useState(4);
+  const [imagePostCount, setImagePostCount] = useState([2]);
+  const [videoPostCount, setVideoPostCount] = useState([2]);
+  const [imageSliderMax, setImageSliderMax] = useState(4);
+  const [videoSliderMax, setVideoSliderMax] = useState(4);
   const [usageData, setUsageData] = useState<any>(null);
   const [generatedPosts, setGeneratedPosts] = useState<any[]>([]);
   const [selectedPost, setSelectedPost] = useState<any>(null);
@@ -111,18 +113,45 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
           if (data.success && data.data) {
             setUsageData(data.data);
             
-            // Calculate slider max: min(4, remainingPosts)
-            const remainingPosts = data.data.remainingImages + data.data.remainingVideos;
-            const maxPosts = Math.min(4, Math.max(1, remainingPosts)); // At least 1, max 4
+            const { remainingImages, remainingVideos } = data.data;
             
-            console.log(`🎚️ Setting slider max to ${maxPosts} (remaining: ${remainingPosts})`);
-            setSliderMax(maxPosts);
+            // Calculate individual slider max values (capped at 4)
+            const maxImages = Math.min(4, remainingImages);
+            const maxVideos = Math.min(4, remainingVideos);
             
-            // Adjust current post count if it exceeds new max
-            if (postCount[0] > maxPosts) {
-              console.log(`⚠️ Adjusting postCount from ${postCount[0]} to ${maxPosts}`);
-              setPostCount([maxPosts]);
+            setImageSliderMax(maxImages);
+            setVideoSliderMax(maxVideos);
+            
+            // Calculate default values: 2 images + 2 videos (adjusted by limits)
+            // Total max is 4
+            const defaultImages = Math.min(2, maxImages);
+            const defaultVideos = Math.min(2, maxVideos);
+            
+            // If one type is limited, give more to the other (up to 4 total)
+            let finalImages = defaultImages;
+            let finalVideos = defaultVideos;
+            
+            // If we can't get 2 videos, try to get more images
+            if (defaultVideos < 2 && maxImages > defaultImages) {
+              const shortfall = 2 - defaultVideos;
+              finalImages = Math.min(defaultImages + shortfall, maxImages, 4 - finalVideos);
             }
+            
+            // If we can't get 2 images, try to get more videos
+            if (defaultImages < 2 && maxVideos > defaultVideos) {
+              const shortfall = 2 - defaultImages;
+              finalVideos = Math.min(defaultVideos + shortfall, maxVideos, 4 - finalImages);
+            }
+            
+            // Ensure at least 1 post total
+            if (finalImages + finalVideos === 0) {
+              if (maxImages > 0) finalImages = 1;
+              else if (maxVideos > 0) finalVideos = 1;
+            }
+            
+            console.log(`🎚️ Setting sliders: ${finalImages} images (max ${maxImages}), ${finalVideos} videos (max ${maxVideos})`);
+            setImagePostCount([finalImages]);
+            setVideoPostCount([finalVideos]);
           }
         } catch (error) {
           console.error('Failed to fetch usage data:', error);
@@ -132,8 +161,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       fetchUsageData();
     } else {
       // Reset when dialog closes
-      setSliderMax(4);
-      setPostCount([2]);
+      setImageSliderMax(4);
+      setVideoSliderMax(4);
+      setImagePostCount([2]);
+      setVideoPostCount([2]);
       setUsageData(null);
     }
   }, [open]);
@@ -148,7 +179,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       setSelectedPlatforms(['twitter']);  // Twitter only for faster demo
       setJobId(initialJobId);
       setGenerationUuid(initialJobId); // May be uuid format
-      setPostCount([2]);
+      setImagePostCount([2]);
+      setVideoPostCount([0]);
       
       // Create placeholder posts
       const placeholders = Array.from({ length: 2 }, (_, i) => ({
@@ -199,41 +231,18 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
   const handleGenerate = async () => {
     const topic = customTopic || selectedTopic;
     
-    // Calculate mix based on remaining limits
-    let numberOfImages = 0;
-    let numberOfVideos = 0;
+    // Use user-selected values directly from sliders
+    const numberOfImages = imagePostCount[0];
+    const numberOfVideos = videoPostCount[0];
+    const totalPosts = numberOfImages + numberOfVideos;
     
+    console.log(`📊 Generating ${totalPosts} posts: ${numberOfImages} images, ${numberOfVideos} videos`);
     if (usageData) {
-      const totalPosts = postCount[0];
-      const { remainingImages, remainingVideos } = usageData;
-      
-      // Default: 2 videos, 2 images (maximize videos for odd numbers)
-      // But respect remaining limits
-      const defaultVideos = Math.ceil(totalPosts / 2);
-      const defaultImages = totalPosts - defaultVideos;
-      
-      // Apply limits
-      numberOfVideos = Math.min(defaultVideos, remainingVideos);
-      numberOfImages = Math.min(defaultImages, remainingImages);
-      
-      // If we couldn't get enough videos, convert to images
-      const shortfall = totalPosts - (numberOfVideos + numberOfImages);
-      if (shortfall > 0 && remainingImages > numberOfImages) {
-        numberOfImages += Math.min(shortfall, remainingImages - numberOfImages);
-      }
-      
-      // If we couldn't get enough images, convert to videos
-      if (numberOfVideos + numberOfImages < totalPosts && remainingVideos > numberOfVideos) {
-        numberOfVideos += Math.min(totalPosts - (numberOfVideos + numberOfImages), remainingVideos - numberOfVideos);
-      }
-      
-      console.log(`📊 Generating ${totalPosts} posts: ${numberOfImages} images, ${numberOfVideos} videos`);
-      console.log(`📊 Remaining limits: ${remainingImages} images, ${remainingVideos} videos`);
-      console.log(`📊 Default split: ${defaultVideos} videos, ${defaultImages} images`);
+      console.log(`📊 Remaining limits: ${usageData.remainingImages} images, ${usageData.remainingVideos} videos`);
     }
     
     // Immediately show grid with placeholder posts
-    const placeholders = Array.from({ length: postCount[0] }, (_, i) => ({
+    const placeholders = Array.from({ length: totalPosts }, (_, i) => ({
       id: String(i + 1),
       date: new Date().toISOString().split('T')[0],
       time: "10:00 AM",
@@ -259,7 +268,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       const response = await adhocGenerationApi.generateContent({
         topic,
         platforms: selectedPlatforms,
-        number_of_posts: postCount[0],
+        number_of_posts: totalPosts,
         number_of_images: numberOfImages,
         number_of_videos: numberOfVideos,
         user_prompt: contextText || undefined,
@@ -282,8 +291,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
     } catch (error: any) {
       console.error('Generation error:', error);
       toast({
-        title: "Generation failed",
-        description: error.message || "Failed to start generation",
+        title: "Couldn't Generate Content",
+        description: "Something went wrong. Please try again.",
         variant: "destructive",
       });
       setStep("review");
@@ -306,6 +315,13 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
           const imageUrls = data?.generatedImageUrls || [];
           const videoUrls = data?.generatedVideoUrls || [];
           const platformTexts = data?.platformTexts || [];
+          
+          // Store generatedContentId as soon as we have it (not just on completion)
+          // This ensures Schedule can work even before generation completes
+          if (data?.id && !generatedContentId) {
+            setGeneratedContentId(data.id);
+            console.log('📦 Set generatedContentId early:', data.id);
+          }
           
           if (progressiveContent.length > 0 || imageUrls.length > 0 || videoUrls.length > 0) {
             // Update posts with available content
@@ -389,10 +405,23 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
             clearInterval(pollInterval);
             console.log('✅ Generation completed!');
             
-            // Store generatedContentId for schedule fetching
+            // Mark any remaining placeholders as failed (they didn't get content)
+            setGeneratedPosts(prev => prev.map((post) => {
+              if (post.isGenerating || !post.image) {
+                // This placeholder never got content - mark as failed
+                return {
+                  ...post,
+                  isGenerating: false,
+                  isFailed: true,
+                  description: "Unable to generate content",
+                  image: null,
+                };
+              }
+              return post;
+            }));
+            
+            // Fetch schedules for this content (generatedContentId already set above)
             if (data?.id) {
-              setGeneratedContentId(data.id);
-              // Fetch schedules for this content
               fetchSchedules(data.id);
             }
           } else if (status.status === 'failed') {
@@ -411,8 +440,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
         clearInterval(pollInterval);
         console.error('Status poll error:', error);
         toast({
-          title: "Generation failed",
-          description: error.message,
+          title: "Generation Failed",
+          description: "Something went wrong while generating your content. Please try again.",
           variant: "destructive",
         });
         setStep("review");
@@ -503,8 +532,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
             if (!oauth1Status.data.oauth1Valid) {
               // Show OAuth1 authorization needed
               toast({
-                title: "Additional Authorization Required",
-                description: "Video posting to Twitter requires OAuth1 authorization",
+                title: "One More Step for Videos",
+                description: "Twitter requires separate authorization for video uploads. Please complete in the popup.",
                 variant: "default",
               });
               await initiateOAuth1Flow();
@@ -574,7 +603,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
           
           toast({
             title: "Connected!",
-            description: `${platform.charAt(0).toUpperCase() + platform.slice(1)} OAuth2 connected`,
+            description: `${platform.charAt(0).toUpperCase() + platform.slice(1)} connected successfully`,
           });
           
           // If this is Twitter AND it's a video, check OAuth1 before moving to next platform
@@ -585,7 +614,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
                 // Need OAuth1 for Twitter video
                 toast({
                   title: "Video Authorization Required",
-                  description: "Twitter video posting requires additional authorization (OAuth1)",
+                  description: "Twitter requires separate authorization for video uploads.",
                   variant: "default",
                 });
                 
@@ -610,29 +639,34 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
             setCurrentAuthIndex(currentAuthIndex + 1);
             // Dialog stays open for next platform
           } else {
-            // All OAuth2 platforms done - close dialog and proceed
+            // All OAuth2 platforms done - close dialog
+            console.log('✅ All OAuth2 platforms authorized');
             setShowAuthDialog(false);
             
             // Check if Twitter video needs OAuth1
+            console.log('🔍 Checking if OAuth1 needed:', {
+              'pendingPost exists': !!pendingPost,
+              'pendingPost.type': pendingPost?.type,
+              'pendingPost.requestedPlatforms': pendingPost?.requestedPlatforms,
+              'includes twitter': (pendingPost?.requestedPlatforms || []).includes('twitter'),
+            });
+            
             if (pendingPost && pendingPost.type === 'Video' && 
-                (pendingPost.requestedPlatforms || []).includes('twitter')) {
-              try {
-                const oauth1Status = await oauth1Api.getOAuth1Status();
-                if (!oauth1Status.data.oauth1Valid) {
-                  toast({
-                    title: "Additional Authorization Required",
-                    description: "Video posting to Twitter requires OAuth1 authorization",
-                    variant: "default",
-                  });
-                  await initiateOAuth1Flow();
-                  return; // OAuth1 flow will call startPosting when complete
-                }
-              } catch (error) {
-                console.error('OAuth1 check error:', error);
-              }
+                (pendingPost?.requestedPlatforms || []).includes('twitter')) {
+              console.log('📹 Twitter video detected - OAuth1 will be needed on next click');
+              
+              // ✅ DON'T trigger OAuth1 here - let user click "Post Now" again
+              // This provides clearer UX and avoids confusion
+              toast({
+                title: "Twitter Connected!",
+                description: "Click 'Post Now' again to authorize video uploads.",
+                variant: "default",
+              });
+              return; // Exit - user will click "Post Now" again
             }
             
-            // All auth complete, proceed with posting
+            // Not a Twitter video, proceed with posting
+            console.log('🚀 Not a video or not Twitter - proceeding with posting');
             if (pendingPost) {
               await startPosting(pendingPost);
             }
@@ -653,8 +687,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       }, 5 * 60 * 1000);
     } catch (error: any) {
       toast({
-        title: "Authorization Failed",
-        description: error.message,
+        title: "Connection Failed",
+        description: "Unable to connect. Please try again.",
         variant: "destructive",
       });
       setShowAuthDialog(false);
@@ -662,6 +696,13 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
   };
 
   const handlePostNowClick = async (post: any) => {
+    console.log('🎬 handlePostNowClick START:', {
+      'post.type': post.type,
+      'post.requestedPlatforms': post.requestedPlatforms,
+      'post.platforms': post.platforms,
+      'post.image': post.image?.substring(0, 50) + '...',
+    });
+    
     // Use platforms from post data (saved during generation), not current state
     // Multiple fallbacks to ensure platforms are never empty
     let platforms = post.requestedPlatforms || post.platforms || selectedPlatforms;
@@ -679,6 +720,12 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       platforms: platforms,
     };
     
+    console.log('📝 Updated post object:', {
+      'type': updatedPost.type,
+      'platforms': updatedPost.platforms,
+      'requestedPlatforms': updatedPost.requestedPlatforms,
+    });
+    
     setSelectedPost(updatedPost);
     setPendingPost(updatedPost);
     
@@ -690,6 +737,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       'selectedPlatforms': selectedPlatforms,
       'final platforms': platforms,
       'platforms length': platforms?.length,
+      'mediaType': mediaType,
+      'post.type': post.type,
     });
 
     try {
@@ -728,7 +777,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
           setNeedsOAuth1(true);
           toast({
             title: "Video Authorization Required",
-            description: "Twitter video posting requires additional authorization (OAuth1). Please authorize in the popup.",
+            description: "Twitter requires separate authorization for video uploads. Please complete in the popup.",
             variant: "default",
           });
           // Initiate OAuth1 flow
@@ -744,8 +793,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
     } catch (error: any) {
       console.error('Error in Post Now flow:', error);
       toast({
-        title: "Error",
-        description: error.message || "Failed to validate platform connections",
+        title: "Connection Failed",
+        description: "Couldn't connect to your accounts. Please try again.",
         variant: "destructive",
       });
     }
@@ -795,8 +844,14 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
           clearInterval(checkPopup);
           setNeedsOAuth1(false);
           
+          console.log('✅ OAuth1 success - About to post:', {
+            'pendingPost': pendingPost,
+            'pendingPost.type': pendingPost?.type,
+            'pendingPost.image': pendingPost?.image?.substring(0, 50),
+          });
+          
           toast({
-            title: "Authorization Successful",
+            title: "Video Authorization Complete",
             description: "You can now post videos to Twitter!",
           });
 
@@ -805,10 +860,13 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
             // More platforms need auth - move to next platform
             setCurrentAuthIndex(currentAuthIndex + 1);
             setShowAuthDialog(true); // Re-show dialog for next platform
-    } else {
+          } else {
             // All platforms authorized (or single platform flow), proceed with posting
             if (pendingPost) {
+              console.log('🚀 Posting from OAuth1 success handler:', pendingPost.type);
               await startPosting(pendingPost);
+            } else {
+              console.error('❌ No pendingPost found after OAuth1 success!');
             }
           }
         } else if (event.data.type === 'oauth1_error') {
@@ -817,8 +875,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
           setNeedsOAuth1(false);
           
           toast({
-            title: "Authorization Failed",
-            description: event.data.message || "Failed to authorize OAuth1",
+            title: "Video Authorization Failed",
+            description: "Couldn't complete video authorization for Twitter. Please try again.",
             variant: "destructive",
           });
         }
@@ -833,14 +891,21 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       }, 5 * 60 * 1000);
     } catch (error: any) {
       toast({
-        title: "Authorization Error",
-        description: error.message || "Failed to initiate OAuth1 flow",
+        title: "Connection Error",
+        description: "Unable to open authorization window. Please try again.",
         variant: "destructive",
       });
     }
   };
 
   const startPosting = async (post: any) => {
+    console.log('📤 startPosting called with:', {
+      'post.type': post.type,
+      'post.image': post.image?.substring(0, 60) + '...',
+      'post.description': post.description?.substring(0, 50) + '...',
+      'post.requestedPlatforms': post.requestedPlatforms,
+    });
+    
     setShowPostingDialog(true);
     setPostingComplete(false);
     setIsPosting(true);
@@ -850,6 +915,12 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       // Extract media URL and type
       const mediaUrl = post.image; // This contains the S3 URL
       const mediaType = post.type === 'Video' ? 'video' : 'image';
+      
+      console.log('📤 Media info:', {
+        'mediaType': mediaType,
+        'mediaUrl': mediaUrl?.substring(0, 60) + '...',
+        'post.type': post.type,
+      });
       
       // Use platforms from post data (saved during generation), not current state
       // Multiple fallbacks to ensure platforms are never empty
@@ -890,8 +961,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       if (needsOAuth1) {
         setNeedsOAuth1(true);
         toast({
-          title: "Additional Authorization Needed",
-          description: "Some platforms require additional authorization",
+          title: "Video Authorization Required",
+          description: "Twitter requires separate authorization for video uploads.",
           variant: "default",
         });
       } else {
@@ -907,8 +978,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       console.error('Posting error:', error);
       setPostingComplete(true);
       toast({
-        title: "Posting Failed",
-        description: error.message || "Failed to post content",
+        title: "Couldn't Post",
+        description: "Something went wrong. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -937,7 +1008,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
     setContextText("");
     setUploadedS3Urls([]);
     setInspirationLinks([""]);
-    setPostCount([2]);
+    setImagePostCount([2]);
+    setVideoPostCount([2]);
     setGeneratedPosts([]);
     setJobId(null);
     setGenerationUuid(null);
@@ -1180,40 +1252,92 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
                 </Card>
               )}
 
-              <div>
-                <label className="text-xs sm:text-sm font-medium mb-2 sm:mb-3 block">
-                  Number of posts: {postCount[0]}
-                </label>
-                <Slider
-                  key={`slider-${sliderMax}`}
-                  value={postCount}
-                  onValueChange={(value) => {
-                    // Ensure value doesn't exceed sliderMax
-                    const newValue = Math.min(value[0], sliderMax);
-                    setPostCount([newValue]);
-                  }}
-                  min={1}
-                  max={sliderMax}
-                  step={1}
-                  className="mb-2"
-                  disabled={sliderMax === 0}
-                />
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  {Array.from({ length: Math.min(sliderMax, 4) }, (_, i) => (
-                    <span key={i + 1}>{i + 1}</span>
-                  ))}
+              <div className="space-y-4">
+                {/* Image Posts Slider */}
+                <div>
+                  <label className="text-xs sm:text-sm font-medium mb-2 block">
+                    Image posts: {imagePostCount[0]}
+                  </label>
+                  <Slider
+                    key={`image-slider-${imageSliderMax}`}
+                    value={imagePostCount}
+                    onValueChange={(value) => {
+                      const newImageCount = Math.min(value[0], imageSliderMax);
+                      const currentVideoCount = videoPostCount[0];
+                      const total = newImageCount + currentVideoCount;
+                      
+                      // Auto-decrease video count if total exceeds 4
+                      if (total > 4) {
+                        const newVideoCount = Math.max(0, 4 - newImageCount);
+                        setVideoPostCount([newVideoCount]);
+                      }
+                      
+                      setImagePostCount([newImageCount]);
+                    }}
+                    min={0}
+                    max={imageSliderMax}
+                    step={1}
+                    className="mb-2"
+                    disabled={imageSliderMax === 0}
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    {Array.from({ length: Math.min(imageSliderMax, 4) + 1 }, (_, i) => (
+                      <span key={i}>{i}</span>
+                    ))}
+                  </div>
+                  {usageData && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {usageData.remainingImages} remaining
+                    </p>
+                  )}
                 </div>
-                {usageData && (
-                  <p className="text-xs text-gray-600 mt-2">
-                    Based on your plan, you can generate <span className="font-semibold">{usageData.remainingImages + usageData.remainingVideos}</span> additional posts
-                    {usageData.remainingImages > 0 && usageData.remainingVideos === 0 && (
-                      <span> (images only, video limit reached)</span>
-                    )}
-                    {usageData.remainingVideos > 0 && usageData.remainingImages === 0 && (
-                      <span> (videos only, image limit reached)</span>
-                    )}
+
+                {/* Video Posts Slider */}
+                <div>
+                  <label className="text-xs sm:text-sm font-medium mb-2 block">
+                    Video posts: {videoPostCount[0]}
+                  </label>
+                  <Slider
+                    key={`video-slider-${videoSliderMax}`}
+                    value={videoPostCount}
+                    onValueChange={(value) => {
+                      const newVideoCount = Math.min(value[0], videoSliderMax);
+                      const currentImageCount = imagePostCount[0];
+                      const total = currentImageCount + newVideoCount;
+                      
+                      // Auto-decrease image count if total exceeds 4
+                      if (total > 4) {
+                        const newImageCount = Math.max(0, 4 - newVideoCount);
+                        setImagePostCount([newImageCount]);
+                      }
+                      
+                      setVideoPostCount([newVideoCount]);
+                    }}
+                    min={0}
+                    max={videoSliderMax}
+                    step={1}
+                    className="mb-2"
+                    disabled={videoSliderMax === 0}
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    {Array.from({ length: Math.min(videoSliderMax, 4) + 1 }, (_, i) => (
+                      <span key={i}>{i}</span>
+                    ))}
+                  </div>
+                  {usageData && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {usageData.remainingVideos} remaining
+                    </p>
+                  )}
+                </div>
+
+                {/* Total Posts Summary */}
+                <div className="pt-2 border-t">
+                  <p className="text-sm font-medium">
+                    Total posts to generate: <span className="text-blue-600">{imagePostCount[0] + videoPostCount[0]}</span>
+                    <span className="text-xs text-muted-foreground ml-2">(max 4 per generation)</span>
                   </p>
-                )}
+                </div>
               </div>
             </div>
 
@@ -1221,7 +1345,11 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
               <Button variant="outline" className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("context")}>
                 Back
               </Button>
-              <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-sm sm:text-base h-10 sm:h-11" onClick={handleGenerate}>
+              <Button 
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-sm sm:text-base h-10 sm:h-11" 
+                onClick={handleGenerate}
+                disabled={imagePostCount[0] + videoPostCount[0] === 0}
+              >
                 Generate
               </Button>
             </div>
@@ -1269,12 +1397,20 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
                   className={`overflow-hidden transition-all ${
                     post.isGenerating 
                       ? "opacity-60" 
-                      : "cursor-pointer hover:border-primary group"
+                      : post.isFailed
+                        ? "opacity-70 border-red-200"
+                        : "cursor-pointer hover:border-primary group"
                   }`}
-                  onClick={() => !post.isGenerating && handlePostClick(post)}
+                  onClick={() => !post.isGenerating && !post.isFailed && handlePostClick(post)}
                 >
                   <div className="relative">
-                  {post.image ? (
+                  {post.isFailed ? (
+                    <div className="w-full aspect-square bg-red-50 flex flex-col items-center justify-center text-red-500">
+                      <X className="w-10 h-10 mb-2" />
+                      <span className="text-sm font-medium">Unable to Generate</span>
+                      <span className="text-xs text-red-400 mt-1">Content generation failed</span>
+                    </div>
+                  ) : post.image ? (
                     post.type === "Video" ? (
                       <div className="w-full aspect-square bg-black">
                         <video
@@ -1344,9 +1480,9 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
                   <div className="p-2.5 sm:p-3">
                     <p className="font-medium text-xs sm:text-sm line-clamp-2">{post.title}</p>
                     <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1 line-clamp-1">
-                      {post.description}
+                      {post.isFailed ? "Generation failed for this content" : post.description}
                     </p>
-                    {!post.isGenerating && (
+                    {!post.isGenerating && !post.isFailed && (
                       <div className="flex gap-1.5 sm:gap-2 mt-2 sm:mt-3">
                         <Button
                           size="sm"
@@ -1422,7 +1558,13 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
       </Dialog>
 
       <PostDetailDialog
-        post={selectedPost}
+        post={selectedPost ? {
+          ...selectedPost,
+          // Ensure generatedContentId is set (use state as fallback)
+          generatedContentId: selectedPost.generatedContentId || generatedContentId,
+          postIndex: selectedPost.postIndex,
+          fullPlatformTexts: selectedPost.platformTexts, // Map platformTexts to fullPlatformTexts
+        } : null}
         open={showPostDetail}
         onOpenChange={(open) => {
           setShowPostDetail(open);

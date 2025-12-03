@@ -322,26 +322,31 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
       }
     }
 
-    // Calculate current usage from dvyb_generated_content
+    // Calculate current usage from dvyb_generated_content (only completed generations)
     const contentRepo = AppDataSource.getRepository(DvybGeneratedContent);
     const generatedContent = await contentRepo.find({
-      where: { accountId },
+      where: { 
+        accountId,
+        status: 'completed',  // Only count successfully completed generations
+      },
     });
 
     let imageUsage = 0;
     let videoUsage = 0;
 
     generatedContent.forEach(content => {
-      // Count images from generatedImageUrls array
+      // Count images from generatedImageUrls array (filter out null/undefined)
       if (content.generatedImageUrls && Array.isArray(content.generatedImageUrls)) {
-        imageUsage += content.generatedImageUrls.length;
+        imageUsage += content.generatedImageUrls.filter(url => url !== null && url !== undefined).length;
       }
       
-      // Count videos from generatedVideoUrls array
+      // Count videos from generatedVideoUrls array (filter out null/undefined)
       if (content.generatedVideoUrls && Array.isArray(content.generatedVideoUrls)) {
-        videoUsage += content.generatedVideoUrls.length;
+        videoUsage += content.generatedVideoUrls.filter(url => url !== null && url !== undefined).length;
       }
     });
+    
+    logger.info(`📊 Usage for account ${accountId}: ${imageUsage} images, ${videoUsage} videos (from ${generatedContent.length} completed generations)`);
 
     const limitExceeded = imageUsage >= imageLimit || videoUsage >= videoLimit;
     const remainingImages = Math.max(0, imageLimit - imageUsage);

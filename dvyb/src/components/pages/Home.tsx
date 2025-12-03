@@ -97,7 +97,8 @@ export const Home = () => {
     }
 
     try {
-      const response = await accountApi.updateAccount({
+      // Update accountName in dvyb_context table
+      const response = await contextApi.updateContext({
         accountName: tempAccountName.trim(),
       });
 
@@ -153,8 +154,8 @@ export const Home = () => {
       }
 
       try {
-        // Fetch from account API to get latest accountName
-        const response = await accountApi.getAccount();
+        // Fetch from context API to get accountName from dvyb_context
+        const response = await contextApi.getContext();
         if (response.success && response.data?.accountName) {
           setAccountName(response.data.accountName);
         }

@@ -11,7 +11,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChevronRight, Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Sparkles, RotateCcw, Music, Calendar as CalendarIcon } from "lucide-react";
 import { CaptionEditDialog } from "./CaptionEditDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
-import { accountApi } from "@/lib/api";
+import { accountApi, captionsApi } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 interface Post {
   id: string;
@@ -46,9 +47,58 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
   const [aiPrompt, setAiPrompt] = useState("");
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([]);
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  const [editedCaptions, setEditedCaptions] = useState<Record<string, string>>({}); // User-edited captions
+  const [isSavingCaption, setIsSavingCaption] = useState(false);
+  const { toast } = useToast();
 
-  // Helper function to get platform-specific caption
+  // Get the available platforms for this post
+  const availablePlatforms = post?.requestedPlatforms || post?.platforms || ['instagram', 'twitter', 'linkedin'];
+
+  // Set default selected platform based on requested platforms when dialog opens
+  useEffect(() => {
+    if (open && post) {
+      const platforms = post.requestedPlatforms || post.platforms || [];
+      if (platforms.length > 0) {
+        // Set to first requested platform
+        const firstPlatform = platforms[0].toLowerCase() as Platform;
+        if (['instagram', 'twitter', 'linkedin'].includes(firstPlatform)) {
+          setSelectedPlatform(firstPlatform);
+          console.log('📱 Set default platform to:', firstPlatform);
+        }
+      }
+    }
+  }, [open, post]);
+
+  // Fetch edited captions when dialog opens
+  useEffect(() => {
+    const fetchEditedCaptions = async () => {
+      if (!open || !post?.generatedContentId || post?.postIndex === undefined) return;
+      
+      try {
+        const response = await captionsApi.getCaptions(
+          post.generatedContentId,
+          post.postIndex
+        );
+        
+        if (response.success && response.data?.captions) {
+          setEditedCaptions(response.data.captions);
+          console.log('📝 Loaded edited captions:', response.data.captions);
+        }
+      } catch (error) {
+        console.error('Failed to fetch edited captions:', error);
+      }
+    };
+
+    fetchEditedCaptions();
+  }, [open, post?.generatedContentId, post?.postIndex]);
+
+  // Helper function to get platform-specific caption (prioritize edited captions)
   const getPlatformCaption = (platform: Platform): string => {
+    // First check if user has edited this platform's caption
+    if (editedCaptions[platform]) {
+      return editedCaptions[platform];
+    }
+    // Then check for system-generated platform text
     if (post?.fullPlatformTexts && post.fullPlatformTexts[platform]) {
       return post.fullPlatformTexts[platform];
     }
@@ -135,8 +185,42 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
 
   if (!post) return null;
 
-  const handleSaveCaption = (newCaption: string) => {
+  const handleSaveCaption = async (newCaption: string) => {
+    // Save to local state immediately for responsive UI
     setCaption(newCaption);
+    
+    // Update the edited captions map
+    setEditedCaptions(prev => ({
+      ...prev,
+      [selectedPlatform]: newCaption,
+    }));
+
+    // Save to database if we have the required IDs
+    if (post.generatedContentId && post.postIndex !== undefined) {
+      setIsSavingCaption(true);
+      try {
+        await captionsApi.saveCaption({
+          generatedContentId: post.generatedContentId,
+          postIndex: post.postIndex,
+          platform: selectedPlatform,
+          caption: newCaption,
+        });
+        
+        toast({
+          title: "Caption Saved",
+          description: `Your ${selectedPlatform} caption has been updated.`,
+        });
+      } catch (error) {
+        console.error('Failed to save caption:', error);
+        toast({
+          title: "Couldn't Save Caption",
+          description: "Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsSavingCaption(false);
+      }
+    }
   };
 
   const handleOpenScheduleDialog = () => {
@@ -188,9 +272,12 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
     { id: "twitter", label: "X / Twitter", icon: "⚫" },
   ];
 
-  // Filter platforms based on requestedPlatforms if available
-  const platformOptions = post?.requestedPlatforms && post.requestedPlatforms.length > 0
-    ? allPlatformOptions.filter(option => post.requestedPlatforms?.includes(option.id))
+  // Filter platforms based on requestedPlatforms or platforms array
+  // Only show platforms that were actually requested for this content
+  const platformOptions = availablePlatforms.length > 0
+    ? allPlatformOptions.filter(option => 
+        availablePlatforms.map((p: string) => p.toLowerCase()).includes(option.id)
+      )
     : allPlatformOptions;
 
   const renderPlatformPreview = () => {
@@ -881,8 +968,9 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
       <CaptionEditDialog
         open={showCaptionEdit}
         onOpenChange={setShowCaptionEdit}
-        initialCaption={caption}
+        initialCaption={getPlatformCaption(selectedPlatform)}
         onSave={handleSaveCaption}
+        platform={selectedPlatform}
       />
 
       {/* Schedule Dialog */}
@@ -897,9 +985,10 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
           }}
           post={{
             ...post,
-            generatedContentId: (post as any).contentId, // Map contentId to generatedContentId
+            generatedContentId: (post as any).contentId || post.generatedContentId, // Map contentId to generatedContentId
             postIndex: (post as any).postIndex,
             fullPlatformTexts: (post as any).fullPlatformTexts, // Pass full texts for posting
+            editedCaptions, // Pass user-edited captions
           }}
           onScheduleComplete={() => {
             // Scheduling was successful - close both dialogs

@@ -603,7 +603,10 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
       </div>
 
       <PostDetailDialog
-        post={selectedPost}
+        post={selectedPost ? {
+          ...selectedPost,
+          generatedContentId: selectedPost.contentId, // Map contentId to generatedContentId
+        } : null}
         open={showPostDetail}
         onOpenChange={setShowPostDetail}
         onEditDesignModeChange={onEditDesignModeChange}

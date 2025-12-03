@@ -328,6 +328,7 @@ export class DvybGoogleAuthService {
 
   /**
    * Check if onboarding is complete for an account
+   * Onboarding is complete when logoUrl is set in dvyb_context (brand-profile step completed)
    */
   static async isOnboardingComplete(accountId: number): Promise<boolean> {
     try {
@@ -335,7 +336,13 @@ export class DvybGoogleAuthService {
       const context = await contextRepo.findOne({
         where: { accountId },
       });
-      return !!context;
+      
+      if (!context) {
+        return false;
+      }
+      
+      // Onboarding is complete when user has uploaded their logo (brand-profile step)
+      return !!(context.logoUrl && context.logoUrl.trim() !== '');
     } catch (error) {
       logger.error(`❌ Error checking onboarding status for account ${accountId}:`, error);
       return false;

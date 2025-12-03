@@ -9,6 +9,7 @@ import { DvybTwitterPost } from '../models/DvybTwitterPost';
 import { DvybInstagramPost } from '../models/DvybInstagramPost';
 import { DvybLinkedInPost } from '../models/DvybLinkedInPost';
 import { DvybTikTokPost } from '../models/DvybTikTokPost';
+import { DvybCaption } from '../models/DvybCaption';
 import { DvybAuthService } from './DvybAuthService';
 import { DvybInstagramService } from './DvybInstagramService';
 import { DvybLinkedInService } from './DvybLinkedInService';
@@ -53,6 +54,42 @@ export interface PostNowResult {
 
 export class DvybPostingService {
   /**
+   * Fetch user-edited captions from database and merge with original platformTexts
+   * User-edited captions take priority over system-generated ones
+   */
+  private static async getEffectivePlatformTexts(
+    accountId: number,
+    content: { caption: string; platformTexts?: any; generatedContentId?: number; postIndex?: number }
+  ): Promise<{ [key: string]: string }> {
+    const originalTexts = content.platformTexts || {};
+    const effectiveTexts = { ...originalTexts };
+
+    // If we have generatedContentId and postIndex, check for user-edited captions
+    if (content.generatedContentId && content.postIndex !== undefined) {
+      try {
+        const captionRepo = AppDataSource.getRepository(DvybCaption);
+        const editedCaptions = await captionRepo.find({
+          where: {
+            accountId,
+            generatedContentId: content.generatedContentId,
+            postIndex: content.postIndex,
+          },
+        });
+
+        // Merge edited captions (they take priority)
+        editedCaptions.forEach((ec) => {
+          effectiveTexts[ec.platform] = ec.caption;
+          logger.info(`📝 Using edited caption for ${ec.platform} (content ${content.generatedContentId}, post ${content.postIndex})`);
+        });
+      } catch (error) {
+        logger.warn('⚠️ Failed to fetch edited captions, using original platformTexts:', error);
+      }
+    }
+
+    return effectiveTexts;
+  }
+
+  /**
    * Post content immediately to selected platforms
    */
   static async postNow(request: PostNowRequest): Promise<PostNowResult> {
@@ -60,6 +97,13 @@ export class DvybPostingService {
     const results: PostNowResult['results'] = [];
 
     logger.info(`🚀 Starting immediate post for account ${accountId} to platforms: ${platforms.join(', ')}`);
+    
+    // Get effective platform texts (original + edited captions merged)
+    const effectivePlatformTexts = await this.getEffectivePlatformTexts(accountId, content);
+    const enhancedContent = {
+      ...content,
+      platformTexts: effectivePlatformTexts,
+    };
 
     // Process each platform
     for (const platform of platforms) {
@@ -68,16 +112,16 @@ export class DvybPostingService {
         
         switch (platform.toLowerCase()) {
           case 'twitter':
-            result = await this.postToTwitter(accountId, content);
+            result = await this.postToTwitter(accountId, enhancedContent);
             break;
           case 'instagram':
-            result = await this.postToInstagram(accountId, content);
+            result = await this.postToInstagram(accountId, enhancedContent);
             break;
           case 'linkedin':
-            result = await this.postToLinkedIn(accountId, content);
+            result = await this.postToLinkedIn(accountId, enhancedContent);
             break;
           case 'tiktok':
-            result = await this.postToTikTok(accountId, content);
+            result = await this.postToTikTok(accountId, enhancedContent);
             break;
           default:
             result = {

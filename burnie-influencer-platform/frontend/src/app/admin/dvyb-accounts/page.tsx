@@ -12,7 +12,9 @@ import {
   Globe,
   Mail,
   Calendar,
-  DollarSign
+  DollarSign,
+  Image as ImageIcon,
+  Video
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -38,6 +40,10 @@ interface DvybAccount {
   logoUrl: string | null;
   logoPresignedUrl: string | null;
   hasContext: boolean;
+  usage: {
+    imagesGenerated: number;
+    videosGenerated: number;
+  };
   currentPlan: CurrentPlan | null;
 }
 
@@ -307,6 +313,9 @@ export default function DvybAccountsPage() {
                       Current Plan
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Usage
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -358,13 +367,34 @@ export default function DvybAccountsPage() {
                             <div className="text-xs text-gray-500">
                               {account.currentPlan.selectedFrequency === 'monthly' ? 'Monthly' : 'Annual'}
                             </div>
-                            <div className="text-xs text-gray-600 mt-1">
-                              📸 {account.currentPlan.imagePostsLimit} | 🎥 {account.currentPlan.videoPostsLimit}
+                            <div className="text-xs text-gray-600 mt-1 flex items-center gap-2">
+                              <span className="flex items-center gap-1">
+                                <ImageIcon className="h-3 w-3 text-gray-500" />
+                                {account.currentPlan.imagePostsLimit}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Video className="h-3 w-3 text-gray-500" />
+                                {account.currentPlan.videoPostsLimit}
+                              </span>
                             </div>
                           </div>
                         ) : (
                           <span className="text-sm text-gray-400 italic">No plan</span>
                         )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900">
+                          <div className="flex items-center gap-3">
+                            <span className="flex items-center gap-1 text-xs text-gray-600">
+                              <ImageIcon className="h-3 w-3 text-gray-500" />
+                              {account.usage?.imagesGenerated || 0}
+                            </span>
+                            <span className="flex items-center gap-1 text-xs text-gray-600">
+                              <Video className="h-3 w-3 text-gray-500" />
+                              {account.usage?.videosGenerated || 0}
+                            </span>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span

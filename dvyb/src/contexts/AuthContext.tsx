@@ -167,17 +167,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setOnboardingComplete(false);
       
       // On logout: Clear session cookies but keep account reference in localStorage
-      // This allows us to redirect to Twitter auth (not landing page) since account exists
+      // This allows the landing page to show "Already have an account?" with sign-in button
       clearAuthData({ 
         clearAnalysis: false,      // Keep analysis data
         clearOAuthState: true,      // Clear OAuth state
-        clearAccountReference: false // Keep account ID so we know account exists
+        clearAccountReference: false // Keep account ID so user can sign in again
       });
       
-      console.log('👋 User logged out - redirecting to Twitter auth (account still exists)');
+      console.log('👋 User logged out - redirecting to landing page');
       
-      // Redirect to Twitter auth (not landing page) since account exists
-      window.location.href = '/auth/login';
+      // Redirect to landing page (root path)
+      window.location.href = '/';
     } catch (error) {
       console.error('Logout failed:', error);
       throw error;

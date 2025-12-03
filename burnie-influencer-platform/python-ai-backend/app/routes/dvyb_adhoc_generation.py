@@ -439,6 +439,183 @@ def separate_voice_from_music_demucs(video_path: str) -> str:
         return video_path
 
 
+def trim_ugc_clip_at_speech_end(video_path: str, min_search_time: float = 5.0, buffer_ms: int = 300) -> str:
+    """
+    Trim UGC/influencer clip at the point where speech ends (after min_search_time).
+    Uses Demucs to separate vocals and detect when the character stops speaking.
+    
+    Args:
+        video_path: Path to the video file
+        min_search_time: Only look for speech end AFTER this time (default 5.0 seconds)
+        buffer_ms: Add this buffer after speech ends (default 300ms)
+    
+    Returns:
+        Path to trimmed video (or original if trimming not needed/failed)
+    """
+    try:
+        import torch
+        import torchaudio
+        from demucs.pretrained import get_model
+        from demucs.apply import apply_model
+        import soundfile as sf
+        import numpy as np
+        
+        print(f"\n{'='*60}")
+        print(f"✂️ UGC CLIP TRIMMING: Detecting speech end point")
+        print(f"{'='*60}")
+        print(f"📍 Min search time: {min_search_time}s (only look after this point)")
+        print(f"📍 Buffer after speech: {buffer_ms}ms")
+        
+        # Get video duration first
+        video_clip = VideoFileClip(video_path)
+        video_duration = video_clip.duration
+        print(f"📏 Original video duration: {video_duration:.2f}s")
+        
+        if video_duration <= min_search_time:
+            print(f"⚠️ Video too short ({video_duration:.2f}s <= {min_search_time}s), skipping trim")
+            video_clip.close()
+            return video_path
+        
+        # Extract audio from video
+        audio_path = video_path.replace('.mp4', '_trim_audio.wav')
+        video_clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
+        print(f"🎵 Audio extracted for analysis")
+        
+        # Load Demucs model
+        print("🤖 Loading Demucs model for speech detection...")
+        model = get_model('htdemucs')
+        model.eval()
+        
+        # Load audio with torchaudio
+        waveform, sample_rate = torchaudio.load(audio_path)
+        
+        # Ensure stereo for Demucs
+        if waveform.shape[0] == 1:
+            waveform = waveform.repeat(2, 1)
+        
+        # Apply model to separate vocals
+        print("🔬 Separating vocals to detect speech...")
+        with torch.no_grad():
+            sources = apply_model(model, waveform.unsqueeze(0), device='cpu')[0]
+        
+        # Extract vocals (index 3 in htdemucs output)
+        vocals = sources[3].numpy()
+        
+        # Convert to mono if stereo
+        if vocals.shape[0] == 2:
+            vocals = np.mean(vocals, axis=0)
+        
+        # Calculate RMS energy in small windows to detect speech activity
+        print("📊 Analyzing vocal track for speech activity...")
+        window_size = int(sample_rate * 0.05)  # 50ms windows
+        hop_size = int(sample_rate * 0.025)    # 25ms hop
+        
+        # Calculate RMS for each window
+        num_windows = (len(vocals) - window_size) // hop_size + 1
+        rms_values = []
+        
+        for i in range(num_windows):
+            start = i * hop_size
+            end = start + window_size
+            window = vocals[start:end]
+            rms = np.sqrt(np.mean(window ** 2))
+            rms_values.append(rms)
+        
+        rms_values = np.array(rms_values)
+        
+        # Normalize RMS values
+        if rms_values.max() > 0:
+            rms_normalized = rms_values / rms_values.max()
+        else:
+            print("⚠️ No audio detected, skipping trim")
+            video_clip.close()
+            os.remove(audio_path)
+            return video_path
+        
+        # Find speech threshold (use 10% of max as threshold)
+        speech_threshold = 0.10
+        
+        # Calculate time for each window
+        window_times = np.array([i * hop_size / sample_rate for i in range(len(rms_values))])
+        
+        # Find the LAST time speech is above threshold AFTER min_search_time
+        min_search_index = np.searchsorted(window_times, min_search_time)
+        
+        # Look for speech end after min_search_time
+        speech_active_after_min = rms_normalized[min_search_index:] > speech_threshold
+        
+        if not np.any(speech_active_after_min):
+            print(f"⚠️ No speech detected after {min_search_time}s, skipping trim")
+            video_clip.close()
+            os.remove(audio_path)
+            return video_path
+        
+        # Find the last index where speech is active (after min_search_time)
+        last_speech_indices = np.where(speech_active_after_min)[0]
+        if len(last_speech_indices) == 0:
+            print(f"⚠️ Speech ended before {min_search_time}s, skipping trim")
+            video_clip.close()
+            os.remove(audio_path)
+            return video_path
+        
+        last_speech_index = last_speech_indices[-1] + min_search_index
+        speech_end_time = window_times[last_speech_index]
+        
+        # Add buffer (300ms default)
+        trim_time = speech_end_time + (buffer_ms / 1000.0)
+        
+        # Don't trim if speech goes to near the end anyway
+        if trim_time >= video_duration - 0.2:
+            print(f"✅ Speech continues until near end ({speech_end_time:.2f}s), no trimming needed")
+            video_clip.close()
+            os.remove(audio_path)
+            return video_path
+        
+        print(f"🎯 Speech end detected at: {speech_end_time:.2f}s")
+        print(f"✂️ Trimming video at: {trim_time:.2f}s (speech end + {buffer_ms}ms buffer)")
+        
+        # Trim the video
+        trimmed_clip = video_clip.subclip(0, trim_time)
+        
+        # Save trimmed video
+        output_path = video_path.replace('.mp4', '_trimmed.mp4')
+        trimmed_clip.write_videofile(
+            output_path,
+            codec='libx264',
+            audio_codec='aac',
+            temp_audiofile='temp-trim-audio.m4a',
+            remove_temp=True,
+            logger=None
+        )
+        
+        # Close clips
+        video_clip.close()
+        trimmed_clip.close()
+        
+        # Clean up
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+        
+        trimmed_duration = VideoFileClip(output_path).duration
+        print(f"\n✅ UGC CLIP TRIMMED SUCCESSFULLY!")
+        print(f"   Original: {video_duration:.2f}s → Trimmed: {trimmed_duration:.2f}s")
+        print(f"   Saved: {(video_duration - trimmed_duration):.2f}s of awkward silence removed")
+        print(f"{'='*60}\n")
+        
+        return output_path
+        
+    except ImportError as e:
+        print(f"⚠️ Demucs not available for speech detection: {e}")
+        print("⚠️ Skipping UGC clip trim - using original video")
+        return video_path
+    except Exception as e:
+        print(f"⚠️ UGC clip trimming failed: {type(e).__name__}: {e}")
+        import traceback
+        print(f"⚠️ Traceback: {traceback.format_exc()}")
+        print("⚠️ Using original video")
+        return video_path
+
+
 async def generate_background_music_with_pixverse(video_s3_url: str, audio_prompt: str, duration: int, account_id: int, generation_uuid: str, video_index: int) -> str:
     """Generate background music for video using Pixverse Sound Effects."""
     try:
@@ -601,11 +778,12 @@ async def gather_context(request: DvybAdhocGenerationRequest) -> Dict:
                 dvyb_data = result["data"]
                 context["dvyb_context"] = dvyb_data
                 
-                # Process brandVoices, brandVoice, brandStyles (JSON columns)
+                # Process brandVoices, brandVoice, brandStyles, keywords (JSON columns)
                 # These will be passed to Grok for random selection
                 context["brand_voices"] = dvyb_data.get("brandVoices") if dvyb_data.get("brandVoices") else None
                 context["brand_voice"] = dvyb_data.get("brandVoice") if dvyb_data.get("brandVoice") else None
                 context["brand_styles"] = dvyb_data.get("brandStyles") if dvyb_data.get("brandStyles") else None
+                context["keywords"] = dvyb_data.get("keywords") if dvyb_data.get("keywords") else None
                 
                 # Process additionalLogoUrls - randomly pick one logo (from logoUrl or additionalLogoUrls)
                 logo_url = dvyb_data.get("logoUrl")
@@ -669,8 +847,8 @@ async def gather_context(request: DvybAdhocGenerationRequest) -> Dict:
                     
                     if valid_links:
                         selected_link = random.choice(valid_links)
-                        context["selected_link"] = selected_link.get("url")
-                        logger.info(f"🔗 Selected link from {len(valid_links)} valid (after 10-day filter): {selected_link.get('url')[:50]}...")
+                        context["selected_link"] = selected_link.get("url")  # Store FULL URL, no truncation
+                        logger.info(f"🔗 Selected link from {len(valid_links)} valid (after 10-day filter): {selected_link.get('url')}")
                     else:
                         context["selected_link"] = None
                         logger.info(f"⚠️ No valid links found (filtered {len(links_json)} total by 10-day decay)")
@@ -814,16 +992,31 @@ async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
         # Build comprehensive product/inspiration/model classification prompt
         brand_image_note = f"\n\n🎨 **BRAND IMAGE**: Image {brand_image_index} is a brand-provided inspirational image. It MUST be classified as INSPIRATION IMAGE." if brand_image_index else ""
         
-        analysis_prompt = f"""You are an expert visual analyst for {brand_info['account_name']}.
+        # Build brand context dynamically - only include non-empty fields
+        brand_context_lines = []
+        if brand_info.get('account_name'):
+            brand_context_lines.append(f"- Business: {brand_info['account_name']}")
+        if brand_info.get('industry'):
+            brand_context_lines.append(f"- Industry: {brand_info['industry']}")
+        if brand_info.get('website'):
+            brand_context_lines.append(f"- Website: {brand_info['website']}")
+        if brand_info.get('business_overview') and str(brand_info['business_overview']).strip():
+            brand_context_lines.append(f"- What we do: {str(brand_info['business_overview'])[:500]}")
+        if brand_info.get('customer_demographics') and str(brand_info['customer_demographics']).strip():
+            brand_context_lines.append(f"- Target Customers: {str(brand_info['customer_demographics'])[:300]}")
+        if brand_info.get('popular_products'):
+            products_str = str(brand_info['popular_products'])[:300]
+            if products_str.strip():
+                brand_context_lines.append(f"- Popular Products/Services: {products_str}")
+        if brand_info.get('brand_voice') and str(brand_info['brand_voice']).strip():
+            brand_context_lines.append(f"- Brand Voice: {str(brand_info['brand_voice'])[:200]}")
+        
+        brand_context_str = "\n".join(brand_context_lines) if brand_context_lines else "No brand context available"
+        
+        analysis_prompt = f"""You are an expert visual analyst for {brand_info.get('account_name', 'the brand')}.
 
 BRAND CONTEXT:
-- Business: {brand_info['account_name']}
-- Industry: {brand_info['industry']}
-- Website: {brand_info['website']}
-- What we do: {brand_info['business_overview'][:500] if brand_info['business_overview'] else 'N/A'}
-- Target Customers: {brand_info['customer_demographics'][:300] if brand_info['customer_demographics'] else 'N/A'}
-- Popular Products/Services: {brand_info['popular_products'][:300] if isinstance(brand_info['popular_products'], str) else str(brand_info['popular_products'])[:300] if brand_info['popular_products'] else 'N/A'}
-- Brand Voice: {brand_info['brand_voice'][:200] if brand_info['brand_voice'] else 'N/A'}{brand_image_note}
+{brand_context_str}{brand_image_note}
 
 🎯 YOUR CRITICAL TASK:
 Classify each uploaded image into ONE of these 3 categories:
@@ -1016,17 +1209,20 @@ Analyze the {len(presigned_urls)} image(s) now.
 
 
 # ============================================
-# LINK ANALYSIS (OPENAI WEB SEARCH)
+# LINK ANALYSIS (GROK LIVE SEARCH)
 # ============================================
 
 async def analyze_inspiration_links(links: List[str]) -> Dict:
-    """Analyze inspiration links with OpenAI web search"""
+    """
+    Analyze inspiration links with Grok live search (web_source).
+    Uses the same approach as web3 project_unified_generation.py
+    """
     if not links or all(not link.strip() for link in links):
         return {}
     
     try:
         print("=" * 80)
-        print("🔗 OPENAI LINK ANALYSIS")
+        print("🔗 GROK LINK ANALYSIS (Live Search with web_source)")
         print("=" * 80)
         
         # Filter out empty links
@@ -1034,36 +1230,60 @@ async def analyze_inspiration_links(links: List[str]) -> Dict:
         print(f"🔗 Number of links: {len(valid_links)}")
         print(f"🔗 Links: {valid_links}")
         
-        from openai import OpenAI
-        import os
+        from xai_sdk import Client
+        from xai_sdk.chat import user, system
+        from xai_sdk.search import SearchParameters, web_source
+        from urllib.parse import urlparse
         
-        openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
-        # Extract domains for filtering
-        import urllib.parse
-        domains = []
-        for link in valid_links:
+        # Extract domains for Grok web_source filtering (limit to 10)
+        allowed_websites = []
+        for link in valid_links[:10]:
             try:
-                parsed = urllib.parse.urlparse(link)
-                domain = parsed.netloc or parsed.path
-                if domain:
-                    domains.append(domain)
-            except:
-                continue
+                parsed = urlparse(link)
+                domain = parsed.netloc or parsed.path.split('/')[0]
+                if domain and domain not in allowed_websites:
+                    allowed_websites.append(domain)
+            except Exception as e:
+                logger.warning(f"⚠️ Could not parse URL {link}: {e}")
         
-        print(f"🌐 Domains extracted: {domains}")
+        if not allowed_websites:
+            print("⚠️ No valid domains extracted from links")
+            return {}
         
-        # Use Responses API with web search
-        response = openai_client.chat.completions.create(
-            model="gpt-5-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a web content analyzer. Extract and summarize key information from the specified websites."
-                },
-                {
-                    "role": "user",
-                    "content": f"""Please gather comprehensive information from these websites:
+        print(f"🌐 Allowed websites for Grok web search: {allowed_websites}")
+        
+        # Get Grok API key
+        grok_api_key = settings.xai_api_key
+        if not grok_api_key:
+            logger.warning("⚠️ No Grok API key for web live search")
+            return {}
+        
+        # Initialize Grok client
+        client = Client(api_key=grok_api_key, timeout=3600)
+        
+        # Create chat with web_source search parameters (NO date range, NO max_results - same as web3)
+        print("🤖 Calling Grok (grok-4-latest) with web_source live search...")
+        chat = client.chat.create(
+            model="grok-4-latest",
+            search_parameters=SearchParameters(
+                mode="auto",
+                sources=[web_source(allowed_websites=allowed_websites)]
+            ),
+        )
+        
+        system_prompt = """You are a web content analyzer for brand marketing research. Extract and summarize key information from the specified websites.
+
+Focus on:
+- Key features, products, or services
+- Important metrics, statistics, or data points
+- Design styles, aesthetics, or visual elements
+- Content strategies or messaging approaches
+- Any unique or notable characteristics
+- Brand positioning and messaging
+
+Return a comprehensive summary of insights that can be used for content generation."""
+        
+        user_prompt = f"""Please gather comprehensive information from these websites:
 {', '.join(valid_links)}
 
 Extract and summarize:
@@ -1074,16 +1294,20 @@ Extract and summarize:
 5. Any unique or notable characteristics
 
 Return a concise summary of insights from all links combined."""
-                }
-            ],
-            extra_body={
-                "web_search_options": {
-                    "domain_filter": domains if domains else None
-                }
-            }
-        )
         
-        link_analysis_text = response.choices[0].message.content
+        chat.append(system(system_prompt))
+        chat.append(user(user_prompt))
+        
+        print("🔄 Calling Grok for web context (no date restrictions)...")
+        response = chat.sample()
+        
+        link_analysis_text = response.content.strip()
+        
+        if not link_analysis_text:
+            print("⚠️ Empty response from Grok live search")
+            return {}
+        
+        print("✅ Grok live search completed successfully")
         
         print(f"✅ Link analysis completed")
         print(f"📊 Full analysis result:")
@@ -1130,41 +1354,95 @@ Return a concise summary of insights from all links combined."""
 # PROMPT GENERATION
 # ============================================
 
+def _build_brand_context(dvyb_context: Dict, color_str: str) -> str:
+    """
+    Build brand context string dynamically, only including non-empty/non-null values.
+    Never outputs N/A or empty placeholders.
+    """
+    lines = []
+    
+    # Only add each field if it has actual content
+    account_name = dvyb_context.get('accountName')
+    if account_name and str(account_name).strip():
+        lines.append(f"- Business: {account_name}")
+    
+    industry = dvyb_context.get('industry')
+    if industry and str(industry).strip():
+        lines.append(f"- Industry: {industry}")
+    
+    brand_voice = dvyb_context.get('brandVoice')
+    if brand_voice and str(brand_voice).strip():
+        lines.append(f"- Brand Voice: {brand_voice}")
+    
+    if color_str and color_str.strip():
+        lines.append(f"- Brand Colors: {color_str}")
+    
+    customer_demographics = dvyb_context.get('customerDemographics')
+    if customer_demographics and str(customer_demographics).strip():
+        lines.append(f"- Target Audience: {str(customer_demographics)[:500]}")
+    
+    business_overview = dvyb_context.get('businessOverview')
+    if business_overview and str(business_overview).strip():
+        lines.append(f"- Business Overview: {str(business_overview)[:500]}")
+    
+    popular_products = dvyb_context.get('popularProducts')
+    if popular_products:
+        products_str = str(popular_products)[:300] if isinstance(popular_products, str) else str(popular_products)[:300]
+        if products_str.strip():
+            lines.append(f"- Popular Products/Services: {products_str}")
+    
+    if not lines:
+        return "No brand context available"
+    
+    return "\n".join(lines)
+
+
 def _format_enhanced_context(context: Dict) -> str:
     """
-    Format enhanced brand context (brandVoices, brandStyles, documentsText) for Grok.
+    Format enhanced brand context (brandVoices, brandStyles, keywords, documentsText) for Grok.
     Provides instructions for random selection and temporal context.
+    Only includes non-empty/non-null values - never outputs N/A.
     """
     from datetime import datetime
     sections = []
     
     # Brand Voices
     brand_voices = context.get('brand_voices')
-    if brand_voices:
+    if brand_voices and str(brand_voices).strip():
         sections.append(f"**Brand Voices**: {brand_voices}")
         sections.append("  → If comma-separated, pick ONE at random for THIS generation to add variety")
     
     # Brand Voice (single)
     brand_voice = context.get('brand_voice')
-    if brand_voice:
+    if brand_voice and str(brand_voice).strip():
         sections.append(f"**Brand Voice (Primary)**: {brand_voice}")
     
     # Brand Styles
     brand_styles = context.get('brand_styles')
-    if brand_styles:
+    if brand_styles and str(brand_styles).strip():
         sections.append(f"**Brand Styles**: {brand_styles}")
         sections.append("  → If comma-separated, pick ONE at random for THIS generation to add variety")
+    
+    # Keywords (important brand/product keywords)
+    keywords = context.get('keywords')
+    if keywords and str(keywords).strip():
+        sections.append(f"**Brand Keywords**: {keywords}")
+        sections.append("  → Incorporate relevant keywords naturally in prompts and platform texts")
     
     # Documents Text with temporal context
     documents_text = context.get('documents_text', [])
     if documents_text and len(documents_text) > 0:
         sections.append(f"\n**BRAND DOCUMENTS** ({len(documents_text)} document(s) within 30 days):")
         sections.append("  ℹ️ These documents contain important brand information. Consider temporal context:")
-        sections.append(f"  📅 Today's Date: {context.get('current_date', 'N/A')[:10]}")
+        
+        current_date = context.get('current_date')
+        if current_date:
+            sections.append(f"  📅 Today's Date: {str(current_date)[:10]}")
         
         for i, doc in enumerate(documents_text[:5], 1):  # Limit to 5 docs to save tokens
             name = doc.get('name', f'Document {i}')
-            text_preview = doc.get('text', '')[:300] if doc.get('text') else 'N/A'
+            text_content = doc.get('text', '')
+            text_preview = str(text_content)[:300] if text_content and str(text_content).strip() else None
             age_days = doc.get('age_days')
             
             if age_days is not None:
@@ -1172,13 +1450,14 @@ def _format_enhanced_context(context: Dict) -> str:
             else:
                 sections.append(f"\n  📄 {name}:")
             
-            sections.append(f"     {text_preview}...")
+            if text_preview:
+                sections.append(f"     {text_preview}...")
             
             if age_days is not None and age_days > 7:
                 sections.append(f"     ⚠️ Note: This document is {age_days} days old. Events mentioned may be in the past.")
     
     if not sections:
-        return "No enhanced context available"
+        return ""  # Return empty string instead of placeholder
     
     return "\n".join(sections)
 
@@ -1238,15 +1517,17 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     link_analysis = context.get("link_analysis", {})
     
     # Format inventory analysis for Grok (pass as-is with dynamic structure)
-    inventory_analysis_str = "None"
+    inventory_analysis_str = ""
     if inventory_analysis:
         import json
         inventory_analysis_str = json.dumps(inventory_analysis, indent=2)
     
     # Format link analysis for Grok
-    link_analysis_str = "None"
+    link_analysis_str = ""
     if link_analysis:
-        link_analysis_str = link_analysis.get("summary", "None")
+        summary = link_analysis.get("summary")
+        if summary and str(summary).strip():
+            link_analysis_str = summary
     
     # Build Grok prompt with clip prompts (matching web3 flow)
     # Color palette for prompts
@@ -1268,7 +1549,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
             colors.append(f"Secondary: {color_palette['secondary']}")
         if color_palette.get('accent'):
             colors.append(f"Accent: {color_palette['accent']}")
-        color_str = ", ".join(colors) if colors else "N/A"
+        color_str = ", ".join(colors) if colors else ""
     
     # Build multi-clip video prompts structure (Veo3.1 specific - Instagram Reels 9:16)
     video_prompts_instruction = ""
@@ -1280,7 +1561,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
             for clip_num in range(1, CLIPS_PER_VIDEO + 1):
                 video_examples.append(f'''  "video_{video_idx}_clip_{clip_num}_image_prompt": "Detailed visual description for starting frame of clip {clip_num} in video {video_idx} (9:16 vertical aspect ratio, Instagram Reels style)...",
   "video_{video_idx}_clip_{clip_num}_product_mapping": "image_1" or "image_2" or null (map to product image if needed for this specific frame),
-  "video_{video_idx}_clip_{clip_num}_prompt": "Cinematic {CLIP_DURATION}-second video description with smooth motion. MUST end with: no text overlays. No background music. [Include voiceover OR character speech based on video_type]",
+  "video_{video_idx}_clip_{clip_num}_prompt": "Cinematic {CLIP_DURATION}-second video description with smooth motion, no text overlays, no background music. [THEN add voiceover OR character speech at the END]",
   "video_{video_idx}_clip_{clip_num}_logo_needed": true or false''')
             
             # Single audio prompt per video (added after stitching)
@@ -1314,7 +1595,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         * "influencer_marketing": false
       - Style: Professional product showcase, feature highlights
       - Voiceover Style: Professional, authoritative narrator voice (e.g., "In a professional male narrator voice:", "In a confident female voice:", "In an enthusiastic energetic voice:")
-      - Example clip prompt: "Sleek smartphone rotating on marble surface, camera slowly zooming to reveal elegant design features, professional studio lighting. Voiceover in professional male narrator voice: Introducing the future of mobile technology, no text overlays. No background music."
+      - Example clip prompt: "Sleek smartphone rotating on marble surface, camera slowly zooming to reveal elegant design features, professional studio lighting, no text overlays, no background music. Voiceover in professional male narrator voice: Introducing the future of mobile technology."
       - CRITICAL: Specify voice type/tone at the START of voiceover instructions (professional/enthusiastic/warm/authoritative, male/female)
       - 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text. Use commas, periods, or natural pauses instead. Em-dashes interfere with TTS generation and create awkward pauses.
    
@@ -1328,6 +1609,51 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         * "influencer_marketing": true
       - Speech limit: 12-14 words MAX per {CLIP_DURATION}s clip
       - Style: Authentic, conversational, relatable UGC content
+      
+      🎬 **COMPELLING HOOKS & STORYLINES** (CRITICAL FOR 8-SECOND IMPACT):
+      
+      Every UGC clip MUST have a mini-narrative with PURPOSE. The influencer is promoting a brand - make every second count:
+      
+      **8-SECOND STORY STRUCTURE**:
+      - **Hook (0-2s)**: Grab attention with emotion, question, or surprising statement
+      - **Core Message (2-6s)**: Deliver value/benefit authentically  
+      - **Impact (6-8s)**: Resolution, reaction, or emotional payoff
+      
+      **PROVEN HOOK FORMULAS** (Choose based on brand/product context):
+      - "Wait, you guys still don't know about..." → discovery/revelation
+      - "I was SO skeptical until..." → transformation story
+      - "Okay I HAVE to tell you about..." → urgent recommendation
+      - "Nobody told me that..." → insider secret
+      - "POV: You finally found..." → relatable moment
+      - "This literally changed how I..." → personal testimony
+      - "Stop scrolling, you need to see..." → direct engagement
+      
+      **SPEECH MUST INCLUDE**: A clear value proposition or emotional payoff for viewers. NOT just "I love this product" but WHY it matters.
+      
+      🎥 **DYNAMIC VISUAL TRANSITIONS** (AUTONOMOUS DECISION):
+      
+      You can CHOOSE to include camera movements that shift focus between influencer and product. The audio (character speaking) CONTINUES throughout - only the VISUAL focus changes.
+      
+      **OPTION 1 - INFLUENCER ALWAYS IN FRAME** (Simple testimonial):
+      Use when: Personal emotional story, direct connection, reaction-focused content
+      → "Influencer looking at camera with genuine excitement, natural hand gestures, saying in enthusiastic tone: This app just created a week of content for me in five minutes"
+      
+      **OPTION 2 - DYNAMIC TRANSITION** (Camera reveals product):
+      Use when: Feature demonstration needed, showing the product adds value, "let me show you" moments
+      → "Influencer speaking to camera, camera smoothly pans to laptop screen showing the app interface with generated content, then pulls back to reveal influencer's amazed reaction, continuous speech: Watch this, I just typed one sentence and it created all of this, I'm literally speechless"
+      
+      **OPTION 3 - PRODUCT FOCUS WITH VOICE** (Feature showcase):
+      Use when: Product details are the star, influencer introduces then product takes over
+      → "Influencer holds up product speaking excitedly, camera zooms in to product details and features while voice continues, then zooms out to show influencer's satisfied expression, saying: Look at this finish, feel this quality, this is what premium actually means"
+      
+      **TRANSITION TECHNIQUES** (Describe in your prompts):
+      - "camera smoothly pans to..." - horizontal movement
+      - "camera zooms in to reveal..." - focus on detail
+      - "camera pulls back to show..." - reveal wider context
+      - "focus shifts from influencer to product..." - depth of field change
+      - "influencer moves aside revealing..." - character-driven reveal
+      
+      **DECIDE AUTONOMOUSLY**: Based on your storyline, choose whether transitions add value or if keeping the influencer in frame creates stronger connection.
       
       **CHARACTER/MODEL SPECIFICATION RULES**:
       - If has_model_image=true (user provided model image):
@@ -1351,8 +1677,14 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
       
       - ALWAYS specify speaking tone/style: conversational, excited, casual, enthusiastic, genuine, relatable, friendly
       - **🚨 CHARACTER SPEECH TEXT FORMATTING**: NEVER use em-dashes (—) or hyphens (-) in character speech text. Use commas, periods, or natural pauses instead. Em-dashes interfere with TTS generation and create awkward pauses.
-      - Example (with model): "Reference model looking at camera in modern kitchen, natural lighting, genuine smile, saying in conversational excited tone (14 words max): This product completely changed my morning routine and I'm absolutely obsessed with it, no text overlays. No background music."
-      - Example (no model, diverse): "South Asian woman, 25-30 years old, long dark hair, casual modern style, looking at camera in bright bedroom, saying in enthusiastic genuine tone (14 words max): You guys have to try this, it's seriously a game changer for me, no text overlays. No background music."
+      
+      **COMPLETE UGC CLIP PROMPT EXAMPLES**:
+      
+      - Example (simple, with model): "Reference model looking at camera with genuine surprise turning to excitement, bright modern kitchen, natural morning light, no text overlays, no background music. Saying in enthusiastic discovery tone (14 words max): Wait, you guys still don't know about this? It literally changed my entire morning routine."
+      
+      - Example (with transition, no model): "Hispanic woman, late 20s, curly hair, casual style, speaking to camera with curious expression, camera smoothly pans to phone screen showing app results, then pulls back to her amazed reaction, living room setting, no text overlays, no background music. Saying in excited genuine tone (14 words max): I typed one idea and look what it created, this is actually insane you guys."
+      
+      - Example (product focus): "Reference model holding product up to camera, speaking with enthusiasm, camera zooms slowly into product details while voice continues, then zooms out to satisfied smile, studio lighting, no text overlays, no background music. Saying in testimonial tone (14 words max): Feel this quality, see this design, this is why I switched and never looked back."
    
    C. **BRAND MARKETING VIDEO** (Brand storytelling):
       - Use when: Abstract brand values, emotional storytelling, no specific product, OR user explicitly requests brand storytelling/brand-focused video
@@ -1364,33 +1696,9 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         * "influencer_marketing": false
       - Style: Artistic, emotional, brand-focused
       - Voiceover Style: Inspirational, cinematic narrator voice (specify: warm/inspiring/dramatic, male/female)
-      - Example clip prompt: "Abstract artistic representation of innovation, flowing light patterns, dynamic camera movement revealing brand essence, cinematic atmosphere. Voiceover in warm inspiring male voice: Your journey to excellence starts here, no text overlays. No background music."
+      - Example clip prompt: "Abstract artistic representation of innovation, flowing light patterns, dynamic camera movement revealing brand essence, cinematic atmosphere, no text overlays, no background music. Voiceover in warm inspiring male voice: Your journey to excellence starts here."
       - CRITICAL: Specify voice type/tone for emotional impact (inspiring/dramatic/warm/confident, male/female)
       - 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text. Use commas, periods, or natural pauses instead. Em-dashes interfere with TTS generation and create awkward pauses.
-   
-   🎯 NUDGE MESSAGE DECISION (Engagement Call-to-Action):
-   Decide whether to include subtle engagement nudge in the LAST clip of each video:
-   
-   NUDGE APPROPRIATE FOR:
-   - UGC influencer videos (authentic "follow for more" vibe)
-   - Brand awareness campaigns
-   - Community building content
-   - Content asking for user engagement
-   - Viral/trending content styles
-   
-   NUDGE NOT APPROPRIATE FOR:
-   - Pure product showcases (professional, sales-focused)
-   - B2B enterprise content
-   - Formal announcements
-   - Educational/tutorial content
-   
-   IF YOU DECIDE NUDGE=true:
-   - Add nudge instructions to LAST clip prompt ONLY (clip 2 for 2-clip videos)
-   - Format: "...existing clip description... In final 2-3 seconds, subtle text overlay appears at bottom-center with smooth fade-in animation: 'Follow for more [topic]' or 'Like for daily tips' or 'Subscribe for updates', typography in brand colors, clean minimal design, professional aesthetic"
-   - Keep nudge subtle, on-brand, non-intrusive
-   - Position: bottom-center or lower-third
-   - Style: Elegant fade-in animation, matches video aesthetic
-   - Text should feel natural, not salesy
    
    YOU MUST OUTPUT (at the top level):
    "video_type": "product_marketing" OR "ugc_influencer" OR "brand_marketing",
@@ -1398,7 +1706,6 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    "no_characters": true OR false,
    "human_characters_only": true OR false,
    "influencer_marketing": true OR false,
-   "nudge": true OR false,
    "web3": false (always false for DVYB)
    
    📋 MULTI-CLIP VIDEO STRUCTURE (Veo3.1 with 9:16 aspect ratio):
@@ -1415,7 +1722,9 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - Aspect ratio: 9:16 (Instagram Reels/TikTok vertical - MANDATORY)
    - Clip duration: {CLIP_DURATION}s (FIXED - Veo3.1 only supports 8s clips)
    - Embedded audio: YES (voiceover OR character speech based on video_type)
-   - ALL clip prompts MUST end with: "no text overlays. No background music." **UNLESS** nudge=true, then LAST clip should INCLUDE nudge text overlay instructions
+   - 🚨 CRITICAL CLIP PROMPT STRUCTURE: "no text overlays, no background music" must come BEFORE voiceover/speech text (NOT after)
+     * This prevents the model from speaking "no text overlays" as part of the audio
+     * Structure: [Scene description], no text overlays, no background music. [Voiceover/Speech at the END]
    - Background music added separately AFTER stitching (via Pixverse Sound Effects)
    
    👤 INFLUENCER CONSISTENCY (CRITICAL for ugc_influencer type):
@@ -1545,11 +1854,58 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - Simple, powerful imagery is better than busy, complex scenes
    - Think "magazine cover" quality - clean, professional, focused
    
+   **🌍 REAL-WORLD PHYSICS & NATURAL LAWS** (AUTONOMOUS APPLICATION):
+   
+   You must AUTONOMOUSLY apply real-world understanding to ALL prompts. Your prompts should explicitly describe how objects, humans, animals, and environments behave according to physics and nature. This prevents AI image/video models from making unrealistic outputs.
+   
+   **YOUR RESPONSIBILITY**: Based on the context, intelligently include realistic details in your prompts. These examples teach you the PRINCIPLE - apply it to ANY scenario:
+   
+   📱 **Object Orientation & Interaction**:
+   - "holding smartphone with screen facing toward them" (not screen facing away)
+   - "laptop open on desk, screen tilted toward the user at comfortable viewing angle"
+   - "drinking from cup held by the handle, liquid inside visible through transparent glass"
+   - "reading book held upright, pages facing the reader, natural page curl"
+   - "camera viewfinder pressed to eye, finger on shutter button"
+   
+   🖐️ **Human Anatomy & Natural Poses**:
+   - "natural hand grip with five fingers wrapped around the product"
+   - "relaxed shoulders, weight balanced on both feet"
+   - "genuine smile reaching the eyes, natural facial muscles"
+   - "wrist at comfortable angle while typing on keyboard"
+   - "elbow bent naturally while holding phone to ear"
+   
+   ⚖️ **Physics & Gravity**:
+   - "hair falling naturally with gravity, slight movement from breeze"
+   - "fabric of dress draping downward, following body contours"
+   - "coffee steam rising upward from hot cup"
+   - "water droplets running down the side of cold glass"
+   - "shadow cast on ground in direction opposite to light source"
+   
+   🔲 **Spatial Relationships & Perspective**:
+   - "person in foreground slightly larger, background elements appropriately smaller"
+   - "objects on table receding toward horizon with correct perspective"
+   - "reflection in mirror showing the back of the person's head"
+   - "phone screen reflecting ceiling lights realistically"
+   
+   🐾 **Living Things & Natural Behavior**:
+   - "dog sitting with tail naturally positioned, ears alert"
+   - "cat's pupils adjusted to lighting conditions"
+   - "person blinking naturally, micro-expressions present"
+   - "plant leaves oriented toward light source"
+   
+   🌤️ **Environment & Context Consistency**:
+   - "indoor scene with soft artificial lighting from visible sources"
+   - "outdoor sunny day with harsh shadows and bright highlights"
+   - "rainy weather with wet surfaces reflecting city lights"
+   - "morning light coming from east-facing window"
+   
+   **APPLY THIS AUTONOMOUSLY**: For every prompt you generate, consider what would happen in the real world. If someone is holding something, HOW are they holding it? If something is on a surface, HOW is it positioned? If there's light, WHERE are the shadows? Your prompts should answer these questions naturally.
+   
   **COLOR PALETTE INTEGRATION** (MANDATORY - NATURAL PHYSICAL OBJECTS ONLY):
-  - You MUST use the brand's color palette in every image prompt
-  - Primary color: {color_palette.get('primary', 'N/A')}
-  - Secondary color: {color_palette.get('secondary', 'N/A')}
-  - Accent color: {color_palette.get('accent', 'N/A')}
+  - You MUST use the brand's color palette in every image prompt (if provided)
+{f"  - Primary color: {color_palette.get('primary')}" if color_palette.get('primary') else ""}
+{f"  - Secondary color: {color_palette.get('secondary')}" if color_palette.get('secondary') else ""}
+{f"  - Accent color: {color_palette.get('accent')}" if color_palette.get('accent') else ""}
   
   - **🚨 CRITICAL: HOW TO USE COLORS NATURALLY** (NO GLOWS, NO LIGHTING EFFECTS):
     * ✅ USE colors in PHYSICAL OBJECTS & SURFACES:
@@ -1564,16 +1920,16 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
       - Borders, outlines, artificial effects around people or objects
       - Any kind of light source or illumination effect
   
-  - **CORRECT USAGE EXAMPLES**:
-    * "wearing {color_palette.get('primary', '#000000')} colored shirt"
-    * "{color_palette.get('primary', '#000000')} painted wall in background"
-    * "{color_palette.get('accent', '#000000')} colored cushions on sofa"
-    * "product packaging in {color_palette.get('primary', '#000000')}"
-    * "{color_palette.get('secondary', '#000000')} colored furniture"
+  - **CORRECT USAGE EXAMPLES** (only use colors that are available above):
+    * "wearing [brand color] colored shirt"
+    * "[brand color] painted wall in background"
+    * "[brand color] colored cushions on sofa"
+    * "product packaging in [brand color]"
+    * "[brand color] colored furniture"
   
   - **INCORRECT USAGE (AVOID)**:
-    * ❌ "using {color_palette.get('primary', '#000000')} for lighting accents"
-    * ❌ "using {color_palette.get('accent', '#000000')} for screen glow"
+    * ❌ "using [color] for lighting accents"
+    * ❌ "using [color] for screen glow"
     * ❌ "energetic lighting in {color_palette.get('primary', '#000000')}"
     * ❌ "ambient glow" or "accent lighting" with brand colors
   
@@ -1594,9 +1950,11 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
 5. PLATFORM-SPECIFIC TEXTS:
    - Generate engaging captions for: Instagram, Twitter, LinkedIn, TikTok
    - Match the tone/style to the chosen video_type
-   - UGC videos: Casual, relatable captions
-   - Product videos: Feature-focused, benefit-driven
-   - Brand videos: Emotional, value-driven
+   - UGC videos: Casual, relatable captions (as if YOU are the person in the video)
+   - Product videos: Feature-focused, benefit-driven (as the BRAND speaking)
+   - Brand videos: Emotional, value-driven (as the BRAND storytelling)
+   
+   🚫 **NEVER REVEAL PROCESS**: Platform texts are PUBLIC. Never mention "UGC style", "influencer content", "product marketing", etc. Write as the authentic voice would naturally post.
 """
     else:
         video_prompts_section = ""
@@ -1633,7 +1991,6 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   "no_characters": true or false,
   "human_characters_only": true or false,
   "influencer_marketing": true or false,
-  "nudge": true or false,
   "web3": false,
   
   {image_prompts_section}{", " if image_prompts_section and video_prompts_section else ""}
@@ -1660,7 +2017,6 @@ Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
    - If YOU set voiceover=true → Include "Voiceover in [tone] [gender] voice:" in ALL clip prompts
    - If YOU set influencer_marketing=true → Include "saying in [tone] (14 words max): [speech]" in ALL clip prompts
    - If YOU set no_characters=true → NO human characters in prompts
-   - If YOU set nudge=true → Add nudge overlay to LAST clip prompt
 
 3. **SPECIFY VOICE/TONE** (CRITICAL for Veo3.1 audio quality):
    - Product/Brand videos: "Voiceover in professional male narrator voice:" or "warm confident female voice:"
@@ -1675,10 +2031,10 @@ Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
      * DO NOT use generic terms like "our product", "this brand", "our company"
    - **NOT in IMAGE PROMPTS** (visual descriptions - no speech, so no brand name needed)
    - **NOT in PLATFORM TEXTS** (social media captions - handle brand mentions naturally there)
-   - Clip Prompt Examples:
-     * ✅ CORRECT: "video_0_clip_1_prompt": "Camera zooms in. Voiceover in professional voice: {dvyb_context.get('accountName', 'the brand')} revolutionizes content creation, no text overlays."
-     * ✅ CORRECT: "video_0_clip_1_prompt": "Influencer smiling. saying in excited tone: I love using {dvyb_context.get('accountName', 'the brand')} for my posts"
-     * ❌ WRONG: "video_0_clip_1_prompt": "Voiceover: This product revolutionizes content creation"
+   - Clip Prompt Examples (Note: "no text overlays, no background music" comes BEFORE voiceover/speech):
+     * ✅ CORRECT: "video_0_clip_1_prompt": "Camera zooms in, no text overlays, no background music. Voiceover in professional voice: {dvyb_context.get('accountName', 'the brand')} revolutionizes content creation."
+     * ✅ CORRECT: "video_0_clip_1_prompt": "Influencer smiling, no text overlays, no background music. Saying in excited tone: I love using {dvyb_context.get('accountName', 'the brand')} for my posts."
+     * ❌ WRONG: "video_0_clip_1_prompt": "Voiceover: This product revolutionizes content creation, no text overlays." (no text overlays should NOT come after speech)
 
 5. **MODEL/CHARACTER CONSISTENCY**:
    - If has_model_image=true → Use "reference model" in ALL image prompts (UGC only)
@@ -1687,24 +2043,18 @@ Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
 YOUR FLAGS CONTROL THE PROMPTS YOU GENERATE. Be consistent and intentional.
 
 BRAND CONTEXT:
-- Business: {dvyb_context.get('accountName', 'N/A')}
-- Industry: {dvyb_context.get('industry', 'N/A')}
-- Brand Voice: {dvyb_context.get('brandVoice', 'N/A')}
-- Brand Colors: {color_str}
-- Target Audience: {dvyb_context.get('customerDemographics', 'N/A')[:500] if dvyb_context.get('customerDemographics') else 'N/A'}
-- Business Overview: {dvyb_context.get('businessOverview', 'N/A')[:500] if dvyb_context.get('businessOverview') else 'N/A'}
-- Popular Products/Services: {str(dvyb_context.get('popularProducts', 'N/A'))[:300] if dvyb_context.get('popularProducts') else 'N/A'}
+{_build_brand_context(dvyb_context, color_str)}
 
 ENHANCED BRAND CONTEXT (Use for variety in content):
-{_format_enhanced_context(context)}
+{_format_enhanced_context(context) if _format_enhanced_context(context) else '(No enhanced context available)'}
 
 🚨 CRITICAL - RELEVANCE FILTERING:
 - The above documents, links, voices, and styles are provided as OPTIONAL context
 - **ONLY USE IF RELEVANT** to:
   * Current topic: "{request.topic}"
-  * Brand: {dvyb_context.get('accountName', 'N/A')}
-  * Industry: {dvyb_context.get('industry', 'N/A')}
-  * User instructions: {request.user_prompt if request.user_prompt else 'None'}
+  * Brand: {dvyb_context.get('accountName', '') or 'the brand'}
+  * Industry: {dvyb_context.get('industry', '') or 'the industry'}
+  * User instructions: {request.user_prompt if request.user_prompt and request.user_prompt.strip() else '(No specific instructions)'}
 - **IGNORE IRRELEVANT DATA**: Users may have uploaded unrelated documents/links by mistake
 - Examples of what to IGNORE:
   * If topic is "Summer Sale" → ignore documents about "Winter Holiday Party"
@@ -1713,12 +2063,12 @@ ENHANCED BRAND CONTEXT (Use for variety in content):
   * If link is about unrelated industry → ignore it
 - **USE YOUR JUDGMENT**: Intelligently decide relevance before incorporating any data
 
-USER INSTRUCTIONS: {request.user_prompt if request.user_prompt else 'None'}
+USER INSTRUCTIONS: {request.user_prompt if request.user_prompt and request.user_prompt.strip() else '(No specific instructions provided - use your best judgment based on topic and brand context)'}
 
 CURRENT DATE: {context.get('current_date', datetime.utcnow().isoformat())[:10]} (for temporal context in documents)
 
 UPLOADED IMAGES ANALYSIS (Classified into 3 categories):
-{inventory_analysis_str}
+{inventory_analysis_str if inventory_analysis_str else '(No user images provided)'}
 
 🚨 CRITICAL: HOW TO USE CLASSIFIED IMAGES IN YOUR PROMPTS:
 
@@ -1784,8 +2134,8 @@ UPLOADED IMAGES ANALYSIS (Classified into 3 categories):
    - `"video_0_clip_2_image_prompt": "Reference model holding product, looking at camera..."`
 
 INSPIRATION LINKS ANALYSIS:
-{link_analysis_str}
-⚠️ NOTE: Only incorporate link insights if RELEVANT to topic "{request.topic}" and brand context. Ignore if unrelated.
+{link_analysis_str if link_analysis_str else '(No inspiration links provided)'}
+{f'⚠️ NOTE: Only incorporate link insights if RELEVANT to topic "{request.topic}" and brand context. Ignore if unrelated.' if link_analysis_str else ''}
 
 GENERATE:
 
@@ -1862,12 +2212,35 @@ GENERATE:
    - LinkedIn: Professional insights
    - TikTok: Catchy, short captions
    - Match tone to video_type (casual for UGC, professional for product/brand)
+   
+   🚫 **CRITICAL: NEVER REVEAL INTERNAL PROCESS IN PLATFORM TEXTS**:
+   Platform texts are PUBLIC social media captions seen by END USERS. They must NOT contain:
+   - ❌ "UGC style", "UGC content", "influencer style", "customer stories"
+   - ❌ "Product marketing", "brand marketing", "promotional content"
+   - ❌ References to user instructions or generation process
+   - ❌ Meta-commentary about what type of content it is
+   - ❌ "Real talk", "honest review", "testimonial" (unless naturally authentic)
+   
+   ✅ **WRITE AS IF YOU ARE THE BRAND/INFLUENCER** posting naturally:
+   - For UGC: Write as an authentic person sharing their genuine experience
+   - For Product: Write as the brand showcasing their offering
+   - For Brand: Write as the brand telling their story
+   
+   **EXAMPLES**:
+   - ❌ WRONG: "Listen to this customer's honest take on our product—UGC style real talk!"
+   - ✅ CORRECT: "This just changed my morning routine completely 🔥 Have you tried it yet?"
+   
+   - ❌ WRONG: "Check out this influencer-style review of our latest product"
+   - ✅ CORRECT: "I've been using this for 2 weeks and honestly? Game changer 💯"
+   
+   - ❌ WRONG: "Brand marketing content showcasing our values"
+   - ✅ CORRECT: "Built for those who refuse to settle ✨"
 
 Return ONLY this JSON structure (no markdown, no extra text):
 {json_example}
 
 CRITICAL REQUIREMENTS:
-- MUST output ALL flags at top level: video_type, voiceover, no_characters, human_characters_only, influencer_marketing, nudge, web3
+- MUST output ALL flags at top level: video_type, voiceover, no_characters, human_characters_only, influencer_marketing, web3
 - Flags MUST match video_type:
   * product_marketing → voiceover=true, no_characters=true, influencer_marketing=false
   * ugc_influencer → voiceover=false, no_characters=false, influencer_marketing=true, human_characters_only=true
@@ -1876,11 +2249,15 @@ CRITICAL REQUIREMENTS:
 - Image prompts: Incorporate hex color codes from brand palette
 
 - Video clip prompts: Describe MOTION, CAMERA WORK, and embedded audio (voiceover OR character speech)
+  * 🚫 **NO HEX COLOR CODES IN CLIP PROMPTS**: Clip prompts describe motion and audio, NOT colors
+  * Hex color codes are ONLY for image prompts (starting frames), NEVER in clip/motion prompts
+  * ❌ WRONG: "Camera pans across #131313 colored room with #e0e4f4 accents..."
+  * ✅ CORRECT: "Camera pans smoothly across modern living room, revealing product on table..."
 
-- **TEXT OVERLAY RULES**:
-  * If nudge=false: ALL clip prompts MUST end with "no text overlays. No background music."
-  * If nudge=true: LAST clip prompt should INCLUDE nudge text overlay instructions, DO NOT add "no text overlays" to the last clip
-  * First clips (when nudge=true): Still end with "no text overlays. No background music."
+- **TEXT OVERLAY & AUDIO RULES (CRITICAL PLACEMENT)**:
+  * "no text overlays, no background music" must appear BEFORE voiceover/speech text in clip prompts
+  * Structure: [Scene description], no text overlays, no background music. [Voiceover/Speech at END]
+  * This prevents the model from speaking "no text overlays" as part of the audio
 
 - **VOICEOVER TONE/VOICE SPECIFICATION (MANDATORY for product/brand marketing)**:
   * When YOU DECIDE voiceover=true (product_marketing or brand_marketing):
@@ -1894,10 +2271,10 @@ CRITICAL REQUIREMENTS:
     → Example: "Voiceover in enthusiastic energetic voice: Get ready for the future"
     → Example: "Voiceover in inspiring dramatic male storyteller voice: Your journey begins now"
     → The voice specification adds the right emotional flavor and makes Veo3.1 generate appropriate audio
-  * 🏢 **USE BRAND NAME IN VOICEOVER TEXT ONLY** (Brand: {dvyb_context.get('accountName', 'N/A')}):
+  * 🏢 **USE BRAND NAME IN VOICEOVER TEXT ONLY**{f" (Brand: {dvyb_context.get('accountName')})" if dvyb_context.get('accountName') else ""}:
     → ONLY in the VOICEOVER TEXT within clip prompts (not in image prompts or visual descriptions)
-    → When voiceover mentions the brand, use "{dvyb_context.get('accountName', 'N/A')}" (exact brand name from accountName)
-    → Example: "Smooth camera zoom. Voiceover in professional voice: {dvyb_context.get('accountName', 'N/A')} brings your content to life, no text overlays."
+    → When voiceover mentions the brand, use "{dvyb_context.get('accountName', 'the brand')}" (exact brand name from BRAND CONTEXT)
+    → Example: "Smooth camera zoom, no text overlays, no background music. Voiceover in professional voice: {dvyb_context.get('accountName', 'the brand')} brings your content to life."
     → DO NOT use generic placeholders like "this product", "our brand" in the voiceover text
   
 - **CHARACTER SPEECH TONE SPECIFICATION (MANDATORY for ugc_influencer)**:
@@ -1909,10 +2286,10 @@ CRITICAL REQUIREMENTS:
     → Example: "saying in genuine relatable tone (14 words max): You guys need to try this"
     → Example: "saying in casual friendly tone (14 words max): I'm obsessed with this new find"
     → The tone specification makes Veo3.1 generate natural, authentic-sounding speech matching UGC style
-  * 🏢 **USE BRAND NAME IN CHARACTER SPEECH ONLY** (Brand: {dvyb_context.get('accountName', 'N/A')}):
+  * 🏢 **USE BRAND NAME IN CHARACTER SPEECH ONLY**{f" (Brand: {dvyb_context.get('accountName')})" if dvyb_context.get('accountName') else ""}:
     → ONLY in the CHARACTER SPEECH TEXT within clip prompts (not in image prompts or visual descriptions)
-    → When character's speech mentions the brand, use "{dvyb_context.get('accountName', 'N/A')}" (exact brand name from accountName)
-    → Example: "Influencer looking at camera. saying in excited tone (14 words max): I've been using {dvyb_context.get('accountName', 'N/A')} and it's amazing, no text overlays."
+    → When character's speech mentions the brand, use "{dvyb_context.get('accountName', 'the brand')}" (exact brand name from BRAND CONTEXT)
+    → Example: "Influencer looking at camera, no text overlays, no background music. Saying in excited tone (14 words max): I've been using {dvyb_context.get('accountName', 'the brand')} and it's amazing."
     → DO NOT use generic terms like "this app", "this tool", "this product" in the character's speech
 
 - **MODEL/CHARACTER DESCRIPTION (when has_model_image=false - AUTONOMOUS DIVERSE GENERATION)**:
@@ -1931,11 +2308,6 @@ CRITICAL REQUIREMENTS:
     → This description will be used to generate the character, who must appear in ALL subsequent clips
   * Clip 2+ image prompts: "Reference character from previous frame, [new context/action]"
 
-- **NUDGE MESSAGE (if nudge=true)**:
-  * Add nudge text overlay instructions to LAST clip prompt ONLY
-  * Format: "In final 2-3 seconds, text overlay bottom-center: 'Follow for more [topic]' with fade-in animation, brand colors"
-  * Keep subtle and on-brand
-
 - **LOGO DECISIONS** (MANDATORY):
   * **IMAGE-ONLY POSTS**: ALWAYS set `logo_needed: true` for ALL image-only posts (posts at indices {sorted(image_only_indices)})
   * **VIDEO CLIP FRAMES**: Decide true/false for each video clip frame based on creative judgment
@@ -1948,9 +2320,9 @@ CRITICAL REQUIREMENTS:
     
     # Debug logging
     print(f"\n📊 INVENTORY ANALYSIS PASSED TO GROK:")
-    print(inventory_analysis_str[:500] if len(inventory_analysis_str) > 500 else inventory_analysis_str)
+    print(inventory_analysis_str[:500] if inventory_analysis_str and len(inventory_analysis_str) > 500 else inventory_analysis_str if inventory_analysis_str else "(No inventory analysis)")
     print(f"\n📊 LINK ANALYSIS PASSED TO GROK:")
-    print(link_analysis_str[:500] if len(link_analysis_str) > 500 else link_analysis_str)
+    print(link_analysis_str[:500] if link_analysis_str and len(link_analysis_str) > 500 else link_analysis_str if link_analysis_str else "(No link analysis)")
     print(f"\n📊 FULL SYSTEM PROMPT (first 1000 chars):")
     print(system_prompt[:1000] if len(system_prompt) > 1000 else system_prompt)
     print("=" * 80)
@@ -2041,7 +2413,7 @@ CRITICAL REQUIREMENTS:
         no_characters = prompts_data.get("no_characters", True)
         human_characters_only = prompts_data.get("human_characters_only", False)
         influencer_marketing = prompts_data.get("influencer_marketing", False)
-        nudge = prompts_data.get("nudge", False)
+        nudge = False  # OVERRIDE: Always False (nudge output quality not good yet)
         web3 = prompts_data.get("web3", False)
         
         print(f"\n🎯 GROK DECISIONS:")
@@ -2050,7 +2422,7 @@ CRITICAL REQUIREMENTS:
         print(f"  No Characters: {no_characters}")
         print(f"  Human Characters Only: {human_characters_only}")
         print(f"  Influencer Marketing: {influencer_marketing}")
-        print(f"  Nudge: {nudge}")
+        print(f"  Nudge: {nudge} (OVERRIDDEN to False - feature disabled)")
         print(f"  Web3: {web3}")
         
         # Store video configuration (use the value from request)
@@ -2142,7 +2514,7 @@ CRITICAL REQUIREMENTS:
         
         print(f"\n✅ EXTRACTION COMPLETE:")
         print(f"  Video type: {video_type}")
-        print(f"  Flags: voiceover={voiceover}, no_characters={no_characters}, influencer={influencer_marketing}, nudge={nudge}")
+        print(f"  Flags: voiceover={voiceover}, no_characters={no_characters}, influencer={influencer_marketing}")
         print(f"  Image-only posts: {len(image_prompts_dict)}")
         print(f"  Video posts: {len(video_prompts_dict)} (each with {CLIPS_PER_VIDEO} clips)")
         print(f"  Platform texts: {len(platform_texts)}")
@@ -2156,7 +2528,7 @@ CRITICAL REQUIREMENTS:
             "no_characters": no_characters,
             "human_characters_only": human_characters_only,
             "influencer_marketing": influencer_marketing,
-            "nudge": nudge,
+            "nudge": False,  # Nudge feature disabled
             "web3": web3,
             
             # Prompts and decisions
@@ -2578,7 +2950,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     with_logs=True,
                     on_queue_update=on_queue_update
                 )
-                
+            
                 if result and "images" in result and result["images"]:
                     fal_url = result["images"][0]["url"]
                     print(f"  📥 FAL URL received: {fal_url[:100]}...")
@@ -2649,7 +3021,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     if isinstance(update, fal_client.InProgress):
                         for log in update.logs:
                             print(log["message"])
-                
+            
                 result = fal_client.subscribe(
                     "fal-ai/veo3.1/fast/image-to-video",
                     arguments={
@@ -2716,8 +3088,9 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
         influencer_marketing_flag = prompts["influencer_marketing"]
         voiceover_flag = prompts["voiceover"]
         
-        # Step 3c-1: Separate voice from music for each clip (unless influencer marketing)
-        if not influencer_marketing_flag:
+        # Step 3c-1: Separate voice from music for each clip (unless influencer marketing OR single clip)
+        # NEW: Skip audio processing if CLIPS_PER_VIDEO == 1 (treat all single clips like UGC videos)
+        if not influencer_marketing_flag and CLIPS_PER_VIDEO > 1:
             print(f"\n{'='*60}")
             print(f"🎵 VEO MODEL: Separating voice from background music for each clip")
             print(f"{'='*60}")
@@ -2765,115 +3138,102 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             print(f"\n{'='*60}")
             print(f"✅ ALL CLIPS CLEANED: Background music removed from all Veo clips")
             print(f"{'='*60}\n")
+        elif CLIPS_PER_VIDEO == 1:
+            print(f"⚡ Single clip video: Skipping audio processing (using raw Veo3.1 output)")
+            
+            # NEW: For UGC/influencer single clips, trim at speech end to remove awkward silence
+            if influencer_marketing_flag and valid_clips:
+                print(f"\n🎤 UGC/Influencer single clip: Applying speech-end trimming...")
+                trimmed_clips = []
+                for idx, clip_url in enumerate(valid_clips):
+                    clip_num = idx + 1
+                    print(f"\n✂️ Processing UGC clip {clip_num} for speech-end trim...")
+                    
+                    # Download clip
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+                        presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
+                        response = requests.get(presigned_url)
+                        temp_file.write(response.content)
+                        clip_path = temp_file.name
+                        print(f"  📥 Downloaded clip {clip_num}")
+                    
+                    # Trim at speech end (only look after 5 seconds, add 300ms buffer)
+                    trimmed_clip_path = trim_ugc_clip_at_speech_end(clip_path, min_search_time=5.0, buffer_ms=300)
+                    
+                    # Upload trimmed clip to S3
+                    trimmed_s3_url = web2_s3_helper.upload_from_file(
+                        file_path=trimmed_clip_path,
+                        folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                        filename=f"ugc_trimmed_clip_{clip_num}.mp4"
+                    )
+                    
+                    # Clean up local files
+                    try:
+                        os.remove(clip_path)
+                        if trimmed_clip_path != clip_path:
+                            os.remove(trimmed_clip_path)
+                    except:
+                        pass
+                    
+                    trimmed_clips.append(trimmed_s3_url)
+                    print(f"  ✅ UGC clip {clip_num} trimmed and uploaded")
+                
+                # Use trimmed clips
+                valid_clips = trimmed_clips
         else:
             print(f"🎤 Influencer marketing: Skipping voice separation (character speaks naturally)")
+            
+            # For multi-clip UGC/influencer videos, also trim each clip at speech end
+            print(f"\n🎤 UGC/Influencer multi-clip: Applying speech-end trimming to each clip...")
+            trimmed_clips = []
+            for idx, clip_url in enumerate(valid_clips):
+                clip_num = idx + 1
+                print(f"\n✂️ Processing UGC clip {clip_num}/{len(valid_clips)} for speech-end trim...")
+                
+                # Download clip
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+                    presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
+                    response = requests.get(presigned_url)
+                    temp_file.write(response.content)
+                    clip_path = temp_file.name
+                    print(f"  📥 Downloaded clip {clip_num}")
+                
+                # Trim at speech end (only look after 5 seconds, add 300ms buffer)
+                trimmed_clip_path = trim_ugc_clip_at_speech_end(clip_path, min_search_time=5.0, buffer_ms=300)
+                
+                # Upload trimmed clip to S3
+                trimmed_s3_url = web2_s3_helper.upload_from_file(
+                    file_path=trimmed_clip_path,
+                    folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                    filename=f"ugc_trimmed_clip_{clip_num}.mp4"
+                )
+                
+                # Clean up local files
+                try:
+                    os.remove(clip_path)
+                    if trimmed_clip_path != clip_path:
+                        os.remove(trimmed_clip_path)
+                except:
+                    pass
+                
+                trimmed_clips.append(trimmed_s3_url)
+                print(f"  ✅ UGC clip {clip_num} trimmed and uploaded")
+            
+            # Use trimmed clips
+            valid_clips = trimmed_clips
         
         # Step 3c-2: Stitch clips together (random: simple concat or crossfade)
         print(f"\n🎞️ Stitching {len(valid_clips)} clips...")
 
         
         if len(valid_clips) == 1:
-            # Single clip, no stitching needed - but still process audio
-            print(f"✅ Single clip video (no stitching needed)")
-            single_clip_s3_url = valid_clips[0]
+            # Single clip, no stitching needed
+            # NEW: Skip audio processing for single clips (treat like UGC videos regardless of video type)
+            print(f"✅ Single clip video (no stitching or audio processing needed)")
+            final_video_url = valid_clips[0]
             
-            # Process audio for single clip (unless influencer marketing)
-            if not influencer_marketing_flag:
-                print(f"\n{'='*60}")
-                print(f"🎵 PROCESSING AUDIO FOR SINGLE CLIP VIDEO")
-                print(f"{'='*60}")
-                
-                # Download clip
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
-                    presigned_url = web2_s3_helper.generate_presigned_url(single_clip_s3_url)
-                    response = requests.get(presigned_url)
-                    temp_file.write(response.content)
-                    clip_path = temp_file.name
-                
-                try:
-                    # Extract voiceover audio
-                    voiceover_audio_path = extract_audio_from_video(clip_path)
-                    
-                    if not voiceover_audio_path:
-                        print(f"  ⚠️ No voiceover audio found, using clip as-is")
-                        final_video_url = single_clip_s3_url
-                    else:
-                        # Remove audio from clip (create video-only)
-                        video_only_path = remove_audio_from_video(clip_path)
-                        
-                        if not video_only_path:
-                            print(f"  ⚠️ Failed to create video-only, using original clip")
-                            final_video_url = single_clip_s3_url
-                            try:
-                                os.remove(voiceover_audio_path)
-                            except:
-                                pass
-                        else:
-                            # Upload video-only to S3
-                            video_only_s3_url = web2_s3_helper.upload_from_file(
-                                file_path=video_only_path,
-                                folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
-                                filename=f"video_only.mp4"
-                            )
-                            
-                            # Generate background music with Pixverse
-                            audio_prompt = prompts["video_audio_prompts"].get(video_idx, "Upbeat background music")
-                            video_with_music_s3_url = await generate_background_music_with_pixverse(
-                                video_s3_url=video_only_s3_url,
-                                audio_prompt=audio_prompt,
-                                duration=VIDEO_DURATION,
-                                account_id=request.account_id,
-                                generation_uuid=generation_uuid,
-                                video_index=video_idx
-                            )
-                            
-                            if not video_with_music_s3_url:
-                                print(f"  ⚠️ Failed to add background music, using original clip")
-                                final_video_url = single_clip_s3_url
-                            else:
-                                # Track model usage for audio generation
-                                model_usage["audioGeneration"].append({
-                                    "post_index": video_idx,
-                                    "model": "fal-ai/pixverse/sound-effects",
-                                    "audio_prompt": audio_prompt[:100],
-                                    "duration": VIDEO_DURATION
-                                })
-                                
-                                # Mix voiceover with background music
-                                final_video_url = await mix_voiceover_with_background_music(
-                                    video_with_music_s3_url=video_with_music_s3_url,
-                                    voiceover_audio_path=voiceover_audio_path,
-                                    account_id=request.account_id,
-                                    generation_uuid=generation_uuid,
-                                    video_index=video_idx
-                                )
-                                
-                                if not final_video_url:
-                                    print(f"  ⚠️ Failed to mix audio, using video with music")
-                                    final_video_url = video_with_music_s3_url
-                            
-                            # Clean up
-                            try:
-                                os.remove(video_only_path)
-                            except:
-                                pass
-                    
-                    print(f"\n{'='*60}")
-                    print(f"✅ AUDIO PROCESSING COMPLETE FOR SINGLE CLIP")
-                    print(f"{'='*60}\n")
-                    
-                except Exception as e:
-                    print(f"  ⚠️ Audio processing failed: {e}")
-                    final_video_url = single_clip_s3_url
-                
-                # Clean up downloaded clip
-                try:
-                    os.remove(clip_path)
-                except:
-                    pass
-            else:
-                print(f"🎤 Influencer marketing: Using single clip as-is (natural speaking)")
-                final_video_url = single_clip_s3_url
+            print(f"⚡ Using raw Veo3.1 output for faster generation")
+            print(f"✅ Final video ready: {final_video_url}")
         
         else:
             # Multiple clips - stitch them
@@ -3287,7 +3647,7 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
                     "influencer_marketing": prompts.get("influencer_marketing"),
                     "no_characters": prompts.get("no_characters"),
                     "human_characters_only": prompts.get("human_characters_only"),
-                    "nudge": prompts.get("nudge"),
+                    "nudge": False,  # Nudge feature disabled
                     "web3": prompts.get("web3", False)
                 },
                 "imagePrompts": prompts.get("image_only_prompts", {}),

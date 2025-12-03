@@ -11,6 +11,53 @@ import axios from 'axios';
 
 const router = Router();
 
+/**
+ * Maps technical progress messages to user-friendly, engaging messages
+ */
+function mapProgressMessageToUserFriendly(technicalMessage: string | null): string {
+  if (!technicalMessage) return 'Getting started...';
+  
+  // Exact matches for setup phases
+  if (technicalMessage === 'Starting generation...') return 'Getting started...';
+  if (technicalMessage === 'Gathering context...') return 'Understanding your brand...';
+  if (technicalMessage === 'Analyzing uploaded images...') return 'Analyzing your images...';
+  if (technicalMessage === 'Analyzing inspiration links...') return 'Getting inspiration from your links...';
+  if (technicalMessage === 'Generating prompts...') return 'Crafting the perfect content for you...';
+  if (technicalMessage === 'Generating images and clips...') return 'Creating your content...';
+  if (technicalMessage === 'Saving content...') return 'Almost there, finalizing your content...';
+  if (technicalMessage === 'Generation completed!') return 'Your content is ready!';
+  
+  // Pattern matches for content generation - use engaging rotating messages
+  if (technicalMessage.match(/^Generated image \d+$/) || 
+      technicalMessage.match(/^Generated video \d+$/)) {
+    const numMatch = technicalMessage.match(/\d+/);
+    const idx = numMatch ? parseInt(numMatch[0]) : 0;
+    const engagingMessages = [
+      'Making magic happen...',
+      'Bringing your ideas to life...',
+      'Almost there, looking great...',
+      'Adding the finishing touches...',
+      'Creating something amazing...',
+      'Your content is taking shape...',
+      'Perfecting every detail...',
+      'Working on something special...',
+    ];
+    return engagingMessages[idx % engagingMessages.length] || 'Creating your content...';
+  }
+  
+  // Video generation message
+  if (technicalMessage.includes('Generating videos')) {
+    return 'Creating your videos (this may take a few minutes)...';
+  }
+  
+  // Fallback: clean up and return
+  const cleaned = technicalMessage.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim();
+  if (cleaned.match(/^\d+$/) || cleaned.includes('idx') || cleaned.includes('video_') || cleaned.includes('image_')) {
+    return 'Creating your content...';
+  }
+  return cleaned || 'Creating your content...';
+}
+
 // Helper function to generate presigned URLs using local TypeScript S3 service
 // This avoids blocking the Python backend during long-running video generation
 async function generatePresignedUrl(s3Key: string): Promise<string | null> {
@@ -324,11 +371,14 @@ router.get('/status', async (req: DvybAuthRequest, res: Response) => {
     delete (generationWithPresignedUrls as any).framePrompts;
     delete (generationWithPresignedUrls as any).clipPrompts;
 
+    // Map progress message to user-friendly text
+    const userFriendlyMessage = mapProgressMessageToUserFriendly(generationWithPresignedUrls.progressMessage);
+    
     return res.json({
       success: true,
       status: generationWithPresignedUrls.status,
       progress_percent: generationWithPresignedUrls.progressPercent,
-      progress_message: generationWithPresignedUrls.progressMessage,
+      progress_message: userFriendlyMessage,
       data: {
         uuid: generationWithPresignedUrls.uuid,
         jobId: generationWithPresignedUrls.jobId,
@@ -341,7 +391,7 @@ router.get('/status', async (req: DvybAuthRequest, res: Response) => {
         generatedVideoUrls: generationWithPresignedUrls.generatedVideoUrls,
         status: generationWithPresignedUrls.status,
         progressPercent: generationWithPresignedUrls.progressPercent,
-        progressMessage: generationWithPresignedUrls.progressMessage,
+        progressMessage: userFriendlyMessage,
         createdAt: generationWithPresignedUrls.createdAt,
         updatedAt: generationWithPresignedUrls.updatedAt,
         metadata: generationWithPresignedUrls.metadata,

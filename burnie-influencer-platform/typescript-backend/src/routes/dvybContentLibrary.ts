@@ -421,12 +421,20 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     // Flatten the nested arrays
     const allProcessedContent = (await Promise.all(processedContent)).flat();
 
+    // Filter out items with no media (failed generations)
+    const contentWithMedia = allProcessedContent.filter(c => {
+      // Keep items that have a valid mediaUrl
+      return c.mediaUrl && c.mediaUrl.trim() !== '';
+    });
+    
+    logger.info(`📊 Filtered out ${allProcessedContent.length - contentWithMedia.length} items with no media (failed generations)`);
+
     // Filter by status if showPosted is specified
-    let filteredContent = allProcessedContent;
+    let filteredContent = contentWithMedia;
     if (showPosted) {
-      filteredContent = allProcessedContent.filter(c => c.status === 'posted');
+      filteredContent = contentWithMedia.filter(c => c.status === 'posted');
     } else {
-      filteredContent = allProcessedContent.filter(c => c.status !== 'posted');
+      filteredContent = contentWithMedia.filter(c => c.status !== 'posted');
     }
 
     // NOW paginate at the POST level (not record level)

@@ -1,7 +1,7 @@
 "use client";
 
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Clock, Loader2, Play } from "lucide-react";
 import { format } from "date-fns";
-import { postingApi, authApi, socialConnectionsApi } from "@/lib/api";
+import { postingApi, authApi, socialConnectionsApi, oauth1Api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 interface ScheduleDialogProps {
@@ -38,7 +38,17 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [authPlatforms, setAuthPlatforms] = useState<string[]>([]);
   const [currentAuthIndex, setCurrentAuthIndex] = useState(0);
+  const [needsOAuth1, setNeedsOAuth1] = useState(false);
+  const [isVideoPost, setIsVideoPost] = useState(false);
+  const [capturedPost, setCapturedPost] = useState<any>(null); // Capture post data when scheduling starts
   const { toast } = useToast();
+
+  // Reset captured post when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setCapturedPost(null);
+    }
+  }, [open]);
 
   // Get current date/time in user's timezone
   const getCurrentDateTime = () => {
@@ -103,11 +113,20 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
       return;
     }
 
+    // Capture post data at the start of scheduling to ensure it doesn't change during OAuth flows
+    const postSnapshot = { ...post };
+    setCapturedPost(postSnapshot);
+    
+    console.log('📸 ScheduleDialog - Captured post snapshot:', {
+      'generatedContentId': postSnapshot.generatedContentId,
+      'postIndex': postSnapshot.postIndex,
+    });
+
     setIsScheduling(true);
 
     try {
       // Get platforms with multiple fallbacks to ensure never empty
-      let platforms = post.requestedPlatforms || post.platforms || [];
+      let platforms = postSnapshot.requestedPlatforms || postSnapshot.platforms || [];
       
       // Extra safeguard: If still empty, use default
       if (!platforms || platforms.length === 0) {
@@ -124,13 +143,12 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
       
       // Detect video by checking the media URL
       const isVideo = post.image && (post.image.includes('video') || post.image.includes('.mp4'));
-      const mediaType = isVideo ? 'video' : 'image';
+      setIsVideoPost(isVideo);
       
-      // IMPORTANT: Always validate OAuth2 only (not OAuth1) to avoid confusion
-      // OAuth1 for Twitter videos is handled by the posting service
+      // Validate OAuth2 tokens for all platforms
       const validation = await postingApi.validateTokens({
         platforms,
-        requireOAuth1ForTwitterVideo: false, // ✅ Always false - OAuth1 not needed for scheduling
+        requireOAuth1ForTwitterVideo: false, // Check OAuth2 first
       });
 
       console.log('🔍 ScheduleDialog - Token validation result:', validation.data);
@@ -150,23 +168,105 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
         return;
       }
 
-      console.log('✅ ScheduleDialog - All OAuth2 tokens valid, proceeding with scheduling');
-      // All OAuth2 tokens valid, proceed with scheduling
-      // Note: OAuth1 for Twitter videos will be checked when the scheduled post is actually posted
+      console.log('✅ ScheduleDialog - All OAuth2 tokens valid');
+      
+      // For Twitter video posts, also check OAuth1
+      if (isVideo && platforms.includes('twitter')) {
+        console.log('🎬 ScheduleDialog - Video post for Twitter, checking OAuth1...');
+        const oauth1Status = await oauth1Api.getOAuth1Status();
+        
+        if (!oauth1Status.data.oauth1Valid) {
+          console.log('🔐 ScheduleDialog - OAuth1 needed for Twitter video');
+          setNeedsOAuth1(true);
+          setIsScheduling(false);
+          // Trigger OAuth1 flow
+          await initiateOAuth1Flow();
+          return;
+        }
+        console.log('✅ ScheduleDialog - OAuth1 valid for Twitter video');
+      }
+      
+      // All authorizations complete, proceed with scheduling
       await performSchedule();
     } catch (error: any) {
       console.error('Error scheduling:', error);
       toast({
-        title: "Scheduling Failed",
-        description: error.message || "Failed to schedule post",
+        title: "Couldn't Schedule Post",
+        description: "Something went wrong. Please try again.",
         variant: "destructive",
       });
       setIsScheduling(false);
     }
   };
+  
+  const initiateOAuth1Flow = async () => {
+    try {
+      const response = await oauth1Api.initiateOAuth1();
+      
+      if (response.data?.authUrl) {
+        const width = 600;
+        const height = 700;
+        const left = window.screen.width / 2 - width / 2;
+        const top = window.screen.height / 2 - height / 2;
+        
+        const popup = window.open(
+          response.data.authUrl,
+          'twitter_oauth1',
+          `width=${width},height=${height},left=${left},top=${top}`
+        );
+        
+        // Listen for OAuth1 completion
+        const handleMessage = async (event: MessageEvent) => {
+          if (event.origin !== window.location.origin) return;
+          
+          if (event.data.type === 'oauth1_success' || event.data.type === 'twitter_oauth1_connected') {
+            window.removeEventListener('message', handleMessage);
+            popup?.close();
+            
+            setNeedsOAuth1(false);
+            
+            toast({
+              title: "Video Authorization Complete",
+              description: "You can now schedule video posts to Twitter!",
+            });
+            
+            // Now proceed with scheduling
+            setIsScheduling(true);
+            await performSchedule();
+          } else if (event.data.type === 'oauth1_error') {
+            window.removeEventListener('message', handleMessage);
+            popup?.close();
+            
+            toast({
+              title: "Video Authorization Failed",
+              description: "Couldn't complete video authorization for Twitter. Please try again.",
+              variant: "destructive",
+            });
+          }
+        };
+        
+        window.addEventListener('message', handleMessage);
+        
+        toast({
+          title: "Video Authorization Required",
+          description: "Twitter requires separate authorization for video uploads. Please complete in the popup.",
+        });
+      }
+    } catch (error: any) {
+      console.error('OAuth1 initiation error:', error);
+      toast({
+        title: "Authorization Failed",
+        description: "Unable to start video authorization. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const performSchedule = async () => {
-    if (!selectedDate || !post) return;
+    // Use captured post data (snapshot from when scheduling started) to ensure consistency
+    const postToSchedule = capturedPost || post;
+    
+    if (!selectedDate || !postToSchedule) return;
 
     try {
       // Combine date and time
@@ -186,7 +286,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
       }
 
       // Get platforms with multiple fallbacks to ensure never empty
-      let platforms = post.requestedPlatforms || post.platforms || [];
+      let platforms = postToSchedule.requestedPlatforms || postToSchedule.platforms || [];
       
       // Extra safeguard: If still empty, use default
       if (!platforms || platforms.length === 0) {
@@ -194,14 +294,15 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
         console.warn('⚠️ No platforms found in ScheduleDialog performSchedule, using default:', platforms);
       }
       
-      console.log('📅 ScheduleDialog performSchedule - Platforms:', {
-        'post.requestedPlatforms': post.requestedPlatforms,
-        'post.platforms': post.platforms,
+      console.log('📅 ScheduleDialog performSchedule - Using captured post:', {
+        'postToSchedule.generatedContentId': postToSchedule.generatedContentId,
+        'postToSchedule.postIndex': postToSchedule.postIndex,
+        'postToSchedule.requestedPlatforms': postToSchedule.requestedPlatforms,
+        'postToSchedule.platforms': postToSchedule.platforms,
         'final platforms': platforms,
-        'platforms length': platforms?.length,
       });
       
-      const mediaUrl = post.image; // S3 URL
+      const mediaUrl = postToSchedule.image; // S3 URL
       
       // Robust video detection - check multiple indicators
       const detectMediaType = (url: string | undefined): 'image' | 'video' => {
@@ -222,7 +323,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
         }
         
         // Check post.type if available
-        if ((post as any).type === 'Video') {
+        if ((postToSchedule as any).type === 'Video') {
           return 'video';
         }
         
@@ -230,18 +331,30 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
         return 'image';
       };
       
-      const mediaType = detectMediaType(post.image);
-      console.log(`📋 Media type detected: ${mediaType} for URL: ${post.image?.substring(0, 80)}...`);
+      const mediaType = detectMediaType(postToSchedule.image);
+      console.log(`📋 Media type detected: ${mediaType} for URL: ${postToSchedule.image?.substring(0, 80)}...`);
 
       // Get the full platform texts (not truncated)
       // Use fullPlatformTexts if available, otherwise fall back to description
-      const fullPlatformTexts = (post as any).fullPlatformTexts || {};
+      const originalPlatformTexts = (postToSchedule as any).fullPlatformTexts || {};
+      
+      // Merge with user-edited captions (edited captions take priority)
+      const editedCaptions = (postToSchedule as any).editedCaptions || {};
+      const finalPlatformTexts = { ...originalPlatformTexts };
+      
+      // Override with user-edited captions for each platform
+      Object.keys(editedCaptions).forEach(platform => {
+        if (editedCaptions[platform]) {
+          finalPlatformTexts[platform] = editedCaptions[platform];
+        }
+      });
       
       console.log('📤 ScheduleDialog - Sending to API:', {
-        'post.generatedContentId': post.generatedContentId,
-        'post.postIndex': post.postIndex,
-        'post object': post,
-        'fullPlatformTexts': fullPlatformTexts,
+        'generatedContentId': postToSchedule.generatedContentId,
+        'postIndex': postToSchedule.postIndex,
+        'originalPlatformTexts': originalPlatformTexts,
+        'editedCaptions': editedCaptions,
+        'finalPlatformTexts': finalPlatformTexts,
       });
       
       // Call schedule API
@@ -249,12 +362,12 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
         scheduledFor: scheduledDateTime.toISOString(),
         platforms,
         content: {
-          caption: post.description || post.title, // For display purposes
-          platformTexts: fullPlatformTexts, // Full texts for actual posting
+          caption: postToSchedule.description || postToSchedule.title, // For display purposes
+          platformTexts: finalPlatformTexts, // Full texts with edited captions taking priority
           mediaUrl,
           mediaType,
-          generatedContentId: post.generatedContentId,
-          postIndex: post.postIndex,
+          generatedContentId: postToSchedule.generatedContentId,
+          postIndex: postToSchedule.postIndex,
         },
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
@@ -271,8 +384,8 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
     } catch (error: any) {
       console.error('Error scheduling:', error);
       toast({
-        title: "Scheduling Failed",
-        description: error.message || "Failed to schedule post",
+        title: "Couldn't Schedule Post",
+        description: "Something went wrong. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -280,8 +393,10 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
     }
   };
 
-  const handleAuthPlatform = async () => {
-    if (currentAuthIndex >= authPlatforms.length) {
+  const handleAuthPlatform = async (platformIndex?: number) => {
+    const index = platformIndex ?? currentAuthIndex;
+    
+    if (index >= authPlatforms.length) {
       // All platforms authorized, proceed with scheduling
       setShowAuthDialog(false);
       setIsScheduling(true);
@@ -289,7 +404,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
       return;
     }
 
-    const platform = authPlatforms[currentAuthIndex];
+    const platform = authPlatforms[index];
 
     try {
       let authUrlResponse;
@@ -324,7 +439,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
       );
 
       // Listen for auth completion
-      const handleMessage = (event: MessageEvent) => {
+      const handleMessage = async (event: MessageEvent) => {
         if (event.origin !== window.location.origin) return;
         
         // Handle different message types for different platforms
@@ -345,12 +460,41 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
             description: `${platform.charAt(0).toUpperCase() + platform.slice(1)} connected successfully`,
           });
           
-          // Move to next platform
-          if (currentAuthIndex + 1 < authPlatforms.length) {
-            setCurrentAuthIndex(currentAuthIndex + 1);
+          const nextIndex = index + 1;
+          setCurrentAuthIndex(nextIndex);
+          
+          // Automatically proceed to next platform or schedule
+          if (nextIndex < authPlatforms.length) {
+            // Small delay to allow UI to update, then auto-trigger next auth
+            setTimeout(() => {
+              handleAuthPlatform(nextIndex);
+            }, 500);
           } else {
-            // All done, proceed with scheduling
+            // All OAuth2 done - check if OAuth1 needed for Twitter video
             setShowAuthDialog(false);
+            
+            // Check if this is a Twitter video post needing OAuth1
+            const platforms = post?.requestedPlatforms || post?.platforms || [];
+            if (isVideoPost && platforms.includes('twitter')) {
+              console.log('🎬 ScheduleDialog - OAuth2 complete, checking OAuth1 for Twitter video...');
+              try {
+                const oauth1Status = await oauth1Api.getOAuth1Status();
+                if (!oauth1Status.data.oauth1Valid) {
+                  console.log('🔐 ScheduleDialog - OAuth1 needed');
+                  setNeedsOAuth1(true);
+                  toast({
+                    title: "One More Step for Videos",
+                    description: "Twitter requires separate authorization for video uploads. Please complete in the popup.",
+                  });
+                  await initiateOAuth1Flow();
+                  return;
+                }
+              } catch (error) {
+                console.error('OAuth1 check error:', error);
+              }
+            }
+            
+            // All authorizations complete, proceed with scheduling
             setIsScheduling(true);
             performSchedule();
           }
@@ -365,8 +509,8 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
       }
     } catch (error: any) {
       toast({
-        title: "Authorization Failed",
-        description: error.message,
+        title: "Connection Failed",
+        description: "Unable to connect. Please try again.",
         variant: "destructive",
       });
     }
@@ -576,7 +720,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete }:
               Cancel
             </Button>
             <Button 
-              onClick={handleAuthPlatform} 
+              onClick={() => handleAuthPlatform(currentAuthIndex)} 
               className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-sm sm:text-base"
             >
               Authorize {authPlatforms[currentAuthIndex]?.charAt(0).toUpperCase() + authPlatforms[currentAuthIndex]?.slice(1)}
