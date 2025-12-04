@@ -67,16 +67,24 @@ interface Pagination {
   pages: number;
 }
 
+interface Stats {
+  totalActive: number;
+  totalInactive: number;
+  totalAll: number;
+}
+
 interface ApiResponse {
   success: boolean;
   data: DvybAccount[];
   pagination: Pagination;
+  stats: Stats;
 }
 
 export default function DvybAccountsPage() {
   const router = useRouter();
   const [accounts, setAccounts] = useState<DvybAccount[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, pages: 0 });
+  const [stats, setStats] = useState<Stats>({ totalActive: 0, totalInactive: 0, totalAll: 0 });
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -105,6 +113,9 @@ export default function DvybAccountsPage() {
       if (data.success) {
         setAccounts(data.data);
         setPagination(data.pagination);
+        if (data.stats) {
+          setStats(data.stats);
+        }
       }
     } catch (error) {
       console.error('Error fetching accounts:', error);
@@ -229,7 +240,7 @@ export default function DvybAccountsPage() {
                 <div>
                   <p className="text-sm text-gray-600">Active Accounts</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {accounts.filter(a => a.isActive).length}
+                    {stats.totalActive}
                   </p>
                 </div>
                 <CheckCircle className="h-8 w-8 text-green-500" />
@@ -240,7 +251,7 @@ export default function DvybAccountsPage() {
                 <div>
                   <p className="text-sm text-gray-600">Inactive Accounts</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {accounts.filter(a => !a.isActive).length}
+                    {stats.totalInactive}
                   </p>
                 </div>
                 <XCircle className="h-8 w-8 text-red-500" />
@@ -250,7 +261,7 @@ export default function DvybAccountsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">Total Accounts</p>
-                  <p className="text-2xl font-bold text-gray-900">{pagination.total}</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.totalAll}</p>
                 </div>
                 <Users className="h-8 w-8 text-blue-500" />
               </div>

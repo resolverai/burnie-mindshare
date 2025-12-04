@@ -39,16 +39,26 @@ interface Pagination {
   pages: number;
 }
 
+interface Stats {
+  totalAll: number;
+  totalPending: number;
+  totalContacted: number;
+  totalUpgraded: number;
+  totalRejected: number;
+}
+
 interface ApiResponse {
   success: boolean;
   data: UpgradeRequest[];
   pagination: Pagination;
+  stats: Stats;
 }
 
 export default function DvybUpgradeRequestsPage() {
   const router = useRouter();
   const [requests, setRequests] = useState<UpgradeRequest[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, pages: 0 });
+  const [stats, setStats] = useState<Stats>({ totalAll: 0, totalPending: 0, totalContacted: 0, totalUpgraded: 0, totalRejected: 0 });
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -71,6 +81,9 @@ export default function DvybUpgradeRequestsPage() {
       if (data.success) {
         setRequests(data.data);
         setPagination(data.pagination);
+        if (data.stats) {
+          setStats(data.stats);
+        }
       }
     } catch (error) {
       console.error('Error fetching upgrade requests:', error);
@@ -166,7 +179,7 @@ export default function DvybUpgradeRequestsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Requests</p>
-                  <p className="text-2xl font-bold text-gray-900">{pagination.total}</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.totalAll}</p>
                 </div>
                 <Package className="h-8 w-8 text-gray-400" />
               </div>
@@ -176,7 +189,7 @@ export default function DvybUpgradeRequestsPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Pending</p>
                   <p className="text-2xl font-bold text-yellow-600">
-                    {requests.filter(r => r.status === 'pending').length}
+                    {stats.totalPending}
                   </p>
                 </div>
                 <Clock className="h-8 w-8 text-yellow-400" />
@@ -187,7 +200,7 @@ export default function DvybUpgradeRequestsPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Contacted</p>
                   <p className="text-2xl font-bold text-blue-600">
-                    {requests.filter(r => r.status === 'contacted').length}
+                    {stats.totalContacted}
                   </p>
                 </div>
                 <Mail className="h-8 w-8 text-blue-400" />
@@ -198,7 +211,7 @@ export default function DvybUpgradeRequestsPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">Upgraded</p>
                   <p className="text-2xl font-bold text-green-600">
-                    {requests.filter(r => r.status === 'upgraded').length}
+                    {stats.totalUpgraded}
                   </p>
                 </div>
                 <TrendingUp className="h-8 w-8 text-green-400" />

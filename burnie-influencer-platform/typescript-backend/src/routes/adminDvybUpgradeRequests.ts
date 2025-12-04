@@ -39,8 +39,15 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
 
-    // Get total count
+    // Get total count for current filter
     const total = await queryBuilder.getCount();
+
+    // Get total counts for stats (without search/status filters)
+    const totalPending = await upgradeRequestRepo.count({ where: { status: 'pending' } });
+    const totalContacted = await upgradeRequestRepo.count({ where: { status: 'contacted' } });
+    const totalUpgraded = await upgradeRequestRepo.count({ where: { status: 'upgraded' } });
+    const totalRejected = await upgradeRequestRepo.count({ where: { status: 'rejected' } });
+    const totalAll = totalPending + totalContacted + totalUpgraded + totalRejected;
 
     // Get paginated results
     const skip = (page - 1) * limit;
@@ -58,6 +65,13 @@ router.get('/', async (req: Request, res: Response) => {
         limit,
         total,
         pages: Math.ceil(total / limit),
+      },
+      stats: {
+        totalAll,
+        totalPending,
+        totalContacted,
+        totalUpgraded,
+        totalRejected,
       },
     });
   } catch (error) {

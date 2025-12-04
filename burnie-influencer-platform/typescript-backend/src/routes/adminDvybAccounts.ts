@@ -45,8 +45,13 @@ router.get('/', async (req: Request, res: Response) => {
       query = query.andWhere('account.isActive = :isActive', { isActive: false });
     }
 
-    // Get total count
+    // Get total count for current filter
     const total = await query.getCount();
+
+    // Get total counts for stats (without search/status filters)
+    const totalActiveAccounts = await accountRepo.count({ where: { isActive: true } });
+    const totalInactiveAccounts = await accountRepo.count({ where: { isActive: false } });
+    const totalAllAccounts = totalActiveAccounts + totalInactiveAccounts;
 
     // Apply pagination
     const skip = (page - 1) * limit;
@@ -203,6 +208,11 @@ router.get('/', async (req: Request, res: Response) => {
         limit,
         total,
         pages: Math.ceil(total / limit),
+      },
+      stats: {
+        totalActive: totalActiveAccounts,
+        totalInactive: totalInactiveAccounts,
+        totalAll: totalAllAccounts,
       },
     });
   } catch (error) {
