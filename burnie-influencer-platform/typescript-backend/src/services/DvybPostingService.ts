@@ -464,16 +464,18 @@ export class DvybPostingService {
       const containerId = containerResponse.data.id;
       logger.info(`✅ Media container created: ${containerId}`);
 
-      // Step 2: For videos, wait for processing
-      if (content.mediaType === 'video') {
-        logger.info('⏳ Waiting for video processing...');
-        let status = 'IN_PROGRESS';
-        let attempts = 0;
-        const maxAttempts = 30;
+      // Step 2: Wait for media processing (applies to both images and videos)
+      // Instagram needs time to process media before it can be published
+      logger.info(`⏳ Waiting for ${content.mediaType} processing...`);
+      let status = 'IN_PROGRESS';
+      let attempts = 0;
+      const maxAttempts = content.mediaType === 'video' ? 60 : 15; // Videos need more time
+      const waitTime = content.mediaType === 'video' ? 2000 : 1000; // 2s for video, 1s for image
 
-        while (status === 'IN_PROGRESS' && attempts < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
-          
+      while (status === 'IN_PROGRESS' && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        
+        try {
           const statusResponse = await axios.get(
             `https://graph.facebook.com/v18.0/${containerId}`,
             {
@@ -486,12 +488,22 @@ export class DvybPostingService {
 
           status = statusResponse.data.status_code;
           attempts++;
-          logger.info(`🔄 Video processing status: ${status} (attempt ${attempts}/${maxAttempts})`);
+          logger.info(`🔄 ${content.mediaType} processing status: ${status} (attempt ${attempts}/${maxAttempts})`);
+          
+          // For images, if no status_code returned, it might be ready
+          if (!status && content.mediaType === 'image') {
+            logger.info('📷 Image status not returned, assuming ready');
+            status = 'FINISHED';
+          }
+        } catch (statusError: any) {
+          // If we get a 400 error checking status, wait and retry
+          logger.warn(`⚠️ Status check error: ${statusError.message}, retrying...`);
+          attempts++;
         }
+      }
 
-        if (status !== 'FINISHED') {
-          throw new Error(`Video processing failed or timed out. Status: ${status}`);
-        }
+      if (status !== 'FINISHED') {
+        throw new Error(`Media processing failed or timed out. Status: ${status}`);
       }
 
       // Step 3: Publish the media
