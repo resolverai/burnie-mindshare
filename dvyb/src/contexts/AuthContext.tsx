@@ -82,11 +82,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Check if there's an account reference in localStorage
         const hasAccountReference = localStorage.getItem('dvyb_account_id');
         
-        // Check if this is a recent auth (within last 30 seconds) - don't clear data if so
+        // Check if this is a recent auth (within last 60 seconds) - don't clear data if so
         // This prevents aggressive clearing right after popup authentication
+        // Extended to 60 seconds to handle Safari/strict browsers where cookie sharing is delayed
         const recentAuthTimestamp = localStorage.getItem('dvyb_auth_timestamp');
         const isRecentAuth = recentAuthTimestamp && 
-          (Date.now() - parseInt(recentAuthTimestamp)) < 30000; // 30 seconds
+          (Date.now() - parseInt(recentAuthTimestamp)) < 60000; // 60 seconds
         
         if (hasAccountReference && !isRecentAuth && accountExists === false) {
           // Account reference exists, NOT a recent auth, and backend confirms account doesn't exist
@@ -122,8 +123,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setOnboardingComplete(false); // Will be updated on next check
           setHasValidGoogleConnection(false);
           
-          // Clear the timestamp so this doesn't keep happening
-          localStorage.removeItem('dvyb_auth_timestamp');
+          // DON'T clear the timestamp immediately - keep grace period active for multiple checkAuth calls
+          // Only clear after 60 seconds (extended grace period for Safari/strict browsers)
+          const authTimestamp = parseInt(recentAuthTimestamp);
+          if (Date.now() - authTimestamp > 60000) {
+            localStorage.removeItem('dvyb_auth_timestamp');
+          }
           return; // Don't redirect
         } else {
           // Fresh unauthenticated user (no account reference) - don't clear anything
