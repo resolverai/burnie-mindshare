@@ -163,9 +163,16 @@ router.get('/google/login', async (req: Request, res: Response) => {
  */
 router.post('/google/callback', async (req: Request, res: Response) => {
   try {
+    logger.info('📥 DVYB Google callback received');
+    logger.info(`   - Request body keys: ${Object.keys(req.body || {}).join(', ')}`);
+    
     const { code, state } = req.body;
 
+    logger.info(`   - code: ${code ? code.substring(0, 20) + '...' : 'MISSING'}`);
+    logger.info(`   - state: ${state || 'MISSING'}`);
+
     if (!code || !state) {
+      logger.warn('❌ Missing code or state in callback');
       return res.status(400).json({
         success: false,
         error: 'Missing code or state',
@@ -174,8 +181,11 @@ router.post('/google/callback', async (req: Request, res: Response) => {
     }
 
     // Verify state
+    logger.info(`🔍 Checking state in oauthStates map (${oauthStates.size} entries)`);
     const stateData = oauthStates.get(state);
     if (!stateData) {
+      logger.warn(`❌ State not found in oauthStates map: ${state}`);
+      logger.warn(`   Available states: ${Array.from(oauthStates.keys()).join(', ') || 'none'}`);
       return res.status(400).json({
         success: false,
         error: 'Invalid or expired state',
@@ -183,21 +193,27 @@ router.post('/google/callback', async (req: Request, res: Response) => {
       });
     }
 
+    logger.info('✅ State verified successfully');
     oauthStates.delete(state); // Clean up
 
     // Handle callback
+    logger.info('🔄 Calling DvybGoogleAuthService.handleGoogleCallback...');
     const { account, isNewAccount, onboardingComplete } = await DvybGoogleAuthService.handleGoogleCallback(
       code,
       state
     );
+    
+    logger.info(`✅ Google callback handled - Account ID: ${account.id}, isNew: ${isNewAccount}`);
 
     // Set authentication cookie
-    res.cookie('dvyb_account_id', account.id.toString(), {
+    const cookieOptions = {
       httpOnly: false,
-      secure: process.env.NODE_ENV === 'production', // Required for HTTPS
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' as const : 'lax' as const,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    };
+    logger.info(`🍪 Setting cookie with options: ${JSON.stringify(cookieOptions)}`);
+    res.cookie('dvyb_account_id', account.id.toString(), cookieOptions);
 
     logger.info(`✅ DVYB Google authentication successful for account ${account.id}, onboarding complete: ${onboardingComplete}`);
 
@@ -212,11 +228,14 @@ router.post('/google/callback', async (req: Request, res: Response) => {
       },
       timestamp: new Date().toISOString(),
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('❌ DVYB Google callback error:', error);
+    logger.error(`   - Error message: ${error?.message}`);
+    logger.error(`   - Error stack: ${error?.stack}`);
     return res.status(500).json({
       success: false,
       error: 'Google authentication failed',
+      details: process.env.NODE_ENV !== 'production' ? error?.message : undefined,
       timestamp: new Date().toISOString(),
     });
   }

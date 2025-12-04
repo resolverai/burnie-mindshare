@@ -34,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (clearAccountReference) {
       localStorage.removeItem('dvyb_account_id');
       localStorage.removeItem('dvyb_account_name');
+      localStorage.removeItem('dvyb_auth_timestamp'); // Clear auth timestamp
     }
     
     // Only clear OAuth state if requested (we might want to keep it during OAuth flow)
@@ -73,20 +74,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // User stays on current page - no redirects
         // If Google token is expired, user can re-authenticate
       } else {
-        // Not authenticated - account doesn't exist in database
+        // Not authenticated - check why
         const accountExists = (response.data as any)?.accountExists;
         
-        console.log('❌ Not authenticated - Account does not exist in database');
-        setIsAuthenticated(false);
-        setAccountId(null);
-        setOnboardingComplete(false);
-        setHasValidGoogleConnection(false);
+        console.log('❌ Not authenticated from backend');
         
-        // Check if there's stale auth data from a deleted account
+        // Check if there's an account reference in localStorage
         const hasAccountReference = localStorage.getItem('dvyb_account_id');
         
-        if (hasAccountReference) {
-          // Account reference exists but backend says account doesn't exist
+        // Check if this is a recent auth (within last 30 seconds) - don't clear data if so
+        // This prevents aggressive clearing right after popup authentication
+        const recentAuthTimestamp = localStorage.getItem('dvyb_auth_timestamp');
+        const isRecentAuth = recentAuthTimestamp && 
+          (Date.now() - parseInt(recentAuthTimestamp)) < 30000; // 30 seconds
+        
+        if (hasAccountReference && !isRecentAuth && accountExists === false) {
+          // Account reference exists, NOT a recent auth, and backend confirms account doesn't exist
           // This means account was deleted - clear EVERYTHING
           console.log('🗑️ Account was deleted - clearing all data including account reference');
           clearAuthData({ 
@@ -94,14 +97,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             clearOAuthState: true,      // Clear OAuth state
             clearAccountReference: true // Clear account reference
           });
+          
+          setIsAuthenticated(false);
+          setAccountId(null);
+          setOnboardingComplete(false);
+          setHasValidGoogleConnection(false);
+        } else if (hasAccountReference && isRecentAuth) {
+          // Recent auth - cookie might not be working, try setting it again
+          console.log('⚠️ Recent auth but backend says not authenticated - retrying with localStorage account ID');
+          
+          // Re-set the cookie from localStorage in case popup cookie wasn't shared
+          const accountId = hasAccountReference;
+          const isProduction = window.location.protocol === 'https:';
+          const cookieOptions = isProduction 
+            ? 'path=/; max-age=604800; SameSite=None; Secure'
+            : 'path=/; max-age=604800; SameSite=Lax';
+          document.cookie = `dvyb_account_id=${accountId}; ${cookieOptions}`;
+          console.log('🍪 Re-set account cookie from localStorage');
+          
+          // Mark as authenticated based on localStorage (optimistic)
+          // The next API call will verify this
+          setIsAuthenticated(true);
+          setAccountId(parseInt(accountId));
+          setOnboardingComplete(false); // Will be updated on next check
+          setHasValidGoogleConnection(false);
+          
+          // Clear the timestamp so this doesn't keep happening
+          localStorage.removeItem('dvyb_auth_timestamp');
+          return; // Don't redirect
         } else {
           // Fresh unauthenticated user (no account reference) - don't clear anything
           // This preserves website analysis data for the unauthenticated flow
           console.log('👤 Fresh unauthenticated user - preserving localStorage');
+          
+          setIsAuthenticated(false);
+          setAccountId(null);
+          setOnboardingComplete(false);
+          setHasValidGoogleConnection(false);
         }
         
         // Define public routes that don't require authentication
-        const publicRoutes = ['/', '/auth/twitter', '/auth/twitter/callback', '/auth/login', '/onboarding/analysis-details'];
+        const publicRoutes = ['/', '/auth/twitter', '/auth/twitter/callback', '/auth/login', '/onboarding/analysis-details', '/onboarding/brand-profile', '/auth/google/callback'];
         const isPublicRoute = publicRoutes.some(route => pathname === route || pathname?.startsWith(route));
         
         // If user is not authenticated and not on a public route, redirect to landing page
@@ -127,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const hasAccountReference = localStorage.getItem('dvyb_account_id');
       
       // Redirect based on whether account reference exists
-      const publicRoutes = ['/', '/auth/twitter', '/auth/twitter/callback', '/auth/login', '/onboarding/analysis-details'];
+      const publicRoutes = ['/', '/auth/twitter', '/auth/twitter/callback', '/auth/login', '/onboarding/analysis-details', '/onboarding/brand-profile', '/auth/google/callback'];
       const isPublicRoute = publicRoutes.some(route => pathname === route || pathname?.startsWith(route));
       
       if (!isPublicRoute) {

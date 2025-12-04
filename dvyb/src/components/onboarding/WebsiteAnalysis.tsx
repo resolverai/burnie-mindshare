@@ -32,7 +32,7 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
-  const { checkAuth, isAuthenticated } = useAuth();
+  const { checkAuth, isAuthenticated, logout } = useAuth();
 
 
   const handleGoogleSignIn = async () => {
@@ -73,6 +73,18 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
             // Store account info
             if (event.data.account_id) {
               localStorage.setItem('dvyb_account_id', event.data.account_id.toString());
+              
+              // Set timestamp to prevent AuthContext from clearing data if cookie doesn't work
+              localStorage.setItem('dvyb_auth_timestamp', Date.now().toString());
+              
+              // CRITICAL: Also set the cookie in the parent window context
+              // This ensures checkAuth() can find the account ID even if popup cookie isn't shared
+              const isProduction = window.location.protocol === 'https:';
+              const cookieOptions = isProduction 
+                ? 'path=/; max-age=604800; SameSite=None; Secure'  // 7 days, cross-site safe
+                : 'path=/; max-age=604800; SameSite=Lax';          // 7 days, same-site only
+              document.cookie = `dvyb_account_id=${event.data.account_id}; ${cookieOptions}`;
+              console.log('🍪 Set account cookie in parent window');
             }
             if (event.data.account_name) {
               localStorage.setItem('dvyb_account_name', event.data.account_name);
@@ -116,18 +128,102 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
 
         window.addEventListener('message', handleMessage);
 
-        // Check if popup was closed
+        // Helper function to process auth result from localStorage
+        const processLocalStorageFallback = () => {
+          try {
+            const fallbackData = localStorage.getItem('dvyb_auth_result');
+            console.log('🔍 Checking localStorage fallback:', fallbackData ? 'FOUND' : 'not found');
+            
+            if (fallbackData) {
+              const authResult = JSON.parse(fallbackData);
+              console.log('📦 Auth result from localStorage:', authResult);
+              
+              // Check if this is a recent result (within last 60 seconds)
+              if (authResult.timestamp && (Date.now() - authResult.timestamp) < 60000) {
+                console.log('✅ Found valid auth result in localStorage fallback');
+                localStorage.removeItem('dvyb_auth_result'); // Clear it
+                
+                if (authResult.type === 'DVYB_GOOGLE_AUTH_SUCCESS' && authResult.account_id) {
+                  // Process the success
+                  localStorage.setItem('dvyb_account_id', authResult.account_id.toString());
+                  localStorage.setItem('dvyb_auth_timestamp', Date.now().toString());
+                  
+                  const isProduction = window.location.protocol === 'https:';
+                  const cookieOptions = isProduction 
+                    ? 'path=/; max-age=604800; SameSite=None; Secure'
+                    : 'path=/; max-age=604800; SameSite=Lax';
+                  document.cookie = `dvyb_account_id=${authResult.account_id}; ${cookieOptions}`;
+                  console.log('🍪 Cookie set from localStorage fallback');
+                  
+                  if (authResult.account_name) {
+                    localStorage.setItem('dvyb_account_name', authResult.account_name);
+                  }
+                  
+                  setIsSigningIn(false);
+                  checkAuth().then(() => {
+                    setTimeout(() => {
+                      if (authResult.onboarding_complete) {
+                        console.log('→ Redirecting to /home');
+                        router.push('/home');
+                      } else {
+                        const hasAnalysis = localStorage.getItem('dvyb_website_analysis');
+                        if (hasAnalysis) {
+                          console.log('→ Redirecting to /onboarding/analysis-details');
+                          router.push('/onboarding/analysis-details');
+                        } else {
+                          console.log('→ Reloading page');
+                          window.location.reload();
+                        }
+                      }
+                    }, 300);
+                  });
+                  return true; // Success
+                }
+              } else {
+                console.log('⚠️ Auth result too old, ignoring');
+                localStorage.removeItem('dvyb_auth_result');
+              }
+            }
+          } catch (e) {
+            console.error('Error checking fallback:', e);
+          }
+          return false;
+        };
+
+        // Check if popup was closed - also check for localStorage fallback
+        let checkCount = 0;
         const checkPopupClosed = setInterval(() => {
-          if (authWindow?.closed && !messageReceived) {
+          checkCount++;
+          
+          // Check localStorage on EVERY tick (popup might write before closing)
+          if (!messageReceived && processLocalStorageFallback()) {
+            console.log('✅ Processed auth from localStorage fallback');
+            clearInterval(checkPopupClosed);
+            window.removeEventListener('message', handleMessage);
+            return;
+          }
+          
+          // Also check if popup is closed (might be null, closed, or undefined)
+          const isClosed = !authWindow || authWindow.closed;
+          
+          if (checkCount % 4 === 0) { // Log every 2 seconds
+            console.log(`🔄 Popup check #${checkCount}: closed=${isClosed}, messageReceived=${messageReceived}`);
+          }
+          
+          // After popup is definitely closed and no message, give up after a few more checks
+          if (isClosed && !messageReceived && checkCount > 10) {
+            console.log('⚠️ Popup closed without auth completion');
             clearInterval(checkPopupClosed);
             window.removeEventListener('message', handleMessage);
             setIsSigningIn(false);
           }
-        }, 1000);
+        }, 500);
 
+        // Cleanup after 5 minutes
         setTimeout(() => {
           clearInterval(checkPopupClosed);
           if (!messageReceived) {
+            console.log('⏰ Timeout waiting for auth');
             window.removeEventListener('message', handleMessage);
             setIsSigningIn(false);
           }
@@ -252,9 +348,18 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
           </>
         )}
         {isAuthenticated && (
-          <span className="text-xs md:text-sm text-muted-foreground">
-            ✓ Signed in - Enter your website URL to continue
-          </span>
+          <div className="flex items-center gap-2 md:gap-3">
+            <span className="text-xs md:text-sm text-muted-foreground">
+              ✓ Signed in
+            </span>
+            <span className="text-muted-foreground/50">•</span>
+            <button
+              onClick={() => logout()}
+              className="text-xs md:text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+            >
+              Sign out
+            </button>
+          </div>
         )}
       </div>
 

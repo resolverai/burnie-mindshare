@@ -17,14 +17,33 @@ async function apiRequest<T>(
     ...options,
   };
 
-  const response = await fetch(url, defaultOptions);
-  const data = await response.json();
+  try {
+    console.log(`🌐 API Request: ${options.method || 'GET'} ${url}`);
+    const response = await fetch(url, defaultOptions);
+    
+    console.log(`📥 API Response: ${response.status} ${response.statusText}`);
+    
+    // Check for network errors or CORS issues
+    if (!response.ok && response.status === 0) {
+      throw new Error('Network error - request may have been blocked by browser (CORS/cookies)');
+    }
+    
+    const data = await response.json();
 
-  if (!response.ok) {
-    throw new Error(data.error || 'API request failed');
+    if (!response.ok) {
+      console.error('❌ API Error:', data);
+      throw new Error(data.error || `API request failed with status ${response.status}`);
+    }
+
+    return data;
+  } catch (error: any) {
+    // Handle network-level errors (CORS, blocked requests, etc.)
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.error('❌ Network/CORS Error:', error);
+      throw new Error('Network error - unable to reach server. This might be a CORS or cookie blocking issue.');
+    }
+    throw error;
   }
-
-  return data;
 }
 
 // Authentication API

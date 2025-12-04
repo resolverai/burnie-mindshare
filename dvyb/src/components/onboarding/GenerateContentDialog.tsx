@@ -1518,22 +1518,14 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
               ))}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex justify-center">
               <Button 
                 variant="outline" 
-                className="flex-1 text-sm sm:text-base h-10 sm:h-11" 
+                className="w-full max-w-xs text-sm sm:text-base h-10 sm:h-11" 
                 onClick={handleClose}
                 disabled={isGenerating}
               >
                 Done
-              </Button>
-              <Button 
-                variant="outline" 
-                className="flex-1 text-sm sm:text-base h-10 sm:h-11" 
-                onClick={() => setStep("review")}
-                disabled={isGenerating}
-              >
-                Generate More
               </Button>
             </div>
           </div>

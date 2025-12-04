@@ -20,42 +20,101 @@ function DvybGoogleCallbackContent() {
         const code = searchParams.get('code')
         const state = searchParams.get('state')
         
+        console.log('📍 Google callback page loaded')
+        console.log('   - code:', code ? code.substring(0, 10) + '...' : 'MISSING')
+        console.log('   - state:', state || 'MISSING')
+        console.log('   - window.opener:', window.opener ? 'EXISTS' : 'NULL')
+        console.log('   - origin:', window.location.origin)
+        
         if (!code || !state) {
           throw new Error('Missing code or state')
         }
         
-        console.log('Processing Google callback...', { code: code.substring(0, 10) + '...', state })
+        console.log('📡 Calling backend callback endpoint...')
         
         // Call the callback endpoint
         const response = await authApi.handleGoogleCallback(code, state)
         
+        console.log('📥 Backend response:', JSON.stringify(response, null, 2))
+        
         if (!response.success) {
-          throw new Error(String(('error' in response ? response.error : undefined) || 'Callback failed'))
+          const errorMsg = ('error' in response ? response.error : undefined) || 'Callback failed'
+          console.error('❌ Backend returned success: false -', errorMsg)
+          throw new Error(String(errorMsg))
         }
+        
+        console.log('✅ Backend callback successful!')
+        console.log('   - account_id:', response.data?.account_id)
+        console.log('   - account_name:', response.data?.account_name)
+        console.log('   - email:', response.data?.email)
+        console.log('   - is_new_account:', response.data?.is_new_account)
+        console.log('   - onboarding_complete:', response.data?.onboarding_complete)
         
         setStatus('Connected! Redirecting...')
         
         // Send success message to parent window
         if (window.opener) {
-          window.opener.postMessage({
-            type: 'DVYB_GOOGLE_AUTH_SUCCESS',
-            account_id: response.data?.account_id,
-            account_name: response.data?.account_name,
-            email: response.data?.email,
-            is_new_account: response.data?.is_new_account,
-            onboarding_complete: response.data?.onboarding_complete
-          }, window.location.origin)
+          console.log('📤 Sending success message to parent window...')
+          try {
+            window.opener.postMessage({
+              type: 'DVYB_GOOGLE_AUTH_SUCCESS',
+              account_id: response.data?.account_id,
+              account_name: response.data?.account_name,
+              email: response.data?.email,
+              is_new_account: response.data?.is_new_account,
+              onboarding_complete: response.data?.onboarding_complete
+            }, window.location.origin)
+            console.log('✅ Message sent to parent')
+          } catch (msgError) {
+            console.error('❌ Failed to send message to parent:', msgError)
+            // Fallback: Store auth data in localStorage that parent can read
+            try {
+              localStorage.setItem('dvyb_auth_result', JSON.stringify({
+                type: 'DVYB_GOOGLE_AUTH_SUCCESS',
+                account_id: response.data?.account_id,
+                account_name: response.data?.account_name,
+                email: response.data?.email,
+                is_new_account: response.data?.is_new_account,
+                onboarding_complete: response.data?.onboarding_complete,
+                timestamp: Date.now()
+              }))
+              console.log('✅ Auth result stored in localStorage as fallback')
+            } catch (storageError) {
+              console.error('❌ Failed to store fallback:', storageError)
+            }
+          }
+        } else {
+          console.warn('⚠️ No window.opener - storing auth result in localStorage')
+          // Fallback: Store auth data in localStorage
+          try {
+            localStorage.setItem('dvyb_auth_result', JSON.stringify({
+              type: 'DVYB_GOOGLE_AUTH_SUCCESS',
+              account_id: response.data?.account_id,
+              account_name: response.data?.account_name,
+              email: response.data?.email,
+              is_new_account: response.data?.is_new_account,
+              onboarding_complete: response.data?.onboarding_complete,
+              timestamp: Date.now()
+            }))
+            console.log('✅ Auth result stored in localStorage as fallback')
+          } catch (storageError) {
+            console.error('❌ Failed to store fallback:', storageError)
+          }
         }
         
         // Close window after a short delay
+        console.log('⏳ Closing window in 1.2 seconds...')
         setTimeout(() => window.close(), 1200)
       } catch (error: any) {
-        console.error('Google callback error:', error)
+        console.error('❌ Google callback error:', error)
+        console.error('   - Error message:', error?.message)
+        console.error('   - Error stack:', error?.stack)
         setIsError(true)
         setStatus(error?.message || 'Authentication failed')
         
         // Send error message to parent window
         if (window.opener) {
+          console.log('📤 Sending error message to parent window...')
           window.opener.postMessage({
             type: 'DVYB_GOOGLE_AUTH_ERROR',
             message: error?.message || 'Authentication failed'
