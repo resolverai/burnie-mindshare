@@ -145,4 +145,53 @@ All colors MUST be HSL.
   .rdp-day_today[aria-selected="true"] {
     background-color: hsl(var(--primary)) !important;
   }
+
+  /* Onboarding Guide - Pulsating Attention Ring */
+  .onboarding-pulse-ring {
+    position: relative;
+  }
+  
+  .onboarding-pulse-ring::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    border: 2px solid hsl(217 91% 60%);
+    animation: onboarding-pulse 1.5s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
+  
+  .onboarding-pulse-ring::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border-radius: inherit;
+    border: 2px solid hsl(217 91% 60% / 0.4);
+    animation: onboarding-pulse-outer 1.5s ease-out infinite;
+    pointer-events: none;
+    z-index: 0;
+  }
+  
+  @keyframes onboarding-pulse {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(1.02);
+    }
+  }
+  
+  @keyframes onboarding-pulse-outer {
+    0% {
+      transform: scale(1);
+      opacity: 0.6;
+    }
+    100% {
+      transform: scale(1.2);
+      opacity: 0;
+    }
+  }
 }

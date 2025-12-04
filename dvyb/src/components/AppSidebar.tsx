@@ -26,6 +26,8 @@ interface AppSidebarProps {
   isMobileOpen?: boolean;
   onMobileClose?: () => void;
   forceCollapsed?: boolean;
+  onboardingHighlight?: 'content_library' | 'brand_kit' | null;
+  onHighlightClick?: (item: string) => void;
 }
 
 const menuItems = [
@@ -36,7 +38,7 @@ const menuItems = [
   { id: "brand-kit", label: "Brand Kit", icon: Palette, disabled: false },
 ];
 
-export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onMobileClose, forceCollapsed = false }: AppSidebarProps) => {
+export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onMobileClose, forceCollapsed = false, onboardingHighlight = null, onHighlightClick }: AppSidebarProps) => {
   // Collapsed by default on mobile/tablet, expanded on desktop
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -127,7 +129,26 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
       if (onMobileClose) {
         onMobileClose();
       }
+      // Notify parent about highlighted item click
+      if (onHighlightClick) {
+        if (itemId === 'content-library') {
+          onHighlightClick('content_library');
+        } else if (itemId === 'brand-kit') {
+          onHighlightClick('brand_kit');
+        }
+      }
     }
+  };
+
+  // Determine if a menu item should show the onboarding highlight ring
+  const shouldShowRing = (itemId: string): boolean => {
+    if (itemId === 'content-library' && onboardingHighlight === 'content_library') {
+      return true;
+    }
+    if (itemId === 'brand-kit' && onboardingHighlight === 'brand_kit') {
+      return true;
+    }
+    return false;
   };
 
   return (
@@ -234,7 +255,8 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "text-sidebar-foreground hover:bg-sidebar-accent/50",
                 collapsed && "md:justify-center",
-                item.disabled && "opacity-50 cursor-not-allowed hover:bg-transparent"
+                item.disabled && "opacity-50 cursor-not-allowed hover:bg-transparent",
+                shouldShowRing(item.id) && "onboarding-pulse-ring"
               )}
               title={collapsed ? item.label : undefined}
             >

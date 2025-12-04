@@ -16,6 +16,7 @@ import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 import { useToast } from "@/hooks/use-toast";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
+import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 
 interface PlatformMetrics {
   impressions?: number;
@@ -88,6 +89,18 @@ export const Home = () => {
   const router = useRouter();
   const { accountId } = useAuth();
   const { toast } = useToast();
+  
+  // Onboarding guide for new users
+  const { completeStep, getCurrentHighlight } = useOnboardingGuide();
+  const currentHighlight = getCurrentHighlight();
+  
+  // Debug logging for onboarding
+  useEffect(() => {
+    console.log('🎯 Home - currentHighlight:', currentHighlight);
+    // Direct localStorage check
+    const directCheck = localStorage.getItem('dvyb_onboarding_guide_progress');
+    console.log('🎯 Home - Direct localStorage check:', directCheck);
+  }, [currentHighlight]);
 
   // Handle name update
   const handleSaveName = async () => {
@@ -185,12 +198,16 @@ export const Home = () => {
       // Clear the flag immediately to prevent re-opening
       localStorage.removeItem('dvyb_onboarding_generation_job_id');
       
+      // Mark auto_content_viewed as complete immediately when dialog opens
+      // This ensures rings will show even if user reloads before closing the dialog
+      completeStep('auto_content_viewed');
+      
       // Small delay to ensure home page is fully loaded
       setTimeout(() => {
         setShowGenerateDialog(true);
       }, 500);
     }
-  }, [isLoading]);
+  }, [isLoading, completeStep]);
 
   const handleViewChange = (view: string) => {
     setActiveView(view);
@@ -202,6 +219,15 @@ export const Home = () => {
       router.push("/content-library");
     } else if (view === "brand-plan") {
       return; // Disabled
+    }
+  };
+
+  // Handle clicks on highlighted onboarding items
+  const handleOnboardingHighlightClick = (item: string) => {
+    if (item === 'content_library') {
+      completeStep('content_library_visited');
+    } else if (item === 'brand_kit') {
+      completeStep('brand_kit_visited');
     }
   };
 
@@ -384,6 +410,8 @@ export const Home = () => {
           onViewChange={handleViewChange}
           isMobileOpen={isMobileMenuOpen}
           onMobileClose={() => setIsMobileMenuOpen(false)}
+          onboardingHighlight={currentHighlight === 'content_library' || currentHighlight === 'brand_kit' ? currentHighlight : null}
+          onHighlightClick={handleOnboardingHighlightClick}
         />
         <main className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
@@ -402,6 +430,8 @@ export const Home = () => {
         onViewChange={handleViewChange}
         isMobileOpen={isMobileMenuOpen}
         onMobileClose={() => setIsMobileMenuOpen(false)}
+        onboardingHighlight={currentHighlight === 'content_library' || currentHighlight === 'brand_kit' ? currentHighlight : null}
+        onHighlightClick={handleOnboardingHighlightClick}
       />
 
       <main className="flex-1 flex flex-col overflow-hidden">
@@ -475,8 +505,13 @@ export const Home = () => {
 
               <div className="flex gap-3 mt-4 md:mt-6">
                 <Button 
-                  className="gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm md:text-base"
+                  className={`gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm md:text-base ${
+                    currentHighlight === 'generate_button' ? 'onboarding-pulse-ring' : ''
+                  }`}
                   onClick={async () => {
+                    // Mark onboarding step as explored
+                    completeStep('generate_content_explored');
+                    
                     // Check usage limits first
                     try {
                       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
@@ -1230,6 +1265,11 @@ export const Home = () => {
               }
             }}
             initialJobId={onboardingJobId}
+            onDialogClosed={() => {
+              // Ensure onboarding step is marked as viewed when dialog closes
+              // (This is a backup - step is already marked when dialog opens)
+              completeStep('auto_content_viewed');
+            }}
           />
           
           <UpgradeDialog 

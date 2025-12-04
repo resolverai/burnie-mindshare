@@ -23,6 +23,7 @@ interface GenerateContentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialJobId?: string | null; // For onboarding auto-generation
+  onDialogClosed?: () => void; // Callback when dialog closes for any reason (Done, scheduling, etc.)
 }
 
 type Step = "topic" | "platform" | "context" | "review" | "generating" | "results";
@@ -61,7 +62,7 @@ const PLATFORMS = [
   },
 ];
 
-export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: GenerateContentDialogProps) => {
+export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed }: GenerateContentDialogProps) => {
   const [step, setStep] = useState<Step>("topic");
   const [selectedTopic, setSelectedTopic] = useState<string>("");
   const [customTopic, setCustomTopic] = useState("");
@@ -1018,6 +1019,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
   const handleClose = () => {
     resetDialog();
     onOpenChange(false);
+    // Notify parent that dialog has closed (for onboarding tracking)
+    onDialogClosed?.();
   };
 
   const renderStep = () => {
@@ -1603,6 +1606,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId }: Gene
           setShowScheduleDialog(false);
           onOpenChange(false);
           resetDialog();
+          // Notify parent that dialog has closed (for onboarding tracking)
+          onDialogClosed?.();
         }}
       />
 

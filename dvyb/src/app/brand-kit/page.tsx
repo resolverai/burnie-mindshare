@@ -8,18 +8,26 @@ import { BrandKitPage as BrandKitContent } from "@/components/pages/BrandKitPage
 import { Loader2, Menu } from "lucide-react";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
+import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 
 export default function BrandKitPageRoute() {
   const [activeView] = useState("brand-kit");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
+  const { completeStep, getCurrentHighlight } = useOnboardingGuide();
+  const currentHighlight = getCurrentHighlight();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push("/auth/login");
     }
   }, [isAuthenticated, isLoading, router]);
+
+  // Mark brand kit as visited for onboarding
+  useEffect(() => {
+    completeStep('brand_kit_visited');
+  }, [completeStep]);
 
   const handleViewChange = (view: string) => {
     if (view === "home") router.push("/home");

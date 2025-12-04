@@ -8,6 +8,7 @@ import { ContentLibrary } from "@/components/pages/ContentLibrary";
 import { Loader2, Menu } from "lucide-react";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
+import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 
 export default function ContentLibraryPage() {
   const [activeView] = useState("content-library");
@@ -15,6 +16,8 @@ export default function ContentLibraryPage() {
   const [isEditDesignMode, setIsEditDesignMode] = useState(false);
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
+  const { completeStep, getCurrentHighlight } = useOnboardingGuide();
+  const currentHighlight = getCurrentHighlight();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -22,11 +25,23 @@ export default function ContentLibraryPage() {
     }
   }, [isAuthenticated, isLoading, router]);
 
+  // Mark content library as visited for onboarding
+  useEffect(() => {
+    completeStep('content_library_visited');
+  }, [completeStep]);
+
   const handleViewChange = (view: string) => {
     if (view === "home") router.push("/home");
     else if (view === "calendar") router.push("/calendar");
     else if (view === "brand-kit") router.push("/brand-kit");
     else if (view === "brand-plan") return; // Disabled
+  };
+
+  // Handle clicks on highlighted onboarding items
+  const handleOnboardingHighlightClick = (item: string) => {
+    if (item === 'brand_kit') {
+      completeStep('brand_kit_visited');
+    }
   };
 
   if (isLoading || !isAuthenticated) {
@@ -49,6 +64,8 @@ export default function ContentLibraryPage() {
         isMobileOpen={isMobileMenuOpen}
         onMobileClose={() => setIsMobileMenuOpen(false)}
         forceCollapsed={isEditDesignMode}
+        onboardingHighlight={currentHighlight === 'brand_kit' ? currentHighlight : null}
+        onHighlightClick={handleOnboardingHighlightClick}
       />
 
       {/* Main Content */}

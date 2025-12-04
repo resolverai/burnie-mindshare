@@ -52,54 +52,35 @@ function DvybGoogleCallbackContent() {
         
         setStatus('Connected! Redirecting...')
         
-        // Send success message to parent window
+        // ALWAYS store auth result in localStorage first (Safari doesn't reliably deliver postMessage)
+        const authResult = {
+          type: 'DVYB_GOOGLE_AUTH_SUCCESS',
+          account_id: response.data?.account_id,
+          account_name: response.data?.account_name,
+          email: response.data?.email,
+          is_new_account: response.data?.is_new_account,
+          onboarding_complete: response.data?.onboarding_complete,
+          timestamp: Date.now()
+        };
+        
+        try {
+          localStorage.setItem('dvyb_auth_result', JSON.stringify(authResult));
+          console.log('✅ Auth result stored in localStorage');
+        } catch (storageError) {
+          console.error('❌ Failed to store in localStorage:', storageError);
+        }
+        
+        // Also try to send via postMessage (works in Chrome/Firefox)
         if (window.opener) {
           console.log('📤 Sending success message to parent window...')
           try {
-            window.opener.postMessage({
-              type: 'DVYB_GOOGLE_AUTH_SUCCESS',
-              account_id: response.data?.account_id,
-              account_name: response.data?.account_name,
-              email: response.data?.email,
-              is_new_account: response.data?.is_new_account,
-              onboarding_complete: response.data?.onboarding_complete
-            }, window.location.origin)
+            window.opener.postMessage(authResult, window.location.origin)
             console.log('✅ Message sent to parent')
           } catch (msgError) {
             console.error('❌ Failed to send message to parent:', msgError)
-            // Fallback: Store auth data in localStorage that parent can read
-            try {
-              localStorage.setItem('dvyb_auth_result', JSON.stringify({
-                type: 'DVYB_GOOGLE_AUTH_SUCCESS',
-                account_id: response.data?.account_id,
-                account_name: response.data?.account_name,
-                email: response.data?.email,
-                is_new_account: response.data?.is_new_account,
-                onboarding_complete: response.data?.onboarding_complete,
-                timestamp: Date.now()
-              }))
-              console.log('✅ Auth result stored in localStorage as fallback')
-            } catch (storageError) {
-              console.error('❌ Failed to store fallback:', storageError)
-            }
           }
         } else {
-          console.warn('⚠️ No window.opener - storing auth result in localStorage')
-          // Fallback: Store auth data in localStorage
-          try {
-            localStorage.setItem('dvyb_auth_result', JSON.stringify({
-              type: 'DVYB_GOOGLE_AUTH_SUCCESS',
-              account_id: response.data?.account_id,
-              account_name: response.data?.account_name,
-              email: response.data?.email,
-              is_new_account: response.data?.is_new_account,
-              onboarding_complete: response.data?.onboarding_complete,
-              timestamp: Date.now()
-            }))
-            console.log('✅ Auth result stored in localStorage as fallback')
-          } catch (storageError) {
-            console.error('❌ Failed to store fallback:', storageError)
-          }
+          console.warn('⚠️ No window.opener - relying on localStorage fallback')
         }
         
         // Close window after a short delay

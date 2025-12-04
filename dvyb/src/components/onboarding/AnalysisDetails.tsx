@@ -460,7 +460,7 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
 
           <div className="flex justify-center md:justify-end pt-4 md:pt-6">
             <Button onClick={onContinue} size="lg" className="w-full md:w-auto md:min-w-[200px]">
-              {isAuthenticated ? 'Continue to Brand Logo' : 'Sign in to Continue'}
+              {isAuthenticated ? 'Continue' : 'Sign in to Continue'}
             </Button>
           </div>
         </div>
