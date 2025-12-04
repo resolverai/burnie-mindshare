@@ -4,13 +4,19 @@ import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Loader2, XCircle, CheckCircle } from 'lucide-react'
 import { oauth1Api } from '@/lib/api'
+import { getOAuthFlowState, updateOAuthFlowState } from '@/lib/oauthFlowState'
 
 function OAuth1CallbackContent() {
   const searchParams = useSearchParams()
-  const [status, setStatus] = useState('Processing OAuth1 authorization...')
+  const [status, setStatus] = useState('Processing video authorization...')
   const [isError, setIsError] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
+  const [showRetry, setShowRetry] = useState(false)
   const processingRef = useRef(false)
+
+  const handleRetry = () => {
+    window.location.href = '/home'
+  }
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -30,12 +36,12 @@ function OAuth1CallbackContent() {
           throw new Error('Missing OAuth parameters from Twitter callback')
         }
         
-        // Get state and token secret from localStorage (stored by parent window)
+        // Get state and token secret from localStorage (stored before redirect)
         const storedState = localStorage.getItem('oauth1_state')
         const storedTokenSecret = localStorage.getItem('oauth1_token_secret')
         
         if (!storedState || !storedTokenSecret) {
-          throw new Error('Missing OAuth1 state or token secret')
+          throw new Error('Session expired. Please try again.')
         }
         
         console.log('Processing OAuth1 callback...', { 
@@ -56,38 +62,64 @@ function OAuth1CallbackContent() {
           throw new Error(String(('error' in response ? response.error : undefined) || 'Callback failed'))
         }
         
-        setStatus('OAuth1 authorization successful!')
+        setStatus('Video authorization complete! Redirecting...')
         setIsSuccess(true)
         
-        // Clean up localStorage
+        // Clean up OAuth1 state
         localStorage.removeItem('oauth1_state')
         localStorage.removeItem('oauth1_token_secret')
         
-        // Send success message to parent window
-        if (window.opener) {
-          window.opener.postMessage({
-            type: 'oauth1_success',
-            screenName: response.data?.screenName,
-          }, window.location.origin)
+        // Check if this is part of a post flow
+        const flowState = getOAuthFlowState()
+        
+        if (flowState) {
+          console.log('📋 OAuth post flow detected, marking OAuth1 complete...')
+          
+          // Mark OAuth1 as complete
+          updateOAuthFlowState({ oauth1Completed: true })
+          
+          // Store success for toast
+          localStorage.setItem('dvyb_oauth_success', JSON.stringify({
+            platform: 'twitter',
+            message: 'Video authorization complete! Ready to post.',
+            oauth1Complete: true,
+            allComplete: true,
+            timestamp: Date.now()
+          }))
+          
+          // Redirect to home - dialog will resume and complete the post
+          console.log('🚀 Redirecting to /home for flow completion...')
+          setTimeout(() => {
+            window.location.href = '/home'
+          }, 500)
+          return
         }
         
-        // Close window after a short delay
-        setTimeout(() => window.close(), 1500)
+        // Not part of a post flow - just store success and redirect
+        localStorage.setItem('dvyb_oauth_success', JSON.stringify({
+          platform: 'twitter',
+          message: 'Video authorization complete!',
+          oauth1Complete: true,
+          timestamp: Date.now()
+        }))
+        
+        setTimeout(() => {
+          window.location.href = '/home'
+        }, 800)
       } catch (error: any) {
         console.error('OAuth1 callback error:', error)
         setIsError(true)
-        setStatus(error?.message || 'OAuth1 authorization failed')
         
-        // Send error message to parent window
-        if (window.opener) {
-          window.opener.postMessage({
-            type: 'oauth1_error',
-            message: error?.message || 'OAuth1 authorization failed'
-          }, window.location.origin)
+        const errorMsg = error?.message || 'Video authorization failed'
+        if (errorMsg.includes('expired') || errorMsg.includes('Session')) {
+          setStatus('Your authorization session expired. Please try again.')
+          setShowRetry(true)
+        } else {
+          setStatus(errorMsg)
+          setTimeout(() => {
+            window.location.href = '/home'
+          }, 2000)
         }
-        
-        // Close window after showing error
-        setTimeout(() => window.close(), 3000)
       }
     }
     
@@ -116,6 +148,14 @@ function OAuth1CallbackContent() {
           }`}>
             {status}
           </p>
+          {showRetry && (
+            <button
+              onClick={handleRetry}
+              className="mt-4 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm md:text-base font-medium"
+            >
+              Go Back
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -138,4 +178,3 @@ export default function OAuth1CallbackPage() {
     </Suspense>
   )
 }
-

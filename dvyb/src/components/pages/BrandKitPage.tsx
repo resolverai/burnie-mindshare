@@ -213,6 +213,30 @@ export const BrandKitPage = () => {
   const { accountId, logout } = useAuth();
   const router = useRouter();
 
+  // Check for OAuth success (from redirect flow callbacks)
+  useEffect(() => {
+    const oauthSuccessStr = localStorage.getItem('dvyb_oauth_success');
+    if (oauthSuccessStr) {
+      try {
+        const oauthSuccess = JSON.parse(oauthSuccessStr);
+        // Check if it's recent (within last 30 seconds)
+        if (Date.now() - oauthSuccess.timestamp < 30000) {
+          toast({
+            title: "Connected!",
+            description: oauthSuccess.message || `${oauthSuccess.platform} connected successfully`,
+          });
+          
+          // Refresh connections
+          fetchConnections();
+        }
+      } catch (e) {
+        console.error('Error parsing OAuth success:', e);
+      }
+      // Clean up
+      localStorage.removeItem('dvyb_oauth_success');
+    }
+  }, []);
+
   // Fetch context data on mount
   useEffect(() => {
     if (accountId) {
@@ -871,7 +895,7 @@ export const BrandKitPage = () => {
   /**
    * Comprehensive save function that saves all changes across all tabs
    */
-  // OAuth handlers for platforms
+  // OAuth handlers for platforms (redirect flow)
   const handleGoogleConnect = async () => {
     try {
       const response = await authApi.getGoogleLoginUrl();
@@ -879,32 +903,13 @@ export const BrandKitPage = () => {
         throw new Error('Failed to get Google auth URL');
       }
 
-      const width = 500;
-      const height = 600;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
+      // Store return URL for callback redirect
+      localStorage.setItem('dvyb_oauth_return_url', '/brand-kit');
+      localStorage.setItem('dvyb_oauth_platform', 'google');
 
-      const authWindow = window.open(
-        response.data.oauth_url,
-        'google-oauth',
-        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-      );
-
-      const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-
-        if (event.data.type === 'DVYB_GOOGLE_AUTH_SUCCESS') {
-          toast({
-            title: "Connected!",
-            description: "Google connected successfully",
-          });
-          fetchConnections();
-          authWindow?.close();
-          window.removeEventListener('message', handleMessage);
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
+      // Redirect to Google OAuth
+      console.log('🚀 Redirecting to Google OAuth...');
+      window.location.href = response.data.oauth_url;
     } catch (error: any) {
       toast({
         title: "Error",
@@ -921,32 +926,13 @@ export const BrandKitPage = () => {
         throw new Error('Failed to get Twitter auth URL');
       }
 
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
+      // Store return URL for callback redirect
+      localStorage.setItem('dvyb_oauth_return_url', '/brand-kit');
+      localStorage.setItem('dvyb_oauth_platform', 'twitter');
 
-      const authWindow = window.open(
-        response.data.oauth_url,
-        'twitter-oauth',
-        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-      );
-
-      const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-
-        if (event.data?.type === 'DVYB_TWITTER_AUTH_SUCCESS') {
-          toast({
-            title: "Connected!",
-            description: "Twitter connected successfully",
-          });
-          fetchConnections();
-          authWindow?.close();
-          window.removeEventListener('message', handleMessage);
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
+      // Redirect to Twitter OAuth
+      console.log('🚀 Redirecting to Twitter OAuth...');
+      window.location.href = response.data.oauth_url;
     } catch (error: any) {
       toast({
         title: "Error",
@@ -963,32 +949,13 @@ export const BrandKitPage = () => {
         throw new Error('Failed to get Instagram auth URL');
       }
 
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
+      // Store return URL for callback redirect
+      localStorage.setItem('dvyb_oauth_return_url', '/brand-kit');
+      localStorage.setItem('dvyb_oauth_platform', 'instagram');
 
-      const authWindow = window.open(
-        response.data.authUrl,
-        'instagram-oauth',
-        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-      );
-
-      const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-
-        if (event.data.type === 'instagram_connected') {
-          toast({
-            title: "Connected!",
-            description: "Instagram connected successfully",
-          });
-          fetchConnections();
-          authWindow?.close();
-          window.removeEventListener('message', handleMessage);
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
+      // Redirect to Instagram OAuth
+      console.log('🚀 Redirecting to Instagram OAuth...');
+      window.location.href = response.data.authUrl;
     } catch (error: any) {
       toast({
         title: "Error",
@@ -1005,32 +972,13 @@ export const BrandKitPage = () => {
         throw new Error('Failed to get LinkedIn auth URL');
       }
 
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
+      // Store return URL for callback redirect
+      localStorage.setItem('dvyb_oauth_return_url', '/brand-kit');
+      localStorage.setItem('dvyb_oauth_platform', 'linkedin');
 
-      const authWindow = window.open(
-        response.data.authUrl,
-        'linkedin-oauth',
-        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-      );
-
-      const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-
-        if (event.data.type === 'linkedin_connected') {
-          toast({
-            title: "Connected!",
-            description: "LinkedIn connected successfully",
-          });
-          fetchConnections();
-          authWindow?.close();
-          window.removeEventListener('message', handleMessage);
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
+      // Redirect to LinkedIn OAuth
+      console.log('🚀 Redirecting to LinkedIn OAuth...');
+      window.location.href = response.data.authUrl;
     } catch (error: any) {
       toast({
         title: "Error",
@@ -1047,32 +995,13 @@ export const BrandKitPage = () => {
         throw new Error('Failed to get TikTok auth URL');
       }
 
-      const width = 600;
-      const height = 700;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
+      // Store return URL for callback redirect
+      localStorage.setItem('dvyb_oauth_return_url', '/brand-kit');
+      localStorage.setItem('dvyb_oauth_platform', 'tiktok');
 
-      const authWindow = window.open(
-        response.data.authUrl,
-        'tiktok-oauth',
-        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-      );
-
-      const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-
-        if (event.data.type === 'tiktok_connected') {
-          toast({
-            title: "Connected!",
-            description: "TikTok connected successfully",
-          });
-          fetchConnections();
-          authWindow?.close();
-          window.removeEventListener('message', handleMessage);
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
+      // Redirect to TikTok OAuth
+      console.log('🚀 Redirecting to TikTok OAuth...');
+      window.location.href = response.data.authUrl;
     } catch (error: any) {
       toast({
         title: "Error",

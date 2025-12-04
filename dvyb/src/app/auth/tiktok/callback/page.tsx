@@ -3,12 +3,19 @@
 import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Loader2, XCircle } from 'lucide-react'
+import { getOAuthFlowState, updateOAuthFlowState } from '@/lib/oauthFlowState'
 
 function TikTokCallbackContent() {
   const searchParams = useSearchParams()
   const [status, setStatus] = useState('Processing authentication...')
   const [isError, setIsError] = useState(false)
+  const [showRetry, setShowRetry] = useState(false)
   const processingRef = useRef(false)
+
+  const handleRetry = () => {
+    const returnUrl = localStorage.getItem('dvyb_oauth_return_url') || '/home'
+    window.location.href = returnUrl
+  }
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -48,33 +55,84 @@ function TikTokCallbackContent() {
           throw new Error(data.error || 'TikTok connection failed')
         }
         
-        setStatus('Connected! Closing...')
+        setStatus('TikTok connected! Redirecting...')
         
-        // Send success message to parent window
-        if (window.opener) {
-          window.opener.postMessage({
-            type: 'tiktok_connected',
-            success: true,
-          }, window.location.origin)
+        // Check if this is part of a post flow
+        const flowState = getOAuthFlowState()
+        
+        if (flowState) {
+          console.log('📋 OAuth post flow detected, updating state...')
+          
+          // ALWAYS increment index to mark this platform as done
+          const currentIndex = flowState.currentPlatformIndex
+          const nextIndex = currentIndex + 1
+          
+          // Always update the index so dialog knows this platform is complete
+          updateOAuthFlowState({ currentPlatformIndex: nextIndex })
+          
+          if (nextIndex < flowState.platformsToAuth.length) {
+            // More platforms need auth
+            const nextPlatform = flowState.platformsToAuth[nextIndex]
+            
+            localStorage.setItem('dvyb_oauth_success', JSON.stringify({
+              platform: 'tiktok',
+              message: 'TikTok connected! Connecting next platform...',
+              nextPlatform: nextPlatform,
+              timestamp: Date.now()
+            }))
+          } else {
+            // All OAuth2 platforms done
+            localStorage.setItem('dvyb_oauth_success', JSON.stringify({
+              platform: 'tiktok',
+              message: 'TikTok connected successfully!',
+              allOAuth2Complete: true,
+              timestamp: Date.now()
+            }))
+          }
+          
+          // Redirect to home - dialog will resume flow
+          console.log('🚀 Redirecting to /home for flow continuation...')
+          setTimeout(() => {
+            window.location.href = '/home'
+          }, 500)
+          return
         }
         
-        // Close window after a short delay
-        setTimeout(() => window.close(), 1200)
+        // Not a post flow - regular connection
+        const returnUrl = localStorage.getItem('dvyb_oauth_return_url') || '/home'
+        
+        // Clean up
+        localStorage.removeItem('dvyb_oauth_return_url')
+        localStorage.removeItem('dvyb_oauth_platform')
+        
+        // Store success flag for the return page to show toast
+        localStorage.setItem('dvyb_oauth_success', JSON.stringify({
+          platform: 'tiktok',
+          message: 'TikTok connected successfully',
+          timestamp: Date.now()
+        }))
+        
+        // Redirect back to the return URL
+        console.log('🚀 Redirecting to:', returnUrl)
+        setTimeout(() => {
+          window.location.href = returnUrl
+        }, 800)
       } catch (error: any) {
         console.error('TikTok callback error:', error)
         setIsError(true)
-        setStatus(error?.message || 'Connection failed')
         
-        // Send error message to parent window
-        if (window.opener) {
-          window.opener.postMessage({
-            type: 'tiktok_error',
-            message: error?.message || 'Connection failed'
-          }, window.location.origin)
+        const errorMsg = error?.message || 'Connection failed'
+        if (errorMsg.includes('expired') || errorMsg.includes('Invalid') || errorMsg.includes('state')) {
+          setStatus('Your authorization session expired. Please try again.')
+          setShowRetry(true)
+        } else {
+          setStatus(errorMsg)
+          // Redirect back after showing error
+          const returnUrl = localStorage.getItem('dvyb_oauth_return_url') || '/home'
+          setTimeout(() => {
+            window.location.href = returnUrl
+          }, 2000)
         }
-        
-        // Close window after showing error
-        setTimeout(() => window.close(), 2000)
       }
     }
     
@@ -99,6 +157,14 @@ function TikTokCallbackContent() {
           }`}>
             {status}
           </p>
+          {showRetry && (
+            <button
+              onClick={handleRetry}
+              className="mt-4 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm md:text-base font-medium"
+            >
+              Go Back
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -121,4 +187,3 @@ export default function TikTokCallbackPage() {
     </Suspense>
   )
 }
-

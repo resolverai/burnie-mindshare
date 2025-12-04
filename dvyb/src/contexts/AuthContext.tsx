@@ -77,17 +77,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Not authenticated - check why
         const accountExists = (response.data as any)?.accountExists;
         
-        console.log('❌ Not authenticated from backend');
-        
         // Check if there's an account reference in localStorage
         const hasAccountReference = localStorage.getItem('dvyb_account_id');
         
         // Check if this is a recent auth (within last 60 seconds) - don't clear data if so
-        // This prevents aggressive clearing right after popup authentication
-        // Extended to 60 seconds to handle Safari/strict browsers where cookie sharing is delayed
+        // This prevents aggressive clearing right after redirect-based authentication
         const recentAuthTimestamp = localStorage.getItem('dvyb_auth_timestamp');
         const isRecentAuth = recentAuthTimestamp && 
           (Date.now() - parseInt(recentAuthTimestamp)) < 60000; // 60 seconds
+        
+        console.log('❌ Not authenticated from backend', {
+          hasAccountReference: !!hasAccountReference,
+          accountId: hasAccountReference,
+          recentAuthTimestamp,
+          isRecentAuth,
+          timeSinceAuth: recentAuthTimestamp ? Date.now() - parseInt(recentAuthTimestamp) : 'N/A'
+        });
         
         if (hasAccountReference && !isRecentAuth && accountExists === false) {
           // Account reference exists, NOT a recent auth, and backend confirms account doesn't exist
@@ -214,6 +219,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearOAuthState: true,      // Clear OAuth state
         clearAccountReference: false // Keep account ID so user can sign in again
       });
+      
+      // IMPORTANT: Always clear auth timestamp on logout to prevent "recent auth" from re-authenticating
+      localStorage.removeItem('dvyb_auth_timestamp');
       
       console.log('👋 User logged out - redirecting to landing page');
       

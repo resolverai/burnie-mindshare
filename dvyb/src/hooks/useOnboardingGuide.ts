@@ -32,13 +32,9 @@ export function useOnboardingGuide() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      console.log('🔍 Onboarding Guide - Loading from localStorage:', stored);
       if (stored) {
         const parsed = JSON.parse(stored);
-        console.log('🔍 Onboarding Guide - Parsed progress:', parsed);
         setProgress({ ...defaultProgress, ...parsed });
-      } else {
-        console.log('🔍 Onboarding Guide - No stored progress found');
       }
     } catch (error) {
       console.error('Error loading onboarding progress:', error);
@@ -73,39 +69,23 @@ export function useOnboardingGuide() {
 
   // Determine which ring to show based on progress
   const getCurrentHighlight = useCallback((): 'generate_button' | 'content_library' | 'brand_kit' | null => {
-    console.log('🔍 Onboarding Guide - getCurrentHighlight called', {
-      isLoaded,
-      progress,
-      auto_content_viewed: progress.auto_content_viewed,
-      generate_content_explored: progress.generate_content_explored,
-      content_library_visited: progress.content_library_visited,
-      brand_kit_visited: progress.brand_kit_visited
-    });
-    
-    if (!isLoaded) {
-      console.log('🔍 Not loaded yet, returning null');
-      return null;
-    }
+    if (!isLoaded) return null;
     
     // Step 1: After auto content viewed, highlight Generate Content button
     if (progress.auto_content_viewed && !progress.generate_content_explored) {
-      console.log('🔍 Returning generate_button highlight');
       return 'generate_button';
     }
     
     // Step 2: After Generate Content explored, highlight Content Library
     if (progress.generate_content_explored && !progress.content_library_visited) {
-      console.log('🔍 Returning content_library highlight');
       return 'content_library';
     }
     
     // Step 3: After Content Library visited, highlight Brand Kit
     if (progress.content_library_visited && !progress.brand_kit_visited) {
-      console.log('🔍 Returning brand_kit highlight');
       return 'brand_kit';
     }
     
-    console.log('🔍 No highlight to show');
     return null;
   }, [progress, isLoaded]);
 

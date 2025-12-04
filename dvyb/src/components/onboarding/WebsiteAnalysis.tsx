@@ -32,7 +32,7 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
-  const { checkAuth, isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
 
 
   const handleGoogleSignIn = async () => {
@@ -41,193 +41,24 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
     setIsSigningIn(true);
 
     try {
+      // Clear any stale OAuth state before initiating new sign-in
+      localStorage.removeItem('dvyb_google_oauth_state');
+      
       const response = await authApi.getGoogleLoginUrl();
       
       if (response.success && response.data.oauth_url) {
-        // Store state for later verification
+        // Store new state for later verification
         if (response.data.state) {
           localStorage.setItem('dvyb_google_oauth_state', response.data.state);
         }
 
-        // Open Google OAuth in a popup window
-        const width = 500;
-        const height = 600;
-        const left = window.screenX + (window.outerWidth - width) / 2;
-        const top = window.screenY + (window.outerHeight - height) / 2;
-        
-        const authWindow = window.open(
-          response.data.oauth_url,
-          'dvyb-google-auth',
-          `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
-        );
-
-        let messageReceived = false;
-        const handleMessage = (event: MessageEvent) => {
-          if (event.origin !== window.location.origin) return;
-
-          if (event.data.type === 'DVYB_GOOGLE_AUTH_SUCCESS') {
-            messageReceived = true;
-            window.removeEventListener('message', handleMessage);
-            setIsSigningIn(false);
-            
-            // Store account info
-            if (event.data.account_id) {
-              localStorage.setItem('dvyb_account_id', event.data.account_id.toString());
-              
-              // Set timestamp to prevent AuthContext from clearing data if cookie doesn't work
-              localStorage.setItem('dvyb_auth_timestamp', Date.now().toString());
-              
-              // CRITICAL: Also set the cookie in the parent window context
-              // This ensures checkAuth() can find the account ID even if popup cookie isn't shared
-              const isProduction = window.location.protocol === 'https:';
-              const cookieOptions = isProduction 
-                ? 'path=/; max-age=604800; SameSite=None; Secure'  // 7 days, cross-site safe
-                : 'path=/; max-age=604800; SameSite=Lax';          // 7 days, same-site only
-              document.cookie = `dvyb_account_id=${event.data.account_id}; ${cookieOptions}`;
-              console.log('🍪 Set account cookie in parent window');
-            }
-            if (event.data.account_name) {
-              localStorage.setItem('dvyb_account_name', event.data.account_name);
-            }
-            
-            // Refresh auth state and redirect
-            checkAuth().then(() => {
-              setTimeout(() => {
-                if (event.data.onboarding_complete) {
-                  // Returning user with complete onboarding - go to home
-                  console.log('→ Returning user (onboarding complete) - going to /home');
-                  router.push('/home');
-                } else {
-                  // New user or incomplete onboarding
-                  const hasAnalysis = localStorage.getItem('dvyb_website_analysis');
-                  if (hasAnalysis) {
-                    // Has analysis - continue to analysis details
-                    console.log('→ Has analysis - going to analysis-details');
-                    router.push('/onboarding/analysis-details');
-                  } else {
-                    // New user without analysis - stay on this page (now authenticated)
-                    // Just refresh the page state - user can now do website analysis
-                    console.log('→ New user without analysis - staying on landing page');
-                    // Force re-render to update the UI (user is now authenticated)
-                    window.location.reload();
-                  }
-                }
-              }, 300);
-            });
-          } else if (event.data.type === 'DVYB_GOOGLE_AUTH_ERROR') {
-            messageReceived = true;
-            window.removeEventListener('message', handleMessage);
-            toast({
-              title: "Sign In Failed",
-              description: event.data.message || "Authentication failed. Please try again.",
-              variant: "destructive",
-            });
-            setIsSigningIn(false);
-          }
-        };
-
-        window.addEventListener('message', handleMessage);
-
-        // Helper function to process auth result from localStorage
-        const processLocalStorageFallback = () => {
-          try {
-            const fallbackData = localStorage.getItem('dvyb_auth_result');
-            console.log('🔍 Checking localStorage fallback:', fallbackData ? 'FOUND' : 'not found');
-            
-            if (fallbackData) {
-              const authResult = JSON.parse(fallbackData);
-              console.log('📦 Auth result from localStorage:', authResult);
-              
-              // Check if this is a recent result (within last 60 seconds)
-              if (authResult.timestamp && (Date.now() - authResult.timestamp) < 60000) {
-                console.log('✅ Found valid auth result in localStorage fallback');
-                localStorage.removeItem('dvyb_auth_result'); // Clear it
-                
-                if (authResult.type === 'DVYB_GOOGLE_AUTH_SUCCESS' && authResult.account_id) {
-                  // Process the success
-                  localStorage.setItem('dvyb_account_id', authResult.account_id.toString());
-                  localStorage.setItem('dvyb_auth_timestamp', Date.now().toString());
-                  
-                  const isProduction = window.location.protocol === 'https:';
-                  const cookieOptions = isProduction 
-                    ? 'path=/; max-age=604800; SameSite=None; Secure'
-                    : 'path=/; max-age=604800; SameSite=Lax';
-                  document.cookie = `dvyb_account_id=${authResult.account_id}; ${cookieOptions}`;
-                  console.log('🍪 Cookie set from localStorage fallback');
-                  
-                  if (authResult.account_name) {
-                    localStorage.setItem('dvyb_account_name', authResult.account_name);
-                  }
-                  
-                  setIsSigningIn(false);
-                  checkAuth().then(() => {
-                    setTimeout(() => {
-                      if (authResult.onboarding_complete) {
-                        console.log('→ Redirecting to /home');
-                        router.push('/home');
-                      } else {
-                        const hasAnalysis = localStorage.getItem('dvyb_website_analysis');
-                        if (hasAnalysis) {
-                          console.log('→ Redirecting to /onboarding/analysis-details');
-                          router.push('/onboarding/analysis-details');
-                        } else {
-                          console.log('→ Reloading page');
-                          window.location.reload();
-                        }
-                      }
-                    }, 300);
-                  });
-                  return true; // Success
-                }
-              } else {
-                console.log('⚠️ Auth result too old, ignoring');
-                localStorage.removeItem('dvyb_auth_result');
-              }
-            }
-          } catch (e) {
-            console.error('Error checking fallback:', e);
-          }
-          return false;
-        };
-
-        // Check if popup was closed - also check for localStorage fallback
-        let checkCount = 0;
-        const checkPopupClosed = setInterval(() => {
-          checkCount++;
-          
-          // Check localStorage on EVERY tick (popup might write before closing)
-          if (!messageReceived && processLocalStorageFallback()) {
-            console.log('✅ Processed auth from localStorage fallback');
-            clearInterval(checkPopupClosed);
-            window.removeEventListener('message', handleMessage);
-            return;
-          }
-          
-          // Also check if popup is closed (might be null, closed, or undefined)
-          const isClosed = !authWindow || authWindow.closed;
-          
-          if (checkCount % 4 === 0) { // Log every 2 seconds
-            console.log(`🔄 Popup check #${checkCount}: closed=${isClosed}, messageReceived=${messageReceived}`);
-          }
-          
-          // After popup is definitely closed and no message, give up after a few more checks
-          if (isClosed && !messageReceived && checkCount > 10) {
-            console.log('⚠️ Popup closed without auth completion');
-            clearInterval(checkPopupClosed);
-            window.removeEventListener('message', handleMessage);
-            setIsSigningIn(false);
-          }
-        }, 500);
-
-        // Cleanup after 5 minutes
-        setTimeout(() => {
-          clearInterval(checkPopupClosed);
-          if (!messageReceived) {
-            console.log('⏰ Timeout waiting for auth');
-            window.removeEventListener('message', handleMessage);
-            setIsSigningIn(false);
-          }
-        }, 300000);
+        // REDIRECT approach - navigate to Google OAuth directly
+        // After auth, Google will redirect back to /auth/google/callback
+        // The callback page will handle the redirect to the appropriate page
+        console.log('🚀 Redirecting to Google OAuth...');
+        window.location.href = response.data.oauth_url;
+      } else {
+        throw new Error('Failed to get Google login URL');
       }
     } catch (err: any) {
       toast({

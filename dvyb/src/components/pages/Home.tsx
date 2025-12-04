@@ -17,6 +17,7 @@ import dvybLogo from "@/assets/dvyb-logo.png";
 import { useToast } from "@/hooks/use-toast";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
+import { getOAuthFlowState, clearOAuthFlowState } from "@/lib/oauthFlowState";
 
 interface PlatformMetrics {
   impressions?: number;
@@ -93,14 +94,6 @@ export const Home = () => {
   // Onboarding guide for new users
   const { completeStep, getCurrentHighlight } = useOnboardingGuide();
   const currentHighlight = getCurrentHighlight();
-  
-  // Debug logging for onboarding
-  useEffect(() => {
-    console.log('🎯 Home - currentHighlight:', currentHighlight);
-    // Direct localStorage check
-    const directCheck = localStorage.getItem('dvyb_onboarding_guide_progress');
-    console.log('🎯 Home - Direct localStorage check:', directCheck);
-  }, [currentHighlight]);
 
   // Handle name update
   const handleSaveName = async () => {
@@ -133,6 +126,47 @@ export const Home = () => {
       setIsEditingName(false);
     }
   };
+
+  // Check for OAuth success (from redirect flow callbacks)
+  useEffect(() => {
+    const oauthSuccessStr = localStorage.getItem('dvyb_oauth_success');
+    if (oauthSuccessStr) {
+      try {
+        const oauthSuccess = JSON.parse(oauthSuccessStr);
+        // Check if it's recent (within last 30 seconds)
+        if (Date.now() - oauthSuccess.timestamp < 30000) {
+          toast({
+            title: "Connected!",
+            description: oauthSuccess.message || `${oauthSuccess.platform} connected successfully`,
+          });
+          
+          // Update connection status immediately
+          if (oauthSuccess.platform) {
+            setConnectionStatus(prev => ({ ...prev, [oauthSuccess.platform]: 'connected' }));
+          }
+          
+          // Refresh analytics
+          fetchAnalytics();
+        }
+      } catch (e) {
+        console.error('Error parsing OAuth success:', e);
+      }
+      // Clean up
+      localStorage.removeItem('dvyb_oauth_success');
+    }
+  }, []);
+
+  // Check for pending OAuth flow and auto-open GenerateContentDialog to resume
+  useEffect(() => {
+    const flowState = getOAuthFlowState();
+    if (flowState && (flowState.source === 'generate_dialog' || flowState.source === 'schedule_dialog')) {
+      console.log('🔄 Pending OAuth flow detected, auto-opening GenerateContentDialog...', flowState);
+      // Small delay to ensure page is loaded
+      setTimeout(() => {
+        setShowGenerateDialog(true);
+      }, 300);
+    }
+  }, []);
 
   // Check connection statuses
   useEffect(() => {
@@ -247,7 +281,7 @@ export const Home = () => {
     return growthMetrics[platform][metric];
   };
 
-  // Handle Twitter OAuth connection
+  // Handle Twitter OAuth connection (redirect flow)
   const handleTwitterConnect = async () => {
     try {
       const response = await authApi.getTwitterLoginUrl();
@@ -256,58 +290,13 @@ export const Home = () => {
         throw new Error('Failed to get Twitter login URL');
       }
 
-      // Open Twitter auth in a popup (same as /auth/twitter page)
-      const width = 600;
-      const height = 700;
-      const left = window.screen.width / 2 - width / 2;
-      const top = window.screen.height / 2 - height / 2;
+      // Store return URL so callback knows where to redirect back
+      localStorage.setItem('dvyb_oauth_return_url', '/home');
+      localStorage.setItem('dvyb_oauth_platform', 'twitter');
 
-      const authWindow = window.open(
-        response.data.oauth_url,
-        'twitter_oauth',
-        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-      );
-
-      // Listen for messages from the OAuth callback
-      const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-
-        if (event.data?.type === 'DVYB_TWITTER_AUTH_SUCCESS') {
-          console.log('✅ Twitter reconnected successfully');
-          
-          toast({
-            title: "Connected!",
-            description: "Twitter connected successfully",
-          });
-
-          // Update connection status
-          setConnectionStatus(prev => ({ ...prev, twitter: 'connected' }));
-
-          // Refresh analytics
-          fetchAnalytics();
-
-          authWindow?.close();
-          window.removeEventListener('message', handleMessage);
-        } else if (event.data?.type === 'DVYB_TWITTER_AUTH_ERROR') {
-          console.error('❌ Twitter auth error:', event.data.message);
-          
-          toast({
-            title: "Connection Failed",
-            description: event.data.message || 'Failed to connect Twitter',
-            variant: "destructive",
-          });
-
-          authWindow?.close();
-          window.removeEventListener('message', handleMessage);
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
-
-      // Cleanup listener after 5 minutes
-      setTimeout(() => {
-        window.removeEventListener('message', handleMessage);
-      }, 300000);
+      // Redirect to Twitter OAuth
+      console.log('🚀 Redirecting to Twitter OAuth...');
+      window.location.href = response.data.oauth_url;
     } catch (error: any) {
       console.error('Twitter connection error:', error);
       toast({
@@ -318,7 +307,7 @@ export const Home = () => {
     }
   };
 
-  // Handle OAuth connection for platforms
+  // Handle OAuth connection for platforms (redirect flow)
   const handleConnect = async (platform: 'instagram' | 'linkedin' | 'tiktok') => {
     try {
       let authUrlResponse;
@@ -336,37 +325,15 @@ export const Home = () => {
       }
 
       if (authUrlResponse.success && authUrlResponse.data.authUrl) {
-        const authWindow = window.open(
-          authUrlResponse.data.authUrl,
-          `${platform}_oauth`,
-          'width=600,height=700,scrollbars=yes'
-        );
+        // Store return URL so callback knows where to redirect back
+        localStorage.setItem('dvyb_oauth_return_url', '/home');
+        localStorage.setItem('dvyb_oauth_platform', platform);
 
-        // Listen for messages from the OAuth callback
-        const handleMessage = (event: MessageEvent) => {
-          if (event.data?.type === `${platform}_connected`) {
-            toast({
-              title: "Connected!",
-              description: `${platform.charAt(0).toUpperCase() + platform.slice(1)} connected successfully`,
-            });
-
-            // Update connection status
-            setConnectionStatus(prev => ({ ...prev, [platform]: 'connected' }));
-
-            // Refresh analytics
-            fetchAnalytics();
-
-            authWindow?.close();
-            window.removeEventListener('message', handleMessage);
-          }
-        };
-
-        window.addEventListener('message', handleMessage);
-
-        // Cleanup listener after 5 minutes
-        setTimeout(() => {
-          window.removeEventListener('message', handleMessage);
-        }, 300000);
+        // Redirect to OAuth
+        console.log(`🚀 Redirecting to ${platform} OAuth...`);
+        window.location.href = authUrlResponse.data.authUrl;
+      } else {
+        throw new Error(`Failed to get ${platform} auth URL`);
       }
     } catch (error: any) {
       console.error(`${platform} connection error:`, error);
@@ -953,13 +920,13 @@ export const Home = () => {
                     <div className="h-24 md:h-32 bg-card rounded flex flex-col items-center justify-center border border-border">
                       <TikTokIcon className="w-8 h-8 md:w-10 md:h-10 mb-2 text-black dark:text-white" />
                       <p className="text-xs md:text-sm text-center text-muted-foreground px-4 mb-3">
-                        Connect TikTok account to get insights
+                        TikTok integration coming soon
                       </p>
                       <Button 
                         variant="outline" 
                         size="sm" 
-                        className="gap-2 text-xs md:text-sm"
-                        onClick={() => handleConnect('tiktok')}
+                        className="gap-2 text-xs md:text-sm opacity-50 cursor-not-allowed"
+                        disabled
                       >
                   <span>🔗</span>
                   Connect TikTok

@@ -14,6 +14,7 @@ import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi } from "@/lib/api";
+import { saveOAuthFlowState, getOAuthFlowState, clearOAuthFlowState, updateOAuthFlowState } from "@/lib/oauthFlowState";
 import { useToast } from "@/hooks/use-toast";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
@@ -209,6 +210,176 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       }, 1000);
     }
   }, [open, initialJobId]);
+
+  // Check for pending OAuth flow and resume it
+  useEffect(() => {
+    if (!open) return;
+    
+    const flowState = getOAuthFlowState();
+    if (!flowState) return;
+    
+    // Handle schedule_dialog flows - open ScheduleDialog to resume
+    if (flowState.source === 'schedule_dialog' && flowState.type === 'schedule') {
+      console.log('🔄 Resuming Schedule flow from GenerateContentDialog...', flowState);
+      
+      // Restore generated posts if available
+      if (flowState.generatedPosts && flowState.generatedPosts.length > 0) {
+        setGeneratedPosts(flowState.generatedPosts);
+        setStep("results");
+      }
+      
+      if (flowState.generatedContentId) {
+        setGeneratedContentId(flowState.generatedContentId);
+      }
+      
+      // Restore selected post
+      if (flowState.post) {
+        setSelectedPost(flowState.post);
+      }
+      
+      // Auto-open ScheduleDialog after a short delay
+      setTimeout(() => {
+        console.log('📅 Auto-opening ScheduleDialog to resume flow...');
+        setShowScheduleDialog(true);
+      }, 500);
+      
+      return; // ScheduleDialog will handle the rest
+    }
+    
+    // Handle generate_dialog flows (Post Now)
+    if (flowState.source !== 'generate_dialog') return;
+    
+    console.log('🔄 Resuming OAuth flow from saved state:', flowState);
+    
+    // Restore state
+    const { post, generatedPosts: savedPosts, generatedContentId: savedContentId, generationUuid: savedGenerationUuid, platformsToAuth, currentPlatformIndex, needsOAuth1, oauth1Completed } = flowState;
+    
+    // Restore generated posts if available
+    if (savedPosts && savedPosts.length > 0) {
+      setGeneratedPosts(savedPosts);
+      setStep("results");
+      
+      // Check if any posts are still generating (isGenerating flag or Loading type)
+      const stillGenerating = savedPosts.some((p: any) => p.isGenerating || p.type === 'Loading');
+      
+      if (stillGenerating && savedGenerationUuid) {
+        console.log('🔄 Posts still generating, resuming polling with UUID:', savedGenerationUuid);
+        setGenerationUuid(savedGenerationUuid);
+        setJobId(savedGenerationUuid);
+        
+        // Resume polling after a short delay
+        setTimeout(() => {
+          pollGenerationStatus();
+        }, 1000);
+      }
+    }
+    
+    if (savedContentId) {
+      setGeneratedContentId(savedContentId);
+    }
+    
+    // Restore pending post
+    if (post) {
+      setPendingPost(post);
+      setSelectedPost(post);
+    }
+    
+    // Check what's next in the flow
+    const nextPlatformIndex = currentPlatformIndex;
+    
+    if (nextPlatformIndex < platformsToAuth.length) {
+      // More OAuth2 platforms to authorize - redirect to next one
+      const nextPlatform = platformsToAuth[nextPlatformIndex];
+      console.log(`🔐 Continuing OAuth flow - next platform: ${nextPlatform}`);
+      
+      toast({
+        title: `Connecting ${nextPlatform.charAt(0).toUpperCase() + nextPlatform.slice(1)}...`,
+        description: "Redirecting to authorize...",
+      });
+      
+      // Short delay then redirect
+      setTimeout(async () => {
+        try {
+          let authUrlResponse;
+          switch (nextPlatform) {
+            case 'twitter':
+              authUrlResponse = await authApi.getTwitterLoginUrl();
+              break;
+            case 'instagram':
+              authUrlResponse = await socialConnectionsApi.getInstagramAuthUrl();
+              break;
+            case 'linkedin':
+              authUrlResponse = await socialConnectionsApi.getLinkedInAuthUrl();
+              break;
+            case 'tiktok':
+              authUrlResponse = await socialConnectionsApi.getTikTokAuthUrl();
+              break;
+          }
+          
+          if (authUrlResponse?.data) {
+            window.location.href = authUrlResponse.data.authUrl || authUrlResponse.data.oauth_url;
+          }
+        } catch (error) {
+          console.error('Error getting auth URL:', error);
+          toast({
+            title: "Connection Failed",
+            description: "Unable to connect. Please try again.",
+            variant: "destructive",
+          });
+          clearOAuthFlowState();
+        }
+      }, 1000);
+      
+    } else if (needsOAuth1 && !oauth1Completed) {
+      // Need OAuth1 for Twitter video
+      console.log('🎬 Continuing OAuth flow - OAuth1 needed for video');
+      
+      toast({
+        title: "One more step for videos...",
+        description: "Redirecting for video upload authorization...",
+      });
+      
+      // Initiate OAuth1 redirect flow
+      setTimeout(async () => {
+        try {
+          const response = await oauth1Api.initiateOAuth1();
+          const { authUrl, state, oauthTokenSecret } = response.data;
+          
+          // Store OAuth1 state
+          localStorage.setItem('oauth1_state', state);
+          localStorage.setItem('oauth1_token_secret', oauthTokenSecret);
+          
+          window.location.href = authUrl;
+        } catch (error) {
+          console.error('Error initiating OAuth1:', error);
+          toast({
+            title: "Connection Failed",
+            description: "Unable to authorize video uploads. Please try again.",
+            variant: "destructive",
+          });
+          clearOAuthFlowState();
+        }
+      }, 1000);
+      
+    } else {
+      // All auth complete - proceed with posting
+      console.log('✅ All authorization complete - proceeding with post');
+      
+      clearOAuthFlowState();
+      
+      if (post) {
+        toast({
+          title: "Authorization Complete!",
+          description: "Posting your content now...",
+        });
+        
+        // Small delay then post
+        setTimeout(() => {
+          startPosting(post);
+        }, 500);
+      }
+    }
+  }, [open]);
 
   const handleFilesSelected = async (files: File[]): Promise<string[]> => {
     try {
@@ -518,183 +689,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     }
   };
 
-  const handleAuthPlatform = async () => {
-    if (currentAuthIndex >= authPlatforms.length) {
-      // All OAuth2 platforms authorized, now check OAuth1 for Twitter videos
-      setShowAuthDialog(false);
-      
-      if (pendingPost) {
-        const platforms = pendingPost.requestedPlatforms || selectedPlatforms;
-        
-        // If Twitter video, check OAuth1 AFTER OAuth2 is complete
-        if (platforms.includes('twitter') && pendingPost.type === 'Video') {
-          try {
-            const oauth1Status = await oauth1Api.getOAuth1Status();
-            if (!oauth1Status.data.oauth1Valid) {
-              // Show OAuth1 authorization needed
-              toast({
-                title: "One More Step for Videos",
-                description: "Twitter requires separate authorization for video uploads. Please complete in the popup.",
-                variant: "default",
-              });
-              await initiateOAuth1Flow();
-              return; // OAuth1 flow will call startPosting when complete
-            }
-          } catch (error) {
-            console.error('OAuth1 check error:', error);
-          }
-        }
-        
-        // All auth complete, proceed with posting
-        await startPosting(pendingPost);
-      }
-      return;
-    }
-
-    const platform = authPlatforms[currentAuthIndex];
-
-    try {
-      let authUrlResponse;
-      
-      switch (platform) {
-        case 'twitter':
-          authUrlResponse = await authApi.getTwitterLoginUrl();
-          break;
-        case 'instagram':
-          authUrlResponse = await socialConnectionsApi.getInstagramAuthUrl();
-          break;
-        case 'linkedin':
-          authUrlResponse = await socialConnectionsApi.getLinkedInAuthUrl();
-          break;
-        case 'tiktok':
-          authUrlResponse = await socialConnectionsApi.getTikTokAuthUrl();
-          break;
-        default:
-          throw new Error(`Unsupported platform: ${platform}`);
-      }
-
-      // Open auth popup
-      const width = 600;
-      const height = 700;
-      const left = window.screen.width / 2 - width / 2;
-      const top = window.screen.height / 2 - height / 2;
-
-      const popup = window.open(
-        authUrlResponse.data.authUrl || authUrlResponse.data.oauth_url,
-        `${platform}_auth`,
-        `width=${width},height=${height},left=${left},top=${top}`
-      );
-
-      // Listen for auth completion
-      const handleMessage = async (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        
-        // Handle different message types for different platforms
-        const successTypes = [
-          'twitter_connected',
-          'instagram_connected', 
-          'linkedin_connected',
-          'tiktok_connected',
-          `${platform}_auth_success`
-        ];
-        
-        if (successTypes.includes(event.data.type)) {
-          window.removeEventListener('message', handleMessage);
-          popup?.close();
-          
-          toast({
-            title: "Connected!",
-            description: `${platform.charAt(0).toUpperCase() + platform.slice(1)} connected successfully`,
-          });
-          
-          // If this is Twitter AND it's a video, check OAuth1 before moving to next platform
-          if (platform === 'twitter' && pendingPost?.type === 'Video') {
-            try {
-              const oauth1Status = await oauth1Api.getOAuth1Status();
-              if (!oauth1Status.data.oauth1Valid) {
-                // Need OAuth1 for Twitter video
-                toast({
-                  title: "Video Authorization Required",
-                  description: "Twitter requires separate authorization for video uploads.",
-                  variant: "default",
-                });
-                
-                // Hide OAuth2 dialog temporarily
-                setShowAuthDialog(false);
-                
-                // Initiate OAuth1 flow
-                await initiateOAuth1Flow();
-                
-                // After OAuth1 completes, it will call startPosting
-                // But we need to continue with other platforms first
-                // So we'll handle this differently - move to next platform after OAuth1
-                return;
-              }
-            } catch (error) {
-              console.error('OAuth1 check error:', error);
-            }
-          }
-          
-          // Move to next platform or finish
-          if (currentAuthIndex + 1 < authPlatforms.length) {
-            setCurrentAuthIndex(currentAuthIndex + 1);
-            // Dialog stays open for next platform
-    } else {
-            // All OAuth2 platforms done - close dialog
-            console.log('✅ All OAuth2 platforms authorized');
-            setShowAuthDialog(false);
-            
-            // Check if Twitter video needs OAuth1
-            console.log('🔍 Checking if OAuth1 needed:', {
-              'pendingPost exists': !!pendingPost,
-              'pendingPost.type': pendingPost?.type,
-              'pendingPost.requestedPlatforms': pendingPost?.requestedPlatforms,
-              'includes twitter': (pendingPost?.requestedPlatforms || []).includes('twitter'),
-            });
-            
-            if (pendingPost && pendingPost.type === 'Video' && 
-                (pendingPost?.requestedPlatforms || []).includes('twitter')) {
-              console.log('📹 Twitter video detected - OAuth1 will be needed on next click');
-              
-              // ✅ DON'T trigger OAuth1 here - let user click "Post Now" again
-              // This provides clearer UX and avoids confusion
-              toast({
-                title: "Twitter Connected!",
-                description: "Click 'Post Now' again to authorize video uploads.",
-                variant: "default",
-              });
-              return; // Exit - user will click "Post Now" again
-            }
-            
-            // Not a Twitter video, proceed with posting
-            console.log('🚀 Not a video or not Twitter - proceeding with posting');
-            if (pendingPost) {
-              await startPosting(pendingPost);
-            }
-          }
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
-
-      // Check if popup was blocked
-      if (!popup) {
-        throw new Error('Popup blocked. Please allow popups for this site.');
-      }
-      
-      // Cleanup after 5 minutes
-      setTimeout(() => {
-        window.removeEventListener('message', handleMessage);
-      }, 5 * 60 * 1000);
-    } catch (error: any) {
-      toast({
-        title: "Connection Failed",
-        description: "Unable to connect. Please try again.",
-        variant: "destructive",
-      });
-      setShowAuthDialog(false);
-    }
-  };
+  // Note: handleAuthPlatform removed - using redirect-based OAuth flow instead
 
   const handlePostNowClick = async (post: any) => {
     console.log('🎬 handlePostNowClick START:', {
@@ -719,6 +714,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       ...post,
       requestedPlatforms: platforms,
       platforms: platforms,
+      generatedContentId: generatedContentId,
     };
     
     console.log('📝 Updated post object:', {
@@ -729,25 +725,13 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     
     setSelectedPost(updatedPost);
     setPendingPost(updatedPost);
-    
-    const mediaType = post.type === 'Video' ? 'video' : 'image';
-    
-    console.log('🚀 handlePostNowClick - Platforms:', {
-      'post.requestedPlatforms': post.requestedPlatforms,
-      'post.platforms': post.platforms,
-      'selectedPlatforms': selectedPlatforms,
-      'final platforms': platforms,
-      'platforms length': platforms?.length,
-      'mediaType': mediaType,
-      'post.type': post.type,
-    });
 
     try {
       // IMPORTANT: Always validate OAuth2 only (not OAuth1) to avoid confusion
       // OAuth1 for Twitter videos is checked separately below
       const validation = await postingApi.validateTokens({
         platforms,
-        requireOAuth1ForTwitterVideo: false, // ✅ Always false - check OAuth1 separately
+        requireOAuth1ForTwitterVideo: false,
       });
 
       console.log('🔍 Token validation result:', validation.data);
@@ -758,12 +742,66 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         .map((p: any) => p.platform);
 
       if (platformsNeedingAuth.length > 0) {
-        // Platforms need OAuth2 - use sequential auth flow
+        // Platforms need OAuth2 - use redirect-based auth flow
         console.log('🔐 Platforms needing OAuth2:', platformsNeedingAuth);
-        setAuthPlatforms(platformsNeedingAuth);
-        setCurrentAuthIndex(0);
-        setShowAuthDialog(true);
-        return; // OAuth2 flow will handle OAuth1 check after completion
+        
+        // Determine if OAuth1 will be needed after OAuth2
+        const needsOAuth1ForVideo = platforms.includes('twitter') && post.type === 'Video';
+        
+        // Save flow state before redirecting
+        saveOAuthFlowState({
+          type: 'post_now',
+          source: 'generate_dialog',
+          post: {
+            id: post.id,
+            type: post.type,
+            image: post.image,
+            description: post.description,
+            requestedPlatforms: platforms,
+            platforms: platforms,
+            platformTexts: post.platformTexts,
+            fullPlatformTexts: post.fullPlatformTexts,
+            postIndex: post.postIndex,
+            generatedContentId: generatedContentId,
+          },
+          platformsToAuth: platformsNeedingAuth,
+          currentPlatformIndex: 0,
+          needsOAuth1: needsOAuth1ForVideo,
+          oauth1Completed: false,
+          generatedPosts: generatedPosts,
+          generatedContentId: generatedContentId,
+          generationUuid: generationUuid,
+        });
+        
+        // Get auth URL for first platform
+        const firstPlatform = platformsNeedingAuth[0];
+        
+        toast({
+          title: `Connecting ${firstPlatform.charAt(0).toUpperCase() + firstPlatform.slice(1)}...`,
+          description: "Redirecting to authorize...",
+        });
+        
+        let authUrlResponse;
+        switch (firstPlatform) {
+          case 'twitter':
+            authUrlResponse = await authApi.getTwitterLoginUrl();
+            break;
+          case 'instagram':
+            authUrlResponse = await socialConnectionsApi.getInstagramAuthUrl();
+            break;
+          case 'linkedin':
+            authUrlResponse = await socialConnectionsApi.getLinkedInAuthUrl();
+            break;
+          case 'tiktok':
+            authUrlResponse = await socialConnectionsApi.getTikTokAuthUrl();
+            break;
+          default:
+            throw new Error(`Unsupported platform: ${firstPlatform}`);
+        }
+        
+        // Redirect to OAuth
+        window.location.href = authUrlResponse.data.authUrl || authUrlResponse.data.oauth_url;
+        return;
       }
 
       // All OAuth2 tokens valid - now check OAuth1 for Twitter videos
@@ -774,15 +812,47 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         
         // Check if OAuth1 token is valid (not just present)
         if (!oauth1Status.data.oauth1Valid) {
-          console.log('⚠️ OAuth1 not valid - initiating OAuth1 flow');
-          setNeedsOAuth1(true);
+          console.log('⚠️ OAuth1 not valid - initiating redirect OAuth1 flow');
+          
+          // Save flow state for OAuth1
+          saveOAuthFlowState({
+            type: 'post_now',
+            source: 'generate_dialog',
+            post: {
+              id: post.id,
+              type: post.type,
+              image: post.image,
+              description: post.description,
+              requestedPlatforms: platforms,
+              platforms: platforms,
+              platformTexts: post.platformTexts,
+              fullPlatformTexts: post.fullPlatformTexts,
+              postIndex: post.postIndex,
+              generatedContentId: generatedContentId,
+            },
+            platformsToAuth: [], // OAuth2 already done
+            currentPlatformIndex: 0,
+            needsOAuth1: true,
+            oauth1Completed: false,
+            generatedPosts: generatedPosts,
+            generatedContentId: generatedContentId,
+            generationUuid: generationUuid,
+          });
+          
           toast({
             title: "Video Authorization Required",
-            description: "Twitter requires separate authorization for video uploads. Please complete in the popup.",
-            variant: "default",
+            description: "Redirecting to authorize video uploads...",
           });
-          // Initiate OAuth1 flow
-          await initiateOAuth1Flow();
+          
+          // Initiate OAuth1 redirect flow
+          const response = await oauth1Api.initiateOAuth1();
+          const { authUrl, state, oauthTokenSecret } = response.data;
+          
+          // Store OAuth1 state
+          localStorage.setItem('oauth1_state', state);
+          localStorage.setItem('oauth1_token_secret', oauthTokenSecret);
+          
+          window.location.href = authUrl;
           return;
         }
         console.log('✅ OAuth1 valid - proceeding with posting');
@@ -790,7 +860,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
 
       // All validations passed, proceed with posting
       console.log('🚀 All auth checks passed - starting post');
-      await startPosting(post);
+      await startPosting(updatedPost);
     } catch (error: any) {
       console.error('Error in Post Now flow:', error);
       toast({
@@ -801,103 +871,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     }
   };
 
-  const initiateOAuth1Flow = async () => {
-    try {
-      const response = await oauth1Api.initiateOAuth1();
-      const { authUrl, state, oauthToken, oauthTokenSecret } = response.data;
-
-      // Store state and token secret in localStorage for popup to access
-      localStorage.setItem('oauth1_state', state);
-      localStorage.setItem('oauth1_token_secret', oauthTokenSecret);
-      setOAuth1State({ state, oauthTokenSecret });
-
-      // Open popup
-      const width = 600;
-      const height = 700;
-      const left = window.screen.width / 2 - width / 2;
-      const top = window.screen.height / 2 - height / 2;
-
-      const popup = window.open(
-        authUrl,
-        'oauth1_popup',
-        `width=${width},height=${height},left=${left},top=${top}`
-      );
-
-      // Monitor popup
-      const checkPopup = setInterval(() => {
-        if (popup && popup.closed) {
-          clearInterval(checkPopup);
-          // Cleanup localStorage if popup was closed without completing
-          const state = localStorage.getItem('oauth1_state');
-          if (state) {
-            localStorage.removeItem('oauth1_state');
-            localStorage.removeItem('oauth1_token_secret');
-          }
-        }
-      }, 500);
-
-      // Listen for callback
-      const handleMessage = async (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-
-        if (event.data.type === 'oauth1_success') {
-          window.removeEventListener('message', handleMessage);
-          clearInterval(checkPopup);
-          setNeedsOAuth1(false);
-          
-          console.log('✅ OAuth1 success - About to post:', {
-            'pendingPost': pendingPost,
-            'pendingPost.type': pendingPost?.type,
-            'pendingPost.image': pendingPost?.image?.substring(0, 50),
-          });
-          
-          toast({
-            title: "Video Authorization Complete",
-            description: "You can now post videos to Twitter!",
-          });
-
-          // Check if we're in multi-platform auth flow
-          if (authPlatforms.length > 0 && currentAuthIndex + 1 < authPlatforms.length) {
-            // More platforms need auth - move to next platform
-            setCurrentAuthIndex(currentAuthIndex + 1);
-            setShowAuthDialog(true); // Re-show dialog for next platform
-          } else {
-            // All platforms authorized (or single platform flow), proceed with posting
-            if (pendingPost) {
-              console.log('🚀 Posting from OAuth1 success handler:', pendingPost.type);
-              await startPosting(pendingPost);
-            } else {
-              console.error('❌ No pendingPost found after OAuth1 success!');
-            }
-          }
-        } else if (event.data.type === 'oauth1_error') {
-          window.removeEventListener('message', handleMessage);
-          clearInterval(checkPopup);
-          setNeedsOAuth1(false);
-          
-          toast({
-            title: "Video Authorization Failed",
-            description: "Couldn't complete video authorization for Twitter. Please try again.",
-            variant: "destructive",
-          });
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
-
-      // Cleanup listener after 5 minutes
-      setTimeout(() => {
-        window.removeEventListener('message', handleMessage);
-        clearInterval(checkPopup);
-      }, 5 * 60 * 1000);
-    } catch (error: any) {
-      toast({
-        title: "Connection Error",
-        description: "Unable to open authorization window. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
+  // Note: initiateOAuth1Flow removed - using redirect-based OAuth1 flow instead
 
   const startPosting = async (post: any) => {
     console.log('📤 startPosting called with:', {
@@ -1653,7 +1627,30 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                               size="sm"
                               variant="outline"
                               className="mt-2 w-full text-xs sm:text-sm h-8 sm:h-9"
-                              onClick={initiateOAuth1Flow}
+                              onClick={async () => {
+                                // Initiate OAuth1 redirect flow
+                                try {
+                                  const response = await oauth1Api.initiateOAuth1();
+                                  const { authUrl, state, oauthTokenSecret } = response.data;
+                                  
+                                  // Store OAuth1 state
+                                  localStorage.setItem('oauth1_state', state);
+                                  localStorage.setItem('oauth1_token_secret', oauthTokenSecret);
+                                  
+                                  toast({
+                                    title: "Redirecting...",
+                                    description: "Authorizing video uploads for Twitter",
+                                  });
+                                  
+                                  window.location.href = authUrl;
+                                } catch (error) {
+                                  toast({
+                                    title: "Error",
+                                    description: "Failed to start video authorization. Please try again.",
+                                    variant: "destructive",
+                                  });
+                                }
+                              }}
                             >
                               Authorize for Video
                             </Button>
@@ -1704,55 +1701,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Multi-Platform Authorization Dialog */}
-      <AlertDialog open={showAuthDialog} onOpenChange={setShowAuthDialog}>
-        <AlertDialogContent className="w-[90vw] sm:w-[85vw] md:max-w-md p-4 sm:p-6">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-center text-lg sm:text-xl">
-              Connect Your Account
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-center">
-              <div className="py-4 space-y-4">
-                <p className="text-sm sm:text-base">
-                  To post to {authPlatforms.map((p, i) => (
-                    <span key={p}>
-                      <span className="font-semibold capitalize">{p}</span>
-                      {i < authPlatforms.length - 2 && ', '}
-                      {i === authPlatforms.length - 2 && ' and '}
-                    </span>
-                  ))}, you need to connect your account{authPlatforms.length > 1 ? 's' : ''}.
-                </p>
-                
-                {authPlatforms.length > 0 && (
-                  <div className="bg-muted rounded-lg p-3 sm:p-4">
-                    <p className="text-sm font-medium mb-2">
-                      Step {currentAuthIndex + 1} of {authPlatforms.length}
-                    </p>
-                    <p className="text-base sm:text-lg font-semibold capitalize">
-                      {authPlatforms[currentAuthIndex]}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            <Button 
-              variant="outline" 
-              onClick={() => setShowAuthDialog(false)}
-              className="w-full sm:w-auto text-sm sm:text-base"
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleAuthPlatform}
-              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-sm sm:text-base"
-            >
-              Connect {authPlatforms[currentAuthIndex]?.charAt(0).toUpperCase()}{authPlatforms[currentAuthIndex]?.slice(1)}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Note: Multi-Platform Authorization Dialog removed - using redirect-based OAuth */}
     </>
   );
 };

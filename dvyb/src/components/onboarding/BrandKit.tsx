@@ -22,7 +22,7 @@ type ColorType = 'primary' | 'secondary' | 'accent';
 type FontType = 'title' | 'body';
 
 export const BrandKit = ({ onContinue }: BrandKitProps) => {
-  const { accountId } = useAuth();
+  const { accountId, logout } = useAuth();
   const { toast } = useToast();
 
   // State
@@ -300,6 +300,16 @@ export const BrandKit = ({ onContinue }: BrandKitProps) => {
 
   return (
     <div className="min-h-screen p-4 md:p-6 lg:p-8 bg-gradient-to-br from-background via-background to-muted">
+      {/* Sign out link at top right */}
+      <div className="absolute top-4 right-4 md:top-6 md:right-6">
+        <button
+          onClick={() => logout()}
+          className="text-xs md:text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+        >
+          Sign out
+        </button>
+      </div>
+
       <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 animate-fade-in">
         {/* Header with Logo and Title */}
         <div className="flex flex-col md:flex-row items-center justify-center md:justify-start gap-4 md:gap-6">

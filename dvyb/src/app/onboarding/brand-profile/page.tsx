@@ -38,15 +38,9 @@ export default function BrandProfilePage() {
     const ONBOARDING_STORAGE_KEY = 'dvyb_onboarding_guide_progress';
     try {
       const storedProgress = localStorage.getItem(ONBOARDING_STORAGE_KEY);
-      console.log('🔧 Brand Profile - Current localStorage:', storedProgress);
       const progress = storedProgress ? JSON.parse(storedProgress) : {};
       progress.auto_content_viewed = true;
-      const newProgressStr = JSON.stringify(progress);
-      localStorage.setItem(ONBOARDING_STORAGE_KEY, newProgressStr);
-      console.log('✅ Brand Profile - Wrote to localStorage:', newProgressStr);
-      // Verify it was written
-      const verify = localStorage.getItem(ONBOARDING_STORAGE_KEY);
-      console.log('✅ Brand Profile - Verification read:', verify);
+      localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(progress));
     } catch (e) {
       console.error('Failed to update onboarding progress:', e);
     }
