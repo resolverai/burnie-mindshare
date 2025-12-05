@@ -162,14 +162,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error('❌ Auth check failed:', error);
+      
+      // Check if we have account reference in localStorage - if so, DON'T log out
+      // This prevents accidental logout due to transient network issues
+      const hasAccountReference = localStorage.getItem('dvyb_account_id');
+      
+      if (hasAccountReference) {
+        // User was previously authenticated - don't aggressively log them out
+        // Just log the error and keep them authenticated (optimistically)
+        console.log('⚠️ Auth check failed but user has account reference - staying authenticated');
+        
+        // Try to re-set the cookie from localStorage
+        const isProduction = typeof window !== 'undefined' && window.location.protocol === 'https:';
+        const cookieOptions = isProduction 
+          ? 'path=/; max-age=604800; SameSite=None; Secure'
+          : 'path=/; max-age=604800; SameSite=Lax';
+        document.cookie = `dvyb_account_id=${hasAccountReference}; ${cookieOptions}`;
+        console.log('🍪 Re-set account cookie from localStorage after error');
+        
+        // Keep user authenticated - don't clear state or redirect
+        // This prevents logout on transient network errors
+        return;
+      }
+      
+      // No account reference - user was never authenticated
       setIsAuthenticated(false);
       setAccountId(null);
       setOnboardingComplete(false);
       setHasValidGoogleConnection(false);
       
-      // On error, only clear session cookies, don't clear localStorage
-      // User can still re-login if account exists
-      console.log('⚠️ Auth check error - clearing session cookies only');
+      // On error without account reference, only clear session cookies
+      console.log('⚠️ Auth check error (no account reference) - clearing session cookies only');
       document.cookie = 'dvyb_account_id=; path=/; max-age=0';
       document.cookie = 'dvyb_twitter_handle=; path=/; max-age=0';
       
@@ -235,12 +258,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Re-check auth on navigation to catch deleted accounts
+  // NOTE: We use a debounced check to avoid race conditions with rapid navigation
   useEffect(() => {
     // Skip the initial mount (handled by the first useEffect)
     // Only re-check if user is currently authenticated and navigating
     if (isAuthenticated && accountId && !isLoading) {
-      console.log(`🔄 Navigation detected to ${pathname} - re-checking auth...`);
-      checkAuth();
+      // Debounce navigation auth check - only check if user stays on the page for 500ms
+      // This prevents race conditions from rapid navigation
+      const timeoutId = setTimeout(() => {
+        console.log(`🔄 Navigation detected to ${pathname} - re-checking auth (debounced)...`);
+        checkAuth();
+      }, 500);
+      
+      return () => clearTimeout(timeoutId);
     }
   }, [pathname]);
 

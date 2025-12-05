@@ -4,10 +4,14 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:300
 // Get account ID from localStorage (fallback for Safari/browsers that block cookies)
 function getAccountIdHeader(): Record<string, string> {
   if (typeof window === 'undefined') return {};
+  
   const accountId = localStorage.getItem('dvyb_account_id');
   if (accountId) {
     return { 'X-DVYB-Account-ID': accountId };
   }
+  
+  // Log when account ID is missing - helps debug logout issues
+  console.warn('⚠️ No dvyb_account_id in localStorage for X-DVYB-Account-ID header');
   return {};
 }
 
