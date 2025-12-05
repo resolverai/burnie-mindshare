@@ -208,6 +208,15 @@ router.get('/', async (req: Request, res: Response) => {
                 startDate: currentPlan.startDate,
               }
             : null,
+          // Auto-generation data
+          autoGeneration: {
+            enabled: account.autoGenerationEnabled,
+            status: account.autoGenerationStatus,
+            lastGenerationDate: account.lastAutoGenerationDate,
+            scheduledTime: account.autoGenerationTime,
+            lastError: account.lastAutoGenerationError,
+            retryCount: account.autoGenerationRetryCount,
+          },
         };
       })
     );
@@ -441,6 +450,117 @@ router.get('/:id/plan-history', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to fetch plan history',
+    });
+  }
+});
+
+/**
+ * PATCH /api/admin/dvyb-accounts/:id/toggle-auto-generation
+ * Enable or disable auto-generation for an account
+ */
+router.patch('/:id/toggle-auto-generation', async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid account ID',
+      });
+    }
+
+    const accountRepo = AppDataSource.getRepository(DvybAccount);
+    const account = await accountRepo.findOne({ where: { id: accountId } });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    // Toggle the autoGenerationEnabled status
+    account.autoGenerationEnabled = !account.autoGenerationEnabled;
+    
+    // Reset status when toggling
+    if (account.autoGenerationEnabled) {
+      account.autoGenerationStatus = 'pending';
+    } else {
+      account.autoGenerationStatus = null;
+    }
+    
+    await accountRepo.save(account);
+
+    logger.info(`✅ Auto-generation for account ${accountId} ${account.autoGenerationEnabled ? 'enabled' : 'disabled'}`);
+
+    return res.json({
+      success: true,
+      data: {
+        id: account.id,
+        autoGenerationEnabled: account.autoGenerationEnabled,
+        autoGenerationStatus: account.autoGenerationStatus,
+      },
+      message: `Auto-generation ${account.autoGenerationEnabled ? 'enabled' : 'disabled'} successfully`,
+    });
+  } catch (error) {
+    logger.error('Error toggling auto-generation:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to update auto-generation status',
+    });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-accounts/trigger-auto-generation
+ * Manually trigger auto-generation scheduling for testing
+ */
+router.post('/trigger-auto-generation', async (req: Request, res: Response) => {
+  try {
+    const { dvybAutoGenerationCronService } = await import('../services/DvybAutoGenerationCronService');
+    
+    const result = await dvybAutoGenerationCronService.triggerNow();
+
+    logger.info(`🔧 Manual auto-generation trigger: ${result.scheduled} jobs scheduled`);
+
+    return res.json({
+      success: true,
+      data: result,
+      message: `Scheduled ${result.scheduled} auto-generation jobs`,
+    });
+  } catch (error) {
+    logger.error('Error triggering auto-generation:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to trigger auto-generation',
+    });
+  }
+});
+
+/**
+ * GET /api/admin/dvyb-accounts/auto-generation-status
+ * Get auto-generation queue status
+ */
+router.get('/auto-generation-status', async (req: Request, res: Response) => {
+  try {
+    const { getAutoGenerationQueueStatus } = await import('../services/DvybAutoGenerationQueueService');
+    const { dvybAutoGenerationCronService } = await import('../services/DvybAutoGenerationCronService');
+    
+    const queueStatus = await getAutoGenerationQueueStatus();
+    const cronStatus = dvybAutoGenerationCronService.getStatus();
+
+    return res.json({
+      success: true,
+      data: {
+        cron: cronStatus,
+        queue: queueStatus,
+      },
+    });
+  } catch (error) {
+    logger.error('Error getting auto-generation status:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get auto-generation status',
     });
   }
 });

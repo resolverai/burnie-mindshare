@@ -15,7 +15,13 @@ import {
   DollarSign,
   Image as ImageIcon,
   Video,
-  Trash2
+  Trash2,
+  Zap,
+  Clock,
+  AlertCircle,
+  RefreshCw,
+  Play,
+  Pause
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -27,6 +33,15 @@ interface CurrentPlan {
   videoPostsLimit: number;
   planPrice: number;
   startDate: string;
+}
+
+interface AutoGeneration {
+  enabled: boolean;
+  status: 'pending' | 'generating' | 'completed' | 'failed' | 'skipped' | null;
+  lastGenerationDate: string | null;
+  scheduledTime: string | null;
+  lastError: string | null;
+  retryCount: number;
 }
 
 interface DvybAccount {
@@ -46,6 +61,7 @@ interface DvybAccount {
     videosGenerated: number;
   };
   currentPlan: CurrentPlan | null;
+  autoGeneration: AutoGeneration;
 }
 
 interface PricingPlan {
@@ -100,6 +116,7 @@ export default function DvybAccountsPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<DvybAccount | null>(null);
+  const [togglingAutoGen, setTogglingAutoGen] = useState<number | null>(null);
 
   // Fetch accounts
   const fetchAccounts = async () => {
@@ -215,6 +232,28 @@ export default function DvybAccountsPage() {
       alert('Failed to associate plan');
     } finally {
       setAssociating(false);
+    }
+  };
+
+  // Toggle auto-generation for an account
+  const handleToggleAutoGeneration = async (accountId: number) => {
+    try {
+      setTogglingAutoGen(accountId);
+      const response = await fetch(`/api/admin/dvyb-accounts/${accountId}/toggle-auto-generation`, {
+        method: 'PATCH',
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        fetchAccounts();
+      } else {
+        alert(data.error || 'Failed to update auto-generation status');
+      }
+    } catch (error) {
+      console.error('Error toggling auto-generation:', error);
+      alert('Failed to update auto-generation status');
+    } finally {
+      setTogglingAutoGen(null);
     }
   };
 
@@ -370,6 +409,9 @@ export default function DvybAccountsPage() {
                       Usage
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Auto-Gen
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -448,6 +490,72 @@ export default function DvybAccountsPage() {
                               {account.usage?.videosGenerated || 0}
                             </span>
                           </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="space-y-1">
+                          {/* Toggle Switch */}
+                          <button
+                            onClick={() => handleToggleAutoGeneration(account.id)}
+                            disabled={togglingAutoGen === account.id || !account.currentPlan || account.currentPlan.planName.toLowerCase().includes('free')}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              account.autoGeneration?.enabled 
+                                ? 'bg-purple-600' 
+                                : 'bg-gray-300'
+                            } ${(!account.currentPlan || account.currentPlan.planName.toLowerCase().includes('free')) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            title={!account.currentPlan || account.currentPlan.planName.toLowerCase().includes('free') 
+                              ? 'Auto-generation is only available for paid plans' 
+                              : account.autoGeneration?.enabled ? 'Disable auto-generation' : 'Enable auto-generation'}
+                          >
+                            <span
+                              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                                account.autoGeneration?.enabled ? 'translate-x-5' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                          
+                          {/* Status indicator */}
+                          {account.autoGeneration?.enabled && (
+                            <div className="flex items-center gap-1">
+                              {account.autoGeneration.status === 'pending' && (
+                                <span className="flex items-center gap-1 text-xs text-blue-600">
+                                  <Clock className="h-3 w-3" />
+                                  Pending
+                                </span>
+                              )}
+                              {account.autoGeneration.status === 'generating' && (
+                                <span className="flex items-center gap-1 text-xs text-amber-600">
+                                  <RefreshCw className="h-3 w-3 animate-spin" />
+                                  Generating
+                                </span>
+                              )}
+                              {account.autoGeneration.status === 'completed' && (
+                                <span className="flex items-center gap-1 text-xs text-green-600">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Done
+                                </span>
+                              )}
+                              {account.autoGeneration.status === 'failed' && (
+                                <span className="flex items-center gap-1 text-xs text-red-600" title={account.autoGeneration.lastError || 'Unknown error'}>
+                                  <AlertCircle className="h-3 w-3" />
+                                  Failed
+                                </span>
+                              )}
+                              {account.autoGeneration.status === 'skipped' && (
+                                <span className="flex items-center gap-1 text-xs text-gray-500">
+                                  <Pause className="h-3 w-3" />
+                                  Skipped
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          
+                          {/* Last generation date */}
+                          {account.autoGeneration?.lastGenerationDate && (
+                            <div className="text-xs text-gray-400">
+                              Last: {new Date(account.autoGeneration.lastGenerationDate).toLocaleDateString()}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

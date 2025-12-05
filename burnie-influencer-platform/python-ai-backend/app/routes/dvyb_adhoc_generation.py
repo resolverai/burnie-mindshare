@@ -1479,16 +1479,21 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         num_images = number_of_posts - num_clips
         print(f"⚠️ Frontend didn't provide mix, using default (maximize videos): {num_clips} videos, {num_images} images")
     
-    # Video configuration (Veo3.1 specific)
-    # Configurable: 1 clip = 8s, 2 clips = 16s, 3 clips = 24s, etc.
+    # Video configuration (Model-agnostic - Kling v2.6 or Veo3.1 selected randomly per video)
+    # Kling v2.6: supports 5s and 10s (using 10s default)
+    # Veo3.1: supports 4s, 6s, 8s (using 8s default)
+    # Ratio: 60% Kling, 40% Veo
     CLIPS_PER_VIDEO = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 1
-    CLIP_DURATION = 8  # Veo3.1 only supports 8-second clips
-    VIDEO_DURATION = CLIPS_PER_VIDEO * CLIP_DURATION
+    # CLIP_DURATION will be set per video based on model selection (8s for Veo, 10s for Kling)
+    # For Grok prompt generation, we use a conservative estimate
+    CLIP_DURATION_ESTIMATE = 8  # Conservative estimate for prompt generation
+    VIDEO_DURATION_ESTIMATE = CLIPS_PER_VIDEO * CLIP_DURATION_ESTIMATE
     
-    print(f"⚙️ Video Configuration: {CLIPS_PER_VIDEO} clip(s) per video, {CLIP_DURATION}s per clip, {VIDEO_DURATION}s total duration")
+    print(f"⚙️ Video Configuration: {CLIPS_PER_VIDEO} clip(s) per video, ~{CLIP_DURATION_ESTIMATE}-10s per clip")
+    print(f"⚙️ Model Selection: 5% Kling v2.6 (10s clips), 95% Veo3.1 (8s clips)")
     
     print("=" * 80)
-    print("🤖 GROK PROMPT GENERATION (VEO3.1 MULTI-CLIP MODE)")
+    print("🤖 GROK PROMPT GENERATION (KLING v2.6 / VEO3.1 MULTI-MODEL MODE)")
     print("=" * 80)
     print(f"📝 Topic: {request.topic}")
     print(f"📝 Platforms: {request.platforms}")
@@ -1496,8 +1501,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     print(f"📝 Number of video posts: {num_clips}")
     print(f"📝 Number of image posts: {num_images}")
     print(f"🎬 Clips per video: {CLIPS_PER_VIDEO}")
-    print(f"⏱️  Clip duration: {CLIP_DURATION}s")
-    print(f"🎥 Total video duration: {VIDEO_DURATION}s")
+    print(f"⏱️  Clip duration: {CLIP_DURATION_ESTIMATE}s (Veo) / 10s (Kling)")
+    print(f"🎥 Total video duration: {VIDEO_DURATION_ESTIMATE}s+ depending on model")
     print(f"📝 User prompt: {request.user_prompt}")
     print(f"📝 User images: {len(request.user_images) if request.user_images else 0}")
     print(f"📝 Inspiration links: {len(request.inspiration_links) if request.inspiration_links else 0}")
@@ -1561,17 +1566,17 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
             for clip_num in range(1, CLIPS_PER_VIDEO + 1):
                 video_examples.append(f'''  "video_{video_idx}_clip_{clip_num}_image_prompt": "Detailed visual description for starting frame of clip {clip_num} in video {video_idx} (9:16 vertical aspect ratio, Instagram Reels style)...",
   "video_{video_idx}_clip_{clip_num}_product_mapping": "image_1" or "image_2" or null (map to product image if needed for this specific frame),
-  "video_{video_idx}_clip_{clip_num}_prompt": "Cinematic {CLIP_DURATION}-second video description with smooth motion, no text overlays, no background music. [THEN add voiceover OR character speech at the END]",
+  "video_{video_idx}_clip_{clip_num}_prompt": "Cinematic 8-10 second video description with smooth motion, no text overlays, no background music. [THEN add voiceover OR character speech at the END]",
   "video_{video_idx}_clip_{clip_num}_logo_needed": true or false''')
             
             # Single audio prompt per video (added after stitching)
-            video_examples.append(f'''  "video_{video_idx}_audio_prompt": "Create instrumental background music for {VIDEO_DURATION}-second video. Focus ONLY on music composition, NO sound effects."''')
+            video_examples.append(f'''  "video_{video_idx}_audio_prompt": "Create instrumental background music for {VIDEO_DURATION_ESTIMATE}-second video. Focus ONLY on music composition, NO sound effects."''')
         
         video_prompts_section = ",\n  ".join(video_examples)
         
         video_prompts_instruction = f"""
 
-3. VIDEO TYPE SELECTION & GENERATION ({num_clips} videos, each {VIDEO_DURATION}s):
+3. VIDEO TYPE SELECTION & GENERATION ({num_clips} videos, each ~{VIDEO_DURATION_ESTIMATE}-{CLIPS_PER_VIDEO * 10}s):
    
    🎯 CRITICAL: INTELLIGENT VIDEO TYPE & FLAGS DECISION
    
@@ -1607,7 +1612,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         * "no_characters": false
         * "human_characters_only": true
         * "influencer_marketing": true
-      - Speech limit: 12-14 words MAX per {CLIP_DURATION}s clip
+      - Speech limit: 12-14 words MAX per 8-10s clip
       - Style: Authentic, conversational, relatable UGC content
       
       🎬 **COMPELLING HOOKS & STORYLINES** (CRITICAL FOR 8-SECOND IMPACT):
@@ -1708,19 +1713,19 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    "influencer_marketing": true OR false,
    "web3": false (always false for DVYB)
    
-   📋 MULTI-CLIP VIDEO STRUCTURE (Veo3.1 with 9:16 aspect ratio):
+   📋 MULTI-CLIP VIDEO STRUCTURE (Kling v2.6 / Veo3.1 with 9:16 aspect ratio):
    Video indices: {sorted(video_indices)}
    Each video requires:
-   - {CLIPS_PER_VIDEO} image prompts (starting frames for each {CLIP_DURATION}s clip)
+   - {CLIPS_PER_VIDEO} image prompts (starting frames for each 8-10s clip)
    - {CLIPS_PER_VIDEO} clip prompts (motion/animation descriptions)
    - {CLIPS_PER_VIDEO} logo decisions (true/false for each frame)
-   - 1 audio prompt (background music for entire {VIDEO_DURATION}s video)
+   - 1 audio prompt (background music for entire {VIDEO_DURATION_ESTIMATE}-{CLIPS_PER_VIDEO * 10}s video)
    
    Format: "video_{{index}}_clip_{{num}}_image_prompt", "video_{{index}}_clip_{{num}}_prompt", etc.
    
-   🎬 VEO3.1 SPECIFIC REQUIREMENTS:
+   🎬 VIDEO MODEL REQUIREMENTS (Kling v2.6 OR Veo3.1 selected per video):
    - Aspect ratio: 9:16 (Instagram Reels/TikTok vertical - MANDATORY)
-   - Clip duration: {CLIP_DURATION}s (FIXED - Veo3.1 only supports 8s clips)
+   - Clip duration: 8-10s (8s for Veo3.1, 10s for Kling v2.6)
    - Embedded audio: YES (voiceover OR character speech based on video_type)
    - 🚨 CRITICAL CLIP PROMPT STRUCTURE: "no text overlays, no background music" must come BEFORE voiceover/speech text (NOT after)
      * This prevents the model from speaking "no text overlays" as part of the audio
@@ -2315,7 +2320,7 @@ CRITICAL REQUIREMENTS:
 
 - **JSON VALIDATION**: Must be valid and parseable
 
-- **VIDEO INDICES**: Posts at indices {sorted(video_indices)} are {VIDEO_DURATION}s videos ({CLIPS_PER_VIDEO} clips each), rest are images
+- **VIDEO INDICES**: Posts at indices {sorted(video_indices)} are {VIDEO_DURATION_ESTIMATE}-{CLIPS_PER_VIDEO * 10}s videos ({CLIPS_PER_VIDEO} clips each), rest are images
 """
     
     # Debug logging
@@ -2543,8 +2548,10 @@ CRITICAL REQUIREMENTS:
             "video_indices": sorted(video_indices),
             "image_only_indices": sorted(image_only_indices),
             "clips_per_video": CLIPS_PER_VIDEO,
-            "clip_duration": CLIP_DURATION,
-            "video_duration": VIDEO_DURATION,
+            # Note: Actual clip/video duration depends on model selected per video
+            # These are estimates - actual values set during generation
+            "clip_duration_estimate": CLIP_DURATION_ESTIMATE,
+            "video_duration_estimate": VIDEO_DURATION_ESTIMATE,
         }
         
     except Exception as e:
@@ -2571,8 +2578,27 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     video_indices = prompts["video_indices"]
     image_only_indices = prompts["image_only_indices"]
     CLIPS_PER_VIDEO = prompts["clips_per_video"]
-    CLIP_DURATION = prompts["clip_duration"]
-    VIDEO_DURATION = prompts["video_duration"]
+    
+    # Model selection: 60% Kling v2.6 (10s clips), 40% Veo3.1 (8s clips)
+    # Selection is done per video, not per clip (all clips in a video use same model)
+    import random
+    
+    def select_video_model():
+        """Select video model with 5:95 ratio (Kling:Veo)"""
+        if random.random() < 0.05:
+            return {
+                "name": "kling_v2.6",
+                "fal_model": "fal-ai/kling-video/v2.6/pro/image-to-video",
+                "clip_duration": 10,  # Kling supports 5 or 10, using 10
+                "duration_param": "10",  # Kling uses string "5" or "10"
+            }
+        else:
+            return {
+                "name": "veo3.1",
+                "fal_model": "fal-ai/veo3.1/fast/image-to-video",
+                "clip_duration": 8,  # Veo supports 4, 6, 8, using 8
+                "duration_param": "8s",  # Veo uses "4s", "6s", "8s"
+            }
     
     dvyb_context = context.get('dvyb_context', {})
     # Use randomly selected logo from logoUrl or additionalLogoUrls
@@ -2612,14 +2638,15 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     }
     
     print("=" * 80)
-    print("🎥 DVYB VEO3.1 CONTENT GENERATION")
+    print("🎥 DVYB KLING v2.6 / VEO3.1 CONTENT GENERATION")
     print("=" * 80)
     print(f"📋 Video Type: {video_type}")
     print(f"📋 Total Posts: {len(image_only_indices) + len(video_indices)}")
     print(f"📋 Image-only posts: {sorted(image_only_indices)}")
     print(f"📋 Video posts: {sorted(video_indices)}")
     print(f"📋 Clips per video: {CLIPS_PER_VIDEO}")
-    print(f"📋 Video duration: {VIDEO_DURATION}s ({CLIPS_PER_VIDEO} × {CLIP_DURATION}s)")
+    print(f"📋 Video models: 5% Kling v2.6 (10s clips), 95% Veo3.1 (8s clips)")
+    print(f"📋 Video duration: {CLIPS_PER_VIDEO * 8}s - {CLIPS_PER_VIDEO * 10}s (depending on model)")
     print(f"📋 Model image detected: {has_model_image}")
     if has_model_image:
         print(f"📋 Model image index: {model_image_index}")
@@ -2843,25 +2870,34 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             print(f"❌ Failed to generate image {idx}: {e}")
             logger.error(f"Image generation error for index {idx}: {e}")
     
-    # STEP 3: Generate multi-clip videos with Veo3.1
+    # STEP 3: Generate multi-clip videos with Kling v2.6 / Veo3.1 (60:40 ratio)
     print("\n" + "=" * 80)
-    print(f"🎬 MULTI-CLIP VIDEO GENERATION (Veo3.1, 9:16)")
+    print(f"🎬 MULTI-CLIP VIDEO GENERATION (Kling v2.6 5% / Veo3.1 95%, 9:16)")
     print(f"⏱️  VIDEO GENERATION IN PROGRESS - This may take several minutes...")
-    print(f"📊 Generating {len(video_indices)} video(s), each {CLIPS_PER_VIDEO} clip(s) × {CLIP_DURATION}s = {VIDEO_DURATION}s")
+    print(f"📊 Generating {len(video_indices)} video(s), each {CLIPS_PER_VIDEO} clip(s) × 8-10s")
     print("=" * 80)
     
     # Update progress with video generation message
     await update_progress_in_db(
         request.account_id,
         40,
-        f"🎬 Generating videos... ({len(video_indices)} video(s), {VIDEO_DURATION}s each - this may take a few minutes)",
+        f"🎬 Generating videos... ({len(video_indices)} video(s), 8-10s clips - this may take a few minutes)",
         generation_uuid
     )
     
+    # Track which model was used for each video
+    video_model_selections = {}
     
     for video_idx in sorted(video_indices):
+        # Select model for this video (60% Kling, 40% Veo)
+        selected_model = select_video_model()
+        video_model_selections[video_idx] = selected_model
+        CLIP_DURATION = selected_model["clip_duration"]
+        VIDEO_DURATION = CLIPS_PER_VIDEO * CLIP_DURATION
+        
         print(f"\n{'='*80}")
-        print(f"🎥 VIDEO AT INDEX {video_idx} ({VIDEO_DURATION}s)")
+        print(f"🎥 VIDEO AT INDEX {video_idx}")
+        print(f"🎯 Selected Model: {selected_model['name'].upper()} ({CLIP_DURATION}s clips, {VIDEO_DURATION}s total)")
         print(f"{'='*80}")
         
         video_clip_data = video_prompts.get(video_idx, {})
@@ -2931,12 +2967,12 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         print(f"     {i+1}. {url[:80]}...")
                 else:
                     print(f"     ⚠️ No reference images provided")
-                
+            
                 def on_queue_update(update):
                     if isinstance(update, fal_client.InProgress):
                         for log in update.logs:
                             print(log["message"])
-                
+            
                 result = fal_client.subscribe(
                     "fal-ai/nano-banana/edit",
                     arguments={
@@ -2988,8 +3024,14 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 logger.error(f"Frame generation error for video {video_idx}, clip {clip_num}: {e}")
                 frame_s3_urls.append(None)
         
-        # Step 3b: Generate clips with Veo3.1
-        print(f"\n🎬 Generating {CLIPS_PER_VIDEO} clips with Veo3.1...")
+        # Step 3b: Generate clips with selected model (Kling v2.6 or Veo3.1)
+        model_name = selected_model["name"]
+        fal_model = selected_model["fal_model"]
+        duration_param = selected_model["duration_param"]
+        
+        print(f"\n🎬 Generating {CLIPS_PER_VIDEO} clips with {model_name.upper()}...")
+        print(f"   Model: {fal_model}")
+        print(f"   Duration: {duration_param}")
         
         clip_s3_urls = []
         for clip_num in range(1, CLIPS_PER_VIDEO + 1):
@@ -3014,31 +3056,46 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     continue
                 
                 print(f"  ✅ Frame presigned URL ready: {frame_presigned_url[:100]}...")
-                print(f"  🎬 [VEO3.1-FAST] Generating clip with 9:16 aspect ratio, 8s duration, embedded audio")
+                print(f"  🎬 [{model_name.upper()}] Generating clip with 9:16 aspect ratio, {CLIP_DURATION}s duration, embedded audio")
                 
-                # Generate clip with Veo3.1
-                def on_queue_update_veo(update):
+                # Generate clip with selected model
+                def on_queue_update_clip(update):
                     if isinstance(update, fal_client.InProgress):
                         for log in update.logs:
                             print(log["message"])
-            
-                result = fal_client.subscribe(
-                    "fal-ai/veo3.1/fast/image-to-video",
-                    arguments={
+                
+                # Build arguments based on model
+                if model_name == "kling_v2.6":
+                    # Kling v2.6 arguments (similar to Kling v2.5 turbo)
+                    fal_arguments = {
+                        "prompt": clip_prompt,
+                        "image_url": frame_presigned_url,
+                        "duration": duration_param,  # "5" or "10" (string without 's')
+                        "negative_prompt": "blur, distort, low quality, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra text, double logos",
+                        "cfg_scale": 0.5,
+                        "generate_audio": True
+                    }
+                else:
+                    # Veo3.1 arguments
+                    fal_arguments = {
                         "prompt": clip_prompt,
                         "image_url": frame_presigned_url,
                         "aspect_ratio": "9:16",  # Instagram Reels vertical format
-                        "duration": "8s",        # Fixed for Veo3.1
-                        "generate_audio": True,   # Embedded voiceover/speech
+                        "duration": duration_param,  # "8s" (with 's' suffix)
+                        "generate_audio": True,
                         "resolution": "720p"
-                    },
-                    with_logs=True,
-                    on_queue_update=on_queue_update_veo
+                    }
+                
+                result = fal_client.subscribe(
+                    fal_model,
+                    arguments=fal_arguments,
+                with_logs=True,
+                    on_queue_update=on_queue_update_clip
                 )
                 
                 if result and "video" in result:
                     fal_video_url = result["video"]["url"]
-                    print(f"  📥 FAL Veo3.1 URL received: {fal_video_url[:100]}...")
+                    print(f"  📥 FAL {model_name} URL received: {fal_video_url[:100]}...")
                     
                     # Upload to S3
                     print(f"  📤 Uploading clip to S3...")
@@ -3059,12 +3116,13 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     model_usage["videoClipGeneration"].append({
                         "post_index": video_idx,
                         "clip_number": clip_num,
-                        "model": "fal-ai/veo3.1/fast/image-to-video",
-                        "duration": "8s",
+                        "model": fal_model,
+                        "model_name": model_name,
+                        "duration": f"{CLIP_DURATION}s",
                         "aspect_ratio": "9:16"
                     })
                     
-                    print(f"  ✅ Veo3.1 clip {clip_num} generation complete (with embedded audio)")
+                    print(f"  ✅ {model_name.upper()} clip {clip_num} generation complete (with embedded audio)")
                 else:
                     clip_s3_urls.append(None)
                     print(f"  ❌ Failed to generate clip {clip_num}")
@@ -3142,8 +3200,9 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             print(f"⚡ Single clip video: Skipping audio processing (using raw Veo3.1 output)")
             
             # NEW: For UGC/influencer single clips, trim at speech end to remove awkward silence
-            if influencer_marketing_flag and valid_clips:
-                print(f"\n🎤 UGC/Influencer single clip: Applying speech-end trimming...")
+            # Only trim for Veo3.1 clips (Kling v2.6 doesn't need trimming)
+            if influencer_marketing_flag and valid_clips and model_name == "veo3.1":
+                print(f"\n🎤 UGC/Influencer single clip (Veo3.1): Applying speech-end trimming...")
                 trimmed_clips = []
                 for idx, clip_url in enumerate(valid_clips):
                     clip_num = idx + 1
@@ -3180,47 +3239,53 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 
                 # Use trimmed clips
                 valid_clips = trimmed_clips
-        else:
-            print(f"🎤 Influencer marketing: Skipping voice separation (character speaks naturally)")
+            elif influencer_marketing_flag and valid_clips and model_name == "kling_v2.6":
+                print(f"🎤 UGC/Influencer (Kling v2.6): Skipping speech-end trimming (not needed for Kling)")
+            else:
+                print(f"🎤 Influencer marketing: Skipping voice separation (character speaks naturally)")
             
-            # For multi-clip UGC/influencer videos, also trim each clip at speech end
-            print(f"\n🎤 UGC/Influencer multi-clip: Applying speech-end trimming to each clip...")
-            trimmed_clips = []
-            for idx, clip_url in enumerate(valid_clips):
-                clip_num = idx + 1
-                print(f"\n✂️ Processing UGC clip {clip_num}/{len(valid_clips)} for speech-end trim...")
+            # For multi-clip UGC/influencer videos, trim each clip at speech end
+            # Only trim for Veo3.1 clips (Kling v2.6 doesn't need trimming)
+            if model_name == "veo3.1":
+                print(f"\n🎤 UGC/Influencer multi-clip (Veo3.1): Applying speech-end trimming to each clip...")
+                trimmed_clips = []
+                for idx, clip_url in enumerate(valid_clips):
+                    clip_num = idx + 1
+                    print(f"\n✂️ Processing UGC clip {clip_num}/{len(valid_clips)} for speech-end trim...")
+                    
+                    # Download clip
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+                        presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
+                        response = requests.get(presigned_url)
+                        temp_file.write(response.content)
+                        clip_path = temp_file.name
+                        print(f"  📥 Downloaded clip {clip_num}")
+                    
+                    # Trim at speech end (only look after 5 seconds, add 300ms buffer)
+                    trimmed_clip_path = trim_ugc_clip_at_speech_end(clip_path, min_search_time=5.0, buffer_ms=300)
+                    
+                    # Upload trimmed clip to S3
+                    trimmed_s3_url = web2_s3_helper.upload_from_file(
+                        file_path=trimmed_clip_path,
+                        folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                        filename=f"ugc_trimmed_clip_{clip_num}.mp4"
+                    )
+                    
+                    # Clean up local files
+                    try:
+                        os.remove(clip_path)
+                        if trimmed_clip_path != clip_path:
+                            os.remove(trimmed_clip_path)
+                    except:
+                        pass
+                    
+                    trimmed_clips.append(trimmed_s3_url)
+                    print(f"  ✅ UGC clip {clip_num} trimmed and uploaded")
                 
-                # Download clip
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
-                    presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
-                    response = requests.get(presigned_url)
-                    temp_file.write(response.content)
-                    clip_path = temp_file.name
-                    print(f"  📥 Downloaded clip {clip_num}")
-                
-                # Trim at speech end (only look after 5 seconds, add 300ms buffer)
-                trimmed_clip_path = trim_ugc_clip_at_speech_end(clip_path, min_search_time=5.0, buffer_ms=300)
-                
-                # Upload trimmed clip to S3
-                trimmed_s3_url = web2_s3_helper.upload_from_file(
-                    file_path=trimmed_clip_path,
-                    folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
-                    filename=f"ugc_trimmed_clip_{clip_num}.mp4"
-                )
-                
-                # Clean up local files
-                try:
-                    os.remove(clip_path)
-                    if trimmed_clip_path != clip_path:
-                        os.remove(trimmed_clip_path)
-                except:
-                    pass
-                
-                trimmed_clips.append(trimmed_s3_url)
-                print(f"  ✅ UGC clip {clip_num} trimmed and uploaded")
-            
-            # Use trimmed clips
-            valid_clips = trimmed_clips
+                # Use trimmed clips
+                valid_clips = trimmed_clips
+            else:
+                print(f"🎤 UGC/Influencer multi-clip (Kling v2.6): Skipping speech-end trimming (not needed for Kling)")
         
         # Step 3c-2: Stitch clips together (random: simple concat or crossfade)
         print(f"\n🎞️ Stitching {len(valid_clips)} clips...")

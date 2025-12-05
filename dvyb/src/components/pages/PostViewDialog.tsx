@@ -108,10 +108,26 @@ export const PostViewDialog = ({ post, platform, open, onOpenChange }: PostViewD
     return false;
   };
 
+  // Determine video aspect ratio based on model:
+  // - kling models → 1:1 (aspect-square)
+  // - veo3 models → 9:16 (aspect-[9/16])
+  // Default to 9:16 if model is unknown
+  const getVideoAspectRatio = (isVideoContent: boolean) => {
+    if (!isVideoContent) return 'aspect-square'; // Images are always 1:1
+    
+    const model = (post.videoModel || '').toLowerCase();
+    if (model.includes('kling')) {
+      return 'aspect-square'; // 1:1 for kling
+    }
+    // Default to 9:16 for veo3 and other models
+    return 'aspect-[9/16]';
+  };
+
   const renderPlatformPreview = () => {
     const caption = getCaption();
     const mediaUrl = getMediaUrl();
     const video = isVideo();
+    const videoAspectClass = getVideoAspectRatio(video);
 
     switch (platform) {
       case "instagram":
@@ -135,7 +151,7 @@ export const PostViewDialog = ({ post, platform, open, onOpenChange }: PostViewD
               <MoreHorizontal className="w-4 h-4 md:w-5 md:h-5 text-gray-900" />
             </div>
             
-            <div className={`w-full ${video ? 'aspect-[9/16]' : 'aspect-square'}`}>
+            <div className={`w-full ${video ? videoAspectClass : 'aspect-square'}`}>
               {video ? (
                 <video 
                   src={mediaUrl} 
@@ -200,7 +216,7 @@ export const PostViewDialog = ({ post, platform, open, onOpenChange }: PostViewD
                   </div>
                 )}
                 {mediaUrl && (
-                  <div className="mt-3 rounded-xl md:rounded-2xl overflow-hidden aspect-square">
+                  <div className={`mt-3 rounded-xl md:rounded-2xl overflow-hidden ${video ? videoAspectClass : 'aspect-square'}`}>
                     {video ? (
                       <video 
                         src={mediaUrl} 
@@ -261,7 +277,7 @@ export const PostViewDialog = ({ post, platform, open, onOpenChange }: PostViewD
               )}
               
               {mediaUrl && (
-                <div className="w-full aspect-square rounded-lg overflow-hidden">
+                <div className={`w-full ${video ? videoAspectClass : 'aspect-square'} rounded-lg overflow-hidden`}>
                   {video ? (
                     <video 
                       src={mediaUrl} 
@@ -303,7 +319,7 @@ export const PostViewDialog = ({ post, platform, open, onOpenChange }: PostViewD
 
       case "tiktok":
         return (
-          <div className="bg-black rounded-lg overflow-hidden shadow-lg w-full max-w-sm mx-auto relative aspect-[9/16]">
+          <div className={`bg-black rounded-lg overflow-hidden shadow-lg w-full max-w-sm mx-auto relative ${videoAspectClass}`}>
             <div className="absolute inset-0">
               <video 
                 src={mediaUrl} 

@@ -99,6 +99,8 @@ import { platformYapperCronService } from './services/PlatformYapperCronService'
 import { scheduledPostCronService } from './services/ScheduledPostCronService';
 import { scheduledPostWorker, scheduledPostQueue } from './services/ScheduledPostQueueService';
 import { dvybScheduledPostWorker, dvybScheduledPostQueue } from './services/DvybScheduledPostQueueService';
+import { dvybAutoGenerationCronService } from './services/DvybAutoGenerationCronService';
+import { dvybAutoGenerationWorker, dvybAutoGenerationQueue } from './services/DvybAutoGenerationQueueService';
 // DISABLED: Commented out to prevent automatic fetching of latest tweets data
 // import { PopularTwitterHandlesCronService } from './services/PopularTwitterHandlesCronService';
 import { AppDataSource } from './config/database';
@@ -336,12 +338,23 @@ const startServer = async () => {
     scheduledPostCronService.start();
     logger.info('📅 Scheduled post cron service started');
     
+    // Start DVYB auto-generation cron service and workers
+    logger.info('🤖 DVYB auto-generation worker status check...');
+    logger.info('   - DVYB auto-generation worker: ready');
+    dvybAutoGenerationCronService.start();
+    logger.info('🤖 DVYB auto-generation cron service started');
+    
     // Verify worker is ready (wait a bit for Redis connection)
     setTimeout(async () => {
       try {
         const waitingCount = await scheduledPostQueue.getWaitingCount();
         const delayedCount = await scheduledPostQueue.getDelayedCount();
         logger.info(`📊 Scheduled post queue status: ${waitingCount} waiting, ${delayedCount} delayed`);
+        
+        // Also check auto-generation queue
+        const autoGenDelayed = await dvybAutoGenerationQueue.getDelayedCount();
+        const autoGenActive = await dvybAutoGenerationQueue.getActiveCount();
+        logger.info(`📊 Auto-generation queue status: ${autoGenDelayed} delayed, ${autoGenActive} active`);
       } catch (error: any) {
         logger.warn(`⚠️ Could not check queue status: ${error.message}`);
       }
@@ -397,9 +410,11 @@ const gracefulShutdown = async (signal: string) => {
     // platformYapperCronService.stop(); // DISABLED: Service not started
     scheduledCleanupService.stop();
     scheduledPostCronService.stop();
+    dvybAutoGenerationCronService.stop();
     // Close scheduled post workers
     await scheduledPostWorker.close();
     await dvybScheduledPostWorker.close();
+    await dvybAutoGenerationWorker.close();
     logger.info('⏹️ Cron services and workers stopped');
     
     // Close server

@@ -27,6 +27,7 @@ interface Post {
   fullPlatformTexts?: any; // Full platform texts for posting
   image: string;
   requestedPlatforms?: string[];
+  videoModel?: string | null; // Model used for video generation (kling = 1:1, veo3 = 9:16)
 }
 
 interface PostDetailDialogProps {
@@ -283,6 +284,23 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
   const renderPlatformPreview = () => {
     const isVideo = post.image && (post.image.includes('video') || post.image.includes('.mp4'));
     
+    // Determine video aspect ratio based on model:
+    // - kling models → 1:1 (aspect-square)
+    // - veo3 models → 9:16 (aspect-[9/16])
+    // Default to 9:16 if model is unknown
+    const getVideoAspectRatio = () => {
+      if (!isVideo) return 'aspect-square'; // Images are always 1:1
+      
+      const model = post.videoModel?.toLowerCase() || '';
+      if (model.includes('kling')) {
+        return 'aspect-square'; // 1:1 for kling
+      }
+      // Default to 9:16 for veo3 and other models
+      return 'aspect-[9/16]';
+    };
+    
+    const videoAspectClass = getVideoAspectRatio();
+    
     switch (selectedPlatform) {
       case "instagram":
         return (
@@ -306,8 +324,8 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
               <MoreHorizontal className="w-4 h-4 md:w-5 md:h-5 text-gray-900" />
             </div>
             
-            {/* Instagram Media - Images 1:1, Videos 9:16 */}
-            <div className={`w-full ${isVideo ? 'aspect-[9/16]' : 'aspect-square'}`}>
+            {/* Instagram Media - aspect ratio based on model */}
+            <div className={`w-full ${isVideo ? videoAspectClass : 'aspect-square'}`}>
               {isVideo ? (
                 <video 
                   src={post.image} 
@@ -370,7 +388,7 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
                 <div className="mt-2 text-gray-900 text-sm md:text-lg leading-snug">
                   {getPlatformCaption('twitter')}
                 </div>
-                <div className="mt-3 rounded-xl md:rounded-2xl overflow-hidden aspect-square">
+                <div className={`mt-3 rounded-xl md:rounded-2xl overflow-hidden ${isVideo ? videoAspectClass : 'aspect-square'}`}>
                   {isVideo ? (
                     <video 
                       src={post.image} 
@@ -430,8 +448,8 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
               </div>
             </div>
             
-            {/* LinkedIn Media - Both Images and Videos 1:1 */}
-            <div className="w-full aspect-square">
+            {/* LinkedIn Media - aspect ratio based on model */}
+            <div className={`w-full ${isVideo ? videoAspectClass : 'aspect-square'}`}>
               {isVideo ? (
                 <video 
                   src={post.image} 

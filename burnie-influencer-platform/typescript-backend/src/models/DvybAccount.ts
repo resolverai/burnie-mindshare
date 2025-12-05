@@ -34,6 +34,25 @@ export class DvybAccount {
   @Column({ type: 'boolean', default: true })
   isActive!: boolean;
 
+  // Auto-generation settings
+  @Column({ type: 'boolean', default: false })
+  autoGenerationEnabled!: boolean;
+
+  @Column({ type: 'date', nullable: true })
+  lastAutoGenerationDate!: Date | null;
+
+  @Column({ type: 'time', nullable: true })
+  autoGenerationTime!: string | null; // Staggered time slot (e.g., "08:30:00")
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  autoGenerationStatus!: 'pending' | 'generating' | 'completed' | 'failed' | 'skipped' | null;
+
+  @Column({ type: 'text', nullable: true })
+  lastAutoGenerationError!: string | null;
+
+  @Column({ type: 'int', default: 0 })
+  autoGenerationRetryCount!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 

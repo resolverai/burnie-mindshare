@@ -129,9 +129,51 @@ export const Home = () => {
     }
   };
 
-  // Check for OAuth success (from redirect flow callbacks)
+  // Check for OAuth success and pending flows (from redirect flow callbacks)
   useEffect(() => {
     const oauthSuccessStr = localStorage.getItem('dvyb_oauth_success');
+    const flowState = getOAuthFlowState();
+    
+    // First, check if there's a pending OAuth flow that needs to resume
+    if (flowState && (flowState.source === 'generate_dialog' || flowState.source === 'schedule_dialog')) {
+      if (oauthSuccessStr) {
+        // OAuth was successful - resume the flow
+        console.log('🔄 Pending OAuth flow detected with success, auto-opening GenerateContentDialog...', flowState);
+        
+        // Show toast for successful connection
+        try {
+          const oauthSuccess = JSON.parse(oauthSuccessStr);
+          if (Date.now() - oauthSuccess.timestamp < 30000) {
+            toast({
+              title: "Connected!",
+              description: oauthSuccess.message || `${oauthSuccess.platform} connected successfully`,
+            });
+            
+            if (oauthSuccess.platform) {
+              setConnectionStatus(prev => ({ ...prev, [oauthSuccess.platform]: 'connected' }));
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing OAuth success:', e);
+        }
+        
+        // Clean up success flag
+        localStorage.removeItem('dvyb_oauth_success');
+        
+        // Open dialog to resume flow
+        setTimeout(() => {
+          setShowGenerateDialog(true);
+        }, 300);
+      } else {
+        // User returned without completing OAuth (cancelled/went back)
+        // Clear the flow state so we don't keep trying to resume
+        console.log('⚠️ Pending OAuth flow detected but no success flag - user likely cancelled. Clearing flow state.');
+        clearOAuthFlowState();
+      }
+      return; // Don't process as regular OAuth success
+    }
+    
+    // No pending flow - handle as regular platform connection from home screen
     if (oauthSuccessStr) {
       try {
         const oauthSuccess = JSON.parse(oauthSuccessStr);
@@ -155,28 +197,6 @@ export const Home = () => {
       }
       // Clean up
       localStorage.removeItem('dvyb_oauth_success');
-    }
-  }, []);
-
-  // Check for pending OAuth flow and auto-open GenerateContentDialog to resume
-  useEffect(() => {
-    const flowState = getOAuthFlowState();
-    if (flowState && (flowState.source === 'generate_dialog' || flowState.source === 'schedule_dialog')) {
-      // Check if OAuth was successful (success flag is set by callback pages)
-      const oauthSuccessStr = localStorage.getItem('dvyb_oauth_success');
-      
-      if (oauthSuccessStr) {
-        // OAuth was successful - resume the flow
-        console.log('🔄 Pending OAuth flow detected with success, auto-opening GenerateContentDialog...', flowState);
-        setTimeout(() => {
-          setShowGenerateDialog(true);
-        }, 300);
-      } else {
-        // User returned without completing OAuth (cancelled/went back)
-        // Clear the flow state so we don't keep trying to resume
-        console.log('⚠️ Pending OAuth flow detected but no success flag - user likely cancelled. Clearing flow state.');
-        clearOAuthFlowState();
-      }
     }
   }, []);
 

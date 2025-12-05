@@ -488,6 +488,9 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
           const videoUrls = data?.generatedVideoUrls || [];
           const platformTexts = data?.platformTexts || [];
           
+          // Extract video model info for aspect ratio determination
+          const videoClipGeneration = data?.metadata?.modelUsage?.videoClipGeneration || [];
+          
           // Store generatedContentId as soon as we have it (not just on completion)
           // This ensures Schedule can work even before generation completes
           if (data?.id && !generatedContentId) {
@@ -512,10 +515,16 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   ? data.requestedPlatforms
                   : selectedPlatforms;
                 
+                // Get video model for aspect ratio (kling = 1:1, veo3 = 9:16)
+                const videoModelInfo = isVideo 
+                  ? videoClipGeneration.find((v: any) => v.post_index === index)
+                  : null;
+                
                 console.log('🔍 Progressive update - Post', index, ':', {
                   'data.requestedPlatforms': data?.requestedPlatforms,
                   'selectedPlatforms': selectedPlatforms,
-                  'final platforms': platforms
+                  'final platforms': platforms,
+                  'videoModel': videoModelInfo?.model
                 });
                 
                 return {
@@ -528,6 +537,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   generatedContentId: data?.id, // Store the dvyb_generated_content.id
                   postIndex: index, // Store the index within the arrays
                   requestedPlatforms: platforms, // Store platforms with fallback
+                  videoModel: videoModelInfo?.model || null, // Store video model for aspect ratio
                   isGenerating: false,
                 };
               }
@@ -549,10 +559,16 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   ? data.requestedPlatforms
                   : selectedPlatforms;
                 
+                // Get video model for aspect ratio (kling = 1:1, veo3 = 9:16)
+                const videoModelInfo = isClip 
+                  ? videoClipGeneration.find((v: any) => v.post_index === index)
+                  : null;
+                
                 console.log('🔍 Fallback update - Post', index, ':', {
                   'data.requestedPlatforms': data?.requestedPlatforms,
                   'selectedPlatforms': selectedPlatforms,
-                  'final platforms': platforms
+                  'final platforms': platforms,
+                  'videoModel': videoModelInfo?.model
                 });
                 
                 return {
@@ -565,6 +581,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   generatedContentId: data?.id, // Store the dvyb_generated_content.id
                   postIndex: index, // Store the index within the arrays
                   requestedPlatforms: platforms, // Store platforms with fallback
+                  videoModel: videoModelInfo?.model || null, // Store video model for aspect ratio
                   isGenerating: false,
                 };
               }

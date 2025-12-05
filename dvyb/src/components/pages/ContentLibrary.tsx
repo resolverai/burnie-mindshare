@@ -43,6 +43,7 @@ interface ContentItem {
   createdAt?: string;
   requestedPlatforms?: string[];
   allCaptions?: string;
+  videoModel?: string | null; // Model used for video generation (for aspect ratio)
 }
 
 interface ContentLibraryProps {
@@ -183,6 +184,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
               createdAt: item.createdAt,
               requestedPlatforms: item.requestedPlatforms || [],
               allCaptions, // Store all captions for search
+              videoModel: item.videoModel || null, // Video model for aspect ratio (kling = 1:1, veo3 = 9:16)
             };
           };
           

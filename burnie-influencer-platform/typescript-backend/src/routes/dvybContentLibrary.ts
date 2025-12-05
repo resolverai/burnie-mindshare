@@ -382,6 +382,9 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
           mediaMapping.push({ mediaUrl, originalMediaUrl });
         }
         
+        // Extract video model info from metadata for aspect ratio determination
+        const videoClipGeneration = content.metadata?.modelUsage?.videoClipGeneration || [];
+        
         // Create a separate entry for each post in platformTexts
         return Promise.all(
           platformTexts.map(async (platformText: any, index: number) => {
@@ -391,6 +394,15 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
             // Get the media URLs from our pre-computed mapping
             const mapping = mediaMapping[index] || { mediaUrl: '', originalMediaUrl: '' };
             const { mediaUrl, originalMediaUrl } = mapping;
+            
+            // Find video model for this post (if it's a video)
+            let videoModel: string | null = null;
+            if (contentType === 'video') {
+              const videoInfo = videoClipGeneration.find(
+                (v: any) => v.post_index === postIndex
+              );
+              videoModel = videoInfo?.model || null;
+            }
 
             // Get schedules for this specific content and post index
             // First try by generatedContentId
@@ -538,6 +550,7 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
               mediaUrl,
               originalMediaUrl,
               contentType,
+              videoModel, // Model used for video generation (e.g., "fal-ai/veo3.1/fast/image-to-video", "kling")
               status,
               scheduledFor: earliestSchedule?.scheduledFor || null,
               schedules: schedules.map(s => ({
