@@ -290,10 +290,14 @@ router.get('/hot-campaigns', async (req, res) => {
     logger.info(`   - Total: ${finalHotCampaigns.length} campaigns ready for mining (randomly shuffled)`);
     logger.info(`   - Somnia whitelisted campaigns excluded from miner generation`);
 
+    // 🚨 TEMPORARY OVERRIDE: Return empty array to stop automated mining
+    // TODO: Remove this override when automated mining should resume
+    logger.warn(`🚨 AUTOMATED MINING DISABLED: Returning empty array (temporary override)`);
+    
     return res.json({
       success: true,
-      data: finalHotCampaigns,
-      message: `Found ${finalHotCampaigns.length} hot campaign post_types from ${hotCampaignsList.length} hot campaigns`
+      data: [], // Temporary override - return empty array
+      message: 'Automated mining temporarily disabled'
     });
 
   } catch (error) {
