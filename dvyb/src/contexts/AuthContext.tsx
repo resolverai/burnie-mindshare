@@ -96,8 +96,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (hasAccountReference && !isRecentAuth && accountExists === false) {
           // Account reference exists, NOT a recent auth, and backend confirms account doesn't exist
-          // This means account was deleted - clear EVERYTHING
-          console.log('🗑️ Account was deleted - clearing all data including account reference');
+          // This means account was deleted - clear EVERYTHING and redirect to landing page
+          console.log('🗑️ Account was deleted - clearing all data and redirecting to landing page');
           clearAuthData({ 
             clearAnalysis: true,        // Clear analysis
             clearOAuthState: true,      // Clear OAuth state
@@ -108,6 +108,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setAccountId(null);
           setOnboardingComplete(false);
           setHasValidGoogleConnection(false);
+          
+          // Immediately redirect deleted accounts to landing page
+          router.push('/');
+          return;
         } else if (hasAccountReference && isRecentAuth) {
           // Recent auth - cookie might not be working, try setting it again
           console.log('⚠️ Recent auth but backend says not authenticated - retrying with localStorage account ID');
@@ -169,23 +173,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       document.cookie = 'dvyb_account_id=; path=/; max-age=0';
       document.cookie = 'dvyb_twitter_handle=; path=/; max-age=0';
       
-      // Check if user has account reference - redirect accordingly
-      const hasAccountReference = localStorage.getItem('dvyb_account_id');
-      
-      // Redirect based on whether account reference exists
+      // Redirect to landing page if not on a public route
       const publicRoutes = ['/', '/auth/twitter', '/auth/twitter/callback', '/auth/login', '/onboarding/analysis-details', '/onboarding/brand-profile', '/auth/google/callback'];
       const isPublicRoute = publicRoutes.some(route => pathname === route || pathname?.startsWith(route));
       
       if (!isPublicRoute) {
-        if (hasAccountReference) {
-          // User has logged in before - redirect to Twitter auth
-          console.log(`🔒 Auth error with account reference, redirecting from ${pathname} to /auth/login`);
-          router.push('/auth/login');
-        } else {
-          // New user - redirect to landing page
-          console.log(`🔒 Auth error without account reference, redirecting from ${pathname} to /`);
-          router.push('/');
-        }
+        // Always redirect to landing page on auth error
+        // User can sign in again from there
+        console.log(`🔒 Auth error, redirecting from ${pathname} to /`);
+        router.push('/');
       }
     } finally {
       setIsLoading(false);
@@ -233,9 +229,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Check auth on mount
   useEffect(() => {
     checkAuth();
   }, []);
+
+  // Re-check auth on navigation to catch deleted accounts
+  useEffect(() => {
+    // Skip the initial mount (handled by the first useEffect)
+    // Only re-check if user is currently authenticated and navigating
+    if (isAuthenticated && accountId && !isLoading) {
+      console.log(`🔄 Navigation detected to ${pathname} - re-checking auth...`);
+      checkAuth();
+    }
+  }, [pathname]);
 
   return (
     <AuthContext.Provider

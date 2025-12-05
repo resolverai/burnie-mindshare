@@ -278,6 +278,18 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
   try {
     const accountId = req.dvybAccountId!;
 
+    // First check if account is active
+    const accountRepo = AppDataSource.getRepository(DvybAccount);
+    const account = await accountRepo.findOne({ where: { id: accountId } });
+    
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        error: 'Account not found',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     // Get current plan
     const accountPlanRepo = AppDataSource.getRepository(DvybAccountPlan);
     const currentPlan = await accountPlanRepo.findOne({
@@ -362,6 +374,7 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
     return res.json({
       success: true,
       data: {
+        isAccountActive: account.isActive,
         planName,
         imageLimit,
         videoLimit,

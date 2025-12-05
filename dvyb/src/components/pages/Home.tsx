@@ -8,6 +8,7 @@ import { Sparkles, Loader2, Instagram, Twitter, Linkedin, Menu, Pencil, Check } 
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { PostViewDialog } from "@/components/pages/PostViewDialog";
 import { UpgradeDialog } from "@/components/UpgradeDialog";
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -55,6 +56,7 @@ interface PlatformAnalytics {
 export const Home = () => {
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const [showInactiveAccountDialog, setShowInactiveAccountDialog] = useState(false);
   const [usageData, setUsageData] = useState<any>(null);
   const [onboardingJobId, setOnboardingJobId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState("home");
@@ -160,11 +162,21 @@ export const Home = () => {
   useEffect(() => {
     const flowState = getOAuthFlowState();
     if (flowState && (flowState.source === 'generate_dialog' || flowState.source === 'schedule_dialog')) {
-      console.log('🔄 Pending OAuth flow detected, auto-opening GenerateContentDialog...', flowState);
-      // Small delay to ensure page is loaded
-      setTimeout(() => {
-        setShowGenerateDialog(true);
-      }, 300);
+      // Check if OAuth was successful (success flag is set by callback pages)
+      const oauthSuccessStr = localStorage.getItem('dvyb_oauth_success');
+      
+      if (oauthSuccessStr) {
+        // OAuth was successful - resume the flow
+        console.log('🔄 Pending OAuth flow detected with success, auto-opening GenerateContentDialog...', flowState);
+        setTimeout(() => {
+          setShowGenerateDialog(true);
+        }, 300);
+      } else {
+        // User returned without completing OAuth (cancelled/went back)
+        // Clear the flow state so we don't keep trying to resume
+        console.log('⚠️ Pending OAuth flow detected but no success flag - user likely cancelled. Clearing flow state.');
+        clearOAuthFlowState();
+      }
     }
   }, []);
 
@@ -479,15 +491,28 @@ export const Home = () => {
                     // Mark onboarding step as explored
                     completeStep('generate_content_explored');
                     
-                    // Check usage limits first
+                    // Check account status and usage limits
                     try {
                       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
                         credentials: 'include',
+                        headers: {
+                          ...(() => {
+                            const accountId = localStorage.getItem('dvyb_account_id');
+                            return accountId ? { 'X-DVYB-Account-ID': accountId } : {};
+                          })(),
+                        },
                       });
                       const data = await response.json();
                       
                       if (data.success && data.data) {
                         setUsageData(data.data);
+                        
+                        // First check if account is active
+                        if (data.data.isAccountActive === false) {
+                          // Account is not active - show inactive account dialog
+                          setShowInactiveAccountDialog(true);
+                          return;
+                        }
                         
                         if (data.data.limitExceeded && (data.data.remainingImages === 0 && data.data.remainingVideos === 0)) {
                           // No posts left at all - show upgrade dialog
@@ -1244,6 +1269,44 @@ export const Home = () => {
             onOpenChange={setShowUpgradeDialog}
             usageData={usageData}
           />
+
+          {/* Inactive Account Dialog */}
+          <AlertDialog open={showInactiveAccountDialog} onOpenChange={setShowInactiveAccountDialog}>
+            <AlertDialogContent className="w-[90vw] sm:w-[85vw] md:max-w-md p-4 sm:p-6">
+              <AlertDialogHeader>
+                <AlertDialogTitle className="text-center text-lg sm:text-xl">
+                  Account Not Active
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="text-center space-y-3 sm:space-y-4 pt-3 sm:pt-4">
+                    <p className="text-sm sm:text-base text-muted-foreground">
+                      Your account is currently not active. Content generation is temporarily unavailable.
+                    </p>
+                    <p className="text-sm sm:text-base text-muted-foreground">
+                      Please reach out to our support team to reactivate your account.
+                    </p>
+                    <div className="bg-blue-50 dark:bg-blue-950 p-3 sm:p-4 rounded-lg mt-3 sm:mt-4">
+                      <p className="text-xs sm:text-sm text-muted-foreground mb-1">Contact Support:</p>
+                      <a 
+                        href="mailto:social@dvyb.ai" 
+                        className="text-blue-600 hover:text-blue-700 font-medium text-base sm:text-lg break-all"
+                      >
+                        social@dvyb.ai
+                      </a>
+                    </div>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="justify-center pt-2 sm:pt-4">
+                <Button 
+                  onClick={() => setShowInactiveAccountDialog(false)}
+                  className="w-full sm:w-auto min-w-[120px]"
+                >
+                  Close
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           
           <PostViewDialog
             post={selectedPost}

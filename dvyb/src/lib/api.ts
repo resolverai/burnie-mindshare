@@ -1,6 +1,16 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
 
+// Get account ID from localStorage (fallback for Safari/browsers that block cookies)
+function getAccountIdHeader(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  const accountId = localStorage.getItem('dvyb_account_id');
+  if (accountId) {
+    return { 'X-DVYB-Account-ID': accountId };
+  }
+  return {};
+}
+
 // Generic API request helper
 async function apiRequest<T>(
   endpoint: string,
@@ -12,6 +22,7 @@ async function apiRequest<T>(
     credentials: 'include', // Include cookies for session management
     headers: {
       'Content-Type': 'application/json',
+      ...getAccountIdHeader(), // Add account ID header as fallback for Safari/ITP
       ...options.headers,
     },
     ...options,

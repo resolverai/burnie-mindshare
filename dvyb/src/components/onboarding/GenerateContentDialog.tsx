@@ -991,6 +991,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   };
 
   const handleClose = () => {
+    // Clear any pending OAuth flow state when user intentionally closes dialog
+    // This prevents the dialog from reopening and auto-continuing OAuth
+    clearOAuthFlowState();
+    
     resetDialog();
     onOpenChange(false);
     // Notify parent that dialog has closed (for onboarding tracking)

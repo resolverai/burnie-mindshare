@@ -5,6 +5,18 @@ import { DvybContext } from '../models/DvybContext';
 import { DvybAccountPlan } from '../models/DvybAccountPlan';
 import { DvybPricingPlan } from '../models/DvybPricingPlan';
 import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
+import { DvybGoogleConnection } from '../models/DvybGoogleConnection';
+import { DvybTwitterConnection } from '../models/DvybTwitterConnection';
+import { DvybInstagramConnection } from '../models/DvybInstagramConnection';
+import { DvybLinkedInConnection } from '../models/DvybLinkedInConnection';
+import { DvybTikTokConnection } from '../models/DvybTikTokConnection';
+import { DvybTwitterPost } from '../models/DvybTwitterPost';
+import { DvybInstagramPost } from '../models/DvybInstagramPost';
+import { DvybLinkedInPost } from '../models/DvybLinkedInPost';
+import { DvybTikTokPost } from '../models/DvybTikTokPost';
+import { DvybSchedule } from '../models/DvybSchedule';
+import { DvybCaption } from '../models/DvybCaption';
+import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 import { UrlCacheService } from '../services/UrlCacheService';
@@ -429,6 +441,135 @@ router.get('/:id/plan-history', async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to fetch plan history',
+    });
+  }
+});
+
+/**
+ * DELETE /api/admin/dvyb-accounts/:id
+ * Permanently delete a DVYB account and all related data
+ */
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+    const { confirmationText } = req.body;
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid account ID',
+      });
+    }
+
+    // Verify confirmation text
+    if (confirmationText !== 'delete') {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid confirmation. Please type "delete" to confirm.',
+      });
+    }
+
+    // Check if account exists
+    const accountRepo = AppDataSource.getRepository(DvybAccount);
+    const account = await accountRepo.findOne({ where: { id: accountId } });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        error: 'Account not found',
+      });
+    }
+
+    logger.info(`🗑️ Starting deletion of DVYB account ${accountId} (${account.accountName})`);
+
+    // Delete all related records in order (to handle foreign key constraints)
+    // Using transactions for data consistency
+    await AppDataSource.transaction(async (transactionalEntityManager) => {
+      // 1. Delete captions
+      const captionResult = await transactionalEntityManager.delete(DvybCaption, { accountId });
+      logger.info(`  - Deleted ${captionResult.affected || 0} captions`);
+
+      // 2. Delete schedules
+      const scheduleResult = await transactionalEntityManager.delete(DvybSchedule, { accountId });
+      logger.info(`  - Deleted ${scheduleResult.affected || 0} schedules`);
+
+      // 3. Delete platform posts
+      const twitterPostResult = await transactionalEntityManager.delete(DvybTwitterPost, { accountId });
+      logger.info(`  - Deleted ${twitterPostResult.affected || 0} Twitter posts`);
+
+      const instagramPostResult = await transactionalEntityManager.delete(DvybInstagramPost, { accountId });
+      logger.info(`  - Deleted ${instagramPostResult.affected || 0} Instagram posts`);
+
+      const linkedinPostResult = await transactionalEntityManager.delete(DvybLinkedInPost, { accountId });
+      logger.info(`  - Deleted ${linkedinPostResult.affected || 0} LinkedIn posts`);
+
+      const tiktokPostResult = await transactionalEntityManager.delete(DvybTikTokPost, { accountId });
+      logger.info(`  - Deleted ${tiktokPostResult.affected || 0} TikTok posts`);
+
+      // 4. Delete generated content
+      const contentResult = await transactionalEntityManager.delete(DvybGeneratedContent, { accountId });
+      logger.info(`  - Deleted ${contentResult.affected || 0} generated content records`);
+
+      // 5. Delete platform connections
+      const twitterConnResult = await transactionalEntityManager.delete(DvybTwitterConnection, { accountId });
+      logger.info(`  - Deleted ${twitterConnResult.affected || 0} Twitter connections`);
+
+      const instagramConnResult = await transactionalEntityManager.delete(DvybInstagramConnection, { accountId });
+      logger.info(`  - Deleted ${instagramConnResult.affected || 0} Instagram connections`);
+
+      const linkedinConnResult = await transactionalEntityManager.delete(DvybLinkedInConnection, { accountId });
+      logger.info(`  - Deleted ${linkedinConnResult.affected || 0} LinkedIn connections`);
+
+      const tiktokConnResult = await transactionalEntityManager.delete(DvybTikTokConnection, { accountId });
+      logger.info(`  - Deleted ${tiktokConnResult.affected || 0} TikTok connections`);
+
+      const googleConnResult = await transactionalEntityManager.delete(DvybGoogleConnection, { accountId });
+      logger.info(`  - Deleted ${googleConnResult.affected || 0} Google connections`);
+
+      // 6. Delete account plans
+      const planResult = await transactionalEntityManager.delete(DvybAccountPlan, { accountId });
+      logger.info(`  - Deleted ${planResult.affected || 0} account plans`);
+
+      // 7. Delete upgrade requests
+      const upgradeResult = await transactionalEntityManager.delete(DvybUpgradeRequest, { accountId });
+      logger.info(`  - Deleted ${upgradeResult.affected || 0} upgrade requests`);
+
+      // 8. Delete brand topics (using raw query as model might not exist)
+      try {
+        await transactionalEntityManager.query('DELETE FROM dvyb_brand_topics WHERE "accountId" = $1', [accountId]);
+        logger.info(`  - Deleted brand topics`);
+      } catch (e) {
+        logger.warn(`  - No brand topics to delete or table doesn't exist`);
+      }
+
+      // 9. Delete content library (using raw query as model might not exist)
+      try {
+        await transactionalEntityManager.query('DELETE FROM dvyb_content_library WHERE "accountId" = $1', [accountId]);
+        logger.info(`  - Deleted content library records`);
+      } catch (e) {
+        logger.warn(`  - No content library records to delete or table doesn't exist`);
+      }
+
+      // 10. Delete context
+      const contextResult = await transactionalEntityManager.delete(DvybContext, { accountId });
+      logger.info(`  - Deleted ${contextResult.affected || 0} context records`);
+
+      // 11. Finally delete the account itself
+      const accountResult = await transactionalEntityManager.delete(DvybAccount, { id: accountId });
+      logger.info(`  - Deleted ${accountResult.affected || 0} account record`);
+    });
+
+    logger.info(`✅ Successfully deleted DVYB account ${accountId} and all related data`);
+
+    return res.json({
+      success: true,
+      message: `Account "${account.accountName}" and all related data have been permanently deleted`,
+    });
+  } catch (error) {
+    logger.error('Error deleting DVYB account:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to delete account. Please try again.',
     });
   }
 });

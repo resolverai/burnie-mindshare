@@ -14,7 +14,8 @@ import {
   Calendar,
   DollarSign,
   Image as ImageIcon,
-  Video
+  Video,
+  Trash2
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -95,6 +96,10 @@ export default function DvybAccountsPage() {
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [selectedFrequency, setSelectedFrequency] = useState<'monthly' | 'annual'>('monthly');
   const [associating, setAssociating] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [accountToDelete, setAccountToDelete] = useState<DvybAccount | null>(null);
 
   // Fetch accounts
   const fetchAccounts = async () => {
@@ -210,6 +215,44 @@ export default function DvybAccountsPage() {
       alert('Failed to associate plan');
     } finally {
       setAssociating(false);
+    }
+  };
+
+  // Open Delete confirmation modal
+  const openDeleteModal = (account: DvybAccount) => {
+    setAccountToDelete(account);
+    setDeleteConfirmText('');
+    setShowDeleteModal(true);
+  };
+
+  // Handle account deletion
+  const handleDeleteAccount = async () => {
+    if (!accountToDelete || deleteConfirmText !== 'delete') return;
+
+    try {
+      setDeleting(true);
+      const response = await fetch(`/api/admin/dvyb-accounts/${accountToDelete.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmationText: deleteConfirmText }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setShowDeleteModal(false);
+        setAccountToDelete(null);
+        setDeleteConfirmText('');
+        fetchAccounts();
+        alert(data.message);
+      } else {
+        alert(data.error || 'Failed to delete account');
+      }
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      alert('Failed to delete account');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -435,12 +478,12 @@ export default function DvybAccountsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <Button
                             onClick={() => openAssociatePlanModal(account)}
                             size="sm"
                             variant="outline"
-                            className="flex items-center gap-1 text-purple-600 border-purple-300 hover:bg-purple-50"
+                            className="flex items-center gap-1 text-purple-600 border-purple-300 hover:bg-purple-50 text-xs px-2 py-1 h-7"
                           >
                             <DollarSign className="h-3 w-3" />
                             {account.currentPlan ? 'Change Plan' : 'Add Plan'}
@@ -450,19 +493,27 @@ export default function DvybAccountsPage() {
                             disabled={toggling === account.id}
                             size="sm"
                             variant={account.isActive ? 'destructive' : 'default'}
-                            className={
+                            className={`text-xs px-2 py-1 h-7 ${
                               account.isActive
-                                ? 'bg-red-600 hover:bg-red-700 text-white'
+                                ? 'bg-amber-600 hover:bg-amber-700 text-white'
                                 : 'bg-green-600 hover:bg-green-700 text-white'
-                            }
+                            }`}
                           >
                             {toggling === account.id ? (
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
                             ) : account.isActive ? (
                               'Deactivate'
                             ) : (
                               'Activate'
                             )}
+                          </Button>
+                          <Button
+                            onClick={() => openDeleteModal(account)}
+                            size="sm"
+                            variant="destructive"
+                            className="text-xs px-2 py-1 h-7 bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            Delete
                           </Button>
                         </div>
                       </td>
@@ -676,6 +727,84 @@ export default function DvybAccountsPage() {
                 className="flex-1 bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50"
               >
                 {associating ? 'Associating...' : selectedAccount.currentPlan ? 'Change Plan' : 'Associate Plan'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Account Confirmation Modal */}
+      {showDeleteModal && accountToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="p-6 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-red-600">⚠️ Delete Account</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                This action is <span className="font-bold text-red-600">permanent</span> and cannot be undone.
+              </p>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="text-sm text-gray-800">
+                  You are about to permanently delete the account:
+                </p>
+                <p className="font-bold text-gray-900 mt-2 text-lg">{accountToDelete.accountName}</p>
+                <p className="text-sm text-gray-600">{accountToDelete.primaryEmail}</p>
+              </div>
+              
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <p className="text-sm text-gray-800 mb-2">
+                  This will permanently delete:
+                </p>
+                <ul className="text-sm text-gray-600 list-disc list-inside space-y-1">
+                  <li>Account profile and settings</li>
+                  <li>All generated content</li>
+                  <li>All scheduled posts</li>
+                  <li>All platform connections</li>
+                  <li>All posted content records</li>
+                  <li>Brand context and configurations</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Type <span className="font-bold text-red-600">delete</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value.toLowerCase())}
+                  placeholder="Type 'delete' here"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 text-gray-900"
+                />
+              </div>
+            </div>
+            <div className="p-4 border-t border-gray-200 flex gap-3">
+              <Button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setAccountToDelete(null);
+                  setDeleteConfirmText('');
+                }}
+                variant="outline"
+                className="flex-1 text-gray-700 border-gray-300 hover:bg-gray-100"
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirmText !== 'delete' || deleting}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {deleting ? (
+                  <div className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Deleting...
+                  </div>
+                ) : (
+                  'Delete Account'
+                )}
               </Button>
             </div>
           </div>
