@@ -299,7 +299,7 @@ export const BrandKit = ({ onContinue }: BrandKitProps) => {
   };
 
   return (
-    <div className="min-h-screen p-4 md:p-6 lg:p-8 bg-gradient-to-br from-background via-background to-muted">
+    <div className="min-h-screen p-4 md:p-6 lg:p-8 pb-24 md:pb-28 bg-gradient-to-br from-background via-background to-muted">
       {/* Sign out link at top right */}
       <div className="absolute top-4 right-4 md:top-6 md:right-6">
         <button
@@ -493,17 +493,23 @@ export const BrandKit = ({ onContinue }: BrandKitProps) => {
           </Card>
         </div>
 
-        <div className="flex flex-col items-center md:items-end gap-2 pt-4 md:pt-6">
+        {/* Spacer for sticky button */}
+        <div className="h-4 md:h-6" />
+      </div>
+
+      {/* Sticky floating button at bottom */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-background via-background to-transparent">
+        <div className="max-w-6xl mx-auto flex flex-col items-center md:items-end gap-2">
           <Button 
             onClick={onContinue} 
             size="lg" 
-            className="w-full md:w-auto md:min-w-[200px]"
+            className="w-full md:w-auto md:min-w-[200px] shadow-lg"
             disabled={!logoUrl}
           >
-            Complete Setup
+            Proceed
           </Button>
           {!logoUrl && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground text-center md:text-right">
               Please upload your brand logo to continue
             </p>
           )}

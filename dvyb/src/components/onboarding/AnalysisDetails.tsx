@@ -9,6 +9,7 @@ import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
+import { ColorPickerDialog } from "@/components/ui/color-picker-dialog";
 import { useToast } from "@/hooks/use-toast";
 
 interface AnalysisDetailsProps {
@@ -94,6 +95,7 @@ const FormattedText = ({ text }: { text: string }) => {
 };
 
 type EditSection = 'overview' | 'demographics' | 'products' | 'why' | 'story' | null;
+type ColorType = 'primary' | 'secondary' | 'accent';
 
 export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedProp }: AnalysisDetailsProps) => {
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
@@ -101,6 +103,9 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
   const [isMounted, setIsMounted] = useState(false);
   const [editingSection, setEditingSection] = useState<EditSection>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditingColors, setIsEditingColors] = useState(false);
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [selectedColorType, setSelectedColorType] = useState<ColorType>('primary');
   const { isAuthenticated: authContextAuthenticated } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
@@ -173,6 +178,45 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
     }
   };
 
+  // Color picker handlers
+  const handleColorEdit = (colorType: ColorType) => {
+    if (!isAuthenticated) {
+      router.push('/auth/login');
+      return;
+    }
+    setSelectedColorType(colorType);
+    setColorPickerOpen(true);
+  };
+
+  const handleColorSelect = (color: string) => {
+    if (!analysisData) return;
+    
+    const updatedPalette = {
+      ...analysisData.color_palette,
+      [selectedColorType]: color
+    };
+    
+    // Update local state
+    setAnalysisData(prev => prev ? {
+      ...prev,
+      color_palette: updatedPalette
+    } : null);
+    
+    // Update localStorage
+    const storedAnalysis = localStorage.getItem('dvyb_website_analysis');
+    if (storedAnalysis) {
+      const parsed = JSON.parse(storedAnalysis);
+      parsed.color_palette = updatedPalette;
+      localStorage.setItem('dvyb_website_analysis', JSON.stringify(parsed));
+      console.log('✅ Updated localStorage with edited color');
+    }
+    
+    toast({
+      title: "Color updated!",
+      description: `${selectedColorType.charAt(0).toUpperCase() + selectedColorType.slice(1)} color has been saved.`,
+    });
+  };
+
   useEffect(() => {
     setIsMounted(true);
     
@@ -220,7 +264,7 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
   const capitalizedBaseName = baseName.charAt(0).toUpperCase() + baseName.slice(1);
 
   return (
-    <div className="min-h-screen p-4 md:p-6 lg:p-8 bg-gradient-to-br from-background via-background to-muted">
+    <div className="min-h-screen p-4 md:p-6 lg:p-8 pb-24 md:pb-28 bg-gradient-to-br from-background via-background to-muted">
       <div className="max-w-7xl mx-auto space-y-6 md:space-y-8 animate-fade-in">
         {/* Header with Logo and Title */}
         <div className="flex flex-col md:flex-row items-center justify-center md:justify-start gap-4 md:gap-6">
@@ -405,17 +449,32 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
           {/* Color Palette - Only show if we have colors */}
           {analysisData.color_palette && (analysisData.color_palette.primary || analysisData.color_palette.secondary || analysisData.color_palette.accent) && (
             <Card className="p-6 md:p-8 shadow-card hover:shadow-card-hover transition-shadow">
-              <div className="mb-4 md:mb-6">
+              <div className="flex items-start justify-between mb-4 md:mb-6 gap-4">
                 <h2 className="text-xl md:text-2xl font-semibold text-foreground">
                   Brand Color Palette
                 </h2>
+                {isAuthenticated && !isEditingColors && (
+                  <Button variant="ghost" size="sm" className="flex-shrink-0 hover:bg-transparent hover:text-current" onClick={() => setIsEditingColors(true)}>
+                    <Pencil className="w-4 h-4 mr-2" />
+                    <span className="hidden sm:inline">Edit</span>
+                  </Button>
+                )}
+                {isEditingColors && (
+                  <Button variant="ghost" size="sm" className="flex-shrink-0" onClick={() => setIsEditingColors(false)}>
+                    Done
+                  </Button>
+                )}
               </div>
 
               <div className="flex flex-wrap gap-4 md:gap-6 justify-center md:justify-start">
                 {analysisData.color_palette.primary && (
-                  <div className="flex flex-col items-center gap-2 md:gap-3">
+                  <button
+                    onClick={() => isEditingColors && handleColorEdit('primary')}
+                    className={`flex flex-col items-center gap-2 md:gap-3 ${isEditingColors ? 'cursor-pointer' : 'cursor-default'}`}
+                    disabled={!isEditingColors}
+                  >
                     <div 
-                      className="w-20 h-20 md:w-24 md:h-24 rounded-lg shadow-md border-2 border-border"
+                      className={`w-20 h-20 md:w-24 md:h-24 rounded-lg shadow-md border-2 border-border ${isEditingColors ? 'hover:scale-110 transition-transform ring-2 ring-primary/50' : ''}`}
                       style={{ backgroundColor: analysisData.color_palette.primary }}
                     ></div>
                     <div className="text-center">
@@ -424,12 +483,16 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
                         {analysisData.color_palette.primary}
                       </p>
                     </div>
-                  </div>
+                  </button>
                 )}
                 {analysisData.color_palette.secondary && (
-                  <div className="flex flex-col items-center gap-2 md:gap-3">
+                  <button
+                    onClick={() => isEditingColors && handleColorEdit('secondary')}
+                    className={`flex flex-col items-center gap-2 md:gap-3 ${isEditingColors ? 'cursor-pointer' : 'cursor-default'}`}
+                    disabled={!isEditingColors}
+                  >
                     <div 
-                      className="w-20 h-20 md:w-24 md:h-24 rounded-lg shadow-md border-2 border-border"
+                      className={`w-20 h-20 md:w-24 md:h-24 rounded-lg shadow-md border-2 border-border ${isEditingColors ? 'hover:scale-110 transition-transform ring-2 ring-primary/50' : ''}`}
                       style={{ backgroundColor: analysisData.color_palette.secondary }}
                     ></div>
                     <div className="text-center">
@@ -438,12 +501,16 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
                         {analysisData.color_palette.secondary}
                       </p>
                     </div>
-                  </div>
+                  </button>
                 )}
                 {analysisData.color_palette.accent && (
-                  <div className="flex flex-col items-center gap-2 md:gap-3">
+                  <button
+                    onClick={() => isEditingColors && handleColorEdit('accent')}
+                    className={`flex flex-col items-center gap-2 md:gap-3 ${isEditingColors ? 'cursor-pointer' : 'cursor-default'}`}
+                    disabled={!isEditingColors}
+                  >
                     <div 
-                      className="w-20 h-20 md:w-24 md:h-24 rounded-lg shadow-md border-2 border-border"
+                      className={`w-20 h-20 md:w-24 md:h-24 rounded-lg shadow-md border-2 border-border ${isEditingColors ? 'hover:scale-110 transition-transform ring-2 ring-primary/50' : ''}`}
                       style={{ backgroundColor: analysisData.color_palette.accent }}
                     ></div>
                     <div className="text-center">
@@ -452,19 +519,39 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
                         {analysisData.color_palette.accent}
                       </p>
                     </div>
-                  </div>
+                  </button>
                 )}
               </div>
+              {isEditingColors && (
+                <p className="text-sm text-muted-foreground mt-4 text-center">
+                  Click on a color to change it
+                </p>
+              )}
             </Card>
           )}
 
-          <div className="flex justify-center md:justify-end pt-4 md:pt-6">
-            <Button onClick={onContinue} size="lg" className="w-full md:w-auto md:min-w-[200px]">
-              {isAuthenticated ? 'Continue' : 'Sign in to Continue'}
-            </Button>
-          </div>
+          {/* Spacer for sticky button */}
+          <div className="h-4 md:h-6" />
         </div>
       </div>
+
+      {/* Sticky floating button at bottom */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-background via-background to-transparent">
+        <div className="max-w-7xl mx-auto flex justify-center md:justify-end">
+          <Button onClick={onContinue} size="lg" className="w-full md:w-auto md:min-w-[200px] shadow-lg">
+            {isAuthenticated ? 'Generate Content' : 'Sign in to Generate Content'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Color Picker Dialog */}
+      <ColorPickerDialog
+        open={colorPickerOpen}
+        onOpenChange={setColorPickerOpen}
+        initialColor={analysisData?.color_palette?.[selectedColorType] || '#000000'}
+        onColorSelect={handleColorSelect}
+        title={`Choose ${selectedColorType.charAt(0).toUpperCase() + selectedColorType.slice(1)} Color`}
+      />
     </div>
   );
 };

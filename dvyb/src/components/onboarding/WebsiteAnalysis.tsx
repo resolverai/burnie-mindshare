@@ -108,17 +108,35 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
     }
   }, [analysisComplete, websiteUrl, onComplete, router]);
 
+  // Normalize URL to ensure it has https://
+  const normalizeUrl = (url: string): string => {
+    let normalized = url.trim();
+    
+    // Remove any leading/trailing whitespace
+    if (!normalized) return '';
+    
+    // If it doesn't start with http:// or https://, add https://
+    if (!normalized.match(/^https?:\/\//i)) {
+      normalized = 'https://' + normalized;
+    }
+    
+    return normalized;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (websiteUrl) {
+      // Normalize the URL before processing
+      const normalizedUrl = normalizeUrl(websiteUrl);
+      
       setIsAnalyzing(true);
       
-      // Store website URL in localStorage
-      localStorage.setItem('dvyb_pending_website_url', websiteUrl);
+      // Store normalized website URL in localStorage
+      localStorage.setItem('dvyb_pending_website_url', normalizedUrl);
       
       try {
         // Call guest website analysis API (unauthenticated)
-        const response = await contextApi.analyzeWebsiteGuest(websiteUrl);
+        const response = await contextApi.analyzeWebsiteGuest(normalizedUrl);
         
         if (response.success && response.data) {
           // Store analysis data in localStorage
@@ -145,7 +163,7 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col p-4 md:p-6 lg:p-8 bg-gradient-to-br from-background via-background to-muted">
+    <div className="min-h-screen flex flex-col p-4 md:p-6 lg:p-8 pb-24 md:pb-28 bg-gradient-to-br from-background via-background to-muted">
       {/* Top navigation with Sign In button - only show when NOT authenticated */}
       <div className="w-full flex justify-end items-center gap-2 md:gap-3 mb-4 md:mb-6 min-h-[40px]">
         {!isAuthenticated && (
@@ -211,24 +229,23 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
 
         {!isAnalyzing ? (
           <Card className="p-6 md:p-8 shadow-card-hover">
-            <form onSubmit={handleSubmit} className="space-y-4 md:space-y-6">
+            <form id="website-form" onSubmit={handleSubmit} className="space-y-4 md:space-y-6">
               <div className="space-y-2">
                 <label htmlFor="website" className="text-sm md:text-base font-medium text-foreground">
                   Enter your website URL
                 </label>
                 <Input
                   id="website"
-                  type="url"
-                  placeholder="https://yourwebsite.com"
+                  type="text"
+                  placeholder="yourwebsite.com"
                   value={websiteUrl}
                   onChange={(e) => setWebsiteUrl(e.target.value)}
                   className="text-base md:text-lg h-12"
                   required
                 />
               </div>
-              <Button type="submit" className="w-full h-12 md:h-14 text-base md:text-lg" size="lg">
-                Start Analysis
-              </Button>
+              {/* Spacer for sticky button */}
+              <div className="h-16 md:h-20" />
             </form>
           </Card>
         ) : (
@@ -266,6 +283,24 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
         )}
         </div>
       </div>
+
+      {/* Sticky floating button at bottom */}
+      {!isAnalyzing && (
+        <div className="fixed bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-background via-background to-transparent">
+          <div className="max-w-2xl mx-auto">
+            <Button 
+              type="submit" 
+              form="website-form"
+              onClick={handleSubmit}
+              disabled={!websiteUrl.trim()}
+              className="w-full h-12 md:h-14 text-base md:text-lg shadow-lg" 
+              size="lg"
+            >
+              Start Analysis
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

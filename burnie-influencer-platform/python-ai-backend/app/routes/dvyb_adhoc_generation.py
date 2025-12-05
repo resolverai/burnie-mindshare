@@ -2967,12 +2967,12 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         print(f"     {i+1}. {url[:80]}...")
                 else:
                     print(f"     ⚠️ No reference images provided")
-            
+                
                 def on_queue_update(update):
                     if isinstance(update, fal_client.InProgress):
                         for log in update.logs:
                             print(log["message"])
-            
+                
                 result = fal_client.subscribe(
                     "fal-ai/nano-banana/edit",
                     arguments={
@@ -2986,7 +2986,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     with_logs=True,
                     on_queue_update=on_queue_update
                 )
-            
+                
                 if result and "images" in result and result["images"]:
                     fal_url = result["images"][0]["url"]
                     print(f"  📥 FAL URL received: {fal_url[:100]}...")
@@ -3089,7 +3089,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 result = fal_client.subscribe(
                     fal_model,
                     arguments=fal_arguments,
-                with_logs=True,
+                    with_logs=True,
                     on_queue_update=on_queue_update_clip
                 )
                 
@@ -3207,7 +3207,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 for idx, clip_url in enumerate(valid_clips):
                     clip_num = idx + 1
                     print(f"\n✂️ Processing UGC clip {clip_num} for speech-end trim...")
-                    
+                
                     # Download clip
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
                         presigned_url = web2_s3_helper.generate_presigned_url(clip_url)

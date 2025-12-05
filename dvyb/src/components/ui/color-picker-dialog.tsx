@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { HexColorPicker } from "react-colorful";
 import { Button } from "@/components/ui/button";
+import { Pipette } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
+// Extend Window interface for EyeDropper API
+declare global {
+  interface Window {
+    EyeDropper?: new () => {
+      open: () => Promise<{ sRGBHex: string }>;
+    };
+  }
+}
 
 interface ColorPickerDialogProps {
   open: boolean;
@@ -28,10 +38,36 @@ export function ColorPickerDialog({
   title = "Choose Color",
 }: ColorPickerDialogProps) {
   const [color, setColor] = useState(initialColor);
+  const [eyeDropperSupported, setEyeDropperSupported] = useState(false);
+
+  // Check if EyeDropper API is supported
+  useEffect(() => {
+    setEyeDropperSupported(typeof window !== 'undefined' && 'EyeDropper' in window);
+  }, []);
+
+  // Reset color when dialog opens with new initial color
+  useEffect(() => {
+    if (open) {
+      setColor(initialColor);
+    }
+  }, [open, initialColor]);
 
   const handleSave = () => {
     onColorSelect(color);
     onOpenChange(false);
+  };
+
+  const handleEyeDropper = async () => {
+    if (!window.EyeDropper) return;
+    
+    try {
+      const eyeDropper = new window.EyeDropper();
+      const result = await eyeDropper.open();
+      setColor(result.sRGBHex);
+    } catch (e) {
+      // User cancelled or error occurred
+      console.log('EyeDropper cancelled or error:', e);
+    }
   };
 
   return (
@@ -54,13 +90,27 @@ export function ColorPickerDialog({
             />
             <div className="flex-1">
               <label className="text-sm font-medium text-muted-foreground">Hex Code</label>
-              <input
-                type="text"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                className="w-full mt-1 px-3 py-2 border border-input rounded-md bg-background"
-                placeholder="#000000"
-              />
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="text"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-input rounded-md bg-background"
+                  placeholder="#000000"
+                />
+                {eyeDropperSupported && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={handleEyeDropper}
+                    title="Pick color from screen"
+                    className="flex-shrink-0"
+                  >
+                    <Pipette className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>

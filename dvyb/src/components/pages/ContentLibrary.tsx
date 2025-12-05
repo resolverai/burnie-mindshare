@@ -172,7 +172,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
               postIndex: item.postIndex, // Index within generated content
               date: dateStr,
               time: timeStr,
-              type: "Post",
+      type: "Post",
               platforms: item.requestedPlatforms || [],
               title,
               description: description.substring(0, 100) + (description.length > 100 ? '...' : ''), // Truncated for UI
@@ -403,11 +403,11 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                           </div>
                         </>
                       ) : (
-                        <img
-                          src={item.image}
-                          alt={item.title}
-                          className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
-                        />
+                      <img
+                        src={item.image}
+                        alt={item.title}
+                        className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
+                      />
                       )}
                       <Badge
                         className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
@@ -450,7 +450,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
           // Scheduled and Not Selected Content
           <>
             {/* Scheduled Section - Always visible */}
-            <div className="mb-6 md:mb-8">
+              <div className="mb-6 md:mb-8">
               <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
                 Scheduled {isLoading ? '' : `(${scheduledContent.length})`}
               </h2>
@@ -478,11 +478,11 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                             </div>
                           </>
                         ) : (
-                          <img
-                            src={item.image}
-                            alt={item.title}
-                            className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
-                          />
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
+                        />
                         )}
                         <Badge
                           className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
@@ -523,12 +523,12 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                 <div className="text-center py-8 md:py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
                   <p className="text-gray-500 text-sm md:text-base font-medium">No posts scheduled</p>
                   <p className="text-gray-400 text-xs md:text-sm mt-2">Schedule posts from the "Not Selected" section below</p>
-                </div>
-              )}
+              </div>
+            )}
             </div>
 
             {/* Not Selected Section - Always visible */}
-            <div>
+              <div>
               <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Not Selected ({notSelectedContent.length})</h2>
               {notSelectedContent.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
@@ -554,11 +554,11 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                             </div>
                           </>
                         ) : (
-                          <img
-                            src={item.image}
-                            alt={item.title}
-                            className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
-                          />
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
+                        />
                         )}
                         <Badge
                           className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
@@ -596,8 +596,8 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                 <div className="text-center py-8 md:py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
                   <p className="text-gray-500 text-sm md:text-base font-medium">No unscheduled posts</p>
                   <p className="text-gray-400 text-xs md:text-sm mt-2">All generated content has been scheduled or posted</p>
-                </div>
-              )}
+              </div>
+            )}
             </div>
 
             {(scheduledContent.length === 0 && notSelectedContent.length === 0) && !isLoading && (
@@ -655,11 +655,11 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                       </div>
                     </>
                   ) : (
-                    <img
-                      src={selectedPost.image}
-                      alt={selectedPost.title}
+                <img
+                  src={selectedPost.image}
+                  alt={selectedPost.title}
                       className="w-full h-full object-cover"
-                    />
+                />
                   )}
                 </div>
                 <div className="flex-1">
