@@ -53,8 +53,8 @@ export default function BrandProfilePage() {
         topic: 'Product Launch',
         platforms: ['twitter'],  // Twitter only for faster demo
         number_of_posts: 2,
-        number_of_images: 2,
-        number_of_videos: 0,
+        number_of_images: 1,
+        number_of_videos: 1,  // 1 image + 1 video for better demo
         user_prompt: 'Generate Posts to showcase new feature launch on our platform',
       });
       
