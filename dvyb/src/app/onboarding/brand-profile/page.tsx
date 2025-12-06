@@ -19,9 +19,9 @@ export default function BrandProfilePage() {
   useEffect(() => {
     if (!isLoading) {
       if (!isAuthenticated) {
-        console.log('❌ Not authenticated, redirecting to login');
-        // Redirect to login if not authenticated
-        router.push('/auth/login');
+        console.log('❌ Not authenticated, redirecting to landing page');
+        // Redirect to landing page if not authenticated
+        router.push('/');
       } else {
         console.log('✅ Authenticated, showing Brand Kit');
         setShowContent(true);
@@ -33,14 +33,14 @@ export default function BrandProfilePage() {
     // Mark onboarding as complete (skip all intermediate steps)
     localStorage.setItem("dvyb_is_new_account", "false");
     
-    // Mark auto_content_viewed as complete immediately
-    // This ensures onboarding rings will show even if user reloads before dialog appears
+    // Reset onboarding progress to ensure fresh start for this account
+    // This is critical for deleted users who come back - they need fresh onboarding
     const ONBOARDING_STORAGE_KEY = 'dvyb_onboarding_guide_progress';
     try {
-      const storedProgress = localStorage.getItem(ONBOARDING_STORAGE_KEY);
-      const progress = storedProgress ? JSON.parse(storedProgress) : {};
-      progress.auto_content_viewed = true;
-      localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(progress));
+      // Start with a fresh progress object, only set auto_content_viewed
+      const freshProgress = { auto_content_viewed: true };
+      localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(freshProgress));
+      console.log('🔄 Reset onboarding progress to fresh state');
     } catch (e) {
       console.error('Failed to update onboarding progress:', e);
     }
@@ -71,8 +71,8 @@ export default function BrandProfilePage() {
       // Don't block onboarding if generation fails
     }
     
-    // Navigate directly to home (hassle-free onboarding!)
-    router.push('/home');
+    // Navigate to content library to show auto-generated content
+    router.push('/content-library');
   };
 
   if (isLoading || !showContent) {

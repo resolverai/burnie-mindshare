@@ -21,8 +21,8 @@ export default function CalendarPage() {
       if (isLoading) return;
 
       if (!isAuthenticated || !accountId) {
-        // Redirect to auth/login if not authenticated
-        router.push("/auth/login");
+        // Redirect to landing page if not authenticated
+        router.push("/");
         return;
       }
 

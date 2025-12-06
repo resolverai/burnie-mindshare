@@ -1207,8 +1207,8 @@ export const BrandKitPage = () => {
                               // Since Google is primary auth, log out the user
                               await logout();
                               
-                              // Redirect to login page
-                              router.push('/auth/login');
+                              // Redirect to landing page
+                              router.push('/');
                             } catch (error: any) {
                               toast({ 
                                 title: "Error", 

@@ -21,7 +21,8 @@ export default function ContentLibraryPage() {
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push("/auth/login");
+      // Redirect to landing page instead of login
+      router.push("/");
     }
   }, [isAuthenticated, isLoading, router]);
 

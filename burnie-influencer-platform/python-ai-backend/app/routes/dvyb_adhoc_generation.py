@@ -2241,6 +2241,129 @@ GENERATE:
    - ❌ WRONG: "Brand marketing content showcasing our values"
    - ✅ CORRECT: "Built for those who refuse to settle ✨"
 
+6. 🌐 **WEB3/BLOCKCHAIN PROJECT DETECTION & CONTENT STYLE** (CRITICAL):
+   
+   **FIRST**: Analyze the brand context, user prompt, and inventory analysis to determine if this is a Web3/blockchain project.
+   Web3 indicators: crypto, blockchain, DeFi, NFT, token, DAO, metaverse, wallet, staking, yield, airdrop, TGE, TVL, APY, Web3, chain, decentralized, smart contract, etc.
+   
+   **IF WEB3/BLOCKCHAIN PROJECT DETECTED**:
+   
+   🎯 **USER INSTRUCTIONS ARE ALWAYS PRIORITY**:
+   - **FIRST** check if user has given specific instructions about content style/type
+   - If user requests: UGC style, product launch, feature announcement, educational content, professional posts, etc.
+     → **FOLLOW USER INSTRUCTIONS** - do NOT default to shitpost style
+   - Examples of user instructions that override shitpost default:
+     * "Generate UGC style video" → Use UGC/influencer approach
+     * "New feature launch post" → Use product marketing approach
+     * "Professional announcement" → Use brand marketing approach
+     * "Educational content about our product" → Use informative approach
+   - **ONLY if user has NOT given specific content style instructions** → Default to SHITPOST style below
+   
+   A. **Platform Texts - SHITPOST STYLE** (DEFAULT when no specific user instructions):
+      - Generate casual, witty, meme-worthy captions that drive engagement
+      - Use natural crypto Twitter humor and community callbacks
+      - Include project token mention naturally (if available)
+      - Reference bullish sentiment, moon, HODL culture when appropriate
+      - Keep content punchy and authentic - NO corporate speak
+      - End with natural engagement hooks that invite community participation
+      - Examples:
+        * "When you realize $TOKEN is about to change everything 👀🚀"
+        * "POV: You found this before everyone else 😏"
+        * "Not financial advice but... 💀"
+        * "The team shipping while others are sleeping 🔥"
+   
+   B. **Image Prompts - CATEGORY-SPECIFIC SHITPOST VISUALS**:
+      
+      🎯 **BE FULLY AUTONOMOUS & CREATIVE**: You decide the category and visual style based on context analysis.
+      The examples below are ONLY INSPIRATIONS - you can create any category-appropriate meme visuals:
+      
+      **EXAMPLE CATEGORIES (for inspiration only - be creative beyond these)**:
+      - **DeFi**: Meme/Comic style with crypto characters (Wojak checking yields, Pepe celebrating gains); relatable DeFi scenarios
+      - **NFT**: Meme/Comic with popular formats (Drake choosing NFTs, Expanding Brain meme about digital ownership)
+      - **Gaming**: Meme/Comic with gaming characters (Chad gamer, Wojak losing, Pepe winning); relatable gaming reactions
+      - **Meme coins**: Classic meme characters (Doge, Pepe, Stonks Man celebrating gains); authentic meme aesthetics
+      - **DAO**: Meme with governance humor, community voting scenarios
+      - **Trading**: Bullish visuals, chart reactions, trading desk scenarios
+      - **Infrastructure/Layer 1/Layer 2**: Tech visuals with hype elements, network diagrams with meme flair
+      - **AI & Crypto**: Futuristic AI visuals with crypto elements
+      - **SocialFi**: Community-focused, social interaction memes
+      - **Privacy/Security**: Hacker aesthetics, anonymous vibes with humor
+      - **Cross-chain/Bridges**: Connection visuals, bridging memes
+      - **Prediction Markets**: Betting humor, crystal ball memes
+      - **Real World Assets**: Property/asset memes, tokenization humor
+      - **Any other Web3 vertical**: Adapt creatively to the specific niche
+      
+      🚀 **YOUR CREATIVE FREEDOM**:
+      - Invent new meme formats that fit the specific project/brand
+      - Mix and match styles based on what resonates with the content
+      - Use trending meme formats, internet culture references, or create original concepts
+      - Adapt to ANY Web3 category - the list above is not exhaustive
+      - Consider the specific project's community culture and tone
+      
+      👤 **CHARACTER FREEDOM FOR WEB3**:
+      - You are FREE to use ANY type of characters for Web3 projects:
+        * Humans (diverse, relatable people)
+        * Popular meme characters (Wojak, Pepe, Doge, Chad, etc.)
+        * Web3-specific characters (crypto mascots, blockchain avatars)
+        * Original/creative characters that fit the brand
+        * Abstract or no characters at all
+      - Choose whatever character type best fits the content and drives engagement
+      - Web3 characters are NOT mandatory - use your judgment
+      
+      * Include "vibrant cartoon style", "meme aesthetic", "internet culture art" when appropriate
+      * Make visuals shareable and relatable to crypto community
+      * Be bold, creative, and authentically Web3
+   
+   ⚠️ **WEB2 PROJECTS - NO WEB3 CHARACTERS**:
+      - For non-Web3/non-blockchain brands, NEVER use Web3-specific characters
+      - No Wojak, Pepe, Doge, or crypto meme characters for Web2 brands
+      - Use professional humans, product-focused visuals, or brand-appropriate imagery
+      - Keep the aesthetic aligned with mainstream/traditional marketing
+   
+   C. **Clip Prompts - ALIGNED WITH SHITPOST AESTHETIC**:
+      - Motion should feel dynamic, energetic, and engaging
+      - Camera work: quick zooms, dynamic pans, reaction-style movements
+      - If UGC style: influencer reacting authentically with crypto community vibes
+      - Voiceover (if product/brand): energetic, hyped, community-focused tone
+      - Examples:
+        * "Quick zoom on screen showing gains, camera shakes with excitement, meme-style reaction..."
+        * "Influencer's eyes widen in genuine surprise, quick cut to product, excited energy..."
+
+7. 📊 **INFOGRAPHIC DATA REQUIREMENTS** (Web2 projects with metrics):
+   
+   **CRITICAL RULES FOR INFOGRAPHICS**:
+   
+   A. **When to use Infographics**:
+      - ONLY for IMAGE-ONLY posts (posts that will NOT have video/clip generation)
+      - When context contains specific metrics, data, statistics, or numerical information
+      - NEVER generate infographic-style prompts for posts that will have clips/videos
+   
+   B. **Mandatory Data Extraction**:
+      If generating image prompts for INFOGRAPHICS, DATA VISUALIZATIONS, CHARTS, or ANALYTICAL CONTENT:
+      - You MUST extract ACTUAL DATA from the provided context (dvyb_context, user_prompt, inventory analysis)
+      - Include specific numbers, percentages, statistics, metrics from the context
+      - **NEVER use placeholder data** like "various metrics", "relevant statistics", "X%", "[number]"
+      
+   C. **Required Data Types to Extract**:
+      - Revenue/sales figures (e.g., "$10M revenue", "50K customers")
+      - Growth percentages (e.g., "40% YoY growth", "3x increase")
+      - User/customer metrics (e.g., "100K active users", "5M downloads")
+      - Performance stats (e.g., "99.9% uptime", "2s response time")
+      - Market data (e.g., "$5B market size", "15% market share")
+      - Any numerical data available in the context
+   
+   D. **Infographic Prompt Format**:
+      "Infographic showing [specific data from context] with pie charts displaying [actual percentages], 
+      bar graphs showing [actual metrics], clean data visualization, professional design..."
+      
+      ❌ WRONG: "Infographic showing various company metrics and growth statistics"
+      ✅ CORRECT: "Infographic showing 40% revenue growth, 100K active users, pie chart with 60% retention rate, bar graph comparing Q1 ($2M) to Q4 ($5M) revenue"
+   
+   E. **VIDEO POSTS - NO INFOGRAPHICS**:
+      - For posts at video indices (posts that will have clip prompts), NEVER generate infographic-style image prompts
+      - Video starting frames should be dynamic, action-oriented, or character-focused
+      - Infographics are static and don't translate well to motion/video content
+
 Return ONLY this JSON structure (no markdown, no extra text):
 {json_example}
 

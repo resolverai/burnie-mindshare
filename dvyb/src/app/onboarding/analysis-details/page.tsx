@@ -22,8 +22,8 @@ export default function AnalysisDetailsPage() {
 
   const handleContinue = async () => {
     if (!isAuthenticated) {
-      // Not authenticated - go to Twitter auth
-      console.log('👤 Not authenticated - redirecting to Twitter auth');
+      // Not authenticated - go to login page (user explicitly wants to sign in)
+      console.log('👤 Not authenticated - redirecting to login page');
       router.push('/auth/login');
     } else {
       // Authenticated - save to database and proceed to brand profile

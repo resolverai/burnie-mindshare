@@ -26,6 +26,7 @@ httpx
 aiofiles
 python-multipart
 pillow
+cairosvg
 requests
 boto3
 botocore

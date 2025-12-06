@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { authApi } from '@/lib/api'
-import { getOAuthFlowState, updateOAuthFlowState } from '@/lib/oauthFlowState'
+import { getOAuthFlowState, updateOAuthFlowState, getOAuthReturnUrl } from '@/lib/oauthFlowState'
 import { Loader2, XCircle } from 'lucide-react'
 
 function DvybTwitterCallbackContent() {
@@ -76,10 +76,11 @@ function DvybTwitterCallbackContent() {
             }))
           }
           
-          // Redirect to home - dialog will resume flow
-          console.log('🚀 Redirecting to /home for flow continuation...')
+          // Redirect to source page - dialog will resume flow
+          const returnUrl = getOAuthReturnUrl()
+          console.log('🚀 Redirecting to', returnUrl, 'for flow continuation...')
           setTimeout(() => {
-            window.location.href = '/home'
+            window.location.href = returnUrl
           }, 500)
           return
         }

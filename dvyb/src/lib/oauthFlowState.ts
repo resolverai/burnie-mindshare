@@ -8,7 +8,7 @@
 
 export interface OAuthFlowState {
   type: 'post_now' | 'schedule';
-  source: 'generate_dialog' | 'schedule_dialog' | 'content_library';
+  source: 'generate_dialog' | 'schedule_dialog' | 'content_library' | 'home';
   
   // Post data
   post: {
@@ -118,14 +118,26 @@ export function hasPendingOAuthFlow(): boolean {
 }
 
 /**
- * Get the return URL for OAuth callbacks
+ * Get the return URL for OAuth callbacks based on flow source
  */
 export function getOAuthReturnUrl(): string {
   const state = getOAuthFlowState();
   if (!state) return '/home';
   
-  // Always return to home - the dialog will auto-open
-  return '/home';
+  // Return to the appropriate page based on where the flow was initiated
+  // The dialog will auto-open on that page
+  switch (state.source) {
+    case 'content_library':
+      return '/content-library';
+    case 'home':
+    case 'generate_dialog':
+      // 'generate_dialog' is legacy - for backward compatibility, default to home
+      return '/home';
+    case 'schedule_dialog':
+      return '/content-library';
+    default:
+      return '/home';
+  }
 }
 
 /**

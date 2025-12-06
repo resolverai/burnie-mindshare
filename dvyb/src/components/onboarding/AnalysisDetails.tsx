@@ -113,7 +113,7 @@ export const AnalysisDetails = ({ onContinue, isAuthenticated: isAuthenticatedPr
   // Use prop if provided, otherwise use context
   const isAuthenticated = isAuthenticatedProp !== undefined ? isAuthenticatedProp : authContextAuthenticated;
   
-  // Handle Edit button click - navigate to auth if not authenticated, or enter edit mode
+  // Handle Edit button click - navigate to login if not authenticated, or enter edit mode
   const handleEditClick = (section: EditSection) => {
     if (!isAuthenticated) {
       router.push('/auth/login');

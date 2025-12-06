@@ -2039,38 +2039,105 @@ def extract_logo_url_from_html(url: str, soup: BeautifulSoup) -> Optional[str]:
 async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int] = None) -> Optional[Dict[str, str]]:
     """
     Download logo from URL and upload to S3.
+    Converts WEBP and SVG to PNG before uploading.
     Returns dict with S3 key and presigned URL if successful, None otherwise.
     """
     try:
+        from PIL import Image
+        
         logger.info(f"📥 Downloading logo from: {logo_url}")
         
         # Download logo
         headers = {
-            "User-Agent": "DVYB-WebsiteAnalyzer/1.0 (+https://dvyb.ai)"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
         response = requests.get(logo_url, headers=headers, timeout=10, allow_redirects=True)
         response.raise_for_status()
         
         # Check if it's an image
-        content_type = response.headers.get('content-type', '')
-        if not content_type.startswith('image/'):
+        content_type = response.headers.get('content-type', '').lower()
+        url_lower = logo_url.lower()
+        
+        # Determine file type from content-type or URL
+        is_svg = 'svg' in content_type or url_lower.endswith('.svg')
+        is_webp = 'webp' in content_type or url_lower.endswith('.webp')
+        is_image = content_type.startswith('image/') or any(url_lower.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico'])
+        
+        if not is_image:
             logger.warning(f"  ⚠️ Not an image: {content_type}")
             return None
         
-        # Get file extension from content type
-        ext_map = {
-            'image/png': 'png',
-            'image/jpeg': 'jpg',
-            'image/jpg': 'jpg',
-            'image/gif': 'gif',
-            'image/webp': 'webp',
-            'image/svg+xml': 'svg',
-            'image/x-icon': 'ico',
-            'image/vnd.microsoft.icon': 'ico',
-        }
-        ext = ext_map.get(content_type.lower(), 'png')
-        
         logger.info(f"  → Downloaded {len(response.content)} bytes ({content_type})")
+        
+        # Store the final image content and content type
+        final_content = response.content
+        final_content_type = content_type
+        ext = 'png'  # Default to PNG
+        
+        # === CONVERT SVG TO PNG ===
+        if is_svg:
+            logger.info(f"  🔄 Converting SVG to PNG...")
+            try:
+                import cairosvg
+                
+                # Convert SVG to PNG using cairosvg
+                png_data = cairosvg.svg2png(bytestring=response.content, output_width=512)
+                final_content = png_data
+                final_content_type = 'image/png'
+                ext = 'png'
+                logger.info(f"  ✅ SVG converted to PNG successfully ({len(png_data)} bytes)")
+                
+            except ImportError:
+                logger.warning(f"  ⚠️ cairosvg not installed, keeping SVG format")
+                final_content_type = 'image/svg+xml'
+                ext = 'svg'
+            except Exception as e:
+                logger.warning(f"  ⚠️ SVG conversion failed: {e}, keeping SVG format")
+                final_content_type = 'image/svg+xml'
+                ext = 'svg'
+        
+        # === CONVERT WEBP TO PNG ===
+        elif is_webp:
+            logger.info(f"  🔄 Converting WEBP to PNG...")
+            try:
+                # Open WEBP image
+                image = Image.open(io.BytesIO(response.content))
+                
+                # Convert to RGB if needed (WEBP can have transparency)
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    # Create white background for transparency
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    if image.mode == 'P':
+                        image = image.convert('RGBA')
+                    background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                    image = background
+                elif image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
+                # Save as PNG in memory
+                png_buffer = io.BytesIO()
+                image.save(png_buffer, format='PNG', optimize=True)
+                final_content = png_buffer.getvalue()
+                final_content_type = 'image/png'
+                ext = 'png'
+                logger.info(f"  ✅ WEBP converted to PNG successfully ({len(final_content)} bytes)")
+                
+            except Exception as e:
+                logger.warning(f"  ⚠️ WEBP conversion failed: {e}, keeping WEBP format")
+                final_content_type = 'image/webp'
+                ext = 'webp'
+        
+        # === OTHER FORMATS - Keep as-is but determine extension ===
+        else:
+            ext_map = {
+                'image/png': 'png',
+                'image/jpeg': 'jpg',
+                'image/jpg': 'jpg',
+                'image/gif': 'gif',
+                'image/x-icon': 'ico',
+                'image/vnd.microsoft.icon': 'ico',
+            }
+            ext = ext_map.get(final_content_type, 'png')
         
         # Upload to S3
         s3_client = boto3.client(
@@ -2080,7 +2147,7 @@ async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int
             region_name=os.getenv('AWS_REGION', 'us-east-1')
         )
         
-        bucket_name = os.getenv('S3_BUCKET_NAME')  # Correct env var name
+        bucket_name = os.getenv('S3_BUCKET_NAME')
         if not bucket_name:
             logger.error("  ❌ S3_BUCKET_NAME not configured")
             return None
@@ -2092,11 +2159,11 @@ async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int
         
         # Upload
         s3_client.upload_fileobj(
-            io.BytesIO(response.content),
+            io.BytesIO(final_content),
             bucket_name,
             s3_key,
             ExtraArgs={
-                'ContentType': content_type,
+                'ContentType': final_content_type,
                 'CacheControl': 'max-age=31536000',  # 1 year cache
             }
         )
@@ -2116,8 +2183,8 @@ async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int
         print(f"\n🖼️  LOGO EXTRACTED AND UPLOADED TO S3:")
         print(f"   S3 Key: {s3_key}")
         print(f"   Presigned URL: {presigned_url[:80]}...")
-        print(f"   Size: {len(response.content)} bytes")
-        print(f"   Type: {content_type}\n")
+        print(f"   Size: {len(final_content)} bytes")
+        print(f"   Type: {final_content_type}\n")
         
         return {
             "s3_key": s3_key,

@@ -10,9 +10,9 @@ export default function ContentChannelsPage() {
   const { isAuthenticated, isLoading } = useAuth();
 
   useEffect(() => {
-    // Redirect to login if not authenticated
+    // Redirect to landing page if not authenticated
     if (!isLoading && !isAuthenticated) {
-      router.push("/auth/login");
+      router.push("/");
     }
   }, [isAuthenticated, isLoading, router]);
 

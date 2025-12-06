@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Loader2, XCircle, CheckCircle } from 'lucide-react'
 import { oauth1Api } from '@/lib/api'
-import { getOAuthFlowState, updateOAuthFlowState } from '@/lib/oauthFlowState'
+import { getOAuthFlowState, updateOAuthFlowState, getOAuthReturnUrl } from '@/lib/oauthFlowState'
 
 function OAuth1CallbackContent() {
   const searchParams = useSearchParams()
@@ -15,7 +15,8 @@ function OAuth1CallbackContent() {
   const processingRef = useRef(false)
 
   const handleRetry = () => {
-    window.location.href = '/home'
+    const returnUrl = getOAuthReturnUrl()
+    window.location.href = returnUrl
   }
 
   useEffect(() => {
@@ -87,10 +88,11 @@ function OAuth1CallbackContent() {
             timestamp: Date.now()
           }))
           
-          // Redirect to home - dialog will resume and complete the post
-          console.log('🚀 Redirecting to /home for flow completion...')
+          // Redirect to source page - dialog will resume and complete the post
+          const returnUrl = getOAuthReturnUrl()
+          console.log('🚀 Redirecting to', returnUrl, 'for flow completion...')
           setTimeout(() => {
-            window.location.href = '/home'
+            window.location.href = returnUrl
           }, 500)
           return
         }
@@ -103,8 +105,10 @@ function OAuth1CallbackContent() {
           timestamp: Date.now()
         }))
         
+        const fallbackUrl = localStorage.getItem('dvyb_oauth_return_url') || '/home'
+        localStorage.removeItem('dvyb_oauth_return_url')
         setTimeout(() => {
-          window.location.href = '/home'
+          window.location.href = fallbackUrl
         }, 800)
       } catch (error: any) {
         console.error('OAuth1 callback error:', error)
@@ -116,8 +120,9 @@ function OAuth1CallbackContent() {
           setShowRetry(true)
         } else {
           setStatus(errorMsg)
+          const errorReturnUrl = getOAuthReturnUrl()
           setTimeout(() => {
-            window.location.href = '/home'
+            window.location.href = errorReturnUrl
           }, 2000)
         }
       }

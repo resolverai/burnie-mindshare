@@ -17,7 +17,7 @@ function DvybGoogleCallbackContent() {
     localStorage.removeItem('dvyb_google_oauth_state')
     
     // Check if this was a connect flow or sign-in flow
-    const returnUrl = localStorage.getItem('dvyb_oauth_return_url') || '/auth/login'
+    const returnUrl = localStorage.getItem('dvyb_oauth_return_url') || '/'
     localStorage.removeItem('dvyb_oauth_return_url')
     localStorage.removeItem('dvyb_oauth_platform')
     
@@ -79,6 +79,23 @@ function DvybGoogleCallbackContent() {
             : 'path=/; max-age=604800; SameSite=Lax'
           document.cookie = `dvyb_account_id=${response.data.account_id}; ${cookieOptions}`
           console.log('🍪 Auth cookie set')
+          
+          // IMPORTANT: If this is a NEW account (either first time or re-registration after deletion),
+          // reset all onboarding-related localStorage to ensure fresh onboarding experience
+          if (response.data.is_new_account) {
+            console.log('🆕 New account detected - resetting ALL onboarding/OAuth localStorage')
+            localStorage.removeItem('dvyb_is_new_account')
+            localStorage.removeItem('dvyb_onboarding_guide_progress')
+            localStorage.removeItem('dvyb_onboarding_generation_job_id')
+            localStorage.removeItem('dvyb_onboarding_dialog_pending')
+            // Clear any stale OAuth flow state from previous account
+            localStorage.removeItem('dvyb_oauth_post_flow')
+            localStorage.removeItem('dvyb_oauth_success')
+            localStorage.removeItem('dvyb_oauth_return_url')
+            localStorage.removeItem('dvyb_oauth_platform')
+            // Set flag to indicate this is a new account that needs onboarding
+            localStorage.setItem('dvyb_is_new_account', 'true')
+          }
         }
         
         // Check if this is a "connect" flow (from Brand Kit or other pages) vs sign-in flow

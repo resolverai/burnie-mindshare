@@ -10,10 +10,14 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Search, Filter, Eye, Heart, MessageCircle, Share2, Loader2, Play, Calendar as CalendarIcon } from "lucide-react";
+import { Search, Filter, Eye, Heart, MessageCircle, Share2, Loader2, Play, Calendar as CalendarIcon, Sparkles } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
+import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { contentLibraryApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
+import { clearOAuthFlowState, getOAuthFlowState } from "@/lib/oauthFlowState";
+import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
 
@@ -65,8 +69,117 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const { accountId } = useAuth();
   
+  // Generate Content Dialog state
+  const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [onboardingJobId, setOnboardingJobId] = useState<string | null>(null);
+  
+  // Onboarding guide
+  const { completeStep } = useOnboardingGuide();
+  
+  // Toast
+  const { toast } = useToast();
+  
   // Ref for infinite scroll observer
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  
+  // PRIORITY CHECK: Onboarding generation job (auto-open dialog for new users)
+  useEffect(() => {
+    const storedJobId = localStorage.getItem('dvyb_onboarding_generation_job_id');
+    if (storedJobId) {
+      console.log('🎉 [PRIORITY] Onboarding generation detected on Content Library:', storedJobId);
+      
+      // Set a synchronous flag to prevent other checks from interfering
+      localStorage.setItem('dvyb_onboarding_dialog_pending', 'true');
+      
+      // Clear any stale OAuth flow state
+      clearOAuthFlowState();
+      localStorage.removeItem('dvyb_oauth_success');
+      
+      // Store in state for dialog
+      setOnboardingJobId(storedJobId);
+      
+      // Clear the job ID flag immediately to prevent re-opening on reload
+      localStorage.removeItem('dvyb_onboarding_generation_job_id');
+      
+      // Mark auto_content_viewed as complete
+      completeStep('auto_content_viewed');
+      
+      // Open dialog after a delay to ensure page is ready
+      setTimeout(() => {
+        console.log('🎉 Opening GenerateContentDialog for onboarding on Content Library...');
+        setShowGenerateDialog(true);
+        // Clear the pending flag once dialog is opened
+        localStorage.removeItem('dvyb_onboarding_dialog_pending');
+      }, 800);
+    }
+  }, []); // Run once on mount
+
+  // Track if we've already processed OAuth on this mount
+  const oauthProcessedRef = useRef(false);
+  
+  // Check for OAuth flow state (returning from authorization)
+  useEffect(() => {
+    // Skip if onboarding dialog is pending
+    if (localStorage.getItem('dvyb_onboarding_dialog_pending') === 'true') {
+      return;
+    }
+    
+    // Prevent double-processing in React Strict Mode
+    if (oauthProcessedRef.current) {
+      console.log('🔄 [ContentLibrary] OAuth already processed, skipping...');
+      return;
+    }
+    
+    // Check for OAuth success (user just returned from authorization)
+    const oauthSuccessStr = localStorage.getItem('dvyb_oauth_success');
+    const flowState = getOAuthFlowState();
+    
+    console.log('🔍 [ContentLibrary] Checking OAuth state:', { 
+      hasOAuthSuccess: !!oauthSuccessStr, 
+      hasFlowState: !!flowState,
+      flowSource: flowState?.source 
+    });
+    
+    if (!oauthSuccessStr) {
+      return; // No OAuth success, nothing to do
+    }
+    
+    // Only handle if flow was initiated from content library
+    if (flowState && flowState.source === 'content_library') {
+      // Mark as processed
+      oauthProcessedRef.current = true;
+      
+      console.log('🔄 [ContentLibrary] OAuth success detected, resuming flow...', flowState);
+      
+      try {
+        const oauthSuccess = JSON.parse(oauthSuccessStr);
+        
+        // Show success toast
+        toast({
+          title: `${oauthSuccess.platform.charAt(0).toUpperCase() + oauthSuccess.platform.slice(1)} Connected`,
+          description: oauthSuccess.message,
+        });
+      } catch (e) {
+        console.error('Error parsing OAuth success:', e);
+      }
+      
+      // Clear the success flag
+      localStorage.removeItem('dvyb_oauth_success');
+      
+      // Open dialog after a short delay for better UX
+      setTimeout(() => {
+        console.log('🎉 [ContentLibrary] Opening GenerateContentDialog to complete post/schedule flow...');
+        setShowGenerateDialog(true);
+      }, 300);
+    } else if (flowState && flowState.source !== 'content_library') {
+      // Flow was initiated from another page - don't handle here
+      console.log('⚠️ [ContentLibrary] OAuth flow from different source, ignoring...');
+    } else {
+      // OAuth success but no flow state - just clear the flag
+      console.log('✅ [ContentLibrary] OAuth success without pending flow');
+      localStorage.removeItem('dvyb_oauth_success');
+    }
+  }, []); // Run once on mount
 
   // Fetch content library data
   const fetchContentLibrary = useCallback(async (pageNum: number, append: boolean = false) => {
@@ -244,17 +357,34 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, searchQuery, dateRange, showPosted]);
 
-  // Infinite scroll observer
+  // Infinite scroll observer - use refs to avoid recreating observer on every state change
+  const hasMoreRef = useRef(hasMore);
+  const isLoadingMoreRef = useRef(isLoadingMore);
+  const isLoadingRef = useRef(isLoading);
+  const pageRef = useRef(page);
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+    isLoadingMoreRef.current = isLoadingMore;
+    isLoadingRef.current = isLoading;
+    pageRef.current = page;
+  }, [hasMore, isLoadingMore, isLoading, page]);
+
+  // Set up observer once
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoadingMore && !isLoading) {
-          const nextPage = page + 1;
+        if (entries[0].isIntersecting && 
+            hasMoreRef.current && 
+            !isLoadingMoreRef.current && 
+            !isLoadingRef.current) {
+          const nextPage = pageRef.current + 1;
           setPage(nextPage);
           fetchContentLibrary(nextPage, true);
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1, rootMargin: '100px' }
     );
 
     const currentRef = loadMoreRef.current;
@@ -267,7 +397,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         observer.unobserve(currentRef);
       }
     };
-  }, [hasMore, isLoadingMore, isLoading, page, fetchContentLibrary]);
+  }, [fetchContentLibrary]); // Only recreate when fetchContentLibrary changes
 
   // Use separate scheduledItems state (always shows all scheduled posts)
   const scheduledContent = scheduledItems;
@@ -295,6 +425,15 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
       return (num / 1000).toFixed(1) + "k";
     }
     return num.toString();
+  };
+
+  // Refresh content after generation
+  const handleGenerationComplete = () => {
+    // Reset pagination and refetch
+    setPage(1);
+    setContentItems([]);
+    setScheduledItems([]);
+    fetchContentLibrary(1, false);
   };
 
   return (
@@ -371,7 +510,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
       </header>
 
       {/* Content Grid */}
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 pb-24">
         {showPosted ? (
           // Posted Content as Cards
           <>
@@ -609,13 +748,14 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         )}
         
         {/* Infinite Scroll Trigger - Always at bottom */}
-        {hasMore && !isLoading && (
-          <div ref={loadMoreRef} className="flex justify-center py-8">
-            {isLoadingMore && (
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            )}
-          </div>
-        )}
+        <div ref={loadMoreRef} className="flex justify-center py-8 min-h-[60px]">
+          {isLoadingMore && (
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          )}
+          {!hasMore && !isLoading && contentItems.length > 0 && (
+            <p className="text-sm text-muted-foreground">No more content to load</p>
+          )}
+        </div>
         
         {/* Loading State */}
         {isLoading && page === 1 && (
@@ -745,6 +885,49 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Generate Content Dialog */}
+      <GenerateContentDialog 
+        open={showGenerateDialog} 
+        onOpenChange={(open) => {
+          setShowGenerateDialog(open);
+          // Clear onboarding job ID when dialog closes
+          if (!open) {
+            setOnboardingJobId(null);
+            // Refresh content after generation
+            handleGenerationComplete();
+          }
+        }}
+        parentPage="content_library"
+        initialJobId={onboardingJobId}
+        onDialogClosed={() => {
+          // Ensure onboarding steps are marked as completed
+          completeStep('auto_content_viewed');
+          completeStep('content_library_visited');
+          // Refresh content
+          handleGenerationComplete();
+        }}
+      />
+
+      {/* Floating Generate Content Button - Always visible on scroll (all devices) */}
+      <div className="fixed bottom-6 right-6 lg:right-20 z-50">
+        {/* Mobile: round icon button */}
+        <Button 
+          onClick={() => setShowGenerateDialog(true)}
+          className="md:hidden bg-primary hover:bg-primary/90 shadow-lg rounded-full h-14 w-14 p-0"
+          size="icon"
+        >
+          <Sparkles className="w-6 h-6" />
+        </Button>
+        {/* Tablet/Desktop: full button with text */}
+        <Button 
+          onClick={() => setShowGenerateDialog(true)}
+          className="hidden md:flex bg-primary hover:bg-primary/90 shadow-lg px-5 py-5 text-base"
+        >
+          <Sparkles className="w-5 h-5 mr-2" />
+          Generate Content
+        </Button>
+      </div>
     </div>
   );
 };

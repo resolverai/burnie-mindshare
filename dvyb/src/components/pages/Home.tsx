@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -58,7 +58,6 @@ export const Home = () => {
   const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
   const [showInactiveAccountDialog, setShowInactiveAccountDialog] = useState(false);
   const [usageData, setUsageData] = useState<any>(null);
-  const [onboardingJobId, setOnboardingJobId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState("home");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [accountName, setAccountName] = useState("User");
@@ -129,74 +128,76 @@ export const Home = () => {
     }
   };
 
+  // NOTE: Auto-showing of GenerateContentDialog for onboarding has been moved to Content Library
+  // The onboarding flow now takes users to Content Library first to see auto-generated content
+
+  // Track if we've already processed OAuth on this mount (prevents double-processing in React Strict Mode)
+  const oauthProcessedRef = useRef(false);
+
   // Check for OAuth success and pending flows (from redirect flow callbacks)
   useEffect(() => {
+    // Prevent double-processing in React Strict Mode
+    if (oauthProcessedRef.current) {
+      console.log('🔄 [Home] OAuth already processed, skipping...');
+      return;
+    }
+    
+    // Check for OAuth success flag first
     const oauthSuccessStr = localStorage.getItem('dvyb_oauth_success');
     const flowState = getOAuthFlowState();
     
-    // First, check if there's a pending OAuth flow that needs to resume
-    if (flowState && (flowState.source === 'generate_dialog' || flowState.source === 'schedule_dialog')) {
-      if (oauthSuccessStr) {
-        // OAuth was successful - resume the flow
-        console.log('🔄 Pending OAuth flow detected with success, auto-opening GenerateContentDialog...', flowState);
-        
-        // Show toast for successful connection
-        try {
-          const oauthSuccess = JSON.parse(oauthSuccessStr);
-          if (Date.now() - oauthSuccess.timestamp < 30000) {
-            toast({
-              title: "Connected!",
-              description: oauthSuccess.message || `${oauthSuccess.platform} connected successfully`,
-            });
-            
-            if (oauthSuccess.platform) {
-              setConnectionStatus(prev => ({ ...prev, [oauthSuccess.platform]: 'connected' }));
-            }
-          }
-        } catch (e) {
-          console.error('Error parsing OAuth success:', e);
-        }
-        
-        // Clean up success flag
-        localStorage.removeItem('dvyb_oauth_success');
-        
-        // Open dialog to resume flow
-        setTimeout(() => {
-          setShowGenerateDialog(true);
-        }, 300);
-      } else {
-        // User returned without completing OAuth (cancelled/went back)
-        // Clear the flow state so we don't keep trying to resume
-        console.log('⚠️ Pending OAuth flow detected but no success flag - user likely cancelled. Clearing flow state.');
-        clearOAuthFlowState();
-      }
-      return; // Don't process as regular OAuth success
+    console.log('🔍 [Home] Checking OAuth state:', { 
+      hasOAuthSuccess: !!oauthSuccessStr, 
+      hasFlowState: !!flowState,
+      flowSource: flowState?.source 
+    });
+    
+    if (!oauthSuccessStr) {
+      // No OAuth success - don't clear flow state here, let the dialog handle it
+      // Only clear if user explicitly cancelled (no recent OAuth activity)
+      return;
     }
     
-    // No pending flow - handle as regular platform connection from home screen
-    if (oauthSuccessStr) {
-      try {
-        const oauthSuccess = JSON.parse(oauthSuccessStr);
-        // Check if it's recent (within last 30 seconds)
-        if (Date.now() - oauthSuccess.timestamp < 30000) {
-          toast({
-            title: "Connected!",
-            description: oauthSuccess.message || `${oauthSuccess.platform} connected successfully`,
-          });
-          
-          // Update connection status immediately
-          if (oauthSuccess.platform) {
-            setConnectionStatus(prev => ({ ...prev, [oauthSuccess.platform]: 'connected' }));
-          }
-          
-          // Refresh analytics
-          fetchAnalytics();
-        }
-      } catch (e) {
-        console.error('Error parsing OAuth success:', e);
-      }
-      // Clean up
+    // Mark as processed to prevent double-processing
+    oauthProcessedRef.current = true;
+    
+    // Parse success data for toast
+    let oauthSuccess: any = null;
+    try {
+      oauthSuccess = JSON.parse(oauthSuccessStr);
+    } catch (e) {
+      console.error('Error parsing OAuth success:', e);
       localStorage.removeItem('dvyb_oauth_success');
+      return;
+    }
+    
+    // Show toast for successful connection (if recent)
+    if (Date.now() - oauthSuccess.timestamp < 30000) {
+      toast({
+        title: "Connected!",
+        description: oauthSuccess.message || `${oauthSuccess.platform} connected successfully`,
+      });
+      
+      if (oauthSuccess.platform) {
+        setConnectionStatus(prev => ({ ...prev, [oauthSuccess.platform]: 'connected' }));
+      }
+    }
+    
+    // Clean up success flag
+    localStorage.removeItem('dvyb_oauth_success');
+    
+    // Check if this is part of a post/schedule flow that needs to resume
+    if (flowState && (flowState.source === 'home' || flowState.source === 'generate_dialog' || flowState.source === 'schedule_dialog')) {
+      console.log('🔄 [Home] Pending OAuth flow detected, opening GenerateContentDialog...', flowState);
+      
+      // Open dialog after a short delay for better UX
+      setTimeout(() => {
+        setShowGenerateDialog(true);
+      }, 300);
+    } else {
+      // No pending flow - just a regular platform connection
+      console.log('✅ [Home] OAuth success without pending flow - just refreshing analytics');
+      fetchAnalytics();
     }
   }, []);
 
@@ -252,28 +253,8 @@ export const Home = () => {
     fetchAnalytics();
   }, [accountId, selectedDays]);
 
-  // Check for onboarding generation and auto-open dialog
-  useEffect(() => {
-    const storedJobId = localStorage.getItem('dvyb_onboarding_generation_job_id');
-    if (storedJobId && !isLoading) {
-      console.log('🎉 Onboarding generation detected, auto-opening dialog with job:', storedJobId);
-      
-      // Store in state for dialog
-      setOnboardingJobId(storedJobId);
-      
-      // Clear the flag immediately to prevent re-opening
-      localStorage.removeItem('dvyb_onboarding_generation_job_id');
-      
-      // Mark auto_content_viewed as complete immediately when dialog opens
-      // This ensures rings will show even if user reloads before closing the dialog
-      completeStep('auto_content_viewed');
-      
-      // Small delay to ensure home page is fully loaded
-      setTimeout(() => {
-        setShowGenerateDialog(true);
-      }, 500);
-    }
-  }, [isLoading, completeStep]);
+  // NOTE: Onboarding generation check is now handled in the PRIORITY CHECK useEffect above
+  // This prevents race conditions with OAuth flow checks
 
   const handleViewChange = (view: string) => {
     setActiveView(view);
@@ -1269,19 +1250,8 @@ export const Home = () => {
 
           <GenerateContentDialog 
             open={showGenerateDialog} 
-            onOpenChange={(open) => {
-              setShowGenerateDialog(open);
-              // Clear onboarding job ID when dialog closes
-              if (!open) {
-                setOnboardingJobId(null);
-              }
-            }}
-            initialJobId={onboardingJobId}
-            onDialogClosed={() => {
-              // Ensure onboarding step is marked as viewed when dialog closes
-              // (This is a backup - step is already marked when dialog opens)
-              completeStep('auto_content_viewed');
-            }}
+            onOpenChange={setShowGenerateDialog}
+            parentPage="home"
           />
           
           <UpgradeDialog 

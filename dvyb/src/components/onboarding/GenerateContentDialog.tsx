@@ -25,6 +25,7 @@ interface GenerateContentDialogProps {
   onOpenChange: (open: boolean) => void;
   initialJobId?: string | null; // For onboarding auto-generation
   onDialogClosed?: () => void; // Callback when dialog closes for any reason (Done, scheduling, etc.)
+  parentPage?: 'home' | 'content_library'; // Which page the dialog is opened from (for OAuth redirects)
 }
 
 type Step = "topic" | "platform" | "context" | "review" | "generating" | "results";
@@ -63,7 +64,7 @@ const PLATFORMS = [
   },
 ];
 
-export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed }: GenerateContentDialogProps) => {
+export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDialogClosed, parentPage = 'home' }: GenerateContentDialogProps) => {
   const [step, setStep] = useState<Step>("topic");
   const [selectedTopic, setSelectedTopic] = useState<string>("");
   const [customTopic, setCustomTopic] = useState("");
@@ -216,10 +217,32 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     if (!open) return;
     
     const flowState = getOAuthFlowState();
+    console.log('🔍 [GenerateContentDialog] Checking for pending OAuth flow:', { 
+      flowState, 
+      parentPage,
+      hasFlowState: !!flowState 
+    });
+    
     if (!flowState) return;
     
-    // Handle schedule_dialog flows - open ScheduleDialog to resume
-    if (flowState.source === 'schedule_dialog' && flowState.type === 'schedule') {
+    // Accept flows from matching source OR legacy 'generate_dialog' source
+    // For Home: accept 'home' or 'generate_dialog'
+    // For Content Library: accept 'content_library'
+    const isValidSource = 
+      flowState.source === parentPage || // Exact match
+      (parentPage === 'home' && flowState.source === 'generate_dialog') || // Legacy for home
+      flowState.source === 'schedule_dialog'; // Schedule flows work on both
+    
+    // Skip if flow was initiated from a different page
+    if (!isValidSource) {
+      console.log(`⚠️ Flow source ${flowState.source} doesn't match current page ${parentPage}, skipping...`);
+      return;
+    }
+    
+    console.log('✅ [GenerateContentDialog] Valid flow state detected, restoring...', flowState);
+    
+    // Handle schedule flows - open ScheduleDialog to resume
+    if (flowState.type === 'schedule') {
       console.log('🔄 Resuming Schedule flow from GenerateContentDialog...', flowState);
       
       // Restore generated posts if available
@@ -246,8 +269,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       return; // ScheduleDialog will handle the rest
     }
     
-    // Handle generate_dialog flows (Post Now)
-    if (flowState.source !== 'generate_dialog') return;
+    // Handle post_now flows
+    if (flowState.type !== 'post_now') return;
     
     console.log('🔄 Resuming OAuth flow from saved state:', flowState);
     
@@ -379,7 +402,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         }, 500);
       }
     }
-  }, [open]);
+  }, [open, parentPage]);
 
   const handleFilesSelected = async (files: File[]): Promise<string[]> => {
     try {
@@ -768,7 +791,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         // Save flow state before redirecting
         saveOAuthFlowState({
           type: 'post_now',
-          source: 'generate_dialog',
+          source: parentPage === 'content_library' ? 'content_library' : 'home',
           post: {
             id: post.id,
             type: post.type,
@@ -834,7 +857,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
           // Save flow state for OAuth1
           saveOAuthFlowState({
             type: 'post_now',
-            source: 'generate_dialog',
+            source: parentPage === 'content_library' ? 'content_library' : 'home',
             post: {
               id: post.id,
               type: post.type,
@@ -1596,6 +1619,10 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         // Pass generatedContentId directly as override prop to ensure it's always available
         // This handles the case where post.generatedContentId might be undefined during generation
         generatedContentIdOverride={generatedContentId}
+        // Pass parent page for OAuth redirect
+        parentPage={parentPage}
+        // Pass generated posts for OAuth flow restoration
+        generatedPosts={generatedPosts}
         onScheduleComplete={() => {
           handleScheduleComplete();
           setShowScheduleDialog(false);

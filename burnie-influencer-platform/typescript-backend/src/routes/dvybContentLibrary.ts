@@ -26,22 +26,15 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 12;
     
-    // Since numberOfPosts varies per record, we need to:
-    // 1. Fetch a large enough batch of records
+    // Since numberOfPosts varies per record (can be 1-10), we need to:
+    // 1. Fetch ALL records for this account (not limited)
     // 2. Process all into individual posts
     // 3. Paginate at the POST level (not record level)
-    
-    // Average posts per record (can be 1-10, but typically 4)
-    const AVG_POSTS_PER_RECORD = 4;
-    
-    // Calculate approximate records needed for ALL previous pages + current page
-    const totalPostsNeeded = page * limit;
-    const recordsNeeded = Math.ceil(totalPostsNeeded / AVG_POSTS_PER_RECORD);
-    
-    // Fetch extra records to ensure we have enough (buffer of 10 records)
-    const FETCH_LIMIT = recordsNeeded + 10;
+    // 
+    // We fetch all records because numberOfPosts varies widely and 
+    // trying to estimate how many records to fetch leads to incorrect pagination
 
-    logger.info(`📄 Content Library: page=${page}, limit=${limit}, totalPostsNeeded=${totalPostsNeeded}, fetchLimit=${FETCH_LIMIT}`);
+    logger.info(`📄 Content Library: page=${page}, limit=${limit}`);
 
     // Search parameter
     const search = (req.query.search as string) || '';
@@ -82,10 +75,9 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     // Get total count of generated_content (not individual posts)
     const totalContentCount = await contentQuery.getCount();
 
-    // Fetch content (no skip, we'll paginate at post level)
+    // Fetch ALL content for this account (we paginate at POST level, not record level)
     const allContent = await contentQuery
       .orderBy('content.createdAt', 'DESC')
-      .take(FETCH_LIMIT)
       .getMany();
 
     // Get all schedules
@@ -607,7 +599,7 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     // Calculate hasMore: if we have more posts after this page
     const hasMore = deduplicatedContent.length > (postSkip + postTake);
 
-    logger.info(`📊 Pagination: fetched=${allProcessedContent.length}, filtered=${filteredContent.length}, deduplicated=${deduplicatedContent.length}, postSkip=${postSkip}, returned=${paginatedContent.length}, totalAvailable=${deduplicatedContent.length}, hasMore=${hasMore}`);
+    logger.info(`📊 Pagination: totalPosts=${allProcessedContent.length}, filtered=${filteredContent.length}, deduplicated=${deduplicatedContent.length}, page=${page}, skip=${postSkip}, returned=${paginatedContent.length}, hasMore=${hasMore}`);
 
     // Categorize content
     // IMPORTANT: Return ALL scheduled posts (not paginated), only paginate not-selected and posted

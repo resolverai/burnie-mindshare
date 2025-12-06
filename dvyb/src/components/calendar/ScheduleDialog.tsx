@@ -22,6 +22,10 @@ interface ScheduleDialogProps {
   onScheduleComplete: () => void;
   // Optional prop to pass generatedContentId directly from parent (ensures it's always available)
   generatedContentIdOverride?: number | null;
+  // Which page the dialog is opened from (for OAuth redirects)
+  parentPage?: 'home' | 'content_library';
+  // Generated posts to restore when returning from OAuth
+  generatedPosts?: any[];
 }
 
 // Mock scheduled posts
@@ -32,7 +36,7 @@ const scheduledPosts = [
   { date: new Date(2024, 10, 16), time: "09:00", title: "Power to creators" },
 ];
 
-export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, generatedContentIdOverride }: ScheduleDialogProps) => {
+export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, generatedContentIdOverride, parentPage = 'content_library', generatedPosts = [] }: ScheduleDialogProps) => {
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [selectedTime, setSelectedTime] = useState("12:00");
   const [showOverlapDialog, setShowOverlapDialog] = useState(false);
@@ -51,7 +55,12 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
     if (!open) return;
     
     const flowState = getOAuthFlowState();
-    if (!flowState || flowState.source !== 'schedule_dialog') return;
+    // Check for schedule flows from any valid source (home, content_library, or legacy schedule_dialog)
+    if (!flowState || flowState.type !== 'schedule') return;
+    
+    // Verify the source matches our parent page (or is legacy schedule_dialog)
+    const validSources = ['home', 'content_library', 'schedule_dialog'];
+    if (!validSources.includes(flowState.source)) return;
     
     console.log('🔄 ScheduleDialog - Resuming OAuth flow from saved state:', flowState);
     
@@ -304,7 +313,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
         // Save flow state before redirecting
         saveOAuthFlowState({
           type: 'schedule',
-          source: 'schedule_dialog',
+          source: parentPage, // Use the page where schedule was initiated
           post: {
             id: postSnapshot.id,
             type: postSnapshot.type || (isVideo ? 'Video' : 'Image'),
@@ -323,6 +332,8 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
           oauth1Completed: false,
           scheduledDateTime: scheduledDateTime.toISOString(),
           selectedTime: selectedTime,
+          generatedPosts: generatedPosts, // Pass generated posts for restoration
+          generatedContentId: postSnapshot.generatedContentId,
         });
         
         // Get auth URL for first platform
@@ -375,7 +386,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
           // Save flow state for OAuth1
           saveOAuthFlowState({
             type: 'schedule',
-            source: 'schedule_dialog',
+            source: parentPage, // Use the page where schedule was initiated
             post: {
               id: postSnapshot.id,
               type: postSnapshot.type || 'Video',
@@ -394,6 +405,8 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
             oauth1Completed: false,
             scheduledDateTime: scheduledDateTime.toISOString(),
             selectedTime: selectedTime,
+            generatedPosts: generatedPosts, // Pass generated posts for restoration
+            generatedContentId: postSnapshot.generatedContentId,
           });
           
           toast({

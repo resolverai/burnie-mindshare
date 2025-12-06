@@ -53,8 +53,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     document.cookie = 'dvyb_account_id=; path=/; max-age=0';
   };
 
-  const checkAuth = async () => {
-    setIsLoading(true); // Always set loading when checking auth
+  const checkAuth = async (showLoading: boolean = true) => {
+    // Only show loading on initial check, not on navigation re-checks
+    if (showLoading) {
+      setIsLoading(true);
+    }
     
     try {
       console.log('🔍 Checking authentication with backend...');
@@ -263,11 +266,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Skip the initial mount (handled by the first useEffect)
     // Only re-check if user is currently authenticated and navigating
     if (isAuthenticated && accountId && !isLoading) {
+      // Skip if onboarding dialog is pending (avoid interfering with new user experience)
+      const isOnboardingPending = localStorage.getItem('dvyb_onboarding_dialog_pending');
+      if (isOnboardingPending) {
+        console.log('⏭️ Skipping auth re-check - onboarding dialog is pending');
+        return;
+      }
+      
       // Debounce navigation auth check - only check if user stays on the page for 500ms
       // This prevents race conditions from rapid navigation
       const timeoutId = setTimeout(() => {
+        // Double-check onboarding isn't pending (might have been set during timeout)
+        if (localStorage.getItem('dvyb_onboarding_dialog_pending')) {
+          console.log('⏭️ Skipping auth re-check - onboarding dialog is pending');
+          return;
+        }
         console.log(`🔄 Navigation detected to ${pathname} - re-checking auth (debounced)...`);
-        checkAuth();
+        // Don't show loading for navigation re-checks - prevents screen flash
+        checkAuth(false);
       }, 500);
       
       return () => clearTimeout(timeoutId);
