@@ -185,19 +185,25 @@ class ColorPaletteExtractor:
     
     # Known framework default colors to EXCLUDE
     FRAMEWORK_COLORS = {
-        # Bootstrap colors
+        # Bootstrap 5 colors
         '#0D6EFD', '#0D6EFE', '#0D6EFC',  # Bootstrap primary blue
-        '#6C757D',  # Bootstrap secondary gray
-        '#198754',  # Bootstrap success (not always brand)
-        '#DC3545',  # Bootstrap danger red
-        '#FFC107',  # Bootstrap warning yellow
-        '#0DCAF0',  # Bootstrap info cyan
-        '#212529',  # Bootstrap dark (often used, but grayscale)
-        '#F8F9FA',  # Bootstrap light
-        '#007BFF',  # Old Bootstrap primary
-        '#28A745',  # Old Bootstrap success
-        '#17A2B8',  # Old Bootstrap info
-        '#343A40',  # Old Bootstrap dark
+        '#0B5ED7', '#0A58CA', '#0A53BE',  # Bootstrap primary hover/active states
+        '#0C63E4', '#084298', '#06357A',  # Bootstrap focus/darker blues
+        '#6C757D', '#5C636A', '#565E64',  # Bootstrap secondary grays
+        '#198754', '#157347', '#146C43',  # Bootstrap success greens
+        '#DC3545', '#BB2D3B', '#B02A37',  # Bootstrap danger reds
+        '#FFC107', '#FFCA2C', '#CC9A06',  # Bootstrap warning yellows
+        '#0DCAF0', '#31D2F2', '#0AA2C0',  # Bootstrap info cyans
+        '#212529', '#1A1E21', '#141619',  # Bootstrap dark
+        '#F8F9FA', '#E9ECEF', '#DEE2E6',  # Bootstrap light/grays
+        '#D63384',  # Bootstrap pink
+        # Bootstrap 4 / older
+        '#007BFF', '#0069D9', '#0062CC',  # Old Bootstrap primary
+        '#28A745', '#218838', '#1E7E34',  # Old Bootstrap success
+        '#17A2B8', '#138496', '#117A8B',  # Old Bootstrap info
+        '#343A40', '#23272B', '#1D2124',  # Old Bootstrap dark
+        '#6610F2',  # Bootstrap indigo
+        '#E83E8C',  # Bootstrap pink (old)
         # WordPress defaults
         '#0073AA', '#0073AB', '#006BA1',  # WordPress admin blue
         '#23282D',  # WordPress admin dark
@@ -208,6 +214,8 @@ class ColorPaletteExtractor:
         # Tailwind defaults (when used generically)
         '#3B82F6',  # Tailwind blue-500
         '#6366F1',  # Tailwind indigo-500
+        '#2563EB',  # Tailwind blue-600
+        '#4F46E5',  # Tailwind indigo-600
     }
     
     def __init__(self, url: str):
@@ -216,6 +224,7 @@ class ColorPaletteExtractor:
         self.priority_colors = []  # High-confidence brand colors
         self.button_colors = []    # Colors from actual button elements (HIGHEST priority)
         self.hero_colors = []      # Colors from hero/main sections
+        self.body_background = None  # Body/html background color
         self.css_variables = {}    # CSS custom properties (filtered)
     
     def _is_framework_variable(self, var_name: str) -> bool:
@@ -504,6 +513,60 @@ class ColorPaletteExtractor:
         
         return colors
     
+    def extract_body_background(self, soup: BeautifulSoup, html: str) -> Optional[str]:
+        """
+        Extract the body/html background color.
+        This is typically white for most websites and serves as the secondary color.
+        """
+        # Check body tag inline style
+        body = soup.find('body')
+        if body:
+            style = body.get('style', '')
+            if style:
+                bg_match = re.search(r'background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,6}|rgba?\s*\([^)]+\)|hsla?\s*\([^)]+\)|white|black)', style, re.IGNORECASE)
+                if bg_match:
+                    color_val = bg_match.group(1)
+                    if color_val.lower() == 'white':
+                        return '#FFFFFF'
+                    if color_val.lower() == 'black':
+                        return '#000000'
+                    color = self._normalize_color(color_val)
+                    if color:
+                        logger.info(f"  🎨 Body background from inline style: {color}")
+                        return color
+        
+        # Check html tag
+        html_tag = soup.find('html')
+        if html_tag:
+            style = html_tag.get('style', '')
+            if style:
+                bg_match = re.search(r'background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,6}|rgba?\s*\([^)]+\)|white)', style, re.IGNORECASE)
+                if bg_match:
+                    color_val = bg_match.group(1)
+                    if color_val.lower() == 'white':
+                        return '#FFFFFF'
+                    color = self._normalize_color(color_val)
+                    if color:
+                        logger.info(f"  🎨 HTML background from inline style: {color}")
+                        return color
+        
+        # Check CSS for body/html background
+        # Look for patterns like: body { background: #fff } or body { background-color: white }
+        body_bg_pattern = r'(?:body|html)\s*\{[^}]*background(?:-color)?\s*:\s*(#[0-9a-fA-F]{3,6}|rgba?\s*\([^)]+\)|white|#fff)'
+        match = re.search(body_bg_pattern, html, re.IGNORECASE)
+        if match:
+            color_val = match.group(1)
+            if color_val.lower() in ['white', '#fff']:
+                return '#FFFFFF'
+            color = self._normalize_color(color_val)
+            if color:
+                logger.info(f"  🎨 Body background from CSS: {color}")
+                return color
+        
+        # Default: Most websites have white background
+        logger.info(f"  🎨 Body background defaulting to white")
+        return '#FFFFFF'
+    
     def extract_button_colors(self, soup: BeautifulSoup) -> List[str]:
         """
         Extract colors from actual button/CTA elements.
@@ -704,6 +767,11 @@ class ColorPaletteExtractor:
     def extract_from_soup(self, soup: BeautifulSoup, html: str) -> None:
         """Extract colors from parsed HTML"""
         # =====================================================
+        # 0. EXTRACT BODY BACKGROUND (for secondary color)
+        # =====================================================
+        self.body_background = self.extract_body_background(soup, html)
+        
+        # =====================================================
         # 1. HIGHEST PRIORITY: ACTUAL BUTTON/CTA COLORS
         # These are the most reliable signal for brand colors
         # =====================================================
@@ -776,9 +844,54 @@ class ColorPaletteExtractor:
         button_css_colors = self.extract_button_colors_from_css(css_text)
         self.button_colors.extend(button_css_colors)
         
+        # Extract accent/brand colors from all CSS rules (high frequency = brand color)
+        accent_colors = self.extract_accent_colors_from_css(css_text)
+        self.priority_colors.extend(accent_colors)
+        
         # Then extract regular colors
         colors = self._find_colors_in_text(css_text)
         self.colors.extend(colors)
+    
+    def extract_accent_colors_from_css(self, css_text: str) -> List[str]:
+        """
+        Extract colors that are likely brand/accent colors from CSS.
+        Looks for:
+        1. --accentColor, --primaryColor, --brandColor variable definitions
+        2. color: property with saturated colors (text accents)
+        3. Most frequently occurring saturated colors
+        """
+        colors = []
+        
+        # Pattern 1: Look for accentColor, primaryColor, brandColor CSS variables
+        # (without requiring specific parent selectors)
+        accent_var_patterns = [
+            r'--(?:accent|primary|brand|main|theme)(?:Color|Colour)?\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\s*\([^)]+\)|hsla?\s*\([^)]+\))',
+        ]
+        
+        for pattern in accent_var_patterns:
+            for match in re.finditer(pattern, css_text, re.IGNORECASE):
+                color_val = match.group(1)
+                color = self._normalize_color(color_val)
+                if color and not self._is_grayscale(color) and not self._is_framework_color(color):
+                    colors.append(color)
+        
+        # Pattern 2: Look for color: property (text colors - often brand accents)
+        # This captures things like: color:#635bff or color: #635bff
+        color_prop_pattern = r'(?<![a-z-])color\s*:\s*(#[0-9a-fA-F]{3,8}|rgba?\s*\([^)]+\)|hsla?\s*\([^)]+\))'
+        for match in re.finditer(color_prop_pattern, css_text, re.IGNORECASE):
+            color_val = match.group(1)
+            color = self._normalize_color(color_val)
+            if color and not self._is_grayscale(color) and not self._is_framework_color(color):
+                # Only include saturated colors (likely brand accents)
+                if self._get_color_saturation(color) > 0.4:
+                    colors.append(color)
+        
+        # Count and log unique colors found
+        if colors:
+            unique_colors = list(set(colors))
+            logger.info(f"  🎨 Found {len(unique_colors)} accent colors from CSS: {unique_colors[:5]}")
+        
+        return colors
     
     def extract_button_colors_from_css(self, css_text: str) -> List[str]:
         """
@@ -827,21 +940,112 @@ class ColorPaletteExtractor:
     def analyze(self) -> Dict[str, Any]:
         """
         Analyze extracted colors and categorize them.
+        Returns colors with confidence scores.
+        
+        CONFIDENCE LEVELS:
+        - 0.9-1.0: Explicit brand CSS variables (--primaryColor, --brandColor)
+        - 0.8-0.9: theme-color meta tag, manifest colors
+        - 0.7-0.8: High frequency (3+) with high saturation
+        - 0.5-0.7: Button/CTA colors, 2x frequency
+        - 0.3-0.5: Hero colors, generic CSS variables
+        - 0.1-0.3: Single occurrence, fallback
         
         NEW PRIORITY ORDER:
-        1. Button/CTA colors (HIGHEST - actual visible brand elements)
+        0. FREQUENCY ANALYSIS - colors appearing 3+ times with high saturation (FIRST)
+        1. Button/CTA colors (actual visible brand elements)
         2. Hero section colors
         3. CSS variables (filtered for frameworks)
         4. Priority colors (theme-color, manifest, SVG, header)
-        5. Frequency + saturation analysis (fallback)
+        5. Fallback frequency analysis
         """
         
         primary = None
         secondary = None
         accent = None
+        primary_confidence = 0.0  # Track confidence for primary color
+        accent_confidence = 0.0   # Track confidence for accent color
         
         # =====================================================
-        # Normalize button colors (HIGHEST PRIORITY)
+        # 0. HIGHEST PRIORITY: Explicitly named CSS variables
+        # Variables like --accentColor, --primaryColor, --brandColor are THE most reliable signal
+        # These are explicitly defined as brand colors by the site developers
+        # =====================================================
+        brand_var_names = ['accentcolor', 'primarycolor', 'brandcolor', 'maincolor', 'themecolor']
+        for var_name, color in self.css_variables.items():
+            if var_name.lower() in brand_var_names:
+                norm_color = self._normalize_color(color) if not color.startswith('#') else color
+                if norm_color and not self._is_grayscale(norm_color) and not self._is_framework_color(norm_color):
+                    sat = self._get_color_saturation(norm_color)
+                    brightness = self._get_color_brightness(norm_color)
+                    # Accept if it's a visible, saturated color
+                    if sat > 0.25 and 50 < brightness < 230:
+                        primary = norm_color
+                        primary_confidence = 0.95  # Explicit brand CSS variable = highest confidence
+                        logger.info(f"  ✨ PRIMARY from explicit CSS var --{var_name}: {primary} (confidence: {primary_confidence})")
+                        break
+        
+        # =====================================================
+        # 1. FREQUENCY ANALYSIS (if no explicit brand variable found)
+        # If a saturated color appears 2+ times, it's likely the brand color
+        # =====================================================
+        all_source_colors = self.button_colors + self.hero_colors + self.priority_colors + list(self.css_variables.values()) + self.colors
+        
+        # Normalize all colors
+        all_normalized = []
+        for c in all_source_colors:
+            norm = self._normalize_color(c) if not c.startswith('#') else c
+            if norm and len(norm) == 7 and not self._is_grayscale(norm) and not self._is_framework_color(norm):
+                all_normalized.append(norm)
+        
+        if all_normalized and not primary:
+            color_freq = Counter(all_normalized)
+            
+            # Find colors that appear 2+ times with high saturation
+            # KEY: Exclude very dark colors (< 60 brightness) - these are usually text colors, not brand colors
+            # Brand colors are typically vivid and visible (brightness 60-220)
+            frequent_saturated = []
+            for color, count in color_freq.most_common(30):
+                sat = self._get_color_saturation(color)
+                brightness = self._get_color_brightness(color)
+                
+                # Primary brand colors should be:
+                # - Saturated (> 0.3)
+                # - Not too dark (> 60) - excludes text colors like #0A2540
+                # - Not too light (< 220)
+                if count >= 2 and sat > 0.3 and 60 < brightness < 220:
+                    # Give bonus score for mid-brightness colors (most visible/vibrant)
+                    brightness_score = 1.0 if 80 < brightness < 180 else 0.7
+                    score = count * sat * brightness_score
+                    frequent_saturated.append((color, count, sat, brightness, score))
+            
+            if frequent_saturated:
+                # Sort by score (combines frequency, saturation, and brightness preference)
+                frequent_saturated.sort(key=lambda x: x[4], reverse=True)
+                logger.info(f"  📊 Frequent saturated colors: {[(c, cnt, f'sat={s:.2f}', f'br={b:.0f}') for c, cnt, s, b, _ in frequent_saturated[:5]]}")
+                
+                # Use the highest-scoring color as primary
+                best_color, best_count, best_sat, best_bright, best_score = frequent_saturated[0]
+                primary = best_color
+                # Confidence based on frequency and saturation
+                # count 3+ and sat > 0.5 = high confidence (0.75-0.85)
+                # count 2 or lower sat = medium confidence (0.5-0.7)
+                if best_count >= 3 and best_sat > 0.5:
+                    primary_confidence = min(0.85, 0.7 + (best_count * 0.03) + (best_sat * 0.1))
+                else:
+                    primary_confidence = min(0.7, 0.5 + (best_count * 0.05) + (best_sat * 0.1))
+                logger.info(f"  ✨ PRIMARY from frequency analysis: {primary} (count={best_count}, sat={best_sat:.2f}, brightness={best_bright:.0f}, confidence={primary_confidence:.2f})")
+                
+                # Find accent from other frequent colors
+                for color, count, sat, bright, score in frequent_saturated[1:]:
+                    if not self._is_similar_color(color, primary):
+                        accent = color
+                        # Confidence based on count and saturation
+                        accent_confidence = min(0.75, 0.5 + (count * 0.05) + (sat * 0.1))
+                        logger.info(f"  ✨ ACCENT from frequency analysis: {accent} (count={count}, confidence={accent_confidence:.2f})")
+                        break
+        
+        # =====================================================
+        # Normalize button colors
         # =====================================================
         button_normalized = []
         for c in self.button_colors:
@@ -851,7 +1055,7 @@ class ColorPaletteExtractor:
                     button_normalized.append(norm)
         
         if button_normalized:
-            logger.info(f"  🔘 Button colors (highest priority): {button_normalized}")
+            logger.info(f"  🔘 Button colors: {button_normalized}")
         
         # =====================================================
         # Normalize hero colors
@@ -882,10 +1086,9 @@ class ColorPaletteExtractor:
             logger.info(f"  🎯 CSS variable colors (filtered): {list(self.css_variables.items())}")
         
         # =====================================================
-        # 1. HIGHEST PRIORITY: BUTTON/CTA COLORS
-        # The most reliable signal for brand colors
+        # 1. BUTTON/CTA COLORS (if frequency didn't find primary)
         # =====================================================
-        if button_normalized:
+        if button_normalized and not primary:
             # Sort by saturation and frequency
             button_counts = Counter(button_normalized)
             sorted_buttons = sorted(
@@ -899,13 +1102,16 @@ class ColorPaletteExtractor:
                 brightness = self._get_color_brightness(color)
                 
                 # Primary: saturated, not too dark/light
-                if sat > 0.25 and 40 < brightness < 220:
+                # Min brightness 60 to exclude dark text colors
+                if sat > 0.25 and 60 < brightness < 220:
                     if not primary:
                         primary = color
-                        logger.info(f"  ✨ PRIMARY from button color: {color} (sat={sat:.2f})")
+                        primary_confidence = 0.6  # Button colors = medium confidence
+                        logger.info(f"  ✨ PRIMARY from button color: {color} (sat={sat:.2f}, confidence={primary_confidence})")
                     elif not accent and color != primary and not self._is_similar_color(color, primary):
                         accent = color
-                        logger.info(f"  ✨ ACCENT from button color: {color}")
+                        accent_confidence = 0.55  # Button accent = medium confidence
+                        logger.info(f"  ✨ ACCENT from button color: {color} (confidence={accent_confidence})")
         
         # =====================================================
         # 2. HERO SECTION COLORS
@@ -917,7 +1123,8 @@ class ColorPaletteExtractor:
                 if sat > 0.2:
                     if not primary:
                         primary = color
-                        logger.info(f"  ✨ PRIMARY from hero section: {color}")
+                        primary_confidence = 0.5  # Hero colors = medium-low confidence
+                        logger.info(f"  ✨ PRIMARY from hero section: {color} (confidence={primary_confidence})")
                         break
         
         # Also check hero for secondary (dark backgrounds)
@@ -943,13 +1150,16 @@ class ColorPaletteExtractor:
                 sat = self._get_color_saturation(color)
                 brightness = self._get_color_brightness(color)
                 
-                if sat > 0.3 and 30 < brightness < 230:
+                # Min brightness 60 to exclude dark text colors
+                if sat > 0.3 and 60 < brightness < 230:
                     if not primary:
                         primary = color
-                        logger.info(f"  ✨ PRIMARY from CSS var --{var_name}: {color}")
+                        primary_confidence = 0.5  # Generic CSS variable = medium-low confidence
+                        logger.info(f"  ✨ PRIMARY from CSS var --{var_name}: {color} (confidence={primary_confidence})")
                     elif not accent and color != primary:
                         accent = color
-                        logger.info(f"  ✨ ACCENT from CSS var --{var_name}: {color}")
+                        accent_confidence = 0.45  # Generic CSS var accent = medium-low confidence
+                        logger.info(f"  ✨ ACCENT from CSS var --{var_name}: {color} (confidence={accent_confidence})")
         
         # =====================================================
         # 4. PRIORITY COLORS (theme/manifest/SVG/header)
@@ -959,7 +1169,8 @@ class ColorPaletteExtractor:
                                     key=lambda c: self._get_color_saturation(c), 
                                     reverse=True)
             primary = sorted_priority[0]
-            logger.info(f"  ✨ PRIMARY from priority colors: {primary}")
+            primary_confidence = 0.8  # theme-color/manifest = high confidence
+            logger.info(f"  ✨ PRIMARY from priority colors: {primary} (confidence={primary_confidence})")
         
         if not secondary:
             for color in priority_normalized:
@@ -975,7 +1186,8 @@ class ColorPaletteExtractor:
                     if not (primary and self._is_similar_color(color, primary)):
                         if not (secondary and self._is_similar_color(color, secondary)):
                             accent = color
-                            logger.info(f"  ✨ ACCENT from priority colors: {accent}")
+                            accent_confidence = 0.75  # Priority accent = high confidence
+                            logger.info(f"  ✨ ACCENT from priority colors: {accent} (confidence={accent_confidence})")
                             break
         
         # =====================================================
@@ -1016,7 +1228,8 @@ class ColorPaletteExtractor:
                     
                     if not primary and sorted_colors:
                         primary = sorted_colors[0]
-                        logger.info(f"  ✨ PRIMARY from frequency analysis: {primary}")
+                        primary_confidence = 0.3  # Fallback frequency = low confidence
+                        logger.info(f"  ✨ PRIMARY from frequency analysis: {primary} (confidence={primary_confidence})")
                     if not secondary and len(sorted_colors) > 1:
                         for c in sorted_colors[1:]:
                             if not primary or not self._is_similar_color(primary, c):
@@ -1028,7 +1241,8 @@ class ColorPaletteExtractor:
                             if primary and secondary:
                                 if not self._is_similar_color(c, primary) and not self._is_similar_color(c, secondary):
                                     accent = c
-                                    logger.info(f"  ✨ ACCENT from frequency analysis: {accent}")
+                                    accent_confidence = 0.25  # Fallback accent = low confidence
+                                    logger.info(f"  ✨ ACCENT from frequency analysis: {accent} (confidence={accent_confidence})")
                                     break
         
         # =====================================================
@@ -1037,12 +1251,112 @@ class ColorPaletteExtractor:
         if primary and self._is_framework_color(primary):
             logger.warning(f"  ⚠️ Primary was framework color {primary}, clearing")
             primary = None
+            primary_confidence = 0.0
         if secondary and self._is_framework_color(secondary):
             logger.warning(f"  ⚠️ Secondary was framework color {secondary}, clearing")
             secondary = None
         if accent and self._is_framework_color(accent):
             logger.warning(f"  ⚠️ Accent was framework color {accent}, clearing")
             accent = None
+            accent_confidence = 0.0
+        
+        # =====================================================
+        # POST-PROCESSING: Set secondary and find accent
+        # =====================================================
+        
+        # SECONDARY = Body background color (priority) or White
+        # Most websites use white/light backgrounds as their secondary color
+        secondary = self.body_background if self.body_background else '#FFFFFF'
+        logger.info(f"  ✨ SECONDARY (body background): {secondary}")
+        
+        # RESET accent - we want to use the new logic (dark variant of primary)
+        # regardless of what was set by earlier frequency analysis
+        accent = None
+        accent_confidence = 0.0
+        
+        # Collect all valid (non-framework) colors for accent finding
+        # Include priority_colors as they often contain the dark variants
+        all_valid_colors = []
+        for c in (priority_normalized + button_normalized + hero_normalized + list(self.css_variables.values())):
+            if c and not self._is_framework_color(c) and not self._is_grayscale(c):
+                if c not in all_valid_colors:
+                    all_valid_colors.append(c)
+        
+        logger.info(f"  🎯 Looking for accent in: {all_valid_colors[:8]}")
+        
+        # ACCENT = Darker variant of primary (same color family) or contrasting color
+        # This is typically a darker shade used for emphasis
+        if primary and not accent:
+            primary_hue = self._get_color_hue(primary)
+            primary_bright = self._get_color_brightness(primary)
+            
+            # First, try to find a darker variant of primary (same color family)
+            # Use 80 degree tolerance since same-family colors (e.g., bright green vs dark green)
+            # can have noticeable hue shifts
+            best_dark_variant = None
+            best_dark_score = 0
+            
+            for c in all_valid_colors:
+                # Skip if same as primary or too similar to primary
+                if c == primary or self._is_similar_color(c, primary):
+                    continue
+                    
+                c_hue = self._get_color_hue(c)
+                c_sat = self._get_color_saturation(c)
+                c_bright = self._get_color_brightness(c)
+                
+                # Must be NOTICEABLY darker (at least 30 brightness difference)
+                brightness_diff = primary_bright - c_bright
+                if brightness_diff < 30:
+                    continue
+                
+                # Look for darker variant of primary (similar hue family, lower brightness)
+                hue_diff = min(abs(primary_hue - c_hue), 360 - abs(primary_hue - c_hue))
+                
+                # Same color family: hue within 80 degrees, saturated, and darker
+                if hue_diff < 80 and c_sat > 0.15:
+                    # Score by how good a dark variant it is (prefer closer hue + more saturation + darker)
+                    score = (80 - hue_diff) * c_sat * (brightness_diff / 100)
+                    if score > best_dark_score:
+                        best_dark_score = score
+                        best_dark_variant = c
+                        logger.info(f"    → Candidate: {c} (hue_diff={hue_diff:.0f}, bright_diff={brightness_diff:.0f}, score={score:.2f})")
+            
+            if best_dark_variant:
+                accent = best_dark_variant
+                accent_confidence = 0.65  # Dark variant = medium-high confidence
+                logger.info(f"  ✨ ACCENT (dark variant of primary): {accent} (confidence={accent_confidence})")
+        
+        # If no dark variant found, look for any saturated non-similar color
+        if primary and not accent:
+            for c in all_valid_colors:
+                if c != primary and not self._is_similar_color(c, primary):
+                    c_sat = self._get_color_saturation(c)
+                    c_bright = self._get_color_brightness(c)
+                    if c_sat > 0.2 and 40 < c_bright < 200:
+                        accent = c
+                        accent_confidence = 0.4  # Contrasting color = medium-low confidence
+                        logger.info(f"  ✨ ACCENT (contrasting color): {accent} (confidence={accent_confidence})")
+                        break
+        
+        # If still no accent, try truly contrasting hue
+        if primary and not accent:
+            primary_hue = self._get_color_hue(primary)
+            
+            for c in all_valid_colors:
+                if c == primary:
+                    continue
+                c_hue = self._get_color_hue(c)
+                c_sat = self._get_color_saturation(c)
+                c_bright = self._get_color_brightness(c)
+                
+                # Look for contrasting hue (at least 60 degrees apart)
+                hue_diff = min(abs(primary_hue - c_hue), 360 - abs(primary_hue - c_hue))
+                if hue_diff > 60 and c_sat > 0.3 and 50 < c_bright < 220:
+                    accent = c
+                    accent_confidence = 0.35  # Contrasting hue = low confidence
+                    logger.info(f"  ✨ ACCENT (contrasting hue): {accent} (confidence={accent_confidence})")
+                    break
         
         # Collect all unique colors for reference
         all_colors = list(set(button_normalized + hero_normalized + priority_normalized + css_var_colors))
@@ -1057,18 +1371,22 @@ class ColorPaletteExtractor:
         
         result = {
             'primary': primary,
+            'primary_confidence': primary_confidence,
             'secondary': secondary,
             'accent': accent,
+            'accent_confidence': accent_confidence,
             'all_colors': all_colors[:10],
             'button_colors': button_normalized,
             'hero_colors': hero_normalized,
             'priority_colors': priority_normalized,
-            'css_variables': self.css_variables
+            'css_variables': self.css_variables,
+            'body_background': self.body_background
         }
         
-        logger.info(f"  ✅ Final palette: Primary={primary}, Secondary={secondary}, Accent={accent}")
+        logger.info(f"  ✅ Final palette: Primary={primary} (confidence={primary_confidence:.2f}), Secondary={secondary}, Accent={accent} (confidence={accent_confidence:.2f})")
         print(f"     Button colors found: {button_normalized[:5]}")
         print(f"     Hero colors found: {hero_normalized[:5]}")
+        print(f"     Body background: {self.body_background}")
         
         return result
 
@@ -1197,12 +1515,14 @@ def extract_colors_from_website(url: str, html: str, soup: BeautifulSoup) -> Dic
         print(f"     🏠 Hero section colors: {result.get('hero_colors', [])[:5]}")
         print(f"     Priority colors (theme/manifest/SVG): {result.get('priority_colors', [])[:5]}")
         print(f"     CSS variables (filtered): {list(result.get('css_variables', {}).items())[:3]}")
-        print(f"     FINAL: Primary={result.get('primary')}, Secondary={result.get('secondary')}, Accent={result.get('accent')}")
+        print(f"     FINAL: Primary={result.get('primary')} (confidence={result.get('primary_confidence', 0):.2f}), Secondary={result.get('secondary')}, Accent={result.get('accent')} (confidence={result.get('accent_confidence', 0):.2f})")
         
         return {
             "primary": result.get('primary'),
+            "primary_confidence": result.get('primary_confidence', 0.0),
             "secondary": result.get('secondary'),
             "accent": result.get('accent'),
+            "accent_confidence": result.get('accent_confidence', 0.0),
         }
     except Exception as e:
         logger.error(f"Error extracting colors: {e}")
@@ -1210,51 +1530,506 @@ def extract_colors_from_website(url: str, html: str, soup: BeautifulSoup) -> Dic
         logger.error(traceback.format_exc())
         return {
             "primary": None,
+            "primary_confidence": 0.0,
             "secondary": None,
             "accent": None,
+            "accent_confidence": 0.0,
         }
+
+
+class LogoExtractor:
+    """
+    Intelligent logo extraction with confidence scoring.
+    Uses multiple strategies to find the best logo URL.
+    """
+    
+    LOGO_KEYWORDS = ['logo', 'brand', 'site-logo', 'header-logo', 'navbar-brand', 'site-brand']
+    
+    # Social media and third-party logos to exclude
+    SOCIAL_KEYWORDS = [
+        'twitter', 'x-logo', 'xlogo', 'x_logo', 'x.png', 'x.svg',
+        'facebook', 'fb-logo', 'instagram', 'insta', 'linkedin', 
+        'youtube', 'tiktok', 'pinterest', 'reddit', 'discord',
+        'telegram', 'whatsapp', 'snapchat', 'github', 'medium',
+        'social', 'share', 'follow'
+    ]
+    
+    def __init__(self, url: str, soup: BeautifulSoup):
+        self.url = url
+        self.soup = soup
+        self.domain = urllib.parse.urlparse(url).netloc
+        self.candidates = []
+    
+    def extract_logo(self) -> Dict[str, Any]:
+        """
+        Extract website logo with confidence scoring.
+        Returns: dict with logo URL, source, and confidence score
+        """
+        print(f"\n🔍 INTELLIGENT LOGO EXTRACTION:")
+        
+        # Strategy 1: Look for images with logo-related attributes in header/nav
+        self._check_html_structure()
+        
+        # Strategy 2: Check meta tags (og:image, twitter:image)
+        self._check_meta_tags()
+        
+        # Strategy 3: Check apple-touch-icon (high quality)
+        self._check_apple_touch_icon()
+        
+        # Strategy 4: Check common logo paths
+        self._check_common_paths()
+        
+        # Strategy 5: Check favicon as fallback
+        self._check_favicon()
+        
+        # Rank candidates and return best one
+        best_logo = self._rank_candidates()
+        
+        if best_logo:
+            print(f"   ✅ Best logo: {best_logo['url'][:80]}...")
+            print(f"   📊 Confidence: {best_logo['confidence']*100:.1f}%")
+            print(f"   📍 Source: {best_logo['source']}")
+        else:
+            print(f"   ❌ No logo found")
+        
+        return best_logo
+    
+    def _check_html_structure(self):
+        """Parse HTML to find logo images based on structure and attributes"""
+        try:
+            # Look for images in header/nav with logo-related attributes
+            for section in self.soup.find_all(['header', 'nav', 'div'], limit=50):
+                section_classes = ' '.join(section.get('class', [])).lower() if section.get('class') else ''
+                section_id = (section.get('id') or '').lower()
+                
+                # If section likely contains logo (header, nav, top, brand)
+                if any(keyword in section_classes or keyword in section_id 
+                       for keyword in ['header', 'nav', 'top', 'brand', 'logo']):
+                    
+                    # Find images in this section
+                    for img in section.find_all('img', limit=10):
+                        attrs = self._get_img_attributes(img)
+                        if not attrs['src']:
+                            continue
+                        
+                        score = self._calculate_logo_score(attrs)
+                        
+                        if score > 0:
+                            logo_url = urllib.parse.urljoin(self.url, attrs['src'])
+                            self.candidates.append({
+                                'url': logo_url,
+                                'source': 'html_structure',
+                                'confidence_boost': score,
+                                'attributes': attrs
+                            })
+                            logger.info(f"  → Found in HTML structure: {logo_url[:60]}... (score={score:.2f})")
+            
+            # Also look for <a> tags with logo class containing <img>
+            for link in self.soup.find_all('a', limit=30):
+                link_classes = ' '.join(link.get('class', [])).lower() if link.get('class') else ''
+                link_id = (link.get('id') or '').lower()
+                
+                if any(keyword in link_classes or keyword in link_id for keyword in self.LOGO_KEYWORDS):
+                    img = link.find('img')
+                    if img:
+                        attrs = self._get_img_attributes(img)
+                        if attrs['src']:
+                            logo_url = urllib.parse.urljoin(self.url, attrs['src'])
+                            self.candidates.append({
+                                'url': logo_url,
+                                'source': 'logo_link',
+                                'confidence_boost': 0.6,
+                                'attributes': attrs
+                            })
+                            logger.info(f"  → Found in logo link: {logo_url[:60]}...")
+            
+            # Check for SVG logos
+            for svg in self.soup.find_all('svg', limit=20):
+                svg_attrs = self._get_svg_attributes(svg)
+                score = self._calculate_logo_score(svg_attrs)
+                
+                if score > 0.3:
+                    # Try to find SVG URL from use tag or parent
+                    svg_url = self._extract_svg_url(svg)
+                    if svg_url:
+                        self.candidates.append({
+                            'url': svg_url,
+                            'source': 'svg_element',
+                            'confidence_boost': score,
+                            'attributes': svg_attrs
+                        })
+                        logger.info(f"  → Found SVG logo: {svg_url[:60]}...")
+                        
+        except Exception as e:
+            logger.error(f"Error checking HTML structure: {e}")
+    
+    def _check_meta_tags(self):
+        """Check OpenGraph, Twitter Cards, and other meta tags"""
+        try:
+            # OpenGraph image (og:image) - can be logo for small sites
+            og_image = self.soup.find('meta', property='og:image')
+            if og_image and og_image.get('content'):
+                logo_url = urllib.parse.urljoin(self.url, og_image['content'])
+                # og:image is usually a social card, not logo - lower confidence
+                self.candidates.append({
+                    'url': logo_url,
+                    'source': 'og:image',
+                    'confidence_boost': 0.2  # Lower because often not the logo
+                })
+                logger.info(f"  → Found og:image: {logo_url[:60]}...")
+            
+            # Twitter Card image
+            twitter_image = self.soup.find('meta', attrs={'name': 'twitter:image'})
+            if twitter_image and twitter_image.get('content'):
+                logo_url = urllib.parse.urljoin(self.url, twitter_image['content'])
+                self.candidates.append({
+                    'url': logo_url,
+                    'source': 'twitter:image',
+                    'confidence_boost': 0.2
+                })
+                logger.info(f"  → Found twitter:image: {logo_url[:60]}...")
+                
+        except Exception as e:
+            logger.error(f"Error checking meta tags: {e}")
+    
+    def _check_apple_touch_icon(self):
+        """Check apple-touch-icon (usually high quality logo)"""
+        try:
+            # Find all apple touch icons (prefer largest)
+            apple_icons = self.soup.find_all('link', rel=lambda x: x and 'apple-touch-icon' in str(x).lower())
+            
+            best_icon = None
+            best_size = 0
+            
+            for icon in apple_icons:
+                if icon.get('href'):
+                    # Try to parse size from sizes attribute
+                    sizes = icon.get('sizes', '')
+                    size = 0
+                    if sizes:
+                        try:
+                            size = int(sizes.split('x')[0])
+                        except:
+                            pass
+                    
+                    if size >= best_size:
+                        best_size = size
+                        best_icon = icon
+            
+            if best_icon and best_icon.get('href'):
+                logo_url = urllib.parse.urljoin(self.url, best_icon['href'])
+                # Apple touch icons are usually good quality logos
+                self.candidates.append({
+                    'url': logo_url,
+                    'source': 'apple-touch-icon',
+                    'confidence_boost': 0.45,  # Good confidence
+                    'size': best_size
+                })
+                logger.info(f"  → Found apple-touch-icon: {logo_url[:60]}... (size={best_size})")
+                
+        except Exception as e:
+            logger.error(f"Error checking apple touch icon: {e}")
+    
+    def _check_common_paths(self):
+        """Check common logo file paths"""
+        domain_name = self.domain.split('.')[0].replace('www', '')
+        common_paths = [
+            '/logo.png',
+            '/logo.svg',
+            '/logo.webp',
+            '/images/logo.png',
+            '/images/logo.svg',
+            '/assets/logo.png',
+            '/assets/logo.svg',
+            '/img/logo.png',
+            '/static/logo.png',
+            '/assets/images/logo.png',
+            f'/images/{domain_name}-logo.png',
+            f'/{domain_name}-logo.png',
+            f'/{domain_name}.png',
+            f'/{domain_name}.svg',
+            # Also try brand-specific paths
+            f'/images/{domain_name}.png',
+            f'/assets/{domain_name}.png',
+        ]
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
+        found_count = 0
+        for path in common_paths:
+            if found_count >= 3:  # Limit to 3 found logos to avoid too many requests
+                break
+            logo_url = urllib.parse.urljoin(self.url, path)
+            try:
+                response = requests.head(logo_url, timeout=2, allow_redirects=True, headers=headers)
+                if response.status_code == 200:
+                    content_type = response.headers.get('content-type', '')
+                    if 'image' in content_type or logo_url.endswith(('.svg', '.png', '.jpg', '.webp')):
+                        self.candidates.append({
+                            'url': logo_url,
+                            'source': 'common_path',
+                            'confidence_boost': 0.5
+                        })
+                        logger.info(f"  → Found at common path: {logo_url}")
+                        found_count += 1
+            except requests.exceptions.RequestException:
+                # Silently skip failed paths - could be blocked or not exist
+                pass
+            except Exception as e:
+                logger.debug(f"  → Common path check failed for {path}: {e}")
+    
+    def _check_favicon(self):
+        """Check favicon as last resort"""
+        try:
+            # Look for favicon in link tags
+            favicon = self.soup.find('link', rel=lambda x: x and 'icon' in str(x).lower() and 'apple' not in str(x).lower())
+            if favicon and favicon.get('href'):
+                logo_url = urllib.parse.urljoin(self.url, favicon['href'])
+                self.candidates.append({
+                    'url': logo_url,
+                    'source': 'favicon',
+                    'confidence_boost': 0.15  # Lower confidence - favicon is not ideal
+                })
+                logger.info(f"  → Found favicon: {logo_url[:60]}...")
+            
+            # Also try default favicon.ico
+            parsed_url = urllib.parse.urlparse(self.url)
+            default_favicon = f"{parsed_url.scheme}://{parsed_url.netloc}/favicon.ico"
+            try:
+                response = requests.head(default_favicon, timeout=3, headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                })
+                if response.status_code == 200:
+                    self.candidates.append({
+                        'url': default_favicon,
+                        'source': 'default_favicon',
+                        'confidence_boost': 0.1
+                    })
+                    logger.info(f"  → Found default favicon: {default_favicon}")
+            except:
+                pass
+                
+        except Exception as e:
+            logger.error(f"Error checking favicon: {e}")
+    
+    def _get_img_attributes(self, img) -> Dict:
+        """Extract relevant attributes from img tag"""
+        return {
+            'src': img.get('src', ''),
+            'alt': (img.get('alt') or '').lower(),
+            'class': ' '.join(img.get('class', [])).lower() if img.get('class') else '',
+            'id': (img.get('id') or '').lower(),
+            'width': img.get('width', ''),
+            'height': img.get('height', '')
+        }
+    
+    def _get_svg_attributes(self, svg) -> Dict:
+        """Extract relevant attributes from SVG element"""
+        parent = svg.parent
+        return {
+            'src': '',
+            'class': ' '.join(svg.get('class', [])).lower() if svg.get('class') else '',
+            'id': (svg.get('id') or '').lower(),
+            'parent_class': ' '.join(parent.get('class', [])).lower() if parent and parent.get('class') else '',
+            'aria_label': (svg.get('aria-label') or '').lower()
+        }
+    
+    def _calculate_logo_score(self, attrs: Dict) -> float:
+        """Calculate confidence score based on attributes"""
+        score = 0.0
+        
+        # Combine all text attributes
+        text_attrs = [
+            attrs.get('alt', ''),
+            attrs.get('class', ''),
+            attrs.get('id', ''),
+            attrs.get('parent_class', ''),
+            attrs.get('aria_label', ''),
+            attrs.get('src', '')
+        ]
+        combined_text = ' '.join(text_attrs).lower()
+        
+        # === EARLY EXIT: Social media icons ===
+        if any(social in combined_text for social in self.SOCIAL_KEYWORDS):
+            return 0.0  # Immediately reject social media logos
+        
+        # Strong logo indicators
+        if 'logo' in combined_text:
+            score += 0.5
+        if 'brand' in combined_text:
+            score += 0.3
+        if any(keyword in combined_text for keyword in ['site-logo', 'header-logo', 'navbar-brand']):
+            score += 0.4
+        
+        # Position indicators (header/nav context)
+        if any(word in combined_text for word in ['header', 'nav', 'top']):
+            score += 0.15
+        
+        # Negative indicators (likely not a logo)
+        if any(word in combined_text for word in ['banner', 'hero', 'background', 'icon-', 'avatar', 'profile']):
+            score -= 0.3
+        
+        return max(min(score, 0.8), 0)  # Cap at 0.8, floor at 0
+    
+    def _extract_svg_url(self, svg) -> Optional[str]:
+        """Try to find a URL for the SVG"""
+        # Check for use tag with href
+        use_tag = svg.find('use')
+        if use_tag:
+            href = use_tag.get('href') or use_tag.get('xlink:href')
+            if href and not href.startswith('#'):
+                return urllib.parse.urljoin(self.url, href)
+        
+        # Check parent for background image
+        parent = svg.parent
+        if parent and parent.get('style'):
+            style = parent['style']
+            match = re.search(r'url\([\'"]?([^\'"]+)[\'"]?\)', style)
+            if match:
+                return urllib.parse.urljoin(self.url, match.group(1))
+        
+        return None
+    
+    def _rank_candidates(self) -> Optional[Dict]:
+        """Rank candidates and return best one with confidence score"""
+        if not self.candidates:
+            return None
+        
+        scored_candidates = []
+        seen_urls = set()
+        
+        # Extract brand name from domain (e.g., "burnie" from "burnie.io")
+        brand_name = self.domain.split('.')[0].replace('www', '').lower()
+        
+        # First pass: check if we have brand-specific images
+        has_brand_specific_image = False
+        for candidate in self.candidates:
+            url_lower = candidate['url'].lower()
+            filename = url_lower.split('/')[-1].split('?')[0]
+            # Brand-specific = filename contains brand name (not just in path)
+            if brand_name and len(brand_name) > 2 and brand_name in filename:
+                has_brand_specific_image = True
+                break
+        
+        for candidate in self.candidates:
+            url = candidate['url']
+            
+            # Skip duplicates
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            
+            base_confidence = candidate.get('confidence_boost', 0)
+            url_lower = url.lower()
+            url_filename = url_lower.split('/')[-1].split('?')[0]  # Get just the filename
+            
+            # === STRONG PENALTY: Social media / third-party logos ===
+            is_social = any(social in url_lower for social in self.SOCIAL_KEYWORDS)
+            if is_social:
+                base_confidence -= 0.8  # Heavy penalty - likely not the site's logo
+                print(f"   ⚠️ Social media logo detected: {url_filename}")
+            
+            # === Check if brand name is in FILENAME (not just path) ===
+            brand_in_filename = brand_name and len(brand_name) > 2 and brand_name in url_filename
+            
+            # === BONUS: Brand name in filename (strongest signal) ===
+            if brand_in_filename:
+                base_confidence += 0.5  # Very strong bonus for brand-specific filename
+                print(f"   ✨ Brand name '{brand_name}' in filename: {url_filename}")
+            elif brand_name and len(brand_name) > 2 and brand_name in url_lower:
+                base_confidence += 0.2  # Smaller bonus if brand is just in path
+                print(f"   ✨ Brand name '{brand_name}' found in URL path")
+            
+            # === Generic logo files (logo.png, logo.svg) ===
+            is_generic_logo = url_filename in ['logo.png', 'logo.svg', 'logo.jpg', 'logo.webp']
+            
+            if not is_social:
+                if is_generic_logo:
+                    # If we have brand-specific images, penalize generic logo files
+                    # (they're often from templates)
+                    if has_brand_specific_image:
+                        base_confidence += 0.1  # Small bonus only
+                        print(f"   ⚠️ Generic logo file (brand-specific exists): {url_filename}")
+                    else:
+                        base_confidence += 0.35  # Good bonus if no brand-specific alternative
+                elif 'logo' in url_lower:
+                    base_confidence += 0.15
+                if 'brand' in url_lower:
+                    base_confidence += 0.1
+            
+            # === BONUS: Good image formats ===
+            if url_lower.endswith('.svg'):
+                base_confidence += 0.1
+            elif url_lower.endswith('.png'):
+                base_confidence += 0.05
+            
+            # === PENALTY: Likely non-logo images ===
+            if any(word in url_lower for word in ['banner', 'hero', 'background', 'share-', 'card']):
+                base_confidence -= 0.3
+            
+            # === Source reliability bonus ===
+            # Prioritize sources where the site explicitly chose this image
+            source_bonus = {
+                'html_structure': 0.15,  # Found in DOM - good signal
+                'logo_link': 0.25,       # In a link marked as logo - very good
+                'svg_element': 0.1,
+                'common_path': 0.05,     # Reduced - could be template file
+                'apple-touch-icon': 0.2, # Site chose this for mobile - good signal
+                'og:image': 0.15,        # Site chose this for social - decent signal if has brand name
+                'twitter:image': 0.1,
+                'favicon': 0.0,
+                'default_favicon': -0.1,
+            }.get(candidate['source'], 0)
+            
+            # Extra bonus for og:image if it contains brand name in filename
+            if candidate['source'] == 'og:image' and brand_in_filename:
+                source_bonus += 0.15
+                print(f"   ✨ og:image with brand-specific filename - likely the main logo")
+            
+            total_confidence = max(min(base_confidence + source_bonus, 1.0), 0)
+            
+            scored_candidates.append({
+                'url': url,
+                'source': candidate['source'],
+                'confidence': total_confidence,
+                'is_social': is_social,
+                'brand_in_filename': brand_in_filename
+            })
+            
+            print(f"   📋 Candidate: {url[:50]}... ({candidate['source']}) = {total_confidence*100:.0f}%")
+        
+        # Sort by: not social, brand in filename, confidence
+        scored_candidates.sort(
+            key=lambda x: (
+                not x.get('is_social', False),
+                x.get('brand_in_filename', False),
+                x['confidence']
+            ), 
+            reverse=True
+        )
+        
+        return scored_candidates[0] if scored_candidates else None
 
 
 def extract_logo_url_from_html(url: str, soup: BeautifulSoup) -> Optional[str]:
     """
-    Extract logo URL from website HTML.
-    Tries multiple strategies to find the best logo.
+    Extract logo URL from website HTML using intelligent extraction.
+    Returns the best logo URL found.
     """
     try:
-        logo_url = None
+        extractor = LogoExtractor(url, soup)
+        result = extractor.extract_logo()
         
-        # Strategy 1: Look for Open Graph image (og:image)
-        og_image = soup.find("meta", property="og:image")
-        if og_image and og_image.get("content"):
-            logo_url = og_image.get("content")
-            logger.info(f"  → Found og:image: {logo_url}")
+        if result:
+            return result['url']
         
-        # Strategy 2: Apple touch icon (usually high quality)
-        if not logo_url:
-            apple_icon = soup.find("link", rel=lambda v: v and 'apple-touch-icon' in v)
-            if apple_icon and apple_icon.get("href"):
-                logo_url = apple_icon.get("href")
-                logger.info(f"  → Found apple-touch-icon: {logo_url}")
-        
-        # Strategy 3: Standard favicon
-        if not logo_url:
-            favicon = soup.find("link", rel=lambda v: v and 'icon' in v)
-            if favicon and favicon.get("href"):
-                logo_url = favicon.get("href")
-                logger.info(f"  → Found favicon: {logo_url}")
-        
-        # Strategy 4: Default favicon location
-        if not logo_url:
-            parsed_url = urllib.parse.urlparse(url)
-            logo_url = f"{parsed_url.scheme}://{parsed_url.netloc}/favicon.ico"
-            logger.info(f"  → Using default favicon: {logo_url}")
-        
-        # Convert relative URL to absolute
-        if logo_url:
-            logo_url = urllib.parse.urljoin(url, logo_url)
-            logger.info(f"  → Final logo URL: {logo_url}")
-        
-        return logo_url
+        # Ultimate fallback: default favicon
+        parsed_url = urllib.parse.urlparse(url)
+        fallback = f"{parsed_url.scheme}://{parsed_url.netloc}/favicon.ico"
+        logger.info(f"  → Using fallback favicon: {fallback}")
+        return fallback
         
     except Exception as e:
         logger.error(f"Error extracting logo URL: {e}")
@@ -1357,15 +2132,10 @@ async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int
 def build_openai_prompt(base_name: str, url: str, site_snippet: str, extracted_colors: Dict) -> str:
     """Build prompt for OpenAI Responses API with web search"""
     
-    color_hints = [c for c in [extracted_colors.get("primary"), extracted_colors.get("secondary"), extracted_colors.get("accent")] if c]
-    color_hint_str = ", ".join(color_hints) if color_hints else "none found"
-    
     prompt = f"""Analyze the website {url} (brand name: {base_name}) and provide a comprehensive business analysis.
 
 **Extracted Site Content:**
 {site_snippet[:1500]}
-
-**Extracted Color Hints:** {color_hint_str}
 
 **Task:** Conduct a DETAILED analysis using:
 1. The provided URL ({url}) - search ALL pages (about, products, team, blog, etc.)
@@ -1384,9 +2154,9 @@ Return a JSON object with this structure:
   "why_customers_choose": "Primary Value Drivers:\\n1. [Driver]: [explanation]\\n2. [Driver]: [explanation]\\n3. [Driver]: [explanation]\\n4. [Driver]: [explanation]\\n\\nEmotional Benefits:\\n• [Benefit]: [how delivered]\\n• [Benefit]: [how delivered]\\n• [Benefit]: [how delivered]",
   "brand_story": "The Hero's Journey: [origin and evolution]\\n\\nMission Statement: [actual or inferred mission]\\n\\nBrand Personality:\\n• Archetype: [archetype]\\n• Voice: [tone]\\n• Values: [values]\\n\\n[Closing statement]",
   "color_palette": {{
-    "primary": "{color_hints[0] if len(color_hints) > 0 else '#000000'}",
-    "secondary": "{color_hints[1] if len(color_hints) > 1 else '#000000'}",
-    "accent": "{color_hints[2] if len(color_hints) > 2 else '#000000'}"
+    "primary": "[YOUR SUGGESTION: main brand color as hex - use your knowledge of {base_name} brand]",
+    "secondary": "[YOUR SUGGESTION: secondary/background color as hex]",
+    "accent": "[YOUR SUGGESTION: accent/highlight color as hex]"
   }},
   "source_urls": ["{url}", "other URLs used"]
 }}
@@ -1401,7 +2171,7 @@ Return a JSON object with this structure:
 
 4. **Customer Reviews:** Find ProductHunt, Trustpilot, G2, or similar reviews to understand customer segments and value drivers.
 
-5. **Color Palette:** Verify the extracted colors ({color_hint_str}) match the actual brand. If not, find the correct brand colors from the website or brand guidelines.
+5. **Color Palette:** YOU MUST suggest brand colors based on your knowledge of {base_name}. Research the brand's actual colors from their website, brand guidelines, or visual identity. NEVER use #000000 (black) as a default - only use black if it's genuinely a brand color.
 
 6. **Detailed Sections:** Provide specific, factual information. Avoid generic statements.
 
@@ -1544,6 +2314,10 @@ def extract_json_from_response(response_text: str) -> str:
     inside the same code block. To avoid "Extra data" JSON errors, we
     always trim to the FIRST complete JSON object found.
     """
+    
+    # Handle empty or None response
+    if not response_text or not response_text.strip():
+        raise ValueError("Empty response from LLM")
 
     def _trim_to_first_json_object(text: str) -> str:
         """
@@ -1553,18 +2327,32 @@ def extract_json_from_response(response_text: str) -> str:
         """
         brace_count = 0
         start_idx = -1
+        in_string = False
+        escape_next = False
 
         for i, char in enumerate(text):
-            if char == '{':
-                if brace_count == 0:
-                    start_idx = i
-                brace_count += 1
-            elif char == '}':
-                if brace_count > 0:
-                    brace_count -= 1
-                    if brace_count == 0 and start_idx != -1:
-                        end_idx = i + 1
-                        return text[start_idx:end_idx].strip()
+            # Handle string escaping to avoid counting braces inside strings
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\' and in_string:
+                escape_next = True
+                continue
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            
+            if not in_string:
+                if char == '{':
+                    if brace_count == 0:
+                        start_idx = i
+                    brace_count += 1
+                elif char == '}':
+                    if brace_count > 0:
+                        brace_count -= 1
+                        if brace_count == 0 and start_idx != -1:
+                            end_idx = i + 1
+                            return text[start_idx:end_idx].strip()
 
         return text.strip()
 
@@ -1574,7 +2362,9 @@ def extract_json_from_response(response_text: str) -> str:
         json_pattern = re.search(r'```json\s*\n?(.*?)\n?```', response_text, re.DOTALL | re.IGNORECASE)
         if json_pattern:
             block = json_pattern.group(1).strip()
-            return _trim_to_first_json_object(block)
+            result = _trim_to_first_json_object(block)
+            if result.startswith("{") and result.endswith("}"):
+                return result
     
     # Try generic code blocks
     if "```" in response_text:
@@ -1583,7 +2373,9 @@ def extract_json_from_response(response_text: str) -> str:
             potential_json = code_pattern.group(1).strip()
             # Check if it looks like JSON
             if potential_json.startswith("{") or potential_json.startswith("["):
-                return _trim_to_first_json_object(potential_json)
+                result = _trim_to_first_json_object(potential_json)
+                if result.startswith("{") and result.endswith("}"):
+                    return result
     
     # Try to find JSON object directly in the whole response
     trimmed = _trim_to_first_json_object(response_text)
@@ -1597,9 +2389,11 @@ def extract_json_from_response(response_text: str) -> str:
         end_idx = response_text.rfind("}") + 1
         if start_idx != -1 and end_idx > start_idx:
             candidate = response_text[start_idx:end_idx].strip()
-            return _trim_to_first_json_object(candidate)
+            result = _trim_to_first_json_object(candidate)
+            if result.startswith("{") and result.endswith("}"):
+                return result
     
-    raise ValueError("No valid JSON found in response")
+    raise ValueError(f"No valid JSON found in response (length: {len(response_text)}, preview: {response_text[:100]}...)")
 
 
 # ============================================
@@ -1785,15 +2579,10 @@ def build_fast_analysis_prompt(base_name: str, url: str, site_text: str, extract
     Build prompt for GPT-4o Chat Completions API (no web search).
     Analyzes ONLY the provided website content.
     """
-    color_hints = [c for c in [extracted_colors.get("primary"), extracted_colors.get("secondary"), extracted_colors.get("accent")] if c]
-    color_hint_str = ", ".join(color_hints) if color_hints else "none found"
-    
     prompt = f"""You are a business analyst. Analyze the following website content for {base_name} ({url}) and provide a comprehensive business analysis.
 
 **Website Content Extracted:**
 {site_text[:6000]}
-
-**Extracted Brand Colors:** {color_hint_str}
 
 **Task:** Based ONLY on the website content provided above, create a detailed business analysis. Infer information intelligently from the content, product descriptions, messaging, and tone.
 
@@ -1807,9 +2596,9 @@ Return a JSON object with this EXACT structure:
   "why_customers_choose": "Primary Value Drivers:\\n1. [Driver from benefits]: [explanation from content]\\n2. [Driver from features]: [explanation]\\n3. [Driver from outcomes]: [explanation]\\n4. [Driver from differentiation]: [explanation]\\n\\nEmotional Benefits:\\n• [Benefit from messaging]: [how it's delivered per content]\\n• [Benefit from brand voice]: [delivery method]\\n• [Benefit from value props]: [delivery approach]",
   "brand_story": "The Hero's Journey: [origin story from About page, or inferred from mission]\\n\\nMission Statement: [actual mission from content or inferred from purpose]\\n\\nBrand Personality:\\n• Archetype: [archetype inferred from voice and messaging]\\n• Voice: [tone inferred from content style]\\n• Values: [values from messaging and positioning]\\n\\n[Closing statement about brand evolution or vision]",
   "color_palette": {{
-    "primary": "{color_hints[0] if len(color_hints) > 0 else '#000000'}",
-    "secondary": "{color_hints[1] if len(color_hints) > 1 else '#000000'}",
-    "accent": "{color_hints[2] if len(color_hints) > 2 else '#000000'}"
+    "primary": "[YOUR SUGGESTION: main brand color as hex code based on your knowledge of {base_name}]",
+    "secondary": "[YOUR SUGGESTION: secondary/background color as hex code]",
+    "accent": "[YOUR SUGGESTION: accent/highlight color as hex code]"
   }},
   "source_urls": ["{url}"]
 }}
@@ -1828,7 +2617,12 @@ Return a JSON object with this EXACT structure:
 
 6. **Brand Story:** Look for About, Mission, Vision, or Team sections. If not explicit, infer from the brand's purpose and positioning.
 
-7. **Color Palette:** Use the extracted colors ({color_hint_str}). These were extracted from the website's CSS and design.
+7. **Color Palette:** YOU MUST ALWAYS suggest brand colors based on your knowledge of {base_name}.
+   - Research/infer the brand's actual primary, secondary, and accent colors.
+   - NEVER use #000000 (black) as a default - only use black if it's genuinely the brand's color.
+   - White (#FFFFFF) is often appropriate for secondary if the brand uses a white background.
+   - For secondary, #FFFFFF (white) is often appropriate as most websites have white backgrounds.
+   - Provide actual hex color codes, not placeholders.
 
 8. **Be Specific:** Avoid generic statements. Use actual content from the website. Quote features, benefits, and messaging where relevant.
 
@@ -1919,12 +2713,65 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
         print(f"   Secondary: {color_palette.get('secondary')}")
         print(f"   Accent: {color_palette.get('accent')}\n")
         
-        # Step 6: Extract and upload logo
-        logger.info(f"  → Extracting logo...")
-        logo_url = extract_logo_url_from_html(url, soup)
+        # Step 6: Extract and upload logo (using intelligent extraction)
+        logger.info(f"  → Extracting logo with intelligent extraction...")
+        logo_extractor = LogoExtractor(url, soup)
+        logo_result = logo_extractor.extract_logo()
+        
         logo_data = None
-        if logo_url:
-            logo_data = await download_and_upload_logo_to_s3(logo_url, None)  # account_id will be set later when saved
+        logo_confidence = 0.0
+        
+        # Get all candidates sorted by confidence for fallback attempts
+        all_logo_candidates = logo_extractor.candidates if logo_extractor.candidates else []
+        
+        if logo_result:
+            logo_url = logo_result['url']
+            logo_confidence = logo_result['confidence']
+            logger.info(f"  → Logo found: {logo_url[:60]}... (confidence: {logo_confidence*100:.0f}%)")
+            
+            # Only upload if confidence is reasonable (> 20%)
+            if logo_confidence >= 0.2:
+                logo_data = await download_and_upload_logo_to_s3(logo_url, None)
+                
+                # If download failed, try other candidates
+                if not logo_data and all_logo_candidates:
+                    logger.warning(f"  ⚠️ Primary logo download failed, trying alternatives...")
+                    for candidate in all_logo_candidates:
+                        if candidate['url'] != logo_url:
+                            logger.info(f"  → Trying alternative: {candidate['url'][:60]}...")
+                            logo_data = await download_and_upload_logo_to_s3(candidate['url'], None)
+                            if logo_data:
+                                logger.info(f"  ✅ Alternative logo uploaded successfully")
+                                break
+            else:
+                logger.warning(f"  ⚠️ Logo confidence too low ({logo_confidence*100:.0f}%), skipping upload")
+        
+        # If still no logo, try multiple fallback paths
+        if not logo_data:
+            parsed_url = urllib.parse.urlparse(url)
+            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            
+            fallback_paths = [
+                f"{base_url}/favicon.ico",
+                f"{base_url}/favicon.png",
+                f"{base_url}/apple-touch-icon.png",
+                f"{base_url}/apple-touch-icon-precomposed.png",
+                f"{base_url}/logo.png",
+                f"{base_url}/logo.svg",
+                f"{base_url}/images/logo.png",
+                f"{base_url}/assets/logo.png",
+            ]
+            
+            logger.info(f"  → No logo found/uploaded, trying fallback paths...")
+            for fallback_url in fallback_paths:
+                logger.info(f"  → Trying: {fallback_url}")
+                logo_data = await download_and_upload_logo_to_s3(fallback_url, None)
+                if logo_data:
+                    logger.info(f"  ✅ Fallback logo uploaded: {fallback_url}")
+                    break
+            
+            if not logo_data:
+                logger.warning(f"  ⚠️ All logo fallback attempts failed")
         
         # Step 7: Build GPT-4o prompt (no web search)
         prompt = build_fast_analysis_prompt(base_name, url, site_text, color_palette)
@@ -1940,21 +2787,126 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
         logger.info("=" * 80)
         
         # Step 9: Parse JSON from response
-        json_str = extract_json_from_response(response_text)
-        
         import json
-        analysis_data = json.loads(json_str)
         
-        # Ensure color_palette is present and uses extracted colors
-        if "color_palette" not in analysis_data or not analysis_data["color_palette"]:
-            analysis_data["color_palette"] = color_palette
-        else:
-            # Override with extracted colors if LLM provided different ones
-            analysis_data["color_palette"] = {
-                "primary": color_palette.get("primary") or analysis_data["color_palette"].get("primary"),
-                "secondary": color_palette.get("secondary") or analysis_data["color_palette"].get("secondary"),
-                "accent": color_palette.get("accent") or analysis_data["color_palette"].get("accent"),
+        try:
+            json_str = extract_json_from_response(response_text)
+            analysis_data = json.loads(json_str)
+        except (ValueError, json.JSONDecodeError) as parse_error:
+            # JSON parsing failed - log the raw response and create fallback
+            logger.error(f"❌ JSON parsing failed: {parse_error}")
+            logger.error(f"Raw response that failed to parse:\n{response_text[:2000]}")
+            print(f"\n❌ JSON PARSING FAILED!")
+            print(f"   Error: {parse_error}")
+            print(f"   Raw response preview: {response_text[:500]}...")
+            
+            # Create a fallback response with whatever we extracted
+            analysis_data = {
+                "base_name": base_name,
+                "business_overview_and_positioning": f"Unable to analyze {base_name} - website may be blocking automated access. Please try again or enter information manually.",
+                "customer_demographics_and_psychographics": "Analysis unavailable due to website access restrictions.",
+                "most_popular_products_and_services": [],
+                "why_customers_choose": "Analysis unavailable due to website access restrictions.",
+                "brand_story": f"Unable to retrieve brand story for {base_name}.",
+                "color_palette": {
+                    "primary": None,
+                    "secondary": "#FFFFFF",
+                    "accent": None
+                },
+                "source_urls": [url],
+                "_parsing_failed": True,
+                "_raw_response_preview": response_text[:500] if response_text else "No response"
             }
+            logger.warning("⚠️ Using fallback analysis data due to JSON parsing failure")
+        
+        # Get LLM's suggested colors (for logging and fallback)
+        llm_colors = analysis_data.get("color_palette", {})
+        print("\n🤖 LLM SUGGESTED BRAND COLORS:")
+        print(f"   Primary: {llm_colors.get('primary', 'not provided')}")
+        print(f"   Secondary: {llm_colors.get('secondary', 'not provided')}")
+        print(f"   Accent: {llm_colors.get('accent', 'not provided')}")
+        
+        # Helper to check if a color is valid (not None, not black unless intentional)
+        def is_valid_color(color: str) -> bool:
+            if not color:
+                return False
+            color_upper = color.upper()
+            # Reject black as it's usually a default, not an actual brand color
+            if color_upper in ['#000000', '#000']:
+                return False
+            return True
+        
+        # Finalize color palette:
+        # 1. Use extracted colors if available
+        # 2. Fall back to LLM suggested colors if extraction failed
+        # 3. Use sensible defaults as last resort (white for secondary, but NOT black)
+        final_colors = {
+            "primary": None,
+            "secondary": None,
+            "accent": None
+        }
+        
+        # Primary: Use confidence-based decision
+        # If extracted has high confidence (>= 0.7), trust it; otherwise prefer LLM
+        PRIMARY_CONFIDENCE_THRESHOLD = 0.7
+        extracted_primary_confidence = color_palette.get("primary_confidence", 0.0)
+        
+        print(f"\n📊 PRIMARY COLOR DECISION:")
+        print(f"   Extracted primary: {color_palette.get('primary')} (confidence: {extracted_primary_confidence:.2f})")
+        print(f"   LLM primary: {llm_colors.get('primary')}")
+        print(f"   Threshold: {PRIMARY_CONFIDENCE_THRESHOLD}")
+        
+        if is_valid_color(color_palette.get("primary")) and extracted_primary_confidence >= PRIMARY_CONFIDENCE_THRESHOLD:
+            # High confidence extraction - trust it
+            final_colors["primary"] = color_palette.get("primary")
+            print(f"   ✅ Using EXTRACTED primary (confidence {extracted_primary_confidence:.2f} >= {PRIMARY_CONFIDENCE_THRESHOLD})")
+        elif is_valid_color(llm_colors.get("primary")):
+            # Low confidence or no extraction - use LLM
+            final_colors["primary"] = llm_colors.get("primary")
+            print(f"   ✅ Using LLM primary (extracted confidence {extracted_primary_confidence:.2f} < {PRIMARY_CONFIDENCE_THRESHOLD})")
+        elif is_valid_color(color_palette.get("primary")):
+            # No LLM color, use whatever we extracted
+            final_colors["primary"] = color_palette.get("primary")
+            print(f"   ⚠️ Using EXTRACTED primary as fallback (no LLM color available)")
+        
+        # Secondary: extracted → LLM → white (most common background)
+        if is_valid_color(color_palette.get("secondary")):
+            final_colors["secondary"] = color_palette.get("secondary")
+        elif is_valid_color(llm_colors.get("secondary")):
+            final_colors["secondary"] = llm_colors.get("secondary")
+            print(f"   → Using LLM secondary as fallback: {final_colors['secondary']}")
+        else:
+            final_colors["secondary"] = "#FFFFFF"  # White is safest default for secondary
+            print(f"   → Using white as default secondary")
+        
+        # Accent: Use confidence-based decision
+        ACCENT_CONFIDENCE_THRESHOLD = 0.6
+        extracted_accent_confidence = color_palette.get("accent_confidence", 0.0)
+        
+        print(f"\n📊 ACCENT COLOR DECISION:")
+        print(f"   Extracted accent: {color_palette.get('accent')} (confidence: {extracted_accent_confidence:.2f})")
+        print(f"   LLM accent: {llm_colors.get('accent')}")
+        print(f"   Threshold: {ACCENT_CONFIDENCE_THRESHOLD}")
+        
+        if is_valid_color(color_palette.get("accent")) and extracted_accent_confidence >= ACCENT_CONFIDENCE_THRESHOLD:
+            # High confidence extraction - trust it
+            final_colors["accent"] = color_palette.get("accent")
+            print(f"   ✅ Using EXTRACTED accent (confidence {extracted_accent_confidence:.2f} >= {ACCENT_CONFIDENCE_THRESHOLD})")
+        elif is_valid_color(llm_colors.get("accent")):
+            # Low confidence or no extraction - use LLM
+            final_colors["accent"] = llm_colors.get("accent")
+            print(f"   ✅ Using LLM accent (extracted confidence {extracted_accent_confidence:.2f} < {ACCENT_CONFIDENCE_THRESHOLD})")
+        elif is_valid_color(color_palette.get("accent")):
+            # No LLM color, use whatever we extracted
+            final_colors["accent"] = color_palette.get("accent")
+            print(f"   ⚠️ Using EXTRACTED accent as fallback (no LLM color available)")
+        
+        analysis_data["color_palette"] = final_colors
+        
+        print("\n🎨 FINAL COLOR PALETTE:")
+        print(f"   Primary: {final_colors['primary']}")
+        print(f"   Secondary: {final_colors['secondary']}")
+        print(f"   Accent: {final_colors['accent']}")
         
         # Add logo data if extracted
         if logo_data:
@@ -1966,7 +2918,7 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
         print(f"   Base Name: {analysis_data.get('base_name')}")
         print(f"   Colors: {analysis_data.get('color_palette')}")
         print(f"   Logo S3 Key: {analysis_data.get('logo_s3_key')}")
-        print(f"   Logo Presigned URL: {analysis_data.get('logo_presigned_url', 'N/A')[:80]}...")
+        print(f"   Logo Presigned URL: {analysis_data.get('logo_presigned_url', 'N/A')}")
         print(f"   Products: {len(analysis_data.get('most_popular_products_and_services', []))} items\n")
         
         return analysis_data

@@ -228,8 +228,8 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
           </div>
 
         {!isAnalyzing ? (
-          <Card className="p-6 md:p-8 shadow-card-hover">
-            <form id="website-form" onSubmit={handleSubmit} className="space-y-4 md:space-y-6">
+          <form id="website-form" onSubmit={handleSubmit} className="space-y-4">
+            <Card className="p-6 md:p-8 shadow-card-hover">
               <div className="space-y-2">
                 <label htmlFor="website" className="text-sm md:text-base font-medium text-foreground">
                   Enter your website URL
@@ -244,10 +244,16 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
                   required
                 />
               </div>
-              {/* Spacer for sticky button */}
-              <div className="h-16 md:h-20" />
-            </form>
-          </Card>
+            </Card>
+            <Button 
+              type="submit" 
+              disabled={!websiteUrl.trim()}
+              className="w-full h-12 md:h-14 text-base md:text-lg shadow-lg" 
+              size="lg"
+            >
+              Start Analysis
+            </Button>
+          </form>
         ) : (
           <div className="space-y-4 md:space-y-6">
             <Card className="p-4 md:p-6 bg-primary/10 border-primary/20">
@@ -284,23 +290,6 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
         </div>
       </div>
 
-      {/* Sticky floating button at bottom */}
-      {!isAnalyzing && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 md:p-6 bg-gradient-to-t from-background via-background to-transparent">
-          <div className="max-w-2xl mx-auto">
-            <Button 
-              type="submit" 
-              form="website-form"
-              onClick={handleSubmit}
-              disabled={!websiteUrl.trim()}
-              className="w-full h-12 md:h-14 text-base md:text-lg shadow-lg" 
-              size="lg"
-            >
-              Start Analysis
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
