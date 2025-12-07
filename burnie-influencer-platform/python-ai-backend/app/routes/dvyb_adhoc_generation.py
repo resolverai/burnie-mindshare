@@ -934,6 +934,10 @@ async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
         # Get full brand context
         dvyb_context = context.get("dvyb_context", {})
         
+        # Get topic and user prompt/instructions
+        topic = context.get("topic", "")
+        user_prompt = context.get("user_prompt", "")
+        
         # Extract relevant brand information
         brand_info = {
             "account_name": dvyb_context.get("accountName", ""),
@@ -949,6 +953,8 @@ async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
         print(f"🏢 Brand: {brand_info['account_name']}")
         print(f"🏢 Industry: {brand_info['industry']}")
         print(f"🏢 Business Overview: {brand_info['business_overview'][:100] if brand_info['business_overview'] else 'N/A'}...")
+        print(f"📝 Topic: {topic if topic else 'N/A'}")
+        print(f"📝 User Instructions: {user_prompt[:100] if user_prompt else 'N/A'}...")
         
         # Get presigned URLs from context (already generated in pipeline)
         user_images_presigned = context.get('user_images_presigned', {})
@@ -1013,10 +1019,22 @@ async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
         
         brand_context_str = "\n".join(brand_context_lines) if brand_context_lines else "No brand context available"
         
+        # Build topic and user instructions section
+        user_context_lines = []
+        if topic and str(topic).strip():
+            user_context_lines.append(f"📌 Topic: {topic}")
+        if user_prompt and str(user_prompt).strip():
+            user_context_lines.append(f"📌 User Instructions: {user_prompt}")
+        user_context_str = "\n".join(user_context_lines) if user_context_lines else ""
+        
         analysis_prompt = f"""You are an expert visual analyst for {brand_info.get('account_name', 'the brand')}.
 
 BRAND CONTEXT:
-{brand_context_str}{brand_image_note}
+{brand_context_str}
+{f'''
+USER CONTEXT (PRIORITY - Follow these instructions):
+{user_context_str}
+''' if user_context_str else ''}{brand_image_note}
 
 🎯 YOUR CRITICAL TASK:
 Classify each uploaded image into ONE of these 3 categories:
@@ -1040,6 +1058,22 @@ Classify each uploaded image into ONE of these 3 categories:
    - **Purpose**: This person can appear consistently in UGC-style content
 
 🚨 CLASSIFICATION RULES:
+
+🎯 **USER INSTRUCTIONS ARE PRIORITY**:
+- If user instructions specify how to use certain images, FOLLOW those instructions
+- Examples:
+  * "Use this image as product" → Classify as PRODUCT regardless of visual content
+  * "This is the model for UGC" → Classify as MODEL
+  * "Use as style inspiration" → Classify as INSPIRATION
+  * "Generate UGC style video" → Look for MODEL images to use for UGC
+  * "Product showcase" → Prioritize PRODUCT image classification
+
+📌 **TOPIC CONTEXT**:
+- Consider the topic when classifying - images should support the content goal
+- If topic is "product launch" → prioritize finding PRODUCT images
+- If topic is "influencer content" or "UGC" → prioritize finding MODEL images
+
+📋 **DEFAULT RULES** (when no specific user instruction):
 - An image can ONLY be in ONE category
 - If an image shows a product being held by a person → classify as PRODUCT (not model)
 - If an image shows ONLY a person (no product focus) → classify as MODEL
@@ -1077,6 +1111,17 @@ Return ONLY this exact JSON structure:
     "has_model": true/false,
     "index": <number or null>,
     "description": "Detailed description: ethnicity, age range, gender, style, clothing, appearance, body type"
+  }},
+  
+  "visual_styles": {{
+    "photography_styles": ["mobile_casual", "professional_dslr", "cinematic", "documentary", "studio", "lifestyle"],
+    "lighting_styles": ["natural_daylight", "golden_hour", "studio_lighting", "soft_diffused", "dramatic_hard", "backlit", "warm_ambient"],
+    "color_treatments": ["warm_tones", "cool_tones", "vibrant_saturated", "muted_desaturated", "high_contrast", "low_contrast", "vintage", "modern_clean", "moody_dark"],
+    "composition_styles": ["close_up", "medium_shot", "wide_shot", "overhead_flatlay", "eye_level", "rule_of_thirds", "centered", "shallow_depth_of_field"],
+    "background_styles": ["minimal_clean", "lifestyle_setting", "textured", "bokeh_blur", "outdoor_natural", "indoor_cozy", "studio_seamless"],
+    "mood_atmospheres": ["bright_airy", "dark_moody", "warm_cozy", "clean_minimal", "vibrant_energetic", "luxurious_elegant", "raw_authentic"],
+    "quality_feels": ["high_definition_crisp", "soft_dreamy", "intentional_grain", "instagram_aesthetic", "professional_advertising", "ugc_authentic"],
+    "overall_summary": "Brief 1-2 sentence summary of the brand's dominant visual style across all images"
   }}
 }}
 
@@ -1087,6 +1132,21 @@ Return ONLY this exact JSON structure:
 - Be VERY specific in categorization - consider brand context
 - Product images should match the brand's actual offerings
 - Inspiration images are style guides ONLY
+
+📸 **VISUAL STYLE ANALYSIS** (CRITICAL - Analyze ALL images):
+Analyze the visual characteristics across ALL uploaded images to identify the brand's visual identity.
+For each category, list ALL styles you observe (can have multiple):
+
+- **photography_styles**: How were photos taken? (mobile_casual, professional_dslr, cinematic, documentary, studio, lifestyle, etc.)
+- **lighting_styles**: What lighting is used? (natural_daylight, golden_hour, studio_lighting, soft_diffused, dramatic_hard, backlit, warm_ambient, etc.)
+- **color_treatments**: How are colors treated? (warm_tones, cool_tones, vibrant_saturated, muted_desaturated, high_contrast, low_contrast, vintage, modern_clean, moody_dark, etc.)
+- **composition_styles**: How are shots composed? (close_up, medium_shot, wide_shot, overhead_flatlay, eye_level, rule_of_thirds, centered, shallow_depth_of_field, etc.)
+- **background_styles**: What backgrounds are used? (minimal_clean, lifestyle_setting, textured, bokeh_blur, outdoor_natural, indoor_cozy, studio_seamless, etc.)
+- **mood_atmospheres**: What mood/atmosphere? (bright_airy, dark_moody, warm_cozy, clean_minimal, vibrant_energetic, luxurious_elegant, raw_authentic, etc.)
+- **quality_feels**: What quality/feel? (high_definition_crisp, soft_dreamy, intentional_grain, instagram_aesthetic, professional_advertising, ugc_authentic, etc.)
+- **overall_summary**: Write a 1-2 sentence summary of the brand's dominant visual style
+
+⚠️ Include ONLY styles you actually observe in the images. If you see multiple styles, list all of them.
 
 ⚠️ JSON FORMATTING (CRITICAL):
 - **NO TRAILING COMMAS**: Never put commas after the last item in an array or object
@@ -1770,6 +1830,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   - For EACH clip image prompt, decide if a product should be referenced
   - Output `"video_X_clip_Y_product_mapping": "image_Z"` or `null`
   - When product is mapped: Use **"reference product"** keyword in the clip image prompt
+  - **MANDATORY**: Also include **"do not morph the product distinguishing features"** at the end
   
   **EXAMPLES**:
   ```
@@ -1833,22 +1894,155 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
 
 4. **IMAGE PROMPT GENERATION GUIDELINES** (CRITICAL FOR HIGH-QUALITY IMAGES):
    
-   **🚨 CRITICAL: USE REFERENCE KEYWORDS** (MANDATORY for consistency):
-   - **"reference logo"** → When logo_needed is true
-   - **"reference model"** → When has_model_image is true (UGC videos)
-   - **"reference product"** → When product_mapping is set (not null)
-   - These keywords ensure the same elements appear consistently across multiple images
-   - Examples:
-     * "reference logo prominently displayed on packaging"
-     * "reference model holding product with genuine smile"
-     * "reference product centered on marble surface, front angle view"
+   **📸 VISUAL STYLE MATCHING** (MANDATORY - Match brand's visual identity):
+   The inventory analysis contains `visual_styles` with the brand's visual characteristics.
+   For EACH image prompt, you MUST:
+   
+   1. **RANDOMLY PICK** one style from each category in `visual_styles`:
+      - Pick ONE from `photography_styles` (e.g., "mobile_casual" or "professional_dslr")
+      - Pick ONE from `lighting_styles` (e.g., "natural_daylight" or "golden_hour")
+      - Pick ONE from `color_treatments` (e.g., "warm_tones" or "vibrant_saturated")
+      - Pick ONE from `composition_styles` (e.g., "close_up" or "overhead_flatlay")
+      - Pick ONE from `background_styles` (e.g., "minimal_clean" or "lifestyle_setting")
+      - Pick ONE from `mood_atmospheres` (e.g., "warm_cozy" or "bright_airy")
+      - Pick ONE from `quality_feels` (e.g., "instagram_aesthetic" or "ugc_authentic")
+   
+   2. **INTELLIGENTLY INCORPORATE** the picked styles into your image prompt text:
+      - Don't just list the styles - weave them naturally into the prompt
+      - Example: If you picked "mobile_casual", "natural_daylight", "warm_tones", "shallow_depth_of_field":
+        → "Casual smartphone-style photo, natural window light streaming in, warm golden tones, subject in focus with soft bokeh background..."
+   
+   3. **VARY ACROSS PROMPTS**: Each image prompt should randomly pick different combinations
+      - This creates variety while staying within the brand's visual identity
+   
+   **STYLE INTEGRATION EXAMPLES**:
+   - photography=mobile_casual → "authentic smartphone-captured photo", "casual handheld shot", "raw unfiltered look"
+   - lighting=golden_hour → "warm golden hour sunlight", "soft sunset glow", "magic hour warmth"
+   - color=muted_desaturated → "subdued color palette", "softened tones", "gentle pastel hues"
+   - composition=overhead_flatlay → "bird's eye view arrangement", "top-down flat lay", "overhead perspective"
+   - background=bokeh_blur → "dreamy blurred background", "soft out-of-focus backdrop", "creamy bokeh"
+   - mood=warm_cozy → "inviting warm atmosphere", "cozy intimate setting", "comfortable homey feel"
+   - quality=ugc_authentic → "genuine unpolished aesthetic", "real and relatable look", "authentic user-generated style"
+   
+   🚨🚨🚨 **MANDATORY PRODUCT RULES - READ CAREFULLY** 🚨🚨🚨
+   
+   **RULE 1: PRODUCT MAPPING IS REQUIRED FOR ALL IMAGES** (when inventory has products):
+   - If inventory_analysis contains product_images (count > 0):
+     → You MUST set `product_mapping` for **ALL** image prompts, not just some
+     → Set `"image_X_product_mapping": "image_1"` for EVERY image (0, 1, 2, 3, etc.)
+   - If user mentions "product", "our product", "this product", "generate for product":
+     → This confirms they want product in ALL images - map ALL of them
+   - **NEVER set product_mapping to null when products exist in inventory**
+   
+   **RULE 2: "Reference product" MUST START EVERY IMAGE PROMPT** (when product is mapped):
+   - When product_mapping is set (not null), your image prompt MUST:
+     → **BEGIN** with the exact words "Reference product"
+     → Follow immediately with description of product placement
+   
+   ✅ CORRECT FORMAT (product_mapping is set):
+   - "Reference product displayed elegantly on marble surface..."
+   - "Reference product (gelato) in glass bowl, surrounded by..."
+   - "Reference product as hero shot on wooden table..."
+   - "Reference product held by hands, lifestyle setting..."
+   
+   ❌ WRONG FORMAT (DO NOT DO THIS):
+   - "Close-up of new artisanal gelato scoop..." ← Missing "Reference product" at start
+   - "Elegant glass bowl with gelato..." ← Missing "Reference product" at start
+   - "...reference product" at the end ← Wrong position, must be at START
+   
+   **RULE 3: END WITH PRODUCT INTEGRITY PHRASE**:
+   - Every image prompt with product mapping MUST end with:
+     → "do not morph the product distinguishing features"
+   
+   **RULE 4: REFERENCE LOGO PLACEMENT**:
+   - "Reference logo" → When logo_needed is true
+   - Place near the end of prompt, before the product integrity phrase
+   
+   **COMPLETE EXAMPLE OF CORRECT IMAGE PROMPT**:
+   ```
+   "image_prompt_0": "Reference product (artisanal popsicle) standing upright balanced on its stick at slight angle on elegant white plate, cube-shaped design with colorful layers clearly visible and bite mark showing creamy interior, surrounded by fresh berries and mint as garnish on marble countertop, soft diffused warm ambient lighting highlighting frozen texture, shallow depth of field with creamy bokeh background, warm cozy atmosphere, professional DSLR photography, incorporating Primary: #6998d0 in plate rim, Secondary: #FFFFFF in marble, Accent: #9b366c in berry garnishes, 1:1 aspect ratio, Reference logo embossed on plate edge, do not morph the product distinguishing features",
+   "image_0_product_mapping": "image_1",
+   "image_0_logo_needed": true
+   ```
    
    **DETAILED & SPECIFIC PROMPTS** (MANDATORY):
-   - Generate detailed and comprehensive image prompts (100-120 words per prompt)
+   - Generate detailed and comprehensive image prompts (120-150 words per prompt)
+   - **PROMPT STRUCTURE ORDER** (STRICT - when product exists in inventory):
+     1. **FIRST 2 WORDS MUST BE**: "Reference product" (MANDATORY - no exceptions)
+     2. Product description in parentheses: "(gelato)" or "(paleta)"
+     3. **PHYSICAL PLACEMENT/POSITIONING** (CRITICAL - see below)
+     4. Scene/environment description
+     5. Lighting and atmosphere  
+     6. Visual style elements (from visual_styles analysis)
+     7. Color palette integration
+     8. Technical specs (aspect ratio)
+     9. "Reference logo [placement]"
+     10. **LAST WORDS MUST BE**: "do not morph the product distinguishing features"
+   
+   📍 **PRODUCT PLACEMENT/POSITIONING** (MANDATORY - specify HOW product is physically placed):
+   
+   You MUST describe the physical positioning of the product in a way that:
+   - Makes sense for that specific type of product
+   - Follows real-world physics and natural laws
+   - Shows the product in its best/most natural presentation
+   
+   **PLACEMENT EXAMPLES BY PRODUCT TYPE**:
+   
+   🍦 **Food/Frozen treats (popsicle, ice cream, etc.)**:
+   - "standing upright balanced on its stick on the plate"
+   - "lying flat at a slight angle showcasing all layers"
+   - "held by a hand entering the frame from the left"
+   - "leaning against a glass bowl at 45-degree angle"
+   - "positioned diagonally with bitten end toward camera"
+   
+   ⌚ **Watches/Jewelry**:
+   - "laid flat face-up on velvet cushion"
+   - "wrapped around a cylindrical display stand"
+   - "positioned at classic 10:10 time showing full dial"
+   - "draped elegantly over polished stone"
+   
+   👗 **Clothing/Fashion**:
+   - "draped gracefully over wooden chair back"
+   - "laid flat on white surface showing full design"
+   - "hung on minimalist wooden hanger against wall"
+   - "folded neatly with corner slightly lifted"
+   
+   📱 **Electronics/Gadgets**:
+   - "propped up at viewing angle on sleek stand"
+   - "laid flat screen-up reflecting ambient light"
+   - "held in hand with screen facing camera"
+   - "floating at slight angle with shadow beneath"
+   
+   🧴 **Bottles/Containers**:
+   - "standing upright with label facing camera"
+   - "tilted at 30-degree angle showing liquid inside"
+   - "nestled in crushed ice with condensation droplets"
+   - "lying on side with pump dispenser visible"
+   
+   👟 **Shoes/Footwear**:
+   - "positioned at three-quarter angle showing profile"
+   - "one shoe standing, one lying beside it"
+   - "arranged toe-to-heel in dynamic composition"
+   
+   🎒 **Bags/Accessories**:
+   - "standing upright with flap open revealing interior"
+   - "laid on side showing brand hardware"
+   - "hung on hook with strap draped naturally"
+   
+   **GENERIC PLACEMENT OPTIONS** (when unsure):
+   - "centered prominently as hero shot"
+   - "positioned at eye-level angle"
+   - "arranged at three-quarter view for dimension"
+   - "displayed upright in natural resting position"
+   - "held by hands entering frame showing scale"
+   
    - Include specific details about: composition, lighting, camera angle, mood, atmosphere
    - Specify subject placement, background elements, foreground elements, and spatial relationships
    - Describe textures, materials, and surface qualities
    - Include professional photography/cinematography terms for better quality
+   
+   **EXPANDED PROMPT EXAMPLE** (120-150 words):
+   "Reference product (artisanal popsicle) standing upright balanced on its wooden stick on an elegant white ceramic plate, positioned at slight angle to showcase the colorful layered cube design with bite mark revealing creamy texture, surrounded by fresh strawberries and scattered chia seeds, soft golden hour sunlight streaming from the left creating warm highlights on the frozen surface, shallow depth of field with creamy bokeh in the background showing blurred fairy lights and greenery, warm cozy atmosphere with vibrant saturated colors, professional DSLR quality photography with high definition crisp details, incorporating Primary: #6998d0 in plate rim accent, Secondary: #FFFFFF in background, Accent: #9b366c in strawberry garnishes, 1:1 aspect ratio for social media, Reference logo subtly embossed on plate edge, do not morph the product distinguishing features"
    
    **SIMPLICITY & FOCUS** (AVOID CLUTTERED IMAGES):
    - Focus on ONE central subject or concept per image
@@ -2144,6 +2338,36 @@ INSPIRATION LINKS ANALYSIS:
 
 GENERATE:
 
+🎯 **AUTONOMOUS TOPIC SELECTION** (When user instructions are minimal or not provided):
+
+**APPLIES TO BOTH WEB2 AND WEB3 BRANDS/PROJECTS**:
+
+If the user has NOT provided specific content instructions or topic guidance:
+- **ANALYZE THE PROVIDED CONTEXT** deeply:
+  * Brand context (accountName, businessOverview, industry, brandVoices, brandStyles)
+  * Inventory analysis (products, inspiration images, model images)
+  * Documents and links (recent news, updates, features)
+  * Keywords and brand values
+  
+- **PICK A COMPELLING TOPIC** autonomously based on:
+  * Industry trends and what resonates with the target audience
+  * Brand's unique selling points or recent developments
+  * Seasonal/timely relevance (if applicable)
+  * What would drive the most engagement for this specific brand
+  
+- **TOPIC SELECTION EXAMPLES BY INDUSTRY**:
+  * **E-commerce/Retail**: New arrivals, seasonal sales, customer favorites, behind-the-scenes
+  * **SaaS/Tech**: Feature spotlight, productivity tips, user success stories, industry insights
+  * **Food & Beverage**: Recipe ideas, ingredient spotlight, seasonal specials, food trends
+  * **Fashion/Beauty**: Style tips, trending looks, product tutorials, influencer picks
+  * **Health & Fitness**: Workout tips, nutrition advice, transformation stories, wellness trends
+  * **Finance/Fintech**: Money tips, market insights, product benefits, financial education
+  * **Travel/Hospitality**: Destination highlights, travel tips, guest experiences, seasonal getaways
+  * **Web3/Crypto**: Community updates, ecosystem growth, partnership announcements, technical milestones
+  * **Any other industry**: Adapt creatively based on context analysis
+  
+- **GENERATE COHESIVE CONTENT**: Once you pick a topic, ensure ALL generated content (texts, image prompts, clip prompts) aligns with that chosen topic for a unified, engaging post.
+
 1. VIDEO TYPE SELECTION:
    - **FIRST**: Check if USER INSTRUCTIONS explicitly request a specific video type (product showcase, UGC/influencer, brand story)
    - **IF YES**: Honor the user's explicit request
@@ -2171,6 +2395,7 @@ GENERATE:
      * If YES: Output `"product_mapping": "image_X"` (matching the product image index)
      * If NO: Output `"product_mapping": null`
      * **IN YOUR PROMPT**: If product is mapped, use **"reference product"** keyword
+     * **MANDATORY**: Also include **"do not morph the product distinguishing features"** at the end of the prompt
    
    **MAPPING EXAMPLES**:
    ```
@@ -2198,11 +2423,11 @@ GENERATE:
    - **"reference logo"** → When logo_needed is true
    - **"reference model"** → When has_model_image is true (for UGC videos)
    
-   **COMBINED EXAMPLE**:
+   **COMBINED EXAMPLE** (120-150 words):
    ```
    {{
-     "image_prompt_0": "Reference model in modern coffee shop, natural lighting, holding reference product (smartphone) with reference logo visible on screen, warm atmosphere, shallow depth of field",
-     "image_0_product_mapping": "image_2",
+     "image_prompt_0": "Reference product (artisan popsicle) standing upright on its branded wooden stick leaning slightly against a ceramic bowl rim on marble countertop, cube-shaped frozen treat with alternating peanut butter and strawberry layers clearly visible with a bite taken from top corner revealing creamy texture inside, fresh strawberries and chia seeds scattered artfully around on the plate, soft natural window light streaming from the right creating beautiful highlights on the frozen surface, shallow depth of field with softly blurred kitchen background, warm cozy atmosphere with vibrant saturated colors, professional DSLR photography quality with high definition crisp details, incorporating Primary: #6998d0 in plate rim, Secondary: #FFFFFF in marble surface, Accent: #9b366c in strawberry garnish, 1:1 aspect ratio for social media, Reference logo subtly on plate edge, do not morph the product distinguishing features",
+     "image_0_product_mapping": "image_1",
      "image_0_logo_needed": true
    }}
    ```

@@ -8,11 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Search, Filter, Eye, Heart, MessageCircle, Share2, Loader2, Play, Calendar as CalendarIcon, Sparkles } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
+import { UpgradeDialog } from "@/components/UpgradeDialog";
 import { contentLibraryApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
@@ -72,6 +74,11 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   // Generate Content Dialog state
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [onboardingJobId, setOnboardingJobId] = useState<string | null>(null);
+  
+  // Usage limit and upgrade dialogs
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const [showInactiveAccountDialog, setShowInactiveAccountDialog] = useState(false);
+  const [usageData, setUsageData] = useState<any>(null);
   
   // Onboarding guide
   const { completeStep } = useOnboardingGuide();
@@ -913,7 +920,40 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
       <div className="fixed bottom-6 right-6 lg:right-20 z-50">
         {/* Mobile: round icon button */}
         <Button 
-          onClick={() => setShowGenerateDialog(true)}
+          onClick={async () => {
+            // Check account status and usage limits
+            try {
+              const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
+                credentials: 'include',
+                headers: {
+                  ...(() => {
+                    const accountId = localStorage.getItem('dvyb_account_id');
+                    return accountId ? { 'X-DVYB-Account-ID': accountId } : {};
+                  })(),
+                },
+              });
+              const data = await response.json();
+              
+              if (data.success && data.data) {
+                setUsageData(data.data);
+                
+                // First check if account is active
+                if (data.data.isAccountActive === false) {
+                  setShowInactiveAccountDialog(true);
+                  return;
+                }
+                
+                if (data.data.limitExceeded && (data.data.remainingImages === 0 && data.data.remainingVideos === 0)) {
+                  setShowUpgradeDialog(true);
+                } else {
+                  setShowGenerateDialog(true);
+                }
+              }
+            } catch (error) {
+              console.error('Failed to check usage:', error);
+              setShowGenerateDialog(true);
+            }
+          }}
           className="md:hidden bg-primary hover:bg-primary/90 shadow-lg rounded-full h-14 w-14 p-0"
           size="icon"
         >
@@ -921,13 +961,91 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         </Button>
         {/* Tablet/Desktop: full button with text */}
         <Button 
-          onClick={() => setShowGenerateDialog(true)}
+          onClick={async () => {
+            // Check account status and usage limits
+            try {
+              const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
+                credentials: 'include',
+                headers: {
+                  ...(() => {
+                    const accountId = localStorage.getItem('dvyb_account_id');
+                    return accountId ? { 'X-DVYB-Account-ID': accountId } : {};
+                  })(),
+                },
+              });
+              const data = await response.json();
+              
+              if (data.success && data.data) {
+                setUsageData(data.data);
+                
+                // First check if account is active
+                if (data.data.isAccountActive === false) {
+                  setShowInactiveAccountDialog(true);
+                  return;
+                }
+                
+                if (data.data.limitExceeded && (data.data.remainingImages === 0 && data.data.remainingVideos === 0)) {
+                  setShowUpgradeDialog(true);
+                } else {
+                  setShowGenerateDialog(true);
+                }
+              }
+            } catch (error) {
+              console.error('Failed to check usage:', error);
+              setShowGenerateDialog(true);
+            }
+          }}
           className="hidden md:flex bg-primary hover:bg-primary/90 shadow-lg px-5 py-5 text-base"
         >
           <Sparkles className="w-5 h-5 mr-2" />
           Generate Content
         </Button>
       </div>
+
+      {/* Upgrade Dialog */}
+      <UpgradeDialog 
+        open={showUpgradeDialog} 
+        onOpenChange={setShowUpgradeDialog}
+        usageData={usageData}
+      />
+
+      {/* Inactive Account Dialog */}
+      <AlertDialog open={showInactiveAccountDialog} onOpenChange={setShowInactiveAccountDialog}>
+        <AlertDialogContent className="w-[90vw] sm:w-[85vw] md:max-w-md p-4 sm:p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-center text-lg sm:text-xl">
+              Account Not Active
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="text-center space-y-3 sm:space-y-4 pt-3 sm:pt-4">
+                <p className="text-sm sm:text-base text-muted-foreground">
+                  Your account is currently not active. Content generation is temporarily unavailable.
+                </p>
+                <p className="text-sm sm:text-base text-muted-foreground">
+                  Please reach out to our support team to reactivate your account.
+                </p>
+                <div className="bg-blue-50 dark:bg-blue-950 p-3 sm:p-4 rounded-lg mt-3 sm:mt-4">
+                  <p className="text-xs sm:text-sm text-muted-foreground mb-1">Contact Support:</p>
+                  <a 
+                    href="mailto:social@dvyb.ai" 
+                    className="text-blue-600 hover:text-blue-700 font-medium text-base sm:text-lg break-all"
+                  >
+                    social@dvyb.ai
+                  </a>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="justify-center pt-2 sm:pt-4">
+            <Button 
+              onClick={() => setShowInactiveAccountDialog(false)}
+              className="w-full sm:w-auto min-w-[120px]"
+            >
+              Close
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -2,6 +2,10 @@ import { Router, Response } from 'express';
 import { DvybAuthRequest, dvybAuthMiddleware } from '../middleware/dvybAuthMiddleware';
 import { AppDataSource } from '../config/database';
 import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
+import { DvybAccount } from '../models/DvybAccount';
+import { DvybAccountPlan } from '../models/DvybAccountPlan';
+import { DvybPricingPlan } from '../models/DvybPricingPlan';
+import { IsNull } from 'typeorm';
 import { logger } from '../config/logger';
 import { env } from '../config/env';
 import multer from 'multer';
@@ -248,6 +252,132 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
         error: 'Missing required fields: topic, platforms, number_of_posts',
       });
     }
+
+    // ========== SECURITY CHECK: Validate account status and usage limits ==========
+    // This prevents hackers from bypassing frontend checks
+    
+    const accountRepo = AppDataSource.getRepository(DvybAccount);
+    const account = await accountRepo.findOne({ where: { id: accountId } });
+    
+    if (!account) {
+      logger.warn(`🚫 Generation blocked: Account ${accountId} not found`);
+      return res.status(404).json({
+        success: false,
+        error: 'Account not found',
+        code: 'ACCOUNT_NOT_FOUND',
+      });
+    }
+
+    // Check if account is active
+    if (!account.isActive) {
+      logger.warn(`🚫 Generation blocked: Account ${accountId} is not active`);
+      return res.status(403).json({
+        success: false,
+        error: 'Account is not active. Please contact support to reactivate your account.',
+        code: 'ACCOUNT_INACTIVE',
+      });
+    }
+
+    // Check usage limits
+    const accountPlanRepo = AppDataSource.getRepository(DvybAccountPlan);
+    const planRepo = AppDataSource.getRepository(DvybPricingPlan);
+    const contentRepo = AppDataSource.getRepository(DvybGeneratedContent);
+    
+    // Get current plan
+    const currentPlan = await accountPlanRepo.findOne({
+      where: { 
+        accountId, 
+        status: 'active',
+        endDate: IsNull(),
+      },
+      relations: ['plan'],
+      order: { startDate: 'DESC' },
+    });
+    
+    // Calculate limits
+    let imageLimit = 0;
+    let videoLimit = 0;
+    
+    if (currentPlan) {
+      imageLimit = currentPlan.selectedFrequency === 'monthly' 
+        ? currentPlan.plan.monthlyImageLimit 
+        : currentPlan.plan.annualImageLimit;
+      
+      videoLimit = currentPlan.selectedFrequency === 'monthly'
+        ? currentPlan.plan.monthlyVideoLimit
+        : currentPlan.plan.annualVideoLimit;
+    } else {
+      // No active plan - use Free Trial plan limits (monthly frequency)
+      const freeTrialPlan = await planRepo.findOne({
+        where: { isFreeTrialPlan: true, isActive: true },
+      });
+
+      if (freeTrialPlan) {
+        imageLimit = freeTrialPlan.monthlyImageLimit;
+        videoLimit = freeTrialPlan.monthlyVideoLimit;
+        logger.info(`✅ Using Free Trial plan limits for account ${accountId}: ${imageLimit} images, ${videoLimit} videos`);
+      } else {
+        logger.warn(`⚠️ No Free Trial plan found for account ${accountId} - using 0 limits`);
+      }
+    }
+
+    // Calculate current usage from completed generations
+    const generatedContent = await contentRepo.find({
+      where: { 
+        accountId,
+        status: 'completed',
+      },
+    });
+
+    let imageUsage = 0;
+    let videoUsage = 0;
+    generatedContent.forEach(content => {
+      imageUsage += (content.generatedImageUrls || []).filter((url: string | null) => url !== null).length;
+      videoUsage += (content.generatedVideoUrls || []).filter((url: string | null) => url !== null).length;
+    });
+
+    const remainingImages = Math.max(0, imageLimit - imageUsage);
+    const remainingVideos = Math.max(0, videoLimit - videoUsage);
+
+    // Check if limits are exhausted
+    if (remainingImages === 0 && remainingVideos === 0) {
+      logger.warn(`🚫 Generation blocked: Account ${accountId} has exhausted all limits (images: ${imageUsage}/${imageLimit}, videos: ${videoUsage}/${videoLimit})`);
+      return res.status(403).json({
+        success: false,
+        error: 'Content generation limits exhausted. Please upgrade your plan to continue.',
+        code: 'LIMITS_EXHAUSTED',
+        data: {
+          imageLimit,
+          videoLimit,
+          imageUsage,
+          videoUsage,
+          remainingImages,
+          remainingVideos,
+        },
+      });
+    }
+
+    // Validate requested content doesn't exceed remaining limits
+    const requestedImages = number_of_images || 0;
+    const requestedVideos = number_of_videos || 0;
+    
+    if (requestedImages > remainingImages || requestedVideos > remainingVideos) {
+      logger.warn(`🚫 Generation blocked: Account ${accountId} requested ${requestedImages} images and ${requestedVideos} videos, but only ${remainingImages} images and ${remainingVideos} videos remaining`);
+      return res.status(403).json({
+        success: false,
+        error: `Insufficient limits. You can generate up to ${remainingImages} more images and ${remainingVideos} more videos.`,
+        code: 'INSUFFICIENT_LIMITS',
+        data: {
+          requestedImages,
+          requestedVideos,
+          remainingImages,
+          remainingVideos,
+        },
+      });
+    }
+
+    logger.info(`✅ Account ${accountId} passed security checks (active: true, remaining: ${remainingImages} images, ${remainingVideos} videos)`);
+    // ========== END SECURITY CHECK ==========
 
     // Call Python backend
     const pythonBackendUrl = env.ai.pythonBackendUrl;

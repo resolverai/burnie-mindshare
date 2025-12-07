@@ -21,7 +21,9 @@ import {
   AlertCircle,
   RefreshCw,
   Play,
-  Pause
+  Pause,
+  Copy,
+  Check
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -117,6 +119,23 @@ export default function DvybAccountsPage() {
   const [deleting, setDeleting] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<DvybAccount | null>(null);
   const [togglingAutoGen, setTogglingAutoGen] = useState<number | null>(null);
+  const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+
+  // Helper to truncate email and copy to clipboard
+  const truncateEmail = (email: string, maxLength: number = 25) => {
+    if (email.length <= maxLength) return email;
+    return email.substring(0, maxLength) + '...';
+  };
+
+  const copyEmail = async (email: string) => {
+    try {
+      await navigator.clipboard.writeText(email);
+      setCopiedEmail(email);
+      setTimeout(() => setCopiedEmail(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy email:', err);
+    }
+  };
 
   // Fetch accounts
   const fetchAccounts = async () => {
@@ -443,13 +462,32 @@ export default function DvybAccountsPage() {
                               </div>
                             )}
                           </div>
-                          <div className="ml-4">
+                          <div className="ml-4 min-w-0">
                             <div className="text-sm font-medium text-gray-900">
                               {account.accountName}
                             </div>
                             <div className="text-sm text-gray-500 flex items-center gap-1">
-                              <Mail className="h-3 w-3" />
-                              {account.primaryEmail}
+                              <Mail className="h-3 w-3 flex-shrink-0" />
+                              <span 
+                                className="truncate max-w-[180px]" 
+                                title={account.primaryEmail}
+                              >
+                                {truncateEmail(account.primaryEmail)}
+                              </span>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  copyEmail(account.primaryEmail);
+                                }}
+                                className="flex-shrink-0 p-0.5 hover:bg-gray-200 rounded transition-colors"
+                                title="Copy email"
+                              >
+                                {copiedEmail === account.primaryEmail ? (
+                                  <Check className="h-3 w-3 text-green-600" />
+                                ) : (
+                                  <Copy className="h-3 w-3 text-gray-400 hover:text-gray-600" />
+                                )}
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -586,7 +624,7 @@ export default function DvybAccountsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-nowrap">
                           <Button
                             onClick={() => openAssociatePlanModal(account)}
                             size="sm"

@@ -55,7 +55,7 @@ export default function BrandProfilePage() {
         number_of_posts: 2,
         number_of_images: 1,
         number_of_videos: 1,  // 1 image + 1 video for better demo
-        user_prompt: 'Generate Posts to showcase new feature launch on our platform',
+        user_prompt: '',  // Let the AI generate based on brand context
       });
       
       if (genResponse.success && (genResponse.job_id || genResponse.uuid)) {
