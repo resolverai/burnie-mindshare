@@ -1960,7 +1960,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    
    **COMPLETE EXAMPLE OF CORRECT IMAGE PROMPT**:
    ```
-   "image_prompt_0": "Reference product (artisanal popsicle) standing upright balanced on its stick at slight angle on elegant white plate, cube-shaped design with colorful layers clearly visible and bite mark showing creamy interior, surrounded by fresh berries and mint as garnish on marble countertop, soft diffused warm ambient lighting highlighting frozen texture, shallow depth of field with creamy bokeh background, warm cozy atmosphere, professional DSLR photography, incorporating Primary: #6998d0 in plate rim, Secondary: #FFFFFF in marble, Accent: #9b366c in berry garnishes, 1:1 aspect ratio, Reference logo embossed on plate edge, do not morph the product distinguishing features",
+   "image_prompt_0": "Reference product (artisanal popsicle) standing upright with stick inserted into a small ceramic bowl of chia seeds for support, leaning slightly against the bowl rim, cube-shaped design with colorful layers clearly visible and bite mark showing creamy interior, fresh berries and mint scattered around the bowl on marble countertop, soft diffused warm ambient lighting highlighting frozen texture, shallow depth of field with creamy bokeh background, warm cozy atmosphere, professional DSLR photography, incorporating Primary: #6998d0 in ceramic bowl, Secondary: #FFFFFF in marble, Accent: #9b366c in berry garnishes, 1:1 aspect ratio, Reference logo engraved on wooden stick, do not morph the product distinguishing features",
    "image_0_product_mapping": "image_1",
    "image_0_logo_needed": true
    ```
@@ -1986,14 +1986,41 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - Follows real-world physics and natural laws
    - Shows the product in its best/most natural presentation
    
+   ⚠️ **PHYSICS & SUPPORT RULES** (CRITICAL - products cannot float in air):
+   
+   **RULE: If product is at an angle, you MUST specify what is SUPPORTING it**
+   - Products cannot hover, float, or balance at impossible angles
+   - Every angled position needs a physical support described
+   
+   ❌ WRONG (physically impossible):
+   - "standing upright at a slight angle on wooden surface" ← How is it staying at an angle? Impossible!
+   - "popsicle tilted at 45 degrees on plate" ← Would fall over without support
+   - "bottle leaning without support" ← Defies gravity
+   
+   ✅ CORRECT (physics-compliant - always specify support):
+   - "standing upright with stick inserted into a small bowl of chia seeds for support"
+   - "leaning at 45-degree angle against a ceramic bowl rim"
+   - "propped up by resting against a stack of cookies"
+   - "balanced in a decorative holder designed for popsicles"
+   - "lying flat on the surface" (no angle = no support needed)
+   - "held by a hand entering frame from left side"
+   
+   **SUPPORT OPTIONS TO USE**:
+   - Inserted into: bowl of seeds, sand, ice, crushed ingredients
+   - Leaning against: bowl rim, cup edge, stack of items, wall, another product
+   - Resting on: stand, holder, display prop, folded napkin
+   - Held by: hand, fingers, tongs, serving utensil
+   - Lying flat: on surface (no support needed when horizontal)
+   
    **PLACEMENT EXAMPLES BY PRODUCT TYPE**:
    
    🍦 **Food/Frozen treats (popsicle, ice cream, etc.)**:
-   - "standing upright balanced on its stick on the plate"
-   - "lying flat at a slight angle showcasing all layers"
+   - "standing upright with stick inserted into a small bowl of chia seeds for support"
+   - "leaning at 45-degree angle against a ceramic bowl rim for support"
    - "held by a hand entering the frame from the left"
-   - "leaning against a glass bowl at 45-degree angle"
-   - "positioned diagonally with bitten end toward camera"
+   - "lying flat on the plate showcasing all layers" (no support needed when flat)
+   - "propped upright resting against a stack of fresh strawberries"
+   - "balanced in a decorative wooden popsicle holder"
    
    ⌚ **Watches/Jewelry**:
    - "laid flat face-up on velvet cushion"
@@ -2042,7 +2069,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - Include professional photography/cinematography terms for better quality
    
    **EXPANDED PROMPT EXAMPLE** (120-150 words):
-   "Reference product (artisanal popsicle) standing upright balanced on its wooden stick on an elegant white ceramic plate, positioned at slight angle to showcase the colorful layered cube design with bite mark revealing creamy texture, surrounded by fresh strawberries and scattered chia seeds, soft golden hour sunlight streaming from the left creating warm highlights on the frozen surface, shallow depth of field with creamy bokeh in the background showing blurred fairy lights and greenery, warm cozy atmosphere with vibrant saturated colors, professional DSLR quality photography with high definition crisp details, incorporating Primary: #6998d0 in plate rim accent, Secondary: #FFFFFF in background, Accent: #9b366c in strawberry garnishes, 1:1 aspect ratio for social media, Reference logo subtly embossed on plate edge, do not morph the product distinguishing features"
+   "Reference product (artisanal popsicle) standing upright with its wooden stick inserted into a small turquoise ceramic bowl filled with chia seeds for support, positioned at slight angle leaning against the bowl rim to showcase the colorful layered cube design with bite mark revealing creamy texture, fresh strawberries and goji berries scattered around the bowl on rustic wooden table surface, soft golden hour sunlight streaming from the left creating warm highlights on the frozen surface, shallow depth of field with creamy bokeh in the background, warm cozy atmosphere with vibrant saturated colors, professional DSLR quality photography with high definition crisp details, incorporating Primary: #6998d0 in ceramic bowl, Secondary: #FFFFFF in background, Accent: #9b366c in strawberry garnishes, 1:1 aspect ratio for social media, Reference logo engraved on wooden stick, do not morph the product distinguishing features"
    
    **SIMPLICITY & FOCUS** (AVOID CLUTTERED IMAGES):
    - Focus on ONE central subject or concept per image
@@ -2426,7 +2453,7 @@ If the user has NOT provided specific content instructions or topic guidance:
    **COMBINED EXAMPLE** (120-150 words):
    ```
    {{
-     "image_prompt_0": "Reference product (artisan popsicle) standing upright on its branded wooden stick leaning slightly against a ceramic bowl rim on marble countertop, cube-shaped frozen treat with alternating peanut butter and strawberry layers clearly visible with a bite taken from top corner revealing creamy texture inside, fresh strawberries and chia seeds scattered artfully around on the plate, soft natural window light streaming from the right creating beautiful highlights on the frozen surface, shallow depth of field with softly blurred kitchen background, warm cozy atmosphere with vibrant saturated colors, professional DSLR photography quality with high definition crisp details, incorporating Primary: #6998d0 in plate rim, Secondary: #FFFFFF in marble surface, Accent: #9b366c in strawberry garnish, 1:1 aspect ratio for social media, Reference logo subtly on plate edge, do not morph the product distinguishing features",
+     "image_prompt_0": "Reference product (artisan popsicle) standing upright with wooden stick inserted into a turquoise ceramic bowl filled with chia seeds for support, leaning at slight angle against the bowl rim for stability, cube-shaped frozen treat with alternating peanut butter and strawberry layers clearly visible with a bite taken from top corner revealing creamy texture inside, fresh strawberries and goji berries scattered artfully around the bowl on rustic wooden table, soft natural window light streaming from the right creating beautiful highlights on the frozen surface, shallow depth of field with softly blurred background, warm cozy atmosphere with vibrant saturated colors, professional DSLR photography quality with high definition crisp details, incorporating Primary: #6998d0 in ceramic bowl, Secondary: #FFFFFF in background highlights, Accent: #9b366c in strawberry garnish, 1:1 aspect ratio for social media, Reference logo engraved on wooden stick, do not morph the product distinguishing features",
      "image_0_product_mapping": "image_1",
      "image_0_logo_needed": true
    }}

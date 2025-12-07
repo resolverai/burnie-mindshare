@@ -2375,22 +2375,22 @@ def extract_json_from_response(response_text: str) -> str:
     - ``` ... ```
     - Plain JSON
     - JSON embedded in other text (with explanations before/after)
-    
+
     IMPORTANT:
-    Some models (GPT-4o, etc.) may put valid JSON followed by extra text
-    inside the same code block. To avoid "Extra data" JSON errors, we
-    always trim to the FIRST complete JSON object found.
+    Some models may put valid JSON followed by extra text in the same block.
+    To avoid "Extra data" JSON errors, we always trim to the FIRST complete
+    JSON object found.
     """
-    
+
     # Handle empty or None response
     if not response_text or not response_text.strip():
         raise ValueError("Empty response from LLM")
 
     def _trim_to_first_json_object(text: str) -> str:
         """
-        Given a string that may contain JSON plus extra content,
-        return only the first complete JSON object (from first '{' to matching '}').
-        If no balanced object is found, return the original text.
+        Return only the first complete JSON object (from first '{' to matching '}'),
+        correctly handling braces inside quoted strings. If no balanced object is
+        found, return the original text trimmed.
         """
         brace_count = 0
         start_idx = -1
@@ -2398,69 +2398,73 @@ def extract_json_from_response(response_text: str) -> str:
         escape_next = False
 
         for i, char in enumerate(text):
-            # Handle string escaping to avoid counting braces inside strings
             if escape_next:
                 escape_next = False
                 continue
-            if char == '\\' and in_string:
-                escape_next = True
+
+            if in_string:
+                if char == '\\':
+                    escape_next = True
+                    continue
+                if char == '"':
+                    in_string = False
                 continue
-            if char == '"' and not escape_next:
-                in_string = not in_string
+
+            if char == '"':
+                in_string = True
                 continue
-            
-            if not in_string:
-                if char == '{':
-                    if brace_count == 0:
-                        start_idx = i
-                    brace_count += 1
-                elif char == '}':
-                    if brace_count > 0:
-                        brace_count -= 1
-                        if brace_count == 0 and start_idx != -1:
-                            end_idx = i + 1
-                            return text[start_idx:end_idx].strip()
+
+            if char == '{':
+                if brace_count == 0:
+                    start_idx = i
+                brace_count += 1
+            elif char == '}':
+                if brace_count > 0:
+                    brace_count -= 1
+                    if brace_count == 0 and start_idx != -1:
+                        end_idx = i + 1
+                        return text[start_idx:end_idx].strip()
 
         return text.strip()
 
-    # Try to extract from markdown code blocks first
+    # 1) Try ```json``` fenced blocks first
     if "```json" in response_text.lower():
-        # Case-insensitive search for ```json
         json_pattern = re.search(r'```json\s*\n?(.*?)\n?```', response_text, re.DOTALL | re.IGNORECASE)
         if json_pattern:
             block = json_pattern.group(1).strip()
-            result = _trim_to_first_json_object(block)
-            if result.startswith("{") and result.endswith("}"):
-                return result
-    
-    # Try generic code blocks
+            trimmed = _trim_to_first_json_object(block)
+            if trimmed.startswith("{") and trimmed.endswith("}"):
+                return trimmed
+
+    # 2) Try generic ``` ``` fenced blocks
     if "```" in response_text:
         code_pattern = re.search(r'```\s*\n?(.*?)\n?```', response_text, re.DOTALL)
         if code_pattern:
             potential_json = code_pattern.group(1).strip()
-            # Check if it looks like JSON
             if potential_json.startswith("{") or potential_json.startswith("["):
-                result = _trim_to_first_json_object(potential_json)
-                if result.startswith("{") and result.endswith("}"):
-                    return result
-    
-    # Try to find JSON object directly in the whole response
+                trimmed = _trim_to_first_json_object(potential_json)
+                if trimmed.startswith("{") and trimmed.endswith("}"):
+                    return trimmed
+
+    # 3) Try scanning the whole response for the first JSON object
     trimmed = _trim_to_first_json_object(response_text)
     if trimmed and trimmed.startswith("{") and trimmed.endswith("}"):
         return trimmed
-    
-    # Last resort: try to find anything that looks like JSON by slicing from
-    # the first '{' to the last '}', then trimming again
+
+    # 4) Last resort: slice from first '{' to last '}' then trim again
     if "{" in response_text and "}" in response_text:
         start_idx = response_text.find("{")
         end_idx = response_text.rfind("}") + 1
         if start_idx != -1 and end_idx > start_idx:
             candidate = response_text[start_idx:end_idx].strip()
-            result = _trim_to_first_json_object(candidate)
-            if result.startswith("{") and result.endswith("}"):
-                return result
-    
-    raise ValueError(f"No valid JSON found in response (length: {len(response_text)}, preview: {response_text[:100]}...)")
+            trimmed = _trim_to_first_json_object(candidate)
+            if trimmed.startswith("{") and trimmed.endswith("}"):
+                return trimmed
+
+    raise ValueError(
+        f"No valid JSON found in response (length: {len(response_text)}, "
+        f"preview: {response_text[:100]}...)"
+    )
 
 
 # ============================================

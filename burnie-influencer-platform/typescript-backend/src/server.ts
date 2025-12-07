@@ -250,9 +250,9 @@ app.use('/api/dvyb/posts', dvybPostingRoutes); // DVYB Twitter posting
 app.use('/api/dvyb/internal', dvybInternalRoutes); // DVYB internal routes (Python AI backend)
 app.use('/api/dvyb/content-library', dvybContentLibraryRoutes);
 app.use('/api/dvyb/debug/schedules', dvybScheduleDebugRoutes); // DVYB content library
-app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes
 app.use('/api/dvyb/adhoc', dvybAdhocGenerationRoutes); // DVYB ad-hoc generation (proxies to Python backend)
 app.use('/api/dvyb/captions', dvybCaptionsRoutes); // DVYB user-edited captions
+app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes (has /:uuid catch-all, must be last)
 app.use('/api/cache', cacheRoutes); // Redis URL cache management
 app.use('/api/s3', s3PresignedRoutes); // S3 presigned URL generation (local TypeScript service)
 
