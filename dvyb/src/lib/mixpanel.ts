@@ -54,16 +54,38 @@ export const identifyUser = (userId: string | number, properties?: {
   mixpanel.identify(String(userId));
 
   if (properties) {
-    mixpanel.people.set({
-      $email: properties.email,
-      $name: properties.name || properties.accountName,
-      accountName: properties.accountName,
-      planName: properties.planName,
-      createdAt: properties.createdAt,
-    });
+    const userProperties: Record<string, any> = {};
+    
+    // Standard Mixpanel user properties
+    if (properties.email) {
+      userProperties.$email = properties.email;
+    }
+    if (properties.name) {
+      userProperties.$name = properties.name;
+    }
+    
+    // Custom properties
+    if (properties.accountName) {
+      userProperties.brand = properties.accountName; // Brand/company name
+      // Also set as $name if name wasn't provided
+      if (!properties.name) {
+        userProperties.$name = properties.accountName;
+      }
+    }
+    if (properties.planName) {
+      userProperties.planName = properties.planName;
+    }
+    if (properties.createdAt) {
+      userProperties.createdAt = properties.createdAt;
+    }
+    
+    // Only call people.set if we have properties to set
+    if (Object.keys(userProperties).length > 0) {
+      mixpanel.people.set(userProperties);
+    }
   }
 
-  console.log('✅ Mixpanel user identified:', userId);
+  console.log('✅ Mixpanel user identified:', userId, properties);
 };
 
 // Reset user (call on logout)

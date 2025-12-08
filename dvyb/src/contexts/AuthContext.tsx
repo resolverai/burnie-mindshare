@@ -71,9 +71,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setOnboardingComplete(response.data.onboardingComplete || false);
         setHasValidGoogleConnection(response.data.hasValidGoogleConnection || false);
         
-        // Identify user in Mixpanel
+        // Identify user in Mixpanel with user properties
         if (response.data.accountId) {
-          identifyUser(response.data.accountId);
+          identifyUser(response.data.accountId, {
+            email: response.data.email,
+            name: response.data.name,
+            accountName: response.data.accountName,
+          });
         }
         
         console.log('✅ Session authenticated - Account exists');

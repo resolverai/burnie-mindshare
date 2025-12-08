@@ -67,6 +67,7 @@ function DvybGoogleCallbackContent() {
         if (response.data?.account_id) {
           identifyUser(response.data.account_id, {
             email: response.data.email,
+            name: response.data.account_name, // Google name is used as account_name
             accountName: response.data.account_name,
           })
         }

@@ -22,14 +22,33 @@ async function apiRequest<T>(
 ): Promise<T> {
   const url = `${API_URL}${endpoint}`;
   
+  // Check if this is a FormData request (for file uploads)
+  const isFormData = options.body instanceof FormData;
+  
+  // Build headers - always include account ID header for Safari/ITP compatibility
+  const accountIdHeader = getAccountIdHeader();
+  const baseHeaders: Record<string, string> = {
+    ...accountIdHeader, // Always include account ID header
+  };
+  
+  // Only add Content-Type for non-FormData requests
+  // For FormData, let the browser set the Content-Type with boundary
+  if (!isFormData) {
+    baseHeaders['Content-Type'] = 'application/json';
+  }
+  
+  // Merge with any custom headers (but ensure account ID is always present)
+  const customHeaders = options.headers as Record<string, string> || {};
+  const finalHeaders = {
+    ...baseHeaders,
+    ...customHeaders,
+    ...accountIdHeader, // Re-add to ensure it's not overwritten
+  };
+  
   const defaultOptions: RequestInit = {
     credentials: 'include', // Include cookies for session management
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAccountIdHeader(), // Add account ID header as fallback for Safari/ITP
-      ...options.headers,
-    },
     ...options,
+    headers: finalHeaders,
   };
 
   try {
@@ -119,6 +138,10 @@ export const authApi = {
         hasValidGoogleConnection?: boolean;
         hasValidTwitterConnection?: boolean;
         onboardingComplete?: boolean;
+        // User info for Mixpanel tracking
+        email?: string;
+        name?: string;
+        accountName?: string;
       };
     }>('/dvyb/auth/status');
   },
@@ -267,8 +290,8 @@ export const uploadApi = {
       '/dvyb/upload/logo',
       {
         method: 'POST',
-        headers: {}, // Let browser set Content-Type for FormData
         body: formData,
+        // Note: apiRequest auto-detects FormData and handles Content-Type + account ID header
       }
     );
   },
@@ -288,7 +311,6 @@ export const uploadApi = {
       '/dvyb/upload/additional-logos',
       {
         method: 'POST',
-        headers: {},
         body: formData,
       }
     );
@@ -304,7 +326,6 @@ export const uploadApi = {
       '/dvyb/upload/brand-images',
       {
         method: 'POST',
-        headers: {},
         body: formData,
       }
     );
@@ -318,7 +339,6 @@ export const uploadApi = {
       '/dvyb/upload/document',
       {
         method: 'POST',
-        headers: {},
         body: formData,
       }
     );
@@ -345,7 +365,6 @@ export const uploadApi = {
       '/dvyb/upload/documents',
       {
         method: 'POST',
-        headers: {},
         body: formData,
       }
     );
@@ -367,7 +386,6 @@ export const uploadApi = {
       '/dvyb/upload/media',
       {
         method: 'POST',
-        headers: {},
         body: formData,
       }
     );
@@ -934,6 +952,9 @@ export const adhocGenerationApi = {
     const response = await fetch(`${API_URL}/dvyb/adhoc/upload`, {
       method: 'POST',
       credentials: 'include', // Send session cookie for authentication
+      headers: {
+        ...getAccountIdHeader(), // Add account ID header for Safari/ITP compatibility
+      },
       body: formData,
     });
 

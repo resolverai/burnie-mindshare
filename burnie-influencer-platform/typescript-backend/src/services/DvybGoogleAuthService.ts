@@ -372,6 +372,39 @@ export class DvybGoogleAuthService {
   }
 
   /**
+   * Get user info for Mixpanel tracking (email, name, accountName)
+   */
+  static async getUserInfo(accountId: number): Promise<{
+    email: string | null;
+    name: string | null;
+    accountName: string | null;
+  }> {
+    try {
+      const googleConnRepo = AppDataSource.getRepository(DvybGoogleConnection);
+      const contextRepo = AppDataSource.getRepository(DvybContext);
+
+      // Get email and name from Google connection
+      const googleConnection = await googleConnRepo.findOne({
+        where: { accountId },
+      });
+
+      // Get accountName from context
+      const context = await contextRepo.findOne({
+        where: { accountId },
+      });
+
+      return {
+        email: googleConnection?.email || null,
+        name: googleConnection?.name || null,
+        accountName: context?.accountName || null,
+      };
+    } catch (error) {
+      logger.error(`❌ Error getting user info for account ${accountId}:`, error);
+      return { email: null, name: null, accountName: null };
+    }
+  }
+
+  /**
    * 🎁 Auto-associate Free Trial plan with new account
    */
   static async associateFreeTrialPlan(accountId: number): Promise<void> {

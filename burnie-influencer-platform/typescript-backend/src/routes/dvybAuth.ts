@@ -244,13 +244,17 @@ router.post('/google/callback', async (req: Request, res: Response) => {
 /**
  * GET /api/dvyb/auth/status
  * Check authentication status
+ * Supports both cookies (primary) and X-DVYB-Account-ID header (fallback for Safari/ITP)
  */
 router.get('/status', async (req: DvybAuthRequest, res: Response) => {
   try {
-    const accountId = req.cookies?.dvyb_account_id;
+    // Check for account ID in cookies first, then fall back to header for Safari/ITP
+    const accountIdFromCookie = req.cookies?.dvyb_account_id;
+    const accountIdFromHeader = req.headers['x-dvyb-account-id'] as string;
+    const accountId = accountIdFromCookie || accountIdFromHeader;
 
     if (!accountId) {
-      logger.info('📊 DVYB Auth Status: No account ID in session/cookies');
+      logger.info('📊 DVYB Auth Status: No account ID in cookies or headers');
       return res.json({
         success: true,
         data: {
@@ -293,7 +297,11 @@ router.get('/status', async (req: DvybAuthRequest, res: Response) => {
     // Check if onboarding is complete
     const onboardingComplete = await DvybAuthService.isOnboardingComplete(accountIdNum);
 
-    logger.info(`📊 DVYB Auth Status: Account ${accountId} authenticated, onboarding: ${onboardingComplete}, Google: ${hasValidGoogleConnection ? 'valid' : 'expired'}, Twitter: ${hasValidTwitterConnection ? 'connected' : 'not connected'}`);
+    // Get user info for Mixpanel tracking
+    const userInfo = await DvybGoogleAuthService.getUserInfo(accountIdNum);
+
+    const authSource = accountIdFromCookie ? 'cookie' : 'header';
+    logger.info(`📊 DVYB Auth Status: Account ${accountId} authenticated (via ${authSource}), onboarding: ${onboardingComplete}, Google: ${hasValidGoogleConnection ? 'valid' : 'expired'}, Twitter: ${hasValidTwitterConnection ? 'connected' : 'not connected'}`);
     
     return res.json({
       success: true,
@@ -304,6 +312,10 @@ router.get('/status', async (req: DvybAuthRequest, res: Response) => {
         hasValidGoogleConnection,
         hasValidTwitterConnection,
         onboardingComplete,
+        // User info for Mixpanel tracking
+        email: userInfo.email,
+        name: userInfo.name,
+        accountName: userInfo.accountName,
       },
       timestamp: new Date().toISOString(),
     });
