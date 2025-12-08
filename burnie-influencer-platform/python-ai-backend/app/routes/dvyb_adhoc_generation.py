@@ -2163,15 +2163,46 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - Held by: hand, fingers, tongs, serving utensil
    - Lying flat: on surface (no support needed when horizontal)
    
+   🔄 **ORIENTATION RULES** (CRITICAL - specify which end is up/down):
+   
+   Many products have a CORRECT orientation. You MUST explicitly describe which end faces up/down/camera:
+   
+   ❌ WRONG (ambiguous - AI may render inverted/wrong):
+   - "popsicle in sand" ← Which end in sand? Could render frozen part buried!
+   - "bottle on table" ← Cap up or down? Lying or standing?
+   - "shoe displayed" ← Toe pointing where? Sole visible?
+   
+   ✅ CORRECT (explicit orientation):
+   - "popsicle with wooden STICK inserted into sand, frozen treat part facing UP toward camera"
+   - "bottle standing UPRIGHT with cap at TOP, label facing camera"
+   - "shoe with TOE pointing LEFT, slight angle showing both side profile and top"
+   - "lipstick standing VERTICAL with colored tip at TOP, cap removed beside it"
+   - "phone lying SCREEN-UP on table, home screen visible"
+   
+   **ORIENTATION CHECKLIST** (ask yourself for each product):
+   1. Which end should face UP? (specify it)
+   2. Which end should face the CAMERA? (specify it)
+   3. Which side is the "front"? (label, logo, main feature - make it visible)
+   4. What is the natural/logical position? (how would a human place it?)
+   
+   **PRODUCT-SPECIFIC ORIENTATIONS**:
+   🍦 Popsicle/Ice cream: "STICK at bottom (in holder/hand/sand), FROZEN TREAT at top visible to camera"
+   🍾 Bottles: "standing UPRIGHT, cap/cork at TOP, label facing camera"
+   👟 Shoes: "toe pointing LEFT or RIGHT, sole angled to show tread pattern"
+   📱 Phone: "screen facing UP/toward camera, top of phone at top of frame"
+   💄 Cosmetics: "applicator/tip at TOP, brand label visible"
+   ⌚ Watch: "face toward camera, 12 o'clock at top, crown on right side"
+   👜 Bags: "opening at TOP, front panel with logo facing camera"
+   
    **PLACEMENT EXAMPLES BY PRODUCT TYPE**:
    
    🍦 **Food/Frozen treats (popsicle, ice cream, etc.)**:
-   - "standing upright with stick inserted into a small bowl of chia seeds for support"
-   - "leaning at 45-degree angle against a ceramic bowl rim for support"
-   - "held by a hand entering the frame from the left"
-   - "lying flat on the plate showcasing all layers" (no support needed when flat)
-   - "propped upright resting against a stack of fresh strawberries"
-   - "balanced in a decorative wooden popsicle holder"
+   - "held by hand gripping the WOODEN STICK at bottom, FROZEN TREAT visible at top, bite taken from top corner revealing creamy interior"
+   - "STICK inserted into bowl of chia seeds pointing DOWN, FROZEN PART facing UP toward camera, frost crystals visible"
+   - "hand holding STICK from below, FROZEN TREAT at eye level tilted toward camera, condensation droplets glistening"
+   - "WOODEN STICK planted in sand pointing DOWN, colorful FROZEN LAYERS visible at TOP, tropical fruits around base"
+   - "POV shot - hand reaching to grab the STICK, FROZEN TREAT facing viewer, about to take a bite"
+   - "lying flat on marble surface with STICK extending to the right, TOP of frozen treat showing layers and bite mark"
    
    ⌚ **Watches/Jewelry**:
    - "laid flat face-up on velvet cushion"
@@ -2214,13 +2245,96 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - "displayed upright in natural resting position"
    - "held by hands entering frame showing scale"
    
+   🎯 **ENGAGEMENT-BOOSTING ELEMENTS** (MANDATORY - APPLY TO ANY PRODUCT):
+   
+   ⚠️ **MANDATORY RULE**: EVERY image prompt you generate MUST include AT LEAST ONE engagement element from the categories below. Static "catalog shots" with products just sitting there are NOT ACCEPTABLE. You must AUTONOMOUSLY choose which engagement element(s) make sense for each specific product.
+   
+   **YOUR RESPONSIBILITY**: These examples teach you the PRINCIPLE. Apply them CREATIVELY and AUTONOMOUSLY to ANY product type - fashion, tech, beauty, food, home goods, jewelry, services, ANYTHING. You decide what works best for each product.
+   
+   **BEFORE FINALIZING ANY IMAGE PROMPT, ASK YOURSELF**:
+   "Does this prompt have at least ONE of: human interaction, action/motion, desire-triggering detail, dynamic angle, or lifestyle context?"
+   If NO → Add one. If YES → Good to proceed.
+   
+   **1. HUMAN INTERACTION** (highest engagement - works for ANY product):
+   Examples to learn from:
+   - Food: "held by a stylish hand, bite taken"
+   - Fashion: "model adjusting collar, fabric in motion"
+   - Tech: "fingers tapping screen, notification visible"
+   - Beauty: "applying lipstick in mirror reflection"
+   - Home: "hand placing item on shelf, arranging moment"
+   → APPLY THIS: Show the product being USED, TOUCHED, or INTERACTED with
+   
+   **2. ACTION & MOTION** (creates life - adapt to product type):
+   Examples to learn from:
+   - Cold items: "condensation droplets, frost crystals, melt dripping"
+   - Hot items: "steam rising, warmth visible"
+   - Liquids: "splash frozen mid-air, pour moment"
+   - Fabric: "flowing in breeze, movement blur"
+   - Tech: "screen glow, notification animation"
+   → APPLY THIS: What would be MOVING or CHANGING about this product in real life?
+   
+   **3. DESIRE-TRIGGERING DETAILS** (makes viewers want it):
+   Examples to learn from:
+   - Food: "bite revealing interior, glistening surface"
+   - Fashion: "texture closeup, stitching detail, fabric weave"
+   - Beauty: "product swatch on skin, before/after hint"
+   - Tech: "screen showing exciting content, sleek reflection"
+   - Jewelry: "light catching facets, sparkle and shimmer"
+   → APPLY THIS: What sensory detail would make someone CRAVE this product?
+   
+   **4. DYNAMIC ANGLES** (not just straight-on - works for everything):
+   - "POV shot as if viewer is about to grab/use it"
+   - "low angle hero shot making product look impressive"
+   - "overhead flat-lay for context and lifestyle"
+   - "dutch angle (slight tilt) for energy"
+   - "extreme close-up macro showing texture/quality"
+   → APPLY THIS: Choose angle that creates EMOTION, not just documentation
+   
+   **5. LIFESTYLE CONTEXT** (aspirational - adapt to product):
+   Examples to learn from:
+   - Food: "picnic setting, cafe moment, dinner party"
+   - Fashion: "street style, travel moment, night out"
+   - Tech: "productive workspace, cozy evening, creative session"
+   - Beauty: "getting ready moment, mirror selfie vibe"
+   - Home: "styled room corner, morning routine, hosting guests"
+   → APPLY THIS: Where would the IDEAL customer be using this product?
+   
+   **PRODUCT-SPECIFIC ADAPTATIONS** (be creative for each category):
+   
+   🍦 Food/Beverage: bite marks, melt/drip, steam, condensation, pour moment
+   👗 Fashion: fabric movement, styling moment, mirror check, outfit reveal
+   💄 Beauty: application moment, swatch on skin, glow/shimmer, reflection
+   📱 Tech: screen content, finger interaction, notification, charging glow
+   🏠 Home: styling moment, in-use context, before/after, cozy setting
+   💎 Jewelry: light catching, sparkle, wearing moment, gift box opening
+   🎒 Accessories: being worn, packing moment, what fits inside
+   
+   **AUTONOMOUS APPLICATION**: For ANY product you encounter, ask yourself:
+   1. How would a human INTERACT with this? (show that)
+   2. What MOVES or CHANGES about it? (capture that moment)
+   3. What makes people WANT it? (highlight that detail)
+   4. What ANGLE creates emotion? (use that)
+   5. Where would the dream customer USE it? (set that scene)
+   
+   🚨 **FINAL CHECK (MANDATORY)**: Before outputting ANY image prompt, verify it contains at least ONE engagement element. Examples of what to add:
+   
+   - Food/Beverage: "hand holding", "bite taken revealing interior", "condensation droplets", "melt dripping"
+   - Fashion: "model adjusting garment", "fabric caught in breeze", "mirror reflection moment"
+   - Tech: "finger tapping screen", "hand unboxing", "screen showing exciting content"
+   - Beauty: "applying product", "swatch on skin", "mirror application moment"
+   - Home/Decor: "hand placing item", "person in background using space", "morning light through window"
+   - Jewelry: "hand showing off ring", "clasp being fastened", "light catching facets"
+   - ANY Product: "hand reaching toward", "POV about to grab", "unboxing moment", "in-use action"
+   
+   **YOU DECIDE** which element fits best. Be creative. But NEVER output a static "product just sitting there" prompt.
+   
    - Include specific details about: composition, lighting, camera angle, mood, atmosphere
    - Specify subject placement, background elements, foreground elements, and spatial relationships
    - Describe textures, materials, and surface qualities
    - Include professional photography/cinematography terms for better quality
    
    **EXPANDED PROMPT EXAMPLE** (120-150 words):
-   "Reference product (artisanal popsicle) standing upright with its wooden stick inserted into a small turquoise ceramic bowl filled with chia seeds for support, positioned at slight angle leaning against the bowl rim to showcase the colorful layered cube design with bite mark revealing creamy texture, fresh strawberries and goji berries scattered around the bowl on rustic wooden table surface, soft golden hour sunlight streaming from the left creating warm highlights on the frozen surface, shallow depth of field with creamy bokeh in the background, warm cozy atmosphere with vibrant saturated colors, professional DSLR quality photography with high definition crisp details, incorporating Primary: #6998d0 in ceramic bowl, Secondary: #FFFFFF in background, Accent: #9b366c in strawberry garnishes, 1:1 aspect ratio for social media, Reference logo engraved on wooden stick, do not morph the product distinguishing features"
+   "Reference product (artisanal popsicle) held by a feminine hand with soft pink manicured nails entering frame from bottom right, fresh bite taken from top corner revealing colorful layered interior with visible berry chunks, condensation droplets glistening on frozen surface catching golden hour sunlight, slight melt beginning at edges with a single droplet about to fall, fresh strawberries and tropical fruits arranged on rustic wooden table below, turquoise ceramic bowl with chia seeds as prop element, shallow depth of field with dreamy bokeh background suggesting beach cafe setting, warm inviting atmosphere that makes viewer crave the treat, professional food photography style with high definition crisp details showing ice crystal texture, incorporating Primary: #6998d0 in ceramic bowl, Secondary: #FFFFFF in background highlights, Accent: #9b366c in berry garnishes, 1:1 aspect ratio for social media, Reference logo engraved on wooden stick, do not morph the product distinguishing features"
    
    **SIMPLICITY & FOCUS** (AVOID CLUTTERED IMAGES):
    - Focus on ONE central subject or concept per image
@@ -2343,8 +2457,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     image_prompt_examples = []
     for i in image_only_indices:
         image_prompt_examples.append(f'"image_prompt_{i}": "Detailed visual description with {color_str}, 1:1 aspect ratio for social media..."')
-        image_prompt_examples.append(f'"image_{i}_product_mapping": "image_1" or "image_2" or null (map to product image if needed)')
-        image_prompt_examples.append(f'"image_{i}_logo_needed": true or false')
+        image_prompt_examples.append(f'"image_{i}_product_mapping": "image_1" (REQUIRED if products exist in inventory - map ALL images to product)')
+        image_prompt_examples.append(f'"image_{i}_logo_needed": true')
     
     image_prompts_section = ",\n  ".join(image_prompt_examples) if image_prompt_examples else ""
     
@@ -2566,40 +2680,53 @@ If the user has NOT provided specific content instructions or topic guidance:
    
    🚨 PRODUCT MAPPING & REFERENCE KEYWORDS (MANDATORY):
    
-   **PRODUCT MAPPING DECISION (for each image prompt)**:
-   - If inventory_analysis contains product_images:
-     * Review available products: category, features, angle, showcases, best_use
-     * Decide if this specific image should feature a product
-     * If YES: Output `"product_mapping": "image_X"` (matching the product image index)
-     * If NO: Output `"product_mapping": null`
-     * **IN YOUR PROMPT**: If product is mapped, use **"reference product"** keyword
-     * **MANDATORY**: Also include **"do not morph the product distinguishing features"** at the end of the prompt
+   **⚠️ CRITICAL RULE: WHEN PRODUCTS EXIST, MAP ALL IMAGES TO PRODUCT**:
+   - If inventory_analysis contains product_images (count > 0):
+     * You MUST set `"image_X_product_mapping": "image_1"` for **EVERY** image prompt (0, 1, 2, 3...)
+     * **NEVER set product_mapping to null** when products exist
+     * The user uploaded product images because they want the PRODUCT in their content
+     * ALL images should showcase the product from different angles, settings, or contexts
    
-   **MAPPING EXAMPLES**:
+   **MAPPING RULE**:
+   - Products exist → Map ALL images to product (use "image_1" for most, or vary if multiple products)
+   - No products → Then and ONLY then can product_mapping be null
+   
+   **IN YOUR PROMPT** (when product is mapped):
+   - Use **"Reference product"** keyword at the START
+   - Include **"do not morph the product distinguishing features"** at the END
+   
+   **MAPPING EXAMPLES** (when 1 product exists - ALL images get mapped):
    ```
-   Available: image_1 (headphones front view), image_2 (headphones side view)
+   Available: image_1 (paleta product)
    
-   Image Post 0 (product showcase):
+   Image Post 0 (close-up product shot):
    {{
      "image_0_product_mapping": "image_1",
-     "image_prompt_0": "Reference product (wireless headphones) centered on minimalist marble surface, front angle view...",
+     "image_prompt_0": "Reference product (paleta) held by hand with bite taken...",
      "image_0_logo_needed": true
    }}
    
-   Image Post 1 (lifestyle, no product):
+   Image Post 1 (lifestyle context - STILL HAS PRODUCT):
    {{
-     "image_1_product_mapping": null,
-     "image_prompt_1": "Modern coffee shop interior with natural lighting, cozy atmosphere...",
+     "image_1_product_mapping": "image_1",
+     "image_prompt_1": "Reference product (paleta) in beach setting with tropical fruits...",
      "image_1_logo_needed": true
+   }}
+   
+   Image Post 2 (different angle - STILL HAS PRODUCT):
+   {{
+     "image_2_product_mapping": "image_1",
+     "image_prompt_2": "Reference product (paleta) flat lay arrangement with ingredients...",
+     "image_2_logo_needed": true
    }}
    ```
    
    **NOTE**: ALWAYS set `logo_needed: true` for ALL image-only posts
    
    **REFERENCE KEYWORDS** (use in prompts when applicable):
-   - **"reference product"** → When product_mapping is set (not null)
-   - **"reference logo"** → When logo_needed is true
-   - **"reference model"** → When has_model_image is true (for UGC videos)
+   - **"Reference product"** → MANDATORY for ALL images when products exist
+   - **"Reference logo"** → When logo_needed is true
+   - **"Reference model"** → When has_model_image is true (for UGC videos)
    
    **COMBINED EXAMPLE** (120-150 words):
    ```
