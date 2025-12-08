@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Loader2, XCircle } from 'lucide-react'
 import { getOAuthFlowState, updateOAuthFlowState, getOAuthReturnUrl } from '@/lib/oauthFlowState'
+import { trackOAuth2Success, trackOAuth2Failed, trackPlatformConnected } from '@/lib/mixpanel'
 
 function TikTokCallbackContent() {
   const searchParams = useSearchParams()
@@ -55,10 +56,15 @@ function TikTokCallbackContent() {
           throw new Error(data.error || 'TikTok connection failed')
         }
         
+        // Track OAuth2 success
+        const flowState = getOAuthFlowState()
+        const flow = flowState?.type === 'post_now' ? 'post_now' : flowState?.type === 'schedule' ? 'schedule' : 'connect'
+        trackOAuth2Success('tiktok', flow)
+        trackPlatformConnected('tiktok')
+        
         setStatus('TikTok connected! Redirecting...')
         
         // Check if this is part of a post flow
-        const flowState = getOAuthFlowState()
         
         if (flowState) {
           console.log('📋 OAuth post flow detected, updating state...')
@@ -121,6 +127,11 @@ function TikTokCallbackContent() {
       } catch (error: any) {
         console.error('TikTok callback error:', error)
         setIsError(true)
+        
+        // Track OAuth2 failure
+        const flowState = getOAuthFlowState()
+        const flow = flowState?.type === 'post_now' ? 'post_now' : flowState?.type === 'schedule' ? 'schedule' : 'connect'
+        trackOAuth2Failed('tiktok', error?.message || 'Unknown error', flow)
         
         const errorMsg = error?.message || 'Connection failed'
         if (errorMsg.includes('expired') || errorMsg.includes('Invalid') || errorMsg.includes('state')) {

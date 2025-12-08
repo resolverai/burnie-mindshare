@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Plus, Filter, File
 import { useAuth } from "@/contexts/AuthContext";
 import { dvybApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { trackCalendarViewed, trackCalendarPostClicked, trackCalendarDateChanged } from "@/lib/mixpanel";
 
 interface ScheduledPost {
   id: number;
@@ -225,6 +226,11 @@ export const CalendarView = () => {
     }
   }, [currentWeekStart]);
 
+  // Track page view on mount
+  useEffect(() => {
+    trackCalendarViewed();
+  }, []);
+
   // Fetch scheduled posts on mount
   useEffect(() => {
     const fetchScheduledPosts = async () => {
@@ -312,6 +318,7 @@ export const CalendarView = () => {
       // Mobile: Move to previous day
       if (mobileDayIndex > 0) {
         setMobileDayIndex(mobileDayIndex - 1);
+        trackCalendarDateChanged('week', weekDays[mobileDayIndex - 1].dateStr);
       } else {
         // If at first day of week, go to previous week's last day
         const newStart = new Date(currentWeekStart);
@@ -320,6 +327,7 @@ export const CalendarView = () => {
         const newDays = generateWeekDays(newStart);
         setWeekDays(newDays);
         setMobileDayIndex(6); // Last day of week
+        trackCalendarDateChanged('week', newDays[6].dateStr);
       }
     } else {
       // Tablet/Desktop: Move to previous week
@@ -327,6 +335,7 @@ export const CalendarView = () => {
     newStart.setDate(newStart.getDate() - 7);
     setCurrentWeekStart(newStart);
     setWeekDays(generateWeekDays(newStart));
+    trackCalendarDateChanged('week', newStart.toISOString().split('T')[0]);
     }
   };
 
@@ -337,6 +346,7 @@ export const CalendarView = () => {
       // Mobile: Move to next day
       if (mobileDayIndex < 6) {
         setMobileDayIndex(mobileDayIndex + 1);
+        trackCalendarDateChanged('week', weekDays[mobileDayIndex + 1].dateStr);
       } else {
         // If at last day of week, go to next week's first day
         const newStart = new Date(currentWeekStart);
@@ -345,6 +355,7 @@ export const CalendarView = () => {
         const newDays = generateWeekDays(newStart);
         setWeekDays(newDays);
         setMobileDayIndex(0); // First day of week
+        trackCalendarDateChanged('week', newDays[0].dateStr);
       }
     } else {
       // Tablet/Desktop: Move to next week
@@ -352,6 +363,7 @@ export const CalendarView = () => {
     newStart.setDate(newStart.getDate() + 7);
     setCurrentWeekStart(newStart);
     setWeekDays(generateWeekDays(newStart));
+    trackCalendarDateChanged('week', newStart.toISOString().split('T')[0]);
     }
   };
 

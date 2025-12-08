@@ -20,6 +20,7 @@ import { LogoDropzone } from "@/components/ui/LogoDropzone";
 import { AdditionalLogosDropzone } from "@/components/ui/AdditionalLogosDropzone";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
 import { GoogleIcon } from "@/components/icons/GoogleIcon";
+import { trackBrandKitViewed, trackBrandKitTabViewed, trackBrandKitSaved, trackBrandKitSaveAllClicked } from "@/lib/mixpanel";
 
 // Helper function to format text with line breaks and bold sections
 const FormattedText = ({ text }: { text: string }) => {
@@ -237,6 +238,16 @@ export const BrandKitPage = () => {
     }
   }, []);
 
+  // Track page view on mount
+  useEffect(() => {
+    trackBrandKitViewed();
+  }, []);
+
+  // Track tab changes
+  useEffect(() => {
+    trackBrandKitTabViewed(activeTab);
+  }, [activeTab]);
+
   // Fetch context data on mount
   useEffect(() => {
     if (accountId) {
@@ -442,6 +453,10 @@ export const BrandKitPage = () => {
     try {
       setIsSaving(true);
       console.log('💾 Saving updates:', updates);
+      
+      // Track what fields are being updated
+      const fieldsUpdated = Object.keys(updates);
+      trackBrandKitSaved(activeTab, fieldsUpdated);
       
       const response = await contextApi.updateContext(updates);
       console.log('✅ Save response:', response);
@@ -728,6 +743,10 @@ export const BrandKitPage = () => {
       updates.contentPreferences = contentPreferences;
       
       console.log('💾 Saving all changes:', updates);
+      
+      // Track Save All button clicked with fields being updated
+      const fieldsUpdated = Object.keys(updates);
+      trackBrandKitSaveAllClicked(fieldsUpdated);
       
       await handleSave(updates);
       

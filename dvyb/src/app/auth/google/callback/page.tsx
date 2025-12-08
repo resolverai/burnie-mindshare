@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { authApi, contextApi } from '@/lib/api'
 import { Loader2, XCircle } from 'lucide-react'
+import { trackSignIn, identifyUser } from '@/lib/mixpanel'
 
 function DvybGoogleCallbackContent() {
   const searchParams = useSearchParams()
@@ -60,6 +61,15 @@ function DvybGoogleCallbackContent() {
         console.log('   - email:', response.data?.email)
         console.log('   - is_new_account:', response.data?.is_new_account)
         console.log('   - onboarding_complete:', response.data?.onboarding_complete)
+        
+        // Track sign-in and identify user
+        trackSignIn('google')
+        if (response.data?.account_id) {
+          identifyUser(response.data.account_id, {
+            email: response.data.email,
+            accountName: response.data.account_name,
+          })
+        }
         
         setStatus('Connected! Redirecting...')
         

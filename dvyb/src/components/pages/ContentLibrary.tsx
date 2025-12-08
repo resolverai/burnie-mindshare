@@ -22,6 +22,12 @@ import { clearOAuthFlowState, getOAuthFlowState } from "@/lib/oauthFlowState";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
+import { 
+  trackContentLibraryViewed, 
+  trackContentItemClicked, 
+  trackGenerateContentClicked,
+  trackContentSearched,
+} from "@/lib/mixpanel";
 
 interface PlatformAnalytics {
   platform: string;
@@ -336,6 +342,12 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
           }
           
           setHasMore(moreAvailable);
+          
+          // Track search if there's a search query (only on first page, not on infinite scroll append)
+          if (searchQuery && !append) {
+            const totalResults = scheduledTransformed.length + newContent.length;
+            trackContentSearched(searchQuery, totalResults);
+          }
         }
       } catch (error) {
         console.error("Failed to fetch content library:", error);
@@ -363,6 +375,11 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
     fetchContentLibrary(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, searchQuery, dateRange, showPosted]);
+
+  // Track page view
+  useEffect(() => {
+    trackContentLibraryViewed();
+  }, []);
 
   // Infinite scroll observer - use refs to avoid recreating observer on every state change
   const hasMoreRef = useRef(hasMore);
@@ -532,6 +549,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                     key={item.id}
                     className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
                     onClick={() => {
+                      trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'posted');
                       setSelectedPost(item);
                       setShowAnalyticsDialog(true);
                     }}
@@ -607,6 +625,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                       key={item.id}
                       className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
                       onClick={() => {
+                        trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'scheduled');
                         setSelectedPost(item);
                         setShowPostDetail(true);
                       }}
@@ -683,6 +702,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                       key={item.id}
                       className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
                       onClick={() => {
+                        trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'not-selected');
                         setSelectedPost(item);
                         setShowPostDetail(true);
                       }}
@@ -921,6 +941,9 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         {/* Mobile: round icon button */}
         <Button 
           onClick={async () => {
+            // Track event
+            trackGenerateContentClicked('content_library');
+            
             // Check account status and usage limits
             try {
               const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {
@@ -962,6 +985,9 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         {/* Tablet/Desktop: full button with text */}
         <Button 
           onClick={async () => {
+            // Track event
+            trackGenerateContentClicked('content_library');
+            
             // Check account status and usage limits
             try {
               const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/usage`, {

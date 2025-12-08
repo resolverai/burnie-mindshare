@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { authApi } from '@/lib/api';
+import { identifyUser, resetUser, trackSignOut } from '@/lib/mixpanel';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -69,6 +70,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAccountId(response.data.accountId || null);
         setOnboardingComplete(response.data.onboardingComplete || false);
         setHasValidGoogleConnection(response.data.hasValidGoogleConnection || false);
+        
+        // Identify user in Mixpanel
+        if (response.data.accountId) {
+          identifyUser(response.data.accountId);
+        }
         
         console.log('✅ Session authenticated - Account exists');
         console.log(`   - Onboarding complete: ${response.data.onboardingComplete}`);
@@ -229,10 +235,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
+      // Track sign out event before resetting
+      trackSignOut();
+      
       await authApi.logout();
       setIsAuthenticated(false);
       setAccountId(null);
       setOnboardingComplete(false);
+      
+      // Reset Mixpanel user
+      resetUser();
       
       // On logout: Clear session cookies but keep account reference in localStorage
       // This allows the landing page to show "Already have an account?" with sign-in button

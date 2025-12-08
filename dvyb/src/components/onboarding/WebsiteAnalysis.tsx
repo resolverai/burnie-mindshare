@@ -11,6 +11,7 @@ import dvybLogo from "@/assets/dvyb-logo.png";
 import { contextApi, authApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { trackWebsiteAnalysisStarted, trackWebsiteAnalysisCompleted } from "@/lib/mixpanel";
 
 interface WebsiteAnalysisProps {
   onComplete: (websiteUrl: string) => void;
@@ -129,6 +130,10 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
       // Normalize the URL before processing
       const normalizedUrl = normalizeUrl(websiteUrl);
       
+      // Track analysis started
+      const startTime = Date.now();
+      trackWebsiteAnalysisStarted(normalizedUrl);
+      
       setIsAnalyzing(true);
       
       // Store normalized website URL in localStorage
@@ -142,6 +147,9 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
           // Store analysis data in localStorage
           localStorage.setItem('dvyb_website_analysis', JSON.stringify(response.data));
           console.log("✅ Website analysis completed and stored in localStorage");
+          
+          // Track analysis completed
+          trackWebsiteAnalysisCompleted(normalizedUrl, Date.now() - startTime);
           
           // Mark as complete (will trigger navigation after 500ms)
           setAnalysisComplete(true);

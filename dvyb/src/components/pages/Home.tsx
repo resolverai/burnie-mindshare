@@ -19,6 +19,13 @@ import { useToast } from "@/hooks/use-toast";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 import { getOAuthFlowState, clearOAuthFlowState } from "@/lib/oauthFlowState";
+import { 
+  trackHomeViewed, 
+  trackGenerateContentClicked, 
+  trackTopPostClicked,
+  trackPlatformConnectClicked,
+  trackOAuth2Started,
+} from "@/lib/mixpanel";
 
 interface PlatformMetrics {
   impressions?: number;
@@ -201,6 +208,11 @@ export const Home = () => {
     }
   }, []);
 
+  // Track page view
+  useEffect(() => {
+    trackHomeViewed();
+  }, []);
+
   // Check connection statuses
   useEffect(() => {
     const checkConnections = async () => {
@@ -296,6 +308,10 @@ export const Home = () => {
 
   // Handle Twitter OAuth connection (redirect flow)
   const handleTwitterConnect = async () => {
+    // Track platform connect click
+    trackPlatformConnectClicked('twitter');
+    trackOAuth2Started('twitter', 'connect');
+    
     try {
       const response = await authApi.getTwitterLoginUrl();
       
@@ -322,6 +338,10 @@ export const Home = () => {
 
   // Handle OAuth connection for platforms (redirect flow)
   const handleConnect = async (platform: 'instagram' | 'linkedin' | 'tiktok') => {
+    // Track platform connect click
+    trackPlatformConnectClicked(platform);
+    trackOAuth2Started(platform, 'connect');
+    
     try {
       let authUrlResponse;
 
@@ -489,6 +509,9 @@ export const Home = () => {
                     currentHighlight === 'generate_button' ? 'onboarding-pulse-ring' : ''
                   }`}
                   onClick={async () => {
+                    // Track event
+                    trackGenerateContentClicked('home');
+                    
                     // Mark onboarding step as explored
                     completeStep('generate_content_explored');
                     

@@ -1,21 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { WebsiteAnalysis } from "@/components/onboarding/WebsiteAnalysis";
 import { Loader2 } from "lucide-react";
+import { trackLandingPageViewed } from "@/lib/mixpanel";
 
 export default function HomePage() {
   const router = useRouter();
   const { isAuthenticated, accountId, onboardingComplete, isLoading } = useAuth();
   const [isMounted, setIsMounted] = useState(false);
   const [shouldShowLanding, setShouldShowLanding] = useState(false);
+  const hasTrackedRef = useRef(false);
 
   // Fix hydration warning by only rendering after client mount
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Track landing page view when shown
+  useEffect(() => {
+    if (shouldShowLanding && !hasTrackedRef.current) {
+      hasTrackedRef.current = true;
+      trackLandingPageViewed(isAuthenticated);
+    }
+  }, [shouldShowLanding, isAuthenticated]);
 
   useEffect(() => {
     if (!isMounted || isLoading) return;

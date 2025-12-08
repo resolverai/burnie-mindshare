@@ -14,6 +14,16 @@ import { format } from "date-fns";
 import { postingApi, authApi, socialConnectionsApi, oauth1Api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { saveOAuthFlowState, getOAuthFlowState, clearOAuthFlowState, updateOAuthFlowState } from "@/lib/oauthFlowState";
+import { 
+  trackScheduleDialogOpened,
+  trackScheduleDialogClosed,
+  trackScheduleSubmitted,
+  trackScheduleSuccess,
+  trackScheduleFailed,
+  trackOAuth2Started,
+  trackOAuth1Started,
+  trackScheduleButtonClicked,
+} from "@/lib/mixpanel";
 
 interface ScheduleDialogProps {
   open: boolean;
@@ -49,6 +59,14 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
   const [isVideoPost, setIsVideoPost] = useState(false);
   const [capturedPost, setCapturedPost] = useState<any>(null); // Capture post data when scheduling starts
   const { toast } = useToast();
+
+  // Track dialog open
+  useEffect(() => {
+    if (open && post) {
+      const contentType = post.image?.includes('.mp4') || post.type === 'Video' ? 'video' : 'image';
+      trackScheduleDialogOpened('content_library', contentType);
+    }
+  }, [open, post]);
 
   // Check for pending OAuth flow and resume it
   useEffect(() => {
@@ -237,6 +255,11 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
 
   const handleSchedule = async () => {
     if (!selectedDate || !post) return;
+    
+    // Track Schedule button clicked
+    const contentType = post.image?.includes('.mp4') || post.type === 'Video' ? 'video' : 'image';
+    const platformsForTracking = post.requestedPlatforms || post.platforms || ['twitter'];
+    trackScheduleButtonClicked(platformsForTracking[0] || 'twitter', contentType);
 
     // Validate date/time is not in the past
     if (isDateTimeInPast(selectedDate, selectedTime)) {
@@ -660,6 +683,13 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
         'finalPlatformTexts': finalPlatformTexts,
       });
       
+      // Track schedule submitted
+      trackScheduleSubmitted({
+        platform: platforms[0] || 'unknown',
+        contentType: mediaType,
+        scheduledFor: scheduledDateTime.toISOString(),
+      });
+      
       // Call schedule API - use finalGeneratedContentId which has fallback to override prop
       const response = await postingApi.schedulePost({
         scheduledFor: scheduledDateTime.toISOString(),
@@ -675,17 +705,31 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
 
+      // Track schedule success
+      trackScheduleSuccess({
+        platform: platforms[0] || 'unknown',
+        contentType: mediaType,
+        scheduledFor: scheduledDateTime.toISOString(),
+      });
+
       toast({
         title: "Post Scheduled",
         description: `Scheduled for ${format(scheduledDateTime, "MMM dd, yyyy 'at' h:mm a")}`,
       });
 
+      trackScheduleDialogClosed('scheduled');
+      
       // Call onScheduleComplete with 'true' to indicate successful scheduling
       onScheduleComplete();
       // Close the schedule dialog
       onOpenChange(false);
     } catch (error: any) {
       console.error('Error scheduling:', error);
+      
+      // Track schedule failure (use post data to get platform)
+      const platformForTracking = postToSchedule?.requestedPlatforms?.[0] || postToSchedule?.platforms?.[0] || 'unknown';
+      trackScheduleFailed(error.message || 'Unknown error', platformForTracking);
+      
       toast({
         title: "Couldn't Schedule Post",
         description: "Something went wrong. Please try again.",

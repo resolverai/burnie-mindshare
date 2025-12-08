@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { Loader2, XCircle } from 'lucide-react'
 import { socialConnectionsApi } from '@/lib/api'
 import { getOAuthFlowState, updateOAuthFlowState, getOAuthReturnUrl } from '@/lib/oauthFlowState'
+import { trackOAuth2Success, trackOAuth2Failed, trackPlatformConnected } from '@/lib/mixpanel'
 
 function InstagramCallbackContent() {
   const searchParams = useSearchParams()
@@ -46,10 +47,15 @@ function InstagramCallbackContent() {
           throw new Error(String(('error' in response ? response.error : undefined) || 'Callback failed'))
         }
         
+        // Track OAuth2 success
+        const flowState = getOAuthFlowState()
+        const flow = flowState?.type === 'post_now' ? 'post_now' : flowState?.type === 'schedule' ? 'schedule' : 'connect'
+        trackOAuth2Success('instagram', flow)
+        trackPlatformConnected('instagram')
+        
         setStatus('Instagram connected! Redirecting...')
         
         // Check if this is part of a post flow
-        const flowState = getOAuthFlowState()
         
         if (flowState) {
           console.log('📋 OAuth post flow detected, updating state...')
@@ -112,6 +118,11 @@ function InstagramCallbackContent() {
       } catch (error: any) {
         console.error('Instagram callback error:', error)
         setIsError(true)
+        
+        // Track OAuth2 failure
+        const flowState = getOAuthFlowState()
+        const flow = flowState?.type === 'post_now' ? 'post_now' : flowState?.type === 'schedule' ? 'schedule' : 'connect'
+        trackOAuth2Failed('instagram', error?.message || 'Unknown error', flow)
         
         const errorMsg = error?.message || 'Instagram connection failed'
         if (errorMsg.includes('expired') || errorMsg.includes('Invalid') || errorMsg.includes('state')) {

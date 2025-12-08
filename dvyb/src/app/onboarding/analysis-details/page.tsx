@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { AnalysisDetails } from "@/components/onboarding/AnalysisDetails";
 import { Loader2 } from "lucide-react";
 import { contextApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { trackAnalysisDetailsViewed, trackAnalysisDetailsContinue } from "@/lib/mixpanel";
 
 export default function AnalysisDetailsPage() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -14,13 +15,25 @@ export default function AnalysisDetailsPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
+  const hasTrackedRef = useRef(false);
 
   // Fix hydration warning
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
+  // Track page view
+  useEffect(() => {
+    if (isMounted && !isLoading && !hasTrackedRef.current) {
+      hasTrackedRef.current = true;
+      trackAnalysisDetailsViewed(isAuthenticated);
+    }
+  }, [isMounted, isLoading, isAuthenticated]);
+
   const handleContinue = async () => {
+    // Track continue button click
+    trackAnalysisDetailsContinue(isAuthenticated);
+    
     if (!isAuthenticated) {
       // Not authenticated - go to login page (user explicitly wants to sign in)
       console.log('👤 Not authenticated - redirecting to login page');

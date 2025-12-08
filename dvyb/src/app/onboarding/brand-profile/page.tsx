@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { BrandKit } from "@/components/onboarding/BrandKit";
 import { Loader2 } from "lucide-react";
+import { trackBrandProfileViewed, trackBrandProfileProceedClicked, trackAutoContentGenerationStarted } from "@/lib/mixpanel";
 
 export default function BrandProfilePage() {
   const { isAuthenticated, isLoading, checkAuth } = useAuth();
   const router = useRouter();
   const [showContent, setShowContent] = useState(false);
+  const hasTrackedRef = useRef(false);
 
   useEffect(() => {
     // Always re-check authentication with backend
@@ -25,11 +27,20 @@ export default function BrandProfilePage() {
       } else {
         console.log('✅ Authenticated, showing Brand Kit');
         setShowContent(true);
+        
+        // Track page view
+        if (!hasTrackedRef.current) {
+          hasTrackedRef.current = true;
+          trackBrandProfileViewed();
+        }
       }
     }
   }, [isAuthenticated, isLoading, router]);
 
   const handleContinue = async () => {
+    // Track proceed button click
+    trackBrandProfileProceedClicked();
+    
     // Mark onboarding as complete (skip all intermediate steps)
     localStorage.setItem("dvyb_is_new_account", "false");
     
@@ -47,6 +58,15 @@ export default function BrandProfilePage() {
     
     // Start automatic content generation in background (wow experience!)
     console.log('🎨 Starting automatic content generation...');
+    
+    // Track auto content generation started
+    trackAutoContentGenerationStarted({
+      topic: 'Product Launch',
+      platforms: ['twitter'],
+      imageCount: 1,
+      videoCount: 1,
+    });
+    
     try {
       const { adhocGenerationApi } = await import('@/lib/api');
       const genResponse = await adhocGenerationApi.generateContent({

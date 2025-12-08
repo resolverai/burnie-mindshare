@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { authApi } from '@/lib/api'
 import { getOAuthFlowState, updateOAuthFlowState, getOAuthReturnUrl } from '@/lib/oauthFlowState'
 import { Loader2, XCircle } from 'lucide-react'
+import { trackOAuth2Success, trackOAuth2Failed, trackPlatformConnected } from '@/lib/mixpanel'
 
 function DvybTwitterCallbackContent() {
   const searchParams = useSearchParams()
@@ -40,10 +41,15 @@ function DvybTwitterCallbackContent() {
           throw new Error(String(('error' in response ? response.error : undefined) || 'Callback failed'))
         }
         
+        // Track OAuth2 success
+        const flowState = getOAuthFlowState()
+        const flow = flowState?.type === 'post_now' ? 'post_now' : flowState?.type === 'schedule' ? 'schedule' : 'connect'
+        trackOAuth2Success('twitter', flow)
+        trackPlatformConnected('twitter')
+        
         setStatus('Twitter connected! Redirecting...')
         
         // Check if this is part of a post flow
-        const flowState = getOAuthFlowState()
         
         if (flowState) {
           console.log('📋 OAuth post flow detected, updating state...')
@@ -107,6 +113,11 @@ function DvybTwitterCallbackContent() {
       } catch (error: any) {
         console.error('Twitter callback error:', error)
         setIsError(true)
+        
+        // Track OAuth2 failure
+        const flowState = getOAuthFlowState()
+        const flow = flowState?.type === 'post_now' ? 'post_now' : flowState?.type === 'schedule' ? 'schedule' : 'connect'
+        trackOAuth2Failed('twitter', error?.message || 'Unknown error', flow)
         
         const errorMsg = error?.message || 'Authentication failed'
         if (errorMsg.includes('expired') || errorMsg.includes('Invalid') || errorMsg.includes('state')) {
