@@ -9,6 +9,7 @@ import { authApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
+import { trackSignInClicked } from "@/lib/mixpanel";
 
 export default function AuthLoginPage() {
   const [isConnecting, setIsConnecting] = useState(false);
@@ -31,6 +32,9 @@ export default function AuthLoginPage() {
 
   const handleGoogleLogin = async () => {
     if (isConnecting) return; // Prevent multiple clicks
+    
+    // Track sign in button clicked
+    trackSignInClicked('google', 'login_page');
     
     setIsConnecting(true);
     setError(null);

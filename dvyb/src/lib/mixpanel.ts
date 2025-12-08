@@ -333,6 +333,10 @@ export const trackWebsiteAnalysisCompleted = (url: string, durationMs: number) =
 };
 
 // --- USER ACTIONS ---
+export const trackSignInClicked = (method: 'google', source: 'landing_page' | 'login_page') => {
+  trackEvent('Sign In Clicked', { method, source });
+};
+
 export const trackSignIn = (method: 'google') => {
   trackEvent('Sign In', { method });
 };

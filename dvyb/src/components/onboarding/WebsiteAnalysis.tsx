@@ -11,7 +11,7 @@ import dvybLogo from "@/assets/dvyb-logo.png";
 import { contextApi, authApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { trackWebsiteAnalysisStarted, trackWebsiteAnalysisCompleted } from "@/lib/mixpanel";
+import { trackWebsiteAnalysisStarted, trackWebsiteAnalysisCompleted, trackSignInClicked } from "@/lib/mixpanel";
 
 interface WebsiteAnalysisProps {
   onComplete: (websiteUrl: string) => void;
@@ -38,6 +38,9 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
 
   const handleGoogleSignIn = async () => {
     if (isSigningIn) return;
+    
+    // Track sign in button clicked
+    trackSignInClicked('google', 'landing_page');
     
     setIsSigningIn(true);
 
