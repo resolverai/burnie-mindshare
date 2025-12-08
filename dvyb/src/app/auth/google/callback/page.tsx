@@ -78,6 +78,7 @@ function DvybGoogleCallbackContent() {
         if (response.data?.account_id) {
           localStorage.setItem('dvyb_account_id', response.data.account_id.toString())
           localStorage.setItem('dvyb_auth_timestamp', Date.now().toString())
+          localStorage.setItem('dvyb_session_active', 'true') // Mark session as active for header auth
           
           if (response.data.account_name) {
             localStorage.setItem('dvyb_account_name', response.data.account_name)

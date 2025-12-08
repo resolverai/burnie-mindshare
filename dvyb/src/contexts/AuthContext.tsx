@@ -52,6 +52,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     // Always clear session cookies (these control the active session)
     document.cookie = 'dvyb_account_id=; path=/; max-age=0';
+    
+    // Clear session active flag (this prevents header auth after logout)
+    localStorage.removeItem('dvyb_session_active');
   };
 
   const checkAuth = async (showLoading: boolean = true) => {
@@ -70,6 +73,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAccountId(response.data.accountId || null);
         setOnboardingComplete(response.data.onboardingComplete || false);
         setHasValidGoogleConnection(response.data.hasValidGoogleConnection || false);
+        
+        // Mark session as active for header auth (Safari fallback)
+        localStorage.setItem('dvyb_session_active', 'true');
         
         // Identify user in Mixpanel with user properties
         if (response.data.accountId) {

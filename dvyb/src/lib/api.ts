@@ -2,16 +2,22 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
 
 // Get account ID from localStorage (fallback for Safari/browsers that block cookies)
+// Only returns header if user has an active session (not logged out)
 function getAccountIdHeader(): Record<string, string> {
   if (typeof window === 'undefined') return {};
+  
+  // Check if session is active - this is cleared on logout
+  const sessionActive = localStorage.getItem('dvyb_session_active');
+  if (sessionActive !== 'true') {
+    // Session not active (user logged out or never logged in)
+    return {};
+  }
   
   const accountId = localStorage.getItem('dvyb_account_id');
   if (accountId) {
     return { 'X-DVYB-Account-ID': accountId };
   }
   
-  // Log when account ID is missing - helps debug logout issues
-  console.warn('⚠️ No dvyb_account_id in localStorage for X-DVYB-Account-ID header');
   return {};
 }
 
