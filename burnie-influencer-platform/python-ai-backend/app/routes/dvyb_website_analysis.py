@@ -2061,7 +2061,8 @@ async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int
         # Determine file type from content-type or URL
         is_svg = 'svg' in content_type or url_lower.endswith('.svg')
         is_webp = 'webp' in content_type or url_lower.endswith('.webp')
-        is_image = content_type.startswith('image/') or any(url_lower.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico'])
+        is_avif = 'avif' in content_type or url_lower.endswith('.avif')
+        is_image = content_type.startswith('image/') or any(url_lower.endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.avif'])
         
         if not is_image:
             logger.warning(f"  ⚠️ Not an image: {content_type}")
@@ -2088,13 +2089,11 @@ async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int
                 logger.info(f"  ✅ SVG converted to PNG successfully ({len(png_data)} bytes)")
                 
             except ImportError:
-                logger.warning(f"  ⚠️ cairosvg not installed, keeping SVG format")
-                final_content_type = 'image/svg+xml'
-                ext = 'svg'
+                logger.warning(f"  ⚠️ cairosvg not installed, skipping SVG logo")
+                return None  # Don't save SVG files that can't be converted
             except Exception as e:
-                logger.warning(f"  ⚠️ SVG conversion failed: {e}, keeping SVG format")
-                final_content_type = 'image/svg+xml'
-                ext = 'svg'
+                logger.warning(f"  ⚠️ SVG conversion failed: {e}, skipping SVG logo")
+                return None  # Don't save SVG files that can't be converted
         
         # === CONVERT WEBP TO PNG ===
         elif is_webp:
@@ -2123,9 +2122,38 @@ async def download_and_upload_logo_to_s3(logo_url: str, account_id: Optional[int
                 logger.info(f"  ✅ WEBP converted to PNG successfully ({len(final_content)} bytes)")
                 
             except Exception as e:
-                logger.warning(f"  ⚠️ WEBP conversion failed: {e}, keeping WEBP format")
-                final_content_type = 'image/webp'
-                ext = 'webp'
+                logger.warning(f"  ⚠️ WEBP conversion failed: {e}, skipping WEBP logo")
+                return None  # Don't save WEBP files that can't be converted
+        
+        # === CONVERT AVIF TO PNG ===
+        elif is_avif:
+            logger.info(f"  🔄 Converting AVIF to PNG...")
+            try:
+                # Open AVIF image (requires pillow-avif-plugin or pillow >= 10.0)
+                image = Image.open(io.BytesIO(response.content))
+                
+                # Convert to RGB if needed (AVIF can have transparency)
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    # Create white background for transparency
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    if image.mode == 'P':
+                        image = image.convert('RGBA')
+                    background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                    image = background
+                elif image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
+                # Save as PNG in memory
+                png_buffer = io.BytesIO()
+                image.save(png_buffer, format='PNG', optimize=True)
+                final_content = png_buffer.getvalue()
+                final_content_type = 'image/png'
+                ext = 'png'
+                logger.info(f"  ✅ AVIF converted to PNG successfully ({len(final_content)} bytes)")
+                
+            except Exception as e:
+                logger.warning(f"  ⚠️ AVIF conversion failed: {e}, skipping this logo")
+                return None  # Don't save AVIF files that can't be converted
         
         # === OTHER FORMATS - Keep as-is but determine extension ===
         else:
@@ -2375,7 +2403,7 @@ def extract_json_from_response(response_text: str) -> str:
     - ``` ... ```
     - Plain JSON
     - JSON embedded in other text (with explanations before/after)
-
+    
     IMPORTANT:
     Some models may put valid JSON followed by extra text in the same block.
     To avoid "Extra data" JSON errors, we always trim to the FIRST complete
@@ -2435,7 +2463,7 @@ def extract_json_from_response(response_text: str) -> str:
             trimmed = _trim_to_first_json_object(block)
             if trimmed.startswith("{") and trimmed.endswith("}"):
                 return trimmed
-
+    
     # 2) Try generic ``` ``` fenced blocks
     if "```" in response_text:
         code_pattern = re.search(r'```\s*\n?(.*?)\n?```', response_text, re.DOTALL)
@@ -2445,12 +2473,12 @@ def extract_json_from_response(response_text: str) -> str:
                 trimmed = _trim_to_first_json_object(potential_json)
                 if trimmed.startswith("{") and trimmed.endswith("}"):
                     return trimmed
-
+    
     # 3) Try scanning the whole response for the first JSON object
     trimmed = _trim_to_first_json_object(response_text)
     if trimmed and trimmed.startswith("{") and trimmed.endswith("}"):
         return trimmed
-
+    
     # 4) Last resort: slice from first '{' to last '}' then trim again
     if "{" in response_text and "}" in response_text:
         start_idx = response_text.find("{")
@@ -2460,7 +2488,7 @@ def extract_json_from_response(response_text: str) -> str:
             trimmed = _trim_to_first_json_object(candidate)
             if trimmed.startswith("{") and trimmed.endswith("}"):
                 return trimmed
-
+    
     raise ValueError(
         f"No valid JSON found in response (length: {len(response_text)}, "
         f"preview: {response_text[:100]}...)"
@@ -2740,6 +2768,382 @@ async def call_gpt4o_chat(prompt: str) -> str:
         raise
 
 
+# ============================================
+# BRANDFETCH LOGO & OPENAI COLOR EXTRACTION
+# ============================================
+
+def is_default_brandfetch_logo(image_content: bytes) -> bool:
+    """
+    Check if the fetched logo is the default Brandfetch logo (the "B" logo).
+    Brandfetch returns this when they don't have the brand's actual logo.
+    
+    Compares using perceptual similarity to handle format/size differences.
+    """
+    try:
+        from PIL import Image
+        import imagehash
+        
+        # Path to the default Brandfetch logo
+        default_logo_path = os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'default-image.png')
+        
+        if not os.path.exists(default_logo_path):
+            logger.warning(f"  ⚠️ Default Brandfetch logo not found at: {default_logo_path}")
+            return False
+        
+        # Load both images
+        fetched_image = Image.open(io.BytesIO(image_content))
+        default_image = Image.open(default_logo_path)
+        
+        # Convert to same mode for comparison
+        fetched_image = fetched_image.convert('RGB')
+        default_image = default_image.convert('RGB')
+        
+        # Use perceptual hash for comparison (resilient to format/size changes)
+        fetched_hash = imagehash.phash(fetched_image)
+        default_hash = imagehash.phash(default_image)
+        
+        # Calculate difference (0 = identical, higher = more different)
+        hash_diff = fetched_hash - default_hash
+        
+        logger.info(f"  → Brandfetch logo hash comparison: diff={hash_diff}")
+        
+        # If difference is small (< 10), consider it the same image
+        if hash_diff < 10:
+            logger.warning(f"  ⚠️ Detected default Brandfetch logo (hash diff: {hash_diff})")
+            print(f"   ⚠️ Detected default Brandfetch logo - will use fallback")
+            return True
+        
+        return False
+        
+    except ImportError:
+        # imagehash not installed, try simple size comparison
+        logger.warning(f"  ⚠️ imagehash not installed, using file size comparison")
+        try:
+            default_logo_path = os.path.join(os.path.dirname(__file__), '..', '..', 'assets', 'default-image.png')
+            if os.path.exists(default_logo_path):
+                with open(default_logo_path, 'rb') as f:
+                    default_content = f.read()
+                # Simple size comparison (within 20% range)
+                size_ratio = len(image_content) / len(default_content)
+                if 0.8 <= size_ratio <= 1.2:
+                    logger.warning(f"  ⚠️ Logo size similar to default Brandfetch logo")
+                    return True
+            return False
+        except:
+            return False
+    except Exception as e:
+        logger.warning(f"  ⚠️ Error comparing logos: {e}")
+        return False
+
+
+async def fetch_logo_from_brandfetch(domain: str) -> Optional[Dict[str, Any]]:
+    """
+    Fetch logo from Brandfetch CDN.
+    Returns dict with logo URL and content if successful, None otherwise.
+    
+    Brandfetch CDN pattern: https://cdn.brandfetch.io/:domain?c=CLIENT_ID
+    """
+    try:
+        brandfetch_client_id = os.getenv('BRANDFETCH_CLIENT_ID')
+        if not brandfetch_client_id:
+            logger.warning("  ⚠️ BRANDFETCH_CLIENT_ID not configured, skipping Brandfetch")
+            return None
+        
+        # Extract domain from URL
+        parsed = urllib.parse.urlparse(domain if domain.startswith('http') else f"https://{domain}")
+        clean_domain = parsed.netloc or parsed.path
+        clean_domain = clean_domain.replace('www.', '')
+        
+        brandfetch_url = f"https://cdn.brandfetch.io/{clean_domain}?c={brandfetch_client_id}"
+        
+        logger.info(f"🔍 Fetching logo from Brandfetch: {brandfetch_url}")
+        print(f"\n🔍 BRANDFETCH LOGO EXTRACTION:")
+        print(f"   Domain: {clean_domain}")
+        print(f"   URL: {brandfetch_url}")
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://dvyb.ai'
+        }
+        
+        response = requests.get(brandfetch_url, headers=headers, timeout=10, allow_redirects=True)
+        
+        # Check for redirect to guidelines (means blocked/invalid)
+        if response.status_code == 302 or 'guidelines' in response.url:
+            logger.warning(f"  ⚠️ Brandfetch redirected to guidelines - access blocked")
+            print(f"   ❌ Brandfetch blocked/redirected")
+            return None
+        
+        response.raise_for_status()
+        
+        content_type = response.headers.get('content-type', '').lower()
+        
+        # Verify it's an image
+        if not content_type.startswith('image/'):
+            logger.warning(f"  ⚠️ Brandfetch returned non-image: {content_type}")
+            print(f"   ❌ Not an image: {content_type}")
+            return None
+        
+        logger.info(f"  ✅ Brandfetch logo fetched: {len(response.content)} bytes ({content_type})")
+        print(f"   ✅ Logo fetched: {len(response.content)} bytes ({content_type})")
+        
+        # Check if this is the default Brandfetch logo (means they don't have the actual brand logo)
+        if is_default_brandfetch_logo(response.content):
+            logger.warning(f"  ⚠️ Brandfetch returned default logo, falling back to old extraction")
+            print(f"   ⚠️ Default Brandfetch logo detected - using fallback extraction")
+            return None
+        
+        return {
+            'url': brandfetch_url,
+            'content': response.content,
+            'content_type': content_type,
+            'domain': clean_domain
+        }
+        
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"  ⚠️ Brandfetch request failed: {e}")
+        print(f"   ❌ Brandfetch request failed: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"  ❌ Brandfetch error: {e}")
+        print(f"   ❌ Brandfetch error: {e}")
+        return None
+
+
+async def extract_colors_from_logo_with_openai(logo_s3_url: str) -> Optional[Dict[str, str]]:
+    """
+    Use OpenAI Vision (gpt-4.1-mini) to extract brand colors from logo.
+    Returns dict with primary, secondary, accent colors if successful.
+    """
+    try:
+        from openai import OpenAI
+        
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            logger.warning("  ⚠️ OPENAI_API_KEY not configured")
+            return None
+        
+        client = OpenAI(api_key=api_key)
+        
+        logger.info(f"🎨 Extracting colors from logo using OpenAI Vision...")
+        print(f"\n🎨 OPENAI VISION COLOR EXTRACTION:")
+        print(f"   Logo URL: {logo_s3_url[:80]}...")
+        
+        prompt = """Analyze this logo image and extract the brand colors.
+
+Return ONLY a JSON object with exactly these 3 colors as hex codes:
+{
+    "primary": "#XXXXXX",
+    "secondary": "#XXXXXX", 
+    "accent": "#XXXXXX"
+}
+
+Guidelines:
+- primary: The main/dominant brand color in the logo
+- secondary: The secondary color (often background or supporting color). If the logo has white/light background, use #FFFFFF
+- accent: A third accent color if present, or a darker/lighter variant of primary
+
+Return ONLY the JSON object, no other text."""
+
+        response = client.responses.create(
+            model="gpt-4.1-mini",
+            input=[{
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {
+                        "type": "input_image",
+                        "image_url": logo_s3_url,
+                    },
+                ],
+            }],
+        )
+        
+        response_text = response.output_text
+        logger.info(f"  → OpenAI Vision response: {response_text}")
+        print(f"   OpenAI Response: {response_text}")
+        
+        # Parse JSON from response
+        import json
+        
+        # Try to extract JSON from response
+        json_match = re.search(r'\{[^{}]*"primary"[^{}]*\}', response_text, re.DOTALL)
+        if json_match:
+            colors = json.loads(json_match.group())
+            
+            # Validate colors are hex codes
+            for key in ['primary', 'secondary', 'accent']:
+                if key in colors and colors[key]:
+                    color = colors[key].upper()
+                    if not re.match(r'^#[0-9A-F]{6}$', color):
+                        colors[key] = None
+                    else:
+                        colors[key] = color
+            
+            logger.info(f"  ✅ Colors extracted: {colors}")
+            print(f"   ✅ Colors: Primary={colors.get('primary')}, Secondary={colors.get('secondary')}, Accent={colors.get('accent')}")
+            
+            return colors
+        else:
+            logger.warning(f"  ⚠️ Could not parse colors from response")
+            print(f"   ❌ Could not parse colors from response")
+            return None
+        
+    except Exception as e:
+        logger.error(f"  ❌ OpenAI Vision error: {e}")
+        print(f"   ❌ OpenAI Vision error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+
+
+async def upload_brandfetch_logo_to_s3(logo_data: Dict[str, Any], account_id: Optional[int] = None) -> Optional[Dict[str, str]]:
+    """
+    Upload Brandfetch logo to S3, converting to PNG if needed.
+    Returns dict with S3 key and presigned URL if successful.
+    """
+    try:
+        from PIL import Image
+        
+        content = logo_data['content']
+        content_type = logo_data['content_type']
+        
+        logger.info(f"📤 Uploading Brandfetch logo to S3...")
+        
+        # Determine if conversion is needed
+        is_svg = 'svg' in content_type
+        is_webp = 'webp' in content_type
+        is_avif = 'avif' in content_type
+        
+        final_content = content
+        final_content_type = content_type
+        ext = 'png'
+        
+        # === CONVERT SVG TO PNG ===
+        if is_svg:
+            logger.info(f"  🔄 Converting SVG to PNG...")
+            try:
+                import cairosvg
+                png_data = cairosvg.svg2png(bytestring=content, output_width=512)
+                final_content = png_data
+                final_content_type = 'image/png'
+                ext = 'png'
+                logger.info(f"  ✅ SVG converted to PNG ({len(png_data)} bytes)")
+            except Exception as e:
+                logger.warning(f"  ⚠️ SVG conversion failed: {e}")
+                return None
+        
+        # === CONVERT WEBP TO PNG ===
+        elif is_webp:
+            logger.info(f"  🔄 Converting WEBP to PNG...")
+            try:
+                image = Image.open(io.BytesIO(content))
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    if image.mode == 'P':
+                        image = image.convert('RGBA')
+                    background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                    image = background
+                elif image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
+                png_buffer = io.BytesIO()
+                image.save(png_buffer, format='PNG', optimize=True)
+                final_content = png_buffer.getvalue()
+                final_content_type = 'image/png'
+                ext = 'png'
+                logger.info(f"  ✅ WEBP converted to PNG ({len(final_content)} bytes)")
+            except Exception as e:
+                logger.warning(f"  ⚠️ WEBP conversion failed: {e}")
+                return None
+        
+        # === CONVERT AVIF TO PNG ===
+        elif is_avif:
+            logger.info(f"  🔄 Converting AVIF to PNG...")
+            try:
+                image = Image.open(io.BytesIO(content))
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    if image.mode == 'P':
+                        image = image.convert('RGBA')
+                    background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                    image = background
+                elif image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
+                png_buffer = io.BytesIO()
+                image.save(png_buffer, format='PNG', optimize=True)
+                final_content = png_buffer.getvalue()
+                final_content_type = 'image/png'
+                ext = 'png'
+                logger.info(f"  ✅ AVIF converted to PNG ({len(final_content)} bytes)")
+            except Exception as e:
+                logger.warning(f"  ⚠️ AVIF conversion failed: {e}")
+                return None
+        
+        # === OTHER FORMATS ===
+        else:
+            ext_map = {
+                'image/png': 'png',
+                'image/jpeg': 'jpg',
+                'image/jpg': 'jpg',
+                'image/gif': 'gif',
+            }
+            ext = ext_map.get(final_content_type, 'png')
+        
+        # Upload to S3
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+            region_name=os.getenv('AWS_REGION', 'us-east-1')
+        )
+        
+        bucket_name = os.getenv('S3_BUCKET_NAME')
+        if not bucket_name:
+            logger.error("  ❌ S3_BUCKET_NAME not configured")
+            return None
+        
+        account_folder = f"dvyb/logos/{account_id}" if account_id else "dvyb/logos/temp"
+        filename = f"{uuid.uuid4()}.{ext}"
+        s3_key = f"{account_folder}/{filename}"
+        
+        s3_client.upload_fileobj(
+            io.BytesIO(final_content),
+            bucket_name,
+            s3_key,
+            ExtraArgs={
+                'ContentType': final_content_type,
+                'CacheControl': 'max-age=31536000',
+            }
+        )
+        
+        logger.info(f"  ✅ Uploaded to S3: {s3_key}")
+        
+        # Generate presigned URL
+        presigned_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': bucket_name, 'Key': s3_key},
+            ExpiresIn=3600
+        )
+        
+        print(f"\n🖼️  BRANDFETCH LOGO UPLOADED TO S3:")
+        print(f"   S3 Key: {s3_key}")
+        print(f"   Size: {len(final_content)} bytes")
+        print(f"   Type: {final_content_type}")
+        
+        return {
+            "s3_key": s3_key,
+            "presigned_url": presigned_url
+        }
+        
+    except Exception as e:
+        logger.error(f"  ❌ S3 upload error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+
+
 async def analyze_website_fast(url: str) -> Dict[str, Any]:
     """
     Fast website analysis using direct content fetch + GPT-4o.
@@ -2775,74 +3179,150 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
         site_text = extract_text_snippets(soup, max_chars=6000)  # More text for GPT-4o
         logger.info(f"  → Extracted {len(site_text)} chars of text")
         
-        # Step 5: Extract colors (same as before)
-        logger.info(f"  → Extracting color palette...")
-        color_palette = extract_colors_from_website(url, html, soup)
-        logger.info(f"  → Extracted Colors: {color_palette}")
-        print(f"\n🎨 EXTRACTED COLOR PALETTE FROM WEBSITE:")
-        print(f"   Primary: {color_palette.get('primary')}")
-        print(f"   Secondary: {color_palette.get('secondary')}")
-        print(f"   Accent: {color_palette.get('accent')}\n")
-        
-        # Step 6: Extract and upload logo (using intelligent extraction)
-        logger.info(f"  → Extracting logo with intelligent extraction...")
-        logo_extractor = LogoExtractor(url, soup)
-        logo_result = logo_extractor.extract_logo()
-        
+        # ============================================
+        # STEP 5: BRANDFETCH LOGO & COLORS (FIRST PRIORITY)
+        # ============================================
         logo_data = None
-        logo_confidence = 0.0
+        brandfetch_colors = None
+        brandfetch_success = False
+        color_palette = {}  # Will be populated only if Brandfetch fails
         
-        # Get all candidates sorted by confidence for fallback attempts
-        all_logo_candidates = logo_extractor.candidates if logo_extractor.candidates else []
+        logger.info(f"  → Trying Brandfetch for logo (first priority)...")
+        brandfetch_logo = await fetch_logo_from_brandfetch(url)
         
-        if logo_result:
-            logo_url = logo_result['url']
-            logo_confidence = logo_result['confidence']
-            logger.info(f"  → Logo found: {logo_url[:60]}... (confidence: {logo_confidence*100:.0f}%)")
+        if brandfetch_logo:
+            # Upload Brandfetch logo to S3
+            logo_data = await upload_brandfetch_logo_to_s3(brandfetch_logo, None)
             
-            # Only upload if confidence is reasonable (> 20%)
-            if logo_confidence >= 0.2:
-                logo_data = await download_and_upload_logo_to_s3(logo_url, None)
+            if logo_data:
+                logger.info(f"  ✅ Brandfetch logo uploaded successfully!")
                 
-                # If download failed, try other candidates
-                if not logo_data and all_logo_candidates:
-                    logger.warning(f"  ⚠️ Primary logo download failed, trying alternatives...")
-                    for candidate in all_logo_candidates:
-                        if candidate['url'] != logo_url:
-                            logger.info(f"  → Trying alternative: {candidate['url'][:60]}...")
-                            logo_data = await download_and_upload_logo_to_s3(candidate['url'], None)
-                            if logo_data:
-                                logger.info(f"  ✅ Alternative logo uploaded successfully")
-                                break
-            else:
-                logger.warning(f"  ⚠️ Logo confidence too low ({logo_confidence*100:.0f}%), skipping upload")
+                # Extract colors from logo using OpenAI Vision
+                brandfetch_colors = await extract_colors_from_logo_with_openai(logo_data['presigned_url'])
+                
+                if brandfetch_colors:
+                    logger.info(f"  ✅ Colors extracted from Brandfetch logo via OpenAI Vision")
+                    print(f"\n🎨 BRANDFETCH + OPENAI VISION COLORS:")
+                    print(f"   Primary: {brandfetch_colors.get('primary')}")
+                    print(f"   Secondary: {brandfetch_colors.get('secondary')}")
+                    print(f"   Accent: {brandfetch_colors.get('accent')}")
+                    
+                    # Normalize colors for comparison
+                    primary_upper = brandfetch_colors.get('primary', '').upper()
+                    secondary_upper = brandfetch_colors.get('secondary', '').upper()
+                    
+                    # Check for black/white combinations (logo is monochrome - not useful for brand colors)
+                    black_codes = ['#000000', '#000', '#111111', '#222222', '#333333']
+                    white_codes = ['#FFFFFF', '#FFF', '#FEFEFE', '#FDFDFD']
+                    
+                    is_primary_black = primary_upper in black_codes
+                    is_primary_white = primary_upper in white_codes
+                    is_secondary_black = secondary_upper in black_codes
+                    is_secondary_white = secondary_upper in white_codes
+                    
+                    # Case A: primary black + secondary white
+                    # Case B: primary white + secondary black
+                    is_monochrome_logo = (is_primary_black and is_secondary_white) or (is_primary_white and is_secondary_black)
+                    
+                    if is_monochrome_logo:
+                        logger.warning(f"  ⚠️ OpenAI Vision detected monochrome logo (black/white) - will use CSS fallback for ALL colors")
+                        print(f"   ⚠️ Monochrome logo detected (black/white) - will use CSS fallback for ALL colors")
+                        brandfetch_success = False  # Need CSS fallback for ALL colors
+                        brandfetch_colors = None  # Discard all OpenAI Vision colors
+                    elif is_primary_white:
+                        logger.warning(f"  ⚠️ OpenAI Vision returned white as primary - will use CSS fallback for primary")
+                        print(f"   ⚠️ Primary is white - will use CSS fallback for primary color")
+                        brandfetch_success = False  # Need CSS fallback for primary
+                        # But keep the logo and other colors from OpenAI Vision
+                    else:
+                        brandfetch_success = True
+                        print(f"\n✅ BRANDFETCH SUCCESS - Skipping old logo/color extraction logic")
         
-        # If still no logo, try multiple fallback paths
-        if not logo_data:
-            parsed_url = urllib.parse.urlparse(url)
-            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        # ============================================
+        # FALLBACK: Run old extraction logic if needed
+        # ============================================
+        
+        # Determine what we need from fallback
+        need_fallback_colors = not brandfetch_success  # Need colors if OpenAI Vision failed
+        need_fallback_logo = logo_data is None  # Need logo only if Brandfetch upload failed
+        
+        if need_fallback_colors or need_fallback_logo:
+            logger.info(f"  → Running fallback extraction (colors: {need_fallback_colors}, logo: {need_fallback_logo})...")
             
-            fallback_paths = [
-                f"{base_url}/favicon.ico",
-                f"{base_url}/favicon.png",
-                f"{base_url}/apple-touch-icon.png",
-                f"{base_url}/apple-touch-icon-precomposed.png",
-                f"{base_url}/logo.png",
-                f"{base_url}/logo.svg",
-                f"{base_url}/images/logo.png",
-                f"{base_url}/assets/logo.png",
-            ]
+            if logo_data and not brandfetch_success:
+                print(f"\n⚠️ BRANDFETCH LOGO OK, BUT OPENAI VISION FAILED - Using CSS for colors only")
+            elif not logo_data:
+                print(f"\n⚠️ BRANDFETCH FAILED - Using fallback for logo and colors")
             
-            logger.info(f"  → No logo found/uploaded, trying fallback paths...")
-            for fallback_url in fallback_paths:
-                logger.info(f"  → Trying: {fallback_url}")
-                logo_data = await download_and_upload_logo_to_s3(fallback_url, None)
-                if logo_data:
-                    logger.info(f"  ✅ Fallback logo uploaded: {fallback_url}")
-                    break
+            # FALLBACK STEP A: Extract colors from website CSS (if OpenAI Vision failed)
+            if need_fallback_colors:
+                logger.info(f"  → Extracting color palette from website CSS...")
+                color_palette = extract_colors_from_website(url, html, soup)
+                logger.info(f"  → CSS Extracted Colors: {color_palette}")
+                print(f"\n🎨 CSS EXTRACTED COLOR PALETTE FROM WEBSITE:")
+                print(f"   Primary: {color_palette.get('primary')}")
+                print(f"   Secondary: {color_palette.get('secondary')}")
+                print(f"   Accent: {color_palette.get('accent')}\n")
             
-            if not logo_data:
-                logger.warning(f"  ⚠️ All logo fallback attempts failed")
+            # FALLBACK STEP B: Extract logo from website (only if Brandfetch logo failed)
+            if need_fallback_logo:
+                logger.info(f"  → Trying intelligent logo extraction...")
+                logo_extractor = LogoExtractor(url, soup)
+                logo_result = logo_extractor.extract_logo()
+                
+                logo_confidence = 0.0
+                
+                # Get all candidates sorted by confidence for fallback attempts
+                all_logo_candidates = logo_extractor.candidates if logo_extractor.candidates else []
+                
+                if logo_result:
+                    logo_url = logo_result['url']
+                    logo_confidence = logo_result['confidence']
+                    logger.info(f"  → Logo found: {logo_url[:60]}... (confidence: {logo_confidence*100:.0f}%)")
+                    
+                    # Only upload if confidence is reasonable (> 20%)
+                    if logo_confidence >= 0.2:
+                        logo_data = await download_and_upload_logo_to_s3(logo_url, None)
+                        
+                        # If download failed, try other candidates
+                        if not logo_data and all_logo_candidates:
+                            logger.warning(f"  ⚠️ Primary logo download failed, trying alternatives...")
+                            for candidate in all_logo_candidates:
+                                if candidate['url'] != logo_url:
+                                    logger.info(f"  → Trying alternative: {candidate['url'][:60]}...")
+                                    logo_data = await download_and_upload_logo_to_s3(candidate['url'], None)
+                                    if logo_data:
+                                        logger.info(f"  ✅ Alternative logo uploaded successfully")
+                                        break
+                    else:
+                        logger.warning(f"  ⚠️ Logo confidence too low ({logo_confidence*100:.0f}%), skipping upload")
+                
+                # If still no logo, try multiple fallback paths
+                if not logo_data:
+                    parsed_url = urllib.parse.urlparse(url)
+                    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                    
+                    fallback_paths = [
+                        f"{base_url}/favicon.ico",
+                        f"{base_url}/favicon.png",
+                        f"{base_url}/apple-touch-icon.png",
+                        f"{base_url}/apple-touch-icon-precomposed.png",
+                        f"{base_url}/logo.png",
+                        f"{base_url}/logo.svg",
+                        f"{base_url}/images/logo.png",
+                        f"{base_url}/assets/logo.png",
+                    ]
+                    
+                    logger.info(f"  → No logo found/uploaded, trying fallback paths...")
+                    for fallback_url in fallback_paths:
+                        logger.info(f"  → Trying: {fallback_url}")
+                        logo_data = await download_and_upload_logo_to_s3(fallback_url, None)
+                        if logo_data:
+                            logger.info(f"  ✅ Fallback logo uploaded: {fallback_url}")
+                            break
+                    
+                    if not logo_data:
+                        logger.warning(f"  ⚠️ All logo fallback attempts failed")
         
         # Step 7: Build GPT-4o prompt (no web search)
         prompt = build_fast_analysis_prompt(base_name, url, site_text, color_palette)
@@ -2890,13 +3370,6 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
             }
             logger.warning("⚠️ Using fallback analysis data due to JSON parsing failure")
         
-        # Get LLM's suggested colors (for logging and fallback)
-        llm_colors = analysis_data.get("color_palette", {})
-        print("\n🤖 LLM SUGGESTED BRAND COLORS:")
-        print(f"   Primary: {llm_colors.get('primary', 'not provided')}")
-        print(f"   Secondary: {llm_colors.get('secondary', 'not provided')}")
-        print(f"   Accent: {llm_colors.get('accent', 'not provided')}")
-        
         # Helper to check if a color is valid (not None, not black unless intentional)
         def is_valid_color(color: str) -> bool:
             if not color:
@@ -2907,70 +3380,113 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
                 return False
             return True
         
-        # Finalize color palette:
-        # 1. Use extracted colors if available
-        # 2. Fall back to LLM suggested colors if extraction failed
-        # 3. Use sensible defaults as last resort (white for secondary, but NOT black)
+        # ============================================
+        # COLOR FINALIZATION
+        # ============================================
         final_colors = {
             "primary": None,
             "secondary": None,
             "accent": None
         }
         
-        # Primary: Use confidence-based decision
-        # If extracted has high confidence (>= 0.7), trust it; otherwise prefer LLM
-        PRIMARY_CONFIDENCE_THRESHOLD = 0.7
-        extracted_primary_confidence = color_palette.get("primary_confidence", 0.0)
+        # If Brandfetch + OpenAI Vision succeeded, use those colors directly
+        if brandfetch_success and brandfetch_colors:
+            print(f"\n🎨 USING BRANDFETCH + OPENAI VISION COLORS (Brandfetch succeeded):")
+            
+            final_colors["primary"] = brandfetch_colors.get("primary")
+            final_colors["secondary"] = brandfetch_colors.get("secondary") or "#FFFFFF"
+            final_colors["accent"] = brandfetch_colors.get("accent")
+            
+            print(f"   Primary: {final_colors['primary']}")
+            print(f"   Secondary: {final_colors['secondary']}")
+            print(f"   Accent: {final_colors['accent']}")
         
-        print(f"\n📊 PRIMARY COLOR DECISION:")
-        print(f"   Extracted primary: {color_palette.get('primary')} (confidence: {extracted_primary_confidence:.2f})")
-        print(f"   LLM primary: {llm_colors.get('primary')}")
-        print(f"   Threshold: {PRIMARY_CONFIDENCE_THRESHOLD}")
+        # Special case: Brandfetch colors exist but primary was white - use CSS for primary only
+        elif brandfetch_colors and brandfetch_colors.get('primary', '').upper() in ['#FFFFFF', '#FFF']:
+            print(f"\n🎨 BRANDFETCH PRIMARY WAS WHITE - Using CSS for primary, OpenAI for secondary/accent:")
+            
+            # Use CSS/LLM for primary
+            llm_colors = analysis_data.get("color_palette", {})
+            PRIMARY_CONFIDENCE_THRESHOLD = 0.7
+            extracted_primary_confidence = color_palette.get("primary_confidence", 0.0)
+            
+            if is_valid_color(color_palette.get("primary")) and extracted_primary_confidence >= PRIMARY_CONFIDENCE_THRESHOLD:
+                final_colors["primary"] = color_palette.get("primary")
+                print(f"   Primary: {final_colors['primary']} (from CSS, confidence {extracted_primary_confidence:.2f})")
+            elif is_valid_color(llm_colors.get("primary")):
+                final_colors["primary"] = llm_colors.get("primary")
+                print(f"   Primary: {final_colors['primary']} (from LLM)")
+            elif is_valid_color(color_palette.get("primary")):
+                final_colors["primary"] = color_palette.get("primary")
+                print(f"   Primary: {final_colors['primary']} (from CSS, low confidence)")
+            
+            # Use OpenAI Vision for secondary and accent
+            final_colors["secondary"] = brandfetch_colors.get("secondary") or "#FFFFFF"
+            final_colors["accent"] = brandfetch_colors.get("accent")
+            
+            print(f"   Secondary: {final_colors['secondary']} (from OpenAI Vision)")
+            print(f"   Accent: {final_colors['accent']} (from OpenAI Vision)")
         
-        if is_valid_color(color_palette.get("primary")) and extracted_primary_confidence >= PRIMARY_CONFIDENCE_THRESHOLD:
-            # High confidence extraction - trust it
-            final_colors["primary"] = color_palette.get("primary")
-            print(f"   ✅ Using EXTRACTED primary (confidence {extracted_primary_confidence:.2f} >= {PRIMARY_CONFIDENCE_THRESHOLD})")
-        elif is_valid_color(llm_colors.get("primary")):
-            # Low confidence or no extraction - use LLM
-            final_colors["primary"] = llm_colors.get("primary")
-            print(f"   ✅ Using LLM primary (extracted confidence {extracted_primary_confidence:.2f} < {PRIMARY_CONFIDENCE_THRESHOLD})")
-        elif is_valid_color(color_palette.get("primary")):
-            # No LLM color, use whatever we extracted
-            final_colors["primary"] = color_palette.get("primary")
-            print(f"   ⚠️ Using EXTRACTED primary as fallback (no LLM color available)")
-        
-        # Secondary: extracted → LLM → white (most common background)
-        if is_valid_color(color_palette.get("secondary")):
-            final_colors["secondary"] = color_palette.get("secondary")
-        elif is_valid_color(llm_colors.get("secondary")):
-            final_colors["secondary"] = llm_colors.get("secondary")
-            print(f"   → Using LLM secondary as fallback: {final_colors['secondary']}")
         else:
-            final_colors["secondary"] = "#FFFFFF"  # White is safest default for secondary
-            print(f"   → Using white as default secondary")
-        
-        # Accent: Use confidence-based decision
-        ACCENT_CONFIDENCE_THRESHOLD = 0.6
-        extracted_accent_confidence = color_palette.get("accent_confidence", 0.0)
-        
-        print(f"\n📊 ACCENT COLOR DECISION:")
-        print(f"   Extracted accent: {color_palette.get('accent')} (confidence: {extracted_accent_confidence:.2f})")
-        print(f"   LLM accent: {llm_colors.get('accent')}")
-        print(f"   Threshold: {ACCENT_CONFIDENCE_THRESHOLD}")
-        
-        if is_valid_color(color_palette.get("accent")) and extracted_accent_confidence >= ACCENT_CONFIDENCE_THRESHOLD:
-            # High confidence extraction - trust it
-            final_colors["accent"] = color_palette.get("accent")
-            print(f"   ✅ Using EXTRACTED accent (confidence {extracted_accent_confidence:.2f} >= {ACCENT_CONFIDENCE_THRESHOLD})")
-        elif is_valid_color(llm_colors.get("accent")):
-            # Low confidence or no extraction - use LLM
-            final_colors["accent"] = llm_colors.get("accent")
-            print(f"   ✅ Using LLM accent (extracted confidence {extracted_accent_confidence:.2f} < {ACCENT_CONFIDENCE_THRESHOLD})")
-        elif is_valid_color(color_palette.get("accent")):
-            # No LLM color, use whatever we extracted
-            final_colors["accent"] = color_palette.get("accent")
-            print(f"   ⚠️ Using EXTRACTED accent as fallback (no LLM color available)")
+            # Fallback: Use LLM + CSS extracted colors with priority logic
+            llm_colors = analysis_data.get("color_palette", {})
+            print("\n🤖 LLM SUGGESTED BRAND COLORS:")
+            print(f"   Primary: {llm_colors.get('primary', 'not provided')}")
+            print(f"   Secondary: {llm_colors.get('secondary', 'not provided')}")
+            print(f"   Accent: {llm_colors.get('accent', 'not provided')}")
+            
+            print(f"\n📊 COLOR PRIORITY DECISION (Brandfetch failed, using fallback):")
+            
+            # === PRIMARY COLOR ===
+            PRIMARY_CONFIDENCE_THRESHOLD = 0.7
+            extracted_primary_confidence = color_palette.get("primary_confidence", 0.0)
+            
+            print(f"\n   PRIMARY COLOR:")
+            print(f"   - CSS Extracted: {color_palette.get('primary')} (confidence: {extracted_primary_confidence:.2f})")
+            print(f"   - LLM: {llm_colors.get('primary')}")
+            
+            if is_valid_color(color_palette.get("primary")) and extracted_primary_confidence >= PRIMARY_CONFIDENCE_THRESHOLD:
+                final_colors["primary"] = color_palette.get("primary")
+                print(f"   ✅ Using CSS EXTRACTED primary (confidence {extracted_primary_confidence:.2f} >= {PRIMARY_CONFIDENCE_THRESHOLD})")
+            elif is_valid_color(llm_colors.get("primary")):
+                final_colors["primary"] = llm_colors.get("primary")
+                print(f"   ✅ Using LLM primary")
+            elif is_valid_color(color_palette.get("primary")):
+                final_colors["primary"] = color_palette.get("primary")
+                print(f"   ⚠️ Using CSS EXTRACTED primary as fallback (low confidence)")
+            
+            # === SECONDARY COLOR ===
+            print(f"\n   SECONDARY COLOR:")
+            print(f"   - CSS Extracted: {color_palette.get('secondary')}")
+            print(f"   - LLM: {llm_colors.get('secondary')}")
+            
+            if is_valid_color(color_palette.get("secondary")):
+                final_colors["secondary"] = color_palette.get("secondary")
+                print(f"   ✅ Using CSS EXTRACTED secondary")
+            elif is_valid_color(llm_colors.get("secondary")):
+                final_colors["secondary"] = llm_colors.get("secondary")
+                print(f"   ✅ Using LLM secondary")
+            else:
+                final_colors["secondary"] = "#FFFFFF"
+                print(f"   ⚠️ Using white as default secondary")
+            
+            # === ACCENT COLOR ===
+            ACCENT_CONFIDENCE_THRESHOLD = 0.6
+            extracted_accent_confidence = color_palette.get("accent_confidence", 0.0)
+            
+            print(f"\n   ACCENT COLOR:")
+            print(f"   - CSS Extracted: {color_palette.get('accent')} (confidence: {extracted_accent_confidence:.2f})")
+            print(f"   - LLM: {llm_colors.get('accent')}")
+            
+            if is_valid_color(color_palette.get("accent")) and extracted_accent_confidence >= ACCENT_CONFIDENCE_THRESHOLD:
+                final_colors["accent"] = color_palette.get("accent")
+                print(f"   ✅ Using CSS EXTRACTED accent (confidence {extracted_accent_confidence:.2f} >= {ACCENT_CONFIDENCE_THRESHOLD})")
+            elif is_valid_color(llm_colors.get("accent")):
+                final_colors["accent"] = llm_colors.get("accent")
+                print(f"   ✅ Using LLM accent")
+            elif is_valid_color(color_palette.get("accent")):
+                final_colors["accent"] = color_palette.get("accent")
+                print(f"   ⚠️ Using CSS EXTRACTED accent as fallback (low confidence)")
         
         analysis_data["color_palette"] = final_colors
         

@@ -447,7 +447,11 @@ export default function DvybAccountsPage() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <div className="flex-shrink-0 h-12 w-12">
-                            {account.logoPresignedUrl ? (
+                            {/* Check if logo is valid (not SVG, WEBP, or AVIF - unsupported formats) */}
+                            {account.logoPresignedUrl && 
+                             !account.logoPresignedUrl.toLowerCase().includes('.svg') &&
+                             !account.logoPresignedUrl.toLowerCase().includes('.webp') &&
+                             !account.logoPresignedUrl.toLowerCase().includes('.avif') ? (
                               <Image
                                 src={account.logoPresignedUrl}
                                 alt={account.accountName}

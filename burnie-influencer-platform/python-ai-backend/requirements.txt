@@ -26,6 +26,7 @@ httpx
 aiofiles
 python-multipart
 pillow
+imagehash
 cairosvg
 requests
 boto3

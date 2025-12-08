@@ -30,6 +30,8 @@ from app.config.settings import settings
 import tempfile
 import requests
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip
+from PIL import Image
+import io
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -77,6 +79,155 @@ class GenerationStatus(BaseModel):
     progress_percent: int
     progress_message: str
     data: Optional[Dict[str, Any]] = None
+
+
+# ============================================
+# IMAGE FORMAT HELPERS
+# ============================================
+
+def convert_logo_to_png_if_needed(logo_s3_key: str, account_id: int) -> str:
+    """
+    Convert logo to PNG if it's in an unsupported format (SVG, AVIF, WEBP).
+    FAL only supports JPG, JPEG, and PNG.
+    
+    Returns: The S3 key of the PNG logo (either original or converted)
+    """
+    if not logo_s3_key:
+        return logo_s3_key
+    
+    # Check file extension
+    logo_lower = logo_s3_key.lower()
+    
+    # If already a supported format, return as-is
+    if logo_lower.endswith(('.jpg', '.jpeg', '.png')):
+        print(f"✅ Logo is already in supported format: {logo_s3_key}")
+        return logo_s3_key
+    
+    # Check for unsupported formats
+    needs_conversion = logo_lower.endswith(('.svg', '.avif', '.webp'))
+    
+    if not needs_conversion:
+        print(f"⚠️ Logo format unknown, attempting to use as-is: {logo_s3_key}")
+        return logo_s3_key
+    
+    print(f"🔄 Logo needs conversion to PNG: {logo_s3_key}")
+    
+    try:
+        import io
+        from PIL import Image
+        import cairosvg  # For SVG conversion
+        
+        # Generate presigned URL to download the logo
+        presigned_url = web2_s3_helper.generate_presigned_url(logo_s3_key)
+        if not presigned_url:
+            print(f"❌ Failed to get presigned URL for logo conversion, using original")
+            return logo_s3_key
+        
+        # Download the logo
+        response = requests.get(presigned_url, timeout=30)
+        if response.status_code != 200:
+            print(f"❌ Failed to download logo (status {response.status_code}), using original")
+            return logo_s3_key
+        
+        content = response.content
+        png_content = None
+        
+        # Convert based on format
+        if logo_lower.endswith('.svg'):
+            print(f"🎨 Converting SVG to PNG...")
+            try:
+                # Convert SVG to PNG using cairosvg
+                png_content = cairosvg.svg2png(bytestring=content, output_width=1024)
+                print(f"✅ SVG converted to PNG successfully")
+            except Exception as svg_error:
+                print(f"⚠️ SVG conversion failed: {svg_error}")
+                # Try PIL as fallback (may not work for complex SVGs)
+                try:
+                    image = Image.open(io.BytesIO(content))
+                    png_buffer = io.BytesIO()
+                    image.save(png_buffer, format='PNG')
+                    png_content = png_buffer.getvalue()
+                    print(f"✅ SVG converted via PIL fallback")
+                except Exception as pil_error:
+                    print(f"❌ PIL fallback also failed: {pil_error}")
+                    return logo_s3_key
+                    
+        elif logo_lower.endswith('.avif'):
+            print(f"🎨 Converting AVIF to PNG...")
+            try:
+                # pillow-avif-plugin should handle AVIF if installed
+                image = Image.open(io.BytesIO(content))
+                if image.mode in ('RGBA', 'LA'):
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                    image = background
+                elif image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
+                png_buffer = io.BytesIO()
+                image.save(png_buffer, format='PNG')
+                png_content = png_buffer.getvalue()
+                print(f"✅ AVIF converted to PNG successfully")
+            except Exception as avif_error:
+                print(f"❌ AVIF conversion failed: {avif_error}")
+                return logo_s3_key
+                
+        elif logo_lower.endswith('.webp'):
+            print(f"🎨 Converting WEBP to PNG...")
+            try:
+                image = Image.open(io.BytesIO(content))
+                if image.mode in ('RGBA', 'LA'):
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                    image = background
+                elif image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
+                png_buffer = io.BytesIO()
+                image.save(png_buffer, format='PNG')
+                png_content = png_buffer.getvalue()
+                print(f"✅ WEBP converted to PNG successfully")
+            except Exception as webp_error:
+                print(f"❌ WEBP conversion failed: {webp_error}")
+                return logo_s3_key
+        
+        if not png_content:
+            print(f"❌ No PNG content generated, using original")
+            return logo_s3_key
+        
+        # Save converted PNG to temp file and upload to S3
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+            temp_file.write(png_content)
+            temp_file_path = temp_file.name
+        
+        try:
+            # Generate a unique filename for the converted logo
+            original_name = logo_s3_key.split('/')[-1].rsplit('.', 1)[0]  # Get filename without extension
+            png_filename = f"{original_name}_converted_{uuid.uuid4().hex[:8]}.png"
+            
+            # Upload to S3
+            new_s3_key = web2_s3_helper.upload_from_file(
+                file_path=temp_file_path,
+                folder=f"dvyb/converted-logos/{account_id}",
+                filename=png_filename
+            )
+            
+            print(f"✅ Converted logo uploaded to S3: {new_s3_key}")
+            return new_s3_key
+            
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+                
+    except ImportError as ie:
+        print(f"⚠️ Missing dependency for logo conversion: {ie}")
+        print(f"⚠️ Using original logo - may fail at FAL if format unsupported")
+        return logo_s3_key
+    except Exception as e:
+        print(f"❌ Logo conversion failed: {e}")
+        print(f"⚠️ Using original logo - may fail at FAL if format unsupported")
+        return logo_s3_key
 
 
 # ============================================
@@ -2976,6 +3127,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             }
     
     dvyb_context = context.get('dvyb_context', {})
+    account_id = context.get('account_id', 0)
     # Use randomly selected logo from logoUrl or additionalLogoUrls
     logo_url_raw = context.get('selected_logo_url')
     
@@ -2997,6 +3149,10 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             # Already an S3 key
             logo_s3_url = logo_url_raw
             print(f"📝 Selected logo S3 key: {logo_s3_url}")
+        
+        # SAFETY CHECK: Convert unsupported formats (SVG, AVIF, WEBP) to PNG
+        # FAL only supports JPG, JPEG, and PNG
+        logo_s3_url = convert_logo_to_png_if_needed(logo_s3_url, account_id)
     
     # Extract model image info from inventory analysis
     inventory_analysis = context.get('inventory_analysis', {})

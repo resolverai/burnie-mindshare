@@ -378,6 +378,26 @@ router.post('/analyze-website', dvybAuthMiddleware, async (req: DvybAuthRequest,
 
     const analysisDataToUse = finalAnalysisData;
 
+    // Validate logo format - only allow PNG, JPG, JPEG (reject SVG, WEBP, AVIF)
+    let validatedLogoUrl: string | null = null;
+    if (analysisDataToUse.logo_s3_key) {
+      const logoKeyLower = analysisDataToUse.logo_s3_key.toLowerCase();
+      const allowedExtensions = ['.png', '.jpg', '.jpeg'];
+      const rejectedExtensions = ['.svg', '.webp', '.avif'];
+      
+      if (allowedExtensions.some(ext => logoKeyLower.endsWith(ext))) {
+        validatedLogoUrl = analysisDataToUse.logo_s3_key;
+        logger.info(`✅ Logo format validated: ${analysisDataToUse.logo_s3_key}`);
+      } else if (rejectedExtensions.some(ext => logoKeyLower.endsWith(ext))) {
+        logger.warn(`⚠️ Logo format not supported (${logoKeyLower}), skipping logo storage`);
+        validatedLogoUrl = null;
+      } else {
+        // Unknown format, allow it (could be valid)
+        validatedLogoUrl = analysisDataToUse.logo_s3_key;
+        logger.info(`ℹ️ Unknown logo format, allowing: ${analysisDataToUse.logo_s3_key}`);
+      }
+    }
+
     // Update context with extracted information
     const updatedContext = await DvybContextService.upsertContext(accountId, {
       website: url,
@@ -388,7 +408,7 @@ router.post('/analyze-website', dvybAuthMiddleware, async (req: DvybAuthRequest,
       whyCustomersChoose: analysisDataToUse.why_customers_choose || null,
       brandStory: analysisDataToUse.brand_story || null,
       colorPalette: analysisDataToUse.color_palette || null,
-      logoUrl: analysisDataToUse.logo_s3_key || null, // Save extracted logo S3 key
+      logoUrl: validatedLogoUrl, // Save validated logo S3 key (only PNG, JPG, JPEG)
     });
 
     logger.info(`✅ Website analysis saved for account ${accountId}`);
