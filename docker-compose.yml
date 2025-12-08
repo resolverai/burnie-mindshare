@@ -125,6 +125,7 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://mindshareapi.burnie.io/api}
+        - NEXT_PUBLIC_MIXPANEL_TOKEN=${NEXT_PUBLIC_MIXPANEL_TOKEN:-}
         - NODE_ENV=${NODE_ENV:-production}
     container_name: burnie-dvyb-frontend
     ports:

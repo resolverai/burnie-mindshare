@@ -5,10 +5,12 @@ WORKDIR /app
 
 # Accept build arguments for NEXT_PUBLIC_ variables
 ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_MIXPANEL_TOKEN
 ARG NODE_ENV
 
 # Set environment variables from build args
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_MIXPANEL_TOKEN=${NEXT_PUBLIC_MIXPANEL_TOKEN}
 ENV NODE_ENV=${NODE_ENV:-production}
 
 # Copy package files for dependency caching
@@ -18,8 +20,8 @@ COPY bun.lock* ./
 # Set npm config to use legacy-peer-deps globally (so Next.js auto-installs also use it)
 RUN npm config set legacy-peer-deps true
 
-# Install dependencies (cached layer if package files unchanged)
-RUN npm ci
+# Install dependencies (npm install is more flexible than npm ci - doesn't require exact lock file sync)
+RUN npm install
 
 # Copy .env files if they exist (fallback for NEXT_PUBLIC_ variables during build)
 COPY .env* ./
