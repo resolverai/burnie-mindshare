@@ -8,10 +8,11 @@ ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_MIXPANEL_TOKEN
 ARG NODE_ENV
 
-# Set environment variables from build args
+# Set environment variables from build args (only if provided, otherwise .env file values will be used)
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-ENV NEXT_PUBLIC_MIXPANEL_TOKEN=${NEXT_PUBLIC_MIXPANEL_TOKEN}
 ENV NODE_ENV=${NODE_ENV:-production}
+# NOTE: NEXT_PUBLIC_MIXPANEL_TOKEN is NOT set here - it will be read from .env file
+# This prevents empty ARG from overriding the .env file value
 
 # Copy package files for dependency caching
 COPY package*.json ./
@@ -23,7 +24,7 @@ RUN npm config set legacy-peer-deps true
 # Install dependencies (npm install is more flexible than npm ci - doesn't require exact lock file sync)
 RUN npm install
 
-# Copy .env files if they exist (fallback for NEXT_PUBLIC_ variables during build)
+# Copy .env files BEFORE build (NEXT_PUBLIC_ variables are inlined at build time)
 COPY .env* ./
 
 # Copy source code (only invalidates cache when source changes)
