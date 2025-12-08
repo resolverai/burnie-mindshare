@@ -324,173 +324,185 @@ export const BrandKit = ({ onContinue }: BrandKitProps) => {
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-4 md:gap-6">
+        {/* Only show Logo upload during onboarding - other features available in Brand Kit page */}
+        <div className="w-full max-w-3xl mx-auto px-4 md:px-8">
           {/* Logo */}
-          <Card className="p-4 md:p-6 shadow-card hover:shadow-card-hover transition-shadow">
-            <h2 className="text-lg md:text-xl font-semibold text-foreground mb-3 md:mb-4">Logo</h2>
-            <FileDropZone
-              onFilesSelected={handleLogoUpload}
-              currentFiles={logoUrl ? [logoUrl] : []}
-              onRemove={handleLogoRemove}
-              accept="image/*"
-              multiple={false}
-              maxFiles={1}
-              uploadType="logo"
-            />
+          <Card className="p-6 md:p-8 shadow-card hover:shadow-card-hover transition-shadow">
+            <h2 className="text-lg md:text-xl font-semibold text-foreground mb-3 md:mb-4">Upload Your Logo</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Your logo will be used in your generated social media content.
+            </p>
+            <div className="min-h-[200px] md:min-h-[280px]">
+              <FileDropZone
+                onFilesSelected={handleLogoUpload}
+                currentFiles={logoUrl ? [logoUrl] : []}
+                onRemove={handleLogoRemove}
+                accept="image/*"
+                multiple={false}
+                maxFiles={1}
+                uploadType="logo"
+              />
+            </div>
           </Card>
+        </div>
 
-          {/* Colors and Fonts Column */}
-          <div className="space-y-4 md:space-y-6">
-            {/* Social Post Colors */}
-            <Card className="p-4 md:p-6 shadow-card hover:shadow-card-hover transition-shadow">
-              <div className="flex items-start justify-between mb-3 md:mb-4 gap-2">
-                <h2 className="text-lg md:text-xl font-semibold text-foreground">Social Post Colors</h2>
-                {isEditingColors ? (
-                  <div className="flex gap-2 flex-shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsEditingColors(false)}
-                      disabled={isSaving}
-                      className="text-xs md:text-sm"
-                    >
-                      Cancel
+        {/* HIDDEN SECTIONS - These features are available in Brand Kit page after onboarding */}
+        {/* Keeping the code but hiding from UI to preserve functionality */}
+        <div className="hidden">
+          <div className="grid md:grid-cols-2 gap-4 md:gap-6">
+            {/* Colors and Fonts Column */}
+            <div className="space-y-4 md:space-y-6">
+              {/* Social Post Colors */}
+              <Card className="p-4 md:p-6 shadow-card hover:shadow-card-hover transition-shadow">
+                <div className="flex items-start justify-between mb-3 md:mb-4 gap-2">
+                  <h2 className="text-lg md:text-xl font-semibold text-foreground">Social Post Colors</h2>
+                  {isEditingColors ? (
+                    <div className="flex gap-2 flex-shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsEditingColors(false)}
+                        disabled={isSaving}
+                        className="text-xs md:text-sm"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveColors}
+                        disabled={isSaving}
+                        className="text-xs md:text-sm"
+                      >
+                        {isSaving ? 'Saving...' : 'Save'}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={() => setIsEditingColors(true)} className="flex-shrink-0">
+                      <Pencil className="w-4 h-4" />
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleSaveColors}
-                      disabled={isSaving}
-                      className="text-xs md:text-sm"
+                  )}
+                </div>
+                
+                <div className="flex gap-3 md:gap-4 lg:gap-6 justify-center flex-wrap">
+                  {(['primary', 'secondary', 'accent'] as ColorType[]).map((colorType) => (
+                    <button
+                      key={colorType}
+                      onClick={() => isEditingColors && handleColorEdit(colorType)}
+                      className={`flex flex-col items-center gap-1 md:gap-2 ${isEditingColors ? 'cursor-pointer' : 'cursor-default'}`}
+                      disabled={!isEditingColors}
                     >
-                      {isSaving ? 'Saving...' : 'Save'}
+                      <div
+                        className={`w-14 h-14 md:w-16 md:h-16 lg:w-20 lg:h-20 rounded-full border-4 border-background shadow-md ${isEditingColors ? 'hover:scale-110 transition-transform' : ''}`}
+                        style={{ backgroundColor: socialPostColors[colorType] }}
+                      />
+                      <span className="text-xs text-muted-foreground">{socialPostColors[colorType]}</span>
+                    </button>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Social Post Fonts */}
+              <Card className="p-4 md:p-6 shadow-card hover:shadow-card-hover transition-shadow">
+                <div className="flex items-start justify-between mb-3 md:mb-4 gap-2">
+                  <h2 className="text-lg md:text-xl font-semibold text-foreground">Social Post Fonts</h2>
+                  {isEditingFonts ? (
+                    <div className="flex gap-2 flex-shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsEditingFonts(false)}
+                        disabled={isSaving}
+                        className="text-xs md:text-sm"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveFonts}
+                        disabled={isSaving}
+                        className="text-xs md:text-sm"
+                      >
+                        {isSaving ? 'Saving...' : 'Save'}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={() => setIsEditingFonts(true)} className="flex-shrink-0">
+                      <Pencil className="w-4 h-4" />
                     </Button>
+                  )}
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3 md:gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-2">Title</p>
+                    <button
+                      onClick={() => isEditingFonts && handleFontEdit('title')}
+                      className={`text-lg md:text-xl lg:text-2xl font-serif w-full text-left p-2 rounded border ${isEditingFonts ? 'border-primary hover:bg-primary/10 cursor-pointer' : 'border-transparent'}`}
+                      style={{ fontFamily: brandFonts.title }}
+                      disabled={!isEditingFonts}
+                    >
+                      {brandFonts.title}
+                    </button>
                   </div>
-                ) : (
-                  <Button variant="ghost" size="sm" onClick={() => setIsEditingColors(true)} className="flex-shrink-0">
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                )}
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-2">Body</p>
+                    <button
+                      onClick={() => isEditingFonts && handleFontEdit('body')}
+                      className={`text-lg md:text-xl lg:text-2xl w-full text-left p-2 rounded border ${isEditingFonts ? 'border-primary hover:bg-primary/10 cursor-pointer' : 'border-transparent'}`}
+                      style={{ fontFamily: brandFonts.body }}
+                      disabled={!isEditingFonts}
+                    >
+                      {brandFonts.body}
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Images */}
+            <Card className="md:col-span-2 p-4 md:p-6 shadow-card hover:shadow-card-hover transition-shadow">
+              <div className="mb-3 md:mb-4">
+                <h2 className="text-lg md:text-xl font-semibold text-foreground mb-1 md:mb-2">Brand Images</h2>
+                <p className="text-xs md:text-sm text-muted-foreground">
+                  Upload inspiration images that represent your brand. We'll use these to generate similar content for you.
+                </p>
               </div>
-              
-              <div className="flex gap-3 md:gap-4 lg:gap-6 justify-center flex-wrap">
-                {(['primary', 'secondary', 'accent'] as ColorType[]).map((colorType) => (
-                  <button
-                    key={colorType}
-                    onClick={() => isEditingColors && handleColorEdit(colorType)}
-                    className={`flex flex-col items-center gap-1 md:gap-2 ${isEditingColors ? 'cursor-pointer' : 'cursor-default'}`}
-                    disabled={!isEditingColors}
-                  >
-                    <div
-                      className={`w-14 h-14 md:w-16 md:h-16 lg:w-20 lg:h-20 rounded-full border-4 border-background shadow-md ${isEditingColors ? 'hover:scale-110 transition-transform' : ''}`}
-                      style={{ backgroundColor: socialPostColors[colorType] }}
-                    />
-                    <span className="text-xs text-muted-foreground">{socialPostColors[colorType]}</span>
-                  </button>
-                ))}
-              </div>
+              <FileDropZone
+                onFilesSelected={handleBrandImagesUpload}
+                currentFiles={brandImages}
+                onRemove={handleBrandImageRemove}
+                accept="image/png,image/jpeg,image/jpg,image/webp"
+                multiple={true}
+                maxFiles={50}
+                uploadType="images"
+              />
             </Card>
 
-            {/* Social Post Fonts */}
-            <Card className="p-4 md:p-6 shadow-card hover:shadow-card-hover transition-shadow">
+            {/* Brand Voice */}
+            <Card className="md:col-span-2 p-4 md:p-6 shadow-card hover:shadow-card-hover transition-shadow">
               <div className="flex items-start justify-between mb-3 md:mb-4 gap-2">
-                <h2 className="text-lg md:text-xl font-semibold text-foreground">Social Post Fonts</h2>
-                {isEditingFonts ? (
-                  <div className="flex gap-2 flex-shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsEditingFonts(false)}
-                      disabled={isSaving}
-                      className="text-xs md:text-sm"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleSaveFonts}
-                      disabled={isSaving}
-                      className="text-xs md:text-sm"
-                    >
-                      {isSaving ? 'Saving...' : 'Save'}
-                    </Button>
-                  </div>
-                ) : (
-                  <Button variant="ghost" size="sm" onClick={() => setIsEditingFonts(true)} className="flex-shrink-0">
+                <h2 className="text-lg md:text-xl font-semibold text-foreground">Brand Voice</h2>
+                {!isEditingBrandVoice && (
+                  <Button variant="ghost" size="sm" onClick={() => setIsEditingBrandVoice(true)} className="flex-shrink-0">
                     <Pencil className="w-4 h-4" />
                   </Button>
                 )}
               </div>
               
-              <div className="grid grid-cols-2 gap-3 md:gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2">Title</p>
-                  <button
-                    onClick={() => isEditingFonts && handleFontEdit('title')}
-                    className={`text-lg md:text-xl lg:text-2xl font-serif w-full text-left p-2 rounded border ${isEditingFonts ? 'border-primary hover:bg-primary/10 cursor-pointer' : 'border-transparent'}`}
-                    style={{ fontFamily: brandFonts.title }}
-                    disabled={!isEditingFonts}
-                  >
-                    {brandFonts.title}
-                  </button>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-2">Body</p>
-                  <button
-                    onClick={() => isEditingFonts && handleFontEdit('body')}
-                    className={`text-lg md:text-xl lg:text-2xl w-full text-left p-2 rounded border ${isEditingFonts ? 'border-primary hover:bg-primary/10 cursor-pointer' : 'border-transparent'}`}
-                    style={{ fontFamily: brandFonts.body }}
-                    disabled={!isEditingFonts}
-                  >
-                    {brandFonts.body}
-                  </button>
-                </div>
-              </div>
+              {isEditingBrandVoice ? (
+                <RichTextEditor
+                  content={brandVoice}
+                  onSave={handleSaveBrandVoice}
+                  onCancel={() => setIsEditingBrandVoice(false)}
+                  isSaving={isSaving}
+                />
+              ) : (
+                <p className="text-sm md:text-base text-muted-foreground leading-relaxed whitespace-pre-line">
+                  {brandVoice || "Click Edit to add your brand voice"}
+                </p>
+              )}
             </Card>
           </div>
-
-          {/* Images */}
-          <Card className="md:col-span-2 p-4 md:p-6 shadow-card hover:shadow-card-hover transition-shadow">
-            <div className="mb-3 md:mb-4">
-              <h2 className="text-lg md:text-xl font-semibold text-foreground mb-1 md:mb-2">Brand Images</h2>
-              <p className="text-xs md:text-sm text-muted-foreground">
-                Upload inspiration images that represent your brand. We'll use these to generate similar content for you.
-              </p>
-            </div>
-            <FileDropZone
-              onFilesSelected={handleBrandImagesUpload}
-              currentFiles={brandImages}
-              onRemove={handleBrandImageRemove}
-              accept="image/png,image/jpeg,image/jpg,image/webp"
-              multiple={true}
-              maxFiles={50}
-              uploadType="images"
-            />
-          </Card>
-
-          {/* Brand Voice */}
-          <Card className="md:col-span-2 p-4 md:p-6 shadow-card hover:shadow-card-hover transition-shadow">
-            <div className="flex items-start justify-between mb-3 md:mb-4 gap-2">
-              <h2 className="text-lg md:text-xl font-semibold text-foreground">Brand Voice</h2>
-              {!isEditingBrandVoice && (
-                <Button variant="ghost" size="sm" onClick={() => setIsEditingBrandVoice(true)} className="flex-shrink-0">
-                  <Pencil className="w-4 h-4" />
-                </Button>
-              )}
-            </div>
-            
-            {isEditingBrandVoice ? (
-              <RichTextEditor
-                content={brandVoice}
-                onSave={handleSaveBrandVoice}
-                onCancel={() => setIsEditingBrandVoice(false)}
-                isSaving={isSaving}
-              />
-            ) : (
-              <p className="text-sm md:text-base text-muted-foreground leading-relaxed whitespace-pre-line">
-                {brandVoice || "Click Edit to add your brand voice"}
-              </p>
-            )}
-          </Card>
         </div>
 
         {/* Spacer for sticky button */}
