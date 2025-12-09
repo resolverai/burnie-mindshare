@@ -56,12 +56,29 @@ export default function BrandProfilePage() {
       console.error('Failed to update onboarding progress:', e);
     }
     
+    // Get suggested topic from website analysis (or fallback to default)
+    let contentTopic = 'Product Launch'; // Default fallback
+    let topicDescription = '';
+    try {
+      const storedAnalysis = localStorage.getItem('dvyb_website_analysis');
+      if (storedAnalysis) {
+        const analysisData = JSON.parse(storedAnalysis);
+        if (analysisData.suggested_first_topic?.title) {
+          contentTopic = analysisData.suggested_first_topic.title;
+          topicDescription = analysisData.suggested_first_topic.description || '';
+          console.log('📝 Using suggested topic from analysis:', contentTopic);
+        }
+      }
+    } catch (e) {
+      console.warn('Could not read suggested topic from localStorage:', e);
+    }
+    
     // Start automatic content generation in background (wow experience!)
-    console.log('🎨 Starting automatic content generation...');
+    console.log('🎨 Starting automatic content generation with topic:', contentTopic);
     
     // Track auto content generation started
     trackAutoContentGenerationStarted({
-      topic: 'Product Launch',
+      topic: contentTopic,
       platforms: ['twitter'],
       imageCount: 1,
       videoCount: 1,
@@ -70,12 +87,12 @@ export default function BrandProfilePage() {
     try {
       const { adhocGenerationApi } = await import('@/lib/api');
       const genResponse = await adhocGenerationApi.generateContent({
-        topic: 'Product Launch',
+        topic: contentTopic,
         platforms: ['twitter'],  // Twitter only for faster demo
         number_of_posts: 2,
         number_of_images: 1,
         number_of_videos: 1,  // 1 image + 1 video for better demo
-        user_prompt: '',  // Let the AI generate based on brand context
+        user_prompt: topicDescription,  // Use topic description as additional context
       });
       
       if (genResponse.success && (genResponse.job_id || genResponse.uuid)) {

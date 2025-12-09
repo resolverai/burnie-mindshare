@@ -402,6 +402,8 @@ router.post('/analyze-website', dvybAuthMiddleware, async (req: DvybAuthRequest,
     const updatedContext = await DvybContextService.upsertContext(accountId, {
       website: url,
       accountName: analysisDataToUse.base_name || null,
+      industry: analysisDataToUse.industry || null,
+      suggestedFirstTopic: analysisDataToUse.suggested_first_topic || null,
       businessOverview: analysisDataToUse.business_overview_and_positioning || null,
       customerDemographics: analysisDataToUse.customer_demographics_and_psychographics || null,
       popularProducts: analysisDataToUse.most_popular_products_and_services || null,

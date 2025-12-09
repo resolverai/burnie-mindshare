@@ -44,6 +44,145 @@ if fal_api_key:
 # Track active generation jobs
 active_jobs: Dict[str, Any] = {}
 
+# Import for timeout mechanism
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+import threading
+
+# Timeout for FAL clip generation (5 minutes = 300 seconds)
+FAL_CLIP_TIMEOUT_SECONDS = 300
+
+
+def generate_clip_with_timeout_and_fallback(
+    primary_model: dict,
+    fallback_model: dict,
+    clip_prompt: str,
+    frame_presigned_url: str,
+    clip_num: int,
+    video_idx: int,
+    timeout_seconds: int = FAL_CLIP_TIMEOUT_SECONDS
+) -> tuple:
+    """
+    Generate a clip with FAL, with timeout and automatic model fallback.
+    
+    Args:
+        primary_model: Primary model config dict with 'name', 'fal_model', 'clip_duration', 'duration_param'
+        fallback_model: Fallback model config to use if primary times out
+        clip_prompt: The prompt for clip generation
+        frame_presigned_url: Presigned URL of the starting frame
+        clip_num: Clip number for logging
+        video_idx: Video index for logging
+        timeout_seconds: Timeout in seconds (default 7 minutes)
+    
+    Returns:
+        tuple: (result, model_used_name, model_used_fal, clip_duration, success)
+    """
+    
+    def _build_fal_arguments(model_name: str, model_config: dict) -> dict:
+        """Build FAL arguments based on model type."""
+        if model_name == "kling_v2.6":
+            return {
+                "prompt": clip_prompt,
+                "image_url": frame_presigned_url,
+                "duration": model_config["duration_param"],  # "5" or "10" (string without 's')
+                "negative_prompt": "blur, distort, low quality, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra text, double logos",
+                "cfg_scale": 0.5,
+                "generate_audio": True
+            }
+        else:  # veo3.1
+            return {
+                "prompt": clip_prompt,
+                "image_url": frame_presigned_url,
+                "aspect_ratio": "9:16",
+                "duration": model_config["duration_param"],  # "8s" (with 's' suffix)
+                "generate_audio": True,
+                "resolution": "720p"
+            }
+    
+    def _call_fal_blocking(model_config: dict):
+        """Blocking FAL call to run in thread."""
+        model_name = model_config["name"]
+        fal_model = model_config["fal_model"]
+        fal_args = _build_fal_arguments(model_name, model_config)
+        
+        def on_queue_update(update):
+            if isinstance(update, fal_client.InProgress):
+                for log in update.logs:
+                    print(f"    [FAL] {log.get('message', '')}")
+        
+        result = fal_client.subscribe(
+            fal_model,
+            arguments=fal_args,
+            with_logs=True,
+            on_queue_update=on_queue_update
+        )
+        return result
+    
+    def _try_model_with_timeout(model_config: dict, is_fallback: bool = False) -> tuple:
+        """Try a model with timeout, returns (result, success)."""
+        model_name = model_config["name"]
+        label = "FALLBACK" if is_fallback else ""
+        
+        print(f"  🎬 [{model_name.upper()}] {label} Generating clip {clip_num} (timeout: {timeout_seconds}s / {timeout_seconds//60}min)...")
+        print(f"     Model: {model_config['fal_model']}")
+        print(f"     Duration: {model_config['clip_duration']}s")
+        
+        # Create executor WITHOUT context manager to avoid blocking on shutdown
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = executor.submit(_call_fal_blocking, model_config)
+            try:
+                result = future.result(timeout=timeout_seconds)
+                if result and "video" in result:
+                    print(f"  ✅ [{model_name.upper()}] {label} Clip generated successfully!")
+                    return (result, True)
+                else:
+                    print(f"  ⚠️ [{model_name.upper()}] {label} No video in result")
+                    return (None, False)
+            except FuturesTimeoutError:
+                print(f"\n  ⏰ TIMEOUT! [{model_name.upper()}] {label} did not respond within {timeout_seconds}s ({timeout_seconds//60} minutes)")
+                # Don't wait for the thread - let it run in background (FAL will handle it)
+                future.cancel()
+                return (None, False)
+        except Exception as e:
+            print(f"  ❌ [{model_name.upper()}] {label} Error: {e}")
+            return (None, False)
+        finally:
+            # Shutdown executor without waiting for pending futures
+            executor.shutdown(wait=False)
+    
+    # Try primary model first
+    result, success = _try_model_with_timeout(primary_model, is_fallback=False)
+    if success:
+        return (result, primary_model["name"], primary_model["fal_model"], primary_model["clip_duration"], True)
+    
+    # Primary failed, try fallback
+    print(f"  🔄 Switching to fallback model: {fallback_model['name'].upper()}...")
+    result, success = _try_model_with_timeout(fallback_model, is_fallback=True)
+    if success:
+        return (result, fallback_model["name"], fallback_model["fal_model"], fallback_model["clip_duration"], True)
+    
+    # Both failed
+    print(f"  ❌ Both models failed - clip {clip_num} generation failed")
+    return (None, fallback_model["name"], fallback_model["fal_model"], fallback_model["clip_duration"], False)
+
+
+def get_fallback_model(current_model_name: str) -> dict:
+    """Get the fallback model configuration based on current model."""
+    if current_model_name == "kling_v2.6":
+        return {
+            "name": "veo3.1",
+            "fal_model": "fal-ai/veo3.1/fast/image-to-video",
+            "clip_duration": 8,
+            "duration_param": "8s"
+        }
+    else:  # veo3.1
+        return {
+            "name": "kling_v2.6",
+            "fal_model": "fal-ai/kling-video/v2.6/pro/image-to-video",
+            "clip_duration": 10,
+            "duration_param": "10"
+        }
+
 
 # ============================================
 # REQUEST/RESPONSE MODELS
@@ -1745,6 +1884,12 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         if summary and str(summary).strip():
             link_analysis_str = summary
     
+    # Randomly decide voiceover for product/brand marketing videos (30% chance voiceover, 70% no voiceover)
+    # UGC videos always have voiceover=false (character speaks instead)
+    voiceover_random = random.random()
+    voiceover_for_non_ugc = voiceover_random <= 0.1
+    print(f"🎲 Voiceover decision: random={voiceover_random:.2f}, voiceover_for_non_ugc={voiceover_for_non_ugc} (<=0.1 means voiceover)")
+    
     # Build Grok prompt with clip prompts (matching web3 flow)
     # Color palette for prompts
     color_palette = dvyb_context.get('socialPostColors') or dvyb_context.get('colorPalette') or {}
@@ -1777,7 +1922,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
             for clip_num in range(1, CLIPS_PER_VIDEO + 1):
                 video_examples.append(f'''  "video_{video_idx}_clip_{clip_num}_image_prompt": "Detailed visual description for starting frame of clip {clip_num} in video {video_idx} (9:16 vertical aspect ratio, Instagram Reels style)...",
   "video_{video_idx}_clip_{clip_num}_product_mapping": "image_1" or "image_2" or null (map to product image if needed for this specific frame),
-  "video_{video_idx}_clip_{clip_num}_prompt": "Cinematic 8-10 second video description with smooth motion, no text overlays, no background music. [THEN add voiceover OR character speech at the END]",
+  "video_{video_idx}_clip_{clip_num}_prompt": "Cinematic 8-10 second video description with smooth motion, no text overlays. [THEN add voiceover OR character speech at the END]",
   "video_{video_idx}_clip_{clip_num}_logo_needed": true or false''')
             
             # Single audio prompt per video (added after stitching)
@@ -1792,28 +1937,54 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    🎯 CRITICAL: INTELLIGENT VIDEO TYPE & FLAGS DECISION
    
    **DECISION HIERARCHY**:
-   1. **If USER INSTRUCTIONS explicitly request a specific video type** (e.g., "make a UGC video", "product showcase", "influencer style", "brand story"):
-      → HONOR the user's explicit request
-   2. **Otherwise, autonomously decide** based on:
+   1. **Intelligently infer from USER INSTRUCTIONS** what type of video they want:
+      → If user intent is about showcasing/launching/featuring a PRODUCT → use "product_marketing"
+      → If user intent is about brand storytelling/awareness/values → use "brand_marketing"
+      → If user intent is about authentic creator content/testimonials/personal experience → use "ugc_influencer"
+   2. **If user instructions don't clearly indicate a preference**, autonomously decide based on:
       → Inventory analysis (what products/items are shown)
       → Brand context (industry, voice, audience)
       → Content purpose (educational, promotional, storytelling)
    
-   Based on this analysis, YOU MUST DECIDE the optimal video type AND set corresponding flags:
+   🚨🚨🚨 **CRITICAL - USER INTENT OVERRIDES EVERYTHING** 🚨🚨🚨
    
-   A. **PRODUCT MARKETING VIDEO** (Pure product showcase):
-      - Use when: Clear product focus in inventory/context, no human element needed, OR user explicitly requests product showcase
+   If user explicitly mentions "product marketing" or indicates product-focused content:
+   → video_type MUST be "product_marketing" - NEVER "ugc_influencer"
+   
+   If user explicitly mentions "brand marketing" or indicates brand-focused content:
+   → video_type MUST be "brand_marketing" - NEVER "ugc_influencer"
+   
+   ⚠️ **IMPORTANT**: Product marketing videos CAN include human models wearing/using the product!
+   - "Model wearing product" + "product marketing" → STILL "product_marketing" (NOT ugc_influencer)
+   - The difference is STYLE: product_marketing is professional/cinematic, ugc_influencer is authentic/casual
+   - Having a model in the video does NOT automatically make it UGC
+   
+   Only use "ugc_influencer" when user explicitly wants:
+   - Authentic creator/influencer style content
+   - First-person testimonials or reviews
+   - Casual, relatable, personal vlog-style content
+   
+   Based on this analysis, YOU MUST DECIDE the optimal video type. However, the VOICEOVER FLAG IS PRE-DETERMINED - you MUST use exactly the value specified below:
+   
+   🚨🚨🚨 **MANDATORY VOICEOVER FLAG FOR THIS GENERATION** 🚨🚨🚨
+   For product_marketing and brand_marketing videos: **voiceover MUST BE {"true" if voiceover_for_non_ugc else "false"}**
+   {"You MUST include voiceover narration in clip prompts." if voiceover_for_non_ugc else "You MUST NOT include ANY voiceover or speech in clip prompts. PURE VISUAL ONLY."}
+   This is PRE-DETERMINED. Do NOT change this value. Do NOT override this decision.
+   
+   A. **PRODUCT MARKETING VIDEO** (Professional product showcase):
+      - Use when: User wants product-focused content, product launch, product showcase, OR user explicitly mentions "product marketing"
+      - ⚠️ CAN include human models wearing/using the product - this is STILL product marketing, NOT UGC
       - FLAGS TO OUTPUT:
         * "video_type": "product_marketing"
-        * "voiceover": true (embedded voiceover narration in Veo3.1 clip)
-        * "no_characters": true (NO human characters in video)
-        * "human_characters_only": false
-        * "influencer_marketing": false
+        * "voiceover": {"true" if voiceover_for_non_ugc else "false"} ← MANDATORY - DO NOT CHANGE THIS VALUE
+        * "no_characters": true OR false (can have models in product marketing - set false if user wants model)
+        * "human_characters_only": true if including models, false if pure product
+        * "influencer_marketing": false (ALWAYS false for product marketing)
       - Style: Professional product showcase, feature highlights
-      - Voiceover Style: Professional, authoritative narrator voice (e.g., "In a professional male narrator voice:", "In a confident female voice:", "In an enthusiastic energetic voice:")
-      - Example clip prompt: "Sleek smartphone rotating on marble surface, camera slowly zooming to reveal elegant design features, professional studio lighting, no text overlays, no background music. Voiceover in professional male narrator voice: Introducing the future of mobile technology."
-      - CRITICAL: Specify voice type/tone at the START of voiceover instructions (professional/enthusiastic/warm/authoritative, male/female)
-      - 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text. Use commas, periods, or natural pauses instead. Em-dashes interfere with TTS generation and create awkward pauses.
+      {"- Voiceover Style: Professional, authoritative narrator voice (e.g., 'In a professional male narrator voice:', 'In a confident female voice:')" if voiceover_for_non_ugc else "- 🚨 PURE VISUAL MODE (voiceover=false): NO voiceover, NO character speech, NO humans. This is a cinematic product video with ONLY visuals and background music."}
+      {"- Example clip prompt WITH voiceover: 'Sleek smartphone rotating on marble surface, camera slowly zooming to reveal elegant design features, professional studio lighting, no text overlays. Voiceover in professional male narrator voice: Introducing the future of mobile technology.'" if voiceover_for_non_ugc else "- Example clip prompt WITHOUT voiceover: 'Sleek smartphone rotating on marble surface, camera slowly zooming to reveal elegant design features, dramatic rim lighting creating golden edge glow, slow motion dust particles in light beam, cinematic atmosphere, no text overlays.'"}
+      {"- CRITICAL: Include voiceover text at END of clip prompt. Specify voice type/tone (professional/enthusiastic/warm/authoritative, male/female)" if voiceover_for_non_ugc else "- 🚨 CRITICAL: NO 'Voiceover:', NO 'Saying:', NO speech text. Focus ONLY on CINEMATIC VISUALS - dramatic lighting, slow motion, artistic compositions."}
+      {"- 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text." if voiceover_for_non_ugc else ""}
    
    B. **UGC INFLUENCER VIDEO** (Authentic influencer style):
       - Use when: Lifestyle/personal use context, human engagement needed, relatable content, OR user explicitly requests UGC/influencer style video
@@ -1896,33 +2067,35 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
       
       **COMPLETE UGC CLIP PROMPT EXAMPLES**:
       
-      - Example (simple, with model): "Reference model looking at camera with genuine surprise turning to excitement, bright modern kitchen, natural morning light, no text overlays, no background music. Saying in enthusiastic discovery tone (14 words max): Wait, you guys still don't know about this? It literally changed my entire morning routine."
+      - Example (simple, with model): "Reference model looking at camera with genuine surprise turning to excitement, bright modern kitchen, natural morning light, no text overlays. Saying in enthusiastic discovery tone (14 words max): Wait, you guys still don't know about this? It literally changed my entire morning routine."
       
-      - Example (with transition, no model): "Hispanic woman, late 20s, curly hair, casual style, speaking to camera with curious expression, camera smoothly pans to phone screen showing app results, then pulls back to her amazed reaction, living room setting, no text overlays, no background music. Saying in excited genuine tone (14 words max): I typed one idea and look what it created, this is actually insane you guys."
+      - Example (with transition, no model): "Hispanic woman, late 20s, curly hair, casual style, speaking to camera with curious expression, camera smoothly pans to phone screen showing app results, then pulls back to her amazed reaction, living room setting, no text overlays. Saying in excited genuine tone (14 words max): I typed one idea and look what it created, this is actually insane you guys."
       
-      - Example (product focus): "Reference model holding product up to camera, speaking with enthusiasm, camera zooms slowly into product details while voice continues, then zooms out to satisfied smile, studio lighting, no text overlays, no background music. Saying in testimonial tone (14 words max): Feel this quality, see this design, this is why I switched and never looked back."
+      - Example (product focus): "Reference model holding product up to camera, speaking with enthusiasm, camera zooms slowly into product details while voice continues, then zooms out to satisfied smile, studio lighting, no text overlays. Saying in testimonial tone (14 words max): Feel this quality, see this design, this is why I switched and never looked back."
    
    C. **BRAND MARKETING VIDEO** (Brand storytelling):
       - Use when: Abstract brand values, emotional storytelling, no specific product, OR user explicitly requests brand storytelling/brand-focused video
       - FLAGS TO OUTPUT:
         * "video_type": "brand_marketing"
-        * "voiceover": true (embedded voiceover narration in Veo3.1 clip)
-        * "no_characters": true (NO human characters)
+        * "voiceover": {"true" if voiceover_for_non_ugc else "false"} ← MANDATORY - DO NOT CHANGE THIS VALUE
+        * "no_characters": true (NO human characters - NEVER include people)
         * "human_characters_only": false
         * "influencer_marketing": false
       - Style: Artistic, emotional, brand-focused
-      - Voiceover Style: Inspirational, cinematic narrator voice (specify: warm/inspiring/dramatic, male/female)
-      - Example clip prompt: "Abstract artistic representation of innovation, flowing light patterns, dynamic camera movement revealing brand essence, cinematic atmosphere, no text overlays, no background music. Voiceover in warm inspiring male voice: Your journey to excellence starts here."
-      - CRITICAL: Specify voice type/tone for emotional impact (inspiring/dramatic/warm/confident, male/female)
-      - 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text. Use commas, periods, or natural pauses instead. Em-dashes interfere with TTS generation and create awkward pauses.
+      {"- Voiceover Style: Inspirational, cinematic narrator voice (specify: warm/inspiring/dramatic, male/female)" if voiceover_for_non_ugc else "- 🚨 PURE VISUAL MODE (voiceover=false): NO voiceover, NO character speech, NO humans. This is a cinematic brand video with ONLY artistic visuals and background music."}
+      {"- Example clip prompt WITH voiceover: 'Abstract artistic representation of innovation, flowing light patterns, dynamic camera movement revealing brand essence, cinematic atmosphere, no text overlays. Voiceover in warm inspiring male voice: Your journey to excellence starts here.'" if voiceover_for_non_ugc else "- Example clip prompt WITHOUT voiceover: 'Abstract artistic representation of innovation, flowing light patterns transitioning through brand colors, dynamic camera movement revealing brand essence, dramatic rim lighting, slow motion particles floating in light beam, cinematic atmosphere, no text overlays.'"}
+      {"- CRITICAL: Include voiceover text at END of clip prompt. Specify voice type/tone for emotional impact (inspiring/dramatic/warm/confident, male/female)" if voiceover_for_non_ugc else "- 🚨 CRITICAL: NO 'Voiceover:', NO 'Saying:', NO speech text. Focus ONLY on CINEMATIC ARTISTRY - dramatic lighting, slow motion, artistic compositions, abstract visuals."}
+      {"- 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text." if voiceover_for_non_ugc else ""}
    
    YOU MUST OUTPUT (at the top level):
    "video_type": "product_marketing" OR "ugc_influencer" OR "brand_marketing",
-   "voiceover": true OR false,
+   "voiceover": {"true" if voiceover_for_non_ugc else "false"} ← 🚨 FOR PRODUCT/BRAND MARKETING: USE EXACTLY THIS VALUE. For UGC: always false.
    "no_characters": true OR false,
    "human_characters_only": true OR false,
    "influencer_marketing": true OR false,
    "web3": false (always false for DVYB)
+   
+   ⚠️ VOICEOVER FLAG REMINDER: For product_marketing and brand_marketing, voiceover MUST be {"true" if voiceover_for_non_ugc else "false"}. This is PRE-DETERMINED.
    
    📋 MULTI-CLIP VIDEO STRUCTURE (Kling v2.6 / Veo3.1 with 9:16 aspect ratio):
    Video indices: {sorted(video_indices)}
@@ -1938,9 +2111,9 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - Aspect ratio: 9:16 (Instagram Reels/TikTok vertical - MANDATORY)
    - Clip duration: 8-10s (8s for Veo3.1, 10s for Kling v2.6)
    - Embedded audio: YES (voiceover OR character speech based on video_type)
-   - 🚨 CRITICAL CLIP PROMPT STRUCTURE: "no text overlays, no background music" must come BEFORE voiceover/speech text (NOT after)
+   - 🚨 CRITICAL CLIP PROMPT STRUCTURE: "no text overlays" must come BEFORE voiceover/speech text (NOT after)
      * This prevents the model from speaking "no text overlays" as part of the audio
-     * Structure: [Scene description], no text overlays, no background music. [Voiceover/Speech at the END]
+     * Structure: [Scene description], no text overlays. [Voiceover/Speech at the END]
    - Background music added separately AFTER stitching (via Pixverse Sound Effects)
    
    👤 INFLUENCER CONSISTENCY (CRITICAL for ugc_influencer type):
@@ -1970,12 +2143,78 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    
   📸 **CLIP IMAGE PROMPTS** (Starting Frames - Same Quality Standards):
   - Apply ALL image quality guidelines from section 4 to clip image prompts
+  - Apply CINEMATIC elements: dramatic lighting, implied motion, cinematic composition
   - Include detailed descriptions with color palette integration
   - Keep compositions simple and focused (avoid clutter)
   - **CRITICAL COLOR USAGE**: Use brand colors ONLY in physical objects/surfaces (clothing, walls, furniture, props, decor) - NEVER in lighting, glows, or effects
   - Example: "wearing {color_palette.get('primary')} colored shirt" ✅ NOT "using {color_palette.get('primary')} for lighting accents" ❌
   - **MANDATORY ENDING**: End with: ", colors used only in physical objects and surfaces not in lighting or glow effects, use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
   - Remember: These frames will become video starting points, so they must be high-quality and on-brand
+  
+  🎬 **CLIP MOTION PROMPTS** (Video Animation - CINEMATIC QUALITY):
+  - Apply CINEMATIC TECHNIQUES from section 4 to ALL clip prompts
+  - Think like a DIRECTOR: describe HOW the camera moves, not just what's in frame
+  - **Camera Movement**: "slow zoom in", "camera orbits", "tracking shot", "dolly push", "crane descent"
+  - **Speed Effects**: "slow motion", "timelapse", "speed ramp from slow to normal"
+  - **Focus Techniques**: "rack focus from foreground to product", "pull focus following action"
+  - **Reveal Techniques**: "reveal shot as hand moves away", "push through foreground element"
+  
+  **CLIP PROMPT CINEMATIC EXAMPLES**:
+  - ❌ Basic: "Product on table, camera shows it"
+  - ✅ Cinematic: "Slow cinematic zoom in on product revealing texture details, soft rack focus from blurred foreground fruit to sharp product surface, dramatic rim lighting"
+  
+  - ❌ Basic: "Person picks up product"
+  - ✅ Cinematic: "Tracking shot following hand reaching toward product in slow motion, camera pushes in as fingers make contact, shallow depth of field with background melting into bokeh"
+  
+  - ❌ Basic: "Show product features"
+  - ✅ Cinematic: "Camera slowly orbits product 90 degrees revealing different angles, dramatic side lighting casting long shadows, dust particles visible in light beam, speed ramp to normal as orbit completes"
+  
+  **AUTONOMOUS CINEMATIC DECISIONS**: You decide when cinematic elements enhance the clip. Product reveals, emotional moments, and brand storytelling often benefit from cinematic techniques. UGC may use subtle handheld movement for authenticity. YOU choose what serves the content best.
+  
+  🎬 **CINEMATIC CLIP PROMPT INSPIRATION** (FOR PRODUCT & BRAND MARKETING VIDEOS):
+  
+  These examples are STARTING POINTS to spark your creativity - NOT limitations. Go beyond them, invent new techniques, surprise us:
+  
+  **ULTRA SLOW MOTION SHOTS**:
+  - "Ultra slow motion water droplets cascading off the product surface, each droplet catching light like tiny crystals, 120fps cinematic quality"
+  - "Extreme slow motion product rotation revealing every surface detail, dust particles floating gracefully in dramatic backlight"
+  - "Slow motion fabric unfurling in wind, revealing product underneath, silk-like movement at 60fps"
+  - "Ultra slow motion pour of liquid, viscous flow catching rim lighting, every ripple visible"
+  - "Slow motion ice cream melt, single droplet stretching before falling, macro lens detail"
+  
+  **DRAMATIC CAMERA MOVEMENTS**:
+  - "Sweeping crane shot descending from above, gradually revealing product in dramatic spotlight"
+  - "Dolly zoom creating vertigo effect while product stays centered, background warping cinematically"
+  - "360-degree orbit around product, seamless rotation revealing all angles, consistent dramatic lighting"
+  - "Push-in through smoke/mist revealing product emerging like a hero shot"
+  - "Pull-back reveal starting from extreme macro texture to full product in context"
+  
+  **CINEMATIC LIGHTING EFFECTS**:
+  - "Product bathed in moving light beams, shadows dancing across surface, film noir atmosphere"
+  - "Golden hour rays streaming through, lens flare kissing product edge, warm cinematic grade"
+  - "Dramatic chiaroscuro lighting, half product in shadow half in brilliant highlight"
+  - "Pulsing neon reflections on product surface, cyberpunk aesthetic, moody atmosphere"
+  - "Soft diffused light slowly intensifying to dramatic spotlight reveal"
+  
+  **ABSTRACT/ARTISTIC SEQUENCES** (especially for brand marketing):
+  - "Liquid chrome morphing into product shape, reflective surface catching environment"
+  - "Particle explosion transitioning into product formation, cosmic energy aesthetic"
+  - "Color wash transitions flowing through frame, brand colors dancing in abstract patterns"
+  - "Geometric shapes assembling into product silhouette, minimal elegant animation"
+  - "Light painting trails circling product, long exposure effect, ethereal glow"
+  
+  **TEXTURE & DETAIL REVEALS**:
+  - "Extreme macro traveling across product surface, revealing craftsmanship at microscopic level"
+  - "Focus pull from blurred foreground element to sharp product detail, rack focus beauty shot"
+  - "Cross-section reveal, camera pushing through product layers, internal structure visible"
+  - "Steam/vapor rising around product, creating mystery and allure, diffused lighting"
+  
+  **ENVIRONMENTAL TRANSITIONS**:
+  - "Time-lapse background transitioning day to night while product remains lit, dramatic time passage"
+  - "Weather elements (rain, snow, leaves) falling around stationary product, seasonal atmosphere"
+  - "Background morphing between locations while product stays anchored, versatility showcase"
+  
+  **UNLIMITED CREATIVITY**: These examples are just INSPIRATION - not limitations. You have COMPLETE creative freedom to invent entirely new cinematic techniques, combine approaches in unexpected ways, or create something we haven't even imagined. The best clip prompts often go far beyond these examples. Trust your creative instincts. Pure visual storytelling with no boundaries.
   
   🛍️ **PRODUCT MAPPING FOR CLIP FRAMES** (SAME AS IMAGE POSTS):
   - For EACH clip image prompt, decide if a product should be referenced
@@ -2345,6 +2584,101 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - Simple, powerful imagery is better than busy, complex scenes
    - Think "magazine cover" quality - clean, professional, focused
    
+   🎬 **CINEMATIC & DYNAMIC ELEMENTS** (AUTONOMOUS - ELEVATE VISUAL QUALITY):
+   
+   **YOUR CREATIVE FREEDOM**: You are a CINEMATOGRAPHER and DIRECTOR, not just a prompt writer. Think about HOW the shot is captured, not just WHAT is in it. These examples teach you techniques - apply them AUTONOMOUSLY when they enhance the content. Not every prompt needs cinematic elements, but brilliant content often has them.
+   
+   **FOR IMAGES - "FROZEN CINEMATIC MOMENTS"**:
+   
+   Instead of static product shots, capture a dramatic moment frozen in time:
+   
+   📸 **Implied Motion** (the image feels alive):
+   - "splash of berry juice frozen mid-air around the popsicle"
+   - "single condensation droplet suspended, about to fall"
+   - "hair strand caught in breeze, flowing across frame"
+   - "fabric ripple frozen at peak of movement"
+   - "powder/crumbs exploding outward, frozen in moment of impact"
+   
+   📸 **Dramatic Lighting** (creates mood and dimension):
+   - "dramatic rim lighting creating golden edge glow on product"
+   - "single shaft of light cutting through dust particles"
+   - "backlit silhouette with lens flare bleeding into frame"
+   - "chiaroscuro lighting with deep shadows and bright highlights"
+   - "golden hour rays streaming through, catching on condensation"
+   
+   📸 **Cinematic Composition** (film-quality framing):
+   - "rack focus effect - blurred foreground element, sharp product"
+   - "shallow depth of field with dreamy circular bokeh"
+   - "leading lines drawing eye toward product"
+   - "reflection in water/mirror creating symmetry"
+   - "shot through foreground element (leaves, glass, fabric)"
+   
+   📸 **Perspective Drama** (unusual angles that captivate):
+   - "worm's eye view looking up at product against sky"
+   - "bird's eye directly overhead flat lay"
+   - "dutch angle creating dynamic tension"
+   - "extreme macro showing texture at near-microscopic level"
+   - "forced perspective making product appear larger than life"
+   
+   **FOR CLIPS/VIDEOS - CAMERA MOVEMENT & DYNAMICS**:
+   
+   Video prompts should describe HOW the camera moves and behaves:
+   
+   🎥 **Camera Movement** (brings scenes to life):
+   - "slow cinematic zoom in toward product, revealing fine details"
+   - "camera slowly orbits around product 90 degrees"
+   - "dolly push in on character's reaction face"
+   - "tracking shot following hand as it reaches for product"
+   - "crane shot descending from above to eye level"
+   - "subtle handheld movement for organic, authentic feel"
+   
+   🎥 **Speed & Timing** (creates emotional impact):
+   - "slow motion capture of bite, showing texture in detail"
+   - "timelapse of condensation forming on cold surface"
+   - "speed ramp: slow motion moment of impact, then normal speed"
+   - "real-time pour with liquid dynamics visible"
+   - "slow motion hair flip or fabric swirl"
+   
+   🎥 **Focus & Depth** (directs viewer attention):
+   - "rack focus from blurred hand to sharp product"
+   - "pull focus following movement through scene"
+   - "deep focus keeping entire scene sharp"
+   - "selective focus isolating subject from busy background"
+   
+   🎥 **Reveal & Transition Techniques**:
+   - "reveal shot: obstruction moves away unveiling product"
+   - "camera pushes through foreground element into scene"
+   - "whip pan blur suggesting energy and excitement"
+   - "zoom through product logo for transition moment"
+   
+   **AUTONOMOUS APPLICATION GUIDE**:
+   
+   Ask yourself for each prompt:
+   - "Would a cinematic technique make this more visually striking?"
+   - "What would a film director do to make this shot memorable?"
+   - "Is there implied motion I can freeze (images) or actual motion I can describe (clips)?"
+   - "What lighting would create the most dramatic/appealing mood?"
+   
+   **WHEN TO USE** (your judgment):
+   - Product reveals → zoom in, dramatic lighting, reveal shots
+   - Food/beverage → slow motion, splash/drip frozen moments, macro texture
+   - Fashion/beauty → slow motion fabric/hair, artistic lighting, mirror shots
+   - UGC/lifestyle → handheld feel, natural movement, authentic moments
+   - Brand storytelling → cinematic transitions, dramatic compositions
+   
+   **EXAMPLE TRANSFORMATIONS**:
+   
+   ❌ Basic: "popsicle on wooden table with berries"
+   ✅ Cinematic: "popsicle with dramatic rim lighting creating golden edge glow, single droplet of melt frozen mid-fall, shot through blurred foreground berry with rack focus to sharp product, shallow depth of field with warm bokeh"
+   
+   ❌ Basic: "person holding product and smiling"
+   ✅ Cinematic: "slow motion zoom in on genuine smile as hand brings product into frame, soft golden hour backlight creating hair glow and subtle lens flare, shallow depth of field with background melting into creamy bokeh"
+   
+   ❌ Basic: "product on display"
+   ✅ Cinematic: "camera slowly orbits product 45 degrees revealing different angle, dramatic side lighting casting long shadows, dust particles visible in light shaft, cinematic color grade with lifted blacks"
+   
+   **REMEMBER**: You have FULL creative autonomy. These are techniques in your toolkit - use them when they serve the content. A simple, clean shot can be perfect. A cinematic masterpiece can be perfect. YOU decide what's right for each specific prompt based on brand, product, context, and intended emotion.
+   
    **🌍 REAL-WORLD PHYSICS & NATURAL LAWS** (AUTONOMOUS APPLICATION):
    
    You must AUTONOMOUSLY apply real-world understanding to ALL prompts. Your prompts should explicitly describe how objects, humans, animals, and environments behave according to physics and nature. This prevents AI image/video models from making unrealistic outputs.
@@ -2478,7 +2812,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     # Build complete JSON example
     json_example = f'''{{
   "video_type": "product_marketing" or "ugc_influencer" or "brand_marketing",
-  "voiceover": true or false,
+  "voiceover": {"true" if voiceover_for_non_ugc else "false"} for product/brand marketing OR false for ugc_influencer,
   "no_characters": true or false,
   "human_characters_only": true or false,
   "influencer_marketing": true or false,
@@ -2498,16 +2832,20 @@ You respond ONLY with valid JSON objects, no extra text or formatting.
 
 Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
 
-🎯 YOUR AUTONOMOUS DECISION-MAKING RESPONSIBILITY:
+🎯 YOUR DECISION-MAKING RESPONSIBILITY:
 
 1. **DECIDE VIDEO TYPE** (product_marketing / ugc_influencer / brand_marketing)
    - Analyze brand context, inventory, user instructions, and link analysis
    - Set appropriate flags based on your decision
 
-2. **GENERATE PROMPTS BASED ON YOUR FLAGS**:
-   - If YOU set voiceover=true → Include "Voiceover in [tone] [gender] voice:" in ALL clip prompts
-   - If YOU set influencer_marketing=true → Include "saying in [tone] (14 words max): [speech]" in ALL clip prompts
-   - If YOU set no_characters=true → NO human characters in prompts
+2. **⚠️ VOICEOVER FLAG IS PRE-DETERMINED** (DO NOT OVERRIDE):
+   - For product_marketing and brand_marketing: voiceover MUST be {"true" if voiceover_for_non_ugc else "false"} (this is pre-decided)
+   - For ugc_influencer: voiceover is always false (character speaks on camera)
+
+3. **GENERATE PROMPTS BASED ON FLAGS**:
+   {"- voiceover=true for product/brand marketing → Include 'Voiceover in [tone] [gender] voice:' at END of clip prompts" if voiceover_for_non_ugc else "- voiceover=false for product/brand marketing → NO voiceover, NO speech - PURE VISUAL with cinematic effects only"}
+   - influencer_marketing=true (UGC) → Include "saying in [tone] (14 words max): [speech]" in clip prompts
+   - no_characters=true → NO human characters in prompts
 
 3. **SPECIFY VOICE/TONE** (CRITICAL for Veo3.1 audio quality):
    - Product/Brand videos: "Voiceover in professional male narrator voice:" or "warm confident female voice:"
@@ -2522,9 +2860,9 @@ Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
      * DO NOT use generic terms like "our product", "this brand", "our company"
    - **NOT in IMAGE PROMPTS** (visual descriptions - no speech, so no brand name needed)
    - **NOT in PLATFORM TEXTS** (social media captions - handle brand mentions naturally there)
-   - Clip Prompt Examples (Note: "no text overlays, no background music" comes BEFORE voiceover/speech):
-     * ✅ CORRECT: "video_0_clip_1_prompt": "Camera zooms in, no text overlays, no background music. Voiceover in professional voice: {dvyb_context.get('accountName', 'the brand')} revolutionizes content creation."
-     * ✅ CORRECT: "video_0_clip_1_prompt": "Influencer smiling, no text overlays, no background music. Saying in excited tone: I love using {dvyb_context.get('accountName', 'the brand')} for my posts."
+   - Clip Prompt Examples (Note: "no text overlays" comes BEFORE voiceover/speech):
+     * ✅ CORRECT: "video_0_clip_1_prompt": "Camera zooms in, no text overlays. Voiceover in professional voice: {dvyb_context.get('accountName', 'the brand')} revolutionizes content creation."
+     * ✅ CORRECT: "video_0_clip_1_prompt": "Influencer smiling, no text overlays. Saying in excited tone: I love using {dvyb_context.get('accountName', 'the brand')} for my posts."
      * ❌ WRONG: "video_0_clip_1_prompt": "Voiceover: This product revolutionizes content creation, no text overlays." (no text overlays should NOT come after speech)
 
 5. **MODEL/CHARACTER CONSISTENCY**:
@@ -2913,8 +3251,8 @@ CRITICAL REQUIREMENTS:
   * ✅ CORRECT: "Camera pans smoothly across modern living room, revealing product on table..."
 
 - **TEXT OVERLAY & AUDIO RULES (CRITICAL PLACEMENT)**:
-  * "no text overlays, no background music" must appear BEFORE voiceover/speech text in clip prompts
-  * Structure: [Scene description], no text overlays, no background music. [Voiceover/Speech at END]
+  * "no text overlays" must appear BEFORE voiceover/speech text in clip prompts
+  * Structure: [Scene description], no text overlays. [Voiceover/Speech at END]
   * This prevents the model from speaking "no text overlays" as part of the audio
 
 - **VOICEOVER TONE/VOICE SPECIFICATION (MANDATORY for product/brand marketing)**:
@@ -2932,7 +3270,7 @@ CRITICAL REQUIREMENTS:
   * 🏢 **USE BRAND NAME IN VOICEOVER TEXT ONLY**{f" (Brand: {dvyb_context.get('accountName')})" if dvyb_context.get('accountName') else ""}:
     → ONLY in the VOICEOVER TEXT within clip prompts (not in image prompts or visual descriptions)
     → When voiceover mentions the brand, use "{dvyb_context.get('accountName', 'the brand')}" (exact brand name from BRAND CONTEXT)
-    → Example: "Smooth camera zoom, no text overlays, no background music. Voiceover in professional voice: {dvyb_context.get('accountName', 'the brand')} brings your content to life."
+    → Example: "Smooth camera zoom, no text overlays. Voiceover in professional voice: {dvyb_context.get('accountName', 'the brand')} brings your content to life."
     → DO NOT use generic placeholders like "this product", "our brand" in the voiceover text
   
 - **CHARACTER SPEECH TONE SPECIFICATION (MANDATORY for ugc_influencer)**:
@@ -2947,7 +3285,7 @@ CRITICAL REQUIREMENTS:
   * 🏢 **USE BRAND NAME IN CHARACTER SPEECH ONLY**{f" (Brand: {dvyb_context.get('accountName')})" if dvyb_context.get('accountName') else ""}:
     → ONLY in the CHARACTER SPEECH TEXT within clip prompts (not in image prompts or visual descriptions)
     → When character's speech mentions the brand, use "{dvyb_context.get('accountName', 'the brand')}" (exact brand name from BRAND CONTEXT)
-    → Example: "Influencer looking at camera, no text overlays, no background music. Saying in excited tone (14 words max): I've been using {dvyb_context.get('accountName', 'the brand')} and it's amazing."
+    → Example: "Influencer looking at camera, no text overlays. Saying in excited tone (14 words max): I've been using {dvyb_context.get('accountName', 'the brand')} and it's amazing."
     → DO NOT use generic terms like "this app", "this tool", "this product" in the character's speech
 
 - **MODEL/CHARACTER DESCRIPTION (when has_model_image=false - AUTONOMOUS DIVERSE GENERATION)**:
@@ -3640,11 +3978,11 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         "aspect_ratio": "1:1",
                         "image_urls": image_urls,
                         "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
-                    },
-                    with_logs=True,
-                    on_queue_update=on_queue_update
-                )
-                
+                },
+                with_logs=True,
+                on_queue_update=on_queue_update
+            )
+            
                 if result and "images" in result and result["images"]:
                     fal_url = result["images"][0]["url"]
                     print(f"  📥 FAL URL received: {fal_url[:100]}...")
@@ -3682,16 +4020,22 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 logger.error(f"Frame generation error for video {video_idx}, clip {clip_num}: {e}")
                 frame_s3_urls.append(None)
         
-        # Step 3b: Generate clips with selected model (Kling v2.6 or Veo3.1)
+        # Step 3b: Generate clips with selected model (Kling v2.6 or Veo3.1) WITH TIMEOUT & FALLBACK
         model_name = selected_model["name"]
         fal_model = selected_model["fal_model"]
         duration_param = selected_model["duration_param"]
         
-        print(f"\n🎬 Generating {CLIPS_PER_VIDEO} clips with {model_name.upper()}...")
-        print(f"   Model: {fal_model}")
-        print(f"   Duration: {duration_param}")
+        # Get fallback model for timeout scenarios
+        fallback_model = get_fallback_model(model_name)
+        
+        print(f"\n🎬 Generating {CLIPS_PER_VIDEO} clips with {model_name.upper()} (fallback: {fallback_model['name'].upper()})...")
+        print(f"   Primary Model: {fal_model}")
+        print(f"   Fallback Model: {fallback_model['fal_model']}")
+        print(f"   Timeout: {FAL_CLIP_TIMEOUT_SECONDS}s ({FAL_CLIP_TIMEOUT_SECONDS//60} minutes)")
         
         clip_s3_urls = []
+        actual_models_used = []  # Track which models were actually used per clip
+        
         for clip_num in range(1, CLIPS_PER_VIDEO + 1):
             clip_data = video_clip_data.get(clip_num, {})
             clip_prompt = clip_data.get('clip_prompt')
@@ -3700,6 +4044,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             if not clip_prompt or not frame_s3_url:
                 print(f"  ⚠️ Missing clip prompt or frame for clip {clip_num}, skipping")
                 clip_s3_urls.append(None)
+                actual_models_used.append(None)
                 continue
             
             print(f"\n  📝 Clip {clip_num} prompt: {clip_prompt[:80]}...")
@@ -3711,49 +4056,25 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 if not frame_presigned_url:
                     print(f"  ❌ Failed to generate presigned URL for frame")
                     clip_s3_urls.append(None)
+                    actual_models_used.append(None)
                     continue
                 
                 print(f"  ✅ Frame presigned URL ready: {frame_presigned_url[:100]}...")
-                print(f"  🎬 [{model_name.upper()}] Generating clip with 9:16 aspect ratio, {CLIP_DURATION}s duration, embedded audio")
                 
-                # Generate clip with selected model
-                def on_queue_update_clip(update):
-                    if isinstance(update, fal_client.InProgress):
-                        for log in update.logs:
-                            print(log["message"])
-                
-                # Build arguments based on model
-                if model_name == "kling_v2.6":
-                    # Kling v2.6 arguments (similar to Kling v2.5 turbo)
-                    fal_arguments = {
-                        "prompt": clip_prompt,
-                        "image_url": frame_presigned_url,
-                        "duration": duration_param,  # "5" or "10" (string without 's')
-                        "negative_prompt": "blur, distort, low quality, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra text, double logos",
-                        "cfg_scale": 0.5,
-                        "generate_audio": True
-                    }
-                else:
-                    # Veo3.1 arguments
-                    fal_arguments = {
-                        "prompt": clip_prompt,
-                        "image_url": frame_presigned_url,
-                        "aspect_ratio": "9:16",  # Instagram Reels vertical format
-                        "duration": duration_param,  # "8s" (with 's' suffix)
-                        "generate_audio": True,
-                        "resolution": "720p"
-                    }
-                
-                result = fal_client.subscribe(
-                    fal_model,
-                    arguments=fal_arguments,
-                    with_logs=True,
-                    on_queue_update=on_queue_update_clip
+                # Use timeout-enabled clip generation with automatic fallback
+                result, used_model_name, used_fal_model, used_clip_duration, success = generate_clip_with_timeout_and_fallback(
+                    primary_model=selected_model,
+                    fallback_model=fallback_model,
+                    clip_prompt=clip_prompt,
+                    frame_presigned_url=frame_presigned_url,
+                    clip_num=clip_num,
+                    video_idx=video_idx,
+                    timeout_seconds=FAL_CLIP_TIMEOUT_SECONDS
                 )
                 
-                if result and "video" in result:
+                if success and result and "video" in result:
                     fal_video_url = result["video"]["url"]
-                    print(f"  📥 FAL {model_name} URL received: {fal_video_url[:100]}...")
+                    print(f"  📥 FAL {used_model_name} URL received: {fal_video_url[:100]}...")
                     
                     # Upload to S3
                     print(f"  📤 Uploading clip to S3...")
@@ -3769,26 +4090,46 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         print(f"  ❌ S3 upload failed")
                     
                     clip_s3_urls.append(s3_url)
+                    actual_models_used.append({
+                        "name": used_model_name,
+                        "fal_model": used_fal_model,
+                        "clip_duration": used_clip_duration,
+                        "was_fallback": used_model_name != model_name
+                    })
                     
-                    # Track model usage for clip generation
+                    # Track model usage for clip generation (with fallback info)
                     model_usage["videoClipGeneration"].append({
                         "post_index": video_idx,
                         "clip_number": clip_num,
-                        "model": fal_model,
-                        "model_name": model_name,
-                        "duration": f"{CLIP_DURATION}s",
-                        "aspect_ratio": "9:16"
+                        "model": used_fal_model,
+                        "model_name": used_model_name,
+                        "duration": f"{used_clip_duration}s",
+                        "aspect_ratio": "9:16",
+                        "was_fallback": used_model_name != model_name,
+                        "primary_model": model_name
                     })
                     
-                    print(f"  ✅ {model_name.upper()} clip {clip_num} generation complete (with embedded audio)")
+                    print(f"  ✅ {used_model_name.upper()} clip {clip_num} generation complete (with embedded audio)")
+                    if used_model_name != model_name:
+                        print(f"  ℹ️ Note: Used fallback model due to primary model timeout")
                 else:
                     clip_s3_urls.append(None)
-                    print(f"  ❌ Failed to generate clip {clip_num}")
+                    actual_models_used.append(None)
+                    print(f"  ❌ Failed to generate clip {clip_num} (both primary and fallback failed)")
                     
             except Exception as e:
                 print(f"  ❌ Clip {clip_num} generation error: {e}")
                 logger.error(f"Clip generation error for video {video_idx}, clip {clip_num}: {e}")
                 clip_s3_urls.append(None)
+                actual_models_used.append(None)
+        
+        # Update model_name to reflect actual model used (for UGC trimming logic)
+        # Use the first successful model if any clips succeeded
+        for actual_model in actual_models_used:
+            if actual_model:
+                model_name = actual_model["name"]
+                CLIP_DURATION = actual_model["clip_duration"]
+                break
         
         # Step 3c: Process clips (Demucs separation for non-influencer videos)
         print(f"\n🎵 Processing {len([c for c in clip_s3_urls if c])} clips...")

@@ -58,6 +58,8 @@ export default function AnalysisDetailsPage() {
         const response = await contextApi.updateContext({
           website: storedUrl,
           accountName: analysisData.base_name,
+          industry: analysisData.industry || null,
+          suggestedFirstTopic: analysisData.suggested_first_topic || null,
           businessOverview: analysisData.business_overview_and_positioning,
           customerDemographics: analysisData.customer_demographics_and_psychographics,
           popularProducts: analysisData.most_popular_products_and_services,

@@ -2398,101 +2398,162 @@ def clean_markdown_formatting(text: str) -> str:
 def extract_json_from_response(response_text: str) -> str:
     """
     Extract JSON from LLM response with robust markdown handling.
-    Handles various formats:
-    - ```json ... ```
-    - ``` ... ```
-    - Plain JSON
-    - JSON embedded in other text (with explanations before/after)
-    
-    IMPORTANT:
-    Some models may put valid JSON followed by extra text in the same block.
-    To avoid "Extra data" JSON errors, we always trim to the FIRST complete
-    JSON object found.
+    Strategy: Try json.loads FIRST, repair if needed, then fall back to manual extraction.
     """
+    import json as json_module
 
     # Handle empty or None response
     if not response_text or not response_text.strip():
         raise ValueError("Empty response from LLM")
+    
+    print(f"\n🔍 JSON EXTRACTION DEBUG:")
+    print(f"   Input length: {len(response_text)} chars")
 
-    def _trim_to_first_json_object(text: str) -> str:
+    def _try_parse_json(text: str) -> str:
+        """Try to parse text as JSON. Returns the text if valid, None if not."""
+        try:
+            json_module.loads(text)
+            return text
+        except Exception as e:
+            print(f"   ❌ JSON parse error: {str(e)[:100]}")
+            return None
+
+    def _extract_from_first_to_last_brace(text: str) -> str:
+        """Simple extraction from first { to last }"""
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end > start:
+            return text[start:end + 1]
+        return text
+    
+    def _repair_truncated_json(text: str) -> str:
         """
-        Return only the first complete JSON object (from first '{' to matching '}'),
-        correctly handling braces inside quoted strings. If no balanced object is
-        found, return the original text trimmed.
+        Attempt to repair truncated/malformed JSON by properly closing it.
+        Uses raw_decode to find where valid JSON ends, then properly closes remaining braces.
         """
-        brace_count = 0
-        start_idx = -1
-        in_string = False
-        escape_next = False
-
-        for i, char in enumerate(text):
-            if escape_next:
-                escape_next = False
-                continue
-
-            if in_string:
-                if char == '\\':
+        try:
+            # First check if it's already valid
+            json_module.loads(text)
+            return text
+        except json_module.JSONDecodeError as e:
+            error_msg = str(e)
+            print(f"   🔧 Attempting JSON repair for: {error_msg[:80]}")
+            
+            # Count unclosed braces and brackets
+            brace_count = 0
+            bracket_count = 0
+            in_string = False
+            escape_next = False
+            last_valid_pos = 0
+            
+            for i, char in enumerate(text):
+                if escape_next:
+                    escape_next = False
+                    continue
+                    
+                if char == '\\' and in_string:
                     escape_next = True
                     continue
-                if char == '"':
-                    in_string = False
-                continue
-
-            if char == '"':
-                in_string = True
-                continue
-
-            if char == '{':
-                if brace_count == 0:
-                    start_idx = i
-                brace_count += 1
-            elif char == '}':
-                if brace_count > 0:
+                    
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                    
+                if in_string:
+                    continue
+                    
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
                     brace_count -= 1
-                    if brace_count == 0 and start_idx != -1:
-                        end_idx = i + 1
-                        return text[start_idx:end_idx].strip()
+                    if brace_count == 0:
+                        last_valid_pos = i + 1
+                elif char == '[':
+                    bracket_count += 1
+                elif char == ']':
+                    bracket_count -= 1
+            
+            # If we're still in a string, close it
+            repaired = text
+            if in_string:
+                repaired = repaired + '"'
+                print(f"   🔧 Closed unclosed string")
+            
+            # Close any unclosed brackets/braces
+            if bracket_count > 0:
+                repaired = repaired + (']' * bracket_count)
+                print(f"   🔧 Added {bracket_count} closing brackets")
+            if brace_count > 0:
+                repaired = repaired + ('}' * brace_count)
+                print(f"   🔧 Added {brace_count} closing braces")
+            
+            # Try parsing the repaired version
+            try:
+                json_module.loads(repaired)
+                print(f"   ✅ JSON repair successful!")
+                return repaired
+            except:
+                pass
+            
+            # If repair didn't work and we found a valid end point, try truncating there
+            if last_valid_pos > 0 and last_valid_pos < len(text):
+                truncated = text[:last_valid_pos]
+                try:
+                    json_module.loads(truncated)
+                    print(f"   ✅ Truncated to last valid JSON object at pos {last_valid_pos}")
+                    return truncated
+                except:
+                    pass
+            
+            return repaired
 
-        return text.strip()
+    # Helper to extract and try to repair
+    def _extract_and_repair(text: str, source: str) -> str:
+        """Extract JSON from text and try to repair if needed"""
+        extracted = _extract_from_first_to_last_brace(text)
+        print(f"   {source}: {len(extracted)} chars")
+        
+        # Try as-is first
+        if _try_parse_json(extracted):
+            print(f"   ✅ Valid JSON from {source}!")
+            return extracted
+        
+        # Try repair
+        repaired = _repair_truncated_json(extracted)
+        if _try_parse_json(repaired):
+            return repaired
+        
+        return None
 
     # 1) Try ```json``` fenced blocks first
     if "```json" in response_text.lower():
-        json_pattern = re.search(r'```json\s*\n?(.*?)\n?```', response_text, re.DOTALL | re.IGNORECASE)
+        json_pattern = re.search(r'```json\s*\n?(.*)\n?```', response_text, re.DOTALL | re.IGNORECASE)
         if json_pattern:
             block = json_pattern.group(1).strip()
-            trimmed = _trim_to_first_json_object(block)
-            if trimmed.startswith("{") and trimmed.endswith("}"):
-                return trimmed
+            result = _extract_and_repair(block, "```json block")
+            if result:
+                return result
     
     # 2) Try generic ``` ``` fenced blocks
     if "```" in response_text:
-        code_pattern = re.search(r'```\s*\n?(.*?)\n?```', response_text, re.DOTALL)
+        code_pattern = re.search(r'```\s*\n?(.*)\n?```', response_text, re.DOTALL)
         if code_pattern:
-            potential_json = code_pattern.group(1).strip()
-            if potential_json.startswith("{") or potential_json.startswith("["):
-                trimmed = _trim_to_first_json_object(potential_json)
-                if trimmed.startswith("{") and trimmed.endswith("}"):
-                    return trimmed
+            block = code_pattern.group(1).strip()
+            if block.startswith("{") or block.startswith("["):
+                result = _extract_and_repair(block, "``` block")
+                if result:
+                    return result
     
-    # 3) Try scanning the whole response for the first JSON object
-    trimmed = _trim_to_first_json_object(response_text)
-    if trimmed and trimmed.startswith("{") and trimmed.endswith("}"):
-        return trimmed
+    # 3) Try the whole response
+    result = _extract_and_repair(response_text, "raw response")
+    if result:
+        return result
     
-    # 4) Last resort: slice from first '{' to last '}' then trim again
-    if "{" in response_text and "}" in response_text:
-        start_idx = response_text.find("{")
-        end_idx = response_text.rfind("}") + 1
-        if start_idx != -1 and end_idx > start_idx:
-            candidate = response_text[start_idx:end_idx].strip()
-            trimmed = _trim_to_first_json_object(candidate)
-            if trimmed.startswith("{") and trimmed.endswith("}"):
-                return trimmed
-    
-    raise ValueError(
-        f"No valid JSON found in response (length: {len(response_text)}, "
-        f"preview: {response_text[:100]}...)"
-    )
+    # 4) Last resort - return best extraction attempt
+    extracted = _extract_from_first_to_last_brace(response_text)
+    repaired = _repair_truncated_json(extracted)
+    print(f"   ⚠️ Returning best effort: {len(repaired)} chars")
+    return repaired
 
 
 # ============================================
@@ -2689,6 +2750,9 @@ Return a JSON object with this EXACT structure:
 
 {{
   "base_name": "{base_name}",
+  "industry": "[Specific industry/sector, e.g., 'AI & Machine Learning', 'E-commerce', 'FinTech', 'HealthTech', 'SaaS', 'Fashion & Lifestyle', 'Food & Beverage', 'Gaming', 'Education Technology', 'Real Estate', 'Travel & Hospitality', etc.]",
+  "suggested_topic_title": "[Short catchy topic, e.g., 'Product in Action', 'Behind the Scenes', 'Customer Stories', 'Day in the Life', 'Tips & Tricks']",
+  "suggested_topic_description": "[MUST start with style: 'UGC style', 'Product marketing style', or 'Brand marketing style'. Then 2-3 sentences max describing a simple, realistic scene with person + product + environment. NO effects, NO text overlays.]",
   "business_overview_and_positioning": "Core Identity: [2-3 sentences based on website content]\\n\\nMarket Positioning:\\n• Primary Positioning: [inferred from messaging and value props]\\n• Secondary Positioning: [inferred from product offerings]\\n• Tertiary Positioning: [inferred from target market]\\n\\nDirect Competitors:\\nGlobal Competitors:\\n• [Competitor 1 - infer from industry/category mentions]\\n• [Competitor 2 - similar tools/services]\\n• [Competitor 3 - alternative solutions]\\n• [Competitor 4 - competing platforms]\\n• [Competitor 5 - market alternatives]\\n\\nCompetitive Advantages:\\n1. [Advantage from features/benefits]: [explanation from content]\\n2. [Advantage from differentiation]: [explanation from content]\\n3. [Advantage from value props]: [explanation from content]\\n4. [Advantage from unique approach]: [explanation from content]",
   "customer_demographics_and_psychographics": "Primary Customer Segments:\\n\\n1. [Segment inferred from messaging] (40%)\\n• [characteristic from content]\\n• [characteristic from tone]\\nKey need: [identified from value props]\\n\\n2. [Segment from use cases] (35%)\\n• [characteristic]\\n• [characteristic]\\nPain points: [from problem statements]\\n\\n3. [Segment from features] (25%)\\n• [characteristic]\\n• [characteristic]\\nKey interest: [from benefits]",
   "most_popular_products_and_services": ["Product/Service 1: [Description from website]", "Product/Service 2: [Description]", "Product/Service 3: [Description]", "Product/Service 4: [Description]", "Product/Service 5: [Description]"],
@@ -2706,28 +2770,56 @@ Return a JSON object with this EXACT structure:
 
 1. **Base Analysis on Provided Content:** Use ONLY the website text provided above. Be specific and factual.
 
-2. **Competitors:** Infer likely competitors based on the industry, product category, and use cases mentioned in the content. If the website is for "AI video generation", competitors would be other AI video tools. Be intelligent about this.
+2. **Industry:** Identify the specific industry/sector (e.g., "AI & Machine Learning", "E-commerce", "FinTech", "HealthTech", "SaaS", "Fashion & Lifestyle"). Be specific, not generic.
 
-3. **Customer Segments:** Infer from the language, features, pricing, and use cases described in the content.
+3. **Suggested First Topic:** Two SEPARATE fields for the topic:
+   - **suggested_topic_title**: Short catchy topic (e.g., "Product in Action", "Behind the Scenes", "Customer Stories", "Day in the Life", "Tips & Tricks", "Lifestyle")
+   - **suggested_topic_description**: CRITICAL FORMAT - Must follow these rules exactly:
+     * MUST START with one of these styles: "UGC style", "Product marketing style", or "Brand marketing style"
+     * Maximum 2-3 sentences describing a simple, realistic scene
+     * Focus on: person + product + environment
+     * NO special effects (no glowing, sparkles, explosions, confetti)
+     * NO text overlays or captions mentioned
+     * Example: "UGC style - Young professional casually using the app while working at a modern coffee shop. Natural lighting, relaxed vibe."
+     * Example: "Product marketing style - Clean studio shot showcasing the product features with minimal background. Professional lighting."
 
-4. **Products/Services:** Extract from the actual offerings, features, and solutions described on the website.
+4. **Competitors:** Infer likely competitors based on the industry, product category, and use cases mentioned in the content. If the website is for "AI video generation", competitors would be other AI video tools. Be intelligent about this.
 
-5. **Value Drivers:** Identify from the benefits, outcomes, and unique selling points in the messaging.
+5. **Customer Segments:** Infer from the language, features, pricing, and use cases described in the content.
 
-6. **Brand Story:** Look for About, Mission, Vision, or Team sections. If not explicit, infer from the brand's purpose and positioning.
+6. **Products/Services:** Extract from the actual offerings, features, and solutions described on the website.
 
-7. **Color Palette:** YOU MUST ALWAYS suggest brand colors based on your knowledge of {base_name}.
+7. **Value Drivers:** Identify from the benefits, outcomes, and unique selling points in the messaging.
+
+8. **Brand Story:** Look for About, Mission, Vision, or Team sections. If not explicit, infer from the brand's purpose and positioning.
+
+9. **Color Palette:** YOU MUST ALWAYS suggest brand colors based on your knowledge of {base_name}.
    - Research/infer the brand's actual primary, secondary, and accent colors.
    - NEVER use #000000 (black) as a default - only use black if it's genuinely the brand's color.
    - White (#FFFFFF) is often appropriate for secondary if the brand uses a white background.
    - For secondary, #FFFFFF (white) is often appropriate as most websites have white backgrounds.
    - Provide actual hex color codes, not placeholders.
 
-8. **Be Specific:** Avoid generic statements. Use actual content from the website. Quote features, benefits, and messaging where relevant.
+10. **Be Specific:** Avoid generic statements. Use actual content from the website. Quote features, benefits, and messaging where relevant.
 
-9. **JSON Only:** Return ONLY the JSON object. No markdown blocks, no explanatory text, no preamble.
+11. **JSON Only:** Return ONLY the JSON object. No markdown blocks, no explanatory text, no preamble.
 
-Return the JSON now:"""
+12. **MANDATORY - ALL FIELDS REQUIRED:** You MUST generate content for ALL of these fields - do NOT skip any:
+   - base_name (string)
+   - industry (string)
+   - suggested_topic_title (string - short topic name)
+   - suggested_topic_description (string - 2-3 sentences starting with style)
+   - business_overview_and_positioning (string - detailed)
+   - customer_demographics_and_psychographics (string - detailed)
+   - most_popular_products_and_services (array of strings - at least 3-5 items)
+   - why_customers_choose (string - detailed)
+   - brand_story (string - detailed)
+   - color_palette (object with primary, secondary, accent)
+   - source_urls (array)
+
+If you cannot find specific information for a section, make intelligent inferences based on the available content. NEVER return empty or missing fields.
+
+Return the COMPLETE JSON now:"""
     
     return prompt
 
@@ -2745,14 +2837,14 @@ async def call_gpt4o_chat(prompt: str) -> str:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a business analysis assistant that returns valid JSON. Analyze website content and provide detailed, specific insights based on the provided text."
+                    "content": "You are a business analysis assistant that returns valid JSON. Analyze website content and provide detailed, specific insights based on the provided text. ALWAYS return a COMPLETE JSON with ALL required fields."
                 },
                 {
                     "role": "user",
                     "content": prompt
                 }
             ],
-            max_tokens=2000,
+            max_tokens=6000,  # Increased to accommodate full JSON response with all sections
             temperature=0.7
         )
         
@@ -3331,6 +3423,15 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
         response_text = await call_gpt4o_chat(prompt)
         
         # LOG THE RAW LLM RESPONSE FOR DEBUGGING
+        print("\n" + "=" * 80)
+        print("🤖 RAW GPT-4O RESPONSE (FAST ANALYSIS):")
+        print("=" * 80)
+        print(f"Response length: {len(response_text)} chars")
+        print(response_text[:2000])
+        if len(response_text) > 2000:
+            print(f"... [truncated, {len(response_text) - 2000} more chars]")
+        print("=" * 80)
+        
         logger.info("=" * 80)
         logger.info("RAW GPT-4O RESPONSE (FAST ANALYSIS):")
         logger.info("=" * 80)
@@ -3342,7 +3443,21 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
         
         try:
             json_str = extract_json_from_response(response_text)
+            print(f"\n📝 Extracted JSON string length: {len(json_str)} chars")
             analysis_data = json.loads(json_str)
+            
+            # Log parsed fields
+            print("\n✅ PARSED JSON FIELDS:")
+            for key in analysis_data.keys():
+                value = analysis_data[key]
+                if isinstance(value, str):
+                    print(f"   {key}: {value[:100]}{'...' if len(value) > 100 else ''}")
+                elif isinstance(value, list):
+                    print(f"   {key}: [{len(value)} items]")
+                elif isinstance(value, dict):
+                    print(f"   {key}: {value}")
+                else:
+                    print(f"   {key}: {value}")
         except (ValueError, json.JSONDecodeError) as parse_error:
             # JSON parsing failed - log the raw response and create fallback
             logger.error(f"❌ JSON parsing failed: {parse_error}")
@@ -3499,6 +3614,16 @@ async def analyze_website_fast(url: str) -> Dict[str, Any]:
         if logo_data:
             analysis_data["logo_s3_key"] = logo_data["s3_key"]
             analysis_data["logo_presigned_url"] = logo_data["presigned_url"]
+        
+        # Transform flat topic fields to nested structure for frontend compatibility
+        if "suggested_topic_title" in analysis_data or "suggested_topic_description" in analysis_data:
+            analysis_data["suggested_first_topic"] = {
+                "title": analysis_data.pop("suggested_topic_title", "Product Launch"),
+                "description": analysis_data.pop("suggested_topic_description", "")
+            }
+            print(f"\n📝 Transformed topic to nested structure:")
+            print(f"   Title: {analysis_data['suggested_first_topic']['title']}")
+            print(f"   Description: {analysis_data['suggested_first_topic']['description'][:80]}...")
         
         logger.info("✅ Fast website analysis complete!")
         print("\n✅ FAST ANALYSIS COMPLETE")

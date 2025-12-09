@@ -200,8 +200,23 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     if (open && initialJobId) {
       console.log('🎉 Auto-opening with onboarding generation job:', initialJobId);
       
+      // Get suggested topic from website analysis (or fallback to default)
+      let contentTopic = 'Product Launch'; // Default fallback
+      try {
+        const storedAnalysis = localStorage.getItem('dvyb_website_analysis');
+        if (storedAnalysis) {
+          const analysisData = JSON.parse(storedAnalysis);
+          if (analysisData.suggested_first_topic?.title) {
+            contentTopic = analysisData.suggested_first_topic.title;
+            console.log('📝 Using suggested topic from analysis:', contentTopic);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not read suggested topic from localStorage:', e);
+      }
+      
       // Set initial state for onboarding generation
-      setSelectedTopic('Product Launch');
+      setSelectedTopic(contentTopic);
       setSelectedPlatforms(['twitter']);  // Twitter only for faster demo
       setJobId(initialJobId);
       setGenerationUuid(initialJobId); // May be uuid format
@@ -216,7 +231,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         type: "Loading",
         platforms: ['twitter'],  // Twitter only for faster demo
         requestedPlatforms: ['twitter'],  // Twitter only for faster demo
-        title: 'Product Launch',
+        title: contentTopic,
         description: "Generating content...",
         image: null,
         platformTexts: {},

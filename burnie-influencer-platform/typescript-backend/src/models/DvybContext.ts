@@ -21,6 +21,12 @@ export class DvybContext {
   @Column({ type: 'varchar', length: 100, nullable: true })
   industry!: string | null;
 
+  @Column({ type: 'jsonb', nullable: true })
+  suggestedFirstTopic!: {
+    title?: string;
+    description?: string;
+  } | null;
+
   @Column({ type: 'text', nullable: true })
   targetAudience!: string | null;
 
