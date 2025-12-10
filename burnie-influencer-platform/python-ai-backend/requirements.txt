@@ -34,6 +34,7 @@ botocore
 opencv-python-headless
 moviepy==1.0.3
 ffmpeg-python
+yt-dlp
 # ML and Data Science packages with compatible versions
 numpy
 scipy

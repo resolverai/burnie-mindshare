@@ -51,6 +51,461 @@ import threading
 # Timeout for FAL clip generation (5 minutes = 300 seconds)
 FAL_CLIP_TIMEOUT_SECONDS = 300
 
+# Max duration for video inspiration (15 seconds) - longer videos will be trimmed to this
+MAX_VIDEO_INSPIRATION_DURATION = 15
+
+# ============================================
+# VIDEO INSPIRATION PROCESSING
+# ============================================
+
+import re
+import cv2
+import yt_dlp
+
+def is_video_platform_url(url: str) -> bool:
+    """Check if URL is from a supported video platform (YouTube, Instagram, Twitter/X)"""
+    patterns = [
+        # Instagram
+        r'instagram\.com/reel/',
+        r'instagram\.com/p/',
+        r'instagram\.com/tv/',
+        r'instagr\.am/',
+        # YouTube
+        r'youtube\.com/shorts/',
+        r'youtu\.be/',
+        r'youtube\.com/watch',
+        # Twitter/X
+        r'twitter\.com/.+/status/',
+        r'x\.com/.+/status/',
+    ]
+    return any(re.search(pattern, url) for pattern in patterns)
+
+
+def download_inspiration_video(url: str, output_dir: str = "/tmp/dvyb-inspirations") -> tuple:
+    """
+    Download video from YouTube/Instagram/Twitter using yt-dlp.
+    Returns (video_path, is_video) - is_video is False if it's an image.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    output_filename = f"{output_dir}/inspiration_{uuid.uuid4().hex[:8]}.mp4"
+    
+    print(f"  📥 Downloading inspiration video...")
+    print(f"     URL: {url[:80]}...")
+    
+    ydl_opts = {
+        'format': 'best[ext=mp4]/best',
+        'outtmpl': output_filename,
+        'quiet': True,
+        'no_warnings': True,
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            
+            # Check if it's actually a video (has duration)
+            duration = info.get('duration', 0)
+            if duration == 0:
+                print(f"  ⚠️ No video found at URL (might be an image post)")
+                return (None, False)
+            
+            print(f"  ✅ Downloaded: {duration:.1f}s video")
+            return (output_filename, True)
+    except Exception as e:
+        print(f"  ❌ Download failed: {e}")
+        return (None, False)
+
+
+def extract_frames_from_video(video_path: str, output_dir: str, fps: int = 1) -> list:
+    """
+    Extract frames from video at specified FPS (default 1 frame per second).
+    Returns list of frame file paths.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        print(f"  ❌ Unable to open video: {video_path}")
+        return []
+    
+    video_fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = total_frames / video_fps if video_fps > 0 else 0
+    
+    print(f"  📊 Video: {duration:.1f}s, {video_fps:.1f} FPS")
+    
+    # Calculate effective duration (trim to max if too long)
+    effective_duration = duration
+    if duration > MAX_VIDEO_INSPIRATION_DURATION:
+        print(f"  ⚠️ Video too long ({duration:.1f}s), using first {MAX_VIDEO_INSPIRATION_DURATION}s only")
+        effective_duration = MAX_VIDEO_INSPIRATION_DURATION
+    
+    # Calculate max frames to extract based on effective duration
+    max_frames_to_extract = int(effective_duration * fps)
+    
+    frame_interval = int(video_fps / fps) if fps > 0 else int(video_fps)
+    frame_paths = []
+    frame_count = 0
+    saved_count = 0
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Stop if we've extracted enough frames for the effective duration
+        if saved_count >= max_frames_to_extract:
+            break
+        
+        if frame_count % frame_interval == 0:
+            frame_path = os.path.join(output_dir, f"frame_{saved_count:02d}.jpg")
+            cv2.imwrite(frame_path, frame)
+            frame_paths.append(frame_path)
+            saved_count += 1
+        
+        frame_count += 1
+    
+    cap.release()
+    print(f"  ✅ Extracted {saved_count} frames (1 per second, from first {effective_duration:.0f}s)")
+    return frame_paths
+
+
+def extract_and_transcribe_audio(video_path: str, output_dir: str) -> tuple:
+    """
+    Extract audio, separate vocals with Demucs, and transcribe with OpenAI Whisper.
+    Also saves the background music (original minus vocals) for later use.
+    
+    Returns tuple: (transcript_text, background_music_path)
+    - transcript_text: The transcribed speech from the video
+    - background_music_path: Path to the background music file (drums + bass + other, no vocals)
+    """
+    import torch
+    import torchaudio
+    from demucs.pretrained import get_model
+    from demucs.apply import apply_model
+    import soundfile as sf
+    import numpy as np
+    from openai import OpenAI
+    
+    audio_path = os.path.join(output_dir, "audio.wav")
+    vocals_path = os.path.join(output_dir, "vocals.wav")
+    background_music_path = os.path.join(output_dir, "background_music.wav")
+    
+    try:
+        # Step 1: Extract audio using moviepy (trimmed to max duration if needed)
+        print(f"  🎵 Extracting audio...")
+        video_clip = VideoFileClip(video_path)
+        if video_clip.audio is None:
+            print(f"  ⚠️ No audio track in video")
+            video_clip.close()
+            return ("", None)
+        
+        # Trim to max duration if video is longer
+        video_duration = video_clip.duration
+        if video_duration > MAX_VIDEO_INSPIRATION_DURATION:
+            print(f"  ⚠️ Trimming audio to first {MAX_VIDEO_INSPIRATION_DURATION}s (video is {video_duration:.1f}s)")
+            video_clip = video_clip.subclip(0, MAX_VIDEO_INSPIRATION_DURATION)
+        
+        video_clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
+        video_clip.close()
+        
+        # Step 2: Separate vocals with Demucs
+        print(f"  🎤 Separating audio with Demucs (vocals vs background)...")
+        model = get_model('htdemucs')
+        model.eval()
+        
+        waveform, sample_rate = torchaudio.load(audio_path)
+        if waveform.shape[0] == 1:
+            waveform = waveform.repeat(2, 1)
+        
+        with torch.no_grad():
+            sources = apply_model(model, waveform.unsqueeze(0), device='cpu')[0]
+        
+        # htdemucs outputs: drums (0), bass (1), other (2), vocals (3)
+        drums = sources[0].numpy()
+        bass = sources[1].numpy()
+        other = sources[2].numpy()
+        vocals = sources[3].numpy()
+        
+        # Background music = drums + bass + other (everything except vocals)
+        background_music = drums + bass + other
+        
+        # Convert to mono if stereo for consistency
+        if vocals.shape[0] == 2:
+            vocals = np.mean(vocals, axis=0)
+        if background_music.shape[0] == 2:
+            background_music = np.mean(background_music, axis=0)
+        
+        # Save vocals for transcription
+        sf.write(vocals_path, vocals, sample_rate)
+        
+        # Save background music for later use
+        sf.write(background_music_path, background_music, sample_rate)
+        print(f"  🎶 Background music saved: {background_music_path}")
+        
+        # Step 3: Transcribe vocals with OpenAI Whisper
+        print(f"  📝 Transcribing with OpenAI Whisper...")
+        client = OpenAI(api_key=settings.openai_api_key)
+        
+        with open(vocals_path, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            )
+        
+        transcript_text = transcription.text.strip()
+        print(f"  ✅ Transcription: \"{transcript_text[:100]}{'...' if len(transcript_text) > 100 else ''}\"")
+        
+        # Cleanup temporary files (keep background_music_path for later upload)
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+        if os.path.exists(vocals_path):
+            os.remove(vocals_path)
+        
+        return (transcript_text, background_music_path)
+        
+    except Exception as e:
+        print(f"  ❌ Audio extraction/transcription error: {e}")
+        import traceback
+        print(f"     {traceback.format_exc()}")
+        # Cleanup on error
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+        if os.path.exists(vocals_path):
+            os.remove(vocals_path)
+        if os.path.exists(background_music_path):
+            os.remove(background_music_path)
+        return ("", None)
+
+
+def analyze_video_inspiration_with_grok(frame_urls: list, transcript: str, context: dict) -> dict:
+    """
+    Analyze video inspiration using Grok - pass frames in sequence + transcript.
+    Uses xai_sdk with image() helper (same as inventory analysis).
+    Returns inspiration analysis dict with storyline, creative elements, etc.
+    """
+    from xai_sdk import Client
+    from xai_sdk.chat import user, system, image
+    import json
+    
+    print(f"\n  🤖 Analyzing video inspiration with Grok (xai_sdk)...")
+    print(f"     Frames: {len(frame_urls)}")
+    print(f"     Transcript: {len(transcript)} chars")
+    
+    if not frame_urls:
+        print(f"  ⚠️ No frames to analyze")
+        return {}
+    
+    brand_name = context.get('dvyb_context', {}).get('accountName', 'the brand')
+    
+    system_prompt = f"""You are a WORLD-CLASS CREATIVE VIDEO ANALYST specializing in social media content analysis.
+You analyze video frames and transcripts to extract creative insights that can inspire new content for {brand_name}.
+
+You will receive images in sequence (frames extracted from a video, 1 frame per second) and the associated transcription.
+
+🎯 YOUR CRITICAL TASK:
+1. **RECREATE THE STORYLINE** - What happens in the video from start to end? Be DETAILED and specific.
+2. **IDENTIFY THE HOOK** - How does the video grab attention in the first 2-3 seconds?
+3. **EXTRACT CREATIVE ELEMENTS** - What makes this video engaging? List all creative techniques.
+4. **ANALYZE VISUAL TECHNIQUES** - Camera movements, transitions, effects, compositions, lighting
+5. **IDENTIFY KEY MOMENTS** - The most impactful moments in the video
+6. **ANALYZE PACING** - How quickly things happen, timing of transitions
+7. **MOOD & ATMOSPHERE** - The overall feel and vibe
+8. **PRODUCT SHOWCASE STYLE** - How products are shown (if applicable)
+9. **REPLICATION TIPS** - Specific, actionable tips to replicate this style for a brand video
+
+📝 **STORYLINE FORMAT** (CRITICAL - be ultra-detailed like a storyboard):
+Write the storyline as a TIMELINE with specific descriptions:
+- 0-2 sec: [What happens in first 2 seconds]
+- 2-4 sec: [What happens next]
+- 4-6 sec: [Continue...]
+- [Continue for entire video duration]
+
+Include camera movements, subject actions, transitions, text overlays, etc.
+
+⚠️ RESPOND ONLY WITH VALID JSON in this exact format:
+{{
+  "storyline": "DETAILED timeline breakdown: 0-2 sec: [description]. 2-4 sec: [description]. ...",
+  "hook": "Specific description of how the video grabs attention in first 2-3 seconds",
+  "creative_elements": ["element1", "element2", "element3", ...],
+  "visual_techniques": ["technique1", "technique2", "technique3", ...],
+  "mood_atmosphere": "The overall mood and atmosphere",
+  "message": "What the video is trying to convey",
+  "pacing": "fast/medium/slow - detailed description of pacing",
+  "key_moments": ["moment1 at Xs", "moment2 at Ys", ...],
+  "product_showcase_style": "How products are shown (if applicable, else N/A)",
+  "replication_tips": "Detailed, actionable tips to replicate this style for {brand_name}"
+}}"""
+
+    # Build user prompt with frame descriptions
+    transcript_text = transcript if transcript else "(No speech detected in video)"
+    
+    user_prompt = f"""Analyze this video inspiration for {brand_name}.
+
+The frames below are extracted at 1 frame per second, shown in sequence:
+
+{"".join([f"- Frame {i+1} (at {i} seconds)" + chr(10) for i in range(len(frame_urls))])}
+
+TRANSCRIPTION FROM VIDEO:
+"{transcript_text}"
+
+🎯 Analyze the complete visual sequence and extract creative insights that can inspire content for {brand_name}.
+Be ULTRA-DETAILED in your storyline - describe it like a professional storyboard with exact timestamps.
+"""
+
+    try:
+        print(f"     Creating Grok chat with xai_sdk...")
+        client = Client(api_key=settings.xai_api_key, timeout=3600)
+        chat = client.chat.create(model="grok-4-latest")
+        
+        chat.append(system(system_prompt))
+        
+        # Create image objects for all frames (same pattern as inventory analysis)
+        image_objects = [image(image_url=url, detail="high") for url in frame_urls]
+        print(f"     Created {len(image_objects)} image objects for Grok")
+        
+        # Append user message with all images
+        chat.append(user(user_prompt, *image_objects))
+        
+        print(f"     Calling Grok.sample()...")
+        response = chat.sample()
+        response_text = response.content.strip()
+        
+        print(f"     Grok raw response: {response_text[:300]}...")
+        
+        # Parse JSON response (handle markdown)
+        if "```json" in response_text:
+            json_start = response_text.find("```json") + 7
+            json_end = response_text.find("```", json_start)
+            json_content = response_text[json_start:json_end].strip()
+        elif "```" in response_text:
+            json_start = response_text.find("```") + 3
+            json_end = response_text.find("```", json_start)
+            json_content = response_text[json_start:json_end].strip()
+        elif response_text.startswith("{") and response_text.endswith("}"):
+            json_content = response_text
+        else:
+            start_idx = response_text.find("{")
+            end_idx = response_text.rfind("}") + 1
+            if start_idx != -1 and end_idx > start_idx:
+                json_content = response_text[start_idx:end_idx]
+            else:
+                raise ValueError("No valid JSON found in Grok response")
+        
+        # Fix common JSON issues (trailing commas)
+        import re
+        json_content = re.sub(r',(\s*[}\]])', r'\1', json_content)
+        
+        analysis = json.loads(json_content)
+        
+        print(f"  ✅ Video inspiration analysis complete")
+        print(f"     Storyline: {analysis.get('storyline', '')[:150]}...")
+        print(f"     Hook: {analysis.get('hook', '')[:100]}...")
+        print(f"     Creative elements: {len(analysis.get('creative_elements', []))} identified")
+        print(f"     Visual techniques: {len(analysis.get('visual_techniques', []))} identified")
+        print(f"     Key moments: {len(analysis.get('key_moments', []))} identified")
+        
+        return analysis
+        
+    except Exception as e:
+        print(f"  ❌ Video inspiration analysis failed: {e}")
+        import traceback
+        print(f"     {traceback.format_exc()}")
+        return {}
+
+
+async def process_video_inspiration_link(url: str, context: dict, account_id: int) -> dict:
+    """
+    Full pipeline for processing a video inspiration link:
+    1. Download video
+    2. Extract frames
+    3. Extract & transcribe audio
+    4. Upload frames to S3 and get presigned URLs
+    5. Analyze with Grok
+    6. Cleanup
+    
+    Returns video inspiration analysis dict.
+    """
+    print(f"\n{'='*60}")
+    print(f"🎬 VIDEO INSPIRATION ANALYSIS")
+    print(f"{'='*60}")
+    print(f"  URL: {url[:80]}...")
+    
+    output_dir = f"/tmp/dvyb-inspirations/{uuid.uuid4().hex[:8]}"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    try:
+        # Step 1: Download video
+        video_path, is_video = download_inspiration_video(url, output_dir)
+        if not is_video or not video_path:
+            print(f"  ⚠️ Not a video or download failed, skipping video analysis")
+            return {}
+        
+        # Step 2: Extract frames (1 per second)
+        frames_dir = os.path.join(output_dir, "frames")
+        frame_paths = extract_frames_from_video(video_path, frames_dir, fps=1)
+        if not frame_paths:
+            print(f"  ⚠️ No frames extracted, skipping video analysis")
+            return {}
+        
+        # Step 3: Extract and transcribe audio (also saves background music)
+        transcript, background_music_path = extract_and_transcribe_audio(video_path, output_dir)
+        
+        # Step 4: Upload frames to S3 and get presigned URLs
+        print(f"  📤 Uploading {len(frame_paths)} frames to S3...")
+        frame_presigned_urls = []
+        for i, frame_path in enumerate(frame_paths):
+            s3_key = web2_s3_helper.upload_from_file(
+                file_path=frame_path,
+                folder=f"dvyb/inspiration-frames/{account_id}",
+                filename=f"frame_{i:02d}_{uuid.uuid4().hex[:6]}.jpg"
+            )
+            if s3_key:
+                presigned_url = web2_s3_helper.generate_presigned_url(s3_key)
+                if presigned_url:
+                    frame_presigned_urls.append(presigned_url)
+        
+        print(f"  ✅ Uploaded {len(frame_presigned_urls)} frames to S3")
+        
+        # Step 4b: Upload background music to S3 (for use in final video)
+        background_music_s3_key = None
+        if background_music_path and os.path.exists(background_music_path):
+            print(f"  📤 Uploading background music to S3...")
+            background_music_s3_key = web2_s3_helper.upload_from_file(
+                file_path=background_music_path,
+                folder=f"dvyb/inspiration-audio/{account_id}",
+                filename=f"background_music_{uuid.uuid4().hex[:8]}.wav"
+            )
+            if background_music_s3_key:
+                print(f"  ✅ Background music uploaded: {background_music_s3_key}")
+            else:
+                print(f"  ⚠️ Failed to upload background music")
+        
+        # Step 5: Analyze with Grok
+        analysis = analyze_video_inspiration_with_grok(frame_presigned_urls, transcript, context)
+        
+        # Add metadata
+        analysis["source_url"] = url
+        analysis["frame_count"] = len(frame_presigned_urls)
+        analysis["has_transcript"] = bool(transcript)
+        analysis["transcript"] = transcript
+        analysis["background_music_s3_key"] = background_music_s3_key  # For use in final video
+        
+        return analysis
+        
+    except Exception as e:
+        print(f"  ❌ Video inspiration processing failed: {e}")
+        import traceback
+        print(f"     {traceback.format_exc()}")
+        return {}
+    
+    finally:
+        # Cleanup
+        print(f"  🧹 Cleaning up temporary files...")
+        import shutil
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir, ignore_errors=True)
+
 
 def generate_clip_with_timeout_and_fallback(
     primary_model: dict,
@@ -1029,6 +1484,116 @@ async def mix_voiceover_with_background_music(video_with_music_s3_url: str, voic
         return None
 
 
+async def replace_video_audio_with_inspiration_music(
+    video_s3_url: str, 
+    inspiration_music_s3_key: str, 
+    account_id: int, 
+    generation_uuid: str, 
+    video_index: int,
+    target_duration: float = None
+) -> str:
+    """
+    Replace the audio in a video with inspiration background music.
+    Used when video inspiration is provided to use the inspiration's music instead of AI-generated audio.
+    
+    Args:
+        video_s3_url: S3 key of the video to process
+        inspiration_music_s3_key: S3 key of the inspiration background music
+        account_id: Account ID for S3 path
+        generation_uuid: Generation UUID for S3 path
+        video_index: Video index for naming
+        target_duration: Target duration in seconds (loops/trims music to match video)
+    
+    Returns:
+        S3 key of the final video with inspiration music, or None if failed
+    """
+    try:
+        print(f"🎶 Replacing video audio with inspiration background music...")
+        print(f"   Video: {video_s3_url[:60]}...")
+        print(f"   Music: {inspiration_music_s3_key[:60]}...")
+        
+        # Download video from S3
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+            presigned_url = web2_s3_helper.generate_presigned_url(video_s3_url)
+            response = requests.get(presigned_url)
+            temp_file.write(response.content)
+            video_path = temp_file.name
+        
+        # Download inspiration music from S3
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
+            music_presigned_url = web2_s3_helper.generate_presigned_url(inspiration_music_s3_key)
+            response = requests.get(music_presigned_url)
+            temp_file.write(response.content)
+            music_path = temp_file.name
+        
+        # Load video and music
+        video_clip = VideoFileClip(video_path)
+        video_duration = video_clip.duration
+        print(f"   Video duration: {video_duration:.2f}s")
+        
+        music_clip = AudioFileClip(music_path)
+        music_duration = music_clip.duration
+        print(f"   Music duration: {music_duration:.2f}s")
+        
+        # Adjust music to match video duration
+        if music_duration < video_duration:
+            # Loop music if shorter than video
+            print(f"   Looping music to match video duration...")
+            loops_needed = int(video_duration / music_duration) + 1
+            # Create list of music clips for looping
+            music_clips = [music_clip] * loops_needed
+            from moviepy.editor import concatenate_audioclips
+            music_clip = concatenate_audioclips(music_clips)
+        
+        # Trim music to match video duration
+        music_clip = music_clip.subclip(0, video_duration)
+        
+        # Set music as video audio
+        final_clip = video_clip.set_audio(music_clip)
+        
+        # Save final clip to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as final_temp:
+            final_path = final_temp.name
+        
+        final_clip.write_videofile(
+            final_path,
+            codec='libx264',
+            audio_codec='aac',
+            temp_audiofile='temp-audio.m4a',
+            remove_temp=True,
+            logger=None
+        )
+        
+        # Upload to S3
+        s3_url = web2_s3_helper.upload_from_file(
+            file_path=final_path,
+            folder=f"dvyb/generated/{account_id}/{generation_uuid}",
+            filename=f"video_{video_index}_with_inspiration_music.mp4"
+        )
+        
+        # Clean up
+        video_clip.close()
+        music_clip.close()
+        final_clip.close()
+        
+        try:
+            os.remove(video_path)
+            os.remove(music_path)
+            os.remove(final_path)
+        except:
+            pass
+        
+        print(f"✅ Video audio replaced with inspiration music: {s3_url}")
+        return s3_url
+        
+    except Exception as e:
+        print(f"❌ Error replacing video audio with inspiration music: {str(e)}")
+        import traceback
+        print(f"   {traceback.format_exc()}")
+        logger.error(f"Inspiration music replacement error: {e}")
+        return None
+
+
 # ============================================
 # CONTEXT GATHERING
 # ============================================
@@ -1562,23 +2127,54 @@ Analyze the {len(presigned_urls)} image(s) now.
 # LINK ANALYSIS (GROK LIVE SEARCH)
 # ============================================
 
-async def analyze_inspiration_links(links: List[str]) -> Dict:
+async def analyze_inspiration_links(links: List[str], context: dict = None, account_id: int = None) -> Dict:
     """
-    Analyze inspiration links with Grok live search (web_source).
-    Uses the same approach as web3 project_unified_generation.py
+    Analyze inspiration links - handles both video platforms and regular web links.
+    - Video platforms (YouTube, Instagram, Twitter) → Extract frames + transcript → Grok video analysis
+    - Regular links → Grok live search (web_source)
     """
     if not links or all(not link.strip() for link in links):
         return {}
     
     try:
         print("=" * 80)
-        print("🔗 GROK LINK ANALYSIS (Live Search with web_source)")
+        print("🔗 INSPIRATION LINK ANALYSIS")
         print("=" * 80)
         
         # Filter out empty links
         valid_links = [link.strip() for link in links if link.strip()]
         print(f"🔗 Number of links: {len(valid_links)}")
         print(f"🔗 Links: {valid_links}")
+        
+        # Separate video platform links from regular links
+        video_links = [link for link in valid_links if is_video_platform_url(link)]
+        regular_links = [link for link in valid_links if not is_video_platform_url(link)]
+        
+        print(f"🎬 Video platform links: {len(video_links)}")
+        print(f"🌐 Regular links: {len(regular_links)}")
+        
+        result = {}
+        
+        # Process video links first (if any)
+        if video_links and context and account_id:
+            print(f"\n📹 Processing {len(video_links)} video inspiration link(s)...")
+            video_inspirations = []
+            
+            for video_link in video_links[:1]:  # Process only first video to avoid long processing
+                video_analysis = await process_video_inspiration_link(video_link, context, account_id)
+                if video_analysis:
+                    video_inspirations.append(video_analysis)
+            
+            if video_inspirations:
+                result["video_inspiration"] = video_inspirations[0]  # Use first video inspiration
+                print(f"\n✅ Video inspiration analysis complete!")
+        
+        # If no regular links, return video analysis only
+        if not regular_links:
+            return result
+        
+        # Process regular links with Grok live search
+        print(f"\n🌐 Processing {len(regular_links)} regular link(s) with Grok live search...")
         
         from xai_sdk import Client
         from xai_sdk.chat import user, system
@@ -1587,7 +2183,7 @@ async def analyze_inspiration_links(links: List[str]) -> Dict:
         
         # Extract domains for Grok web_source filtering (limit to 10)
         allowed_websites = []
-        for link in valid_links[:10]:
+        for link in regular_links[:10]:
             try:
                 parsed = urlparse(link)
                 domain = parsed.netloc or parsed.path.split('/')[0]
@@ -1634,7 +2230,7 @@ Focus on:
 Return a comprehensive summary of insights that can be used for content generation."""
         
         user_prompt = f"""Please gather comprehensive information from these websites:
-{', '.join(valid_links)}
+{', '.join(regular_links)}
 
 Extract and summarize:
 1. Key features, products, or services
@@ -1688,10 +2284,11 @@ Return a concise summary of insights from all links combined."""
         # Clean up extra whitespace
         cleaned_text = re.sub(r'\n\s*\n', '\n\n', cleaned_text).strip()
         
-        return {
-            "summary": cleaned_text,
-            "raw_summary": link_analysis_text  # Keep original for context
-        }
+        # Merge with video inspiration if present
+        result["summary"] = cleaned_text
+        result["raw_summary"] = link_analysis_text
+        
+        return result
         
     except Exception as e:
         logger.error(f"❌ Link analysis failed: {e}")
@@ -1840,7 +2437,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     VIDEO_DURATION_ESTIMATE = CLIPS_PER_VIDEO * CLIP_DURATION_ESTIMATE
     
     print(f"⚙️ Video Configuration: {CLIPS_PER_VIDEO} clip(s) per video, ~{CLIP_DURATION_ESTIMATE}-10s per clip")
-    print(f"⚙️ Model Selection: 30% Kling v2.6 (10s clips), 70% Veo3.1 (8s clips)")
+    print(f"⚙️ Model Selection: 99% Kling v2.6 (10s clips), 1% Veo3.1 (8s clips)")
     
     print("=" * 80)
     print("🤖 GROK PROMPT GENERATION (KLING v2.6 / VEO3.1 MULTI-MODEL MODE)")
@@ -1879,7 +2476,33 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     
     # Format link analysis for Grok
     link_analysis_str = ""
+    video_inspiration_str = ""
+    has_video_inspiration = False
+    
     if link_analysis:
+        # Check for video inspiration (from YouTube/Instagram/Twitter reel analysis)
+        video_inspiration = link_analysis.get("video_inspiration")
+        if video_inspiration:
+            has_video_inspiration = True
+            import json
+            video_inspiration_str = f"""
+🎬 VIDEO INSPIRATION ANALYSIS (from reel/short):
+- Storyline: {video_inspiration.get('storyline', 'N/A')}
+- Hook (first 2-3s): {video_inspiration.get('hook', 'N/A')}
+- Creative Elements: {', '.join(video_inspiration.get('creative_elements', []))}
+- Visual Techniques: {', '.join(video_inspiration.get('visual_techniques', []))}
+- Mood/Atmosphere: {video_inspiration.get('mood_atmosphere', 'N/A')}
+- Pacing: {video_inspiration.get('pacing', 'N/A')}
+- Key Moments: {', '.join(video_inspiration.get('key_moments', []))}
+- Product Showcase Style: {video_inspiration.get('product_showcase_style', 'N/A')}
+- Replication Tips: {video_inspiration.get('replication_tips', 'N/A')}
+- Transcript: "{video_inspiration.get('transcript', '')[:200]}{'...' if len(video_inspiration.get('transcript', '')) > 200 else ''}"
+"""
+            print(f"\n🎬 VIDEO INSPIRATION DETECTED!")
+            print(f"   Storyline: {video_inspiration.get('storyline', 'N/A')[:100]}...")
+            print(f"   Creative Elements: {video_inspiration.get('creative_elements', [])}")
+        
+        # Regular link analysis summary
         summary = link_analysis.get("summary")
         if summary and str(summary).strip():
             link_analysis_str = summary
@@ -2966,6 +3589,136 @@ INSPIRATION LINKS ANALYSIS:
 {link_analysis_str if link_analysis_str else '(No inspiration links provided)'}
 {f'⚠️ NOTE: Only incorporate link insights if RELEVANT to topic "{request.topic}" and brand context. Ignore if unrelated.' if link_analysis_str else ''}
 
+{video_inspiration_str if has_video_inspiration else ''}
+{'''
+🎬 **CRITICAL - VIDEO INSPIRATION ALIGNMENT**:
+
+A video reel/short inspiration has been provided above. You MUST generate ULTRA-DETAILED clip prompts that replicate the inspiration's storytelling approach while adapting for this brand.
+
+🚨🚨🚨 **PRODUCT IS THE HERO - MANDATORY** 🚨🚨🚨
+
+**IF PRODUCT IMAGES ARE IDENTIFIED IN INVENTORY ANALYSIS:**
+- The ACTUAL PRODUCT must be **VISIBLE AND FEATURED THROUGHOUT THE ENTIRE CLIP**
+- The product is the HERO/STAR of the video - it should appear in EVERY SCENE
+- DO NOT just blend product "patterns" or "textures" into the inspiration's setting
+- DO NOT recreate the inspiration's environment with product colors/patterns abstracted into it
+- INSTEAD: Show the ACTUAL PRODUCT in a setting/style INSPIRED by the reference video
+
+**WHAT TO COPY FROM INSPIRATION:**
+✅ Camera movements (push-in, pan, tilt, tracking, etc.)
+✅ Pacing and timing (how fast/slow things happen)
+✅ Transitions (hard cuts, morphs, dissolves)
+✅ Lighting style and mood (dramatic, soft, neon, etc.)
+✅ Visual effects (glitch, lens flares, reflections)
+✅ Overall cinematic quality and production value
+
+**WHAT TO REPLACE:**
+✅ The subject/hero → Replace with the ACTUAL PRODUCT from inventory
+✅ The setting → Create a setting that showcases the product while matching inspiration's aesthetic
+✅ Any text/graphics → Replace with brand-relevant content
+
+**EXAMPLE - WRONG vs RIGHT:**
+
+❌ WRONG (what NOT to do):
+"Surreal cave with winding fabric pool lit in neon purple matching sweater patterns, organic petal formations..."
+→ This blends product PATTERNS into a fantasy scene but DOESN'T SHOW the actual product!
+
+✅ RIGHT (what TO do):
+"The floral pattern sweater floats majestically in center frame against a dreamy, surreal pink-lit backdrop. Camera slowly pushes in as the sweater rotates gracefully, soft neon reflections dance across its fuzzy mohair texture. Hard cut to close-up of the purple and yellow floral designs, dramatic spotlight emphasizing every thread..."
+→ The ACTUAL PRODUCT is visible and featured throughout!
+
+📋 **CLIP PROMPT FORMAT** (Generate prompts like professional advertising storyboards):
+
+Your clip prompts MUST include:
+1. **EXACT TIMELINE BREAKDOWN** - Second-by-second description of what happens
+2. **PRODUCT VISIBILITY** - The product MUST be mentioned/visible in EVERY 2-second segment
+3. **CAMERA MOVEMENTS** - Push-in, pull-out, pan, tilt, overhead, tracking, slow descent, etc.
+4. **TRANSITIONS** - Hard cuts, morphing, dissolves, fades, seamless transitions between scenes
+5. **VISUAL COMPOSITION** - Framing, symmetry, reflections, lighting, lens flares
+6. **STYLE SPECIFICATIONS** - Hyper-realistic, cinematic, color grade, film grain
+7. **MUSIC/AUDIO DESCRIPTION** - Type of music, tempo, when it peaks, mood it creates
+
+📝 **EXAMPLE CLIP PROMPT FORMAT** (Product-focused with inspiration style):
+
+"Luxury 8-second vertical (9:16) product film for philistinetoronto. No dialogue, only music.
+
+0-2 sec: The floral pattern sweater floats center-frame in a surreal, dreamy pink-lit studio space. Slow, symmetrical push-in, soft neon reflections on the fuzzy mohair texture.
+
+2-4 sec: Hard cut to dramatic overhead shot. The sweater laid flat on a glossy reflective surface, camera slowly descending, capturing every detail of the purple and yellow floral designs.
+
+4-6 sec: Close-up dolly around the sweater's sleeve, showcasing the oversized fit. Subtle glowing edges in brand accent colors. Background transitions to ethereal twilight aesthetic.
+
+6-8 sec: Wide shot - the sweater on a modern display stand, dreamlike atmosphere, soft lens flare. Fade to black with brand logo.
+
+Style: Hyper-realistic luxury advertising, inspired by surreal fantasy aesthetics, ultra-clean.
+Music: Ambient dreamy synth that builds to a calming peak.
+Aspect ratio: 9:16 vertical."
+
+🎯 **ALIGNMENT RULES**:
+
+1. **PRODUCT IS HERO**: The actual product MUST be visible in every scene - not just patterns/colors abstracted
+2. **FOLLOW INSPIRATION TECHNIQUES**: Copy camera movements, pacing, transitions, lighting, effects
+3. **CREATE PRODUCT-FOCUSED SETTING**: Design a setting that showcases the product while matching inspiration's aesthetic
+4. **IMAGE PROMPT = STARTING FRAME**: The image_prompt should show the PRODUCT as the hero of the first frame
+5. **MUSIC ALIGNMENT**: Describe music that fits the brand mood while matching inspiration's audio approach
+
+🎬 **MULTI-CLIP INSPIRATION DISTRIBUTION** (CRITICAL - See CLIPS_PER_VIDEO above):
+
+⚠️ Check the "MULTI-CLIP VIDEO STRUCTURE" section above for the exact number of clips per video.
+When generating a video with MULTIPLE CLIPS, you MUST:
+
+1. **SPREAD THE INSPIRATION STORYLINE ACROSS ALL CLIPS**:
+   - Divide the inspiration's timeline/story arc across the total number of clips
+   - Each clip should represent a CHAPTER of the overall story
+   - When all clips are stitched together, they form ONE cohesive, mind-blowing video
+
+2. **CLIP STRUCTURE FOR MULTI-CLIP VIDEOS**:
+   - **Clip 1**: Opening/Hook - Grab attention, introduce product in the inspiration's style
+   - **Clip 2**: Development/Showcase - Deep dive into product features using inspiration's techniques
+   - **Clip 3** (if applicable): Climax/Resolution - Dramatic finale, brand reveal, call-to-action moment
+
+3. **TIMELINE ADAPTATION**:
+   - If inspiration is 15 seconds and you have 3 clips (24-30s total):
+     * Clip 1 (8-10s): Expand inspiration's 0-5s into a full clip with product as hero
+     * Clip 2 (8-10s): Expand inspiration's 5-10s into a full clip with product showcase
+     * Clip 3 (8-10s): Expand inspiration's 10-15s into a full clip with grand finale
+   - Each clip should feel complete on its own BUT flow seamlessly into the next
+
+4. **PRODUCT IN EVERY CLIP**:
+   - The product MUST appear in EVERY clip's starting frame (image prompt)
+   - The product MUST be featured throughout EVERY clip's motion (clip prompt)
+   - Each clip shows the product from a different angle, context, or moment
+
+5. **CONTINUITY ACROSS CLIPS**:
+   - Visual style/aesthetic should be CONSISTENT across all clips
+   - Lighting mood should flow naturally (don't jump from dark to bright randomly)
+   - Camera style should feel unified (all cinematic, or all dynamic, etc.)
+   - Music description should indicate a CONTINUOUS piece that spans all clips
+
+**EXAMPLE - 3-CLIP VIDEO WITH INSPIRATION**:
+
+Clip 1 (Opening - 0-10s of final video):
+- Image prompt: "Reference product (floral sweater) floating center-frame in dreamy pink-lit space..."
+- Clip prompt: "0-2s: Sweater emerges from soft mist, slow push-in. 2-6s: Camera orbits, revealing texture. 6-10s: Transition to close-up..."
+
+Clip 2 (Showcase - 10-20s of final video):
+- Image prompt: "Reference product (floral sweater) laid elegantly on reflective surface, dramatic overhead lighting..."
+- Clip prompt: "0-2s: Overhead crane descent toward sweater. 2-6s: Slow 360 rotation, every floral detail visible. 6-10s: Pull back to reveal setting..."
+
+Clip 3 (Finale - 20-30s of final video):
+- Image prompt: "Reference product (floral sweater) on minimalist display, brand logo subtly visible, golden hour lighting..."
+- Clip prompt: "0-2s: Wide establishing shot. 2-6s: Slow zoom culminating in product hero shot. 6-10s: Soft fade, logo appears with light streaks..."
+
+🚨 **CRITICAL - VIDEO TYPE RESTRICTION**:
+
+When video inspiration is provided, you MUST categorize the video as either:
+- "product_marketing" - For product-focused cinematic videos
+- "brand_marketing" - For brand storytelling/awareness videos
+
+**NEVER use "ugc_influencer"** when video inspiration is provided.
+Video inspiration = Professional cinematic content = product_marketing OR brand_marketing ONLY.
+''' if has_video_inspiration else ''}
+
 GENERATE:
 
 🎯 **AUTONOMOUS TOPIC SELECTION** (When user instructions are minimal or not provided):
@@ -2999,11 +3752,15 @@ If the user has NOT provided specific content instructions or topic guidance:
 - **GENERATE COHESIVE CONTENT**: Once you pick a topic, ensure ALL generated content (texts, image prompts, clip prompts) aligns with that chosen topic for a unified, engaging post.
 
 1. VIDEO TYPE SELECTION:
-   - **FIRST**: Check if USER INSTRUCTIONS explicitly request a specific video type (product showcase, UGC/influencer, brand story)
+   - **FIRST**: Check if VIDEO INSPIRATION is provided (from YouTube, Instagram, Twitter/X)
+   - **IF VIDEO INSPIRATION EXISTS**: ALWAYS use "product_marketing" or "brand_marketing" - NEVER "ugc_influencer"
+   - **SECOND**: Check if USER INSTRUCTIONS explicitly request a specific video type (product showcase, UGC/influencer, brand story)
    - **IF YES**: Honor the user's explicit request
-   - **IF NO**: Autonomously analyze inventory, brand context, and content purpose to decide
+   - **IF NO VIDEO INSPIRATION**: Autonomously analyze inventory, brand context, and content purpose to decide
    - Choose: "product_marketing", "ugc_influencer", or "brand_marketing"
    - This decision affects ALL subsequent prompts and flags
+   
+   🚨 **REMEMBER**: Video inspiration = Professional cinematic = NEVER UGC
 
 2. IMAGE PROMPTS (for image-only posts):
    - Posts at indices {sorted(image_only_indices)}: Static images (1:1 aspect ratio)
@@ -3319,6 +4076,10 @@ CRITICAL REQUIREMENTS:
     print(inventory_analysis_str[:500] if inventory_analysis_str and len(inventory_analysis_str) > 500 else inventory_analysis_str if inventory_analysis_str else "(No inventory analysis)")
     print(f"\n📊 LINK ANALYSIS PASSED TO GROK:")
     print(link_analysis_str[:500] if link_analysis_str and len(link_analysis_str) > 500 else link_analysis_str if link_analysis_str else "(No link analysis)")
+    
+    if has_video_inspiration:
+        print(f"\n🎬 VIDEO INSPIRATION PASSED TO GROK:")
+        print(video_inspiration_str[:500] if len(video_inspiration_str) > 500 else video_inspiration_str)
     print(f"\n📊 FULL SYSTEM PROMPT (first 1000 chars):")
     print(system_prompt[:1000] if len(system_prompt) > 1000 else system_prompt)
     print("=" * 80)
@@ -3570,13 +4331,24 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     image_only_indices = prompts["image_only_indices"]
     CLIPS_PER_VIDEO = prompts["clips_per_video"]
     
+    # Extract inspiration background music if available (for replacing AI-generated audio)
+    link_analysis = context.get("link_analysis", {})
+    video_inspiration = link_analysis.get("video_inspiration", {})
+    inspiration_music_s3_key = video_inspiration.get("background_music_s3_key") if video_inspiration else None
+    
+    if inspiration_music_s3_key:
+        print(f"🎶 Inspiration background music available: {inspiration_music_s3_key}")
+        print(f"   Will be used for product_marketing/brand_marketing videos instead of AI-generated audio")
+    else:
+        print(f"🎶 No inspiration background music available (will use AI-generated audio)")
+    
     # Model selection: 60% Kling v2.6 (10s clips), 40% Veo3.1 (8s clips)
     # Selection is done per video, not per clip (all clips in a video use same model)
     import random
     
     def select_video_model():
-        """Select video model with 30:70 ratio (Kling:Veo)"""
-        if random.random() < 0.30:
+        """Select video model with 99:1 ratio (Kling:Veo)"""
+        if random.random() < 0.99:
             return {
                 "name": "kling_v2.6",
                 "fal_model": "fal-ai/kling-video/v2.6/pro/image-to-video",
@@ -3641,7 +4413,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     print(f"📋 Image-only posts: {sorted(image_only_indices)}")
     print(f"📋 Video posts: {sorted(video_indices)}")
     print(f"📋 Clips per video: {CLIPS_PER_VIDEO}")
-    print(f"📋 Video models: 30% Kling v2.6 (10s clips), 70% Veo3.1 (8s clips)")
+    print(f"📋 Video models: 99% Kling v2.6 (10s clips), 1% Veo3.1 (8s clips)")
     print(f"📋 Video duration: {CLIPS_PER_VIDEO * 8}s - {CLIPS_PER_VIDEO * 10}s (depending on model)")
     print(f"📋 Model image detected: {has_model_image}")
     if has_model_image:
@@ -3978,11 +4750,11 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         "aspect_ratio": "1:1",
                         "image_urls": image_urls,
                         "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
-                },
-                with_logs=True,
-                on_queue_update=on_queue_update
-            )
-            
+                    },
+                    with_logs=True,
+                    on_queue_update=on_queue_update
+                )
+                
                 if result and "images" in result and result["images"]:
                     fal_url = result["images"][0]["url"]
                     print(f"  📥 FAL URL received: {fal_url[:100]}...")
@@ -4292,12 +5064,29 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
         
         if len(valid_clips) == 1:
             # Single clip, no stitching needed
-            # NEW: Skip audio processing for single clips (treat like UGC videos regardless of video type)
-            print(f"✅ Single clip video (no stitching or audio processing needed)")
+            print(f"✅ Single clip video (no stitching needed)")
             final_video_url = valid_clips[0]
             
-            print(f"⚡ Using raw Veo3.1 output for faster generation")
-            print(f"✅ Final video ready: {final_video_url}")
+            # NEW: For product_marketing/brand_marketing with inspiration music, replace AI audio
+            if inspiration_music_s3_key and video_type in ["product_marketing", "brand_marketing"] and not influencer_marketing_flag:
+                print(f"\n🎶 Single clip with inspiration music: Replacing AI-generated audio...")
+                video_with_inspiration_music = await replace_video_audio_with_inspiration_music(
+                    video_s3_url=final_video_url,
+                    inspiration_music_s3_key=inspiration_music_s3_key,
+                    account_id=request.account_id,
+                    generation_uuid=generation_uuid,
+                    video_index=video_idx
+                )
+                
+                if video_with_inspiration_music:
+                    final_video_url = video_with_inspiration_music
+                    print(f"✅ Final video with inspiration music: {final_video_url}")
+                else:
+                    print(f"⚠️ Failed to add inspiration music, using original clip with AI audio")
+                    print(f"✅ Final video ready: {final_video_url}")
+            else:
+                print(f"⚡ Using raw Veo3.1/Kling output for faster generation")
+                print(f"✅ Final video ready: {final_video_url}")
         
         else:
             # Multiple clips - stitch them
@@ -4435,18 +5224,49 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                                     filename=f"video_only.mp4"
                                 )
                                 
-                                # Generate background music with Pixverse Sound Effects
-                                print(f"🎵 Adding background music with Pixverse Sound Effects...")
-                                audio_prompt = prompts["video_audio_prompts"].get(video_idx, "Upbeat background music")
-                                
-                                video_with_music_s3_url = await generate_background_music_with_pixverse(
-                                    video_s3_url=video_only_s3_url,
-                                    audio_prompt=audio_prompt,
-                                    duration=VIDEO_DURATION,
-                                    account_id=request.account_id,
-                                    generation_uuid=generation_uuid,
-                                    video_index=video_idx
-                                )
+                                # Choose between inspiration music or Pixverse Sound Effects
+                                if inspiration_music_s3_key:
+                                    # Use inspiration background music instead of Pixverse
+                                    print(f"🎶 Using inspiration background music (skipping Pixverse)...")
+                                    
+                                    video_with_music_s3_url = await replace_video_audio_with_inspiration_music(
+                                        video_s3_url=video_only_s3_url,
+                                        inspiration_music_s3_key=inspiration_music_s3_key,
+                                        account_id=request.account_id,
+                                        generation_uuid=generation_uuid,
+                                        video_index=video_idx
+                                    )
+                                    
+                                    if video_with_music_s3_url:
+                                        # Track model usage for audio generation
+                                        model_usage["audioGeneration"].append({
+                                            "post_index": video_idx,
+                                            "model": "inspiration-music",
+                                            "audio_source": "video_inspiration_link",
+                                            "duration": VIDEO_DURATION
+                                        })
+                                else:
+                                    # Generate background music with Pixverse Sound Effects
+                                    print(f"🎵 Adding background music with Pixverse Sound Effects...")
+                                    audio_prompt = prompts["video_audio_prompts"].get(video_idx, "Upbeat background music")
+                                    
+                                    video_with_music_s3_url = await generate_background_music_with_pixverse(
+                                        video_s3_url=video_only_s3_url,
+                                        audio_prompt=audio_prompt,
+                                        duration=VIDEO_DURATION,
+                                        account_id=request.account_id,
+                                        generation_uuid=generation_uuid,
+                                        video_index=video_idx
+                                    )
+                                    
+                                    if video_with_music_s3_url:
+                                        # Track model usage for audio generation
+                                        model_usage["audioGeneration"].append({
+                                            "post_index": video_idx,
+                                            "model": "fal-ai/pixverse/sound-effects",
+                                            "audio_prompt": audio_prompt[:100],
+                                            "duration": VIDEO_DURATION
+                                        })
                                 
                                 if not video_with_music_s3_url:
                                     print(f"  ⚠️ Failed to add background music, using stitched video")
@@ -4457,14 +5277,6 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                                     except:
                                         pass
                                 else:
-                                    # Track model usage for audio generation
-                                    model_usage["audioGeneration"].append({
-                                        "post_index": video_idx,
-                                        "model": "fal-ai/pixverse/sound-effects",
-                                        "audio_prompt": audio_prompt[:100],
-                                        "duration": VIDEO_DURATION
-                                    })
-                                    
                                     # Mix voiceover with background music
                                     print(f"🎤 Mixing voiceover with background music...")
                                     final_video_url = await mix_voiceover_with_background_music(
@@ -4622,7 +5434,7 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
         
         if links_to_analyze:
             await update_progress_in_db(request.account_id, 25, "Analyzing inspiration links...", generation_uuid)
-            link_analysis = await analyze_inspiration_links(links_to_analyze)
+            link_analysis = await analyze_inspiration_links(links_to_analyze, context, request.account_id)
             context["link_analysis"] = link_analysis
         else:
             print("⏭️ Skipping link analysis - no inspiration links provided (user or linksJson)")
