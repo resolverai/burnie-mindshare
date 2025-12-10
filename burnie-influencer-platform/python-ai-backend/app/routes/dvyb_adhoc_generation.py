@@ -192,25 +192,35 @@ def extract_and_transcribe_audio(video_path: str, output_dir: str) -> tuple:
     background_music_path = os.path.join(output_dir, "background_music.wav")
     
     try:
-        # Step 1: Extract audio using moviepy (trimmed to max duration if needed)
-        print(f"  🎵 Extracting audio...")
+        # Step 1: Extract FULL audio from video (complete music track)
+        print(f"  🎵 Extracting full audio from video...")
         video_clip = VideoFileClip(video_path)
         if video_clip.audio is None:
             print(f"  ⚠️ No audio track in video")
             video_clip.close()
             return ("", None)
         
-        # Trim to max duration if video is longer
         video_duration = video_clip.duration
-        if video_duration > MAX_VIDEO_INSPIRATION_DURATION:
-            print(f"  ⚠️ Trimming audio to first {MAX_VIDEO_INSPIRATION_DURATION}s (video is {video_duration:.1f}s)")
-            video_clip = video_clip.subclip(0, MAX_VIDEO_INSPIRATION_DURATION)
+        print(f"  📊 Video duration: {video_duration:.1f}s")
         
-        video_clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
+        # Save FULL original audio as background music FIRST (preserves complete music)
+        video_clip.audio.write_audiofile(background_music_path, codec='pcm_s16le', logger=None)
+        print(f"  🎶 Background music saved (FULL {video_duration:.1f}s audio): {background_music_path}")
+        
+        # Step 2: Extract trimmed audio for transcription processing
+        # Only process first 15s for Demucs/transcription (saves processing time)
+        if video_duration > MAX_VIDEO_INSPIRATION_DURATION:
+            print(f"  ⚠️ Trimming to first {MAX_VIDEO_INSPIRATION_DURATION}s for transcription processing")
+            trimmed_clip = video_clip.subclip(0, MAX_VIDEO_INSPIRATION_DURATION)
+            trimmed_clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
+            trimmed_clip.close()
+        else:
+            video_clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
+        
         video_clip.close()
         
-        # Step 2: Separate vocals with Demucs
-        print(f"  🎤 Separating audio with Demucs (vocals vs background)...")
+        # Step 3: Separate vocals with Demucs (only for transcription purposes)
+        print(f"  🎤 Separating vocals with Demucs (for transcription only)...")
         model = get_model('htdemucs')
         model.eval()
         
@@ -222,28 +232,16 @@ def extract_and_transcribe_audio(video_path: str, output_dir: str) -> tuple:
             sources = apply_model(model, waveform.unsqueeze(0), device='cpu')[0]
         
         # htdemucs outputs: drums (0), bass (1), other (2), vocals (3)
-        drums = sources[0].numpy()
-        bass = sources[1].numpy()
-        other = sources[2].numpy()
         vocals = sources[3].numpy()
-        
-        # Background music = drums + bass + other (everything except vocals)
-        background_music = drums + bass + other
         
         # Convert to mono if stereo for consistency
         if vocals.shape[0] == 2:
             vocals = np.mean(vocals, axis=0)
-        if background_music.shape[0] == 2:
-            background_music = np.mean(background_music, axis=0)
         
         # Save vocals for transcription
         sf.write(vocals_path, vocals, sample_rate)
         
-        # Save background music for later use
-        sf.write(background_music_path, background_music, sample_rate)
-        print(f"  🎶 Background music saved: {background_music_path}")
-        
-        # Step 3: Transcribe vocals with OpenAI Whisper
+        # Step 4: Transcribe vocals with OpenAI Whisper
         print(f"  📝 Transcribing with OpenAI Whisper...")
         client = OpenAI(api_key=settings.openai_api_key)
         
@@ -654,7 +652,7 @@ class DvybAdhocGenerationRequest(BaseModel):
     user_prompt: Optional[str] = None
     user_images: Optional[List[str]] = None  # S3 URLs
     inspiration_links: Optional[List[str]] = None
-    clips_per_video: Optional[int] = 1  # Default 1 clip (8s), can be 2 (16s) or 3 (24s)
+    clips_per_video: Optional[int] = 1  # Default 1 clip (8-10s), can be 2 (16-20s) or 3 (24-30s)
 
 
 class DvybAdhocGenerationResponse(BaseModel):
@@ -4717,12 +4715,21 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 elif product_mapping:
                     print(f"  ⚠️ Product mapping '{product_mapping}' not found in available products")
                 
-                # 4. Previous frame (if UGC and clip 2+, for character consistency)
-                if video_type == "ugc_influencer" and clip_num > 1 and frame_s3_urls and frame_s3_urls[0]:
-                    frame_1_presigned = web2_s3_helper.generate_presigned_url(frame_s3_urls[0])
-                    if frame_1_presigned:
-                        image_urls.append(frame_1_presigned)
-                        print(f"  👤 Including frame 1 for character consistency")
+                # 4. Previous frame (for clip 2+, for visual/style consistency across clips)
+                # Include for ALL video types to ensure continuity in multi-clip videos
+                if clip_num > 1 and frame_s3_urls:
+                    # Get the most recent successfully generated frame
+                    previous_frame_s3_url = None
+                    for prev_idx in range(len(frame_s3_urls) - 1, -1, -1):
+                        if frame_s3_urls[prev_idx]:
+                            previous_frame_s3_url = frame_s3_urls[prev_idx]
+                            break
+                    
+                    if previous_frame_s3_url:
+                        prev_frame_presigned = web2_s3_helper.generate_presigned_url(previous_frame_s3_url)
+                        if prev_frame_presigned:
+                            image_urls.append(prev_frame_presigned)
+                            print(f"  🔗 Including previous frame for visual continuity (clip {clip_num - 1} → clip {clip_num})")
                 
                 # Ensure at least logo is passed (Nano Banana Edit requirement)
                 if not image_urls and presigned_logo_url:
