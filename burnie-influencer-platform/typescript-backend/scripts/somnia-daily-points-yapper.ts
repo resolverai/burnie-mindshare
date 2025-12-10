@@ -232,17 +232,19 @@ class SomniaDailyPointsYapperScript {
       INNER JOIN projects p ON c."projectId" = p.id
       WHERE u.id = $1
         AND utp."createdAt" >= $2
+        AND utp."createdAt" <= $3
         AND p.somnia_whitelisted = true
       GROUP BY c."projectId"
       ORDER BY post_count DESC
       LIMIT 3
     `;
     
-    const results = await this.dataSource.query(query, [userId, sinceTimestamp]);
+    const results = await this.dataSource.query(query, [userId, sinceTimestamp, CAMPAIGN_END_DATE]);
     const projectPostsMap = new Map<number, number>();
     
     // Calculate days since last run (for capping posts)
-    const now = new Date();
+    // Use the earlier of current date or campaign end date
+    const now = new Date() > CAMPAIGN_END_DATE ? CAMPAIGN_END_DATE : new Date();
     const daysSinceLastRun = Math.ceil((now.getTime() - sinceTimestamp.getTime()) / (1000 * 60 * 60 * 24));
     const maxPostsAllowed = MAX_DAILY_POSTS_PER_PROJECT * daysSinceLastRun;
     
@@ -290,6 +292,7 @@ class SomniaDailyPointsYapperScript {
           AND cp.purchase_price > 0
           AND (cp.network IS NULL OR cp.network != 'somnia_testnet')
           AND cp.created_at >= $2
+          AND cp.created_at <= $3
       `;
       
       // Check Somnia testnet purchases (network = 'somnia_testnet')
@@ -302,15 +305,16 @@ class SomniaDailyPointsYapperScript {
           AND cp.purchase_price > 0
           AND cp.network = 'somnia_testnet'
           AND cp.created_at >= $2
+          AND cp.created_at <= $3
       `;
       
-      // Get totals since campaign start
-      const totalBasePurchases = await this.dataSource.query(basePurchasesQuery, [referral.userId, CAMPAIGN_START_DATE]);
-      const totalSomniaPurchases = await this.dataSource.query(somniaPurchasesQuery, [referral.userId, CAMPAIGN_START_DATE]);
+      // Get totals since campaign start (up to campaign end)
+      const totalBasePurchases = await this.dataSource.query(basePurchasesQuery, [referral.userId, CAMPAIGN_START_DATE, CAMPAIGN_END_DATE]);
+      const totalSomniaPurchases = await this.dataSource.query(somniaPurchasesQuery, [referral.userId, CAMPAIGN_START_DATE, CAMPAIGN_END_DATE]);
       
-      // Get new purchases since last timestamp
-      const newBasePurchases = await this.dataSource.query(basePurchasesQuery, [referral.userId, sinceTimestamp]);
-      const newSomniaPurchases = await this.dataSource.query(somniaPurchasesQuery, [referral.userId, sinceTimestamp]);
+      // Get new purchases since last timestamp (up to campaign end)
+      const newBasePurchases = await this.dataSource.query(basePurchasesQuery, [referral.userId, sinceTimestamp, CAMPAIGN_END_DATE]);
+      const newSomniaPurchases = await this.dataSource.query(somniaPurchasesQuery, [referral.userId, sinceTimestamp, CAMPAIGN_END_DATE]);
       
       const totalBaseCount = parseInt(totalBasePurchases[0]?.count || '0');
       const totalSomniaCount = parseInt(totalSomniaPurchases[0]?.count || '0');
@@ -351,6 +355,7 @@ class SomniaDailyPointsYapperScript {
         AND cp.purchase_price > 0
         AND (cp.network IS NULL OR cp.network != 'somnia_testnet')
         AND cp.created_at >= $2
+        AND cp.created_at <= $3
     `;
     
     // Get Somnia testnet referral purchases
@@ -364,15 +369,16 @@ class SomniaDailyPointsYapperScript {
         AND cp.purchase_price > 0
         AND cp.network = 'somnia_testnet'
         AND cp.created_at >= $2
+        AND cp.created_at <= $3
     `;
     
-    // Get totals since campaign start
-    const totalBaseResult = await this.dataSource.query(baseQuery, [userId, CAMPAIGN_START_DATE]);
-    const totalSomniaResult = await this.dataSource.query(somniaQuery, [userId, CAMPAIGN_START_DATE]);
+    // Get totals since campaign start (up to campaign end)
+    const totalBaseResult = await this.dataSource.query(baseQuery, [userId, CAMPAIGN_START_DATE, CAMPAIGN_END_DATE]);
+    const totalSomniaResult = await this.dataSource.query(somniaQuery, [userId, CAMPAIGN_START_DATE, CAMPAIGN_END_DATE]);
     
-    // Get new purchases since last timestamp
-    const newBaseResult = await this.dataSource.query(baseQuery, [userId, sinceTimestamp]);
-    const newSomniaResult = await this.dataSource.query(somniaQuery, [userId, sinceTimestamp]);
+    // Get new purchases since last timestamp (up to campaign end)
+    const newBaseResult = await this.dataSource.query(baseQuery, [userId, sinceTimestamp, CAMPAIGN_END_DATE]);
+    const newSomniaResult = await this.dataSource.query(somniaQuery, [userId, sinceTimestamp, CAMPAIGN_END_DATE]);
     
     const totalBasePurchases = parseInt(totalBaseResult[0]?.count || '0');
     const totalSomniaPurchases = parseInt(totalSomniaResult[0]?.count || '0');
@@ -1092,11 +1098,11 @@ class SomniaDailyPointsYapperScript {
       console.log('📅 Date:', new Date().toISOString());
       console.log(`🔧 Mode: ${dryRun ? 'DRY RUN' : 'PRODUCTION'}`);
 
-      // Check if within campaign period
-      if (!this.isWithinCampaignPeriod()) {
-        console.log('⚠️ Current date is outside campaign period (Nov 18 - Dec 9, 2025)');
-        console.log('   Exiting script');
-        return;
+      // Allow running outside campaign period, but cap data collection at campaign end
+      const now = new Date();
+      if (now > CAMPAIGN_END_DATE) {
+        console.log('⚠️ Current date is after campaign end (Dec 9, 2025)');
+        console.log('   Data will be collected only up to campaign end date');
       }
 
       // Initialize database connection

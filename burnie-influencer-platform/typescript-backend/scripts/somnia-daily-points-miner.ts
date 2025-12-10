@@ -100,11 +100,12 @@ class SomniaDailyPointsMinerScript {
       SELECT DISTINCT dme.miner_wallet_address as "walletAddress", MIN(dme.created_at) as "createdAt"
       FROM dedicated_miner_executions dme
       WHERE dme.created_at >= $1
+        AND dme.created_at <= $2
       GROUP BY dme.miner_wallet_address
       ORDER BY "createdAt"
     `;
 
-    const miners = await this.dataSource.query(query, [CAMPAIGN_START_DATE]);
+    const miners = await this.dataSource.query(query, [CAMPAIGN_START_DATE, CAMPAIGN_END_DATE]);
     const filteredMiners = miners
       .map((miner: any) => ({
         walletAddress: miner.walletAddress.toLowerCase(),
@@ -167,11 +168,12 @@ class SomniaDailyPointsMinerScript {
       WHERE LOWER(dme.miner_wallet_address) = LOWER($1)
         AND dme.status = 'completed'
         AND dme.created_at >= $2
+        AND dme.created_at <= $3
         AND c."projectId" IS NOT NULL
       GROUP BY c."projectId"
     `;
 
-    const results = await this.dataSource.query(query, [walletAddress, sinceTimestamp]);
+    const results = await this.dataSource.query(query, [walletAddress, sinceTimestamp, CAMPAIGN_END_DATE]);
     
     const projectContentMap = new Map<number, number>();
     for (const row of results) {
@@ -200,11 +202,12 @@ class SomniaDailyPointsMinerScript {
       WHERE LOWER(cm.wallet_address) = LOWER($1)
         AND cp.payment_status = 'completed'
         AND cp.created_at >= $2
+        AND cp.created_at <= $3
         AND c."projectId" IS NOT NULL
       GROUP BY c."projectId"
     `;
 
-    const results = await this.dataSource.query(query, [walletAddress, sinceTimestamp]);
+    const results = await this.dataSource.query(query, [walletAddress, sinceTimestamp, CAMPAIGN_END_DATE]);
     
     const projectSalesMap = new Map();
     for (const row of results) {
@@ -303,8 +306,20 @@ class SomniaDailyPointsMinerScript {
     lastTuesday.setDate(lastTuesday.getDate() - 7);
     lastTuesday.setHours(15, 0, 0, 0); // 10 AM ET = 3 PM UTC
     
-    const thisTuesday = new Date(today);
+    let thisTuesday = new Date(today);
     thisTuesday.setHours(15, 0, 0, 0);
+    
+    // Cap at campaign end date if running after campaign end
+    if (thisTuesday > CAMPAIGN_END_DATE) {
+      thisTuesday = CAMPAIGN_END_DATE;
+      console.log(`⚠️ Capping weekly window at campaign end: ${CAMPAIGN_END_DATE.toISOString()}`);
+    }
+    
+    // Ensure lastTuesday is not before campaign start
+    if (lastTuesday < CAMPAIGN_START_DATE) {
+      lastTuesday.setTime(CAMPAIGN_START_DATE.getTime());
+      console.log(`⚠️ Adjusting weekly start to campaign start: ${CAMPAIGN_START_DATE.toISOString()}`);
+    }
     
     console.log(`📅 Weekly window: ${lastTuesday.toISOString()} to ${thisTuesday.toISOString()}`);
     
@@ -490,11 +505,11 @@ class SomniaDailyPointsMinerScript {
       console.log('📅 Date:', new Date().toISOString());
       console.log(`🔧 Mode: ${dryRun ? 'DRY RUN' : 'LIVE'}`);
 
-      // Check if within campaign period
-      if (!this.isWithinCampaignPeriod()) {
-        console.log('⚠️ Current date is outside campaign period (Nov 16 - Dec 9, 2025)');
-        console.log('   Exiting script');
-        return;
+      // Allow running outside campaign period, but cap data collection at campaign end
+      const now = new Date();
+      if (now > CAMPAIGN_END_DATE) {
+        console.log('⚠️ Current date is after campaign end (Dec 9, 2025)');
+        console.log('   Data will be collected only up to campaign end date');
       }
 
       // Initialize database connection
