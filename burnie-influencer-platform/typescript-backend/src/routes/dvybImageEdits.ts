@@ -48,6 +48,10 @@ interface SaveImageEditRequest {
 router.post('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId;
+    if (!accountId) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+    
     const body: SaveImageEditRequest = req.body;
     
     logger.info(`📝 Saving image edit for account ${accountId}, content ${body.generatedContentId}, post ${body.postIndex}`);
@@ -120,8 +124,12 @@ router.post('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response)
 router.get('/:generatedContentId/:postIndex', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId;
-    const generatedContentId = parseInt(req.params.generatedContentId);
-    const postIndex = parseInt(req.params.postIndex);
+    if (!accountId) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+    
+    const generatedContentId = parseInt(req.params.generatedContentId!);
+    const postIndex = parseInt(req.params.postIndex!);
     
     const imageEditRepo = AppDataSource.getRepository(DvybImageEdit);
     
