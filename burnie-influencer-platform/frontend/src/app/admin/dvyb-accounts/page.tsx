@@ -3,28 +3,25 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { 
+import {
   ArrowLeft, 
   Search, 
   Users,
   CheckCircle,
   XCircle,
-  Globe,
   Mail,
-  Calendar,
   DollarSign,
   Image as ImageIcon,
   Video,
-  Trash2,
-  Zap,
   Clock,
   AlertCircle,
   RefreshCw,
-  Play,
   Pause,
   Copy,
-  Check
+  Check,
+  Edit,
 } from 'lucide-react';
+import EditContextModal from '@/components/admin/EditContextModal';
 import Image from 'next/image';
 
 interface CurrentPlan {
@@ -120,6 +117,8 @@ export default function DvybAccountsPage() {
   const [accountToDelete, setAccountToDelete] = useState<DvybAccount | null>(null);
   const [togglingAutoGen, setTogglingAutoGen] = useState<number | null>(null);
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+  const [showEditContextModal, setShowEditContextModal] = useState(false);
+  const [editContextAccount, setEditContextAccount] = useState<DvybAccount | null>(null);
 
   // Helper to truncate email and copy to clipboard
   const truncateEmail = (email: string, maxLength: number = 25) => {
@@ -189,15 +188,6 @@ export default function DvybAccountsPage() {
     } finally {
       setToggling(null);
     }
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
-    });
   };
 
   // Fetch available plans
@@ -434,9 +424,6 @@ export default function DvybAccountsPage() {
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Created
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -492,6 +479,9 @@ export default function DvybAccountsPage() {
                                   <Copy className="h-3 w-3 text-gray-400 hover:text-gray-600" />
                                 )}
                               </button>
+                            </div>
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              Created {new Date(account.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             </div>
                           </div>
                         </div>
@@ -621,14 +611,20 @@ export default function DvybAccountsPage() {
                           )}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1 text-sm text-gray-500">
-                          <Calendar className="h-3 w-3" />
-                          {formatDate(account.createdAt)}
-                        </div>
-                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center gap-1.5 flex-nowrap">
+                          <Button
+                            onClick={() => {
+                              setEditContextAccount(account);
+                              setShowEditContextModal(true);
+                            }}
+                            size="sm"
+                            variant="outline"
+                            className="flex items-center gap-1 text-blue-600 border-blue-300 hover:bg-blue-50 text-xs px-2 py-1 h-7"
+                          >
+                            <Edit className="h-3 w-3" />
+                            Edit Context
+                          </Button>
                           <Button
                             onClick={() => openAssociatePlanModal(account)}
                             size="sm"
@@ -959,6 +955,21 @@ export default function DvybAccountsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit Context Modal */}
+      {showEditContextModal && editContextAccount && (
+        <EditContextModal
+          account={editContextAccount}
+          open={showEditContextModal}
+          onClose={() => {
+            setShowEditContextModal(false);
+            setEditContextAccount(null);
+          }}
+          onSaved={() => {
+            fetchAccounts();
+          }}
+        />
       )}
     </div>
   );

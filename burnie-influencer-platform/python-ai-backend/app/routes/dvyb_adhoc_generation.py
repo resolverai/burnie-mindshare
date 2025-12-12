@@ -516,9 +516,34 @@ async def process_video_inspiration_link(url: str, context: dict, account_id: in
         
         print(f"  ✅ Uploaded {len(frame_presigned_urls)} frames to S3")
         
-        # Step 4b: Upload background music to S3 (for use in final video)
+        # Step 4b: Check if inspiration audio has significant vocals (English words > 5)
+        # If yes, don't use inspiration music (keep AI-generated audio in final video)
+        use_inspiration_music = True
+        if transcript and transcript.strip():
+            # Count words in transcript (split by whitespace)
+            word_count = len(transcript.strip().split())
+            print(f"  🎤 Transcript word count: {word_count}")
+            
+            if word_count > 5:
+                # Check if it contains English words (basic check: has ASCII letters)
+                import re
+                english_words = re.findall(r'[a-zA-Z]+', transcript)
+                english_word_count = len(english_words)
+                
+                if english_word_count > 5:
+                    use_inspiration_music = False
+                    print(f"  ⚠️ Significant vocals detected ({english_word_count} English words)")
+                    print(f"     Skipping inspiration music - will keep AI-generated audio in final video")
+                else:
+                    print(f"  ✅ Minimal English vocals ({english_word_count} words) - will use inspiration music")
+            else:
+                print(f"  ✅ Minimal vocals ({word_count} words) - will use inspiration music")
+        else:
+            print(f"  ✅ No vocals detected - will use inspiration music")
+        
+        # Step 4c: Upload background music to S3 (only if no significant vocals)
         background_music_s3_key = None
-        if background_music_path and os.path.exists(background_music_path):
+        if use_inspiration_music and background_music_path and os.path.exists(background_music_path):
             print(f"  📤 Uploading background music to S3...")
             background_music_s3_key = web2_s3_helper.upload_from_file(
                 file_path=background_music_path,
@@ -529,6 +554,8 @@ async def process_video_inspiration_link(url: str, context: dict, account_id: in
                 print(f"  ✅ Background music uploaded: {background_music_s3_key}")
             else:
                 print(f"  ⚠️ Failed to upload background music")
+        elif not use_inspiration_music:
+            print(f"  ⏭️ Skipping background music upload (significant vocals detected)")
         
         # Step 5: Analyze with Grok
         analysis = analyze_video_inspiration_with_grok(frame_presigned_urls, transcript, context)

@@ -2651,6 +2651,16 @@ export const BrandKitPage = () => {
                         <SelectItem value="es">Spanish</SelectItem>
                         <SelectItem value="fr">French</SelectItem>
                         <SelectItem value="de">German</SelectItem>
+                        <SelectItem value="hi">Hindi</SelectItem>
+                        <SelectItem value="pa">Punjabi</SelectItem>
+                        <SelectItem value="mr">Marathi</SelectItem>
+                        <SelectItem value="gu">Gujarati</SelectItem>
+                        <SelectItem value="ml">Malayalam</SelectItem>
+                        <SelectItem value="ta">Tamil</SelectItem>
+                        <SelectItem value="te">Telugu</SelectItem>
+                        <SelectItem value="kn">Kannada</SelectItem>
+                        <SelectItem value="bn">Bengali</SelectItem>
+                        <SelectItem value="or">Odia</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

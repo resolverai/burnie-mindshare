@@ -21,9 +21,34 @@ import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 import { UrlCacheService } from '../services/UrlCacheService';
 import { IsNull } from 'typeorm';
+import multer from 'multer';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import crypto from 'crypto';
+import path from 'path';
+import sharp from 'sharp';
+import axios from 'axios';
 
 const router = Router();
 const s3Service = new S3PresignedUrlService();
+
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB for videos
+  },
+});
+
+// Configure S3 client
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+  },
+});
+
+const S3_BUCKET = process.env.S3_BUCKET_NAME || 'burnie-mindshare-content-staging';
 
 /**
  * GET /api/admin/dvyb-accounts
@@ -691,6 +716,685 @@ router.delete('/:id', async (req: Request, res: Response) => {
       success: false,
       error: 'Failed to delete account. Please try again.',
     });
+  }
+});
+
+/**
+ * GET /api/admin/dvyb-accounts/:id/context
+ * Get full context data for an account (for admin editing)
+ */
+router.get('/:id/context', async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid account ID',
+      });
+    }
+
+    const contextRepo = AppDataSource.getRepository(DvybContext);
+    const context = await contextRepo.findOne({ where: { accountId } });
+
+    if (!context) {
+      return res.status(404).json({
+        success: false,
+        error: 'Context not found for this account',
+      });
+    }
+
+    // Generate presigned URLs for media files
+    let logoPresignedUrl: string | null = null;
+    
+    if (context.logoUrl) {
+      try {
+        logoPresignedUrl = await s3Service.generatePresignedUrl(context.logoUrl, 3600);
+      } catch (error) {
+        logger.error('Failed to generate presigned URL for logo:', error);
+      }
+    }
+
+    // Generate presigned URLs for brand images
+    const brandImagesWithUrls: Array<{ url: string; presignedUrl: string; timestamp: string }> = [];
+    if (context.brandImages && Array.isArray(context.brandImages)) {
+      for (const item of context.brandImages as any[]) {
+        try {
+          const s3Key = typeof item === 'string' ? item : item.url;
+          const presignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
+          brandImagesWithUrls.push({
+            url: s3Key,
+            presignedUrl: presignedUrl || s3Key,
+            timestamp: typeof item === 'object' && item.timestamp ? item.timestamp : new Date().toISOString(),
+          });
+        } catch (error) {
+          logger.error('Failed to generate presigned URL for brand image:', error);
+        }
+      }
+    }
+
+    // Generate presigned URLs for brand assets (videos)
+    const brandAssetsWithUrls: Array<{ url: string; presignedUrl: string; timestamp: string }> = [];
+    if (context.brandAssets && Array.isArray(context.brandAssets)) {
+      for (const item of context.brandAssets as any[]) {
+        try {
+          const s3Key = typeof item === 'string' ? item : item.url;
+          const presignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
+          brandAssetsWithUrls.push({
+            url: s3Key,
+            presignedUrl: presignedUrl || s3Key,
+            timestamp: typeof item === 'object' && item.timestamp ? item.timestamp : new Date().toISOString(),
+          });
+        } catch (error) {
+          logger.error('Failed to generate presigned URL for brand asset:', error);
+        }
+      }
+    }
+
+    // Generate presigned URLs for additional logos
+    const additionalLogosWithUrls: Array<{ url: string; presignedUrl: string; timestamp: string }> = [];
+    if (context.additionalLogoUrls && Array.isArray(context.additionalLogoUrls)) {
+      for (const item of context.additionalLogoUrls as any[]) {
+        try {
+          const s3Key = typeof item === 'string' ? item : item.url;
+          const presignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
+          additionalLogosWithUrls.push({
+            url: s3Key,
+            presignedUrl: presignedUrl || s3Key,
+            timestamp: typeof item === 'object' && item.timestamp ? item.timestamp : new Date().toISOString(),
+          });
+        } catch (error) {
+          logger.error('Failed to generate presigned URL for additional logo:', error);
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...context,
+        logoPresignedUrl,
+        brandImagesWithUrls,
+        brandAssetsWithUrls,
+        additionalLogosWithUrls,
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching context for admin:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch context',
+    });
+  }
+});
+
+/**
+ * PUT /api/admin/dvyb-accounts/:id/context
+ * Update context data for an account (admin editing)
+ */
+router.put('/:id/context', async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid account ID',
+      });
+    }
+
+    const contextRepo = AppDataSource.getRepository(DvybContext);
+    let context = await contextRepo.findOne({ where: { accountId } });
+
+    if (!context) {
+      return res.status(404).json({
+        success: false,
+        error: 'Context not found for this account',
+      });
+    }
+
+    // Update context with provided data
+    const updatableFields = [
+      'accountName',
+      'website',
+      'linksJson',
+      'documentUrls',
+      'documentsText',
+      'logoUrl',
+      'additionalLogoUrls',
+      'brandImages',
+      'brandAssets',
+      'businessOverview',
+      'whyCustomersChoose',
+      'competitors',
+      'customerDemographics',
+      'popularProducts',
+      'brandStyles',
+      'colorPalette',
+      'brandFonts',
+      'brandVoices',
+      'contentPreferences',
+      'websiteAnalysis',
+    ];
+
+    for (const field of updatableFields) {
+      if (req.body[field] !== undefined) {
+        (context as any)[field] = req.body[field];
+      }
+    }
+
+    await contextRepo.save(context);
+
+    logger.info(`✅ Admin updated context for account ${accountId}`);
+
+    // Fetch updated context with presigned URLs
+    const updatedContext = await contextRepo.findOne({ where: { accountId } });
+    
+    // Generate presigned URL for logo
+    let logoPresignedUrl: string | null = null;
+    if (updatedContext?.logoUrl) {
+      try {
+        logoPresignedUrl = await s3Service.generatePresignedUrl(updatedContext.logoUrl, 3600);
+      } catch (error) {
+        logger.error('Failed to generate presigned URL for logo:', error);
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...updatedContext,
+        logoPresignedUrl,
+      },
+      message: 'Context updated successfully',
+    });
+  } catch (error) {
+    logger.error('Error updating context for admin:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to update context',
+    });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-accounts/:id/upload-logo
+ * Upload logo for an account (admin editing)
+ */
+router.post('/:id/upload-logo', async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid account ID',
+      });
+    }
+
+    // Handle file upload using multer middleware would be ideal here
+    // For now, we'll use a simpler approach - the frontend can upload directly
+    // and send us the S3 key
+    const { s3Key } = req.body;
+
+    if (!s3Key) {
+      return res.status(400).json({
+        success: false,
+        error: 'S3 key is required',
+      });
+    }
+
+    const contextRepo = AppDataSource.getRepository(DvybContext);
+    const context = await contextRepo.findOne({ where: { accountId } });
+
+    if (!context) {
+      return res.status(404).json({
+        success: false,
+        error: 'Context not found for this account',
+      });
+    }
+
+    context.logoUrl = s3Key;
+    await contextRepo.save(context);
+
+    // Generate presigned URL
+    const presignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600);
+
+    return res.json({
+      success: true,
+      data: {
+        s3_key: s3Key,
+        presignedUrl,
+      },
+      message: 'Logo updated successfully',
+    });
+  } catch (error) {
+    logger.error('Error uploading logo for admin:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to upload logo',
+    });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-accounts/:id/upload-media
+ * Upload media files (images/videos) for an account (admin editing)
+ */
+router.post('/:id/upload-media', async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid account ID',
+      });
+    }
+
+    // Frontend uploads files directly to S3 and sends us the keys
+    const { images, videos } = req.body;
+
+    const contextRepo = AppDataSource.getRepository(DvybContext);
+    const context = await contextRepo.findOne({ where: { accountId } });
+
+    if (!context) {
+      return res.status(404).json({
+        success: false,
+        error: 'Context not found for this account',
+      });
+    }
+
+    // Update brand images
+    if (images && Array.isArray(images)) {
+      context.brandImages = images;
+    }
+
+    // Update brand assets (videos)
+    if (videos && Array.isArray(videos)) {
+      context.brandAssets = videos;
+    }
+
+    await contextRepo.save(context);
+
+    return res.json({
+      success: true,
+      message: 'Media updated successfully',
+    });
+  } catch (error) {
+    logger.error('Error uploading media for admin:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to upload media',
+    });
+  }
+});
+
+/**
+ * GET /api/admin/dvyb-accounts/:id/connections
+ * Get social connections status for an account
+ */
+router.get('/:id/connections', async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid account ID',
+      });
+    }
+
+    // Check all platform connections
+    const googleConn = await AppDataSource.getRepository(DvybGoogleConnection).findOne({
+      where: { accountId },
+    });
+    const twitterConn = await AppDataSource.getRepository(DvybTwitterConnection).findOne({
+      where: { accountId },
+    });
+    const instagramConn = await AppDataSource.getRepository(DvybInstagramConnection).findOne({
+      where: { accountId },
+    });
+    const linkedinConn = await AppDataSource.getRepository(DvybLinkedInConnection).findOne({
+      where: { accountId },
+    });
+    const tiktokConn = await AppDataSource.getRepository(DvybTikTokConnection).findOne({
+      where: { accountId },
+    });
+
+    const getStatus = (conn: any) => {
+      if (!conn) return 'not_connected';
+      // Check if token is expired
+      if (conn.tokenExpiresAt && new Date(conn.tokenExpiresAt) < new Date()) {
+        return 'expired';
+      }
+      return 'connected';
+    };
+
+    return res.json({
+      success: true,
+      data: {
+        google: getStatus(googleConn),
+        twitter: getStatus(twitterConn),
+        instagram: getStatus(instagramConn),
+        linkedin: getStatus(linkedinConn),
+        tiktok: getStatus(tiktokConn),
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching connections for admin:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch connections',
+    });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-accounts/:id/upload/logo
+ * Admin upload logo for an account
+ */
+router.post('/:id/upload/logo', upload.single('logo'), async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+    const file = req.file;
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({ success: false, error: 'Invalid account ID' });
+    }
+
+    if (!file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded' });
+    }
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      return res.status(400).json({ success: false, error: 'Invalid file type' });
+    }
+
+    // Convert WEBP to PNG if needed
+    let buffer = file.buffer;
+    let contentType = file.mimetype;
+    let fileExtension = path.extname(file.originalname).toLowerCase();
+
+    if (file.mimetype === 'image/webp') {
+      buffer = await sharp(file.buffer).png().toBuffer();
+      contentType = 'image/png';
+      fileExtension = '.png';
+    }
+
+    // Generate unique filename
+    const uniqueFilename = `dvyb/logos/${accountId}/${crypto.randomUUID()}${fileExtension}`;
+
+    // Upload to S3
+    await s3Client.send(new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: uniqueFilename,
+      Body: buffer,
+      ContentType: contentType,
+    }));
+
+    // Generate presigned URL
+    const presignedUrl = await s3Service.generatePresignedUrl(uniqueFilename, 3600);
+
+    // Update context
+    const contextRepo = AppDataSource.getRepository(DvybContext);
+    let context = await contextRepo.findOne({ where: { accountId } });
+    if (!context) {
+      context = contextRepo.create({ accountId });
+    }
+    context.logoUrl = uniqueFilename;
+    await contextRepo.save(context);
+
+    logger.info(`✅ Admin uploaded logo for account ${accountId}: ${uniqueFilename}`);
+
+    return res.json({
+      success: true,
+      data: { s3_key: uniqueFilename, presignedUrl },
+    });
+  } catch (error) {
+    logger.error('Error uploading logo (admin):', error);
+    return res.status(500).json({ success: false, error: 'Failed to upload logo' });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-accounts/:id/upload/additional-logos
+ * Admin upload additional logos for an account
+ */
+router.post('/:id/upload/additional-logos', upload.array('logos', 10), async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+    const files = req.files as Express.Multer.File[];
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({ success: false, error: 'Invalid account ID' });
+    }
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ success: false, error: 'No files uploaded' });
+    }
+
+    const uploadedLogos: Array<{ url: string; presignedUrl: string; timestamp: string }> = [];
+
+    for (const file of files) {
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(file.mimetype)) continue;
+
+      let buffer = file.buffer;
+      let contentType = file.mimetype;
+      let fileExtension = path.extname(file.originalname).toLowerCase();
+
+      if (file.mimetype === 'image/webp') {
+        buffer = await sharp(file.buffer).png().toBuffer();
+        contentType = 'image/png';
+        fileExtension = '.png';
+      }
+
+      const uniqueFilename = `dvyb/additional-logos/${accountId}/${crypto.randomUUID()}${fileExtension}`;
+
+      await s3Client.send(new PutObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: uniqueFilename,
+        Body: buffer,
+        ContentType: contentType,
+      }));
+
+      const presignedUrl = await s3Service.generatePresignedUrl(uniqueFilename, 3600);
+
+      uploadedLogos.push({
+        url: uniqueFilename,
+        presignedUrl: presignedUrl || uniqueFilename,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Update context
+    const contextRepo = AppDataSource.getRepository(DvybContext);
+    let context = await contextRepo.findOne({ where: { accountId } });
+    if (!context) {
+      context = contextRepo.create({ accountId });
+    }
+    context.additionalLogoUrls = [...(context.additionalLogoUrls || []), ...uploadedLogos] as any;
+    await contextRepo.save(context);
+
+    logger.info(`✅ Admin uploaded ${uploadedLogos.length} additional logos for account ${accountId}`);
+
+    return res.json({
+      success: true,
+      data: { logos: uploadedLogos },
+    });
+  } catch (error) {
+    logger.error('Error uploading additional logos (admin):', error);
+    return res.status(500).json({ success: false, error: 'Failed to upload additional logos' });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-accounts/:id/upload/media
+ * Admin upload images/videos for an account
+ */
+router.post('/:id/upload/media', upload.array('media', 50), async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+    const files = req.files as Express.Multer.File[];
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({ success: false, error: 'Invalid account ID' });
+    }
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ success: false, error: 'No files uploaded' });
+    }
+
+    const images: Array<{ url: string; presignedUrl: string; timestamp: string }> = [];
+    const videos: Array<{ url: string; presignedUrl: string; timestamp: string }> = [];
+
+    for (const file of files) {
+      const timestamp = new Date().toISOString();
+      const isImage = file.mimetype.startsWith('image/');
+      const isVideo = file.mimetype.startsWith('video/');
+
+      if (!isImage && !isVideo) continue;
+
+      let buffer = file.buffer;
+      let contentType = file.mimetype;
+      let fileExtension = path.extname(file.originalname);
+
+      if (file.mimetype === 'image/webp') {
+        buffer = await sharp(file.buffer).png().toBuffer();
+        contentType = 'image/png';
+        fileExtension = '.png';
+      }
+
+      const folder = isImage ? 'brand-images' : 'brand-videos';
+      const uniqueFilename = `dvyb/${folder}/${accountId}/${crypto.randomUUID()}${fileExtension}`;
+
+      await s3Client.send(new PutObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: uniqueFilename,
+        Body: buffer,
+        ContentType: contentType,
+      }));
+
+      const presignedUrl = await s3Service.generatePresignedUrl(uniqueFilename, 3600);
+
+      if (isImage) {
+        images.push({ url: uniqueFilename, presignedUrl: presignedUrl || uniqueFilename, timestamp });
+      } else {
+        videos.push({ url: uniqueFilename, presignedUrl: presignedUrl || uniqueFilename, timestamp });
+      }
+    }
+
+    // Update context
+    const contextRepo = AppDataSource.getRepository(DvybContext);
+    let context = await contextRepo.findOne({ where: { accountId } });
+    if (!context) {
+      context = contextRepo.create({ accountId });
+    }
+
+    // Append new media to existing
+    const existingImages = (context.brandImages || []) as any[];
+    const existingVideos = (context.brandAssets || []) as any[];
+    context.brandImages = [...existingImages, ...images] as any;
+    context.brandAssets = [...existingVideos, ...videos] as any;
+    await contextRepo.save(context);
+
+    logger.info(`✅ Admin uploaded ${images.length} images and ${videos.length} videos for account ${accountId}`);
+
+    return res.json({
+      success: true,
+      data: { images, videos },
+    });
+  } catch (error) {
+    logger.error('Error uploading media (admin):', error);
+    return res.status(500).json({ success: false, error: 'Failed to upload media' });
+  }
+});
+
+/**
+ * POST /api/admin/dvyb-accounts/:id/upload/documents
+ * Admin upload documents with text extraction for an account
+ */
+router.post('/:id/upload/documents', upload.array('documents', 10), async (req: Request, res: Response) => {
+  try {
+    const accountId = parseInt(req.params.id!);
+    const files = req.files as Express.Multer.File[];
+
+    if (isNaN(accountId)) {
+      return res.status(400).json({ success: false, error: 'Invalid account ID' });
+    }
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ success: false, error: 'No files uploaded' });
+    }
+
+    const documentsText: Array<{ name: string; url: string; text: string; timestamp: string }> = [];
+
+    for (const file of files) {
+      const fileExtension = path.extname(file.originalname);
+      const uniqueFilename = `dvyb-documents/${accountId}/${crypto.randomUUID()}${fileExtension}`;
+
+      await s3Client.send(new PutObjectCommand({
+        Bucket: S3_BUCKET,
+        Key: uniqueFilename,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      }));
+
+      const fullS3Url = `https://${S3_BUCKET}.s3.amazonaws.com/${uniqueFilename}`;
+
+      // Extract text for PDF/DOCX
+      let extractedText = '';
+      if (
+        file.mimetype === 'application/pdf' ||
+        file.mimetype === 'application/msword' ||
+        file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ) {
+        try {
+          const pythonBackendUrl = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
+          const extractResp = await axios.post(
+            `${pythonBackendUrl}/api/utils/extract-text-from-url`,
+            { url: fullS3Url, s3_key: uniqueFilename },
+            { timeout: 120000 }
+          );
+          if (extractResp?.status === 200) {
+            extractedText = extractResp.data?.text || '';
+          }
+        } catch (extractError: any) {
+          logger.warn(`Failed to extract text from ${file.originalname}: ${extractError.message}`);
+        }
+      }
+
+      documentsText.push({
+        name: file.originalname,
+        url: uniqueFilename,
+        text: extractedText,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Update context
+    const contextRepo = AppDataSource.getRepository(DvybContext);
+    let context = await contextRepo.findOne({ where: { accountId } });
+    if (!context) {
+      context = contextRepo.create({ accountId });
+    }
+
+    const existingDocs = (context.documentsText || []) as any[];
+    context.documentsText = [...existingDocs, ...documentsText] as any;
+    await contextRepo.save(context);
+
+    logger.info(`✅ Admin uploaded ${documentsText.length} documents for account ${accountId}`);
+
+    return res.json({
+      success: true,
+      data: { documents_text: documentsText },
+    });
+  } catch (error) {
+    logger.error('Error uploading documents (admin):', error);
+    return res.status(500).json({ success: false, error: 'Failed to upload documents' });
   }
 });
 
