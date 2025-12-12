@@ -2493,7 +2493,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     VIDEO_DURATION_ESTIMATE = CLIPS_PER_VIDEO * CLIP_DURATION_ESTIMATE
     
     print(f"⚙️ Video Configuration: {CLIPS_PER_VIDEO} clip(s) per video, ~{CLIP_DURATION_ESTIMATE}-10s per clip")
-    print(f"⚙️ Model Selection: 1% Kling v2.6 (10s clips), 99% Veo3.1 (8s clips)")
+    print(f"⚙️ Model Selection: 10% Kling v2.6 (10s clips), 90% Veo3.1 (8s clips)")
     
     print("=" * 80)
     print("🤖 GROK PROMPT GENERATION (KLING v2.6 / VEO3.1 MULTI-MODEL MODE)")
@@ -4450,8 +4450,8 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     import random
     
     def select_video_model():
-        """Select video model with 1:99 ratio (Kling:Veo)"""
-        if random.random() < 0.01:
+        """Select video model with 10:90 ratio (Kling:Veo)"""
+        if random.random() < 0.10:
             return {
                 "name": "kling_v2.6",
                 "fal_model": "fal-ai/kling-video/v2.6/pro/image-to-video",
@@ -4516,7 +4516,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     print(f"📋 Image-only posts: {sorted(image_only_indices)}")
     print(f"📋 Video posts: {sorted(video_indices)}")
     print(f"📋 Clips per video: {CLIPS_PER_VIDEO}")
-    print(f"📋 Video models: 1% Kling v2.6 (10s clips), 99% Veo3.1 (8s clips)")
+    print(f"📋 Video models: 10% Kling v2.6 (10s clips), 90% Veo3.1 (8s clips)")
     print(f"📋 Video duration: {CLIPS_PER_VIDEO * 8}s - {CLIPS_PER_VIDEO * 10}s (depending on model)")
     print(f"📋 Model image detected: {has_model_image}")
     if has_model_image:
@@ -4743,7 +4743,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     
     # STEP 3: Generate multi-clip videos with Kling v2.6 / Veo3.1 (60:40 ratio)
     print("\n" + "=" * 80)
-    print(f"🎬 MULTI-CLIP VIDEO GENERATION (Kling v2.6 5% / Veo3.1 95%, 9:16)")
+    print(f"🎬 MULTI-CLIP VIDEO GENERATION (Kling v2.6 10% / Veo3.1 90%, 9:16)")
     print(f"⏱️  VIDEO GENERATION IN PROGRESS - This may take several minutes...")
     print(f"📊 Generating {len(video_indices)} video(s), each {CLIPS_PER_VIDEO} clip(s) × 8-10s")
     print("=" * 80)
