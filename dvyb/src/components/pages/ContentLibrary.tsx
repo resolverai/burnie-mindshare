@@ -49,6 +49,7 @@ interface ContentItem {
   description: string; // Truncated for UI display
   fullPlatformTexts?: any; // Full platform texts for posting (not truncated)
   image: string;
+  originalMediaUrl?: string; // S3 key for image edits
   status: "scheduled" | "generated" | "published" | "not-selected" | "posted";
   selected?: boolean;
   analytics?: PlatformAnalytics[];
@@ -304,6 +305,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
               description: description.substring(0, 100) + (description.length > 100 ? '...' : ''), // Truncated for UI
               fullPlatformTexts: platformText.platforms, // FULL text for posting (not truncated)
               image: mediaUrl,
+              originalMediaUrl: item.originalMediaUrl || '', // S3 key for image edits
               status: status as any,
               selected: status === 'not-selected' ? false : undefined,
               analytics: item.analytics || undefined,

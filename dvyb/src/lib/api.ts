@@ -1024,6 +1024,62 @@ export const captionsApi = {
   },
 };
 
+// Image Edits API (text overlays, emojis, stickers)
+export const imageEditsApi = {
+  async saveImageEdit(data: {
+    generatedContentId: number;
+    postIndex: number;
+    originalImageUrl: string;
+    regeneratedImageUrl?: string | null;
+    overlays: Array<{
+      id: string;
+      text: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+      fontSize: number;
+      fontFamily: string;
+      color: string;
+      isBold: boolean;
+      isItalic: boolean;
+      isUnderline: boolean;
+      isEmoji?: boolean;
+      isSticker?: boolean;
+    }>;
+    referenceWidth?: number;
+  }) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        id: number;
+        status: string;
+        message: string;
+      };
+      error?: string;
+    }>('/dvyb/image-edits', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getImageEdit(generatedContentId: number, postIndex: number) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        id: number;
+        status: 'pending' | 'processing' | 'completed' | 'failed';
+        editedImageUrl: string | null;
+        originalImageUrl: string | null;
+        regeneratedImageUrl: string | null;
+        overlays: any[];
+        errorMessage: string | null;
+      } | null;
+    }>(`/dvyb/image-edits/${generatedContentId}/${postIndex}`);
+  },
+};
+
 export const dvybApi = {
   auth: authApi,
   account: accountApi,
@@ -1037,4 +1093,5 @@ export const dvybApi = {
   socialConnections: socialConnectionsApi,
   adhocGeneration: adhocGenerationApi,
   captions: captionsApi,
+  imageEdits: imageEditsApi,
 };

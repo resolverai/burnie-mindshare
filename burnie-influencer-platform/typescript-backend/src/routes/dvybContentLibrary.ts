@@ -7,6 +7,7 @@ import { DvybTwitterPost } from '../models/DvybTwitterPost';
 import { DvybLinkedInPost } from '../models/DvybLinkedInPost';
 import { DvybTikTokPost } from '../models/DvybTikTokPost';
 import { DvybCaption } from '../models/DvybCaption';
+import { DvybImageEdit } from '../models/DvybImageEdit';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
@@ -107,6 +108,21 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     });
     
     logger.info(`✏️ Found ${allCaptions.length} edited captions for account ${accountId}`);
+
+    // Get all completed image edits for this account
+    const imageEditRepo = AppDataSource.getRepository(DvybImageEdit);
+    const allImageEdits = accountId ? await imageEditRepo.find({
+      where: { accountId, status: 'completed' },
+    }) : [];
+    
+    // Create lookup map: "contentId-postIndex" -> editedImageUrl
+    const imageEditMap = new Map<string, string>();
+    for (const edit of allImageEdits) {
+      if (edit.editedImageUrl) {
+        imageEditMap.set(`${edit.generatedContentId}-${edit.postIndex}`, edit.editedImageUrl);
+      }
+    }
+    logger.info(`🎨 Found ${allImageEdits.length} completed image edits for account ${accountId}`);
 
     // Get all posted content
     const [instagramPosts, twitterPosts, linkedinPosts, tiktokPosts] = await Promise.all([
@@ -468,8 +484,22 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
             const postedPlatforms = new Set<string>();
             const contentAnalytics: any[] = [];
             
+            // Check for posted content using both original and edited image URLs
+            const urlsToCheck: string[] = [];
+            
             if (originalMediaUrl) {
-              const cleanKey = cleanS3Url(originalMediaUrl);
+              urlsToCheck.push(cleanS3Url(originalMediaUrl));
+            }
+            
+            // Also check if there's an edited image for this content
+            const editLookupKey = `${content.id}-${postIndex}`;
+            const editedS3Key = imageEditMap.get(editLookupKey);
+            if (editedS3Key) {
+              urlsToCheck.push(cleanS3Url(editedS3Key));
+            }
+            
+            // Check all URLs against postedMediaMap
+            for (const cleanKey of urlsToCheck) {
               if (postedMediaMap.has(cleanKey)) {
                 postedMediaMap.get(cleanKey)!.forEach(platform => {
                   postedPlatforms.add(platform);
@@ -530,6 +560,22 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
               mergedPlatformText.platforms.tiktok = editedCaptions.tiktok;
             }
 
+            // Check for edited image (text overlays applied)
+            const imageEditKey = `${content.id}-${postIndex}`;
+            const editedImageS3Key = imageEditMap.get(imageEditKey);
+            let finalMediaUrl = mediaUrl;
+            let hasEditedImage = false;
+            
+            if (editedImageS3Key && contentType === 'image') {
+              // Generate presigned URL for the edited image
+              const editedPresignedUrl = await s3Service.generatePresignedUrl(editedImageS3Key, 3600, true);
+              if (editedPresignedUrl) {
+                finalMediaUrl = editedPresignedUrl;
+                hasEditedImage = true;
+                logger.info(`🎨 Using edited image for content ${content.id}, post ${postIndex}`);
+              }
+            }
+
             return {
               id: `${content.id}-${postIndex}`,
               contentId: content.id,
@@ -539,8 +585,9 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
               platformText: mergedPlatformText, // Now includes edited captions
               originalPlatformText: platformText, // Keep original for reference
               editedCaptions, // Separate map for frontend to know what was edited
-              mediaUrl,
-              originalMediaUrl,
+              mediaUrl: finalMediaUrl, // Use edited image if available
+              originalMediaUrl, // Original unedited image
+              hasEditedImage, // Flag to indicate this is an edited image
               contentType,
               videoModel, // Model used for video generation (e.g., "fal-ai/veo3.1/fast/image-to-video", "kling")
               status,

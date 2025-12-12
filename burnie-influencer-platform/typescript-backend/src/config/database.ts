@@ -126,6 +126,7 @@ import { DvybPricingPlan } from '../models/DvybPricingPlan';
 import { DvybAccountPlan } from '../models/DvybAccountPlan';
 import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
 import { DvybCaption } from '../models/DvybCaption';
+import { DvybImageEdit } from '../models/DvybImageEdit';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -251,6 +252,7 @@ export const AppDataSource = new DataSource({
     DvybAccountPlan,
     DvybUpgradeRequest,
     DvybCaption,
+    DvybImageEdit,
   ],
   migrations: [],
   subscribers: [],

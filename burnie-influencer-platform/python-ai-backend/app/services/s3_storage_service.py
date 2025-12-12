@@ -475,6 +475,110 @@ class S3StorageService:
                 'file_path': file_path
             }
 
+    def download_file_from_s3(self, s3_key: str, local_path: str) -> Dict[str, Any]:
+        """
+        Download a file from S3 to a local path
+        
+        Args:
+            s3_key: S3 key (path) of the file to download
+            local_path: Local file path to save the downloaded file
+            
+        Returns:
+            dict: Result with success status
+        """
+        try:
+            logger.info(f"⬇️ Downloading from S3: {s3_key} -> {local_path}")
+            
+            self.s3_client.download_file(
+                self.bucket_name,
+                s3_key,
+                local_path
+            )
+            
+            logger.info(f"✅ Downloaded successfully: {s3_key}")
+            return {
+                'success': True,
+                's3_key': s3_key,
+                'local_path': local_path
+            }
+            
+        except ClientError as e:
+            logger.error(f"❌ AWS S3 error during download: {e}")
+            return {
+                'success': False,
+                'error': f"S3 download failed: {str(e)}",
+                's3_key': s3_key
+            }
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during download: {e}")
+            return {
+                'success': False,
+                'error': f"Download failed: {str(e)}",
+                's3_key': s3_key
+            }
+    
+    def upload_file_with_key(self, local_path: str, s3_key: str, mime_type: str = 'image/jpeg') -> Dict[str, Any]:
+        """
+        Upload a local file to S3 with a specific S3 key
+        
+        Args:
+            local_path: Local file path to upload
+            s3_key: S3 key (path) where the file should be stored
+            mime_type: MIME type of the file
+            
+        Returns:
+            dict: Result containing S3 key and metadata
+        """
+        try:
+            logger.info(f"⬆️ Uploading to S3: {local_path} -> {s3_key}")
+            
+            if not os.path.exists(local_path):
+                return {
+                    'success': False,
+                    'error': f"File not found: {local_path}"
+                }
+            
+            file_size = os.path.getsize(local_path)
+            filename = s3_key.split('/')[-1]
+            
+            with open(local_path, 'rb') as file_obj:
+                self.s3_client.upload_fileobj(
+                    file_obj,
+                    self.bucket_name,
+                    s3_key,
+                    ExtraArgs={
+                        'ContentType': mime_type,
+                        'ContentDisposition': f'inline; filename="{filename}"',
+                        'CacheControl': 'max-age=31536000',
+                        'ServerSideEncryption': 'AES256'
+                    }
+                )
+            
+            logger.info(f"✅ Uploaded successfully: {s3_key} ({file_size} bytes)")
+            return {
+                'success': True,
+                's3_key': s3_key,
+                'bucket': self.bucket_name,
+                'file_size': file_size,
+                'content_type': mime_type
+            }
+            
+        except ClientError as e:
+            logger.error(f"❌ AWS S3 error during upload: {e}")
+            return {
+                'success': False,
+                'error': f"S3 upload failed: {str(e)}",
+                's3_key': s3_key
+            }
+        except Exception as e:
+            logger.error(f"❌ Unexpected error during upload: {e}")
+            return {
+                'success': False,
+                'error': f"Upload failed: {str(e)}",
+                's3_key': s3_key
+            }
+
+
 # Global instance
 s3_storage = None
 
@@ -483,4 +587,4 @@ def get_s3_storage() -> S3StorageService:
     global s3_storage
     if s3_storage is None:
         s3_storage = S3StorageService()
-    return s3_storage 
+    return s3_storage

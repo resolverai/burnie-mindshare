@@ -89,6 +89,7 @@ const FormattedText = ({ text }: { text: string }) => {
 interface LinkData {
   url: string;
   timestamp?: string;
+  isWebsite?: boolean; // Marks the main website URL (read-only, not saved to linksJson)
 }
 
 interface DocumentData {
@@ -266,26 +267,35 @@ export const BrandKitPage = () => {
         // Load links (webpages) - include website from context AND linksJson
         const allLinks: LinkData[] = [];
         
-        // Add website if it exists
+        // Add website if it exists (marked as isWebsite for read-only display)
         if (response.data.website) {
           allLinks.push({
             url: response.data.website,
             timestamp: response.data.createdAt || new Date().toISOString(),
+            isWebsite: true, // Mark as main website URL
           });
         }
         
-        // Add links from linksJson
+        // Add links from linksJson, filtering out any that match the website URL
         if (response.data.linksJson) {
+          const websiteUrl = response.data.website?.toLowerCase()?.trim();
+          
           if (Array.isArray(response.data.linksJson) && response.data.linksJson.length > 0) {
             if (typeof response.data.linksJson[0] === 'string') {
-              // Old format: array of strings - convert to new format
-              allLinks.push(...response.data.linksJson.map((url: string) => ({ 
+              // Old format: array of strings - convert to new format, filter duplicates
+              const filteredLinks = response.data.linksJson.filter((url: string) => 
+                url.toLowerCase().trim() !== websiteUrl
+              );
+              allLinks.push(...filteredLinks.map((url: string) => ({ 
                 url, 
                 timestamp: new Date().toISOString() 
               })));
             } else {
-              // New format: array of objects with timestamps
-              allLinks.push(...response.data.linksJson);
+              // New format: array of objects with timestamps, filter duplicates
+              const filteredLinks = response.data.linksJson.filter((link: LinkData) =>
+                link.url?.toLowerCase()?.trim() !== websiteUrl
+              );
+              allLinks.push(...filteredLinks);
             }
           }
         }
@@ -700,13 +710,10 @@ export const BrandKitPage = () => {
       
       // Collect all editable data from state
       
-      // Source Materials - Links
-      const linksToSave = links.map(link => {
-        if (contextData?.website && link.url === contextData.website) {
-          return link;
-        }
-        return link;
-      }).filter(link => link.url && link.url.trim());
+      // Source Materials - Links (exclude website URL, it's stored separately)
+      const linksToSave = links
+        .filter(link => link.url && link.url.trim() && !link.isWebsite)
+        .map(({ url, timestamp }) => ({ url, timestamp })); // Remove isWebsite flag before saving
       
       updates.linksJson = linksToSave;
       
@@ -1097,7 +1104,7 @@ export const BrandKitPage = () => {
                 
                 <div className="space-y-2 md:space-y-3">
                   {links.map((link, i) => {
-                    const isWebsite = contextData?.website && link.url === contextData.website;
+                    const isWebsite = link.isWebsite === true;
                     
                     return (
                       <div key={i} className="flex flex-col md:flex-row items-start md:items-center gap-2 md:gap-3 p-3 bg-muted/30 rounded-lg">

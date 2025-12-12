@@ -10,6 +10,7 @@ import { DvybInstagramPost } from '../models/DvybInstagramPost';
 import { DvybLinkedInPost } from '../models/DvybLinkedInPost';
 import { DvybTikTokPost } from '../models/DvybTikTokPost';
 import { DvybCaption } from '../models/DvybCaption';
+import { DvybImageEdit } from '../models/DvybImageEdit';
 import { DvybAuthService } from './DvybAuthService';
 import { DvybInstagramService } from './DvybInstagramService';
 import { DvybLinkedInService } from './DvybLinkedInService';
@@ -90,6 +91,57 @@ export class DvybPostingService {
   }
 
   /**
+   * Get effective media URL - checks if there's an edited image and uses that instead
+   * @returns A presigned URL for the edited image if available, otherwise the original mediaUrl
+   */
+  private static async getEffectiveMediaUrl(
+    accountId: number,
+    content: { mediaUrl: string; mediaType: 'image' | 'video'; generatedContentId?: number; postIndex?: number }
+  ): Promise<string> {
+    // Only check for edited images (not videos)
+    if (content.mediaType !== 'image') {
+      return content.mediaUrl;
+    }
+
+    // If we don't have generatedContentId and postIndex, can't look up edited images
+    if (!content.generatedContentId || content.postIndex === undefined) {
+      return content.mediaUrl;
+    }
+
+    try {
+      const imageEditRepo = AppDataSource.getRepository(DvybImageEdit);
+      const imageEdit = await imageEditRepo.findOne({
+        where: {
+          accountId,
+          generatedContentId: content.generatedContentId,
+          postIndex: content.postIndex,
+          status: 'completed',
+        },
+      });
+
+      if (imageEdit?.editedImageUrl) {
+        logger.info(`🎨 Found edited image for posting (content ${content.generatedContentId}, post ${content.postIndex}): ${imageEdit.editedImageUrl}`);
+        
+        // Generate presigned URL for the edited image (platforms need accessible URLs)
+        const { S3PresignedUrlService } = await import('./S3PresignedUrlService');
+        const s3Service = new S3PresignedUrlService();
+        const presignedUrl = await s3Service.generatePresignedUrl(imageEdit.editedImageUrl, 3600, true);
+        
+        if (presignedUrl) {
+          logger.info(`🎨 Using edited image presigned URL for posting`);
+          return presignedUrl;
+        } else {
+          logger.warn('⚠️ Failed to generate presigned URL for edited image, using original');
+        }
+      }
+    } catch (error) {
+      logger.warn('⚠️ Failed to fetch edited image, using original mediaUrl:', error);
+    }
+
+    return content.mediaUrl;
+  }
+
+  /**
    * Post content immediately to selected platforms
    */
   static async postNow(request: PostNowRequest): Promise<PostNowResult> {
@@ -100,9 +152,14 @@ export class DvybPostingService {
     
     // Get effective platform texts (original + edited captions merged)
     const effectivePlatformTexts = await this.getEffectivePlatformTexts(accountId, content);
+    
+    // Get effective media URL (use edited image if available)
+    const effectiveMediaUrl = await this.getEffectiveMediaUrl(accountId, content);
+    
     const enhancedContent = {
       ...content,
       platformTexts: effectivePlatformTexts,
+      mediaUrl: effectiveMediaUrl,
     };
 
     // Process each platform

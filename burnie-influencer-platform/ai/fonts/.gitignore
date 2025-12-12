@@ -1,0 +1,11 @@
+# Ignore downloaded font files (they're large and should be downloaded during deployment)
+*.ttf
+*.otf
+*.woff
+*.woff2
+
+# But keep the download script
+!download_fonts.sh
+!README.md
+!.gitignore
+

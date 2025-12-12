@@ -31,6 +31,7 @@ interface DvybAccount {
 interface LinkData {
   url: string;
   timestamp?: string;
+  isWebsite?: boolean; // Marks the main website URL (read-only, not saved to linksJson)
 }
 
 interface DocumentData {
@@ -215,19 +216,29 @@ export default function EditContextModal({
       if (data.success && data.data) {
         setContextData(data.data);
 
-        // Load links
+        // Load links - website URL first (marked as isWebsite), then additional links
         const allLinks: LinkData[] = [];
         if (data.data.website) {
           allLinks.push({
             url: data.data.website,
             timestamp: data.data.createdAt || new Date().toISOString(),
+            isWebsite: true, // Mark this as the main website URL
           });
         }
         if (data.data.linksJson && Array.isArray(data.data.linksJson)) {
-          if (typeof data.data.linksJson[0] === 'string') {
-            allLinks.push(...data.data.linksJson.map((url: string) => ({ url, timestamp: new Date().toISOString() })));
-          } else {
-            allLinks.push(...data.data.linksJson);
+          // Filter out any links that match the website URL to avoid duplicates
+          const websiteUrl = data.data.website?.toLowerCase()?.trim();
+          const filteredLinks = data.data.linksJson.filter((link: any) => {
+            const linkUrl = (typeof link === 'string' ? link : link.url)?.toLowerCase()?.trim();
+            return linkUrl !== websiteUrl;
+          });
+          
+          if (filteredLinks.length > 0) {
+            if (typeof filteredLinks[0] === 'string') {
+              allLinks.push(...filteredLinks.map((url: string) => ({ url, timestamp: new Date().toISOString() })));
+            } else {
+              allLinks.push(...filteredLinks);
+            }
           }
         }
         setLinks(allLinks);
@@ -504,8 +515,13 @@ export default function EditContextModal({
     try {
       setIsSaving(true);
 
+      // Filter out website URL from linksJson - website is stored separately
+      const linksToSave = links
+        .filter(l => l.url?.trim() && !l.isWebsite)
+        .map(({ url, timestamp }) => ({ url, timestamp })); // Remove isWebsite flag before saving
+
       const updates: any = {
-        linksJson: links.filter(l => l.url?.trim()),
+        linksJson: linksToSave,
         documentsText: uploadedDocuments,
         brandImages: uploadedMedia.images,
         brandAssets: uploadedMedia.videos,
@@ -651,28 +667,39 @@ export default function EditContextModal({
 
                     <div className="space-y-3">
                       {links.map((link, i) => (
-                        <div key={i} className="flex items-center gap-3 bg-white p-3 rounded-lg border">
-                          <Globe className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                        <div key={i} className={`flex items-center gap-3 p-3 rounded-lg border ${link.isWebsite ? 'bg-purple-50 border-purple-200' : 'bg-white'}`}>
+                          <Globe className={`w-5 h-5 flex-shrink-0 ${link.isWebsite ? 'text-purple-500' : 'text-gray-400'}`} />
                           <input
                             type="url"
-                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                            className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent ${
+                              link.isWebsite 
+                                ? 'border-purple-200 text-purple-700 bg-purple-50 cursor-not-allowed' 
+                                : 'border-gray-300 text-gray-900 bg-white'
+                            }`}
                             value={link.url || ''}
                             onChange={(e) => {
+                              if (link.isWebsite) return; // Website URL is read-only
                               const next = [...links];
                               next[i] = { ...next[i], url: e.target.value };
                               setLinks(next);
                             }}
                             placeholder="https://example.com"
+                            disabled={link.isWebsite}
                           />
-                          {link.timestamp && (
+                          {link.isWebsite && (
+                            <span className="text-xs text-purple-600 font-medium">Main Website</span>
+                          )}
+                          {link.timestamp && !link.isWebsite && (
                             <span className="text-xs text-gray-400">{new Date(link.timestamp).toLocaleDateString()}</span>
                           )}
-                          <button
-                            onClick={() => setLinks(links.filter((_, idx) => idx !== i))}
-                            className="p-1 hover:bg-red-100 rounded transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4 text-red-500" />
-                          </button>
+                          {!link.isWebsite && (
+                            <button
+                              onClick={() => setLinks(links.filter((_, idx) => idx !== i))}
+                              className="p-1 hover:bg-red-100 rounded transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4 text-red-500" />
+                            </button>
+                          )}
                         </div>
                       ))}
                       <button

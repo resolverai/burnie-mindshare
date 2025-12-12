@@ -58,6 +58,7 @@ from app.routes.dvyb_adhoc_generation import router as dvyb_adhoc_router
 from app.routes.dvyb_website_analysis import router as dvyb_website_analysis_router
 from app.routes.dvyb_topic_generation import router as dvyb_topic_generation_router
 from app.routes.dvyb_auto_generation import router as dvyb_auto_generation_router
+from app.routes.dvyb_image_overlay import router as dvyb_image_overlay_router
 from app.routes.utils import router as utils_router
 
 # Setup logging
@@ -152,6 +153,7 @@ app.include_router(dvyb_adhoc_router, prefix="/api/dvyb/adhoc", tags=["dvyb-adho
 app.include_router(dvyb_website_analysis_router, tags=["dvyb-website-analysis"])
 app.include_router(dvyb_topic_generation_router, prefix="/api/dvyb/topics", tags=["dvyb-topic-generation"])
 app.include_router(dvyb_auto_generation_router, prefix="/api/dvyb/auto-generation", tags=["dvyb-auto-generation"])
+app.include_router(dvyb_image_overlay_router, prefix="/api/dvyb/image-overlay", tags=["dvyb-image-overlay"])
 app.include_router(utils_router, prefix="/api/utils", tags=["utils"])
 
 
