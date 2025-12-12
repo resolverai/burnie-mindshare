@@ -116,11 +116,22 @@ def download_inspiration_video(url: str, output_dir: str = "/tmp/dvyb-inspiratio
         return (None, False)
 
 
-def extract_frames_from_video(video_path: str, output_dir: str, fps: int = 1) -> list:
+def extract_frames_from_video(video_path: str, output_dir: str, fps: int = 1, max_duration: int = None) -> list:
     """
     Extract frames from video at specified FPS (default 1 frame per second).
+    
+    Args:
+        video_path: Path to the video file
+        output_dir: Directory to save extracted frames
+        fps: Frames per second to extract (default 1)
+        max_duration: Maximum duration to extract frames from (in seconds). 
+                      If None, uses MAX_VIDEO_INSPIRATION_DURATION.
+    
     Returns list of frame file paths.
     """
+    if max_duration is None:
+        max_duration = MAX_VIDEO_INSPIRATION_DURATION
+    
     os.makedirs(output_dir, exist_ok=True)
     
     cap = cv2.VideoCapture(video_path)
@@ -133,12 +144,13 @@ def extract_frames_from_video(video_path: str, output_dir: str, fps: int = 1) ->
     duration = total_frames / video_fps if video_fps > 0 else 0
     
     print(f"  📊 Video: {duration:.1f}s, {video_fps:.1f} FPS")
+    print(f"  📊 Max duration for frames: {max_duration}s (based on {max_duration // 8} clip(s))")
     
     # Calculate effective duration (trim to max if too long)
     effective_duration = duration
-    if duration > MAX_VIDEO_INSPIRATION_DURATION:
-        print(f"  ⚠️ Video too long ({duration:.1f}s), using first {MAX_VIDEO_INSPIRATION_DURATION}s only")
-        effective_duration = MAX_VIDEO_INSPIRATION_DURATION
+    if duration > max_duration:
+        print(f"  ⚠️ Video too long ({duration:.1f}s), using first {max_duration}s only")
+        effective_duration = max_duration
     
     # Calculate max frames to extract based on effective duration
     max_frames_to_extract = int(effective_duration * fps)
@@ -170,15 +182,25 @@ def extract_frames_from_video(video_path: str, output_dir: str, fps: int = 1) ->
     return frame_paths
 
 
-def extract_and_transcribe_audio(video_path: str, output_dir: str) -> tuple:
+def extract_and_transcribe_audio(video_path: str, output_dir: str, max_duration: int = None) -> tuple:
     """
     Extract audio, separate vocals with Demucs, and transcribe with OpenAI Whisper.
-    Also saves the background music (original minus vocals) for later use.
+    Also saves the background music (original audio) for later use.
+    
+    Args:
+        video_path: Path to the video file
+        output_dir: Directory to save audio files
+        max_duration: Maximum duration for transcription processing (in seconds).
+                      Background music is always saved in FULL, regardless of this.
+                      If None, uses MAX_VIDEO_INSPIRATION_DURATION.
     
     Returns tuple: (transcript_text, background_music_path)
     - transcript_text: The transcribed speech from the video
-    - background_music_path: Path to the background music file (drums + bass + other, no vocals)
+    - background_music_path: Path to the background music file (FULL original audio)
     """
+    if max_duration is None:
+        max_duration = MAX_VIDEO_INSPIRATION_DURATION
+    
     import torch
     import torchaudio
     from demucs.pretrained import get_model
@@ -208,10 +230,10 @@ def extract_and_transcribe_audio(video_path: str, output_dir: str) -> tuple:
         print(f"  🎶 Background music saved (FULL {video_duration:.1f}s audio): {background_music_path}")
         
         # Step 2: Extract trimmed audio for transcription processing
-        # Only process first 15s for Demucs/transcription (saves processing time)
-        if video_duration > MAX_VIDEO_INSPIRATION_DURATION:
-            print(f"  ⚠️ Trimming to first {MAX_VIDEO_INSPIRATION_DURATION}s for transcription processing")
-            trimmed_clip = video_clip.subclip(0, MAX_VIDEO_INSPIRATION_DURATION)
+        # Only process up to max_duration for Demucs/transcription (saves processing time)
+        if video_duration > max_duration:
+            print(f"  ⚠️ Trimming to first {max_duration}s for transcription processing")
+            trimmed_clip = video_clip.subclip(0, max_duration)
             trimmed_clip.audio.write_audiofile(audio_path, codec='pcm_s16le', logger=None)
             trimmed_clip.close()
         else:
@@ -312,6 +334,17 @@ You will receive images in sequence (frames extracted from a video, 1 frame per 
 8. **PRODUCT SHOWCASE STYLE** - How products are shown (if applicable)
 9. **REPLICATION TIPS** - Specific, actionable tips to replicate this style for a brand video
 
+🔍 **IDENTIFY VISUAL SUBJECTS & ELEMENTS** (helps with replication):
+Identify visual elements present in the video that could enhance brand content:
+- **HUMAN PRESENCE**: Are there people? Faces? Hands? Body parts? What are they doing?
+- **OBJECTS & PROPS**: What objects appear? Food, drinks, accessories, gadgets, furniture?
+- **SETTING/LOCATION**: Where is this filmed? Studio, outdoor, kitchen, beach, urban, nature?
+- **ANIMALS/CREATURES**: Any pets, animals, or animated characters?
+- **ENVIRONMENTAL ELEMENTS**: Weather, lighting conditions, time of day, atmosphere?
+- **ACTIONS & INTERACTIONS**: What actions are being performed? Holding, reaching, eating, dancing, demonstrating?
+
+These elements provide context for replicating the video's feel with the brand's product.
+
 📝 **STORYLINE FORMAT** (CRITICAL - be ultra-detailed like a storyboard):
 Write the storyline as a TIMELINE with specific descriptions:
 - 0-2 sec: [What happens in first 2 seconds]
@@ -327,6 +360,13 @@ Include camera movements, subject actions, transitions, text overlays, etc.
   "hook": "Specific description of how the video grabs attention in first 2-3 seconds",
   "creative_elements": ["element1", "element2", "element3", ...],
   "visual_techniques": ["technique1", "technique2", "technique3", ...],
+  "visual_subjects": {{
+    "humans": "Description of human presence (faces, hands, body, actions) or 'None'",
+    "objects_props": ["object1", "object2", ...],
+    "setting_location": "Description of where the video is set",
+    "actions_interactions": ["action1", "action2", ...],
+    "environmental_elements": "Weather, lighting, time of day, atmosphere details"
+  }},
   "mood_atmosphere": "The overall mood and atmosphere",
   "message": "What the video is trying to convey",
   "pacing": "fast/medium/slow - detailed description of pacing",
@@ -412,7 +452,7 @@ Be ULTRA-DETAILED in your storyline - describe it like a professional storyboard
         return {}
 
 
-async def process_video_inspiration_link(url: str, context: dict, account_id: int) -> dict:
+async def process_video_inspiration_link(url: str, context: dict, account_id: int, clips_per_video: int = 1) -> dict:
     """
     Full pipeline for processing a video inspiration link:
     1. Download video
@@ -422,12 +462,22 @@ async def process_video_inspiration_link(url: str, context: dict, account_id: in
     5. Analyze with Grok
     6. Cleanup
     
+    Args:
+        url: Video URL to process
+        context: Context dict with brand info
+        account_id: Account ID for S3 paths
+        clips_per_video: Number of clips per video (used to calculate max_duration: clips * 8 seconds)
+    
     Returns video inspiration analysis dict.
     """
+    # Calculate max duration based on number of clips (8 seconds per clip)
+    max_duration = clips_per_video * 8
+    
     print(f"\n{'='*60}")
     print(f"🎬 VIDEO INSPIRATION ANALYSIS")
     print(f"{'='*60}")
     print(f"  URL: {url[:80]}...")
+    print(f"  📊 Clips per video: {clips_per_video} → Max duration for frames: {max_duration}s")
     
     output_dir = f"/tmp/dvyb-inspirations/{uuid.uuid4().hex[:8]}"
     os.makedirs(output_dir, exist_ok=True)
@@ -439,15 +489,16 @@ async def process_video_inspiration_link(url: str, context: dict, account_id: in
             print(f"  ⚠️ Not a video or download failed, skipping video analysis")
             return {}
         
-        # Step 2: Extract frames (1 per second)
+        # Step 2: Extract frames (1 per second, up to max_duration)
         frames_dir = os.path.join(output_dir, "frames")
-        frame_paths = extract_frames_from_video(video_path, frames_dir, fps=1)
+        frame_paths = extract_frames_from_video(video_path, frames_dir, fps=1, max_duration=max_duration)
         if not frame_paths:
             print(f"  ⚠️ No frames extracted, skipping video analysis")
             return {}
         
-        # Step 3: Extract and transcribe audio (also saves background music)
-        transcript, background_music_path = extract_and_transcribe_audio(video_path, output_dir)
+        # Step 3: Extract and transcribe audio (also saves FULL background music)
+        # Note: Background music is saved in FULL, only transcription processing is trimmed
+        transcript, background_music_path = extract_and_transcribe_audio(video_path, output_dir, max_duration=max_duration)
         
         # Step 4: Upload frames to S3 and get presigned URLs
         print(f"  📤 Uploading {len(frame_paths)} frames to S3...")
@@ -652,7 +703,7 @@ class DvybAdhocGenerationRequest(BaseModel):
     user_prompt: Optional[str] = None
     user_images: Optional[List[str]] = None  # S3 URLs
     inspiration_links: Optional[List[str]] = None
-    clips_per_video: Optional[int] = 1  # Default 1 clip (8-10s), can be 2 (16-20s) or 3 (24-30s)
+    clips_per_video: Optional[int] = 2  # Default 2 clips (16-20s), can be 1 (8-10s) or 3 (24-30s)
 
 
 class DvybAdhocGenerationResponse(BaseModel):
@@ -2125,11 +2176,17 @@ Analyze the {len(presigned_urls)} image(s) now.
 # LINK ANALYSIS (GROK LIVE SEARCH)
 # ============================================
 
-async def analyze_inspiration_links(links: List[str], context: dict = None, account_id: int = None) -> Dict:
+async def analyze_inspiration_links(links: List[str], context: dict = None, account_id: int = None, clips_per_video: int = 1) -> Dict:
     """
     Analyze inspiration links - handles both video platforms and regular web links.
     - Video platforms (YouTube, Instagram, Twitter) → Extract frames + transcript → Grok video analysis
     - Regular links → Grok live search (web_source)
+    
+    Args:
+        links: List of URLs to analyze
+        context: Context dict with brand info
+        account_id: Account ID for S3 paths
+        clips_per_video: Number of clips per video (used to calculate max_duration for video analysis)
     """
     if not links or all(not link.strip() for link in links):
         return {}
@@ -2156,10 +2213,11 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
         # Process video links first (if any)
         if video_links and context and account_id:
             print(f"\n📹 Processing {len(video_links)} video inspiration link(s)...")
+            print(f"📊 Clips per video: {clips_per_video} → Processing up to {clips_per_video * 8}s of video")
             video_inspirations = []
             
             for video_link in video_links[:1]:  # Process only first video to avoid long processing
-                video_analysis = await process_video_inspiration_link(video_link, context, account_id)
+                video_analysis = await process_video_inspiration_link(video_link, context, account_id, clips_per_video)
                 if video_analysis:
                     video_inspirations.append(video_analysis)
             
@@ -2428,14 +2486,14 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     # Kling v2.6: supports 5s and 10s (using 10s default)
     # Veo3.1: supports 4s, 6s, 8s (using 8s default)
     # Ratio: 60% Kling, 40% Veo
-    CLIPS_PER_VIDEO = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 1
+    CLIPS_PER_VIDEO = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 2
     # CLIP_DURATION will be set per video based on model selection (8s for Veo, 10s for Kling)
     # For Grok prompt generation, we use a conservative estimate
     CLIP_DURATION_ESTIMATE = 8  # Conservative estimate for prompt generation
     VIDEO_DURATION_ESTIMATE = CLIPS_PER_VIDEO * CLIP_DURATION_ESTIMATE
     
     print(f"⚙️ Video Configuration: {CLIPS_PER_VIDEO} clip(s) per video, ~{CLIP_DURATION_ESTIMATE}-10s per clip")
-    print(f"⚙️ Model Selection: 20% Kling v2.6 (10s clips), 80% Veo3.1 (8s clips)")
+    print(f"⚙️ Model Selection: 1% Kling v2.6 (10s clips), 99% Veo3.1 (8s clips)")
     
     print("=" * 80)
     print("🤖 GROK PROMPT GENERATION (KLING v2.6 / VEO3.1 MULTI-MODEL MODE)")
@@ -2483,12 +2541,28 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         if video_inspiration:
             has_video_inspiration = True
             import json
+            # Extract visual subjects (new detailed element analysis)
+            visual_subjects = video_inspiration.get('visual_subjects', {})
+            humans_desc = visual_subjects.get('humans', 'None') if visual_subjects else 'None'
+            objects_props = visual_subjects.get('objects_props', []) if visual_subjects else []
+            setting_location = visual_subjects.get('setting_location', 'N/A') if visual_subjects else 'N/A'
+            actions_interactions = visual_subjects.get('actions_interactions', []) if visual_subjects else []
+            environmental = visual_subjects.get('environmental_elements', 'N/A') if visual_subjects else 'N/A'
+            
             video_inspiration_str = f"""
 🎬 VIDEO INSPIRATION ANALYSIS (from reel/short):
 - Storyline: {video_inspiration.get('storyline', 'N/A')}
 - Hook (first 2-3s): {video_inspiration.get('hook', 'N/A')}
 - Creative Elements: {', '.join(video_inspiration.get('creative_elements', []))}
 - Visual Techniques: {', '.join(video_inspiration.get('visual_techniques', []))}
+
+🔍 VISUAL SUBJECTS & ELEMENTS (consider incorporating when appropriate):
+- Human Presence: {humans_desc}
+- Objects/Props: {', '.join(objects_props) if objects_props else 'None identified'}
+- Setting/Location: {setting_location}
+- Actions/Interactions: {', '.join(actions_interactions) if actions_interactions else 'None identified'}
+- Environmental Elements: {environmental}
+
 - Mood/Atmosphere: {video_inspiration.get('mood_atmosphere', 'N/A')}
 - Pacing: {video_inspiration.get('pacing', 'N/A')}
 - Key Moments: {', '.join(video_inspiration.get('key_moments', []))}
@@ -2499,17 +2573,23 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
             print(f"\n🎬 VIDEO INSPIRATION DETECTED!")
             print(f"   Storyline: {video_inspiration.get('storyline', 'N/A')[:100]}...")
             print(f"   Creative Elements: {video_inspiration.get('creative_elements', [])}")
+            print(f"   Visual Subjects: humans={humans_desc[:50]}..., objects={objects_props[:3]}")
         
         # Regular link analysis summary
         summary = link_analysis.get("summary")
         if summary and str(summary).strip():
             link_analysis_str = summary
     
-    # Randomly decide voiceover for product/brand marketing videos (30% chance voiceover, 70% no voiceover)
+    # Randomly decide voiceover for product/brand marketing videos (10% chance voiceover, 90% no voiceover)
     # UGC videos always have voiceover=false (character speaks instead)
-    voiceover_random = random.random()
-    voiceover_for_non_ugc = voiceover_random <= 0.1
-    print(f"🎲 Voiceover decision: random={voiceover_random:.2f}, voiceover_for_non_ugc={voiceover_for_non_ugc} (<=0.1 means voiceover)")
+    # Video inspiration detected = ALWAYS no voiceover (use inspiration's background music instead)
+    if has_video_inspiration:
+        voiceover_for_non_ugc = False
+        print(f"🎬 Video inspiration detected: voiceover forced to FALSE (will use inspiration's background music)")
+    else:
+        voiceover_random = random.random()
+        voiceover_for_non_ugc = voiceover_random <= 0.1
+        print(f"🎲 Voiceover decision: random={voiceover_random:.2f}, voiceover_for_non_ugc={voiceover_for_non_ugc} (<=0.1 means voiceover)")
     
     # Build Grok prompt with clip prompts (matching web3 flow)
     # Color palette for prompts
@@ -2603,8 +2683,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         * "influencer_marketing": false (ALWAYS false for product marketing)
       - Style: Professional product showcase, feature highlights
       {"- Voiceover Style: Professional, authoritative narrator voice (e.g., 'In a professional male narrator voice:', 'In a confident female voice:')" if voiceover_for_non_ugc else "- 🚨 PURE VISUAL MODE (voiceover=false): NO voiceover, NO character speech, NO humans. This is a cinematic product video with ONLY visuals and background music."}
-      {"- Example clip prompt WITH voiceover: 'Sleek smartphone rotating on marble surface, camera slowly zooming to reveal elegant design features, professional studio lighting, no text overlays. Voiceover in professional male narrator voice: Introducing the future of mobile technology.'" if voiceover_for_non_ugc else "- Example clip prompt WITHOUT voiceover: 'Sleek smartphone rotating on marble surface, camera slowly zooming to reveal elegant design features, dramatic rim lighting creating golden edge glow, slow motion dust particles in light beam, cinematic atmosphere, no text overlays.'"}
-      {"- CRITICAL: Include voiceover text at END of clip prompt. Specify voice type/tone (professional/enthusiastic/warm/authoritative, male/female)" if voiceover_for_non_ugc else "- 🚨 CRITICAL: NO 'Voiceover:', NO 'Saying:', NO speech text. Focus ONLY on CINEMATIC VISUALS - dramatic lighting, slow motion, artistic compositions."}
+      {"- Example clip prompt WITH voiceover: 'Sleek smartphone rotating on marble surface, camera orbiting to reveal elegant design features, professional studio lighting, no text overlays. Voiceover in professional male narrator voice: Introducing the future of mobile technology.'" if voiceover_for_non_ugc else "- Example clip prompt WITHOUT voiceover: 'Sleek smartphone rotating on marble surface, 360-degree orbit revealing elegant design features, dramatic rim lighting creating golden edge glow, rack focus from foreground element to product, cinematic atmosphere, no text overlays.'"}
+      {"- CRITICAL: Include voiceover text at END of clip prompt. Specify voice type/tone (professional/enthusiastic/warm/authoritative, male/female)" if voiceover_for_non_ugc else "- 🚨 CRITICAL: NO 'Voiceover:', NO 'Saying:', NO speech text. Focus ONLY on CINEMATIC VISUALS - dramatic lighting, creative camera movements, artistic compositions."}
       {"- 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text." if voiceover_for_non_ugc else ""}
    
    B. **UGC INFLUENCER VIDEO** (Authentic influencer style):
@@ -2704,8 +2784,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         * "influencer_marketing": false
       - Style: Artistic, emotional, brand-focused
       {"- Voiceover Style: Inspirational, cinematic narrator voice (specify: warm/inspiring/dramatic, male/female)" if voiceover_for_non_ugc else "- 🚨 PURE VISUAL MODE (voiceover=false): NO voiceover, NO character speech, NO humans. This is a cinematic brand video with ONLY artistic visuals and background music."}
-      {"- Example clip prompt WITH voiceover: 'Abstract artistic representation of innovation, flowing light patterns, dynamic camera movement revealing brand essence, cinematic atmosphere, no text overlays. Voiceover in warm inspiring male voice: Your journey to excellence starts here.'" if voiceover_for_non_ugc else "- Example clip prompt WITHOUT voiceover: 'Abstract artistic representation of innovation, flowing light patterns transitioning through brand colors, dynamic camera movement revealing brand essence, dramatic rim lighting, slow motion particles floating in light beam, cinematic atmosphere, no text overlays.'"}
-      {"- CRITICAL: Include voiceover text at END of clip prompt. Specify voice type/tone for emotional impact (inspiring/dramatic/warm/confident, male/female)" if voiceover_for_non_ugc else "- 🚨 CRITICAL: NO 'Voiceover:', NO 'Saying:', NO speech text. Focus ONLY on CINEMATIC ARTISTRY - dramatic lighting, slow motion, artistic compositions, abstract visuals."}
+      {"- Example clip prompt WITH voiceover: 'Abstract artistic representation of innovation, flowing light patterns, dynamic camera movement revealing brand essence, cinematic atmosphere, no text overlays. Voiceover in warm inspiring male voice: Your journey to excellence starts here.'" if voiceover_for_non_ugc else "- Example clip prompt WITHOUT voiceover: 'Abstract artistic representation of innovation, flowing light patterns transitioning through brand colors, sweeping crane shot revealing brand essence, dramatic rim lighting with lens flare, timelapse of environment evolving, cinematic atmosphere, no text overlays.'"}
+      {"- CRITICAL: Include voiceover text at END of clip prompt. Specify voice type/tone for emotional impact (inspiring/dramatic/warm/confident, male/female)" if voiceover_for_non_ugc else "- 🚨 CRITICAL: NO 'Voiceover:', NO 'Saying:', NO speech text. Focus ONLY on CINEMATIC ARTISTRY - dramatic lighting, creative camera work, artistic compositions, abstract visuals."}
       {"- 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text." if voiceover_for_non_ugc else ""}
    
    YOU MUST OUTPUT (at the top level):
@@ -2775,17 +2855,17 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   🎬 **CLIP MOTION PROMPTS** (Video Animation - CINEMATIC QUALITY):
   - Apply CINEMATIC TECHNIQUES from section 4 to ALL clip prompts
   - Think like a DIRECTOR: describe HOW the camera moves, not just what's in frame
-  - **Camera Movement**: "slow zoom in", "camera orbits", "tracking shot", "dolly push", "crane descent"
+  - **Camera Movement**: "camera orbits", "tracking shot", "dolly push", "crane descent", "pan across", "tilt reveal", "zoom in/out", "handheld follow"
   - **Speed Effects**: "slow motion", "timelapse", "speed ramp from slow to normal"
   - **Focus Techniques**: "rack focus from foreground to product", "pull focus following action"
   - **Reveal Techniques**: "reveal shot as hand moves away", "push through foreground element"
   
   **CLIP PROMPT CINEMATIC EXAMPLES**:
   - ❌ Basic: "Product on table, camera shows it"
-  - ✅ Cinematic: "Slow cinematic zoom in on product revealing texture details, soft rack focus from blurred foreground fruit to sharp product surface, dramatic rim lighting"
+  - ✅ Cinematic: "Camera orbits product 180 degrees revealing texture details, soft rack focus from blurred foreground to sharp product surface, dramatic rim lighting with subtle lens flare"
   
   - ❌ Basic: "Person picks up product"
-  - ✅ Cinematic: "Tracking shot following hand reaching toward product in slow motion, camera pushes in as fingers make contact, shallow depth of field with background melting into bokeh"
+  - ✅ Cinematic: "Tracking shot following hand reaching toward product, camera pushes in as fingers make contact, rack focus shifting to product, shallow depth of field with background melting into bokeh"
   
   - ❌ Basic: "Show product features"
   - ✅ Cinematic: "Camera slowly orbits product 90 degrees revealing different angles, dramatic side lighting casting long shadows, dust particles visible in light beam, speed ramp to normal as orbit completes"
@@ -2796,12 +2876,15 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   
   These examples are STARTING POINTS to spark your creativity - NOT limitations. Go beyond them, invent new techniques, surprise us:
   
-  **ULTRA SLOW MOTION SHOTS**:
-  - "Ultra slow motion water droplets cascading off the product surface, each droplet catching light like tiny crystals, 120fps cinematic quality"
-  - "Extreme slow motion product rotation revealing every surface detail, dust particles floating gracefully in dramatic backlight"
-  - "Slow motion fabric unfurling in wind, revealing product underneath, silk-like movement at 60fps"
-  - "Ultra slow motion pour of liquid, viscous flow catching rim lighting, every ripple visible"
-  - "Slow motion ice cream melt, single droplet stretching before falling, macro lens detail"
+  ⚡ **VARY YOUR TECHNIQUES**: Each video should feel fresh and unique. Mix different approaches - don't rely on the same technique repeatedly. Combine camera movements with lighting effects, blend speed variations with focus techniques. The best content surprises viewers with creative variety.
+  
+  **SPEED & TIMING TECHNIQUES** (choose what fits the mood):
+  - "Real-time product rotation with natural momentum, authentic movement feel"
+  - "Timelapse of environment changing around stationary product, day to night transition"
+  - "Speed ramp: normal speed approach, then slowing at the key reveal moment"
+  - "Quick cuts between different angles, dynamic energy and modern pacing"
+  - "Slow motion pour of liquid catching every ripple and reflection"
+  - "Freeze frame at peak action moment, then resume motion"
   
   **DRAMATIC CAMERA MOVEMENTS**:
   - "Sweeping crane shot descending from above, gradually revealing product in dramatic spotlight"
@@ -2809,6 +2892,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   - "360-degree orbit around product, seamless rotation revealing all angles, consistent dramatic lighting"
   - "Push-in through smoke/mist revealing product emerging like a hero shot"
   - "Pull-back reveal starting from extreme macro texture to full product in context"
+  - "Handheld tracking shot following product in motion, documentary realism"
+  - "Steadicam glide circling the scene, smooth cinematic flow"
   
   **CINEMATIC LIGHTING EFFECTS**:
   - "Product bathed in moving light beams, shadows dancing across surface, film noir atmosphere"
@@ -2816,6 +2901,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   - "Dramatic chiaroscuro lighting, half product in shadow half in brilliant highlight"
   - "Pulsing neon reflections on product surface, cyberpunk aesthetic, moody atmosphere"
   - "Soft diffused light slowly intensifying to dramatic spotlight reveal"
+  - "Practical lighting from within the scene, authentic ambient glow"
   
   **ABSTRACT/ARTISTIC SEQUENCES** (especially for brand marketing):
   - "Liquid chrome morphing into product shape, reflective surface catching environment"
@@ -2834,6 +2920,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   - "Time-lapse background transitioning day to night while product remains lit, dramatic time passage"
   - "Weather elements (rain, snow, leaves) falling around stationary product, seasonal atmosphere"
   - "Background morphing between locations while product stays anchored, versatility showcase"
+  - "Split-screen comparison showing product in different contexts simultaneously"
   
   **UNLIMITED CREATIVITY**: These examples are just INSPIRATION - not limitations. You have COMPLETE creative freedom to invent entirely new cinematic techniques, combine approaches in unexpected ways, or create something we haven't even imagined. The best clip prompts often go far beyond these examples. Trust your creative instincts. Pure visual storytelling with no boundaries.
   
@@ -3245,20 +3332,23 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    
    Video prompts should describe HOW the camera moves and behaves:
    
-   🎥 **Camera Movement** (brings scenes to life):
-   - "slow cinematic zoom in toward product, revealing fine details"
+   🎥 **Camera Movement** (brings scenes to life - vary your choices):
    - "camera slowly orbits around product 90 degrees"
-   - "dolly push in on character's reaction face"
    - "tracking shot following hand as it reaches for product"
+   - "crane descent from overhead revealing scene"
+   - "dolly glide past product showcasing depth"
+   - "pan across multiple products in elegant sweep"
+   - "tilt up from product detail to full view"
    - "crane shot descending from above to eye level"
    - "subtle handheld movement for organic, authentic feel"
    
    🎥 **Speed & Timing** (creates emotional impact):
-   - "slow motion capture of bite, showing texture in detail"
+   - "real-time capture of bite, showing authentic texture and reaction"
    - "timelapse of condensation forming on cold surface"
-   - "speed ramp: slow motion moment of impact, then normal speed"
+   - "speed ramp: building momentum, then slowing at key reveal"
    - "real-time pour with liquid dynamics visible"
-   - "slow motion hair flip or fabric swirl"
+   - "quick cuts between angles for dynamic energy"
+   - "freeze frame at peak moment, then resume"
    
    🎥 **Focus & Depth** (directs viewer attention):
    - "rack focus from blurred hand to sharp product"
@@ -3280,12 +3370,12 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - "Is there implied motion I can freeze (images) or actual motion I can describe (clips)?"
    - "What lighting would create the most dramatic/appealing mood?"
    
-   **WHEN TO USE** (your judgment):
-   - Product reveals → zoom in, dramatic lighting, reveal shots
-   - Food/beverage → slow motion, splash/drip frozen moments, macro texture
-   - Fashion/beauty → slow motion fabric/hair, artistic lighting, mirror shots
+   **WHEN TO USE** (your judgment - vary techniques for each piece):
+   - Product reveals → orbit rotations, dramatic lighting, reveal shots, crane descents
+   - Food/beverage → macro texture, splash dynamics, steam rising, appetizing angles
+   - Fashion/beauty → fabric movement, artistic lighting, mirror shots, confident poses
    - UGC/lifestyle → handheld feel, natural movement, authentic moments
-   - Brand storytelling → cinematic transitions, dramatic compositions
+   - Brand storytelling → cinematic transitions, timelapse, dramatic compositions
    
    **EXAMPLE TRANSFORMATIONS**:
    
@@ -3293,7 +3383,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    ✅ Cinematic: "popsicle with dramatic rim lighting creating golden edge glow, single droplet of melt frozen mid-fall, shot through blurred foreground berry with rack focus to sharp product, shallow depth of field with warm bokeh"
    
    ❌ Basic: "person holding product and smiling"
-   ✅ Cinematic: "slow motion zoom in on genuine smile as hand brings product into frame, soft golden hour backlight creating hair glow and subtle lens flare, shallow depth of field with background melting into creamy bokeh"
+   ✅ Cinematic: "tracking shot following hand as it brings product into frame, genuine smile captured in warm golden hour backlight creating hair glow and subtle lens flare, rack focus from face to product, shallow depth of field with background melting into creamy bokeh"
    
    ❌ Basic: "product on display"
    ✅ Cinematic: "camera slowly orbits product 45 degrees revealing different angle, dramatic side lighting casting long shadows, dust particles visible in light shaft, cinematic color grade with lifted blacks"
@@ -3603,16 +3693,26 @@ A video reel/short inspiration has been provided above. You MUST generate ULTRA-
 - INSTEAD: Show the ACTUAL PRODUCT in a setting/style INSPIRED by the reference video
 
 **WHAT TO COPY FROM INSPIRATION:**
-✅ Camera movements (push-in, pan, tilt, tracking, etc.)
+✅ Camera movements (orbit, pan, tilt, tracking, crane, dolly, etc.)
 ✅ Pacing and timing (how fast/slow things happen)
 ✅ Transitions (hard cuts, morphs, dissolves)
 ✅ Lighting style and mood (dramatic, soft, neon, etc.)
 ✅ Visual effects (glitch, lens flares, reflections)
 ✅ Overall cinematic quality and production value
 
+🔍 **VISUAL SUBJECTS** (use your judgment - these enhance replication when appropriate):
+Consider incorporating visual elements from the inspiration when they enhance the content:
+- **Human elements** - Hands, people, body language can add authenticity
+- **Objects/Props** - Food, drinks, accessories can create context and lifestyle feel
+- **Setting/Location** - Matching environments creates visual consistency
+- **Actions/Interactions** - Similar actions (reaching, holding, using) can mirror the inspiration's energy
+- **Environmental elements** - Lighting conditions and atmosphere contribute to mood
+
+⚡ **YOUR CREATIVE AUTONOMY**: You decide which visual subjects to incorporate based on what serves the brand and product best. Not every inspiration element needs to be replicated - choose what enhances YOUR content.
+
 **WHAT TO REPLACE:**
-✅ The subject/hero → Replace with the ACTUAL PRODUCT from inventory
-✅ The setting → Create a setting that showcases the product while matching inspiration's aesthetic
+✅ The main subject/hero → Replace with the ACTUAL PRODUCT from inventory
+✅ Adapt supporting elements (hands, props, environment) to showcase YOUR product naturally
 ✅ Any text/graphics → Replace with brand-relevant content
 
 **EXAMPLE - WRONG vs RIGHT:**
@@ -3620,9 +3720,14 @@ A video reel/short inspiration has been provided above. You MUST generate ULTRA-
 ❌ WRONG (what NOT to do):
 "Surreal cave with winding fabric pool lit in neon purple matching sweater patterns, organic petal formations..."
 → This blends product PATTERNS into a fantasy scene but DOESN'T SHOW the actual product!
+→ This also IGNORES visual subjects from inspiration (hands, props, setting)!
 
-✅ RIGHT (what TO do):
-"The floral pattern sweater floats majestically in center frame against a dreamy, surreal pink-lit backdrop. Camera slowly pushes in as the sweater rotates gracefully, soft neon reflections dance across its fuzzy mohair texture. Hard cut to close-up of the purple and yellow floral designs, dramatic spotlight emphasizing every thread..."
+✅ RIGHT (what TO do - with visual subjects from inspiration):
+If inspiration has: "Human hands reaching for item, kitchen setting, coffee cup on counter, morning light"
+→ Generate: "Elegant female hands reach toward the floral pattern sweater laid on a marble kitchen counter, morning golden light streaming through window, steaming coffee cup in background creating cozy atmosphere. Camera tracks hand movement as fingers touch the fuzzy mohair texture, rack focus from sweater to hand, then dolly in to reveal purple and yellow floral designs..."
+
+✅ RIGHT (what TO do - product as hero but with inspiration's visual elements):
+"The floral pattern sweater floats majestically in center frame against a dreamy, surreal pink-lit backdrop. Elegant hands reach into frame from below, gently lifting the sweater. Camera orbits as the sweater rotates gracefully, soft neon reflections dance across its fuzzy mohair texture. Hard cut to close-up of the purple and yellow floral designs, dramatic spotlight emphasizing every thread..."
 → The ACTUAL PRODUCT is visible and featured throughout!
 
 📋 **CLIP PROMPT FORMAT** (Generate prompts like professional advertising storyboards):
@@ -3640,7 +3745,7 @@ Your clip prompts MUST include:
 
 "Luxury 8-second vertical (9:16) product film for philistinetoronto. No dialogue, only music.
 
-0-2 sec: The floral pattern sweater floats center-frame in a surreal, dreamy pink-lit studio space. Slow, symmetrical push-in, soft neon reflections on the fuzzy mohair texture.
+0-2 sec: The floral pattern sweater floats center-frame in a surreal, dreamy pink-lit studio space. Camera orbits slowly, soft neon reflections dancing on the fuzzy mohair texture.
 
 2-4 sec: Hard cut to dramatic overhead shot. The sweater laid flat on a glossy reflective surface, camera slowly descending, capturing every detail of the purple and yellow floral designs.
 
@@ -3697,7 +3802,7 @@ When generating a video with MULTIPLE CLIPS, you MUST:
 
 Clip 1 (Opening - 0-10s of final video):
 - Image prompt: "Reference product (floral sweater) floating center-frame in dreamy pink-lit space..."
-- Clip prompt: "0-2s: Sweater emerges from soft mist, slow push-in. 2-6s: Camera orbits, revealing texture. 6-10s: Transition to close-up..."
+- Clip prompt: "0-2s: Sweater emerges from soft mist, crane descent revealing. 2-6s: Camera orbits, revealing texture. 6-10s: Dolly glide to close-up..."
 
 Clip 2 (Showcase - 10-20s of final video):
 - Image prompt: "Reference product (floral sweater) laid elegantly on reflective surface, dramatic overhead lighting..."
@@ -4345,8 +4450,8 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     import random
     
     def select_video_model():
-        """Select video model with 20:80 ratio (Kling:Veo)"""
-        if random.random() < 0.20:
+        """Select video model with 1:99 ratio (Kling:Veo)"""
+        if random.random() < 0.01:
             return {
                 "name": "kling_v2.6",
                 "fal_model": "fal-ai/kling-video/v2.6/pro/image-to-video",
@@ -4411,7 +4516,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     print(f"📋 Image-only posts: {sorted(image_only_indices)}")
     print(f"📋 Video posts: {sorted(video_indices)}")
     print(f"📋 Clips per video: {CLIPS_PER_VIDEO}")
-    print(f"📋 Video models: 20% Kling v2.6 (10s clips), 80% Veo3.1 (8s clips)")
+    print(f"📋 Video models: 1% Kling v2.6 (10s clips), 99% Veo3.1 (8s clips)")
     print(f"📋 Video duration: {CLIPS_PER_VIDEO * 8}s - {CLIPS_PER_VIDEO * 10}s (depending on model)")
     print(f"📋 Model image detected: {has_model_image}")
     if has_model_image:
@@ -4814,6 +4919,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
         
         clip_s3_urls = []
         actual_models_used = []  # Track which models were actually used per clip
+        locked_model = None  # For multi-clip videos: lock to the model used for clip 1
         
         for clip_num in range(1, CLIPS_PER_VIDEO + 1):
             clip_data = video_clip_data.get(clip_num, {})
@@ -4827,6 +4933,15 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 continue
             
             print(f"\n  📝 Clip {clip_num} prompt: {clip_prompt[:80]}...")
+            
+            # For multi-clip videos: use the same model for all clips (locked after clip 1)
+            if CLIPS_PER_VIDEO > 1 and locked_model is not None:
+                current_primary_model = locked_model
+                current_fallback_model = locked_model  # Same model for fallback to ensure consistency
+                print(f"  🔒 Using locked model for consistency: {locked_model['name'].upper()}")
+            else:
+                current_primary_model = selected_model
+                current_fallback_model = fallback_model
             
             try:
                 # Generate presigned URL for starting frame
@@ -4842,8 +4957,8 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 
                 # Use timeout-enabled clip generation with automatic fallback
                 result, used_model_name, used_fal_model, used_clip_duration, success = generate_clip_with_timeout_and_fallback(
-                    primary_model=selected_model,
-                    fallback_model=fallback_model,
+                    primary_model=current_primary_model,
+                    fallback_model=current_fallback_model,
                     clip_prompt=clip_prompt,
                     frame_presigned_url=frame_presigned_url,
                     clip_num=clip_num,
@@ -4891,6 +5006,22 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     print(f"  ✅ {used_model_name.upper()} clip {clip_num} generation complete (with embedded audio)")
                     if used_model_name != model_name:
                         print(f"  ℹ️ Note: Used fallback model due to primary model timeout")
+                    
+                    # For multi-clip videos: lock model after first successful clip for consistency
+                    if CLIPS_PER_VIDEO > 1 and clip_num == 1 and locked_model is None:
+                        # Determine duration_param format based on model (Veo uses "8s", Kling uses "10")
+                        if used_model_name == "veo3.1":
+                            duration_param_locked = f"{used_clip_duration}s"
+                        else:
+                            duration_param_locked = str(used_clip_duration)
+                        
+                        locked_model = {
+                            "name": used_model_name,
+                            "fal_model": used_fal_model,
+                            "clip_duration": used_clip_duration,
+                            "duration_param": duration_param_locked
+                        }
+                        print(f"  🔒 Locked model for remaining clips: {used_model_name.upper()} (ensures visual consistency)")
                 else:
                     clip_s3_urls.append(None)
                     actual_models_used.append(None)
@@ -5441,7 +5572,9 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
         
         if links_to_analyze:
             await update_progress_in_db(request.account_id, 25, "Analyzing inspiration links...", generation_uuid)
-            link_analysis = await analyze_inspiration_links(links_to_analyze, context, request.account_id)
+            # Pass clips_per_video to determine how much of the inspiration video to analyze
+            clips_per_video = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 2
+            link_analysis = await analyze_inspiration_links(links_to_analyze, context, request.account_id, clips_per_video)
             context["link_analysis"] = link_analysis
         else:
             print("⏭️ Skipping link analysis - no inspiration links provided (user or linksJson)")
