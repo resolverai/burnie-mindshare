@@ -59,6 +59,7 @@ import dedicatedMinerExecutionsRoutes from './routes/dedicatedMinerExecutions';
 import adminDvybAccountsRoutes from './routes/adminDvybAccounts';
 import adminDvybPlansRoutes from './routes/adminDvybPlans';
 import adminDvybUpgradeRequestsRoutes from './routes/adminDvybUpgradeRequests';
+import adminDvybInspirationsRoutes from './routes/adminDvybInspirations';
 import approvedMinersRoutes from './routes/approvedMiners';
 import twitterHandlesRoutes from './routes/twitterHandles';
 import editTweetRoutes from './routes/editTweet';
@@ -226,6 +227,7 @@ app.use('/api/admin/twitter-handles', twitterHandlesRoutes); // Twitter handles 
 app.use('/api/admin/dvyb-accounts', adminDvybAccountsRoutes); // DVYB accounts management
 app.use('/api/admin/dvyb-plans', adminDvybPlansRoutes); // DVYB pricing plans management
 app.use('/api/admin/dvyb-upgrade-requests', adminDvybUpgradeRequestsRoutes); // DVYB upgrade requests management
+app.use('/api/admin/dvyb-inspirations', adminDvybInspirationsRoutes); // DVYB inspiration links management
 app.use('/api/edit-tweet', editTweetRoutes); // Edit tweet functionality with avatar fusion
 app.use('/api/user-twitter-posts', userTwitterPostsRoutes); // User Twitter posts tracking and engagement
 app.use('/api', videoAnalyticsRoutes); // Video analytics and performance metrics
