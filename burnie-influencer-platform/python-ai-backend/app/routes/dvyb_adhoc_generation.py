@@ -489,6 +489,36 @@ async def process_video_inspiration_link(url: str, context: dict, account_id: in
             print(f"  ⚠️ Not a video or download failed, skipping video analysis")
             return {}
         
+        # Step 1b: Get video duration to dynamically determine clips_per_video
+        import cv2
+        cap = cv2.VideoCapture(video_path)
+        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        video_duration = total_frames / video_fps if video_fps > 0 else 0
+        cap.release()
+        
+        print(f"  📊 Inspiration video duration: {video_duration:.1f}s")
+        
+        # Dynamically determine clips_per_video based on video duration
+        original_clips_per_video = clips_per_video
+        HARDCODED_DEFAULT_CLIPS = 2  # Default value when video is too long
+        
+        if video_duration <= 10:
+            clips_per_video = 1
+            print(f"  🎯 Video ≤10s → Using 1 clip")
+        elif video_duration <= 16:
+            clips_per_video = 2
+            print(f"  🎯 Video 10-16s → Using 2 clips")
+        else:
+            # Video > 16s: use hardcoded default value (not from request)
+            clips_per_video = HARDCODED_DEFAULT_CLIPS
+            print(f"  🎯 Video >16s → Using hardcoded default: {clips_per_video} clips")
+        
+        # Recalculate max_duration if clips_per_video changed
+        if clips_per_video != original_clips_per_video:
+            max_duration = clips_per_video * 8
+            print(f"  📊 Adjusted: Clips per video: {clips_per_video} → Max duration for frames: {max_duration}s")
+        
         # Step 2: Extract frames (1 per second, up to max_duration)
         frames_dir = os.path.join(output_dir, "frames")
         frame_paths = extract_frames_from_video(video_path, frames_dir, fps=1, max_duration=max_duration)
@@ -566,6 +596,8 @@ async def process_video_inspiration_link(url: str, context: dict, account_id: in
         analysis["has_transcript"] = bool(transcript)
         analysis["transcript"] = transcript
         analysis["background_music_s3_key"] = background_music_s3_key  # For use in final video
+        analysis["video_duration"] = video_duration  # Original video duration
+        analysis["clips_per_video"] = clips_per_video  # Dynamically determined clips per video
         
         return analysis
         
@@ -1739,7 +1771,12 @@ async def gather_context(request: DvybAdhocGenerationRequest) -> Dict:
                 if brand_images and isinstance(brand_images, list) and len(brand_images) > 0:
                     selected_brand_image = random.choice([img for img in brand_images if img])
                     context["selected_brand_image"] = selected_brand_image
-                    logger.info(f"🖼️ Selected brand image from {len(brand_images)} available: {selected_brand_image[:50]}...")
+                    # Handle dict or string format for logging
+                    if isinstance(selected_brand_image, dict):
+                        img_url = selected_brand_image.get('url', str(selected_brand_image)[:50])
+                        logger.info(f"🖼️ Selected brand image from {len(brand_images)} available: {img_url[:50]}...")
+                    else:
+                        logger.info(f"🖼️ Selected brand image from {len(brand_images)} available: {str(selected_brand_image)[:50]}...")
                 else:
                     context["selected_brand_image"] = None
                 
@@ -1895,29 +1932,53 @@ async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
         
         for s3_key in user_images:
             if s3_key in user_images_presigned:
-                presigned_urls.append(user_images_presigned[s3_key])
+                presigned_url = user_images_presigned[s3_key]
+                # Validate that it's actually a URL, not an S3 key
+                if presigned_url and (presigned_url.startswith('http://') or presigned_url.startswith('https://')):
+                    presigned_urls.append(presigned_url)
+                    print(f"  ✅ User image presigned URL: {presigned_url[:80]}...")
+                else:
+                    print(f"  ⚠️ Invalid presigned URL for {s3_key}: {presigned_url}")
             else:
                 # Fallback: generate if not found (shouldn't happen in normal flow)
                 print(f"⚠️ Presigned URL not found for {s3_key}, generating on-demand...")
                 try:
                     presigned_url = web2_s3_helper.generate_presigned_url(s3_key)
-                    presigned_urls.append(presigned_url)
+                    if presigned_url and (presigned_url.startswith('http://') or presigned_url.startswith('https://')):
+                        presigned_urls.append(presigned_url)
+                        print(f"  ✅ Generated presigned URL: {presigned_url[:80]}...")
+                    else:
+                        print(f"  ❌ Failed to generate valid presigned URL for {s3_key}")
                 except Exception as e:
                     logger.error(f"❌ Failed to generate presigned URL for {s3_key}: {e}")
-                    presigned_urls.append(s3_key)  # Last resort fallback
+                    # Do NOT add invalid URLs to the list
         
         # Add selected brand image (if available) as an inspirational image
         selected_brand_image = context.get('selected_brand_image')
         if selected_brand_image:
-            print(f"🎨 Adding brand image as inspiration: {selected_brand_image[:50]}...")
-            try:
-                brand_image_url = web2_s3_helper.generate_presigned_url(selected_brand_image)
-                if brand_image_url:
-                    presigned_urls.append(brand_image_url)
-                    brand_image_index = len(presigned_urls)  # 1-based index
-                    print(f"  ✅ Brand image added at index {brand_image_index}")
-            except Exception as e:
-                logger.error(f"❌ Failed to generate presigned URL for brand image: {e}")
+            # Extract S3 key from dict or use as-is if it's already a string
+            if isinstance(selected_brand_image, dict):
+                brand_image_s3_key = selected_brand_image.get('url') or selected_brand_image.get('s3_key')
+            elif isinstance(selected_brand_image, str):
+                brand_image_s3_key = selected_brand_image
+            else:
+                print(f"  ⚠️ Unexpected brand image format: {type(selected_brand_image)}")
+                brand_image_s3_key = None
+            
+            if brand_image_s3_key:
+                print(f"🎨 Adding brand image as inspiration: {brand_image_s3_key[:80]}...")
+                try:
+                    brand_image_url = web2_s3_helper.generate_presigned_url(brand_image_s3_key)
+                    if brand_image_url and (brand_image_url.startswith('http://') or brand_image_url.startswith('https://')):
+                        presigned_urls.append(brand_image_url)
+                        brand_image_index = len(presigned_urls)  # 1-based index
+                        print(f"  ✅ Brand image added at index {brand_image_index}: {brand_image_url[:80]}...")
+                    else:
+                        print(f"  ❌ Failed to generate valid presigned URL for brand image: {brand_image_s3_key}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to generate presigned URL for brand image: {e}")
+            else:
+                print(f"  ⚠️ Could not extract S3 key from brand image")
         
         print(f"🔗 Using {len(presigned_urls)} presigned URLs for Grok analysis (including {1 if brand_image_index else 0} brand image)")
         
@@ -2251,8 +2312,10 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
             if video_inspirations:
                 result["video_inspiration"] = video_inspirations[0]  # Use first video inspiration
                 print(f"\n✅ Video inspiration analysis complete!")
+                print(f"⏭️  Skipping Grok live search on regular links (video inspiration takes priority)")
+                return result  # Return early - skip regular link analysis when video inspiration exists
         
-        # If no regular links, return video analysis only
+        # If no regular links, return result (which might be empty or have video analysis)
         if not regular_links:
             return result
         
@@ -2514,6 +2577,17 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     # Veo3.1: supports 4s, 6s, 8s (using 8s default)
     # Ratio: 60% Kling, 40% Veo
     CLIPS_PER_VIDEO = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 2
+    
+    # Override CLIPS_PER_VIDEO if video inspiration is provided with dynamic clips_per_video
+    link_analysis = context.get("link_analysis", {})
+    video_inspiration = link_analysis.get("video_inspiration", {}) if link_analysis else {}
+    if video_inspiration and "clips_per_video" in video_inspiration:
+        dynamic_clips = video_inspiration.get("clips_per_video")
+        inspiration_duration = video_inspiration.get("video_duration", 0)
+        original_clips = CLIPS_PER_VIDEO
+        CLIPS_PER_VIDEO = dynamic_clips
+        print(f"🎬 Video inspiration detected ({inspiration_duration:.1f}s) → Overriding clips per video: {original_clips} → {CLIPS_PER_VIDEO}")
+    
     # CLIP_DURATION will be set per video based on model selection (8s for Veo, 10s for Kling)
     # For Grok prompt generation, we use a conservative estimate
     CLIP_DURATION_ESTIMATE = 8  # Conservative estimate for prompt generation
