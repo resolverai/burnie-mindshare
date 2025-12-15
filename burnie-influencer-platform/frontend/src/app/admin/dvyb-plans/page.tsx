@@ -14,7 +14,10 @@ import {
   Trash2,
   Image as ImageIcon,
   Video,
-  Gift
+  Gift,
+  ToggleLeft,
+  ToggleRight,
+  Loader2
 } from 'lucide-react';
 
 interface PricingPlan {
@@ -78,6 +81,7 @@ export default function DvybPlansPage() {
     createStripeProduct: true, // Auto-create Stripe product for new non-free plans
   });
   const [submitting, setSubmitting] = useState(false);
+  const [togglingPlanId, setTogglingPlanId] = useState<number | null>(null);
 
   // Fetch plans
   const fetchPlans = async () => {
@@ -204,9 +208,35 @@ export default function DvybPlansPage() {
     }
   };
 
+  // Handle toggle status (activate/deactivate)
+  const handleToggleStatus = async (plan: PricingPlan) => {
+    const action = plan.isActive ? 'deactivate' : 'activate';
+    if (!confirm(`Are you sure you want to ${action} "${plan.planName}"?${plan.isActive ? '\n\nExisting subscribers will keep their plan, but new users won\'t see this plan.' : ''}`)) return;
+
+    try {
+      setTogglingPlanId(plan.id);
+      const response = await fetch(`/api/admin/dvyb-plans/${plan.id}/toggle-status`, {
+        method: 'PATCH',
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        fetchPlans();
+      } else {
+        alert(data.error);
+      }
+    } catch (error) {
+      console.error('Error toggling plan status:', error);
+      alert('Failed to update plan status');
+    } finally {
+      setTogglingPlanId(null);
+    }
+  };
+
   // Handle delete
   const handleDelete = async (planId: number) => {
-    if (!confirm('Are you sure you want to delete this plan?')) return;
+    if (!confirm('Are you sure you want to delete this plan? This action cannot be undone.')) return;
 
     try {
       const response = await fetch(`/api/admin/dvyb-plans/${planId}`, {
@@ -473,10 +503,28 @@ export default function DvybPlansPage() {
                             Edit
                           </Button>
                           <Button
+                            onClick={() => handleToggleStatus(plan)}
+                            size="sm"
+                            variant={plan.isActive ? "outline" : "default"}
+                            disabled={togglingPlanId === plan.id}
+                            className={`flex items-center gap-1 ${plan.isActive ? 'text-orange-600 border-orange-300 hover:bg-orange-50' : 'bg-green-600 hover:bg-green-700'}`}
+                            title={plan.isActive ? 'Deactivate plan' : 'Activate plan'}
+                          >
+                            {togglingPlanId === plan.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : plan.isActive ? (
+                              <ToggleRight className="h-3 w-3" />
+                            ) : (
+                              <ToggleLeft className="h-3 w-3" />
+                            )}
+                            {plan.isActive ? 'Deactivate' : 'Activate'}
+                          </Button>
+                          <Button
                             onClick={() => handleDelete(plan.id)}
                             size="sm"
                             variant="destructive"
                             className="flex items-center gap-1"
+                            title="Delete plan permanently"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>

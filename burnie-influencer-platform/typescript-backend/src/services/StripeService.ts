@@ -97,6 +97,20 @@ export class StripeService {
   }
 
   /**
+   * Archive or unarchive a Stripe product
+   * Archived products cannot be used to create new subscriptions
+   */
+  static async setProductArchived(productId: string, archived: boolean): Promise<void> {
+    try {
+      await stripe.products.update(productId, { active: !archived });
+      logger.info(`✅ Stripe product ${productId} ${archived ? 'archived' : 'unarchived'}`);
+    } catch (error) {
+      logger.error(`❌ Error ${archived ? 'archiving' : 'unarchiving'} Stripe product ${productId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Get or create a Stripe Customer for a DVYB account
    */
   static async getOrCreateCustomer(accountId: number): Promise<string> {

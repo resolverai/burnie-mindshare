@@ -333,10 +333,22 @@ router.patch('/:id/toggle-status', async (req: Request, res: Response) => {
       });
     }
 
-    plan.isActive = !plan.isActive;
+    const newStatus = !plan.isActive;
+    plan.isActive = newStatus;
     await planRepo.save(plan);
 
-    logger.info(`✅ Plan ${planId} ${plan.isActive ? 'activated' : 'deactivated'}`);
+    // Archive/unarchive Stripe product if it exists
+    if (plan.stripeProductId && env.stripe.secretKey) {
+      try {
+        await StripeService.setProductArchived(plan.stripeProductId, !newStatus);
+        logger.info(`✅ Stripe product ${plan.stripeProductId} ${newStatus ? 'unarchived' : 'archived'}`);
+      } catch (stripeError) {
+        logger.error('⚠️ Failed to update Stripe product archive status:', stripeError);
+        // Don't fail the request - the plan status is already updated in our DB
+      }
+    }
+
+    logger.info(`✅ Plan ${planId} ${newStatus ? 'activated' : 'deactivated'}`);
 
     return res.json({
       success: true,
@@ -344,7 +356,7 @@ router.patch('/:id/toggle-status', async (req: Request, res: Response) => {
         id: plan.id,
         isActive: plan.isActive,
       },
-      message: `Plan ${plan.isActive ? 'activated' : 'deactivated'} successfully`,
+      message: `Plan ${newStatus ? 'activated' : 'deactivated'} successfully`,
     });
   } catch (error) {
     logger.error('Error toggling plan status:', error);
