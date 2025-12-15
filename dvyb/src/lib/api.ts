@@ -1080,6 +1080,120 @@ export const imageEditsApi = {
   },
 };
 
+// Subscription API
+export const subscriptionApi = {
+  async createCheckout(planId: number, frequency: 'monthly' | 'annual', promoCode?: string) {
+    return apiRequest<{
+      success: boolean;
+      checkoutUrl?: string;
+      hasActiveSubscription?: boolean;
+      error?: string;
+    }>('/dvyb/subscription/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ planId, frequency, promoCode }),
+    });
+  },
+
+  async getCurrentSubscription() {
+    return apiRequest<{
+      success: boolean;
+      data?: {
+        isSubscribed: boolean;
+        currentPlan?: any;
+        isFree?: boolean;
+        subscription?: {
+          id: number;
+          planId: number;
+          plan: any;
+          frequency: 'monthly' | 'annual';
+          status: string;
+          currentPeriodStart: string;
+          currentPeriodEnd: string;
+          cancelAtPeriodEnd: boolean;
+          pendingPlanId: number | null;
+          pendingFrequency: 'monthly' | 'annual' | null;
+        };
+      };
+      error?: string;
+    }>('/dvyb/subscription/current');
+  },
+
+  async upgrade(planId: number, frequency: 'monthly' | 'annual') {
+    return apiRequest<{
+      success: boolean;
+      message?: string;
+      requiresAction?: boolean; // True if 3DS/SCA authentication is required
+      checkoutUrl?: string; // URL to redirect user for payment authentication
+      error?: string;
+    }>('/dvyb/subscription/upgrade', {
+      method: 'POST',
+      body: JSON.stringify({ planId, frequency }),
+    });
+  },
+
+  async downgrade(planId: number, frequency: 'monthly' | 'annual') {
+    return apiRequest<{
+      success: boolean;
+      message?: string;
+      effectiveDate?: string;
+      error?: string;
+    }>('/dvyb/subscription/downgrade', {
+      method: 'POST',
+      body: JSON.stringify({ planId, frequency }),
+    });
+  },
+
+  async switchBillingCycle(newFrequency: 'monthly' | 'annual') {
+    return apiRequest<{
+      success: boolean;
+      message?: string;
+      effectiveDate?: string;
+      requiresAction?: boolean; // True if 3DS/SCA authentication is required
+      checkoutUrl?: string; // URL to redirect user for payment authentication
+      error?: string;
+    }>('/dvyb/subscription/switch-billing-cycle', {
+      method: 'POST',
+      body: JSON.stringify({ newFrequency }),
+    });
+  },
+
+  async cancel() {
+    return apiRequest<{
+      success: boolean;
+      message?: string;
+      error?: string;
+    }>('/dvyb/subscription/cancel', {
+      method: 'POST',
+    });
+  },
+
+  async resume() {
+    return apiRequest<{
+      success: boolean;
+      message?: string;
+      error?: string;
+    }>('/dvyb/subscription/resume', {
+      method: 'POST',
+    });
+  },
+
+  async getBillingPortalUrl() {
+    return apiRequest<{
+      success: boolean;
+      portalUrl?: string;
+      error?: string;
+    }>('/dvyb/subscription/billing-portal');
+  },
+
+  async getPaymentHistory(limit = 10) {
+    return apiRequest<{
+      success: boolean;
+      data?: any[];
+      error?: string;
+    }>(`/dvyb/subscription/payments?limit=${limit}`);
+  },
+};
+
 export const dvybApi = {
   auth: authApi,
   account: accountApi,
@@ -1094,4 +1208,5 @@ export const dvybApi = {
   adhocGeneration: adhocGenerationApi,
   captions: captionsApi,
   imageEdits: imageEditsApi,
+  subscription: subscriptionApi,
 };

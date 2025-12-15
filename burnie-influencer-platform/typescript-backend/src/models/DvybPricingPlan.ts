@@ -41,6 +41,16 @@ export class DvybPricingPlan {
   @Column({ type: 'boolean', default: false })
   isFreeTrialPlan!: boolean;
 
+  // Stripe Integration Fields
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  stripeProductId!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  stripeMonthlyPriceId!: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  stripeAnnualPriceId!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

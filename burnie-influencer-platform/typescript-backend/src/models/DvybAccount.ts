@@ -53,6 +53,13 @@ export class DvybAccount {
   @Column({ type: 'int', default: 0 })
   autoGenerationRetryCount!: number;
 
+  // Stripe Integration
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  stripeCustomerId!: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  currentPlanId!: number | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

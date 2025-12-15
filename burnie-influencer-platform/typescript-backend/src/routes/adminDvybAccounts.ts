@@ -17,6 +17,9 @@ import { DvybTikTokPost } from '../models/DvybTikTokPost';
 import { DvybSchedule } from '../models/DvybSchedule';
 import { DvybCaption } from '../models/DvybCaption';
 import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
+import { DvybAccountSubscription } from '../models/DvybAccountSubscription';
+import { DvybAccountPayment } from '../models/DvybAccountPayment';
+import { DvybImageEdit } from '../models/DvybImageEdit';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 import { UrlCacheService } from '../services/UrlCacheService';
@@ -678,6 +681,18 @@ router.delete('/:id', async (req: Request, res: Response) => {
       // 7. Delete upgrade requests
       const upgradeResult = await transactionalEntityManager.delete(DvybUpgradeRequest, { accountId });
       logger.info(`  - Deleted ${upgradeResult.affected || 0} upgrade requests`);
+
+      // 7a. Delete image edits
+      const imageEditResult = await transactionalEntityManager.delete(DvybImageEdit, { accountId });
+      logger.info(`  - Deleted ${imageEditResult.affected || 0} image edits`);
+
+      // 7b. Delete Stripe payments (must be before subscriptions due to foreign key)
+      const paymentResult = await transactionalEntityManager.delete(DvybAccountPayment, { accountId });
+      logger.info(`  - Deleted ${paymentResult.affected || 0} account payments`);
+
+      // 7c. Delete Stripe subscriptions
+      const subscriptionResult = await transactionalEntityManager.delete(DvybAccountSubscription, { accountId });
+      logger.info(`  - Deleted ${subscriptionResult.affected || 0} account subscriptions`);
 
       // 8. Delete brand topics (using raw query as model might not exist)
       try {

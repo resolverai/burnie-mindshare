@@ -59,6 +59,11 @@ const envSchema = Joi.object({
   ANTHROPIC_API_KEY: Joi.string().allow('').default(''),
   PYTHON_AI_BACKEND_URL: Joi.string().uri().required(),
 
+  // Stripe Configuration
+  STRIPE_SECRET_KEY: Joi.string().allow('').default(''),
+  STRIPE_PUBLISHABLE_KEY: Joi.string().allow('').default(''),
+  STRIPE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
+
   // File Storage
   UPLOAD_PATH: Joi.string().default('./uploads'),
   MAX_FILE_SIZE: Joi.number().default(10485760),
@@ -244,6 +249,13 @@ export const env = {
     openaiApiKey: envVars.OPENAI_API_KEY,
     anthropicApiKey: envVars.ANTHROPIC_API_KEY,
     pythonBackendUrl: envVars.PYTHON_AI_BACKEND_URL,
+  },
+
+  // Stripe
+  stripe: {
+    secretKey: envVars.STRIPE_SECRET_KEY,
+    publishableKey: envVars.STRIPE_PUBLISHABLE_KEY,
+    webhookSecret: envVars.STRIPE_WEBHOOK_SECRET,
   },
 
   // File Storage

@@ -4,39 +4,30 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppSidebar } from "@/components/AppSidebar";
-import { BrandKitPage as BrandKitContent } from "@/components/pages/BrandKitPage";
+import { SubscriptionPage } from "@/components/pages/SubscriptionPage";
 import { Loader2, Menu } from "lucide-react";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
-import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
 
-export default function BrandKitPageRoute() {
-  const [activeView] = useState("brand-kit");
+export default function ManageSubscriptionPage() {
+  const [activeView] = useState("subscription");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const router = useRouter();
   const { isAuthenticated, isLoading } = useAuth();
-  const { completeStep, getCurrentHighlight } = useOnboardingGuide();
-  const currentHighlight = getCurrentHighlight();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      // Redirect to landing page instead of login
       router.push("/");
     }
   }, [isAuthenticated, isLoading, router]);
 
-  // Mark brand kit as visited for onboarding
-  useEffect(() => {
-    completeStep('brand_kit_visited');
-  }, [completeStep]);
-
   const handleViewChange = (view: string) => {
     if (view === "home") router.push("/home");
     else if (view === "calendar") router.push("/calendar");
+    else if (view === "brand-kit") router.push("/brand-kit");
     else if (view === "content-library") router.push("/content-library");
-    else if (view === "subscription") router.push("/subscription/manage");
     else if (view === "brand-plan") return; // Disabled
-    // brand-kit is current page, no navigation needed
+    else if (view === "subscription") return; // Already on this page
   };
 
   if (isLoading || !isAuthenticated) {
@@ -52,7 +43,6 @@ export default function BrandKitPageRoute() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      {/* Sidebar */}
       <AppSidebar
         activeView={activeView}
         onViewChange={handleViewChange}
@@ -60,9 +50,8 @@ export default function BrandKitPageRoute() {
         onMobileClose={() => setIsMobileMenuOpen(false)}
       />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Mobile Header with Hamburger */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile Header */}
         <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border bg-background">
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -71,20 +60,15 @@ export default function BrandKitPageRoute() {
           >
             <Menu className="w-6 h-6 text-foreground" />
           </button>
-          
-          <div className="flex items-center gap-2">
-            <Image src={dvybLogo} alt="Dvyb Logo" width={80} height={32} className="object-contain" priority />
-          </div>
-          
-          {/* Empty div for spacing */}
+          <Image src={dvybLogo} alt="DVYB" width={80} height={24} className="h-6 w-auto" />
           <div className="w-10" />
         </div>
 
-        {/* Original Brand Kit Page */}
+        {/* Main Content */}
         <div className="flex-1 overflow-y-auto">
-          <BrandKitContent />
+          <SubscriptionPage />
         </div>
-      </div>
+      </main>
     </div>
   );
 }

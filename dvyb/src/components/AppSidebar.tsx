@@ -12,7 +12,8 @@ import {
   Menu,
   LogOut,
   ImageIcon,
-  Video
+  Video,
+  CreditCard
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -31,11 +32,12 @@ interface AppSidebarProps {
 }
 
 const menuItems = [
-  { id: "home", label: "Home", icon: Home, disabled: false },
+  { id: "home", label: "Dashboard", icon: Home, disabled: false },
   { id: "calendar", label: "Calendar", icon: Calendar, disabled: false },
   { id: "content-library", label: "Content Library", icon: FolderOpen, disabled: false },
   { id: "brand-plan", label: "Brand Plan", icon: FileText, disabled: true, badge: "coming soon" },
   { id: "brand-kit", label: "Brand Kit", icon: Palette, disabled: false },
+  { id: "subscription", label: "Manage Subscription", icon: CreditCard, disabled: false },
 ];
 
 export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onMobileClose, forceCollapsed = false, onboardingHighlight = null, onHighlightClick }: AppSidebarProps) => {

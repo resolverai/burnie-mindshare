@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { IsNull } from 'typeorm';
 import { logger } from '../config/logger';
 import { AppDataSource } from '../config/database';
@@ -302,10 +302,15 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
       order: { startDate: 'DESC' },
     });
 
-    // Calculate limits
+    // Calculate limits and plan details
     let imageLimit = 0;
     let videoLimit = 0;
     let planName = 'Free Plan';
+    let planId: number | null = null;
+    let monthlyPrice = 0;
+    let annualPrice = 0;
+    let billingCycle: 'monthly' | 'annual' = 'monthly';
+    let isFreeTrialPlan = false;
 
     if (currentPlan) {
       imageLimit = currentPlan.selectedFrequency === 'monthly' 
@@ -317,6 +322,11 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
         : currentPlan.plan.annualVideoLimit;
       
       planName = currentPlan.plan.planName;
+      planId = currentPlan.plan.id;
+      monthlyPrice = Number(currentPlan.plan.monthlyPrice);
+      annualPrice = Number(currentPlan.plan.annualPrice);
+      billingCycle = currentPlan.selectedFrequency as 'monthly' | 'annual';
+      isFreeTrialPlan = currentPlan.plan.isFreeTrialPlan;
     } else {
       // No active plan - use Free Trial plan limits (monthly frequency)
       const planRepo = AppDataSource.getRepository(DvybPricingPlan);
@@ -328,6 +338,10 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
         imageLimit = freeTrialPlan.monthlyImageLimit;
         videoLimit = freeTrialPlan.monthlyVideoLimit;
         planName = freeTrialPlan.planName;
+        planId = freeTrialPlan.id;
+        monthlyPrice = Number(freeTrialPlan.monthlyPrice);
+        annualPrice = Number(freeTrialPlan.annualPrice);
+        isFreeTrialPlan = true;
         logger.info(`✅ Using Free Trial plan limits for account ${accountId}: ${imageLimit} images, ${videoLimit} videos`);
       } else {
         logger.warn(`⚠️ No Free Trial plan found for account ${accountId} - using 0 limits`);
@@ -376,6 +390,11 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
       data: {
         isAccountActive: account.isActive,
         planName,
+        planId,
+        monthlyPrice,
+        annualPrice,
+        billingCycle,
+        isFreeTrialPlan,
         imageLimit,
         videoLimit,
         imageUsage,
@@ -468,6 +487,47 @@ router.get('/plan', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respon
     return res.status(500).json({
       success: false,
       error: 'Failed to retrieve account plan',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * GET /api/dvyb/account/pricing-plans
+ * Get all active pricing plans (public endpoint - no auth required)
+ */
+router.get('/pricing-plans', async (_req: Request, res: Response) => {
+  try {
+    const planRepo = AppDataSource.getRepository(DvybPricingPlan);
+    
+    const plans = await planRepo.find({
+      where: { isActive: true },
+      order: { monthlyPrice: 'ASC' },
+    });
+
+    return res.json({
+      success: true,
+      data: plans.map(plan => ({
+        id: plan.id,
+        planName: plan.planName,
+        description: plan.description,
+        monthlyPrice: Number(plan.monthlyPrice),
+        annualPrice: Number(plan.annualPrice),
+        monthlyImageLimit: plan.monthlyImageLimit,
+        monthlyVideoLimit: plan.monthlyVideoLimit,
+        annualImageLimit: plan.annualImageLimit,
+        annualVideoLimit: plan.annualVideoLimit,
+        extraImagePostPrice: Number(plan.extraImagePostPrice),
+        extraVideoPostPrice: Number(plan.extraVideoPostPrice),
+        isFreeTrialPlan: plan.isFreeTrialPlan,
+      })),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('Error fetching pricing plans:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve pricing plans',
       timestamp: new Date().toISOString(),
     });
   }

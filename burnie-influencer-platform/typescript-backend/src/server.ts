@@ -60,6 +60,7 @@ import adminDvybAccountsRoutes from './routes/adminDvybAccounts';
 import adminDvybPlansRoutes from './routes/adminDvybPlans';
 import adminDvybUpgradeRequestsRoutes from './routes/adminDvybUpgradeRequests';
 import adminDvybInspirationsRoutes from './routes/adminDvybInspirations';
+import adminDvybPromosRoutes from './routes/adminDvybPromos';
 import approvedMinersRoutes from './routes/approvedMiners';
 import twitterHandlesRoutes from './routes/twitterHandles';
 import editTweetRoutes from './routes/editTweet';
@@ -83,6 +84,8 @@ import dvybGenerationRoutes from './routes/dvybGeneration';
 import dvybAdhocGenerationRoutes from './routes/dvybAdhocGeneration';
 import dvybCaptionsRoutes from './routes/dvybCaptions';
 import dvybImageEditsRoutes from './routes/dvybImageEdits';
+import dvybSubscriptionRoutes from './routes/dvybSubscription';
+import stripeWebhookRoutes from './routes/stripeWebhook';
 import dvybDashboardRoutes from './routes/dvybDashboard';
 import dvybPostingRoutes from './routes/dvybPosting';
 import dvybInternalRoutes from './routes/dvybInternal';
@@ -151,6 +154,10 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 app.use(cookieParser()); // Parse cookies for session management
+
+// Stripe webhook must come BEFORE express.json() to receive raw body for signature verification
+app.use('/api/stripe', express.raw({ type: 'application/json' }), stripeWebhookRoutes);
+
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
@@ -228,6 +235,7 @@ app.use('/api/admin/dvyb-accounts', adminDvybAccountsRoutes); // DVYB accounts m
 app.use('/api/admin/dvyb-plans', adminDvybPlansRoutes); // DVYB pricing plans management
 app.use('/api/admin/dvyb-upgrade-requests', adminDvybUpgradeRequestsRoutes); // DVYB upgrade requests management
 app.use('/api/admin/dvyb-inspirations', adminDvybInspirationsRoutes); // DVYB inspiration links management
+app.use('/api/admin/dvyb-promos', adminDvybPromosRoutes); // DVYB promo codes management
 app.use('/api/edit-tweet', editTweetRoutes); // Edit tweet functionality with avatar fusion
 app.use('/api/user-twitter-posts', userTwitterPostsRoutes); // User Twitter posts tracking and engagement
 app.use('/api', videoAnalyticsRoutes); // Video analytics and performance metrics
@@ -256,6 +264,7 @@ app.use('/api/dvyb/debug/schedules', dvybScheduleDebugRoutes); // DVYB content l
 app.use('/api/dvyb/adhoc', dvybAdhocGenerationRoutes); // DVYB ad-hoc generation (proxies to Python backend)
 app.use('/api/dvyb/captions', dvybCaptionsRoutes); // DVYB user-edited captions
 app.use('/api/dvyb/image-edits', dvybImageEditsRoutes); // DVYB image edits (text overlays, emojis, stickers)
+app.use('/api/dvyb/subscription', dvybSubscriptionRoutes); // DVYB subscription management (Stripe integration)
 app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes (has /:uuid catch-all, must be last)
 app.use('/api/cache', cacheRoutes); // Redis URL cache management
 app.use('/api/s3', s3PresignedRoutes); // S3 presigned URL generation (local TypeScript service)

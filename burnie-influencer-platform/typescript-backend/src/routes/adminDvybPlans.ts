@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { AppDataSource } from '../config/database';
 import { DvybPricingPlan } from '../models/DvybPricingPlan';
 import { logger } from '../config/logger';
+import { StripeService } from '../services/StripeService';
+import { env } from '../config/env';
 
 const router = Router();
 
@@ -85,6 +87,7 @@ router.post('/', async (req: Request, res: Response) => {
       extraVideoPostPrice,
       isActive,
       isFreeTrialPlan,
+      createStripeProduct, // Flag to auto-create Stripe product
     } = req.body;
 
     if (!planName || monthlyPrice === undefined || annualPrice === undefined) {
@@ -120,6 +123,21 @@ router.post('/', async (req: Request, res: Response) => {
     await planRepo.save(newPlan);
 
     logger.info(`✅ Created pricing plan: ${newPlan.planName} (ID: ${newPlan.id})`);
+
+    // Auto-create Stripe product and prices if requested and not a free plan
+    if (createStripeProduct && !isFreeTrialPlan && env.stripe.secretKey) {
+      try {
+        const stripeData = await StripeService.createStripeProductAndPrices(newPlan);
+        newPlan.stripeProductId = stripeData.productId;
+        newPlan.stripeMonthlyPriceId = stripeData.monthlyPriceId;
+        newPlan.stripeAnnualPriceId = stripeData.annualPriceId;
+        await planRepo.save(newPlan);
+        logger.info(`✅ Created Stripe product for plan ${newPlan.id}`);
+      } catch (stripeError) {
+        logger.error('⚠️ Failed to create Stripe product (plan created without Stripe):', stripeError);
+        // Continue without failing - plan is created, Stripe IDs can be added manually
+      }
+    }
 
     return res.json({
       success: true,
@@ -173,6 +191,11 @@ router.patch('/:id', async (req: Request, res: Response) => {
       extraVideoPostPrice,
       isActive,
       isFreeTrialPlan,
+      // Stripe fields - can be manually updated
+      stripeProductId,
+      stripeMonthlyPriceId,
+      stripeAnnualPriceId,
+      createStripeProduct, // Flag to create Stripe product if not exists
     } = req.body;
 
     // If marking as free trial, unmark any existing free trial plans
@@ -194,6 +217,36 @@ router.patch('/:id', async (req: Request, res: Response) => {
     if (extraVideoPostPrice !== undefined) plan.extraVideoPostPrice = extraVideoPostPrice;
     if (isActive !== undefined) plan.isActive = isActive;
     if (isFreeTrialPlan !== undefined) plan.isFreeTrialPlan = isFreeTrialPlan;
+
+    // Update Stripe IDs (manual entry)
+    if (stripeProductId !== undefined) plan.stripeProductId = stripeProductId || null;
+    if (stripeMonthlyPriceId !== undefined) plan.stripeMonthlyPriceId = stripeMonthlyPriceId || null;
+    if (stripeAnnualPriceId !== undefined) plan.stripeAnnualPriceId = stripeAnnualPriceId || null;
+
+    // Auto-create Stripe product if requested and doesn't exist
+    if (createStripeProduct && !plan.stripeProductId && !plan.isFreeTrialPlan && env.stripe.secretKey) {
+      try {
+        const stripeData = await StripeService.createStripeProductAndPrices(plan);
+        plan.stripeProductId = stripeData.productId;
+        plan.stripeMonthlyPriceId = stripeData.monthlyPriceId;
+        plan.stripeAnnualPriceId = stripeData.annualPriceId;
+        logger.info(`✅ Created Stripe product for existing plan ${plan.id}`);
+      } catch (stripeError) {
+        logger.error('⚠️ Failed to create Stripe product:', stripeError);
+      }
+    }
+
+    // Update Stripe product name/description if we have a product ID
+    if (plan.stripeProductId && (planName !== undefined || description !== undefined) && env.stripe.secretKey) {
+      try {
+        const stripeUpdates: { name?: string; description?: string } = {};
+        if (plan.planName) stripeUpdates.name = plan.planName;
+        if (plan.description) stripeUpdates.description = plan.description;
+        await StripeService.updateStripeProduct(plan.stripeProductId, stripeUpdates);
+      } catch (stripeError) {
+        logger.error('⚠️ Failed to update Stripe product:', stripeError);
+      }
+    }
 
     await planRepo.save(plan);
 

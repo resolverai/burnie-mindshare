@@ -26,6 +26,7 @@ export default function BrandPlanPage() {
     else if (view === "calendar") router.push("/calendar");
     else if (view === "content-library") router.push("/content-library");
     else if (view === "brand-kit") router.push("/brand-kit");
+    else if (view === "subscription") router.push("/subscription/manage");
   };
 
   if (isLoading || !isAuthenticated) {

@@ -47,6 +47,7 @@ export default function CalendarPage() {
     if (view === "home") router.push("/home");
     else if (view === "content-library") router.push("/content-library");
     else if (view === "brand-kit") router.push("/brand-kit");
+    else if (view === "subscription") router.push("/subscription/manage");
     else if (view === "brand-plan") return; // Disabled
     // calendar is current page, no navigation needed
   };

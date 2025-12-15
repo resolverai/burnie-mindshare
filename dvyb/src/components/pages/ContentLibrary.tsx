@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Search, Filter, Eye, Heart, MessageCircle, Share2, Loader2, Play, Calendar as CalendarIcon, Sparkles } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
-import { UpgradeDialog } from "@/components/UpgradeDialog";
+import { PricingModal } from "@/components/PricingModal";
 import { contentLibraryApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOnboardingGuide } from "@/hooks/useOnboardingGuide";
@@ -82,10 +82,12 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
   const [onboardingJobId, setOnboardingJobId] = useState<string | null>(null);
   
-  // Usage limit and upgrade dialogs
-  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  // Usage limit and pricing modal
+  const [showPricingModal, setShowPricingModal] = useState(false);
+  const [quotaType, setQuotaType] = useState<'image' | 'video' | 'both'>('both');
   const [showInactiveAccountDialog, setShowInactiveAccountDialog] = useState(false);
   const [usageData, setUsageData] = useState<any>(null);
+  const [canSkipPricingModal, setCanSkipPricingModal] = useState(false); // True if only one quota exhausted
   
   // Onboarding guide
   const { completeStep } = useOnboardingGuide();
@@ -968,8 +970,25 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                   return;
                 }
                 
-                if (data.data.limitExceeded && (data.data.remainingImages === 0 && data.data.remainingVideos === 0)) {
-                  setShowUpgradeDialog(true);
+                // Check quota limits
+                const noImagesLeft = data.data.remainingImages === 0;
+                const noVideosLeft = data.data.remainingVideos === 0;
+                
+                if (noImagesLeft && noVideosLeft) {
+                  // BOTH quotas exhausted - must upgrade, cannot skip
+                  setQuotaType('both');
+                  setCanSkipPricingModal(false);
+                  setShowPricingModal(true);
+                } else if (noImagesLeft && !noVideosLeft) {
+                  // Only image quota exhausted - can skip and generate videos
+                  setQuotaType('image');
+                  setCanSkipPricingModal(true);
+                  setShowPricingModal(true);
+                } else if (noVideosLeft && !noImagesLeft) {
+                  // Only video quota exhausted - can skip and generate images
+                  setQuotaType('video');
+                  setCanSkipPricingModal(true);
+                  setShowPricingModal(true);
                 } else {
                   setShowGenerateDialog(true);
                 }
@@ -1012,8 +1031,25 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                   return;
                 }
                 
-                if (data.data.limitExceeded && (data.data.remainingImages === 0 && data.data.remainingVideos === 0)) {
-                  setShowUpgradeDialog(true);
+                // Check quota limits
+                const noImagesLeft = data.data.remainingImages === 0;
+                const noVideosLeft = data.data.remainingVideos === 0;
+                
+                if (noImagesLeft && noVideosLeft) {
+                  // BOTH quotas exhausted - must upgrade, cannot skip
+                  setQuotaType('both');
+                  setCanSkipPricingModal(false);
+                  setShowPricingModal(true);
+                } else if (noImagesLeft && !noVideosLeft) {
+                  // Only image quota exhausted - can skip and generate videos
+                  setQuotaType('image');
+                  setCanSkipPricingModal(true);
+                  setShowPricingModal(true);
+                } else if (noVideosLeft && !noImagesLeft) {
+                  // Only video quota exhausted - can skip and generate images
+                  setQuotaType('video');
+                  setCanSkipPricingModal(true);
+                  setShowPricingModal(true);
                 } else {
                   setShowGenerateDialog(true);
                 }
@@ -1030,11 +1066,28 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         </Button>
       </div>
 
-      {/* Upgrade Dialog */}
-      <UpgradeDialog 
-        open={showUpgradeDialog} 
-        onOpenChange={setShowUpgradeDialog}
-        usageData={usageData}
+      {/* Full-screen Pricing Modal */}
+      <PricingModal
+        open={showPricingModal}
+        onClose={() => {
+          setShowPricingModal(false);
+          // If user can skip (only one quota exhausted), proceed to generate
+          if (canSkipPricingModal) {
+            setShowGenerateDialog(true);
+          }
+        }}
+        currentPlanInfo={usageData ? {
+          planName: usageData.planName || 'Free Trial',
+          planId: usageData.planId || null,
+          monthlyPrice: usageData.monthlyPrice || 0,
+          annualPrice: usageData.annualPrice || 0,
+          billingCycle: usageData.billingCycle || 'monthly',
+          isFreeTrialPlan: usageData.isFreeTrialPlan || false,
+        } : null}
+        quotaType={quotaType}
+        isAuthenticated={true}
+        canSkip={canSkipPricingModal}
+        reason="quota_exhausted"
       />
 
       {/* Inactive Account Dialog */}

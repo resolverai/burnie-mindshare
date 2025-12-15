@@ -501,7 +501,7 @@ async def process_video_inspiration_link(url: str, context: dict, account_id: in
         
         # Dynamically determine clips_per_video based on video duration
         original_clips_per_video = clips_per_video
-        HARDCODED_DEFAULT_CLIPS = 2  # Default value when video is too long
+        HARDCODED_DEFAULT_CLIPS = 1  # Default value when video is too long
         
         if video_duration <= 10:
             clips_per_video = 1
@@ -762,7 +762,7 @@ class DvybAdhocGenerationRequest(BaseModel):
     user_prompt: Optional[str] = None
     user_images: Optional[List[str]] = None  # S3 URLs
     inspiration_links: Optional[List[str]] = None
-    clips_per_video: Optional[int] = 2  # Default 2 clips (16-20s), can be 1 (8-10s) or 3 (24-30s)
+    clips_per_video: Optional[int] = 1  # Default 1 clip (8-10s), can be 2 (16-20s) or 3 (24-30s)
 
 
 class DvybAdhocGenerationResponse(BaseModel):
@@ -2576,7 +2576,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     # Kling v2.6: supports 5s and 10s (using 10s default)
     # Veo3.1: supports 4s, 6s, 8s (using 8s default)
     # Ratio: 60% Kling, 40% Veo
-    CLIPS_PER_VIDEO = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 2
+    CLIPS_PER_VIDEO = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 1
     
     # Override CLIPS_PER_VIDEO if video inspiration is provided with dynamic clips_per_video
     link_analysis = context.get("link_analysis", {})
@@ -5217,7 +5217,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 for idx, clip_url in enumerate(valid_clips):
                     clip_num = idx + 1
                     print(f"\n✂️ Processing UGC clip {clip_num} for speech-end trim...")
-                
+                    
                     # Download clip
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
                         presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
@@ -5674,7 +5674,7 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
         if links_to_analyze:
             await update_progress_in_db(request.account_id, 25, "Analyzing inspiration links...", generation_uuid)
             # Pass clips_per_video to determine how much of the inspiration video to analyze
-            clips_per_video = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 2
+            clips_per_video = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 1
             link_analysis = await analyze_inspiration_links(links_to_analyze, context, request.account_id, clips_per_video)
             context["link_analysis"] = link_analysis
         else:
@@ -5771,7 +5771,7 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
                 "videoPrompts": prompts.get("video_prompts", {}),
                 "audioPrompts": prompts.get("video_audio_prompts", {}),  # Audio prompts in metadata
                 "configuration": {
-                    "clips_per_video": prompts.get("clips_per_video", 2),
+                    "clips_per_video": prompts.get("clips_per_video", 1),
                     "clip_duration": prompts.get("clip_duration", 8),
                     "video_duration": prompts.get("video_duration", 16)
                 }

@@ -35,6 +35,7 @@ export default function ContentLibraryPage() {
     if (view === "home") router.push("/home");
     else if (view === "calendar") router.push("/calendar");
     else if (view === "brand-kit") router.push("/brand-kit");
+    else if (view === "subscription") router.push("/subscription/manage");
     else if (view === "brand-plan") return; // Disabled
   };
 

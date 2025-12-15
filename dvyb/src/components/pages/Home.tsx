@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sparkles, Loader2, Instagram, Twitter, Linkedin, Menu, Pencil, Check } from "lucide-react";
 import { GenerateContentDialog } from "@/components/onboarding/GenerateContentDialog";
 import { PostViewDialog } from "@/components/pages/PostViewDialog";
-import { UpgradeDialog } from "@/components/UpgradeDialog";
+import { PricingModal } from "@/components/PricingModal";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { AppSidebar } from "@/components/AppSidebar";
 import { useRouter } from "next/navigation";
@@ -62,9 +62,11 @@ interface PlatformAnalytics {
 
 export const Home = () => {
   const [showGenerateDialog, setShowGenerateDialog] = useState(false);
-  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const [showPricingModal, setShowPricingModal] = useState(false);
+  const [quotaType, setQuotaType] = useState<'image' | 'video' | 'both'>('both');
   const [showInactiveAccountDialog, setShowInactiveAccountDialog] = useState(false);
   const [usageData, setUsageData] = useState<any>(null);
+  const [canSkipPricingModal, setCanSkipPricingModal] = useState(false);
   const [activeView, setActiveView] = useState("home");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [accountName, setAccountName] = useState("User");
@@ -276,6 +278,8 @@ export const Home = () => {
       router.push("/brand-kit");
     } else if (view === "content-library") {
       router.push("/content-library");
+    } else if (view === "subscription") {
+      router.push("/subscription/manage");
     } else if (view === "brand-plan") {
       return; // Disabled
     }
@@ -538,10 +542,25 @@ export const Home = () => {
                           return;
                         }
                         
-                        if (data.data.limitExceeded && (data.data.remainingImages === 0 && data.data.remainingVideos === 0)) {
-                          // No posts left at all - show upgrade dialog
-                          // (Dialog will show different message if request already exists)
-                          setShowUpgradeDialog(true);
+                        // Check quota limits
+                        const noImagesLeft = data.data.remainingImages === 0;
+                        const noVideosLeft = data.data.remainingVideos === 0;
+                        
+                        if (noImagesLeft && noVideosLeft) {
+                          // BOTH quotas exhausted - must upgrade, cannot skip
+                          setQuotaType('both');
+                          setCanSkipPricingModal(false);
+                          setShowPricingModal(true);
+                        } else if (noImagesLeft && !noVideosLeft) {
+                          // Only image quota exhausted - can skip and generate videos
+                          setQuotaType('image');
+                          setCanSkipPricingModal(true);
+                          setShowPricingModal(true);
+                        } else if (noVideosLeft && !noImagesLeft) {
+                          // Only video quota exhausted - can skip and generate images
+                          setQuotaType('video');
+                          setCanSkipPricingModal(true);
+                          setShowPricingModal(true);
                         } else {
                           // Has some posts remaining - proceed with generation
                           setShowGenerateDialog(true);
@@ -1276,11 +1295,29 @@ export const Home = () => {
             onOpenChange={setShowGenerateDialog}
             parentPage="home"
           />
-          
-          <UpgradeDialog 
-            open={showUpgradeDialog} 
-            onOpenChange={setShowUpgradeDialog}
-            usageData={usageData}
+
+          {/* Full-screen Pricing Modal */}
+          <PricingModal
+            open={showPricingModal}
+            onClose={() => {
+              setShowPricingModal(false);
+              // If user can skip (only one quota exhausted), proceed to generate
+              if (canSkipPricingModal) {
+                setShowGenerateDialog(true);
+              }
+            }}
+            currentPlanInfo={usageData ? {
+              planName: usageData.planName || 'Free Trial',
+              planId: usageData.planId || null,
+              monthlyPrice: usageData.monthlyPrice || 0,
+              annualPrice: usageData.annualPrice || 0,
+              billingCycle: usageData.billingCycle || 'monthly',
+              isFreeTrialPlan: usageData.isFreeTrialPlan || false,
+            } : null}
+            quotaType={quotaType}
+            isAuthenticated={true}
+            canSkip={canSkipPricingModal}
+            reason="quota_exhausted"
           />
 
           {/* Inactive Account Dialog */}

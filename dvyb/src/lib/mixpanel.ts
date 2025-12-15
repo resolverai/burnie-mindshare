@@ -375,6 +375,70 @@ export const trackUpgradeRequestSubmitted = () => {
   trackEvent('Upgrade Request Submitted');
 };
 
+// --- SUBSCRIPTION / PRICING EVENTS ---
+export const trackPricingModalOpened = (reason: 'limit_exceeded' | 'user_initiated', quotaType?: 'image' | 'video' | 'both') => {
+  trackEvent('Pricing Modal Opened', { reason, quotaType });
+};
+
+export const trackPlanUpgradeClicked = (data: {
+  currentPlan: string;
+  targetPlan: string;
+  currentBillingCycle: string;
+  targetBillingCycle: string;
+  currentPrice: number;
+  targetPrice: number;
+}) => {
+  trackEvent('Plan Upgrade Clicked', data);
+};
+
+export const trackPlanDowngradeClicked = (data: {
+  currentPlan: string;
+  targetPlan: string;
+  currentBillingCycle: string;
+  targetBillingCycle: string;
+  currentPrice: number;
+  targetPrice: number;
+}) => {
+  trackEvent('Plan Downgrade Clicked', data);
+};
+
+export const trackBillingCycleSwitchClicked = (data: {
+  planName: string;
+  fromCycle: 'monthly' | 'annual';
+  toCycle: 'monthly' | 'annual';
+  fromPrice: number;
+  toPrice: number;
+}) => {
+  trackEvent('Billing Cycle Switch Clicked', data);
+};
+
+export const trackPlanChangeSuccess = (data: {
+  action: 'upgrade' | 'downgrade' | 'switch_to_annual' | 'switch_to_monthly' | 'checkout';
+  planName: string;
+  billingCycle: string;
+  price: number;
+}) => {
+  trackEvent('Plan Change Success', data);
+};
+
+export const trackPlanChangeFailed = (data: {
+  action: 'upgrade' | 'downgrade' | 'switch_to_annual' | 'switch_to_monthly' | 'checkout';
+  planName: string;
+  billingCycle: string;
+  error: string;
+}) => {
+  trackEvent('Plan Change Failed', data);
+};
+
+export const trackCheckoutStarted = (data: {
+  planName: string;
+  billingCycle: string;
+  price: number;
+  hasPromoCode: boolean;
+}) => {
+  trackEvent('Checkout Started', data);
+};
+
 // --- CAPTION EDITING ---
 export const trackCaptionEdited = (platform: string, contentType: 'image' | 'video') => {
   trackEvent('Caption Edited', { platform, contentType });
@@ -436,6 +500,60 @@ export const trackBrandKitSaveAllClicked = (fieldsUpdated: string[]) => {
     fieldsUpdated, 
     fieldCount: fieldsUpdated.length,
   });
+};
+
+// --- SUBSCRIPTION PAGE ---
+export const trackSubscriptionPageViewed = (data: {
+  planName: string;
+  billingCycle: 'monthly' | 'annual';
+  isFreePlan: boolean;
+  hasActiveSubscription: boolean;
+}) => {
+  trackEvent('Subscription Page Viewed', data);
+};
+
+export const trackCancelSubscriptionClicked = (data: {
+  planName: string;
+  billingCycle: 'monthly' | 'annual';
+}) => {
+  trackEvent('Cancel Subscription Clicked', data);
+};
+
+export const trackCancelSubscriptionConfirmed = (data: {
+  planName: string;
+  billingCycle: 'monthly' | 'annual';
+}) => {
+  trackEvent('Cancel Subscription Confirmed', data);
+};
+
+export const trackResumeSubscriptionClicked = (data: {
+  planName: string;
+  billingCycle: 'monthly' | 'annual';
+}) => {
+  trackEvent('Resume Subscription Clicked', data);
+};
+
+export const trackCancelBillingCycleSwitchClicked = (data: {
+  planName: string;
+  currentCycle: 'monthly' | 'annual';
+  pendingCycle: 'monthly' | 'annual';
+}) => {
+  trackEvent('Cancel Billing Cycle Switch Clicked', data);
+};
+
+export const trackViewInvoiceClicked = (data: {
+  amount: number;
+  paymentType: string;
+}) => {
+  trackEvent('View Invoice Clicked', data);
+};
+
+export const trackChangePlanClicked = (data: {
+  currentPlan: string;
+  currentCycle: 'monthly' | 'annual';
+  source: 'subscription_page' | 'pricing_modal' | 'upgrade_prompt';
+}) => {
+  trackEvent('Change Plan Clicked', data);
 };
 
 export default {

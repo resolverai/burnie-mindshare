@@ -31,6 +31,9 @@ interface PricingPlan {
   extraVideoPostPrice: number;
   isActive: boolean;
   isFreeTrialPlan: boolean;
+  stripeProductId: string | null;
+  stripeMonthlyPriceId: string | null;
+  stripeAnnualPriceId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,6 +72,10 @@ export default function DvybPlansPage() {
     extraImagePostPrice: '',
     extraVideoPostPrice: '',
     isFreeTrialPlan: false,
+    stripeProductId: '',
+    stripeMonthlyPriceId: '',
+    stripeAnnualPriceId: '',
+    createStripeProduct: true, // Auto-create Stripe product for new non-free plans
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -117,6 +124,10 @@ export default function DvybPlansPage() {
         extraImagePostPrice: plan.extraImagePostPrice.toString(),
         extraVideoPostPrice: plan.extraVideoPostPrice.toString(),
         isFreeTrialPlan: plan.isFreeTrialPlan,
+        stripeProductId: plan.stripeProductId || '',
+        stripeMonthlyPriceId: plan.stripeMonthlyPriceId || '',
+        stripeAnnualPriceId: plan.stripeAnnualPriceId || '',
+        createStripeProduct: false, // Don't auto-create when editing existing plan
       });
     } else {
       setEditingPlan(null);
@@ -132,6 +143,10 @@ export default function DvybPlansPage() {
         extraImagePostPrice: '',
         extraVideoPostPrice: '',
         isFreeTrialPlan: false,
+        stripeProductId: '',
+        stripeMonthlyPriceId: '',
+        stripeAnnualPriceId: '',
+        createStripeProduct: true, // Auto-create Stripe product for new non-free plans
       });
     }
     setShowModal(true);
@@ -164,6 +179,11 @@ export default function DvybPlansPage() {
           extraImagePostPrice: parseFloat(formData.extraImagePostPrice),
           extraVideoPostPrice: parseFloat(formData.extraVideoPostPrice),
           isFreeTrialPlan: formData.isFreeTrialPlan,
+          // Stripe fields
+          stripeProductId: formData.stripeProductId || null,
+          stripeMonthlyPriceId: formData.stripeMonthlyPriceId || null,
+          stripeAnnualPriceId: formData.stripeAnnualPriceId || null,
+          createStripeProduct: formData.createStripeProduct && !formData.isFreeTrialPlan,
         }),
       });
 
@@ -339,6 +359,9 @@ export default function DvybPlansPage() {
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Stripe
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -422,6 +445,21 @@ export default function DvybPlansPage() {
                             </>
                           )}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {plan.isFreeTrialPlan ? (
+                          <span className="text-xs text-gray-400 italic">N/A</span>
+                        ) : plan.stripeProductId ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Connected
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Not Connected
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex items-center gap-2">
@@ -709,6 +747,101 @@ export default function DvybPlansPage() {
                   <p className="text-xs text-gray-500 mt-1 ml-6">
                     If checked, this plan will be automatically assigned to all new accounts upon registration
                   </p>
+                </div>
+
+                {/* Stripe Configuration Section */}
+                <div className="col-span-2 border-t border-gray-200 pt-4 mt-4">
+                  <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-purple-600" />
+                    Stripe Configuration
+                  </h4>
+                  
+                  {/* Auto-create Stripe Product (only for new plans) */}
+                  {!editingPlan && !formData.isFreeTrialPlan && (
+                    <div className="mb-4">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.createStripeProduct}
+                          onChange={(e) => setFormData({ ...formData, createStripeProduct: e.target.checked })}
+                          className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                        />
+                        <span className="ml-2 text-sm font-medium text-gray-900">
+                          Auto-create Stripe Product & Prices
+                        </span>
+                      </label>
+                      <p className="text-xs text-gray-500 mt-1 ml-6">
+                        Automatically creates a Stripe product with monthly and annual prices
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Create Stripe Product button for existing plans without Stripe IDs */}
+                  {editingPlan && !formData.stripeProductId && !formData.isFreeTrialPlan && (
+                    <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <p className="text-sm text-yellow-800 mb-2">
+                        This plan doesn&apos;t have Stripe integration yet.
+                      </p>
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.createStripeProduct}
+                          onChange={(e) => setFormData({ ...formData, createStripeProduct: e.target.checked })}
+                          className="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                        />
+                        <span className="ml-2 text-sm font-medium text-gray-900">
+                          Create Stripe Product & Prices now
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Stripe Product ID
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.stripeProductId}
+                        onChange={(e) => setFormData({ ...formData, stripeProductId: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 text-sm"
+                        placeholder="prod_xxxxxxxxxx (optional, auto-created if enabled)"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Monthly Price ID
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.stripeMonthlyPriceId}
+                          onChange={(e) => setFormData({ ...formData, stripeMonthlyPriceId: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 text-sm"
+                          placeholder="price_xxxxxxxxxx"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Annual Price ID
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.stripeAnnualPriceId}
+                          onChange={(e) => setFormData({ ...formData, stripeAnnualPriceId: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 text-sm"
+                          placeholder="price_xxxxxxxxxx"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {formData.isFreeTrialPlan && (
+                    <p className="text-xs text-gray-500 mt-2 italic">
+                      Stripe configuration not needed for free trial plans
+                    </p>
+                  )}
                 </div>
 
               </div>

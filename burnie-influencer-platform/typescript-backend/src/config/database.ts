@@ -128,6 +128,9 @@ import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
 import { DvybCaption } from '../models/DvybCaption';
 import { DvybImageEdit } from '../models/DvybImageEdit';
 import { DvybInspirationLink } from '../models/DvybInspirationLink';
+import { DvybAccountSubscription } from '../models/DvybAccountSubscription';
+import { DvybAccountPayment } from '../models/DvybAccountPayment';
+import { DvybPromoCode } from '../models/DvybPromoCode';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -255,6 +258,9 @@ export const AppDataSource = new DataSource({
     DvybCaption,
     DvybImageEdit,
     DvybInspirationLink,
+    DvybAccountSubscription,
+    DvybAccountPayment,
+    DvybPromoCode,
   ],
   migrations: [],
   subscribers: [],

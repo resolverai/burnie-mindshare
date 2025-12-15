@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
 import { FileDropZone } from "@/components/ui/file-drop-zone";
+import { PricingModal } from "@/components/PricingModal";
 import { 
   trackGenerateDialogOpened,
   trackGenerateDialogClosed,
@@ -97,6 +98,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [imageSliderMax, setImageSliderMax] = useState(4);
   const [videoSliderMax, setVideoSliderMax] = useState(4);
   const [usageData, setUsageData] = useState<any>(null);
+  const [showUpgradePricingModal, setShowUpgradePricingModal] = useState(false);
+  const [upgradeQuotaType, setUpgradeQuotaType] = useState<'image' | 'video' | 'both'>('both');
   const [generatedPosts, setGeneratedPosts] = useState<any[]>([]);
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [showPostDetail, setShowPostDetail] = useState(false);
@@ -1390,9 +1393,23 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     ))}
                 </div>
                   {usageData && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      {usageData.remainingImages} remaining
-                    </p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-xs text-gray-500">
+                        {usageData.remainingImages} remaining
+                      </p>
+                      {usageData.remainingImages === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUpgradeQuotaType('image');
+                            setShowUpgradePricingModal(true);
+                          }}
+                          className="text-xs text-primary hover:text-primary/80 font-medium underline underline-offset-2"
+                        >
+                          Upgrade for more →
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -1429,9 +1446,23 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     ))}
                   </div>
                   {usageData && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      {usageData.remainingVideos} remaining
-                    </p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-xs text-gray-500">
+                        {usageData.remainingVideos} remaining
+                      </p>
+                      {usageData.remainingVideos === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUpgradeQuotaType('video');
+                            setShowUpgradePricingModal(true);
+                          }}
+                          className="text-xs text-primary hover:text-primary/80 font-medium underline underline-offset-2"
+                        >
+                          Upgrade for more →
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -1833,6 +1864,27 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
       </AlertDialog>
 
       {/* Note: Multi-Platform Authorization Dialog removed - using redirect-based OAuth */}
+
+      {/* Pricing Modal for upgrade from Review step */}
+      <PricingModal
+        open={showUpgradePricingModal}
+        onClose={() => {
+          // User skipped - just close the modal and stay on review step
+          setShowUpgradePricingModal(false);
+        }}
+        currentPlanInfo={usageData ? {
+          planName: usageData.planName || 'Free Trial',
+          planId: usageData.planId || null,
+          monthlyPrice: usageData.monthlyPrice || 0,
+          annualPrice: usageData.annualPrice || 0,
+          billingCycle: usageData.billingCycle || 'monthly',
+          isFreeTrialPlan: usageData.isFreeTrialPlan || false,
+        } : null}
+        quotaType={upgradeQuotaType}
+        isAuthenticated={true}
+        canSkip={true}
+        reason="quota_exhausted"
+      />
     </>
   );
 };
