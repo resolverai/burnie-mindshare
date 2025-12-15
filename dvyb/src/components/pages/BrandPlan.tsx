@@ -21,14 +21,14 @@ export const BrandPlan = () => {
           <Card className="mb-6 p-6 border border-border relative">
             <div className="flex items-start gap-6">
               {/* Timeline Dot */}
-              <div className="relative z-10 w-8 h-8 rounded-full bg-blue-500 border-4 border-background flex-shrink-0" />
+              <div className="relative z-10 w-8 h-8 rounded-full bg-primary border-4 border-background flex-shrink-0" />
 
               <div className="flex-1 grid grid-cols-3 gap-6">
                 {/* Week Info */}
                 <div>
-                  <p className="text-xs text-blue-600 font-medium mb-1">Next Week</p>
+                  <p className="text-xs text-primary font-medium mb-1">Next Week</p>
                   <h3 className="text-xl font-semibold text-foreground mb-2">Nov 20 - 26</h3>
-                  <Badge className="bg-blue-100 text-blue-700 border-0">Planned</Badge>
+                  <Badge className="bg-primary/10 text-primary border-0">Planned</Badge>
                 </div>
 
                 {/* Post Schedule */}

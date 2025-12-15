@@ -457,8 +457,8 @@ export const CalendarView = () => {
         </div>
       </header>
 
-      {/* Blue Banner */}
-      <div className="bg-primary text-primary-foreground">
+      {/* Gradient Banner */}
+      <div className="bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 text-white">
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-3">
           {/* Mobile Banner */}
           <div className="md:hidden">
@@ -466,10 +466,10 @@ export const CalendarView = () => {
               <CalendarIcon className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium mb-1">Customize your content</p>
-                <p className="text-xs text-primary-foreground/80 mb-2">
+                <p className="text-xs text-white/80 mb-2">
                   Control how Dvyb generates and publishes your content.
                 </p>
-                <Button variant="secondary" size="sm" className="text-xs h-7" disabled>
+                <Button variant="secondary" size="sm" className="text-xs h-7 bg-white/20 hover:bg-white/30 text-white border-white/30" disabled>
                   Go to Preferences →
                 </Button>
               </div>
@@ -481,9 +481,9 @@ export const CalendarView = () => {
             <div className="flex items-center gap-2">
               <CalendarIcon className="w-5 h-5" />
               <span className="font-medium">Customize your content</span>
-              <span className="text-primary-foreground/80">Control how Dvyb generates and publishes your content.</span>
+              <span className="text-white/80">Control how Dvyb generates and publishes your content.</span>
             </div>
-            <Button variant="secondary" size="sm" disabled>
+            <Button variant="secondary" size="sm" className="bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm" disabled>
               Go to Content Preferences →
             </Button>
           </div>
@@ -517,7 +517,7 @@ export const CalendarView = () => {
                 <div
                   className={`text-center p-3 rounded-lg text-base font-medium ${
                     currentDay.isToday
-                      ? "bg-primary text-primary-foreground font-semibold"
+                      ? "bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 text-white font-semibold shadow-lg"
                       : "bg-muted text-foreground"
                   }`}
                 >
@@ -618,7 +618,7 @@ export const CalendarView = () => {
                   <div
                     className={`text-center p-2.5 rounded-lg text-sm ${
                       day.isToday
-                        ? "bg-primary text-primary-foreground font-semibold"
+                        ? "bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 text-white font-semibold shadow-md"
                         : "text-muted-foreground bg-muted/50"
                     }`}
                   >
@@ -717,7 +717,7 @@ export const CalendarView = () => {
                 <div
                   className={`text-center p-2 rounded-lg ${
                     day.isToday
-                      ? "bg-primary text-primary-foreground font-semibold"
+                      ? "bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 text-white font-semibold shadow-md"
                       : "text-muted-foreground"
                   }`}
                 >

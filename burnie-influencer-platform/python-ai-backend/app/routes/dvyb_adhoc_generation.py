@@ -500,19 +500,19 @@ async def process_video_inspiration_link(url: str, context: dict, account_id: in
         print(f"  📊 Inspiration video duration: {video_duration:.1f}s")
         
         # Dynamically determine clips_per_video based on video duration
+        # Rule: 
+        #   - Video 0-10s → 1 clip (8s output)
+        #   - Video >10s → 2 clips (16s output)
+        # This ensures we capture enough of the inspiration for longer videos
         original_clips_per_video = clips_per_video
-        HARDCODED_DEFAULT_CLIPS = 1  # Default value when video is too long
         
         if video_duration <= 10:
             clips_per_video = 1
             print(f"  🎯 Video ≤10s → Using 1 clip")
-        elif video_duration <= 16:
-            clips_per_video = 2
-            print(f"  🎯 Video 10-16s → Using 2 clips")
         else:
-            # Video > 16s: use hardcoded default value (not from request)
-            clips_per_video = HARDCODED_DEFAULT_CLIPS
-            print(f"  🎯 Video >16s → Using hardcoded default: {clips_per_video} clips")
+            # Video > 10s: use 2 clips to capture more of the inspiration
+            clips_per_video = 2
+            print(f"  🎯 Video >10s ({video_duration:.1f}s) → Using 2 clips")
         
         # Recalculate max_duration if clips_per_video changed
         if clips_per_video != original_clips_per_video:
@@ -763,6 +763,8 @@ class DvybAdhocGenerationRequest(BaseModel):
     user_images: Optional[List[str]] = None  # S3 URLs
     inspiration_links: Optional[List[str]] = None
     clips_per_video: Optional[int] = 1  # Default 1 clip (8-10s), can be 2 (16-20s) or 3 (24-30s)
+    is_onboarding_product_image: Optional[bool] = False  # If true, user_images[0] is explicitly a product image from onboarding
+    force_product_marketing: Optional[bool] = False  # If true, force product_marketing video type
 
 
 class DvybAdhocGenerationResponse(BaseModel):
@@ -1887,8 +1889,14 @@ async def gather_context(request: DvybAdhocGenerationRequest) -> Dict:
 # IMAGE ANALYSIS (GROK INVENTORY ANALYSIS)
 # ============================================
 
-async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
-    """Analyze user-uploaded images with Grok using full brand context"""
+async def analyze_user_images(user_images: List[str], context: Dict, is_onboarding_product_image: bool = False) -> Dict:
+    """Analyze user-uploaded images with Grok using full brand context
+    
+    Args:
+        user_images: List of S3 keys for user-uploaded images
+        context: Full brand context
+        is_onboarding_product_image: If True, the first image is explicitly a product image from onboarding
+    """
     if not user_images:
         return {}
     
@@ -1990,6 +1998,18 @@ async def analyze_user_images(user_images: List[str], context: Dict) -> Dict:
         # Build comprehensive product/inspiration/model classification prompt
         brand_image_note = f"\n\n🎨 **BRAND IMAGE**: Image {brand_image_index} is a brand-provided inspirational image. It MUST be classified as INSPIRATION IMAGE." if brand_image_index else ""
         
+        # Add onboarding product image hint
+        onboarding_product_note = ""
+        if is_onboarding_product_image:
+            onboarding_product_note = """
+
+🛍️ **CRITICAL - ONBOARDING PRODUCT IMAGE**:
+The user has explicitly uploaded Image 1 as their PRODUCT IMAGE during onboarding.
+This image MUST be classified as a PRODUCT IMAGE regardless of what is shown.
+Even if the image shows a person wearing/holding/using the product, classify it as PRODUCT (not model).
+The person in the image (if any) should be described in the product's 'showcases' field as part of how the product is displayed.
+This product will be featured in the generated content."""
+        
         # Build brand context dynamically - only include non-empty fields
         brand_context_lines = []
         if brand_info.get('account_name'):
@@ -2026,7 +2046,7 @@ BRAND CONTEXT:
 {f'''
 USER CONTEXT (PRIORITY - Follow these instructions):
 {user_context_str}
-''' if user_context_str else ''}{brand_image_note}
+''' if user_context_str else ''}{brand_image_note}{onboarding_product_note}
 
 🎯 YOUR CRITICAL TASK:
 Classify each uploaded image into ONE of these 3 categories:
@@ -4375,6 +4395,13 @@ CRITICAL REQUIREMENTS:
         human_characters_only = prompts_data.get("human_characters_only", False)
         influencer_marketing = prompts_data.get("influencer_marketing", False)
         nudge = False  # OVERRIDE: Always False (nudge output quality not good yet)
+        
+        # OVERRIDE: Force product_marketing when onboarding product image is provided
+        force_product_marketing = context.get("force_product_marketing", False)
+        if force_product_marketing and video_type != "product_marketing":
+            print(f"🛍️ OVERRIDE: force_product_marketing=True, changing video_type from '{video_type}' to 'product_marketing'")
+            video_type = "product_marketing"
+            influencer_marketing = False  # Product marketing is never influencer style
         web3 = prompts_data.get("web3", False)
         
         print(f"\n🎯 GROK DECISIONS:")
@@ -5658,8 +5685,16 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
         # Step 2: Analyze user images (20%)
         if request.user_images:
             await update_progress_in_db(request.account_id, 20, "Analyzing uploaded images...", generation_uuid)
-            inventory_analysis = await analyze_user_images(request.user_images, context)
+            inventory_analysis = await analyze_user_images(
+                request.user_images, 
+                context, 
+                is_onboarding_product_image=request.is_onboarding_product_image or False
+            )
             context["inventory_analysis"] = inventory_analysis
+            
+            # Store flags for prompt generation
+            context["is_onboarding_product_image"] = request.is_onboarding_product_image or False
+            context["force_product_marketing"] = request.force_product_marketing or False
         else:
             print("⏭️ Skipping inventory analysis - no user images provided")
         

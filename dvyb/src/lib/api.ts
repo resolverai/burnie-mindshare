@@ -266,6 +266,44 @@ export const contextApi = {
   },
 };
 
+// Inspirations API
+export const inspirationsApi = {
+  /**
+   * Match industry to inspiration categories using AI
+   * Returns matched categories and selected inspiration videos
+   */
+  async matchInspirations(industry: string, count: number = 6) {
+    return apiRequest<{ 
+      success: boolean; 
+      data: {
+        matched_categories: string[];
+        inspiration_videos: Array<{
+          id: number;
+          platform: string;
+          category: string;
+          url: string;
+          title: string | null;
+        }>;
+      };
+    }>(
+      '/dvyb/inspirations/match',
+      {
+        method: 'POST',
+        body: JSON.stringify({ industry, count }),
+      }
+    );
+  },
+
+  /**
+   * Get all available inspiration categories
+   */
+  async getCategories() {
+    return apiRequest<{ success: boolean; data: string[] }>(
+      '/dvyb/inspirations/categories'
+    );
+  },
+};
+
 // Topics API
 export const topicsApi = {
   async generateTopics() {
@@ -925,6 +963,8 @@ export const adhocGenerationApi = {
     user_prompt?: string;
     user_images?: string[];
     inspiration_links?: string[];
+    is_onboarding_product_image?: boolean;  // If true, user_images[0] is explicitly a product image
+    force_product_marketing?: boolean;  // If true, force product_marketing video type
   }) {
     return apiRequest<{
       success: boolean;
@@ -1209,4 +1249,5 @@ export const dvybApi = {
   captions: captionsApi,
   imageEdits: imageEditsApi,
   subscription: subscriptionApi,
+  inspirations: inspirationsApi,
 };

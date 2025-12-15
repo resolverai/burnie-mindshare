@@ -4,8 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Rocket, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 import { contextApi, authApi } from "@/lib/api";
@@ -102,12 +101,12 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
     }
   }, [isAnalyzing, analysisComplete]);
 
-  // Navigate to analysis details when complete
+  // Navigate to inspiration selection when complete
   useEffect(() => {
     if (analysisComplete) {
       setTimeout(() => {
         onComplete(websiteUrl);
-        router.push('/onboarding/analysis-details');
+        router.push('/onboarding/inspiration-selection');
       }, 500);
     }
   }, [analysisComplete, websiteUrl, onComplete, router]);
@@ -174,17 +173,24 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col p-4 md:p-6 lg:p-8 pb-24 md:pb-28 bg-gradient-to-br from-background via-background to-muted">
+    <div 
+      className="min-h-screen flex flex-col p-4 md:p-6 lg:p-8 pb-24 md:pb-28"
+      style={{
+        backgroundImage: 'url(/onboarding-bg.png)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
+      }}
+    >
       {/* Top navigation with Sign In button - only show when NOT authenticated */}
       <div className="w-full flex justify-end items-center gap-2 md:gap-3 mb-4 md:mb-6 min-h-[40px]">
         {!isAuthenticated && (
           <>
-            <span className="text-xs md:text-sm text-muted-foreground">Already have an account?</span>
+            <span className="text-xs md:text-sm text-white">Already have an account?</span>
             <Button
               onClick={handleGoogleSignIn}
               disabled={isSigningIn || isAnalyzing}
-              variant="outline"
-              className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 font-medium h-9 md:h-10 text-xs md:text-sm px-3 md:px-4 rounded-lg transition-all"
+              className="btn-gradient-cta font-semibold h-9 md:h-10 text-xs md:text-sm px-4 md:px-6 rounded-lg"
             >
               {isSigningIn ? (
                 <>
@@ -195,10 +201,10 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
               ) : (
                 <>
                   <svg className="w-4 h-4 mr-1.5" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
                   <span className="hidden sm:inline">Sign in with Google</span>
                   <span className="sm:hidden">Sign In</span>
@@ -209,13 +215,13 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
         )}
         {isAuthenticated && (
           <div className="flex items-center gap-2 md:gap-3">
-            <span className="text-xs md:text-sm text-muted-foreground">
+            <span className="text-xs md:text-sm text-white">
               ✓ Signed in
             </span>
-            <span className="text-muted-foreground/50">•</span>
+            <span className="text-white/50">•</span>
             <button
               onClick={() => logout()}
-              className="text-xs md:text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+              className="text-xs md:text-sm text-white hover:text-white/80 transition-colors underline underline-offset-2"
             >
               Sign out
             </button>
@@ -225,76 +231,59 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
 
       {/* Main content centered */}
       <div className="flex-1 flex items-center justify-center">
-        <div className="w-full max-w-2xl space-y-6 md:space-y-8 animate-fade-in">
+        <div className="w-full max-w-4xl space-y-6 md:space-y-8 animate-fade-in">
           <div className="text-center space-y-3 md:space-y-4">
             <div className="w-32 h-24 md:w-48 md:h-32 mx-auto flex items-center justify-center">
               <Image src={dvybLogo} alt="Dvyb Logo" className="w-full h-auto" priority />
             </div>
-            <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-foreground px-4">
-              Turning your identity and "vibe" into
-              <br className="hidden sm:block" />
-              <span className="sm:hidden"> </span>
-              Social media content
+            <h1 className="text-3xl md:text-4xl lg:text-5xl font-semibold text-foreground leading-tight tracking-tight text-center">
+              Turn any inspiration into your&nbsp;own
+              <br />
+              branded content
             </h1>
           </div>
 
         {!isAnalyzing ? (
-          <form id="website-form" onSubmit={handleSubmit} className="space-y-4">
-            <Card className="p-6 md:p-8 shadow-card-hover">
-              <div className="space-y-2">
-                <label htmlFor="website" className="text-sm md:text-base font-medium text-foreground">
-                  Enter your website URL
-                </label>
-                <Input
-                  id="website"
-                  type="text"
-                  placeholder="yourwebsite.com"
-                  value={websiteUrl}
-                  onChange={(e) => setWebsiteUrl(e.target.value)}
-                  className="text-base md:text-lg h-12"
-                  required
-                />
-              </div>
-            </Card>
-            <Button 
-              type="submit" 
-              disabled={!websiteUrl.trim()}
-              className="w-full h-12 md:h-14 text-base md:text-lg shadow-lg" 
-              size="lg"
-            >
-              Start Analysis
-            </Button>
+          <form id="website-form" onSubmit={handleSubmit} className="max-w-xl mx-auto">
+            <div className="flex items-center bg-white rounded-full shadow-xl px-4 md:px-6 py-2">
+              <Input
+                id="website"
+                type="text"
+                placeholder="yourwebsite.com"
+                value={websiteUrl}
+                onChange={(e) => setWebsiteUrl(e.target.value)}
+                className="flex-1 border-0 bg-transparent text-base md:text-lg text-gray-700 placeholder:text-gray-400 focus-visible:ring-0 focus-visible:ring-offset-0 h-10 md:h-12"
+                required
+              />
+              <Button 
+                type="submit" 
+                disabled={!websiteUrl.trim()}
+                className="btn-gradient-cta rounded-full p-2.5 md:p-3 ml-2 shrink-0" 
+                size="icon"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>
+                </svg>
+              </Button>
+            </div>
           </form>
         ) : (
-          <div className="space-y-4 md:space-y-6">
-            <Card className="p-4 md:p-6 bg-primary/10 border-primary/20">
-              <div className="space-y-3 md:space-y-4">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <span className="text-primary font-medium text-sm md:text-base">{analysisSteps[currentStep]}</span>
-                  <span className="text-primary font-bold text-lg md:text-xl">{Math.round(progress)}%</span>
+          <div className="max-w-xl mx-auto">
+            <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl p-6 shadow-2xl">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-foreground font-medium text-base md:text-lg">
+                    {analysisComplete ? "Analysis complete!" : analysisSteps[currentStep]}
+                  </span>
+                  <span className="text-foreground font-bold text-lg md:text-xl">{Math.round(progress)}%</span>
                 </div>
-                <div className="h-2 md:h-2.5 bg-background rounded-full overflow-hidden">
+                <div className="h-3 bg-white/20 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-primary transition-all duration-300 ease-out"
                     style={{ width: `${progress}%` }}
                   />
                 </div>
               </div>
-            </Card>
-
-            <div className="space-y-2 md:space-y-3">
-              {analysisSteps.map((step, index) => (
-                <Card
-                  key={step}
-                  className={`p-3 md:p-4 transition-all duration-300 ${
-                    index <= currentStep ? "bg-card border-primary/50" : "bg-muted/50 border-border/50"
-                  } ${index === currentStep ? "animate-pulse-slow" : ""}`}
-                >
-                  <span className={`text-sm md:text-base ${index <= currentStep ? "text-foreground" : "text-muted-foreground"}`}>
-                    {step}
-                  </span>
-                </Card>
-              ))}
             </div>
           </div>
         )}

@@ -363,7 +363,7 @@ export const OnboardingTips = ({ onComplete }: OnboardingTipsProps) => {
             </div>
           </Card>
 
-          <Card className="p-6 shadow-card-hover animate-fade-in bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+          <Card className="p-6 shadow-card-hover animate-fade-in bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
             <div className="space-y-4">
               {tips[currentTip].rightContent === "preview" && (
                 <div className="aspect-video rounded-lg flex items-center justify-center overflow-hidden relative" style={{ background: `linear-gradient(135deg, ${tipColors.tip1Background}, ${tipColors.tip1Background})` }}>
@@ -404,7 +404,7 @@ export const OnboardingTips = ({ onComplete }: OnboardingTipsProps) => {
                       {randomTopics.map((topic, index) => (
                         <div 
                           key={index} 
-                          className={`p-2 rounded text-sm ${index === 0 ? 'bg-blue-50 border-2 border-primary' : 'bg-gray-50'}`}
+                          className={`p-2 rounded text-sm ${index === 0 ? 'bg-primary/5 border-2 border-primary' : 'bg-gray-50'}`}
                         >
                           {topic}
                         </div>
@@ -448,7 +448,7 @@ export const OnboardingTips = ({ onComplete }: OnboardingTipsProps) => {
                         <div className="w-2 h-2 rounded-full bg-gray-300" />
                         <span className="text-sm">{formatWeekRange(2)}</span>
                       </span>
-                      <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                      <span className="text-xs px-2 py-1 bg-primary/10 text-primary rounded">
                         Scheduled
                       </span>
                     </div>

@@ -94,6 +94,7 @@ import dvybContentLibraryRoutes from './routes/dvybContentLibrary';
 import dvybScheduleDebugRoutes from './routes/dvybScheduleDebug';
 import dvybSocialAuthRoutes from './routes/dvybSocialAuth';
 import dvybOAuth1AuthRoutes from './routes/dvybOAuth1Auth';
+import dvybInspirationsRoutes from './routes/dvybInspirations';
 import cacheRoutes from './routes/cache';
 import s3PresignedRoutes from './routes/s3Presigned';
 import networkRoutes from './routes/networkRoutes';
@@ -265,6 +266,7 @@ app.use('/api/dvyb/adhoc', dvybAdhocGenerationRoutes); // DVYB ad-hoc generation
 app.use('/api/dvyb/captions', dvybCaptionsRoutes); // DVYB user-edited captions
 app.use('/api/dvyb/image-edits', dvybImageEditsRoutes); // DVYB image edits (text overlays, emojis, stickers)
 app.use('/api/dvyb/subscription', dvybSubscriptionRoutes); // DVYB subscription management (Stripe integration)
+app.use('/api/dvyb/inspirations', dvybInspirationsRoutes); // DVYB inspiration matching for onboarding
 app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes (has /:uuid catch-all, must be last)
 app.use('/api/cache', cacheRoutes); // Redis URL cache management
 app.use('/api/s3', s3PresignedRoutes); // S3 presigned URL generation (local TypeScript service)

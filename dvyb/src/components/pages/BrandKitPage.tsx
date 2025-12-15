@@ -1069,7 +1069,7 @@ export const BrandKitPage = () => {
                 onClick={handleSaveAll}
                 disabled={isSaving || !hasUnsavedChanges}
                 size="sm"
-                className="w-full md:w-auto flex-shrink-0"
+                className="w-full md:w-auto flex-shrink-0 btn-gradient-cta"
               >
                 {isSaving ? (
                   <>
@@ -1247,11 +1247,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.google === 'expired' ? (
-                        <Button variant="default" size="sm" onClick={handleGoogleConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleGoogleConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" onClick={handleGoogleConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleGoogleConnect}>
                           Connect
                         </Button>
                       )}
@@ -1291,11 +1291,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.twitter === 'expired' ? (
-                        <Button variant="default" size="sm" onClick={handleTwitterConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleTwitterConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" onClick={handleTwitterConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleTwitterConnect}>
                           Connect
                         </Button>
                       )}
@@ -1335,11 +1335,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.instagram === 'expired' ? (
-                        <Button variant="default" size="sm" onClick={handleInstagramConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleInstagramConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" onClick={handleInstagramConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleInstagramConnect}>
                           Connect
                         </Button>
                       )}
@@ -1379,11 +1379,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.linkedin === 'expired' ? (
-                        <Button variant="default" size="sm" onClick={handleLinkedInConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleLinkedInConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" onClick={handleLinkedInConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleLinkedInConnect}>
                           Connect
                         </Button>
                       )}
@@ -1423,11 +1423,11 @@ export const BrandKitPage = () => {
                           Disconnect
                         </Button>
                       ) : connections.tiktok === 'expired' ? (
-                        <Button variant="default" size="sm" onClick={handleTikTokConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleTikTokConnect}>
                           Reconnect
                         </Button>
                       ) : (
-                        <Button variant="default" size="sm" onClick={handleTikTokConnect}>
+                        <Button variant="default" size="sm" className="btn-gradient-cta" onClick={handleTikTokConnect}>
                           Connect
                         </Button>
                       )}
@@ -1507,6 +1507,7 @@ export const BrandKitPage = () => {
                             type="button"
                             variant="default"
                             size="sm"
+                            className="btn-gradient-cta"
                             onClick={async () => {
                               await uploadDocuments([file]);
                               setDocumentFiles(documentFiles.filter((_, i) => i !== idx));
@@ -1525,7 +1526,7 @@ export const BrandKitPage = () => {
                         setDocumentFiles([]);
                       }}
                       disabled={uploadingDocuments}
-                      className="w-full"
+                      className="w-full btn-gradient-cta"
                     >
                       {uploadingDocuments ? (
                         <>
@@ -1669,7 +1670,7 @@ export const BrandKitPage = () => {
                     <Button
                       onClick={() => uploadMedia(mediaFiles)}
                       disabled={uploadingImages}
-                      className="w-full"
+                      className="w-full btn-gradient-cta"
                     >
                       {uploadingImages ? (
                         <>
@@ -1940,6 +1941,7 @@ export const BrandKitPage = () => {
                       <Button
                         variant="default"
                         size="sm"
+                        className="btn-gradient-cta"
                         onClick={async () => {
                           // Ensure both keys are always included, even if one is empty
                           const updatedBrandStyles = {
@@ -2033,6 +2035,7 @@ export const BrandKitPage = () => {
                           <Button 
                             variant="default" 
                             size="sm"
+                            className="btn-gradient-cta"
                             onClick={async () => {
                               // Save immediately to database
                               await handleSave({ colorPalette: editData.colorPalette });
@@ -2121,6 +2124,7 @@ export const BrandKitPage = () => {
                           <Button 
                             variant="default" 
                             size="sm"
+                            className="btn-gradient-cta"
                             onClick={async () => {
                               // Save immediately to database
                               await handleSave({ brandFonts: editData.brandFonts });
@@ -2353,6 +2357,7 @@ export const BrandKitPage = () => {
                       <Button
                         variant="default"
                         size="sm"
+                        className="btn-gradient-cta"
                         onClick={async () => {
                           // Ensure all keys are always included
                           const updatedBrandVoices = {
@@ -2533,7 +2538,7 @@ export const BrandKitPage = () => {
                         <label htmlFor="video" className="text-xs md:text-sm cursor-pointer">Video</label>
                       </div>
                     </div>
-                    <div className="mt-3 p-3 bg-blue-50 border-l-4 border-primary">
+                    <div className="mt-3 p-3 bg-primary/5 border-l-4 border-primary">
                       <p className="text-xs text-foreground">By default, we generate a mix of social posts featuring text-only, an image, or a video.</p>
                     </div>
                   </div>
@@ -2568,7 +2573,7 @@ export const BrandKitPage = () => {
                         Only stock
                       </Button>
                     </div>
-                    <div className="mt-3 p-3 bg-blue-50 border-l-4 border-primary">
+                    <div className="mt-3 p-3 bg-primary/5 border-l-4 border-primary">
                       <p className="text-xs text-foreground">We pick the most relevant images/videos for your content and only use each Brand Kit media once per batch. We'll send you email reminders to upload more media when running low. When uploading new media, please wait 1-2 minutes before regenerating content.</p>
                     </div>
                   </div>
@@ -2620,6 +2625,7 @@ export const BrandKitPage = () => {
                     onClick={() => saveContentPreferences('design')}
                     disabled={isSaving}
                     size="sm"
+                    className="btn-gradient-cta"
                   >
                     {isSaving ? (
                       <>
@@ -2791,7 +2797,7 @@ export const BrandKitPage = () => {
                           Always
                         </Button>
                       </div>
-                      <div className="mt-3 p-3 bg-blue-50 border-l-4 border-primary">
+                      <div className="mt-3 p-3 bg-primary/5 border-l-4 border-primary">
                         <p className="text-xs text-foreground">Tip: Hashtags can support trends or organize content, but most platforms now prioritize keywords, engagement, and relevance over hashtags for reach.</p>
                       </div>
                     </div>
@@ -2827,7 +2833,7 @@ export const BrandKitPage = () => {
                         Always
                       </Button>
                     </div>
-                    <div className="mt-3 p-3 bg-blue-50 border-l-4 border-primary">
+                    <div className="mt-3 p-3 bg-primary/5 border-l-4 border-primary">
                       <p className="text-xs text-foreground">
                         {contentPreferences.logoFrequency === 'never' && 'Logo will not be included in posts.'}
                         {contentPreferences.logoFrequency === 'sometimes' && 'Include a logo in some posts. (Approximately 3-5 in every 10 posts)'}
@@ -2843,6 +2849,7 @@ export const BrandKitPage = () => {
                     onClick={() => saveContentPreferences('content')}
                     disabled={isSaving}
                     size="sm"
+                    className="btn-gradient-cta"
                   >
                     {isSaving ? (
                       <>
@@ -2926,6 +2933,7 @@ export const BrandKitPage = () => {
                     onClick={() => saveContentPreferences('cta')}
                     disabled={isSaving}
                     size="sm"
+                    className="btn-gradient-cta"
                   >
                     {isSaving ? (
                       <>

@@ -1469,7 +1469,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 {/* Total Posts Summary */}
                 <div className="pt-2 border-t">
                   <p className="text-sm font-medium">
-                    Total posts to generate: <span className="text-blue-600">{imagePostCount[0] + videoPostCount[0]}</span>
+                    Total posts to generate: <span className="text-primary">{imagePostCount[0] + videoPostCount[0]}</span>
                     <span className="text-xs text-muted-foreground ml-2">(max 4 per generation)</span>
                   </p>
                 </div>
@@ -1481,7 +1481,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 Back
               </Button>
               <Button 
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-sm sm:text-base h-10 sm:h-11" 
+                className="flex-1 btn-gradient-cta text-sm sm:text-base h-10 sm:h-11" 
                 onClick={handleGenerate}
                 disabled={imagePostCount[0] + videoPostCount[0] === 0}
               >
@@ -1632,7 +1632,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                         </Button>
                         <Button
                           size="sm"
-                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm h-8 sm:h-9"
+                          className="flex-1 btn-gradient-cta text-xs sm:text-sm h-8 sm:h-9"
                           onClick={(e) => {
                             e.stopPropagation();
                             handlePostNowClick(post);
@@ -1828,7 +1828,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
           {postingComplete && (
             <AlertDialogFooter>
               <Button
-                className="w-full bg-blue-600 hover:bg-blue-700 text-sm sm:text-base h-10 sm:h-11"
+                className="w-full bg-primary hover:bg-primary/90 text-sm sm:text-base h-10 sm:h-11"
                 onClick={() => {
                   setShowPostingDialog(false);
                   setPostingResults([]);
@@ -1856,7 +1856,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             <Button variant="outline" onClick={handleScheduleInstead}>
               Schedule Instead
             </Button>
-            <Button onClick={handleReplaceAndPost} className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={handleReplaceAndPost} className="bg-primary hover:bg-primary/90">
               Replace & Post
             </Button>
           </AlertDialogFooter>

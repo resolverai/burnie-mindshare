@@ -243,6 +243,8 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
       user_prompt,
       user_images,
       inspiration_links,
+      is_onboarding_product_image,
+      force_product_marketing,
     } = req.body;
 
     // Validate required fields
@@ -401,6 +403,8 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
         user_prompt,
         user_images,
         inspiration_links,
+        is_onboarding_product_image,
+        force_product_marketing,
       }),
     });
 

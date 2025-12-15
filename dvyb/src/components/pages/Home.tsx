@@ -509,7 +509,7 @@ export const Home = () => {
 
               <div className="flex gap-3 mt-4 md:mt-6">
                 <Button 
-                  className={`gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm md:text-base ${
+                  className={`gap-2 btn-gradient-cta text-sm md:text-base ${
                     currentHighlight === 'generate_button' ? 'onboarding-pulse-ring' : ''
                   }`}
                   onClick={async () => {
@@ -591,7 +591,7 @@ export const Home = () => {
                     variant={selectedDays === "7" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setSelectedDays("7")}
-                    className="text-xs md:text-sm"
+                    className={`text-xs md:text-sm ${selectedDays === "7" ? "btn-gradient-cta" : ""}`}
                   >
                 Last 7 Days
               </Button>
@@ -599,7 +599,7 @@ export const Home = () => {
                     variant={selectedDays === "30" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setSelectedDays("30")}
-                    className="text-xs md:text-sm"
+                    className={`text-xs md:text-sm ${selectedDays === "30" ? "btn-gradient-cta" : ""}`}
                   >
                 Last 30 Days
               </Button>
@@ -769,7 +769,7 @@ export const Home = () => {
                     variant={selectedDays === "7" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setSelectedDays("7")}
-                    className="text-xs md:text-sm"
+                    className={`text-xs md:text-sm ${selectedDays === "7" ? "btn-gradient-cta" : ""}`}
                   >
                 Last 7 Days
               </Button>
@@ -777,7 +777,7 @@ export const Home = () => {
                     variant={selectedDays === "30" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setSelectedDays("30")}
-                    className="text-xs md:text-sm"
+                    className={`text-xs md:text-sm ${selectedDays === "30" ? "btn-gradient-cta" : ""}`}
                   >
                 Last 30 Days
               </Button>
@@ -943,7 +943,7 @@ export const Home = () => {
                     variant={selectedDays === "7" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setSelectedDays("7")}
-                    className="text-xs md:text-sm"
+                    className={`text-xs md:text-sm ${selectedDays === "7" ? "btn-gradient-cta" : ""}`}
                   >
                 Last 7 Days
               </Button>
@@ -951,7 +951,7 @@ export const Home = () => {
                     variant={selectedDays === "30" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setSelectedDays("30")}
-                    className="text-xs md:text-sm"
+                    className={`text-xs md:text-sm ${selectedDays === "30" ? "btn-gradient-cta" : ""}`}
                   >
                 Last 30 Days
               </Button>
@@ -1118,7 +1118,7 @@ export const Home = () => {
                     variant={selectedDays === "7" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setSelectedDays("7")}
-                    className="text-xs md:text-sm"
+                    className={`text-xs md:text-sm ${selectedDays === "7" ? "btn-gradient-cta" : ""}`}
                   >
                 Last 7 Days
               </Button>
@@ -1126,7 +1126,7 @@ export const Home = () => {
                     variant={selectedDays === "30" ? "default" : "outline"}
                     size="sm"
                     onClick={() => setSelectedDays("30")}
-                    className="text-xs md:text-sm"
+                    className={`text-xs md:text-sm ${selectedDays === "30" ? "btn-gradient-cta" : ""}`}
                   >
                 Last 30 Days
               </Button>
@@ -1335,11 +1335,11 @@ export const Home = () => {
                     <p className="text-sm sm:text-base text-muted-foreground">
                       Please reach out to our support team to reactivate your account.
                     </p>
-                    <div className="bg-blue-50 dark:bg-blue-950 p-3 sm:p-4 rounded-lg mt-3 sm:mt-4">
+                    <div className="bg-primary/5 dark:bg-primary/10 p-3 sm:p-4 rounded-lg mt-3 sm:mt-4">
                       <p className="text-xs sm:text-sm text-muted-foreground mb-1">Contact Support:</p>
                       <a 
                         href="mailto:social@dvyb.ai" 
-                        className="text-blue-600 hover:text-blue-700 font-medium text-base sm:text-lg break-all"
+                        className="text-primary hover:text-primary/80 font-medium text-base sm:text-lg break-all"
                       >
                         social@dvyb.ai
                       </a>

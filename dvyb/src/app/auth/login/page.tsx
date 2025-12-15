@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Loader2, Sparkles } from "lucide-react";
 import { authApi } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -69,14 +68,30 @@ export default function AuthLoginPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted">
+      <div 
+        className="min-h-screen flex items-center justify-center"
+        style={{
+          backgroundImage: 'url(/onboarding-bg.png)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat'
+        }}
+      >
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 md:p-6 lg:p-8 bg-gradient-to-br from-background via-background to-muted">
+    <div 
+      className="min-h-screen flex items-center justify-center p-4 md:p-6 lg:p-8"
+      style={{
+        backgroundImage: 'url(/onboarding-bg.png)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
+      }}
+    >
       <div className="w-full max-w-md space-y-6 md:space-y-8 animate-fade-in">
         {/* Logo */}
         <div className="text-center space-y-3 md:space-y-4">
@@ -86,16 +101,16 @@ export default function AuthLoginPage() {
           <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-foreground flex items-center justify-center gap-2 flex-wrap px-4">
             Welcome to Dvyb <Sparkles className="text-accent w-6 h-6 md:w-8 md:h-8" />
           </h1>
-          <p className="text-base md:text-lg text-muted-foreground px-4">
+          <p className="text-base md:text-lg text-foreground/80 px-4">
             Sign in to create amazing social media content
           </p>
         </div>
 
         {/* Auth Card */}
-        <Card className="p-6 md:p-8 shadow-card hover:shadow-card-hover transition-shadow space-y-4 md:space-y-6">
+        <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl p-6 md:p-8 shadow-2xl space-y-4 md:space-y-6">
           {error && (
-            <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
-              <p className="text-sm text-destructive text-center">{error}</p>
+            <div className="p-4 bg-red-500/20 border border-red-500/30 rounded-lg">
+              <p className="text-sm text-red-700 text-center">{error}</p>
             </div>
           )}
 
@@ -126,48 +141,48 @@ export default function AuthLoginPage() {
             </Button>
           </div>
 
-          <div className="pt-4 border-t border-border">
-            <p className="text-xs md:text-sm text-center text-muted-foreground">
+          <div className="pt-4 border-t border-white/20">
+            <p className="text-xs md:text-sm text-center text-foreground/70">
               By signing in, you agree to our Terms of Service and Privacy Policy
             </p>
           </div>
-        </Card>
+        </div>
 
         {/* Features */}
         <div className="space-y-3 md:space-y-4 px-2">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0">
-              <svg className="w-5 h-5 md:w-6 md:h-6 text-purple-600 dark:text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-primary/20 backdrop-blur-sm flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 md:w-6 md:h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
             <div>
               <h3 className="font-semibold text-sm md:text-base text-foreground">AI-Powered Content Generation</h3>
-              <p className="text-xs md:text-sm text-muted-foreground">Create engaging posts tailored to your brand</p>
+              <p className="text-xs md:text-sm text-foreground/70">Create engaging posts tailored to your brand</p>
             </div>
           </div>
 
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0">
-              <svg className="w-5 h-5 md:w-6 md:h-6 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-primary/20 backdrop-blur-sm flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 md:w-6 md:h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
             </div>
             <div>
               <h3 className="font-semibold text-sm md:text-base text-foreground">Smart Scheduling</h3>
-              <p className="text-xs md:text-sm text-muted-foreground">Plan and schedule your content calendar</p>
+              <p className="text-xs md:text-sm text-foreground/70">Plan and schedule your content calendar</p>
             </div>
           </div>
 
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center flex-shrink-0">
-              <svg className="w-5 h-5 md:w-6 md:h-6 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-primary/20 backdrop-blur-sm flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 md:w-6 md:h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </div>
             <div>
               <h3 className="font-semibold text-sm md:text-base text-foreground">Secure & Private</h3>
-              <p className="text-xs md:text-sm text-muted-foreground">Your data is safe with enterprise-grade security</p>
+              <p className="text-xs md:text-sm text-foreground/70">Your data is safe with enterprise-grade security</p>
             </div>
           </div>
         </div>

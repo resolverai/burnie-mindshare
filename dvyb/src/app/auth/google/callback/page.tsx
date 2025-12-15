@@ -142,7 +142,9 @@ function DvybGoogleCallbackContent() {
         const onboardingComplete = response.data?.onboarding_complete
         
         // Check localStorage for analysis (in case user just did it before signing in)
-        const hasLocalAnalysis = !!localStorage.getItem('dvyb_website_analysis')
+        const storedAnalysis = localStorage.getItem('dvyb_website_analysis')
+        const storedUrl = localStorage.getItem('dvyb_pending_website_url')
+        const hasLocalAnalysis = !!storedAnalysis
         
         // ALWAYS check with backend if website analysis exists in dvyb_context
         // This is the authoritative source - if 'website' field is populated, analysis was done
@@ -177,10 +179,34 @@ function DvybGoogleCallbackContent() {
           // Returning user with complete onboarding - go to home
           redirectTo = '/home'
           console.log('➡️ Redirecting to /home (onboarding complete)')
-        } else if (hasAnalysis) {
-          // User has analysis data - go to analysis details to review
-          redirectTo = '/onboarding/analysis-details'
-          console.log('➡️ Redirecting to /onboarding/analysis-details (has analysis)')
+        } else if (hasLocalAnalysis && storedUrl) {
+          // User has local analysis from unauthenticated flow - save to context and go to brand-profile
+          console.log('📝 Saving local analysis to context...')
+          try {
+            const analysisData = JSON.parse(storedAnalysis)
+            await contextApi.updateContext({
+              website: storedUrl,
+              accountName: analysisData.base_name,
+              industry: analysisData.industry || null,
+              suggestedFirstTopic: analysisData.suggested_first_topic || null,
+              businessOverview: analysisData.business_overview_and_positioning,
+              customerDemographics: analysisData.customer_demographics_and_psychographics,
+              popularProducts: analysisData.most_popular_products_and_services,
+              whyCustomersChoose: analysisData.why_customers_choose,
+              brandStory: analysisData.brand_story,
+              colorPalette: analysisData.color_palette,
+              logoUrl: analysisData.logo_s3_key || null,
+            })
+            console.log('✅ Analysis saved to context')
+          } catch (saveError) {
+            console.error('⚠️ Failed to save analysis to context:', saveError)
+          }
+          redirectTo = '/onboarding/brand-profile'
+          console.log('➡️ Redirecting to /onboarding/brand-profile (has local analysis, saved to context)')
+        } else if (hasBackendAnalysis) {
+          // User has analysis in backend - go to brand-profile
+          redirectTo = '/onboarding/brand-profile'
+          console.log('➡️ Redirecting to /onboarding/brand-profile (has backend analysis)')
         } else {
           // No analysis data - user needs to do website analysis first
           // This applies to both new users AND returning users who never completed analysis

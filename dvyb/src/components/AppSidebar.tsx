@@ -13,13 +13,15 @@ import {
   LogOut,
   ImageIcon,
   Video,
-  CreditCard
+  CreditCard,
+  Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import dvybLogo from "@/assets/dvyb-logo.png";
 import { useAuth } from "@/contexts/AuthContext";
 import { contextApi } from "@/lib/api";
+import { PricingModal } from "@/components/PricingModal";
 
 interface AppSidebarProps {
   activeView: string;
@@ -55,7 +57,11 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
     imagePostsLimit: number;
     videoPostsLimit: number;
     isFreeTrialPlan: boolean;
+    planId?: number;
+    monthlyPrice?: number;
+    annualPrice?: number;
   } | null>(null);
+  const [showPricingModal, setShowPricingModal] = useState(false);
   const { accountId, logout } = useAuth();
 
   // Determine if sidebar should be collapsed (either manually or forced)
@@ -111,10 +117,21 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/plan`, {
           credentials: 'include',
+          headers: {
+            ...(() => {
+              const storedAccountId = localStorage.getItem('dvyb_account_id');
+              return storedAccountId ? { 'X-DVYB-Account-ID': storedAccountId } : {};
+            })(),
+          },
         });
         const data = await response.json();
         if (data.success && data.data) {
-          setPlanInfo(data.data);
+          setPlanInfo({
+            ...data.data,
+            planId: data.data.planId,
+            monthlyPrice: data.data.monthlyPrice,
+            annualPrice: data.data.annualPrice,
+          });
         }
       } catch (error) {
         console.error("Failed to fetch plan:", error);
@@ -276,8 +293,28 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
           ))}
         </nav>
 
-        {/* Logout Button */}
-        <div className="px-3 py-4 border-t border-sidebar-border">
+        {/* Upgrade & Logout Buttons */}
+        <div className="px-3 py-4 border-t border-sidebar-border space-y-2">
+          {/* Upgrade Button */}
+          <button
+            onClick={() => setShowPricingModal(true)}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-3 rounded-lg text-base",
+              "btn-upgrade-sidebar",
+              collapsed && "md:justify-center"
+            )}
+            title={collapsed ? "Upgrade" : undefined}
+          >
+            <Sparkles className="w-5 h-5 flex-shrink-0" />
+            <span className={cn(
+              "flex-1 text-left",
+              collapsed && "md:hidden"
+            )}>
+              Upgrade
+            </span>
+          </button>
+
+          {/* Logout Button */}
           <button
             onClick={handleLogout}
             className={cn(
@@ -297,6 +334,23 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
           </button>
         </div>
       </aside>
+
+      {/* Pricing Modal */}
+      <PricingModal
+        open={showPricingModal}
+        onClose={() => setShowPricingModal(false)}
+        currentPlanInfo={planInfo ? {
+          planName: planInfo.planName,
+          planId: planInfo.planId || null,
+          monthlyPrice: planInfo.monthlyPrice || 0,
+          annualPrice: planInfo.annualPrice || 0,
+          billingCycle: planInfo.selectedFrequency,
+          isFreeTrialPlan: planInfo.isFreeTrialPlan,
+        } : null}
+        isAuthenticated={true}
+        canSkip={true}
+        reason="user_initiated"
+      />
     </>
   );
 };

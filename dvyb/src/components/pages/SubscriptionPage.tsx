@@ -306,7 +306,7 @@ export const SubscriptionPage = () => {
                   source: 'subscription_page',
                 });
                 setShowPricingModal(true);
-              }} className="gap-2">
+              }} className="gap-2 btn-gradient-cta">
                 <ArrowUpRight className="w-4 h-4" />
                 Upgrade Plan
               </Button>
@@ -352,7 +352,7 @@ export const SubscriptionPage = () => {
                       variant="default" 
                       onClick={handleResumeSubscription}
                       disabled={isResuming}
-                      className="gap-2"
+                      className="gap-2 btn-gradient-cta"
                     >
                       {isResuming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                       {subscription?.pendingFrequency ? 'Cancel Switch' : 'Resume Subscription'}

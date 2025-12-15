@@ -894,7 +894,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
               Cancel
             </Button>
             <Button
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-sm sm:text-base py-2 sm:py-3"
+              className="flex-1 btn-gradient-cta text-sm sm:text-base py-2 sm:py-3"
               onClick={handleSchedule}
               disabled={!selectedDate || isScheduling}
             >
@@ -939,7 +939,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
             </Button>
             <Button 
               onClick={handleReplacePost} 
-              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-sm sm:text-base"
+              className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-sm sm:text-base"
             >
               Replace Post
             </Button>

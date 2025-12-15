@@ -436,7 +436,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   const getStatusColor = (status: string) => {
     switch (status) {
       case "scheduled":
-        return "bg-blue-500";
+        return "bg-primary";
       case "generated":
         return "bg-green-500";
       case "published":
@@ -998,7 +998,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
               setShowGenerateDialog(true);
             }
           }}
-          className="md:hidden bg-primary hover:bg-primary/90 shadow-lg rounded-full h-14 w-14 p-0"
+          className="md:hidden btn-gradient-cta rounded-full h-14 w-14 p-0"
           size="icon"
         >
           <Sparkles className="w-6 h-6" />
@@ -1059,7 +1059,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
               setShowGenerateDialog(true);
             }
           }}
-          className="hidden md:flex bg-primary hover:bg-primary/90 shadow-lg px-5 py-5 text-base"
+          className="hidden md:flex btn-gradient-cta px-5 py-5 text-base"
         >
           <Sparkles className="w-5 h-5 mr-2" />
           Generate Content
@@ -1105,11 +1105,11 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                 <p className="text-sm sm:text-base text-muted-foreground">
                   Please reach out to our support team to reactivate your account.
                 </p>
-                <div className="bg-blue-50 dark:bg-blue-950 p-3 sm:p-4 rounded-lg mt-3 sm:mt-4">
+                <div className="bg-primary/5 dark:bg-primary/10 p-3 sm:p-4 rounded-lg mt-3 sm:mt-4">
                   <p className="text-xs sm:text-sm text-muted-foreground mb-1">Contact Support:</p>
                   <a 
                     href="mailto:social@dvyb.ai" 
-                    className="text-blue-600 hover:text-blue-700 font-medium text-base sm:text-lg break-all"
+                    className="text-primary hover:text-primary/80 font-medium text-base sm:text-lg break-all"
                   >
                     social@dvyb.ai
                   </a>

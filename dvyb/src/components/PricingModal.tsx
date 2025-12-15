@@ -293,7 +293,7 @@ const PlanCard = ({
             : isFree
             ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg'
             : changeType === 'upgrade' || changeType === 'get_started' || changeType === 'switch_to_annual'
-            ? 'bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg'
+            ? 'btn-gradient-cta'
             : changeType === 'switch_to_monthly'
             ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-lg'
             : 'bg-foreground hover:bg-foreground/90 text-background'
