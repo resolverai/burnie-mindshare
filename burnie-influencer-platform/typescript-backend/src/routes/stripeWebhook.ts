@@ -279,7 +279,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
     });
     
     for (const plan of activePlans) {
-      plan.status = 'payment_failed';
+      plan.status = 'cancelled';
       plan.endDate = new Date();
       plan.notes = 'Ended due to payment failure - subscription marked as unpaid';
       await accountPlanRepo.save(plan);

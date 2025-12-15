@@ -630,18 +630,18 @@ export class StripeService {
     // Fetch invoice URLs from Stripe for each payment
     const paymentsWithInvoices = await Promise.all(
       payments.map(async (payment) => {
-        let invoiceUrl: string | undefined;
-        
         if (payment.stripeInvoiceId) {
           try {
             const invoice = await stripe.invoices.retrieve(payment.stripeInvoiceId);
-            invoiceUrl = invoice.hosted_invoice_url || undefined;
+            if (invoice.hosted_invoice_url) {
+              return { ...payment, invoiceUrl: invoice.hosted_invoice_url };
+            }
           } catch (error) {
             logger.warn(`Could not fetch invoice ${payment.stripeInvoiceId}:`, error);
           }
         }
         
-        return { ...payment, invoiceUrl };
+        return payment as DvybAccountPayment & { invoiceUrl?: string };
       })
     );
 
