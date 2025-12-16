@@ -502,6 +502,114 @@ export const trackBrandKitSaveAllClicked = (fieldsUpdated: string[]) => {
   });
 };
 
+// --- CONTENT STRATEGY / QUESTIONNAIRE ---
+export const trackStrategyQuestionnaireStarted = () => {
+  trackEvent('Strategy Questionnaire Started');
+};
+
+export const trackStrategyQuestionAnswered = (questionId: string, answer: any) => {
+  trackEvent('Strategy Question Answered', { 
+    questionId, 
+    answer: typeof answer === 'object' ? JSON.stringify(answer) : answer,
+  });
+};
+
+export const trackStrategyQuestionnaireCompleted = (preferences: Record<string, any>) => {
+  trackEvent('Strategy Questionnaire Completed', {
+    goal: preferences.goal,
+    platforms: preferences.platforms,
+    platformCount: preferences.platforms?.length || 0,
+    postingFrequency: preferences.postingFrequency,
+    biggestChallenge: preferences.biggestChallenge,
+    hasFollowerData: Object.keys(preferences.platformFollowers || {}).length > 0,
+  });
+};
+
+export const trackStrategyGenerated = (data: {
+  itemCount: number;
+  strategyMonth: string;
+}) => {
+  trackEvent('Content Strategy Generated', data);
+};
+
+// --- CALENDAR / STRATEGY VIEW ---
+export const trackStrategyCalendarViewed = (month: string) => {
+  trackEvent('Strategy Calendar Viewed', { month });
+};
+
+export const trackStrategyItemClicked = (data: {
+  itemId: number;
+  platform: string;
+  contentType: string;
+  date: string;
+}) => {
+  trackEvent('Strategy Item Clicked', data);
+};
+
+export const trackStrategyItemDeleted = (data: {
+  itemId: number;
+  platform: string;
+  date: string;
+}) => {
+  trackEvent('Strategy Item Deleted', data);
+};
+
+export const trackStrategyMonthChanged = (data: {
+  fromMonth: string;
+  toMonth: string;
+  direction: 'prev' | 'next';
+}) => {
+  trackEvent('Strategy Month Changed', data);
+};
+
+// --- CONTENT REVIEW (SWIPE/LIKE/REJECT) ---
+export const trackContentAccepted = (data: {
+  contentId?: number;
+  postIndex: number;
+  platform: string;
+  contentType: 'image' | 'video';
+  method: 'swipe' | 'click';
+  source: 'generate_dialog' | 'post_detail_dialog' | 'content_library';
+}) => {
+  trackEvent('Content Accepted', data);
+};
+
+export const trackContentRejected = (data: {
+  contentId?: number;
+  postIndex: number;
+  platform: string;
+  contentType: 'image' | 'video';
+  method: 'swipe' | 'click';
+  source: 'generate_dialog' | 'post_detail_dialog' | 'content_library';
+}) => {
+  trackEvent('Content Rejected', data);
+};
+
+export const trackContentReviewCompleted = (data: {
+  totalPosts: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  source: 'generate_dialog' | 'post_detail_dialog';
+}) => {
+  trackEvent('Content Review Completed', data);
+};
+
+// --- INSPIRATION SELECTION ---
+export const trackInspirationPageViewed = (data: {
+  industry: string;
+  inspirationCount: number;
+}) => {
+  trackEvent('Inspiration Page Viewed', data);
+};
+
+export const trackInspirationSelected = (data: {
+  inspirationId: number;
+  platform: string;
+  category: string;
+}) => {
+  trackEvent('Inspiration Selected', data);
+};
+
 // --- SUBSCRIPTION PAGE ---
 export const trackSubscriptionPageViewed = (data: {
   planName: string;

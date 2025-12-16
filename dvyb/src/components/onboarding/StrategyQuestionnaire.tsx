@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Sparkles, ChevronRight, ChevronLeft, Instagram, Linkedin, Image, Video, Users, TrendingUp, Target, Zap } from "lucide-react";
 import { StrategyPreferences, PlatformFollowers } from "@/lib/api";
+import { trackStrategyQuestionnaireStarted, trackStrategyQuestionAnswered, trackStrategyQuestionnaireCompleted } from "@/lib/mixpanel";
 
 // Platform icons
 const XIcon = ({ className }: { className?: string }) => (
@@ -133,6 +134,15 @@ export function StrategyQuestionnaire({
   });
   const [isAnimating, setIsAnimating] = useState(false);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right'>('left');
+  const [hasTrackedStart, setHasTrackedStart] = useState(false);
+
+  // Track questionnaire start
+  useEffect(() => {
+    if (!hasTrackedStart) {
+      trackStrategyQuestionnaireStarted();
+      setHasTrackedStart(true);
+    }
+  }, [hasTrackedStart]);
 
   const currentQuestion = QUESTIONS[currentStep];
   const isLastQuestion = currentStep === QUESTIONS.length - 1;
@@ -197,7 +207,14 @@ export function StrategyQuestionnaire({
   };
 
   const handleNext = () => {
+    // Track the answer for current question
+    const currentAnswer = getCurrentAnswer();
+    if (currentAnswer) {
+      trackStrategyQuestionAnswered(currentQuestion.id, currentAnswer);
+    }
+    
     if (isLastQuestion) {
+      trackStrategyQuestionnaireCompleted(answers);
       onComplete(answers);
     } else {
       animateTransition('left', () => setCurrentStep(prev => prev + 1));

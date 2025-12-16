@@ -9,6 +9,7 @@ import { Loader2, Play, X } from "lucide-react";
 import dvybLogo from "@/assets/dvyb-logo.png";
 import { inspirationsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { trackInspirationPageViewed, trackInspirationSelected } from "@/lib/mixpanel";
 
 interface InspirationVideo {
   id: number;
@@ -137,7 +138,14 @@ export default function InspirationSelectionPage() {
         const response = await inspirationsApi.matchInspirations(detectedIndustry, 6);
         
         if (response.success && response.data) {
-          setInspirationVideos(response.data.inspiration_videos || []);
+          const videos = response.data.inspiration_videos || [];
+          setInspirationVideos(videos);
+          
+          // Track page view with inspiration data
+          trackInspirationPageViewed({
+            industry: detectedIndustry,
+            inspirationCount: videos.length,
+          });
         }
       } catch (error: any) {
         console.error("Error loading inspirations:", error);
@@ -160,6 +168,13 @@ export default function InspirationSelectionPage() {
 
   const handleUseVideo = () => {
     if (selectedVideo) {
+      // Track inspiration selection
+      trackInspirationSelected({
+        inspirationId: selectedVideo.id,
+        platform: selectedVideo.platform,
+        category: selectedVideo.category,
+      });
+      
       // Store selected inspiration in localStorage
       localStorage.setItem("dvyb_selected_inspirations", JSON.stringify([selectedVideo]));
       

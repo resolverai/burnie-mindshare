@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, Instagram, Linkedin, Video, Image as ImageIcon, Loader2, Calendar, Sparkles } from "lucide-react";
 import { contentStrategyApi, ContentStrategyItem } from "@/lib/api";
 import { StrategyItemDetail } from "./StrategyItemDetail";
+import { trackStrategyCalendarViewed, trackStrategyItemClicked, trackStrategyItemDeleted, trackStrategyMonthChanged } from "@/lib/mixpanel";
 
 // Platform icons
 const XIcon = ({ className }: { className?: string }) => (
@@ -68,6 +69,7 @@ export function StrategyCalendarView() {
   const [selectedItem, setSelectedItem] = useState<ContentStrategyItem | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [availableMonths, setAvailableMonths] = useState<Set<string>>(new Set());
+  const hasTrackedInitialView = useRef(false);
 
   const monthNames = [
     "January", "February", "March", "April", "May", "June",
@@ -111,6 +113,13 @@ export function StrategyCalendarView() {
 
   useEffect(() => {
     fetchStrategy();
+    
+    // Track calendar view
+    const monthStr = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`;
+    if (!hasTrackedInitialView.current) {
+      trackStrategyCalendarViewed(monthStr);
+      hasTrackedInitialView.current = true;
+    }
   }, [currentMonth]);
 
   // Check if navigation is allowed
@@ -123,21 +132,43 @@ export function StrategyCalendarView() {
   const canGoNext = maxMonth && currentMonthStr < maxMonth;
 
   const handlePrevMonth = () => {
-    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+    const prevMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+    const fromMonth = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`;
+    const toMonth = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+    trackStrategyMonthChanged({ fromMonth, toMonth, direction: 'prev' });
+    setCurrentMonth(prevMonth);
   };
 
   const handleNextMonth = () => {
-    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+    const nextMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
+    const fromMonth = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}`;
+    const toMonth = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}`;
+    trackStrategyMonthChanged({ fromMonth, toMonth, direction: 'next' });
+    setCurrentMonth(nextMonth);
   };
 
   const handleItemClick = (item: ContentStrategyItem) => {
+    trackStrategyItemClicked({
+      itemId: item.id,
+      platform: item.platform,
+      contentType: item.contentType,
+      date: item.date,
+    });
     setSelectedItem(item);
     setShowDetail(true);
   };
 
   const handleDelete = async (itemId: number) => {
     try {
+      const item = items.find(i => i.id === itemId);
       await contentStrategyApi.deleteItem(itemId);
+      if (item) {
+        trackStrategyItemDeleted({
+          itemId,
+          platform: item.platform,
+          date: item.date,
+        });
+      }
       setItems(prev => prev.filter(item => item.id !== itemId));
       setShowDetail(false);
       setSelectedItem(null);

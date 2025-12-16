@@ -48,15 +48,20 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
 
     // Call Python AI backend to generate strategy
     try {
+      // Extract topics from suggestedFirstTopic if available
+      const topics = context.suggestedFirstTopic?.title 
+        ? [context.suggestedFirstTopic.title] 
+        : context.contentPillars || [];
+      
       const response = await axios.post(
         `${PYTHON_AI_BACKEND_URL}/api/dvyb/content-strategy/generate`,
         {
           account_id: accountId,
           website_analysis: {
             industry: context.industry,
-            description: context.description,
-            topics: context.topics,
-            brandName: context.brandName,
+            description: context.businessOverview || context.brandStory,
+            topics: topics,
+            brandName: context.accountName,
             logoUrl: context.logoUrl,
           },
           strategy_preferences: strategyPreferences || context.strategyPreferences,
@@ -84,17 +89,19 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
         }
         
         // Delete existing strategy items for this account in affected months
-        for (const month of monthsToUpdate) {
-          await strategyRepo.delete({ accountId, strategyMonth: month });
+        for (const monthStr of monthsToUpdate) {
+          await strategyRepo.delete({ accountId, strategyMonth: monthStr });
         }
         
         let itemCount = 0;
+        let firstStrategyMonth = '';
         for (const pkg of content_packages || []) {
           const weekNumber = pkg.week_number || 1;
           const weekTheme = pkg.week_theme || week_themes?.[String(weekNumber)] || `Week ${weekNumber}`;
           
           // Set strategyMonth based on the item's actual date
           const itemStrategyMonth = pkg.date ? pkg.date.substring(0, 7) : new Date().toISOString().substring(0, 7);
+          if (!firstStrategyMonth) firstStrategyMonth = itemStrategyMonth;
           
           const strategyItem = strategyRepo.create({
             accountId,
@@ -119,7 +126,7 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
           message: 'Content strategy generated successfully',
           data: {
             itemCount,
-            strategyMonth: strategy_month,
+            strategyMonth: firstStrategyMonth || new Date().toISOString().substring(0, 7),
           },
         });
       } else {
@@ -163,9 +170,11 @@ router.get('/calendar', async (req: DvybAuthRequest, res: Response) => {
       .orderBy('strategy.date', 'ASC')
       .addOrderBy('strategy.id', 'ASC');
 
-    if (month) {
+    if (month && typeof month === 'string') {
       // Filter by actual date range only (more reliable than strategyMonth field)
-      const [year, monthNum] = month.split('-').map(Number);
+      const parts = month.split('-').map(Number);
+      const year = parts[0] || new Date().getFullYear();
+      const monthNum = parts[1] || 1;
       const startDate = `${month}-01`;
       // Get last day of month
       const lastDay = new Date(year, monthNum, 0).getDate();
@@ -275,8 +284,19 @@ router.get('/available-months', async (req: DvybAuthRequest, res: Response) => {
       }
       // Also add month from actual date
       if (item.date) {
-        const dateStr = typeof item.date === 'string' ? item.date : item.date.toISOString().split('T')[0];
-        months.add(dateStr.substring(0, 7));
+        const dateValue = item.date as unknown;
+        let dateStr: string;
+        if (typeof dateValue === 'string') {
+          dateStr = dateValue;
+        } else if (dateValue instanceof Date) {
+          const parts = dateValue.toISOString().split('T');
+          dateStr = parts[0] ?? '';
+        } else {
+          dateStr = String(dateValue);
+        }
+        if (dateStr && dateStr.length >= 7) {
+          months.add(dateStr.substring(0, 7));
+        }
       }
     });
 
@@ -307,7 +327,11 @@ router.get('/:id', async (req: DvybAuthRequest, res: Response) => {
       return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
 
-    const itemId = parseInt(req.params.id, 10);
+    const idParam = req.params.id;
+    if (!idParam) {
+      return res.status(400).json({ success: false, error: 'Item ID is required' });
+    }
+    const itemId = parseInt(idParam, 10);
     if (isNaN(itemId)) {
       return res.status(400).json({ success: false, error: 'Invalid item ID' });
     }
@@ -359,7 +383,11 @@ router.delete('/:id', async (req: DvybAuthRequest, res: Response) => {
       return res.status(401).json({ success: false, error: 'Not authenticated' });
     }
 
-    const itemId = parseInt(req.params.id, 10);
+    const idParam = req.params.id;
+    if (!idParam) {
+      return res.status(400).json({ success: false, error: 'Item ID is required' });
+    }
+    const itemId = parseInt(idParam, 10);
     if (isNaN(itemId)) {
       return res.status(400).json({ success: false, error: 'Invalid item ID' });
     }

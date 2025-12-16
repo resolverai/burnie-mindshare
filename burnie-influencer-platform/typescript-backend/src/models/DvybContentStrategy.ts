@@ -15,45 +15,45 @@ export interface ContentStrategyMetadata {
 @Index(['accountId', 'date'])
 export class DvybContentStrategy {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
 
   @Column()
-  accountId: number;
+  accountId!: number;
 
   @Column({ type: 'date' })
-  date: string; // "2025-01-20"
+  date!: string; // "2025-01-20"
 
   @Column()
-  platform: string; // "instagram" | "twitter" | "linkedin" | "tiktok"
+  platform!: string; // "instagram" | "twitter" | "linkedin" | "tiktok"
 
   @Column()
-  contentType: string; // "image" | "video" | "text"
+  contentType!: string; // "image" | "video" | "text"
 
   @Column()
-  topic: string; // Main topic for this content
+  topic!: string; // Main topic for this content
 
   @Column({ nullable: true })
-  weekTheme: string; // Theme for the week this belongs to
+  weekTheme!: string | null; // Theme for the week this belongs to
 
   @Column({ type: 'int' })
-  weekNumber: number; // 1, 2, 3, or 4
+  weekNumber!: number; // 1, 2, 3, or 4
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: ContentStrategyMetadata;
+  metadata!: ContentStrategyMetadata | null;
 
   @Column({ default: 'suggested' })
-  status: string; // "suggested" | "deleted" | "generated"
+  status!: string; // "suggested" | "deleted" | "generated"
 
   @Column({ nullable: true })
-  generatedContentId: number; // Link when content is generated (future)
+  generatedContentId!: number | null; // Link when content is generated (future)
 
   @Column({ nullable: true })
-  strategyMonth: string; // "2025-01" - for grouping strategies by month
+  strategyMonth!: string | null; // "2025-01" - for grouping strategies by month
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
