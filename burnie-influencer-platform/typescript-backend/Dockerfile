@@ -3,6 +3,9 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Install build dependencies for native modules (sharp, etc.)
+RUN apk add --no-cache python3 make g++ pkgconfig vips-dev
+
 # Copy package files for dependency caching
 COPY package*.json ./
 COPY bun.lock* ./
