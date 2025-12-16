@@ -2,14 +2,13 @@
 
 
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Clock, Loader2, Play } from "lucide-react";
+import { Clock, Loader2, Play, X } from "lucide-react";
 import { format } from "date-fns";
 import { postingApi, authApi, socialConnectionsApi, oauth1Api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -58,7 +57,23 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
   const [needsOAuth1, setNeedsOAuth1] = useState(false);
   const [isVideoPost, setIsVideoPost] = useState(false);
   const [capturedPost, setCapturedPost] = useState<any>(null); // Capture post data when scheduling starts
+  const [isVisible, setIsVisible] = useState(false);
   const { toast } = useToast();
+
+  // Handle body overflow and animation when dialog opens/closes
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden';
+      const timeout = setTimeout(() => setIsVisible(true), 10);
+      return () => clearTimeout(timeout);
+    } else {
+      setIsVisible(false);
+      const timeout = setTimeout(() => {
+        document.body.style.overflow = 'unset';
+      }, 300);
+      return () => clearTimeout(timeout);
+    }
+  }, [open]);
 
   // Track dialog open
   useEffect(() => {
@@ -752,6 +767,14 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
     setShowOverlapDialog(false);
   };
 
+  const handleClose = () => {
+    // Animate out first, then close
+    setIsVisible(false);
+    setTimeout(() => {
+      onOpenChange(false);
+    }, 300);
+  };
+
   const getPostsForDate = (date: Date) => {
     return scheduledPosts.filter(
       (post) => post.date.toDateString() === date.toDateString()
@@ -760,13 +783,42 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="w-[95vw] sm:w-[90vw] md:w-[85vw] lg:w-[80vw] max-w-4xl h-auto max-h-[90vh] overflow-y-auto p-4 sm:p-6">
-          <DialogHeader>
-            <DialogTitle className="text-lg sm:text-xl md:text-2xl">Schedule Post</DialogTitle>
-          </DialogHeader>
+      {/* Full Screen Modal */}
+      {open && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className={`fixed inset-0 z-[100] bg-black/50 transition-opacity duration-300 ${
+              isVisible ? 'opacity-100' : 'opacity-0'
+            }`}
+            onClick={handleClose}
+          />
+          
+          {/* Modal Content */}
+          <div 
+            className={`fixed inset-0 z-[101] overflow-y-auto transition-transform duration-300 ease-out ${
+              isVisible ? 'translate-y-0' : 'translate-y-full'
+            }`}
+          >
+            <div className="min-h-screen bg-background">
+              {/* Close Button */}
+              <button
+                onClick={handleClose}
+                className="fixed top-4 right-4 md:top-6 md:right-6 z-[102] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5 text-foreground" />
+              </button>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 py-4">
+              {/* Content */}
+              <div className="py-8 md:py-16 px-4">
+                <div className="max-w-4xl mx-auto">
+                  {/* Header */}
+                  <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-foreground mb-6 md:mb-8">
+                    Schedule Post
+                  </h1>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             {/* Calendar Section */}
             <div className="space-y-4">
               <div>
@@ -817,43 +869,14 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
               </div>
             </div>
 
-            {/* Scheduled Posts Section */}
-            <div className="space-y-4">
-              <div>
-                <Label className="text-sm sm:text-base">Scheduled Posts</Label>
-                {selectedDate ? (
-                  <div className="mt-2 space-y-2">
-                    {getPostsForDate(selectedDate).length > 0 ? (
-                      getPostsForDate(selectedDate).map((post, idx) => (
-                        <Card key={idx} className="p-2 sm:p-3">
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-3 h-3 sm:w-4 sm:h-4 text-muted-foreground" />
-                            <span className="text-xs sm:text-sm font-medium">{post.time}</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                            {post.title}
-                          </p>
-                        </Card>
-                      ))
-                    ) : (
-                      <p className="text-xs sm:text-sm text-muted-foreground py-4">
-                        No posts scheduled for this date
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-xs sm:text-sm text-muted-foreground mt-2">
-                    Select a date to see scheduled posts
-                  </p>
-                )}
-              </div>
-
+            {/* Post Preview Section */}
+            <div className="flex flex-col">
               {/* Post Preview */}
               {post && (
-                <div>
-                  <Label className="text-sm sm:text-base">Post Preview</Label>
-                  <Card className="mt-2 overflow-hidden">
-                    <div className="relative w-full aspect-video bg-gray-100">
+                <div className="flex-1">
+                  <Label className="text-sm sm:text-base font-semibold">Post Preview</Label>
+                  <Card className="mt-3 overflow-hidden shadow-lg">
+                    <div className="relative w-full aspect-square bg-gray-100">
                       {post.image && (post.image.includes('video') || post.image.includes('.mp4')) ? (
                         <>
                           <video
@@ -862,7 +885,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
                             muted
                           />
                           <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                            <Play className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 text-white" fill="white" />
+                            <Play className="h-12 w-12 sm:h-14 sm:w-14 md:h-16 md:w-16 text-white" fill="white" />
                           </div>
                         </>
                       ) : (
@@ -873,23 +896,39 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
                         />
                       )}
                     </div>
-                    <div className="p-2 sm:p-3">
-                      <p className="font-medium text-xs sm:text-sm">{post.title}</p>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                    <div className="p-4 sm:p-5">
+                      <p className="font-semibold text-base sm:text-lg">{post.title}</p>
+                      <p className="text-sm text-muted-foreground mt-2 line-clamp-3">
                         {post.description}
                       </p>
                     </div>
                   </Card>
                 </div>
               )}
+              
+              {/* Scheduled Posts - Compact */}
+              {selectedDate && getPostsForDate(selectedDate).length > 0 && (
+                <div className="mt-4">
+                  <Label className="text-xs sm:text-sm text-muted-foreground">Other posts on this date</Label>
+                  <div className="mt-2 space-y-1.5">
+                    {getPostsForDate(selectedDate).map((post, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+                        <Clock className="w-3 h-3" />
+                        <span>{post.time}</span>
+                        <span className="truncate">- {post.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mt-4">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mt-6">
             <Button 
               variant="outline" 
               className="flex-1 text-sm sm:text-base py-2 sm:py-3" 
-              onClick={() => onOpenChange(false)}
+              onClick={handleClose}
             >
               Cancel
             </Button>
@@ -908,8 +947,12 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
               )}
             </Button>
           </div>
-        </DialogContent>
-      </Dialog>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Note: Authorization Dialog removed - using redirect-based OAuth */}
 
@@ -939,7 +982,7 @@ export const ScheduleDialog = ({ open, onOpenChange, post, onScheduleComplete, g
             </Button>
             <Button 
               onClick={handleReplacePost} 
-              className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-sm sm:text-base"
+              className="w-full sm:w-auto btn-gradient-cta text-sm sm:text-base"
             >
               Replace Post
             </Button>

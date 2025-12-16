@@ -804,6 +804,50 @@ export const contentLibraryApi = {
     
     return apiRequest<{ success: boolean; data: any; pagination: any }>(url);
   },
+
+  // Accept content (mark as selected)
+  async acceptContent(generatedContentId: number, postIndex: number) {
+    return apiRequest<{ success: boolean; message: string }>(
+      '/dvyb/content-library/accept',
+      {
+        method: 'POST',
+        body: JSON.stringify({ generatedContentId, postIndex }),
+      }
+    );
+  },
+
+  // Reject content (mark as not selected)
+  async rejectContent(generatedContentId: number, postIndex: number) {
+    return apiRequest<{ success: boolean; message: string }>(
+      '/dvyb/content-library/reject',
+      {
+        method: 'POST',
+        body: JSON.stringify({ generatedContentId, postIndex }),
+      }
+    );
+  },
+
+  // Bulk accept content
+  async bulkAcceptContent(items: Array<{ generatedContentId: number; postIndex: number }>) {
+    return apiRequest<{ success: boolean; message: string; acceptedCount: number }>(
+      '/dvyb/content-library/bulk-accept',
+      {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      }
+    );
+  },
+
+  // Bulk reject content
+  async bulkRejectContent(items: Array<{ generatedContentId: number; postIndex: number }>) {
+    return apiRequest<{ success: boolean; message: string; rejectedCount: number }>(
+      '/dvyb/content-library/bulk-reject',
+      {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      }
+    );
+  },
 };
 
 // Social Media Connections API

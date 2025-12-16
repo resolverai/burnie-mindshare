@@ -50,7 +50,7 @@ interface ContentItem {
   fullPlatformTexts?: any; // Full platform texts for posting (not truncated)
   image: string;
   originalMediaUrl?: string; // S3 key for image edits
-  status: "scheduled" | "generated" | "published" | "not-selected" | "posted";
+  status: "scheduled" | "generated" | "published" | "not-selected" | "posted" | "selected" | "pending-review";
   selected?: boolean;
   analytics?: PlatformAnalytics[];
   createdAt?: string;
@@ -72,6 +72,8 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   const [isLoading, setIsLoading] = useState(true);
   const [contentItems, setContentItems] = useState<ContentItem[]>([]);
   const [scheduledItems, setScheduledItems] = useState<ContentItem[]>([]); // Separate state for all scheduled
+  const [selectedItems, setSelectedItems] = useState<ContentItem[]>([]); // Selected/accepted content
+  const [pendingReviewItems, setPendingReviewItems] = useState<ContentItem[]>([]); // Content pending review
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -221,7 +223,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
       });
       
       if (response.success && response.data) {
-        const { scheduled, notSelected, posted } = response.data;
+        const { scheduled, selected, pendingReview, notSelected, posted } = response.data;
         const pagination = response.pagination || {};
         const moreAvailable = pagination.hasMore || false;
           
@@ -319,28 +321,51 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
           };
           
           // Transform scheduled content (always replace, not append)
-          const scheduledTransformed = scheduled.map((item: any) => transformContent(item, 'scheduled'));
+          const scheduledTransformed = (scheduled || []).map((item: any) => transformContent(item, 'scheduled'));
           
-          // For first page load or filter change, set scheduled items
+          // Transform selected content
+          const selectedTransformed = (selected || []).map((item: any) => transformContent(item, 'selected'));
+          
+          // Transform pending review content
+          const pendingReviewTransformed = (pendingReview || []).map((item: any) => transformContent(item, 'pending-review'));
+          
+          // For first page load or filter change, set all category items
           if (!append) {
             setScheduledItems(scheduledTransformed);
+            setSelectedItems(selectedTransformed);
+            setPendingReviewItems(pendingReviewTransformed);
           } else {
-            // On infinite scroll, append any new scheduled items
+            // On infinite scroll, append any new items
             setScheduledItems(prev => {
               const existingIds = new Set(prev.map(item => item.id));
               const newScheduled = scheduledTransformed.filter(item => !existingIds.has(item.id));
               return [...prev, ...newScheduled];
             });
+            setSelectedItems(prev => {
+              const existingIds = new Set(prev.map(item => item.id));
+              const newSelected = selectedTransformed.filter(item => !existingIds.has(item.id));
+              return [...prev, ...newSelected];
+            });
+            setPendingReviewItems(prev => {
+              const existingIds = new Set(prev.map(item => item.id));
+              const newPendingReview = pendingReviewTransformed.filter(item => !existingIds.has(item.id));
+              return [...prev, ...newPendingReview];
+            });
           }
           
           // Combine not-selected and posted content for pagination
           const newContent = [
-            ...notSelected.map((item: any) => transformContent(item, 'not-selected')),
-            ...posted.map((item: any) => transformContent(item, 'published')),
+            ...(notSelected || []).map((item: any) => transformContent(item, 'not-selected')),
+            ...(posted || []).map((item: any) => transformContent(item, 'published')),
           ];
           
           if (append) {
-            setContentItems(prev => [...prev, ...newContent]);
+            // Deduplicate on append to prevent showing same items twice
+            setContentItems(prev => {
+              const existingIds = new Set(prev.map(item => item.id));
+              const deduplicatedNew = newContent.filter(item => !existingIds.has(item.id));
+              return [...prev, ...deduplicatedNew];
+            });
           } else {
             setContentItems(newContent);
           }
@@ -349,7 +374,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
           
           // Track search if there's a search query (only on first page, not on infinite scroll append)
           if (searchQuery && !append) {
-            const totalResults = scheduledTransformed.length + newContent.length;
+            const totalResults = scheduledTransformed.length + selectedTransformed.length + pendingReviewTransformed.length + newContent.length;
             trackContentSearched(searchQuery, totalResults);
           }
         }
@@ -367,7 +392,9 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
     setPage(1);
     setHasMore(true);
     setContentItems([]);
-    setScheduledItems([]); // Also clear scheduled items
+    setScheduledItems([]);
+    setSelectedItems([]);
+    setPendingReviewItems([]);
     fetchContentLibrary(1, false);
   }, [fetchContentLibrary]);
 
@@ -375,7 +402,9 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   useEffect(() => {
     setPage(1);
     setContentItems([]);
-    setScheduledItems([]); // Also clear scheduled items
+    setScheduledItems([]);
+    setSelectedItems([]);
+    setPendingReviewItems([]);
     fetchContentLibrary(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, searchQuery, dateRange, showPosted]);
@@ -427,8 +456,11 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
     };
   }, [fetchContentLibrary]); // Only recreate when fetchContentLibrary changes
 
-  // Use separate scheduledItems state (always shows all scheduled posts)
+  // Use separate state for each category (shows all items in each category)
+  // Order: Scheduled, Selected, Pending Review, Not Selected
   const scheduledContent = scheduledItems;
+  const selectedContent = selectedItems;
+  const pendingReviewContent = pendingReviewItems;
   // contentItems only contains not-selected and posted (for infinite scroll)
   const notSelectedContent = contentItems.filter(item => item.status === "not-selected");
   const postedContent = contentItems.filter(item => item.status === "published");
@@ -437,6 +469,10 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
     switch (status) {
       case "scheduled":
         return "bg-primary";
+      case "selected":
+        return "bg-emerald-500";
+      case "pending-review":
+        return "bg-amber-500";
       case "generated":
         return "bg-green-500";
       case "published":
@@ -457,10 +493,12 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
 
   // Refresh content after generation
   const handleGenerationComplete = () => {
-    // Reset pagination and refetch
+    // Reset pagination and refetch ALL category states
     setPage(1);
     setContentItems([]);
     setScheduledItems([]);
+    setSelectedItems([]);
+    setPendingReviewItems([]);
     fetchContentLibrary(1, false);
   };
 
@@ -691,15 +729,159 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
               ) : (
                 <div className="text-center py-8 md:py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
                   <p className="text-gray-500 text-sm md:text-base font-medium">No posts scheduled</p>
-                  <p className="text-gray-400 text-xs md:text-sm mt-2">Schedule posts from the "Not Selected" section below</p>
+                  <p className="text-gray-400 text-xs md:text-sm mt-2">Schedule posts from the "Selected" or "Pending Review" sections below</p>
               </div>
             )}
             </div>
 
-            {/* Not Selected Section - Always visible */}
-              <div>
-              <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Not Selected ({notSelectedContent.length})</h2>
-              {notSelectedContent.length > 0 ? (
+            {/* Selected Section */}
+            {selectedContent.length > 0 && (
+              <div className="mb-6 md:mb-8">
+                <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
+                  Selected {isLoading ? '' : `(${selectedContent.length})`}
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                  {selectedContent.map((item) => (
+                    <Card
+                      key={item.id}
+                      className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
+                      onClick={() => {
+                        trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'selected');
+                        setSelectedPost(item);
+                        setShowPostDetail(true);
+                      }}
+                    >
+                      <div className="relative">
+                        {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
+                          <>
+                            <video
+                              src={item.image}
+                              className="w-full aspect-square object-cover"
+                              muted
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                              <Play className="h-12 w-12 text-white" fill="white" />
+                            </div>
+                          </>
+                        ) : (
+                          <img
+                            src={item.image}
+                            alt={item.title}
+                            className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
+                          />
+                        )}
+                        <Badge
+                          className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
+                        >
+                          selected
+                        </Badge>
+                      </div>
+                      <div className="p-3 md:p-4 space-y-2 md:space-y-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            {item.platforms.includes("instagram") && (
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+                            )}
+                            {item.platforms.includes("twitter") && (
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
+                            )}
+                            {item.platforms.includes("linkedin") && (
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-blue-600" />
+                            )}
+                            {item.platforms.includes("tiktok") && (
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
+                            )}
+                          </div>
+                          <span className="text-xs font-medium">{item.type}</span>
+                        </div>
+                        <h3 className="font-semibold text-sm md:text-base line-clamp-2">{item.title}</h3>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {item.description}
+                        </p>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Pending Review Section */}
+            {pendingReviewContent.length > 0 && (
+              <div className="mb-6 md:mb-8">
+                <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
+                  Pending Review {isLoading ? '' : `(${pendingReviewContent.length})`}
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                  {pendingReviewContent.map((item) => (
+                    <Card
+                      key={item.id}
+                      className="overflow-hidden hover:shadow-lg transition-all cursor-pointer group"
+                      onClick={() => {
+                        trackContentItemClicked(item.contentId, item.image?.includes('.mp4') ? 'video' : 'image', 'pending-review');
+                        setSelectedPost(item);
+                        setShowPostDetail(true);
+                      }}
+                    >
+                      <div className="relative">
+                        {item.image && (item.image.includes('video') || item.image.includes('.mp4')) ? (
+                          <>
+                            <video
+                              src={item.image}
+                              className="w-full aspect-square object-cover"
+                              muted
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                              <Play className="h-12 w-12 text-white" fill="white" />
+                            </div>
+                          </>
+                        ) : (
+                          <img
+                            src={item.image}
+                            alt={item.title}
+                            className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
+                          />
+                        )}
+                        <Badge
+                          className={`absolute top-2 right-2 ${getStatusColor(item.status)}`}
+                        >
+                          pending review
+                        </Badge>
+                      </div>
+                      <div className="p-3 md:p-4 space-y-2 md:space-y-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            {item.platforms.includes("instagram") && (
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+                            )}
+                            {item.platforms.includes("twitter") && (
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
+                            )}
+                            {item.platforms.includes("linkedin") && (
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-blue-600" />
+                            )}
+                            {item.platforms.includes("tiktok") && (
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
+                            )}
+                          </div>
+                          <span className="text-xs font-medium">{item.type}</span>
+                        </div>
+                        <h3 className="font-semibold text-sm md:text-base line-clamp-2">{item.title}</h3>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {item.description}
+                        </p>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Not Selected Section */}
+            {notSelectedContent.length > 0 && (
+              <div className="mb-6 md:mb-8">
+                <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">
+                  Not Selected {isLoading ? '' : `(${notSelectedContent.length})`}
+                </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
                   {notSelectedContent.map((item) => (
                     <Card
@@ -736,25 +918,25 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                           not selected
                         </Badge>
                       </div>
-                      <div className="p-4 space-y-3">
+                      <div className="p-3 md:p-4 space-y-2 md:space-y-3">
                         <div className="flex items-center gap-2">
                           <div className="flex items-center gap-1">
                             {item.platforms.includes("instagram") && (
-                              <div className="w-5 h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-gradient-to-br from-purple-500 to-pink-500" />
                             )}
                             {item.platforms.includes("twitter") && (
-                              <div className="w-5 h-5 rounded bg-black" />
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
                             )}
                             {item.platforms.includes("linkedin") && (
-                              <div className="w-5 h-5 rounded bg-blue-600" />
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-blue-600" />
                             )}
                             {item.platforms.includes("tiktok") && (
-                              <div className="w-5 h-5 rounded bg-black" />
+                              <div className="w-4 h-4 md:w-5 md:h-5 rounded bg-black" />
                             )}
                           </div>
                           <span className="text-xs font-medium">{item.type}</span>
                         </div>
-                        <h3 className="font-semibold text-sm line-clamp-2">{item.title}</h3>
+                        <h3 className="font-semibold text-sm md:text-base line-clamp-2">{item.title}</h3>
                         <p className="text-xs text-muted-foreground line-clamp-2">
                           {item.description}
                         </p>
@@ -762,17 +944,13 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
                     </Card>
                   ))}
                 </div>
-              ) : (
-                <div className="text-center py-8 md:py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                  <p className="text-gray-500 text-sm md:text-base font-medium">No unscheduled posts</p>
-                  <p className="text-gray-400 text-xs md:text-sm mt-2">All generated content has been scheduled or posted</p>
               </div>
             )}
-            </div>
 
-            {(scheduledContent.length === 0 && notSelectedContent.length === 0) && !isLoading && (
+            {(scheduledContent.length === 0 && selectedContent.length === 0 && pendingReviewContent.length === 0 && notSelectedContent.length === 0) && !isLoading && (
               <div className="text-center py-16">
                 <p className="text-muted-foreground">No content found</p>
+                <p className="text-muted-foreground text-sm mt-2">Generate some content to get started</p>
               </div>
             )}
           </>
@@ -805,6 +983,31 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         onOpenChange={setShowPostDetail}
         onEditDesignModeChange={onEditDesignModeChange}
         onScheduleComplete={handleRefreshAfterSchedule}
+        // Pending review functionality
+        pendingReviewItems={pendingReviewContent.map(item => ({
+          ...item,
+          generatedContentId: item.contentId,
+        }))}
+        onAcceptReject={(accepted, post) => {
+          // Remove the accepted/rejected item from the pending review list
+          const remainingItems = pendingReviewContent.filter(item => item.id !== post.id);
+          setPendingReviewItems(remainingItems);
+          
+          // If there are more items, show the next one
+          if (remainingItems.length > 0) {
+            // Find next item to show
+            const currentIndex = pendingReviewContent.findIndex(item => item.id === post.id);
+            const nextIndex = currentIndex < remainingItems.length ? currentIndex : 0;
+            setSelectedPost({
+              ...remainingItems[nextIndex],
+              generatedContentId: remainingItems[nextIndex].contentId,
+            } as any);
+          }
+        }}
+        onAllReviewed={() => {
+          // Refresh content library after all items reviewed
+          handleRefreshAfterSchedule();
+        }}
       />
 
       {/* Analytics Dialog */}
@@ -1059,9 +1262,9 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
               setShowGenerateDialog(true);
             }
           }}
-          className="hidden md:flex btn-gradient-cta px-5 py-5 text-base"
+          className="hidden md:flex btn-gradient-cta px-8 py-6 text-lg font-semibold"
         >
-          <Sparkles className="w-5 h-5 mr-2" />
+          <Sparkles className="w-6 h-6 mr-2" />
           Generate Content
         </Button>
       </div>

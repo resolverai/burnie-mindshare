@@ -514,6 +514,7 @@ router.get('/status', async (req: DvybAuthRequest, res: Response) => {
       progress_percent: generationWithPresignedUrls.progressPercent,
       progress_message: userFriendlyMessage,
       data: {
+        id: generation.id, // Include the database ID for accept/reject functionality
         uuid: generationWithPresignedUrls.uuid,
         jobId: generationWithPresignedUrls.jobId,
         topic: generationWithPresignedUrls.topic,
@@ -523,6 +524,7 @@ router.get('/status', async (req: DvybAuthRequest, res: Response) => {
         clipPrompts: null, // IP-protected
         generatedImageUrls: generationWithPresignedUrls.generatedImageUrls,
         generatedVideoUrls: generationWithPresignedUrls.generatedVideoUrls,
+        requestedPlatforms: generation.requestedPlatforms, // Include requested platforms
         status: generationWithPresignedUrls.status,
         progressPercent: generationWithPresignedUrls.progressPercent,
         progressMessage: userFriendlyMessage,

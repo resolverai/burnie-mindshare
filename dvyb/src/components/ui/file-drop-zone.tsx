@@ -169,8 +169,8 @@ export function FileDropZone({
         <div
           className={`relative border-2 border-dashed rounded-lg transition-colors ${
             isDragging
-              ? 'border-primary bg-primary/10'
-              : 'border-border hover:border-primary/50'
+              ? 'border-emerald-500 bg-emerald-500/10'
+              : 'border-border hover:border-emerald-500/50'
           } ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -188,7 +188,7 @@ export function FileDropZone({
           <div className="flex items-center justify-center p-8 min-h-[200px]">
             {isUploading ? (
               <div className="flex flex-col items-center gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
                 <p className="text-sm text-muted-foreground">Uploading...</p>
               </div>
             ) : currentFiles.length > 0 ? (
@@ -236,8 +236,8 @@ export function FileDropZone({
       <div
         className={`border-2 border-dashed rounded-lg p-4 md:p-6 transition-colors ${
           isDragging
-            ? 'border-primary bg-primary/10'
-            : 'border-border hover:border-primary/50'
+            ? 'border-emerald-500 bg-emerald-500/10'
+            : 'border-border hover:border-emerald-500/50'
         } ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -281,7 +281,7 @@ export function FileDropZone({
         <div className="text-center">
           {isUploading ? (
             <div className="flex flex-col items-center gap-3">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
               <p className="text-sm text-muted-foreground">Uploading images...</p>
             </div>
           ) : (

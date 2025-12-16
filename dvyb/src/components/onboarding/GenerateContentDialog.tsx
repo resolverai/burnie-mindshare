@@ -2,21 +2,19 @@
 
 
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
-import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin } from "lucide-react";
+import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XCircle } from "lucide-react";
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi } from "@/lib/api";
+import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi } from "@/lib/api";
 import { saveOAuthFlowState, getOAuthFlowState, clearOAuthFlowState, updateOAuthFlowState } from "@/lib/oauthFlowState";
 import { useToast } from "@/hooks/use-toast";
-import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
 import { FileDropZone } from "@/components/ui/file-drop-zone";
 import { PricingModal } from "@/components/PricingModal";
@@ -121,7 +119,31 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [authPlatforms, setAuthPlatforms] = useState<string[]>([]);
   const [currentAuthIndex, setCurrentAuthIndex] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isAnimatingOut, setIsAnimatingOut] = useState<'left' | 'right' | null>(null);
+  const [animatingOutPost, setAnimatingOutPost] = useState<any>(null); // Track which post is animating
+  const [acceptedPosts, setAcceptedPosts] = useState<string[]>([]);
+  const [rejectedPosts, setRejectedPosts] = useState<string[]>([]);
   const { toast } = useToast();
+
+  // Handle body overflow and animation when dialog opens/closes
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden';
+      const timeout = setTimeout(() => setIsVisible(true), 10);
+      return () => clearTimeout(timeout);
+    } else {
+      setIsVisible(false);
+      const timeout = setTimeout(() => {
+        document.body.style.overflow = 'unset';
+      }, 300);
+      return () => clearTimeout(timeout);
+    }
+  }, [open]);
 
   // Fetch usage data when dialog opens
   useEffect(() => {
@@ -1111,9 +1133,37 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     setGeneratedPosts([]);
     setJobId(null);
     setGenerationUuid(null);
+    setCarouselIndex(0);
+    setSwipeOffset(0);
+    setIsAnimatingOut(null);
+    setAnimatingOutPost(null);
+    setAcceptedPosts([]);
+    setRejectedPosts([]);
   };
 
   const handleClose = () => {
+    // Check if we're on the results step and have generated content that hasn't been reviewed
+    if (step === 'results') {
+      // Check if any content has been generated (not just placeholders)
+      const hasGeneratedContent = generatedPosts.some(post => post.image && !post.isGenerating && !post.isFailed);
+      
+      if (hasGeneratedContent) {
+        // Check if all posts have been reviewed (accepted or rejected)
+        const reviewedCount = acceptedPosts.length + rejectedPosts.length;
+        const reviewablePostsCount = generatedPosts.filter(post => post.image && !post.isGenerating && !post.isFailed).length;
+        
+        if (reviewedCount < reviewablePostsCount) {
+          // Not all posts reviewed - prevent closing
+          toast({
+            title: "Review Required",
+            description: `Please review all generated content before closing. ${reviewablePostsCount - reviewedCount} post(s) remaining.`,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    }
+    
     // Track dialog closed
     trackGenerateDialogClosed(step, 'cancelled');
     
@@ -1121,10 +1171,14 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     // This prevents the dialog from reopening and auto-continuing OAuth
     clearOAuthFlowState();
     
-    resetDialog();
-    onOpenChange(false);
-    // Notify parent that dialog has closed (for onboarding tracking)
-    onDialogClosed?.();
+    // Animate out first, then close
+    setIsVisible(false);
+    setTimeout(() => {
+      resetDialog();
+      onOpenChange(false);
+      // Notify parent that dialog has closed (for onboarding tracking)
+      onDialogClosed?.();
+    }, 300);
   };
 
   const renderStep = () => {
@@ -1141,8 +1195,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               {TOPICS.map((topic) => (
                 <Card
                   key={topic}
-                  className={`p-4 sm:p-5 md:p-6 cursor-pointer transition-all hover:border-primary ${
-                    selectedTopic === topic ? "border-primary bg-primary/5" : ""
+                  className={`p-4 sm:p-5 md:p-6 cursor-pointer transition-all hover:border-emerald-500 ${
+                    selectedTopic === topic ? "border-emerald-500 bg-emerald-500/5" : ""
                   }`}
                   onClick={() => {
                     setSelectedTopic(topic);
@@ -1164,7 +1218,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                     setCustomTopic(e.target.value);
                     setSelectedTopic(""); // Clear selected topic when typing custom topic
                   }}
-                  className="text-sm sm:text-base"
+                  className="text-sm sm:text-base focus-visible:ring-emerald-500 focus-visible:border-emerald-500"
                   autoFocus
                 />
               </div>
@@ -1180,7 +1234,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             )}
 
             <Button
-              className="w-full text-sm sm:text-base h-10 sm:h-11"
+              className="w-full btn-gradient-cta text-sm sm:text-base h-10 sm:h-11"
               disabled={!selectedTopic && !customTopic}
               onClick={() => setStep("platform")}
             >
@@ -1201,8 +1255,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               {PLATFORMS.map((platform) => (
                 <Card
                   key={platform.id}
-                  className={`p-4 sm:p-5 md:p-6 cursor-pointer transition-all hover:border-primary ${
-                    selectedPlatforms.includes(platform.id) ? "border-primary bg-primary/5" : ""
+                  className={`p-4 sm:p-5 md:p-6 cursor-pointer transition-all hover:border-emerald-500 ${
+                    selectedPlatforms.includes(platform.id) ? "border-emerald-500 bg-emerald-500/5" : ""
                   }`}
                   onClick={() => {
                     setSelectedPlatforms(prev =>
@@ -1227,7 +1281,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 Back
               </Button>
               <Button
-                className="flex-1 text-sm sm:text-base h-10 sm:h-11"
+                className="flex-1 btn-gradient-cta text-sm sm:text-base h-10 sm:h-11"
                 disabled={selectedPlatforms.length === 0}
                 onClick={() => setStep("context")}
               >
@@ -1253,7 +1307,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   value={contextText}
                   onChange={(e) => setContextText(e.target.value)}
                   rows={4}
-                  className="text-sm sm:text-base"
+                  className="text-sm sm:text-base focus-visible:ring-emerald-500 focus-visible:border-emerald-500"
                 />
               </div>
 
@@ -1284,7 +1338,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                           newLinks[idx] = e.target.value;
                           setInspirationLinks(newLinks);
                         }}
-                        className="text-sm sm:text-base"
+                        className="text-sm sm:text-base focus-visible:ring-emerald-500 focus-visible:border-emerald-500"
                       />
                       {inspirationLinks.length > 1 && (
                         <Button
@@ -1315,7 +1369,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               <Button variant="outline" className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("platform")}>
                 Back
               </Button>
-              <Button className="flex-1 text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("review")}>
+              <Button className="flex-1 btn-gradient-cta text-sm sm:text-base h-10 sm:h-11" onClick={() => setStep("review")}>
                 Continue
               </Button>
             </div>
@@ -1404,7 +1458,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                             setUpgradeQuotaType('image');
                             setShowUpgradePricingModal(true);
                           }}
-                          className="text-xs text-primary hover:text-primary/80 font-medium underline underline-offset-2"
+                          className="text-xs text-emerald-600 hover:text-emerald-700 font-medium underline underline-offset-2"
                         >
                           Upgrade for more →
                         </button>
@@ -1457,7 +1511,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                             setUpgradeQuotaType('video');
                             setShowUpgradePricingModal(true);
                           }}
-                          className="text-xs text-primary hover:text-primary/80 font-medium underline underline-offset-2"
+                          className="text-xs text-emerald-600 hover:text-emerald-700 font-medium underline underline-offset-2"
                         >
                           Upgrade for more →
                         </button>
@@ -1469,7 +1523,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 {/* Total Posts Summary */}
                 <div className="pt-2 border-t">
                   <p className="text-sm font-medium">
-                    Total posts to generate: <span className="text-primary">{imagePostCount[0] + videoPostCount[0]}</span>
+                    Total posts to generate: <span className="text-emerald-600 font-semibold">{imagePostCount[0] + videoPostCount[0]}</span>
                     <span className="text-xs text-muted-foreground ml-2">(max 4 per generation)</span>
                   </p>
                 </div>
@@ -1493,176 +1547,468 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
 
       case "results":
         const isGenerating = generatedPosts.some(post => post.isGenerating);
+        const totalPosts = generatedPosts.length;
+        
+        // Filter to get unreviewed posts (not accepted or rejected)
+        const unreviewedPosts = generatedPosts.filter(
+          post => !acceptedPosts.includes(post.id) && !rejectedPosts.includes(post.id)
+        );
+        const currentPost = unreviewedPosts[0]; // Always show the first unreviewed post
+        const reviewedCount = acceptedPosts.length + rejectedPosts.length;
+        const allReviewed = unreviewedPosts.length === 0 && totalPosts > 0;
+        
+        // Accept/Reject handlers
+        const handleAccept = async (post: any) => {
+          if (!post || post.isGenerating || post.isFailed) return;
+          
+          // Store the post that's animating out and start animation
+          setAnimatingOutPost(post);
+          setIsAnimatingOut('right');
+          
+          // Debug logging
+          console.log('🎯 handleAccept called with post:', {
+            id: post.id,
+            generatedContentId: post.generatedContentId,
+            postIndex: post.postIndex,
+            stateGeneratedContentId: generatedContentId,
+            hasGeneratedContentId: !!post.generatedContentId,
+            postIndexType: typeof post.postIndex,
+          });
+          
+          // Use state generatedContentId as fallback if post doesn't have it
+          const contentId = post.generatedContentId || generatedContentId;
+          // postIndex should match the array position (0-based)
+          const postIdx = post.postIndex !== undefined ? post.postIndex : parseInt(post.id) - 1;
+          
+          // Call API to persist the acceptance
+          if (contentId && postIdx !== undefined) {
+            try {
+              console.log(`📡 Calling acceptContent API: contentId=${contentId}, postIndex=${postIdx}`);
+              await contentLibraryApi.acceptContent(contentId, postIdx);
+              console.log(`✅ Content accepted: contentId=${contentId}, postIndex=${postIdx}`);
+            } catch (error) {
+              console.error('Failed to persist content acceptance:', error);
+              // Continue with UI update even if API fails
+            }
+          } else {
+            console.warn('⚠️ Cannot persist acceptance - missing contentId or postIndex:', { contentId, postIdx });
+          }
+          
+          // Wait for animation to complete, then update state
+          setTimeout(() => {
+            // Update accepted list and reset animation
+            setAcceptedPosts(prev => [...prev, post.id]);
+            setSwipeOffset(0);
+            setIsAnimatingOut(null);
+            setAnimatingOutPost(null);
+          }, 350); // Slightly longer than animation duration to ensure it completes
+        };
+        
+        const handleReject = async (post: any) => {
+          if (!post || post.isGenerating || post.isFailed) return;
+          
+          // Store the post that's animating out and start animation
+          setAnimatingOutPost(post);
+          setIsAnimatingOut('left');
+          
+          // Debug logging
+          console.log('🎯 handleReject called with post:', {
+            id: post.id,
+            generatedContentId: post.generatedContentId,
+            postIndex: post.postIndex,
+            stateGeneratedContentId: generatedContentId,
+            hasGeneratedContentId: !!post.generatedContentId,
+            postIndexType: typeof post.postIndex,
+          });
+          
+          // Use state generatedContentId as fallback if post doesn't have it
+          const contentId = post.generatedContentId || generatedContentId;
+          // postIndex should match the array position (0-based)
+          const postIdx = post.postIndex !== undefined ? post.postIndex : parseInt(post.id) - 1;
+          
+          // Call API to persist the rejection
+          if (contentId && postIdx !== undefined) {
+            try {
+              console.log(`📡 Calling rejectContent API: contentId=${contentId}, postIndex=${postIdx}`);
+              await contentLibraryApi.rejectContent(contentId, postIdx);
+              console.log(`❌ Content rejected: contentId=${contentId}, postIndex=${postIdx}`);
+            } catch (error) {
+              console.error('Failed to persist content rejection:', error);
+              // Continue with UI update even if API fails
+            }
+          } else {
+            console.warn('⚠️ Cannot persist rejection - missing contentId or postIndex:', { contentId, postIdx });
+          }
+          
+          // Wait for animation to complete, then update state
+          setTimeout(() => {
+            // Update rejected list and reset animation
+            setRejectedPosts(prev => [...prev, post.id]);
+            setSwipeOffset(0);
+            setIsAnimatingOut(null);
+            setAnimatingOutPost(null);
+          }, 350); // Slightly longer than animation duration to ensure it completes
+        };
+        
+        // Touch swipe handlers with Tinder-like feel
+        const minSwipeDistance = 80;
+        
+        const onTouchStart = (e: React.TouchEvent) => {
+          if (!currentPost || currentPost.isGenerating || currentPost.isFailed) return;
+          setTouchEnd(null);
+          setTouchStart(e.targetTouches[0].clientX);
+        };
+        
+        const onTouchMove = (e: React.TouchEvent) => {
+          if (!currentPost || currentPost.isGenerating || currentPost.isFailed || !touchStart) return;
+          const currentX = e.targetTouches[0].clientX;
+          setTouchEnd(currentX);
+          // Calculate offset for tilt effect
+          const offset = currentX - touchStart;
+          setSwipeOffset(offset);
+        };
+        
+        const onTouchEnd = () => {
+          if (!touchStart || !touchEnd || !currentPost) {
+            setSwipeOffset(0);
+            return;
+          }
+          
+          const distance = touchEnd - touchStart;
+          const isRightSwipe = distance > minSwipeDistance; // Accept
+          const isLeftSwipe = distance < -minSwipeDistance; // Reject
+          
+          if (isRightSwipe) {
+            handleAccept(currentPost);
+          } else if (isLeftSwipe) {
+            handleReject(currentPost);
+          } else {
+            // Not enough swipe distance, reset
+            setSwipeOffset(0);
+          }
+          
+          // Reset touch state
+          setTouchStart(null);
+          setTouchEnd(null);
+        };
+        
+        // Calculate rotation and opacity based on swipe offset
+        const getCardStyle = () => {
+          if (isAnimatingOut === 'right') {
+            return {
+              transform: 'translateX(150%) rotate(30deg)',
+              opacity: 0,
+              transition: 'all 0.3s ease-out',
+            };
+          }
+          if (isAnimatingOut === 'left') {
+            return {
+              transform: 'translateX(-150%) rotate(-30deg)',
+              opacity: 0,
+              transition: 'all 0.3s ease-out',
+            };
+          }
+          if (swipeOffset !== 0) {
+            const rotation = swipeOffset * 0.1; // Subtle rotation
+            const maxRotation = 15;
+            const clampedRotation = Math.max(-maxRotation, Math.min(maxRotation, rotation));
+            return {
+              transform: `translateX(${swipeOffset}px) rotate(${clampedRotation}deg)`,
+              transition: 'none',
+            };
+          }
+          return {
+            transform: 'translateX(0) rotate(0)',
+            transition: 'all 0.3s ease-out',
+          };
+        };
+        
+        // Get swipe indicator opacity
+        const getAcceptIndicatorOpacity = () => Math.min(1, Math.max(0, swipeOffset / 100));
+        const getRejectIndicatorOpacity = () => Math.min(1, Math.max(0, -swipeOffset / 100));
         
         return (
           <div className="space-y-4 sm:space-y-5 md:space-y-6">
-            <div>
+            <div className="text-center">
               <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold mb-1 sm:mb-2">
-                {isGenerating ? "Generating your content..." : "Your content is ready!"}
+                {allReviewed 
+                  ? "All content reviewed!" 
+                  : isGenerating 
+                    ? "Generating your content..." 
+                    : "Review your content"}
               </h2>
               <p className="text-sm sm:text-base text-muted-foreground">
-                {isGenerating ? "Content will appear as it's generated" : "Select a post to schedule or publish"}
+                {allReviewed 
+                  ? `${acceptedPosts.length} accepted, ${rejectedPosts.length} rejected`
+                  : isGenerating 
+                    ? "Content will appear as it's generated" 
+                    : "Swipe right to accept, left to reject"}
               </p>
             </div>
 
             {isGenerating && (
-              <div className="space-y-2">
+              <div className="space-y-2 max-w-md mx-auto">
                 <div className="flex items-center justify-between text-xs sm:text-sm">
                   <span className="text-muted-foreground line-clamp-1">{progressMessage || "Preparing..."}</span>
                   <span className="font-medium ml-2">{progressPercent}%</span>
                 </div>
                 <div className="w-full bg-secondary rounded-full h-1.5 sm:h-2 overflow-hidden">
                   <div 
-                    className="bg-primary h-full transition-all duration-300 ease-out"
+                    className="bg-gradient-to-r from-emerald-500 to-purple-500 h-full transition-all duration-300 ease-out"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
                 {progressMessage.includes("video") && (
-                  <p className="text-[10px] sm:text-xs text-muted-foreground italic">
+                  <p className="text-[10px] sm:text-xs text-muted-foreground italic text-center">
                     ⏱️ Video generation in progress - this may take a few minutes...
                   </p>
                 )}
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-              {generatedPosts.map((post) => (
-                <Card
-                  key={post.id}
-                  className={`overflow-hidden transition-all ${
-                    post.isGenerating 
-                      ? "opacity-60" 
-                      : post.isFailed
-                        ? "opacity-70 border-red-200"
-                      : "cursor-pointer hover:border-primary group"
-                  }`}
-                  onClick={() => !post.isGenerating && !post.isFailed && handlePostClick(post)}
+            {/* Tinder-like Card Stack */}
+            <div className="relative min-h-[450px] sm:min-h-[550px]">
+              {/* All reviewed state */}
+              {allReviewed && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+                  <div className="w-20 h-20 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mb-4">
+                    <Heart className="w-10 h-10 text-emerald-500" />
+                  </div>
+                  <h3 className="text-xl font-semibold mb-2">All done!</h3>
+                  <p className="text-muted-foreground mb-4">
+                    You've reviewed all {totalPosts} posts
+                  </p>
+                  <div className="flex gap-4 text-sm">
+                    <span className="text-emerald-600 font-medium">
+                      ✓ {acceptedPosts.length} accepted
+                    </span>
+                    <span className="text-red-500 font-medium">
+                      ✗ {rejectedPosts.length} rejected
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Animating Out Card - shows the card flying off */}
+              {animatingOutPost && isAnimatingOut && (
+                <div 
+                  key={`animating-${animatingOutPost.id}`}
+                  className="absolute inset-0 flex items-center justify-center pointer-events-none z-20"
                 >
-                  <div className="relative">
-                  {post.isFailed ? (
-                    <div className="w-full aspect-square bg-red-50 flex flex-col items-center justify-center text-red-500">
-                      <X className="w-10 h-10 mb-2" />
-                      <span className="text-sm font-medium">Unable to Generate</span>
-                      <span className="text-xs text-red-400 mt-1">Content generation failed</span>
+                  <Card
+                    className="overflow-hidden max-w-lg w-full shadow-xl"
+                    style={{
+                      transform: isAnimatingOut === 'right' 
+                        ? 'translateX(150%) rotate(30deg)' 
+                        : 'translateX(-150%) rotate(-30deg)',
+                      opacity: 0,
+                      transition: 'all 0.3s ease-out',
+                    }}
+                  >
+                    <div className="relative">
+                      {animatingOutPost.image && (
+                        animatingOutPost.type === "Video" ? (
+                          <div className="w-full aspect-square bg-black">
+                            <video
+                              src={animatingOutPost.image}
+                              className="w-full h-full object-contain"
+                              muted
+                            />
+                          </div>
+                        ) : (
+                          <img
+                            src={animatingOutPost.image}
+                            alt={animatingOutPost.title}
+                            className="w-full aspect-square object-cover"
+                          />
+                        )
+                      )}
                     </div>
-                  ) : post.image ? (
-                    post.type === "Video" ? (
-                      <div className="w-full aspect-square bg-black">
-                        <video
-                          src={post.image}
-                          controls
-                          playsInline
-                          muted
-                          className="w-full h-full object-contain"
-                          onError={(e) => {
-                            console.error("Video load error:", e);
-                          }}
-                        />
-                      </div>
-                    ) : (
-                      <img
-                        src={post.image}
-                        alt={post.title}
-                        className="w-full aspect-square object-cover"
-                      />
-                    )
-                  ) : (
-                    <div className="w-full aspect-square bg-muted flex items-center justify-center">
-                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                    <div className="p-4 sm:p-5">
+                      <p className="font-semibold text-base sm:text-lg line-clamp-2">{animatingOutPost.title}</p>
+                      <p className="text-sm text-muted-foreground mt-1 sm:mt-2 line-clamp-2">
+                        {animatingOutPost.description}
+                      </p>
                     </div>
-                  )}
-                    
-                    {/* Schedule/Posted Badges */}
-                    {(() => {
-                      const scheduleKey = `${post.generatedContentId}-${post.postIndex}`;
-                      const schedule = postSchedules[scheduleKey];
-                      
-                      if (!schedule) return null;
-                      
-                      const status = schedule.status;
-                      const platforms = schedule.postMetadata?.platforms || [];
-                      
-                      // Determine badge color and text
-                      let badgeColor = 'bg-yellow-600';
-                      let badgeText = 'Scheduled';
-                      
-                      if (status === 'posted') {
-                        badgeColor = 'bg-green-600';
-                        // Show which platforms were posted to
-                        const postedPlatforms = schedule.postMetadata?.postingResults
-                          ?.filter((r: any) => r.success)
-                          .map((r: any) => r.platform.charAt(0).toUpperCase() + r.platform.slice(1)) || [];
-                        
-                        if (postedPlatforms.length === platforms.length) {
-                          badgeText = 'Posted';
-                        } else if (postedPlatforms.length > 0) {
-                          badgeText = `Posted (${postedPlatforms.length}/${platforms.length})`;
-                        } else {
-                          badgeText = 'Posted';
-                        }
-                      } else if (status === 'failed') {
-                        badgeColor = 'bg-red-600';
-                        badgeText = 'Failed';
+                  </Card>
+                </div>
+              )}
+
+              {/* Current Card - hidden while animating out */}
+              {!allReviewed && currentPost && !isAnimatingOut && (
+                <div 
+                  key={currentPost.id}
+                  className="relative touch-none"
+                  onTouchStart={onTouchStart}
+                  onTouchMove={onTouchMove}
+                  onTouchEnd={onTouchEnd}
+                >
+                  {/* Swipe Indicators - visible during swipe */}
+                  <div 
+                    className="absolute top-4 left-4 z-30 bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-lg border-2 border-emerald-400 shadow-lg pointer-events-none"
+                    style={{ 
+                      opacity: getAcceptIndicatorOpacity(),
+                      transform: `rotate(-15deg) scale(${0.8 + getAcceptIndicatorOpacity() * 0.2})`,
+                    }}
+                  >
+                    LIKE
+                  </div>
+                  <div 
+                    className="absolute top-4 right-4 z-30 bg-red-500 text-white px-4 py-2 rounded-lg font-bold text-lg border-2 border-red-400 shadow-lg pointer-events-none"
+                    style={{ 
+                      opacity: getRejectIndicatorOpacity(),
+                      transform: `rotate(15deg) scale(${0.8 + getRejectIndicatorOpacity() * 0.2})`,
+                    }}
+                  >
+                    NOPE
+                  </div>
+
+                  <Card
+                    className={`overflow-hidden max-w-lg mx-auto shadow-xl ${
+                      currentPost.isGenerating 
+                        ? "opacity-80" 
+                        : currentPost.isFailed
+                          ? "opacity-70 border-red-200"
+                        : "cursor-pointer"
+                    }`}
+                    style={getCardStyle()}
+                    onClick={() => {
+                      if (!currentPost.isGenerating && !currentPost.isFailed && currentPost.image) {
+                        handlePostClick(currentPost);
                       }
-                      
-                      return (
-                        <div className={`absolute top-2 left-2 ${badgeColor} text-white text-xs font-semibold px-2 py-1 rounded-full z-10`}>
-                          {badgeText}
+                    }}
+                  >
+                    <div className="relative">
+                      {currentPost.isFailed ? (
+                        <div className="w-full aspect-square bg-red-50 flex flex-col items-center justify-center text-red-500">
+                          <X className="w-12 h-12 sm:w-16 sm:h-16 mb-3" />
+                          <span className="text-base sm:text-lg font-medium">Unable to Generate</span>
+                          <span className="text-sm text-red-400 mt-1">Content generation failed</span>
                         </div>
-                      );
-                    })()}
-                  </div>
-                  <div className="p-2.5 sm:p-3">
-                    <p className="font-medium text-xs sm:text-sm line-clamp-2">{post.title}</p>
-                    <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1 line-clamp-1">
-                      {post.isFailed ? "Generation failed for this content" : post.description}
-                    </p>
-                    {!post.isGenerating && !post.isFailed && (
-                      <div className="flex gap-1.5 sm:gap-2 mt-2 sm:mt-3">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1 text-xs sm:text-sm h-8 sm:h-9"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleScheduleClick(post);
-                          }}
-                        >
-                          Schedule
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="flex-1 btn-gradient-cta text-xs sm:text-sm h-8 sm:h-9"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePostNowClick(post);
-                          }}
-                        >
-                          Post Now
-                        </Button>
-                      </div>
-                    )}
-                    {post.isGenerating && (
-                      <div className="flex items-center justify-center mt-2 sm:mt-3 text-[10px] sm:text-xs text-muted-foreground">
-                        <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                        Generating...
-                      </div>
-                    )}
-                  </div>
-                </Card>
-              ))}
+                      ) : currentPost.image ? (
+                        currentPost.type === "Video" ? (
+                          <div className="w-full aspect-square bg-black">
+                            <video
+                              src={currentPost.image}
+                              controls
+                              playsInline
+                              muted
+                              className="w-full h-full object-contain"
+                              onError={(e) => {
+                                console.error("Video load error:", e);
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <img
+                            src={currentPost.image}
+                            alt={currentPost.title}
+                            className="w-full aspect-square object-cover"
+                          />
+                        )
+                      ) : (
+                        <div className="w-full aspect-square bg-muted flex flex-col items-center justify-center">
+                          <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-emerald-500 mb-3" />
+                          <span className="text-sm text-muted-foreground">Generating content...</span>
+                        </div>
+                      )}
+                      
+                      {/* Accepted/Rejected Badge */}
+                      {acceptedPosts.includes(currentPost.id) && (
+                        <div className="absolute top-3 right-3 bg-emerald-500 text-white text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-full z-10">
+                          Accepted
+                        </div>
+                      )}
+                      {rejectedPosts.includes(currentPost.id) && (
+                        <div className="absolute top-3 right-3 bg-red-500 text-white text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-full z-10">
+                          Rejected
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="p-4 sm:p-5">
+                      <p className="font-semibold text-base sm:text-lg line-clamp-2">{currentPost.title}</p>
+                      <p className="text-sm text-muted-foreground mt-1 sm:mt-2 line-clamp-2">
+                        {currentPost.isFailed ? "Generation failed for this content" : currentPost.description}
+                      </p>
+                      
+                      {/* Desktop: Accept/Reject Buttons (hidden on mobile) */}
+                      {!currentPost.isGenerating && !currentPost.isFailed && (
+                        <div className="hidden sm:flex gap-4 mt-4 justify-center">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleReject(currentPost);
+                            }}
+                            className="w-14 h-14 rounded-full bg-white dark:bg-gray-800 border-2 border-red-200 dark:border-red-800 shadow-lg flex items-center justify-center hover:scale-110 hover:border-red-400 transition-all active:scale-95"
+                            aria-label="Reject"
+                          >
+                            <XCircle className="w-8 h-8 text-red-500" />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAccept(currentPost);
+                            }}
+                            className="w-14 h-14 rounded-full bg-white dark:bg-gray-800 border-2 border-emerald-200 dark:border-emerald-800 shadow-lg flex items-center justify-center hover:scale-110 hover:border-emerald-400 transition-all active:scale-95"
+                            aria-label="Accept"
+                          >
+                            <Heart className="w-8 h-8 text-emerald-500" />
+                          </button>
+                        </div>
+                      )}
+                      
+                      {/* Mobile: Swipe hint */}
+                      {!currentPost.isGenerating && !currentPost.isFailed && (
+                        <p className="sm:hidden text-center text-xs text-muted-foreground mt-4">
+                          ← Swipe left to reject • Swipe right to accept →
+                        </p>
+                      )}
+                      
+                      {currentPost.isGenerating && (
+                        <div className="flex items-center justify-center mt-4 text-sm text-muted-foreground">
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Generating...
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+              )}
+
+              {/* No content yet */}
+              {!allReviewed && !currentPost && isGenerating && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <Loader2 className="w-12 h-12 animate-spin text-emerald-500 mb-4" />
+                  <p className="text-muted-foreground">Waiting for content...</p>
+                </div>
+              )}
             </div>
 
-            <div className="flex justify-center">
-              <Button 
-                variant="outline" 
-                className="w-full max-w-xs text-sm sm:text-base h-10 sm:h-11" 
-                onClick={handleClose}
-                disabled={isGenerating}
-              >
-                Done
-              </Button>
-            </div>
+            {/* Progress Counter */}
+            {!allReviewed && totalPosts > 0 && (
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground">
+                  {reviewedCount} of {totalPosts} reviewed
+                </p>
+                <div className="flex justify-center gap-1.5 mt-2">
+                  {generatedPosts.map((post) => (
+                    <div
+                      key={post.id}
+                      className={`w-2 h-2 rounded-full transition-all ${
+                        acceptedPosts.includes(post.id)
+                          ? 'bg-emerald-500'
+                          : rejectedPosts.includes(post.id)
+                            ? 'bg-red-400'
+                            : post.isGenerating
+                              ? 'bg-muted-foreground/20 animate-pulse'
+                              : 'bg-muted-foreground/30'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         );
 
@@ -1673,16 +2019,43 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
 
   return (
     <>
-      <Dialog open={open && !showPostDetail && !showScheduleDialog} onOpenChange={handleClose}>
-        <DialogContent className="w-[95vw] sm:w-[90vw] md:w-[85vw] lg:w-[70vw] xl:max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
-          <VisuallyHidden>
-            <DialogTitle>Generate Content</DialogTitle>
-          </VisuallyHidden>
-          <div className="py-2 sm:py-4 md:py-6">
-            {renderStep()}
+      {/* Full Screen Modal */}
+      {open && !showPostDetail && !showScheduleDialog && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className={`fixed inset-0 z-[100] bg-black/50 transition-opacity duration-300 ${
+              isVisible ? 'opacity-100' : 'opacity-0'
+            }`}
+            onClick={handleClose}
+          />
+          
+          {/* Modal Content */}
+          <div 
+            className={`fixed inset-0 z-[101] overflow-y-auto transition-transform duration-300 ease-out ${
+              isVisible ? 'translate-y-0' : 'translate-y-full'
+            }`}
+          >
+            <div className="min-h-screen bg-background">
+              {/* Close Button */}
+              <button
+                onClick={handleClose}
+                className="fixed top-4 right-4 md:top-6 md:right-6 z-[102] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5 text-foreground" />
+              </button>
+
+              {/* Content */}
+              <div className="py-8 md:py-16 px-4">
+                <div className="max-w-3xl mx-auto">
+                  {renderStep()}
+                </div>
+              </div>
+            </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </>
+      )}
 
       <PostDetailDialog
         post={selectedPost ? {
@@ -1756,7 +2129,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             <AlertDialogDescription className="text-center">
               {!postingComplete && (
                 <div className="flex flex-col items-center justify-center py-4 sm:py-6">
-                  <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-primary mb-3 sm:mb-4" />
+                  <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-emerald-500 mb-3 sm:mb-4" />
                   <p className="text-sm sm:text-base">Publishing your content to selected platforms...</p>
                 </div>
               )}
@@ -1828,7 +2201,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
           {postingComplete && (
             <AlertDialogFooter>
               <Button
-                className="w-full bg-primary hover:bg-primary/90 text-sm sm:text-base h-10 sm:h-11"
+                className="w-full btn-gradient-cta text-sm sm:text-base h-10 sm:h-11"
                 onClick={() => {
                   setShowPostingDialog(false);
                   setPostingResults([]);
@@ -1856,7 +2229,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
             <Button variant="outline" onClick={handleScheduleInstead}>
               Schedule Instead
             </Button>
-            <Button onClick={handleReplaceAndPost} className="bg-primary hover:bg-primary/90">
+            <Button onClick={handleReplaceAndPost} className="btn-gradient-cta">
               Replace & Post
             </Button>
           </AlertDialogFooter>

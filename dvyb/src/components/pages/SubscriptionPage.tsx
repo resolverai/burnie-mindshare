@@ -556,6 +556,13 @@ export const SubscriptionPage = () => {
           annualPrice: currentPlan.annualPrice,
           billingCycle: subscription?.frequency || 'monthly',
           isFreeTrialPlan: isFreePlan,
+        } : isFreePlan ? {
+          planName: subscriptionData?.planName || 'Free',
+          planId: null,
+          monthlyPrice: 0,
+          annualPrice: 0,
+          billingCycle: 'monthly',
+          isFreeTrialPlan: true,
         } : null}
         isAuthenticated={true}
         canSkip={true}

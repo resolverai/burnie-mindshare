@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { dvybApi } from "@/lib/api";
@@ -922,7 +923,10 @@ export const PricingModal = ({
       })
     : sortedPlans;
 
-  return (
+  // Use portal to render modal at document body level to avoid clipping from parent containers
+  if (typeof document === 'undefined') return null;
+  
+  return createPortal(
     <>
       {/* Backdrop */}
       <div 
@@ -1056,7 +1060,8 @@ export const PricingModal = ({
           </div>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 };
 

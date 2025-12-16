@@ -2,7 +2,7 @@
 
 
 import { useState, useEffect, useRef } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { X as XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,12 +10,21 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   ChevronRight, Heart, MessageCircle, Send, Bookmark, MoreHorizontal, Sparkles, RotateCcw, Music, Calendar as CalendarIcon,
-  Type, Bold, Italic, Underline, Trash2, Plus, RotateCw, Smile, Sticker, X, Save, Loader2
+  Type, Bold, Italic, Underline, Trash2, Plus, RotateCw, Smile, Sticker, X, Save, Loader2, XCircle
 } from "lucide-react";
 import { CaptionEditDialog } from "./CaptionEditDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
-import { accountApi, captionsApi, imageEditsApi } from "@/lib/api";
+import { accountApi, captionsApi, imageEditsApi, contentLibraryApi, postingApi, oauth1Api, authApi, socialConnectionsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { saveOAuthFlowState } from "@/lib/oauthFlowState";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // Text Overlay Interface
 interface TextOverlay {
@@ -71,6 +80,7 @@ interface Post {
   id: string;
   generatedContentId?: number; // For scheduling
   postIndex?: number; // For scheduling
+  contentId?: number; // Alias for generatedContentId (from ContentLibrary)
   date: string;
   time: string;
   type: "Post" | "Story";
@@ -82,6 +92,7 @@ interface Post {
   originalMediaUrl?: string; // Original S3 key for image edits
   requestedPlatforms?: string[];
   videoModel?: string | null; // Model used for video generation (kling = 1:1, veo3 = 9:16)
+  status?: string; // Content status (pending-review, selected, not-selected, scheduled, etc.)
 }
 
 interface PostDetailDialogProps {
@@ -90,11 +101,24 @@ interface PostDetailDialogProps {
   onOpenChange: (open: boolean) => void;
   onEditDesignModeChange?: (isEditMode: boolean) => void;
   onScheduleComplete?: () => void;
+  // For pending review functionality
+  pendingReviewItems?: Post[];
+  onAcceptReject?: (accepted: boolean, post: Post) => void;
+  onAllReviewed?: () => void;
 }
 
 type Platform = "instagram" | "linkedin" | "twitter";
 
-export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeChange, onScheduleComplete }: PostDetailDialogProps) => {
+export const PostDetailDialog = ({ 
+  post, 
+  open, 
+  onOpenChange, 
+  onEditDesignModeChange, 
+  onScheduleComplete,
+  pendingReviewItems = [],
+  onAcceptReject,
+  onAllReviewed,
+}: PostDetailDialogProps) => {
   const [selectedPlatform, setSelectedPlatform] = useState<Platform>("instagram");
   const [showCaptionEdit, setShowCaptionEdit] = useState(false);
   const [showEditDesign, setShowEditDesign] = useState(false);
@@ -106,7 +130,490 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [editedCaptions, setEditedCaptions] = useState<Record<string, string>>({}); // User-edited captions
   const [isSavingCaption, setIsSavingCaption] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const [isAcceptingRejecting, setIsAcceptingRejecting] = useState(false);
+  
+  // Swipe gesture state for pending review
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isAnimatingOut, setIsAnimatingOut] = useState<'left' | 'right' | null>(null);
+  const [animatingOutPost, setAnimatingOutPost] = useState<any>(null); // Track which post is animating
+  
+  // Post Now state
+  const [showPostingDialog, setShowPostingDialog] = useState(false);
+  const [isPosting, setIsPosting] = useState(false);
+  const [postingComplete, setPostingComplete] = useState(false);
+  const [postingResults, setPostingResults] = useState<any[]>([]);
+  const [needsOAuth1, setNeedsOAuth1] = useState(false);
+  
   const { toast } = useToast();
+  
+  // Check if current post is pending review
+  const isPendingReview = post?.status === 'pending-review';
+  
+  // Handle accept (like) action for pending review content
+  const handleAccept = async (fromSwipe: boolean = false) => {
+    if (!post || isAcceptingRejecting) return;
+    
+    const contentId = post.generatedContentId || post.contentId;
+    if (!contentId || post.postIndex === undefined) {
+      console.error('Missing contentId or postIndex for accept');
+      return;
+    }
+    
+    // Store the post being animated and start animation
+    if (fromSwipe) {
+      setAnimatingOutPost(post);
+      setIsAnimatingOut('right');
+    }
+    
+    setIsAcceptingRejecting(true);
+    
+    try {
+      await contentLibraryApi.acceptContent(contentId, post.postIndex);
+      
+      // Wait for animation to complete
+      await new Promise(resolve => setTimeout(resolve, fromSwipe ? 350 : 0));
+      
+      toast({
+        title: "Content Accepted",
+        description: "This content has been added to your Selected items.",
+      });
+      
+      // Notify parent of accept - this will trigger re-render with next item
+      // Animation state will be reset by useEffect when post changes
+      onAcceptReject?.(true, post);
+      
+      // Check if there are more pending items
+      const remainingItems = pendingReviewItems.filter(item => item.id !== post.id);
+      if (remainingItems.length === 0) {
+        // All items reviewed
+        onAllReviewed?.();
+        onOpenChange(false);
+      }
+    } catch (error) {
+      console.error('Failed to accept content:', error);
+      setIsAnimatingOut(null);
+      setAnimatingOutPost(null);
+      setSwipeOffset(0);
+      toast({
+        title: "Error",
+        description: "Failed to accept content. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAcceptingRejecting(false);
+    }
+  };
+  
+  // Handle reject action for pending review content
+  const handleReject = async (fromSwipe: boolean = false) => {
+    if (!post || isAcceptingRejecting) return;
+    
+    const contentId = post.generatedContentId || post.contentId;
+    if (!contentId || post.postIndex === undefined) {
+      console.error('Missing contentId or postIndex for reject');
+      return;
+    }
+    
+    // Store the post being animated and start animation
+    if (fromSwipe) {
+      setAnimatingOutPost(post);
+      setIsAnimatingOut('left');
+    }
+    
+    setIsAcceptingRejecting(true);
+    
+    try {
+      await contentLibraryApi.rejectContent(contentId, post.postIndex);
+      
+      // Wait for animation to complete
+      await new Promise(resolve => setTimeout(resolve, fromSwipe ? 350 : 0));
+      
+      toast({
+        title: "Content Rejected",
+        description: "This content has been moved to Not Selected.",
+      });
+      
+      // Notify parent of reject - this will trigger re-render with next item
+      // Animation state will be reset by useEffect when post changes
+      onAcceptReject?.(false, post);
+      
+      // Check if there are more pending items
+      const remainingItems = pendingReviewItems.filter(item => item.id !== post.id);
+      if (remainingItems.length === 0) {
+        // All items reviewed
+        onAllReviewed?.();
+        onOpenChange(false);
+      }
+    } catch (error) {
+      console.error('Failed to reject content:', error);
+      setIsAnimatingOut(null);
+      setAnimatingOutPost(null);
+      setSwipeOffset(0);
+      toast({
+        title: "Error",
+        description: "Failed to reject content. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAcceptingRejecting(false);
+    }
+  };
+  
+  // Touch swipe handlers for pending review (mobile)
+  const minSwipeDistance = 80;
+  
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (!isPendingReview || isAcceptingRejecting) return;
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+  
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (!isPendingReview || isAcceptingRejecting || !touchStart) return;
+    const currentX = e.targetTouches[0].clientX;
+    setTouchEnd(currentX);
+    // Calculate offset for tilt effect
+    const offset = currentX - touchStart;
+    setSwipeOffset(offset);
+  };
+  
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd || !isPendingReview) {
+      setSwipeOffset(0);
+      return;
+    }
+    
+    const distance = touchEnd - touchStart;
+    const isRightSwipe = distance > minSwipeDistance; // Accept
+    const isLeftSwipe = distance < -minSwipeDistance; // Reject
+    
+    if (isRightSwipe) {
+      handleAccept(true);
+    } else if (isLeftSwipe) {
+      handleReject(true);
+    } else {
+      // Not enough swipe distance, reset
+      setSwipeOffset(0);
+    }
+    
+    // Reset touch state
+    setTouchStart(null);
+    setTouchEnd(null);
+  };
+  
+  // Calculate style for swipe animation
+  const getSwipeStyle = () => {
+    if (isAnimatingOut === 'right') {
+      return {
+        transform: 'translateX(150%) rotate(30deg)',
+        opacity: 0,
+        transition: 'all 0.3s ease-out',
+      };
+    }
+    if (isAnimatingOut === 'left') {
+      return {
+        transform: 'translateX(-150%) rotate(-30deg)',
+        opacity: 0,
+        transition: 'all 0.3s ease-out',
+      };
+    }
+    if (swipeOffset !== 0) {
+      const rotation = swipeOffset * 0.1; // Subtle rotation
+      const maxRotation = 15;
+      const clampedRotation = Math.max(-maxRotation, Math.min(maxRotation, rotation));
+      return {
+        transform: `translateX(${swipeOffset}px) rotate(${clampedRotation}deg)`,
+        transition: 'none',
+      };
+    }
+    return {
+      transform: 'translateX(0) rotate(0)',
+      transition: 'transform 0.2s ease-out',
+    };
+  };
+
+  // Handle Post Now click - validates OAuth2/OAuth1 and posts content
+  const handlePostNowClick = async () => {
+    if (!post) return;
+    
+    console.log('🎬 PostDetailDialog handlePostNowClick START:', {
+      'post.type': post.type,
+      'post.requestedPlatforms': post.requestedPlatforms,
+      'post.platforms': post.platforms,
+      'post.image': post.image?.substring(0, 50) + '...',
+    });
+    
+    // Use platforms from post data (saved during generation)
+    let platforms = post.requestedPlatforms || post.platforms;
+    
+    // Safeguard: If still empty, default to twitter
+    if (!platforms || platforms.length === 0) {
+      platforms = ['twitter'];
+      console.warn('⚠️ No platforms found in handlePostNowClick, using default:', platforms);
+    }
+    
+    // Determine if this is a video post
+    const isVideoPost = post.image && (post.image.includes('video') || post.image.includes('.mp4'));
+    
+    try {
+      // Validate OAuth2 tokens
+      const validation = await postingApi.validateTokens({
+        platforms,
+        requireOAuth1ForTwitterVideo: false,
+      });
+
+      console.log('🔍 Token validation result:', validation.data);
+
+      // Check if any platforms need OAuth2 reauth or are not connected
+      const platformsNeedingAuth = validation.data.platforms
+        .filter((p: any) => p.requiresReauth || !p.connected)
+        .map((p: any) => p.platform);
+
+      if (platformsNeedingAuth.length > 0) {
+        // Platforms need OAuth2 - use redirect-based auth flow
+        console.log('🔐 Platforms needing OAuth2:', platformsNeedingAuth);
+        
+        // Determine if OAuth1 will be needed after OAuth2
+        const needsOAuth1ForVideo = platforms.includes('twitter') && isVideoPost;
+        
+        // Save flow state before redirecting
+        saveOAuthFlowState({
+          type: 'post_now',
+          source: 'content_library',
+          post: {
+            id: post.id,
+            type: isVideoPost ? 'Video' : 'Post',
+            image: post.image,
+            description: post.description,
+            requestedPlatforms: platforms,
+            platforms: platforms,
+            platformTexts: {},
+            fullPlatformTexts: post.fullPlatformTexts,
+            postIndex: post.postIndex,
+            generatedContentId: post.generatedContentId || post.contentId,
+          },
+          platformsToAuth: platformsNeedingAuth,
+          currentPlatformIndex: 0,
+          needsOAuth1: needsOAuth1ForVideo,
+          oauth1Completed: false,
+          generatedPosts: [],
+          generatedContentId: post.generatedContentId || post.contentId || null,
+          generationUuid: null,
+        });
+        
+        // Get auth URL for first platform
+        const firstPlatform = platformsNeedingAuth[0];
+        
+        toast({
+          title: `Connecting ${firstPlatform.charAt(0).toUpperCase() + firstPlatform.slice(1)}...`,
+          description: "Redirecting to authorize...",
+        });
+        
+        let authUrlResponse;
+        switch (firstPlatform) {
+          case 'twitter':
+            authUrlResponse = await authApi.getTwitterLoginUrl();
+            break;
+          case 'instagram':
+            authUrlResponse = await socialConnectionsApi.getInstagramAuthUrl();
+            break;
+          case 'linkedin':
+            authUrlResponse = await socialConnectionsApi.getLinkedInAuthUrl();
+            break;
+          case 'tiktok':
+            authUrlResponse = await socialConnectionsApi.getTikTokAuthUrl();
+            break;
+          default:
+            throw new Error(`Unsupported platform: ${firstPlatform}`);
+        }
+        
+        // Redirect to OAuth
+        window.location.href = authUrlResponse.data.authUrl || authUrlResponse.data.oauth_url;
+        return;
+      }
+
+      // All OAuth2 tokens valid - now check OAuth1 for Twitter videos
+      if (platforms.includes('twitter') && isVideoPost) {
+        console.log('📹 Twitter video detected - checking OAuth1 status');
+        const oauth1Status = await oauth1Api.getOAuth1Status();
+        console.log('🔍 OAuth1 status:', oauth1Status.data);
+        
+        // Check if OAuth1 token is valid
+        if (!oauth1Status.data.oauth1Valid) {
+          console.log('⚠️ OAuth1 not valid - initiating redirect OAuth1 flow');
+          
+          // Save flow state for OAuth1
+          saveOAuthFlowState({
+            type: 'post_now',
+            source: 'content_library',
+            post: {
+              id: post.id,
+              type: 'Video',
+              image: post.image,
+              description: post.description,
+              requestedPlatforms: platforms,
+              platforms: platforms,
+              platformTexts: {},
+              fullPlatformTexts: post.fullPlatformTexts,
+              postIndex: post.postIndex,
+              generatedContentId: post.generatedContentId || post.contentId,
+            },
+            platformsToAuth: [], // OAuth2 already done
+            currentPlatformIndex: 0,
+            needsOAuth1: true,
+            oauth1Completed: false,
+            generatedPosts: [],
+            generatedContentId: post.generatedContentId || post.contentId || null,
+            generationUuid: null,
+          });
+          
+          toast({
+            title: "Video Authorization Required",
+            description: "Redirecting to authorize video uploads...",
+          });
+          
+          // Initiate OAuth1 redirect flow
+          const response = await oauth1Api.initiateOAuth1();
+          const { authUrl, state, oauthTokenSecret } = response.data;
+          
+          // Store OAuth1 state
+          localStorage.setItem('oauth1_state', state);
+          localStorage.setItem('oauth1_token_secret', oauthTokenSecret);
+          
+          window.location.href = authUrl;
+          return;
+        }
+        console.log('✅ OAuth1 valid - proceeding with posting');
+      }
+
+      // All validations passed, proceed with posting
+      console.log('🚀 All auth checks passed - starting post');
+      await startPosting();
+    } catch (error: any) {
+      console.error('Error in Post Now flow:', error);
+      toast({
+        title: "Connection Failed",
+        description: "Couldn't connect to your accounts. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Start posting content
+  const startPosting = async () => {
+    if (!post) return;
+    
+    console.log('📤 PostDetailDialog startPosting called with:', {
+      'post.type': post.type,
+      'post.image': post.image?.substring(0, 60) + '...',
+      'post.description': post.description?.substring(0, 50) + '...',
+      'post.requestedPlatforms': post.requestedPlatforms,
+    });
+    
+    setShowPostingDialog(true);
+    setPostingComplete(false);
+    setIsPosting(true);
+    setPostingResults([]);
+
+    try {
+      // Extract media URL and type
+      const mediaUrl = post.image;
+      const isVideoPost = post.image && (post.image.includes('video') || post.image.includes('.mp4'));
+      const mediaType = isVideoPost ? 'video' : 'image';
+      
+      // Use platforms from post data
+      let platforms = post.requestedPlatforms || post.platforms;
+      
+      if (!platforms || platforms.length === 0) {
+        platforms = ['twitter'];
+        console.warn('⚠️ No platforms found, using default:', platforms);
+      }
+      
+      console.log('🚀 Start Posting - Post data:', {
+        'post.requestedPlatforms': post.requestedPlatforms,
+        'final platforms': platforms,
+        'platforms length': platforms?.length,
+      });
+
+      // Get the caption for posting (use edited caption if available, or platform-specific)
+      const captionToUse = editedCaptions[selectedPlatform] || 
+                          (post.fullPlatformTexts?.[selectedPlatform]) || 
+                          caption || 
+                          post.description || 
+                          post.title;
+
+      // Call posting API
+      const response = await postingApi.postNow({
+        platforms: platforms,
+        content: {
+          caption: captionToUse,
+          platformTexts: post.fullPlatformTexts || {},
+          mediaUrl: mediaUrl,
+          mediaType: mediaType,
+          generatedContentId: post.generatedContentId || post.contentId,
+          postIndex: post.postIndex,
+        },
+      });
+
+      setPostingResults(response.data.results);
+      setPostingComplete(true);
+
+      // Check if any platform needs OAuth1
+      const needsOAuth1Result = response.data.results.some((r: any) => r.needsOAuth1);
+      if (needsOAuth1Result) {
+        setNeedsOAuth1(true);
+        toast({
+          title: "Video Authorization Required",
+          description: "Twitter requires separate authorization for video uploads.",
+          variant: "default",
+        });
+      } else {
+        const successCount = response.data.results.filter((r: any) => r.success).length;
+        
+        if (successCount > 0) {
+          toast({
+            title: "Posted Successfully! 🎉",
+            description: `Your content was posted to ${successCount} platform(s).`,
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error('Error posting:', error);
+      setPostingComplete(true);
+      setPostingResults([{
+        platform: 'all',
+        success: false,
+        error: error.message || 'Failed to post content'
+      }]);
+      toast({
+        title: "Posting Failed",
+        description: error.message || "Failed to post content. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  // Handle body overflow and animation when dialog opens/closes
+  useEffect(() => {
+    if (open && !showScheduleDialog) {
+      document.body.style.overflow = 'hidden';
+      const timeout = setTimeout(() => setIsVisible(true), 10);
+      return () => clearTimeout(timeout);
+    } else {
+      setIsVisible(false);
+      const timeout = setTimeout(() => {
+        if (!showScheduleDialog) {
+          document.body.style.overflow = 'unset';
+        }
+      }, 300);
+      return () => clearTimeout(timeout);
+    }
+  }, [open, showScheduleDialog]);
 
   // Text overlay states
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
@@ -557,6 +1064,14 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
     }
   }, [open, post]);
 
+  // Reset animation state when post changes (after accept/reject)
+  useEffect(() => {
+    // When post changes, ensure no animation state is lingering
+    setIsAnimatingOut(null);
+    setAnimatingOutPost(null);
+    setSwipeOffset(0);
+  }, [post?.id]);
+
   // Fetch edited captions when dialog opens
   useEffect(() => {
     const fetchEditedCaptions = async () => {
@@ -733,12 +1248,22 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
     }
   };
 
-  // Reset Edit Design mode when dialog closes
-  const handleDialogOpenChange = (isOpen: boolean) => {
-    onOpenChange(isOpen);
-    if (!isOpen) {
+  // Handle close with animation
+  const handleClose = () => {
+    setIsVisible(false);
+    setTimeout(() => {
+      onOpenChange(false);
       setShowEditDesign(false);
       onEditDesignModeChange?.(false);
+    }, 300);
+  };
+
+  // Reset Edit Design mode when dialog closes
+  const handleDialogOpenChange = (isOpen: boolean) => {
+    if (!isOpen) {
+      handleClose();
+    } else {
+      onOpenChange(isOpen);
     }
   };
 
@@ -847,20 +1372,48 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
     
     // Determine video aspect ratio based on model:
     // - kling models → 1:1 (aspect-square)
-    // - veo3 models → 9:16 (aspect-[9/16])
+    // - veo3 models → 9:16 (portrait)
     // Default to 9:16 if model is unknown
-    const getVideoAspectRatio = () => {
-      if (!isVideoContent) return 'aspect-square'; // Images are always 1:1
-      
+    const isPortraitVideo = () => {
+      if (!isVideoContent) return false;
       const model = post.videoModel?.toLowerCase() || '';
-      if (model.includes('kling')) {
-        return 'aspect-square'; // 1:1 for kling
-      }
-      // Default to 9:16 for veo3 and other models
-      return 'aspect-[9/16]';
+      // Kling is 1:1, everything else (veo3, etc.) is 9:16
+      return !model.includes('kling');
     };
     
-    const videoAspectClass = getVideoAspectRatio();
+    const isPortrait = isPortraitVideo();
+    
+    // Helper function to render video with proper aspect ratio handling
+    const renderVideo = () => {
+      if (isPortrait) {
+        // Portrait video (9:16) - constrain height, width adjusts to maintain aspect ratio
+        // This makes it look like a mobile phone preview without black bars
+        return (
+          <div className="w-full flex justify-center">
+            <div className="max-h-[65vh] aspect-[9/16]">
+              <video 
+                src={post.image} 
+                controls
+                playsInline
+                className="w-full h-full object-cover rounded-lg"
+              />
+            </div>
+          </div>
+        );
+      } else {
+        // Square video (1:1) - standard aspect-square with object-cover
+        return (
+          <div className="w-full aspect-square">
+            <video 
+              src={post.image} 
+              controls
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          </div>
+        );
+      }
+    };
 
     // In Edit Design mode, show only the image without platform chrome
     if (showEditDesign) {
@@ -1362,22 +1915,17 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
             </div>
             
             {/* Instagram Media - aspect ratio based on model */}
-            <div className={`w-full ${isVideoContent ? videoAspectClass : 'aspect-square'}`}>
-              {isVideoContent ? (
-                <video 
-                  src={post.image} 
-                  controls
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              ) : (
+            {isVideoContent ? (
+              renderVideo()
+            ) : (
+              <div className="w-full aspect-square">
                 <img 
                   src={post.image} 
                   alt={post.title}
                   className="w-full h-full object-cover"
                 />
-              )}
-            </div>
+              </div>
+            )}
             
             {/* Instagram Actions */}
             <div className="p-2 md:p-3">
@@ -1425,20 +1973,17 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
                 <div className="mt-2 text-gray-900 text-sm md:text-lg leading-snug">
                   {getPlatformCaption('twitter')}
                 </div>
-                <div className={`mt-3 rounded-xl md:rounded-2xl overflow-hidden ${isVideoContent ? videoAspectClass : 'aspect-square'}`}>
+                <div className="mt-3 rounded-xl md:rounded-2xl overflow-hidden">
                   {isVideoContent ? (
-                    <video 
-                      src={post.image} 
-                      controls
-                      playsInline
-                      className="w-full h-full object-cover"
-                    />
+                    renderVideo()
                   ) : (
-                    <img 
-                      src={post.image} 
-                      alt={post.title}
-                      className="w-full h-full object-cover"
-                    />
+                    <div className="w-full aspect-square">
+                      <img 
+                        src={post.image} 
+                        alt={post.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center justify-between mt-3 text-gray-500">
@@ -1486,22 +2031,17 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
             </div>
             
             {/* LinkedIn Media - aspect ratio based on model */}
-            <div className={`w-full ${isVideoContent ? videoAspectClass : 'aspect-square'}`}>
-              {isVideoContent ? (
-                <video 
-                  src={post.image} 
-                  controls
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              ) : (
+            {isVideoContent ? (
+              renderVideo()
+            ) : (
+              <div className="w-full aspect-square">
                 <img 
                   src={post.image} 
                   alt={post.title}
                   className="w-full h-full object-cover"
                 />
-              )}
-            </div>
+              </div>
+            )}
             
             {/* LinkedIn Actions */}
             <div className="flex items-center justify-around p-2 border-t">
@@ -1526,18 +2066,42 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
 
   return (
     <>
-      {/* Hide PostDetailDialog when ScheduleDialog is open to prevent z-index conflicts */}
-      <Dialog open={open && !showScheduleDialog} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className={`${
-          showEditDesign 
-            ? 'w-[95vw] md:w-[calc(100vw-8rem)] lg:w-[calc(100vw-10rem)] max-w-none ml-0 md:ml-6 lg:ml-6 mr-0 md:mr-6 lg:mr-6' 
-            : 'w-[95vw] md:w-[calc(100vw-8rem)] lg:w-auto max-w-7xl ml-0 md:ml-6 lg:ml-0 mr-0 md:mr-6 lg:mr-0'
-        } h-[90vh] p-0 gap-0 overflow-hidden z-[100]`}>
-          {/* Desktop Layout - 3 Column (with chat panel on left when Edit Design ON) */}
-          <div className="hidden lg:flex flex-row h-full overflow-hidden">
-            {/* Left Side - AI Chat (Edit Design mode - desktop only) */}
-            {showEditDesign && (
-              <div className="lg:w-72 bg-background lg:border-r flex-col">
+      {/* Full Screen Modal - Hide when ScheduleDialog is open to prevent z-index conflicts */}
+      {open && !showScheduleDialog && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className={`fixed inset-0 z-[100] bg-black/50 transition-opacity duration-300 ${
+              isVisible ? 'opacity-100' : 'opacity-0'
+            }`}
+            onClick={handleClose}
+          />
+          
+          {/* Modal Content */}
+          <div 
+            className={`fixed inset-0 z-[101] overflow-y-auto transition-transform duration-300 ease-out ${
+              isVisible ? 'translate-y-0' : 'translate-y-full'
+            }`}
+          >
+            <div className="min-h-screen bg-background">
+              {/* Close Button */}
+              <button
+                onClick={handleClose}
+                className="fixed top-4 right-4 md:top-6 md:right-6 z-[102] p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-colors border border-border"
+                aria-label="Close"
+              >
+                <XIcon className="h-5 w-5 text-foreground" />
+              </button>
+
+              {/* Desktop Layout - Centered with balanced columns */}
+              <div className="hidden lg:flex flex-col h-screen overflow-hidden">
+                {/* Centered Container */}
+                <div className={`flex-1 flex ${showEditDesign ? 'flex-row' : 'items-center justify-center'} overflow-hidden`}>
+                  {/* Edit Design: 3-column layout */}
+                  {showEditDesign ? (
+                    <>
+                      {/* Left Side - AI Chat (Edit Design mode - desktop only) */}
+                      <div className="w-72 bg-background border-r flex-shrink-0 flex flex-col">
                 {/* Header */}
                 <div className="p-4 border-b">
                   <div className="flex items-center justify-between mb-2">
@@ -1655,356 +2219,457 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
                   </div>
                 </div>
               </div>
-            )}
 
-            {/* Center - Platform Preview (desktop) */}
-            <div className={`flex-1 bg-muted ${showEditDesign ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-              <div className={`h-full flex flex-col ${showEditDesign ? 'p-4 md:p-6 lg:p-6' : 'p-4 md:p-8 lg:p-8 min-h-full'}`}>
-                {/* Platform Preview */}
-                <div className={`flex items-center justify-center ${showEditDesign ? 'flex-1' : 'lg:flex-1'}`}>
-                  {renderPlatformPreview()}
-                </div>
-                
-                {/* Make Changes section - shown below image on mobile/tablet (non-Edit Design) */}
-                <div className={`${showEditDesign ? 'hidden' : 'lg:hidden'} mt-6 bg-background rounded-lg p-4`}>
-                  <div className="space-y-4">
-                    <div>
-                      <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Make Changes</h2>
-                      <div className="flex gap-2">
-                    <Button 
-                      variant="outline" 
-                      className="flex-1 text-xs md:text-sm"
-                      onClick={() => setShowCaptionEdit(true)}
-                    >
-                      <span className="mr-1 md:mr-2">📝</span>
-                      Edit Caption
-                    </Button>
-                    <div className="flex-1 flex flex-col gap-1">
-                      <Button 
-                        variant={showEditDesign ? "default" : "outline"} 
-                        className="w-full text-xs md:text-sm"
-                        disabled={isVideo}
-                        onClick={() => !isVideo && handleEditDesignToggle(!showEditDesign)}
-                      >
-                        <span className="mr-1 md:mr-2">🎨</span>
-                        Edit Design
-                      </Button>
-                      {isVideo && <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>}
-                    </div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <h3 className="text-xs md:text-sm font-medium mb-2">Posting on</h3>
-                      <Button 
-                        variant="outline" 
-                        className="w-full justify-between text-xs md:text-sm hover:bg-accent"
-                        onClick={handleOpenScheduleDialog}
-                      >
-                        <div className="flex items-center gap-2">
-                          <CalendarIcon className="w-3 h-3 md:w-4 md:h-4" />
-                          <span>
-                            {post.date && post.time ? `${post.date} ${post.time}` : 'Not Selected'}
-                          </span>
+                      {/* Center - Platform Preview (Edit Design mode) */}
+                      <div className="flex-1 bg-muted overflow-hidden">
+                        <div className="h-full flex flex-col p-6">
+                          <div className="flex items-center justify-center flex-1">
+                            {renderPlatformPreview()}
+                          </div>
                         </div>
-                        <ChevronRight className="w-3 h-3 md:w-4 md:h-4" />
-                      </Button>
-                    </div>
-                    
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-xs md:text-sm font-medium">Posts</h3>
-                        <Button variant="ghost" size="sm" className="text-xs md:text-sm">
-                          ⚙️ Manage
-                        </Button>
                       </div>
-                      
-                      <div className="space-y-2">
-                        {platformOptions.map((platform) => (
-                          <Card
-                            key={platform.id}
-                            className={`p-2 md:p-3 cursor-pointer transition-colors ${
-                              selectedPlatform === platform.id
-                                ? "border-primary bg-primary/5"
-                                : "hover:bg-muted/50"
-                            }`}
-                            onClick={() => setSelectedPlatform(platform.id)}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="text-lg md:text-xl">{platform.icon}</span>
-                                <span className="font-medium text-sm md:text-base">{platform.label}</span>
-                              </div>
-                              <div className="w-4 h-4 md:w-5 md:h-5 rounded-full border-2 border-primary flex items-center justify-center">
-                                {selectedPlatform === platform.id && (
-                                  <div className="w-2 h-2 md:w-3 md:h-3 rounded-full bg-primary" />
-                                )}
+
+                      {/* Right Side - Edit Design Controls */}
+                      <div className="w-80 bg-background border-l p-6 overflow-y-auto flex-shrink-0">
+                        <div className="space-y-6">
+                          <div>
+                            <h2 className="text-lg font-semibold mb-4">Edit Design</h2>
+                            <p className="text-sm text-muted-foreground mb-4">
+                              Add text, emojis, and stickers to your image. Click Save Design when done.
+                            </p>
+                            <Button 
+                              className="w-full mb-3"
+                              onClick={handleSaveDesign}
+                              disabled={isSavingDesign || !canSaveDesign}
+                            >
+                              {isSavingDesign ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Saving...
+                                </>
+                              ) : (
+                                <>
+                                  <Save className="w-4 h-4 mr-2" />
+                                  Save Design
+                                </>
+                              )}
+                            </Button>
+                            {!canSaveDesign && (
+                              <p className="text-xs text-muted-foreground text-center mb-3">
+                                Add text or emojis to enable saving
+                              </p>
+                            )}
+                            <Button 
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => handleEditDesignToggle(false)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    /* Normal Mode - Centered two-column layout */
+                    <div className="w-full max-w-5xl mx-auto px-8 py-12">
+                      <div className="grid grid-cols-5 gap-12">
+                        {/* Left - Platform Preview */}
+                        <div className="col-span-3 flex items-start justify-center">
+                          {renderPlatformPreview()}
+                        </div>
+
+                        {/* Right - Make Changes */}
+                        <div className="col-span-2">
+                          <div className="bg-background rounded-xl border shadow-sm p-6 space-y-6">
+                            <div>
+                              <h2 className="text-xl font-semibold mb-4">Make Changes</h2>
+                              <div className="flex gap-3">
+                                <Button 
+                                  variant="outline" 
+                                  className="flex-1"
+                                  onClick={() => setShowCaptionEdit(true)}
+                                >
+                                  <span className="mr-2">📝</span>
+                                  Edit Caption
+                                </Button>
+                                <div className="flex-1 flex flex-col gap-1">
+                                  <Button 
+                                    variant="outline" 
+                                    className="w-full"
+                                    disabled={isVideo}
+                                    onClick={() => !isVideo && handleEditDesignToggle(!showEditDesign)}
+                                  >
+                                    <span className="mr-2">🎨</span>
+                                    Edit Design
+                                  </Button>
+                                  {isVideo && <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>}
+                                </div>
                               </div>
                             </div>
-                          </Card>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Right Side - Make Changes (Desktop Only) */}
-            <div className="lg:w-80 bg-background lg:border-l p-6 overflow-y-auto">
-              <div className="space-y-6">
-                {showEditDesign ? (
-                  /* Edit Design Mode - Show only Save button */
-                  <div>
-                    <h2 className="text-lg font-semibold mb-4">Edit Design</h2>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Add text, emojis, and stickers to your image. Click Save Design when done.
-                    </p>
-                    <Button 
-                      className="w-full mb-3"
-                      onClick={handleSaveDesign}
-                      disabled={isSavingDesign || !canSaveDesign}
-                    >
-                      {isSavingDesign ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-4 h-4 mr-2" />
-                          Save Design
-                        </>
-                      )}
-                    </Button>
-                    {!canSaveDesign && (
-                      <p className="text-xs text-muted-foreground text-center mb-3">
-                        Add text or emojis to enable saving
-                      </p>
-                    )}
-                    <Button 
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => handleEditDesignToggle(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                ) : (
-                  /* Normal Mode - Show full options */
-                  <>
-                    <div>
-                      <h2 className="text-lg font-semibold mb-4">Make Changes</h2>
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          className="flex-1 text-sm"
-                          onClick={() => setShowCaptionEdit(true)}
-                        >
-                          <span className="mr-2">📝</span>
-                          Edit Caption
-                        </Button>
-                        <div className="flex-1 flex flex-col gap-1">
-                          <Button 
-                            variant={showEditDesign ? "default" : "outline"} 
-                            className="w-full text-sm"
-                            disabled={isVideo}
-                            onClick={() => !isVideo && handleEditDesignToggle(!showEditDesign)}
-                          >
-                            <span className="mr-2">🎨</span>
-                            Edit Design
-                          </Button>
-                          {isVideo && <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <h3 className="text-sm font-medium mb-2">Posting on</h3>
-                      <Button 
-                        variant="outline" 
-                        className="w-full justify-between text-sm hover:bg-accent"
-                        onClick={handleOpenScheduleDialog}
-                      >
-                        <div className="flex items-center gap-2">
-                          <CalendarIcon className="w-4 h-4" />
-                          <span>
-                            {post.date && post.time ? `${post.date} ${post.time}` : 'Not Selected'}
-                          </span>
-                        </div>
-                        <ChevronRight className="w-4 h-4" />
-                      </Button>
-                    </div>
-                    
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-medium">Posts</h3>
-                        <Button variant="ghost" size="sm" className="text-sm">
-                          ⚙️ Manage
-                        </Button>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        {platformOptions.map((platform) => (
-                          <Card
-                            key={platform.id}
-                            className={`p-3 cursor-pointer transition-colors ${
-                              selectedPlatform === platform.id
-                                ? "border-primary bg-primary/5"
-                                : "hover:bg-muted/50"
-                            }`}
-                            onClick={() => setSelectedPlatform(platform.id)}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xl">{platform.icon}</span>
-                                <span className="font-medium text-base">{platform.label}</span>
+                            
+                            <div>
+                              <h3 className="text-sm font-medium mb-3">Posting on</h3>
+                              <Button 
+                                variant="outline" 
+                                className="w-full justify-between hover:bg-accent"
+                                onClick={handleOpenScheduleDialog}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <CalendarIcon className="w-4 h-4" />
+                                  <span>
+                                    {post.date && post.time ? `${post.date} ${post.time}` : 'Not Selected'}
+                                  </span>
+                                </div>
+                                <ChevronRight className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            
+                            <div>
+                              <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-sm font-medium">Platforms</h3>
+                                <Button variant="ghost" size="sm" className="text-sm h-8">
+                                  ⚙️ Manage
+                                </Button>
                               </div>
-                              <div className="w-5 h-5 rounded-full border-2 border-primary flex items-center justify-center">
-                                {selectedPlatform === platform.id && (
-                                  <div className="w-3 h-3 rounded-full bg-primary" />
-                                )}
+                              
+                              <div className="space-y-2">
+                                {platformOptions.map((platform) => (
+                                  <Card
+                                    key={platform.id}
+                                    className={`p-3 cursor-pointer transition-colors ${
+                                      selectedPlatform === platform.id
+                                        ? "border-primary bg-primary/5"
+                                        : "hover:bg-muted/50"
+                                    }`}
+                                    onClick={() => setSelectedPlatform(platform.id)}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-xl">{platform.icon}</span>
+                                        <span className="font-medium">{platform.label}</span>
+                                      </div>
+                                      <div className="w-5 h-5 rounded-full border-2 border-primary flex items-center justify-center">
+                                        {selectedPlatform === platform.id && (
+                                          <div className="w-3 h-3 rounded-full bg-primary" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  </Card>
+                                ))}
                               </div>
                             </div>
-                          </Card>
-                        ))}
+                            
+                            {/* Post Now Button */}
+                            <div>
+                              <Button 
+                                className="w-full btn-gradient-cta"
+                                onClick={handlePostNowClick}
+                                disabled={isPosting}
+                              >
+                                {isPosting ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Posting...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Send className="w-4 h-4 mr-2" />
+                                    Post Now
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            
+                            {/* Accept/Reject buttons for Pending Review content */}
+                            {isPendingReview && (
+                              <div>
+                                <h3 className="text-sm font-medium mb-3">Review Content</h3>
+                                <div className="flex items-center justify-center gap-4">
+                                  <button
+                                    className="w-12 h-12 rounded-full border-2 border-red-300 bg-white hover:bg-red-50 flex items-center justify-center transition-colors disabled:opacity-50"
+                                    onClick={() => handleReject(false)}
+                                    disabled={isAcceptingRejecting}
+                                  >
+                                    {isAcceptingRejecting ? (
+                                      <Loader2 className="w-5 h-5 text-red-500 animate-spin" />
+                                    ) : (
+                                      <XCircle className="w-6 h-6 text-red-500" />
+                                    )}
+                                  </button>
+                                  <button
+                                    className="w-12 h-12 rounded-full bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center transition-colors disabled:opacity-50"
+                                    onClick={() => handleAccept(false)}
+                                    disabled={isAcceptingRejecting}
+                                  >
+                                    {isAcceptingRejecting ? (
+                                      <Loader2 className="w-5 h-5 text-white animate-spin" />
+                                    ) : (
+                                      <Heart className="w-6 h-6 text-white" />
+                                    )}
+                                  </button>
+                                </div>
+                                {pendingReviewItems.length > 1 && (
+                                  <p className="text-xs text-muted-foreground text-center mt-2">
+                                    {pendingReviewItems.length} pending
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
 
           {/* Mobile/Tablet Layout - Single Column with Vertical Scroll */}
-          <div className="flex lg:hidden flex-col h-full overflow-y-auto">
-            {/* Image Preview at Top */}
-            <div className="bg-muted p-4 md:p-8 pt-6 md:pt-8 pb-6 md:pb-8 flex items-start justify-center">
-              <div className="w-full max-w-md">
+          <div className="flex lg:hidden flex-col min-h-screen overflow-y-auto pb-6">
+            {/* Image Preview at Top - with swipe support for pending review */}
+            <div className="bg-muted p-4 md:p-8 pt-6 md:pt-8 pb-4 md:pb-6 flex flex-col items-center justify-center relative">
+              {/* Swipe indicators - only show during active swipe */}
+              {isPendingReview && swipeOffset !== 0 && (
+                <>
+                  {/* LIKE indicator */}
+                  <div 
+                    className="absolute top-1/2 right-4 -translate-y-1/2 z-10 px-4 py-2 border-4 border-emerald-500 rounded-lg font-bold text-emerald-500 text-xl rotate-12 pointer-events-none transition-opacity"
+                    style={{ opacity: Math.max(0, swipeOffset / 100) }}
+                  >
+                    LIKE
+                  </div>
+                  {/* NOPE indicator */}
+                  <div 
+                    className="absolute top-1/2 left-4 -translate-y-1/2 z-10 px-4 py-2 border-4 border-red-500 rounded-lg font-bold text-red-500 text-xl -rotate-12 pointer-events-none transition-opacity"
+                    style={{ opacity: Math.max(0, -swipeOffset / 100) }}
+                  >
+                    NOPE
+                  </div>
+                </>
+              )}
+              <div 
+                className="w-full max-w-md"
+                style={isPendingReview ? getSwipeStyle() : undefined}
+                onTouchStart={isPendingReview ? onTouchStart : undefined}
+                onTouchMove={isPendingReview ? onTouchMove : undefined}
+                onTouchEnd={isPendingReview ? onTouchEnd : undefined}
+              >
                 {renderPlatformPreview()}
               </div>
+              {/* Swipe hint for pending review - shown below the preview */}
+              {isPendingReview && !swipeOffset && (
+                <p className="text-xs text-muted-foreground mt-3 text-center">
+                  Swipe right to like, left to reject
+                </p>
+              )}
             </div>
-
-            {/* AI Chat Panel (only when Edit Design is ON) */}
-            {showEditDesign && (
-              <div className="bg-background border-t">
-                <div className="px-4 py-3 md:px-6 md:py-4 border-b">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-                      <span className="font-semibold text-sm md:text-base">Ask Dvyb to Make Changes</span>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px] md:text-xs px-1.5 md:px-2">BETA</Badge>
-                  </div>
-                </div>
-
-                <div className="px-4 py-4 md:px-6 md:py-4">
-                  <div className="space-y-3 md:space-y-4">
-                    {chatMessages.length === 0 ? (
-                      <div className="space-y-2 md:space-y-3">
-                        <p className="text-xs md:text-sm text-muted-foreground">Try asking Dvyb to:</p>
-                        <div className="space-y-2 md:space-y-2.5">
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="w-full justify-start text-xs md:text-sm h-auto py-2.5 md:py-2"
-                            onClick={() => handleExamplePrompt("Make this into green colour")}
-                          >
-                            Make this into green colour
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="w-full justify-start text-xs md:text-sm h-auto py-2.5 md:py-2"
-                            onClick={() => handleExamplePrompt("Make a generated background")}
-                          >
-                            Make a generated background
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="w-full justify-start text-xs md:text-sm h-auto py-2.5 md:py-2"
-                            onClick={() => handleExamplePrompt("Change the text style")}
-                          >
-                            Change the text style
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="w-full justify-start text-xs md:text-sm h-auto py-2.5 md:py-2"
-                            onClick={() => handleExamplePrompt("Add brand logo")}
-                          >
-                            Add brand logo
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3 md:space-y-4">
-                        {chatMessages.map((message, index) => (
-                          <div key={index} className={`${message.role === 'user' ? 'text-right' : 'text-left'}`}>
-                            <div className={`inline-block p-2.5 md:p-3 rounded-lg text-xs md:text-sm ${
-                              message.role === 'user' 
-                                ? 'bg-primary text-primary-foreground' 
-                                : 'bg-muted'
-                            }`}>
-                              {message.content}
-                            </div>
-                          </div>
-                        ))}
-
-                        {chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant' && (
-                          <div className="space-y-2 md:space-y-3">
-                            <p className="text-xs md:text-sm text-muted-foreground">Generated variations:</p>
-                            <div className="grid grid-cols-2 gap-2 md:gap-3">
-                              {[1, 2, 3, 4].map((i) => (
-                                <div key={i} className="aspect-square rounded-lg bg-gradient-to-br from-green-400 to-emerald-500 p-2 md:p-3 flex items-center justify-center cursor-pointer hover:ring-2 ring-primary transition-all">
-                                  <p className="text-white text-[10px] md:text-xs font-bold text-center leading-tight">
-                                    {post.title}
-                                  </p>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+            
+            {/* Make Changes section - shown below image (non-Edit Design) */}
+            {!showEditDesign && (
+              <div className="bg-background px-4 py-6 md:px-6">
+                <div className="max-w-md mx-auto space-y-5">
+                  {/* Accept/Reject buttons for Pending Review content - Mobile/Tablet (above Make Changes) */}
+                  {isPendingReview && (
+                    <div className="flex items-center justify-center gap-6">
+                      <button
+                        className="w-14 h-14 rounded-full border-2 border-red-300 bg-white hover:bg-red-50 flex items-center justify-center transition-colors disabled:opacity-50"
+                        onClick={() => handleReject(false)}
+                        disabled={isAcceptingRejecting}
+                      >
+                        {isAcceptingRejecting ? (
+                          <Loader2 className="w-6 h-6 text-red-500 animate-spin" />
+                        ) : (
+                          <XCircle className="w-7 h-7 text-red-500" />
                         )}
+                      </button>
+                      <div className="text-center">
+                        <p className="text-xs text-muted-foreground">
+                          {pendingReviewItems.length} pending
+                        </p>
                       </div>
-                    )}
+                      <button
+                        className="w-14 h-14 rounded-full bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center transition-colors disabled:opacity-50"
+                        onClick={() => handleAccept(false)}
+                        disabled={isAcceptingRejecting}
+                      >
+                        {isAcceptingRejecting ? (
+                          <Loader2 className="w-6 h-6 text-white animate-spin" />
+                        ) : (
+                          <Heart className="w-7 h-7 text-white" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  
+                  <div>
+                    <h2 className="text-lg font-semibold mb-4">Make Changes</h2>
+                    <div className="flex gap-3">
+                      <Button 
+                        variant="outline" 
+                        className="flex-1"
+                        onClick={() => setShowCaptionEdit(true)}
+                      >
+                        <span className="mr-2">📝</span>
+                        Edit Caption
+                      </Button>
+                      <div className="flex-1 flex flex-col gap-1">
+                        <Button 
+                          variant="outline" 
+                          className="w-full"
+                          disabled={isVideo}
+                          onClick={() => !isVideo && handleEditDesignToggle(!showEditDesign)}
+                        >
+                          <span className="mr-2">🎨</span>
+                          Edit Design
+                        </Button>
+                        {isVideo && <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>}
+                      </div>
+                    </div>
                   </div>
-
-                  <div className="flex flex-col gap-2 mt-4 md:mt-5">
-                    <textarea
-                      placeholder="Ask Dvyb to change something..."
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSendPrompt();
-                        }
-                      }}
-                      className="flex-1 text-xs md:text-sm min-h-[60px] md:min-h-[80px] max-h-[150px] resize-y rounded-md border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                      rows={2}
-                    />
-                    <Button className="self-end h-9 md:h-10" onClick={handleSendPrompt}>
-                      <Send className="w-4 h-4 mr-2" />
-                      Send
+                  
+                  <div>
+                    <h3 className="text-sm font-medium mb-3">Posting on</h3>
+                    <Button 
+                      variant="outline" 
+                      className="w-full justify-between hover:bg-accent"
+                      onClick={handleOpenScheduleDialog}
+                    >
+                      <div className="flex items-center gap-2">
+                        <CalendarIcon className="w-4 h-4" />
+                        <span>
+                          {post.date && post.time ? `${post.date} ${post.time}` : 'Not Selected'}
+                        </span>
+                      </div>
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-medium">Platforms</h3>
+                      <Button variant="ghost" size="sm" className="text-sm h-8">
+                        ⚙️ Manage
+                      </Button>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {platformOptions.map((platform) => (
+                        <Card
+                          key={platform.id}
+                          className={`p-3 cursor-pointer transition-colors ${
+                            selectedPlatform === platform.id
+                              ? "border-primary bg-primary/5"
+                              : "hover:bg-muted/50"
+                          }`}
+                          onClick={() => setSelectedPlatform(platform.id)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <span className="text-xl">{platform.icon}</span>
+                              <span className="font-medium">{platform.label}</span>
+                            </div>
+                            <div className="w-5 h-5 rounded-full border-2 border-primary flex items-center justify-center">
+                              {selectedPlatform === platform.id && (
+                                <div className="w-3 h-3 rounded-full bg-primary" />
+                              )}
+                            </div>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Post Now Button - Mobile/Tablet */}
+                  <div>
+                    <Button 
+                      className="w-full btn-gradient-cta"
+                      onClick={handlePostNowClick}
+                      disabled={isPosting}
+                    >
+                      {isPosting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Posting...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4 mr-2" />
+                          Post Now
+                        </>
+                      )}
                     </Button>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Make Changes Section */}
-            <div className="bg-background border-t px-4 py-4 md:px-6 md:py-5">
-              <div className="space-y-5 md:space-y-6">
-                {showEditDesign ? (
-                  /* Edit Design Mode - Show only Save button */
+            {/* Edit Design Mode - Mobile */}
+            {showEditDesign && (
+              <div className="bg-background px-4 py-6 md:px-6">
+                <div className="max-w-md mx-auto space-y-5">
+                  {/* AI Chat Panel */}
+                  <div className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-primary" />
+                        <span className="font-semibold text-sm">Ask Dvyb to Make Changes</span>
+                      </div>
+                      <Badge variant="secondary" className="text-[10px]">BETA</Badge>
+                    </div>
+
+                    <div className="space-y-3">
+                      {chatMessages.length === 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground">Try asking Dvyb to:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {["Make green", "Change text style", "Add logo"].map((prompt) => (
+                              <Button 
+                                key={prompt}
+                                variant="outline" 
+                                size="sm" 
+                                className="text-xs h-7"
+                                onClick={() => handleExamplePrompt(prompt)}
+                              >
+                                {prompt}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-32 overflow-y-auto">
+                          {chatMessages.map((message, index) => (
+                            <div key={index} className={`${message.role === 'user' ? 'text-right' : 'text-left'}`}>
+                              <div className={`inline-block p-2 rounded-lg text-xs ${
+                                message.role === 'user' 
+                                  ? 'bg-primary text-primary-foreground' 
+                                  : 'bg-muted'
+                              }`}>
+                                {message.content}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 mt-3">
+                      <Input
+                        placeholder="Ask Dvyb..."
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendPrompt()}
+                        className="text-sm h-9"
+                      />
+                      <Button size="sm" onClick={handleSendPrompt} className="h-9 px-3">
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Save/Cancel buttons */}
                   <div>
-                    <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Edit Design</h2>
-                    <p className="text-xs md:text-sm text-muted-foreground mb-4">
-                      Add text, emojis, and stickers to your image. Click Save Design when done.
-                    </p>
                     <Button 
-                      className="w-full mb-3"
+                      className="w-full mb-2"
                       onClick={handleSaveDesign}
                       disabled={isSavingDesign || !canSaveDesign}
                     >
@@ -2021,7 +2686,7 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
                       )}
                     </Button>
                     {!canSaveDesign && (
-                      <p className="text-xs text-muted-foreground text-center mb-3">
+                      <p className="text-xs text-muted-foreground text-center mb-2">
                         Add text or emojis to enable saving
                       </p>
                     )}
@@ -2033,93 +2698,14 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
                       Cancel
                     </Button>
                   </div>
-                ) : (
-                  /* Normal Mode - Show full options */
-                  <>
-                    <div>
-                      <h2 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Make Changes</h2>
-                      <div className="flex gap-2 md:gap-3">
-                        <Button 
-                          variant="outline" 
-                          className="flex-1 text-xs md:text-sm h-10 md:h-10"
-                          onClick={() => setShowCaptionEdit(true)}
-                        >
-                          <span className="mr-1.5 md:mr-2">📝</span>
-                          Edit Caption
-                        </Button>
-                        <div className="flex-1 flex flex-col gap-1">
-                          <Button 
-                            variant={showEditDesign ? "default" : "outline"} 
-                            className="w-full text-xs md:text-sm h-10 md:h-10"
-                            disabled={isVideo}
-                            onClick={() => !isVideo && handleEditDesignToggle(!showEditDesign)}
-                          >
-                            <span className="mr-1.5 md:mr-2">🎨</span>
-                            Edit Design
-                          </Button>
-                          {isVideo && <span className="text-[10px] text-muted-foreground text-center">Coming Soon</span>}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <h3 className="text-xs md:text-sm font-medium mb-2 md:mb-3">Posting on</h3>
-                      <Button 
-                        variant="outline" 
-                        className="w-full justify-between text-xs md:text-sm h-11 md:h-12 px-3 md:px-4 hover:bg-accent"
-                        onClick={handleOpenScheduleDialog}
-                      >
-                        <div className="flex items-center gap-2">
-                          <CalendarIcon className="w-4 h-4" />
-                          <span>
-                            {post.date && post.time ? `${post.date} ${post.time}` : 'Not Selected'}
-                          </span>
-                        </div>
-                        <ChevronRight className="w-4 h-4 md:w-4 md:h-4" />
-                      </Button>
-                    </div>
-                    
-                    <div>
-                      <div className="flex items-center justify-between mb-3 md:mb-4">
-                        <h3 className="text-xs md:text-sm font-medium">Posts</h3>
-                        <Button variant="ghost" size="sm" className="text-xs md:text-sm h-8 md:h-9 px-2 md:px-3">
-                          ⚙️ Manage
-                        </Button>
-                      </div>
-                      
-                      <div className="space-y-2 md:space-y-3">
-                        {platformOptions.map((platform) => (
-                          <Card
-                            key={platform.id}
-                            className={`p-3 md:p-3.5 cursor-pointer transition-colors ${
-                              selectedPlatform === platform.id
-                                ? "border-primary bg-primary/5"
-                                : "hover:bg-muted/50"
-                            }`}
-                            onClick={() => setSelectedPlatform(platform.id)}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2.5 md:gap-3">
-                                <span className="text-xl md:text-xl">{platform.icon}</span>
-                                <span className="font-medium text-sm md:text-base">{platform.label}</span>
-                              </div>
-                              <div className="w-5 h-5 md:w-5 md:h-5 rounded-full border-2 border-primary flex items-center justify-center flex-shrink-0">
-                                {selectedPlatform === platform.id && (
-                                  <div className="w-2.5 h-2.5 md:w-3 md:h-3 rounded-full bg-primary" />
-                                )}
-                              </div>
-                            </div>
-                          </Card>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
+                </div>
               </div>
+            )}
+          </div>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </>
+      )}
 
       <CaptionEditDialog
         open={showCaptionEdit}
@@ -2152,6 +2738,129 @@ export const PostDetailDialog = ({ post, open, onOpenChange, onEditDesignModeCha
           }}
         />
       )}
+
+      {/* Posting Results Dialog */}
+      <AlertDialog open={showPostingDialog} onOpenChange={setShowPostingDialog}>
+        <AlertDialogContent className="w-[90vw] sm:w-[85vw] md:max-w-md p-4 sm:p-6">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-center text-lg sm:text-xl">
+              {!postingComplete ? "Posting..." : "Posting Results"}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-center">
+              {!postingComplete && (
+                <div className="flex flex-col items-center justify-center py-4 sm:py-6">
+                  <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-emerald-500 mb-3 sm:mb-4" />
+                  <p className="text-sm sm:text-base">Publishing your content to selected platforms...</p>
+                </div>
+              )}
+              {postingComplete && (
+                <div className="py-3 sm:py-4 space-y-2 sm:space-y-3">
+                  {postingResults.length === 0 ? (
+                    <p className="text-base sm:text-lg">No results available</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {postingResults.map((result, idx) => (
+                        <div
+                          key={idx}
+                          className={`p-2.5 sm:p-3 rounded-lg border ${
+                            result.success
+                              ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
+                              : 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium capitalize text-sm sm:text-base">{result.platform}</span>
+                            <Badge variant={result.success ? "default" : "destructive"} className="text-xs">
+                              {result.success ? "✓ Posted" : "✗ Failed"}
+                            </Badge>
+                          </div>
+                          {result.error && (
+                            <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">{result.error}</p>
+                          )}
+                          {result.needsOAuth1 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="mt-2 w-full text-xs sm:text-sm h-8 sm:h-9"
+                              onClick={async () => {
+                                // Initiate OAuth1 redirect flow
+                                try {
+                                  const response = await oauth1Api.initiateOAuth1();
+                                  const { authUrl, state, oauthTokenSecret } = response.data;
+                                  
+                                  // Store OAuth1 state
+                                  localStorage.setItem('oauth1_state', state);
+                                  localStorage.setItem('oauth1_token_secret', oauthTokenSecret);
+                                  
+                                  // Save flow state
+                                  saveOAuthFlowState({
+                                    type: 'post_now',
+                                    source: 'content_library',
+                                    post: post ? {
+                                      id: post.id,
+                                      type: post.image?.includes('video') || post.image?.includes('.mp4') ? 'Video' : 'Post',
+                                      image: post.image,
+                                      description: post.description,
+                                      requestedPlatforms: post.requestedPlatforms || post.platforms,
+                                      platforms: post.platforms,
+                                      platformTexts: {},
+                                      fullPlatformTexts: post.fullPlatformTexts,
+                                      postIndex: post.postIndex,
+                                      generatedContentId: post.generatedContentId || post.contentId,
+                                    } : undefined,
+                                    platformsToAuth: [],
+                                    currentPlatformIndex: 0,
+                                    needsOAuth1: true,
+                                    oauth1Completed: false,
+                                    generatedPosts: [],
+                                    generatedContentId: post?.generatedContentId || post?.contentId || null,
+                                    generationUuid: null,
+                                  });
+                                  
+                                  window.location.href = authUrl;
+                                } catch (error) {
+                                  console.error('Failed to initiate OAuth1:', error);
+                                  toast({
+                                    title: "Authorization Failed",
+                                    description: "Couldn't start video authorization. Please try again.",
+                                    variant: "destructive",
+                                  });
+                                }
+                              }}
+                            >
+                              Authorize Video Upload
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {postingComplete && (
+            <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+              <Button
+                onClick={() => {
+                  setShowPostingDialog(false);
+                  // If posting was successful, close the PostDetailDialog too
+                  const successCount = postingResults.filter((r: any) => r.success).length;
+                  if (successCount > 0) {
+                    onOpenChange(false);
+                    if (onScheduleComplete) {
+                      onScheduleComplete();
+                    }
+                  }
+                }}
+                className="w-full sm:w-auto btn-gradient-cta"
+              >
+                Done
+              </Button>
+            </AlertDialogFooter>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };

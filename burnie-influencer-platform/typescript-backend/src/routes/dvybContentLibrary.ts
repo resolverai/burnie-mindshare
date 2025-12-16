@@ -8,6 +8,8 @@ import { DvybLinkedInPost } from '../models/DvybLinkedInPost';
 import { DvybTikTokPost } from '../models/DvybTikTokPost';
 import { DvybCaption } from '../models/DvybCaption';
 import { DvybImageEdit } from '../models/DvybImageEdit';
+import { DvybAcceptedContent } from '../models/DvybAcceptedContent';
+import { DvybRejectedContent } from '../models/DvybRejectedContent';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
@@ -123,6 +125,31 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
       }
     }
     logger.info(`🎨 Found ${allImageEdits.length} completed image edits for account ${accountId}`);
+
+    // Get accepted and rejected content for this account
+    const acceptedRepo = AppDataSource.getRepository(DvybAcceptedContent);
+    const rejectedRepo = AppDataSource.getRepository(DvybRejectedContent);
+    
+    const allAccepted = accountId ? await acceptedRepo.find({
+      where: { accountId },
+    }) : [];
+    
+    const allRejected = accountId ? await rejectedRepo.find({
+      where: { accountId },
+    }) : [];
+    
+    // Create lookup sets: "contentId-postIndex"
+    const acceptedSet = new Set<string>();
+    allAccepted.forEach(item => {
+      acceptedSet.add(`${item.generatedContentId}-${item.postIndex}`);
+    });
+    
+    const rejectedSet = new Set<string>();
+    allRejected.forEach(item => {
+      rejectedSet.add(`${item.generatedContentId}-${item.postIndex}`);
+    });
+    
+    logger.info(`✅ Found ${allAccepted.length} accepted and ${allRejected.length} rejected items for account ${accountId}`);
 
     // Get all posted content
     const [instagramPosts, twitterPosts, linkedinPosts, tiktokPosts] = await Promise.all([
@@ -513,12 +540,21 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
               }
             }
             
-            // Determine status based on posted platforms and schedules
-            let status = 'not-selected';
+            // Determine status based on posted platforms, schedules, and acceptance status
+            // Priority: posted > scheduled > selected > not-selected > pending-review
+            const acceptRejectKey = `${content.id}-${postIndex}`;
+            const isAccepted = acceptedSet.has(acceptRejectKey);
+            const isRejected = rejectedSet.has(acceptRejectKey);
+            
+            let status = 'pending-review'; // Default: not yet reviewed
             if (postedPlatforms.size > 0) {
               status = 'posted';
             } else if (schedules.length > 0) {
               status = 'scheduled';
+            } else if (isAccepted) {
+              status = 'selected';
+            } else if (isRejected) {
+              status = 'not-selected';
             }
 
             // Get the earliest schedule date if scheduled
@@ -649,15 +685,20 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     logger.info(`📊 Pagination: totalPosts=${allProcessedContent.length}, filtered=${filteredContent.length}, deduplicated=${deduplicatedContent.length}, page=${page}, skip=${postSkip}, returned=${paginatedContent.length}, hasMore=${hasMore}`);
 
     // Categorize content
-    // IMPORTANT: Return ALL scheduled posts (not paginated), only paginate not-selected and posted
+    // IMPORTANT: Return ALL scheduled posts (not paginated), only paginate others
+    // Order: Scheduled, Selected, Pending Review, Not Selected
     const scheduled = deduplicatedContent.filter(c => c.status === 'scheduled');
-    const notSelected = paginatedContent.filter(c => c.status === 'not-selected');
-    const posted = paginatedContent.filter(c => c.status === 'posted');
+    const selected = deduplicatedContent.filter(c => c.status === 'selected');
+    const pendingReview = deduplicatedContent.filter(c => c.status === 'pending-review');
+    const notSelected = deduplicatedContent.filter(c => c.status === 'not-selected');
+    const posted = deduplicatedContent.filter(c => c.status === 'posted');
 
     return res.json({
       success: true,
       data: {
         scheduled,
+        selected,
+        pendingReview,
         notSelected,
         posted,
       },
@@ -675,6 +716,270 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
       success: false,
       error: 'Failed to fetch content library',
       timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/content-library/accept
+ * Accept content (mark as selected)
+ */
+router.post('/accept', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId;
+    const { generatedContentId, postIndex } = req.body;
+
+    if (!accountId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+      });
+    }
+
+    if (!generatedContentId || postIndex === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'generatedContentId and postIndex are required',
+      });
+    }
+
+    const acceptedRepo = AppDataSource.getRepository(DvybAcceptedContent);
+    const rejectedRepo = AppDataSource.getRepository(DvybRejectedContent);
+
+    // Check if already accepted
+    const existingAccepted = await acceptedRepo.findOne({
+      where: { accountId: accountId, generatedContentId: Number(generatedContentId), postIndex: Number(postIndex) },
+    });
+
+    if (existingAccepted) {
+      return res.json({
+        success: true,
+        message: 'Content already accepted',
+      });
+    }
+
+    // Remove from rejected if exists
+    await rejectedRepo.delete({ accountId: accountId, generatedContentId: Number(generatedContentId), postIndex: Number(postIndex) });
+
+    // Add to accepted
+    const accepted = acceptedRepo.create({
+      accountId: accountId,
+      generatedContentId: Number(generatedContentId),
+      postIndex: Number(postIndex),
+    });
+    await acceptedRepo.save(accepted);
+
+    logger.info(`✅ Content accepted: accountId=${accountId}, contentId=${generatedContentId}, postIndex=${postIndex}`);
+
+    return res.json({
+      success: true,
+      message: 'Content accepted successfully',
+    });
+  } catch (error: any) {
+    logger.error(`Accept content error: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to accept content',
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/content-library/reject
+ * Reject content (mark as not selected)
+ */
+router.post('/reject', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId;
+    const { generatedContentId, postIndex } = req.body;
+
+    if (!accountId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+      });
+    }
+
+    if (!generatedContentId || postIndex === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'generatedContentId and postIndex are required',
+      });
+    }
+
+    const acceptedRepo = AppDataSource.getRepository(DvybAcceptedContent);
+    const rejectedRepo = AppDataSource.getRepository(DvybRejectedContent);
+
+    // Check if already rejected
+    const existingRejected = await rejectedRepo.findOne({
+      where: { accountId: accountId, generatedContentId: Number(generatedContentId), postIndex: Number(postIndex) },
+    });
+
+    if (existingRejected) {
+      return res.json({
+        success: true,
+        message: 'Content already rejected',
+      });
+    }
+
+    // Remove from accepted if exists
+    await acceptedRepo.delete({ accountId: accountId, generatedContentId: Number(generatedContentId), postIndex: Number(postIndex) });
+
+    // Add to rejected
+    const rejected = rejectedRepo.create({
+      accountId: accountId,
+      generatedContentId: Number(generatedContentId),
+      postIndex: Number(postIndex),
+    });
+    await rejectedRepo.save(rejected);
+
+    logger.info(`❌ Content rejected: accountId=${accountId}, contentId=${generatedContentId}, postIndex=${postIndex}`);
+
+    return res.json({
+      success: true,
+      message: 'Content rejected successfully',
+    });
+  } catch (error: any) {
+    logger.error(`Reject content error: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to reject content',
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/content-library/bulk-accept
+ * Accept multiple content items at once
+ */
+router.post('/bulk-accept', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId;
+    const { items } = req.body; // Array of { generatedContentId, postIndex }
+
+    if (!accountId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+      });
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'items array is required',
+      });
+    }
+
+    const acceptedRepo = AppDataSource.getRepository(DvybAcceptedContent);
+    const rejectedRepo = AppDataSource.getRepository(DvybRejectedContent);
+
+    let acceptedCount = 0;
+
+    for (const item of items) {
+      const { generatedContentId, postIndex } = item;
+      if (!generatedContentId || postIndex === undefined) continue;
+
+      // Check if already accepted
+      const existingAccepted = await acceptedRepo.findOne({
+        where: { accountId: accountId, generatedContentId: Number(generatedContentId), postIndex: Number(postIndex) },
+      });
+
+      if (!existingAccepted) {
+        // Remove from rejected if exists
+        await rejectedRepo.delete({ accountId: accountId, generatedContentId: Number(generatedContentId), postIndex: Number(postIndex) });
+
+        // Add to accepted
+        const accepted = acceptedRepo.create({
+          accountId: accountId,
+          generatedContentId: Number(generatedContentId),
+          postIndex: Number(postIndex),
+        });
+        await acceptedRepo.save(accepted);
+        acceptedCount++;
+      }
+    }
+
+    logger.info(`✅ Bulk accepted ${acceptedCount} items for accountId=${accountId}`);
+
+    return res.json({
+      success: true,
+      message: `${acceptedCount} items accepted successfully`,
+      acceptedCount,
+    });
+  } catch (error: any) {
+    logger.error(`Bulk accept error: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to bulk accept content',
+    });
+  }
+});
+
+/**
+ * POST /api/dvyb/content-library/bulk-reject
+ * Reject multiple content items at once
+ */
+router.post('/bulk-reject', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId;
+    const { items } = req.body; // Array of { generatedContentId, postIndex }
+
+    if (!accountId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+      });
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'items array is required',
+      });
+    }
+
+    const acceptedRepo = AppDataSource.getRepository(DvybAcceptedContent);
+    const rejectedRepo = AppDataSource.getRepository(DvybRejectedContent);
+
+    let rejectedCount = 0;
+
+    for (const item of items) {
+      const { generatedContentId, postIndex } = item;
+      if (!generatedContentId || postIndex === undefined) continue;
+
+      // Check if already rejected
+      const existingRejected = await rejectedRepo.findOne({
+        where: { accountId: accountId, generatedContentId: Number(generatedContentId), postIndex: Number(postIndex) },
+      });
+
+      if (!existingRejected) {
+        // Remove from accepted if exists
+        await acceptedRepo.delete({ accountId: accountId, generatedContentId: Number(generatedContentId), postIndex: Number(postIndex) });
+
+        // Add to rejected
+        const rejected = rejectedRepo.create({
+          accountId: accountId,
+          generatedContentId: Number(generatedContentId),
+          postIndex: Number(postIndex),
+        });
+        await rejectedRepo.save(rejected);
+        rejectedCount++;
+      }
+    }
+
+    logger.info(`❌ Bulk rejected ${rejectedCount} items for accountId=${accountId}`);
+
+    return res.json({
+      success: true,
+      message: `${rejectedCount} items rejected successfully`,
+      rejectedCount,
+    });
+  } catch (error: any) {
+    logger.error(`Bulk reject error: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to bulk reject content',
     });
   }
 });

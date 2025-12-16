@@ -20,6 +20,8 @@ import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
 import { DvybAccountSubscription } from '../models/DvybAccountSubscription';
 import { DvybAccountPayment } from '../models/DvybAccountPayment';
 import { DvybImageEdit } from '../models/DvybImageEdit';
+import { DvybAcceptedContent } from '../models/DvybAcceptedContent';
+import { DvybRejectedContent } from '../models/DvybRejectedContent';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 import { UrlCacheService } from '../services/UrlCacheService';
@@ -657,6 +659,13 @@ router.delete('/:id', async (req: Request, res: Response) => {
       // 4. Delete generated content
       const contentResult = await transactionalEntityManager.delete(DvybGeneratedContent, { accountId });
       logger.info(`  - Deleted ${contentResult.affected || 0} generated content records`);
+
+      // 4a. Delete accepted/rejected content preferences
+      const acceptedResult = await transactionalEntityManager.delete(DvybAcceptedContent, { accountId });
+      logger.info(`  - Deleted ${acceptedResult.affected || 0} accepted content records`);
+
+      const rejectedResult = await transactionalEntityManager.delete(DvybRejectedContent, { accountId });
+      logger.info(`  - Deleted ${rejectedResult.affected || 0} rejected content records`);
 
       // 5. Delete platform connections
       const twitterConnResult = await transactionalEntityManager.delete(DvybTwitterConnection, { accountId });
