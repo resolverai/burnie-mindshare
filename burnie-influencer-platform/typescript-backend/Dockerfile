@@ -28,16 +28,18 @@ FROM node:18-alpine AS runner
 
 WORKDIR /app
 
-# Install runtime dependencies for sharp (libvips)
-RUN apk add --no-cache vips
+# Install runtime dependencies for sharp
+RUN apk add --no-cache vips-dev python3 make g++
 
 # Create non-root user
 RUN addgroup --system --gid 1001 backend
 RUN adduser --system --uid 1001 backend
 
-# Copy production dependencies from builder (if they're the same)
+# Copy package files and reinstall for correct platform binaries
 COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
+
+# Install only production dependencies with correct platform binaries
+RUN npm install --omit=dev
 
 # Copy built application and environment files
 COPY --from=builder /app/dist ./dist
