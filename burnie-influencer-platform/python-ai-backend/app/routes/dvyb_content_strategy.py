@@ -253,15 +253,17 @@ Return ONLY this JSON structure (no markdown, no code blocks):
     ]
 }}
 
-Important:
+CRITICAL REQUIREMENTS:
 - Generate exactly {posting_freq['posts_per_week'] * 4} content packages total
 - Distribute posts evenly across the 4 weeks
-- Only use platforms from this list: {platforms}
+- MANDATORY: You MUST distribute posts across ALL these platforms: {platforms}
+- If there are {len(platforms)} platforms, each platform should get approximately {(posting_freq['posts_per_week'] * 4) // len(platforms)} posts
 - Each post should have a unique, specific topic related to the brand
 - Dates must be between {start_date.strftime('%Y-%m-%d')} and {end_date.strftime('%Y-%m-%d')}
 - For TikTok and Instagram Reels, prefer video content type
-- For Twitter/X, prefer image or text-based image content
-- For LinkedIn, focus on professional/educational content"""
+- For Twitter/X, prefer image or text-based image content  
+- For LinkedIn, focus on professional/educational content
+- DO NOT generate all posts for only one platform - DISTRIBUTE EVENLY across: {', '.join(platforms)}"""
 
     try:
         print(f"\n🤖 Calling Grok-4-latest for strategy generation...")

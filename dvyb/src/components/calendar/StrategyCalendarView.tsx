@@ -249,6 +249,24 @@ export function StrategyCalendarView() {
     return weekThemes[weekOfMonth] || null;
   };
 
+  // Get display topic - fallback to caption_hint from metadata if topic is empty
+  const getDisplayTopic = (item: ContentStrategyItem): string => {
+    if (item.topic && item.topic.trim()) {
+      return item.topic;
+    }
+    // Fallback to caption_hint from metadata
+    if (item.metadata?.captionHint) {
+      return item.metadata.captionHint;
+    }
+    // Try snake_case version (from API)
+    const metadata = item.metadata as Record<string, any> | null;
+    if (metadata?.caption_hint) {
+      return metadata.caption_hint;
+    }
+    // Default fallback
+    return `${item.platform} ${item.contentType}`;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -365,7 +383,7 @@ export function StrategyCalendarView() {
                   >
                     <div className={`flex items-center gap-1.5 p-1.5 rounded text-xs text-white ${getPlatformColor(item.platform)} hover:opacity-90 transition-opacity`}>
                       {getPlatformIcon(item.platform, "w-3 h-3")}
-                      <span className="truncate flex-1">{item.topic}</span>
+                      <span className="truncate flex-1">{getDisplayTopic(item)}</span>
                       {item.contentType === 'video' ? (
                         <Video className="w-3 h-3 flex-shrink-0" />
                       ) : (
@@ -415,7 +433,7 @@ export function StrategyCalendarView() {
                 {getPlatformIcon(item.platform, "w-4 h-4")}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{item.topic}</div>
+                <div className="text-sm font-medium truncate">{getDisplayTopic(item)}</div>
                 <div className="text-xs text-muted-foreground flex items-center gap-2">
                   <span>{new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                   <span>•</span>

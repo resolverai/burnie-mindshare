@@ -50,6 +50,24 @@ const getPlatformName = (platform: string) => {
   }
 };
 
+// Get display topic - fallback to caption_hint from metadata if topic is empty
+const getDisplayTopic = (item: ContentStrategyItem): string => {
+  if (item.topic && item.topic.trim()) {
+    return item.topic;
+  }
+  // Fallback to caption_hint from metadata
+  if (item.metadata?.captionHint) {
+    return item.metadata.captionHint;
+  }
+  // Try snake_case version (from API)
+  const metadata = item.metadata as Record<string, any> | null;
+  if (metadata?.caption_hint) {
+    return metadata.caption_hint;
+  }
+  // Default fallback
+  return `${item.platform} ${item.contentType}`;
+};
+
 const getPlatformColor = (platform: string) => {
   switch (platform.toLowerCase()) {
     case 'instagram':
@@ -129,7 +147,7 @@ export function StrategyItemDetail({ item, open, onOpenChange, onDelete }: Strat
           {/* Topic */}
           <div>
             <h4 className="text-sm font-medium text-muted-foreground mb-2">Topic</h4>
-            <p className="text-lg font-medium">{item.topic}</p>
+            <p className="text-lg font-medium">{getDisplayTopic(item)}</p>
           </div>
 
           {/* Content Type */}
