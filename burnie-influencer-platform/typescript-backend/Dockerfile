@@ -28,6 +28,9 @@ FROM node:18-alpine AS runner
 
 WORKDIR /app
 
+# Install runtime dependencies for sharp (libvips)
+RUN apk add --no-cache vips
+
 # Create non-root user
 RUN addgroup --system --gid 1001 backend
 RUN adduser --system --uid 1001 backend
