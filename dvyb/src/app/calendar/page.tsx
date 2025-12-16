@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { CalendarView } from "@/components/calendar/CalendarView";
+import { StrategyCalendarView } from "@/components/calendar/StrategyCalendarView";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Loader2, Menu } from "lucide-react";
 import Image from "next/image";
@@ -93,9 +93,9 @@ export default function CalendarPage() {
           <div className="w-10" />
         </div>
 
-        {/* Calendar View */}
-        <div className="flex-1 overflow-y-auto">
-          <CalendarView />
+        {/* Strategy Calendar View */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6">
+          <StrategyCalendarView />
         </div>
       </div>
     </div>

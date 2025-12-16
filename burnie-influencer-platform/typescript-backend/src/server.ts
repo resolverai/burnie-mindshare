@@ -91,6 +91,7 @@ import dvybPostingRoutes from './routes/dvybPosting';
 import dvybInternalRoutes from './routes/dvybInternal';
 import dvybAnalyticsRoutes from './routes/dvybAnalytics';
 import dvybContentLibraryRoutes from './routes/dvybContentLibrary';
+import { dvybContentStrategyRoutes } from './routes/dvybContentStrategy';
 import dvybScheduleDebugRoutes from './routes/dvybScheduleDebug';
 import dvybSocialAuthRoutes from './routes/dvybSocialAuth';
 import dvybOAuth1AuthRoutes from './routes/dvybOAuth1Auth';
@@ -261,6 +262,7 @@ app.use('/api/dvyb/dashboard', dvybDashboardRoutes); // DVYB dashboard and analy
 app.use('/api/dvyb/posts', dvybPostingRoutes); // DVYB Twitter posting
 app.use('/api/dvyb/internal', dvybInternalRoutes); // DVYB internal routes (Python AI backend)
 app.use('/api/dvyb/content-library', dvybContentLibraryRoutes);
+app.use('/api/dvyb/content-strategy', dvybContentStrategyRoutes);
 app.use('/api/dvyb/debug/schedules', dvybScheduleDebugRoutes); // DVYB content library
 app.use('/api/dvyb/adhoc', dvybAdhocGenerationRoutes); // DVYB ad-hoc generation (proxies to Python backend)
 app.use('/api/dvyb/captions', dvybCaptionsRoutes); // DVYB user-edited captions

@@ -1278,6 +1278,129 @@ export const subscriptionApi = {
   },
 };
 
+// Content Strategy API
+export interface PlatformFollowers {
+  instagram?: number;
+  tiktok?: number;
+  twitter?: number;
+  linkedin?: number;
+}
+
+export interface StrategyPreferences {
+  goal?: string;
+  platforms?: string[];
+  platformFollowers?: PlatformFollowers;
+  idealCustomer?: string;
+  postingFrequency?: string;
+  businessAge?: string;
+  revenueRange?: string;
+  contentTypes?: string[];
+  biggestChallenge?: string;
+}
+
+export interface ContentStrategyItem {
+  id: number;
+  date: string;
+  platform: string;
+  contentType: string;
+  topic: string;
+  weekTheme: string;
+  weekNumber: number;
+  metadata: {
+    captionHint?: string;
+    hashtags?: string[];
+    callToAction?: string;
+    visualStyle?: string;
+    toneOfVoice?: string;
+  };
+  status: string;
+  generatedContentId?: number;
+}
+
+export const contentStrategyApi = {
+  /**
+   * Generate content strategy based on preferences
+   */
+  async generateStrategy(strategyPreferences: StrategyPreferences) {
+    return apiRequest<{
+      success: boolean;
+      message: string;
+      data?: {
+        itemCount: number;
+        strategyMonth: string;
+      };
+    }>(
+      '/dvyb/content-strategy/generate',
+      {
+        method: 'POST',
+        body: JSON.stringify({ strategyPreferences }),
+      }
+    );
+  },
+
+  /**
+   * Get strategy items for calendar display
+   */
+  async getCalendar(month?: string) {
+    const params = month ? `?month=${month}` : '';
+    return apiRequest<{
+      success: boolean;
+      data: {
+        weekThemes: Record<number, string>;
+        items: ContentStrategyItem[];
+      };
+    }>(`/dvyb/content-strategy/calendar${params}`);
+  },
+
+  /**
+   * Get single strategy item details
+   */
+  async getItem(id: number) {
+    return apiRequest<{
+      success: boolean;
+      data: ContentStrategyItem;
+    }>(`/dvyb/content-strategy/${id}`);
+  },
+
+  /**
+   * Delete strategy item
+   */
+  async deleteItem(id: number) {
+    return apiRequest<{
+      success: boolean;
+      message: string;
+    }>(
+      `/dvyb/content-strategy/${id}`,
+      { method: 'DELETE' }
+    );
+  },
+
+  /**
+   * Check if strategy exists for account
+   */
+  async checkStatus() {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        hasStrategy: boolean;
+        itemCount: number;
+      };
+    }>('/dvyb/content-strategy/check/status');
+  },
+
+  /**
+   * Get available months with strategy items
+   */
+  async getAvailableMonths() {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        months: string[];
+      };
+    }>('/dvyb/content-strategy/available-months');
+  },
+};
+
 export const dvybApi = {
   auth: authApi,
   account: accountApi,
@@ -1294,4 +1417,5 @@ export const dvybApi = {
   imageEdits: imageEditsApi,
   subscription: subscriptionApi,
   inspirations: inspirationsApi,
+  contentStrategy: contentStrategyApi,
 };

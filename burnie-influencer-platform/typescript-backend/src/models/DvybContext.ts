@@ -180,6 +180,18 @@ export class DvybContext {
     ctaFrequency?: 'never' | 'sometimes' | 'always';
   } | null;
 
+  // Strategy preferences from onboarding questionnaire
+  @Column({ type: 'jsonb', nullable: true })
+  strategyPreferences!: {
+    goal?: string; // 'grow_followers' | 'get_leads' | 'drive_sales' | 'build_community'
+    platforms?: string[]; // ['instagram', 'twitter', 'linkedin', 'tiktok']
+    idealCustomer?: string;
+    postingFrequency?: string; // 'daily' | 'few_times_week' | 'weekly'
+    businessAge?: string; // 'less_than_1_year' | '1_to_3_years' | 'more_than_3_years'
+    revenueRange?: string; // 'less_than_10k' | '10k_to_50k' | '50k_to_500k' | 'more_than_500k'
+    completedAt?: string;
+  } | null;
+
   // Web3 specific fields
   @Column({ type: 'text', nullable: true })
   chain!: string | null;

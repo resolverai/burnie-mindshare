@@ -12,7 +12,8 @@ import { X, Plus, Upload, Link, Loader2, Twitter, Instagram, Linkedin, Heart, XC
 import { PostDetailDialog } from "@/components/calendar/PostDetailDialog";
 import { ScheduleDialog } from "@/components/calendar/ScheduleDialog";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi } from "@/lib/api";
+import { adhocGenerationApi, postingApi, oauth1Api, authApi, socialConnectionsApi, contentLibraryApi, contentStrategyApi, StrategyPreferences } from "@/lib/api";
+import { StrategyQuestionnaire } from "@/components/onboarding/StrategyQuestionnaire";
 import { saveOAuthFlowState, getOAuthFlowState, clearOAuthFlowState, updateOAuthFlowState } from "@/lib/oauthFlowState";
 import { useToast } from "@/hooks/use-toast";
 import { TikTokIcon } from "@/components/icons/TikTokIcon";
@@ -128,6 +129,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [animatingOutPost, setAnimatingOutPost] = useState<any>(null); // Track which post is animating
   const [acceptedPosts, setAcceptedPosts] = useState<string[]>([]);
   const [rejectedPosts, setRejectedPosts] = useState<string[]>([]);
+  const [questionnaireCompleted, setQuestionnaireCompleted] = useState(false);
+  const [strategyGenerating, setStrategyGenerating] = useState(false);
   const { toast } = useToast();
 
   // Handle body overflow and animation when dialog opens/closes
@@ -1139,6 +1142,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     setAnimatingOutPost(null);
     setAcceptedPosts([]);
     setRejectedPosts([]);
+    setQuestionnaireCompleted(false);
+    setStrategyGenerating(false);
   };
 
   const handleClose = () => {
@@ -1727,6 +1732,40 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         const getAcceptIndicatorOpacity = () => Math.min(1, Math.max(0, swipeOffset / 100));
         const getRejectIndicatorOpacity = () => Math.min(1, Math.max(0, -swipeOffset / 100));
         
+        // Show questionnaire full-screen during onboarding content generation
+        const showQuestionnaireFullScreen = isGenerating && !questionnaireCompleted && initialJobId;
+        
+        if (showQuestionnaireFullScreen) {
+          return (
+            <div className="h-full flex flex-col -m-4 sm:-m-6">
+              <StrategyQuestionnaire
+                progressPercent={progressPercent}
+                progressMessage={progressMessage || "Preparing..."}
+                onComplete={async (preferences: StrategyPreferences) => {
+                  setQuestionnaireCompleted(true);
+                  setStrategyGenerating(true);
+                  
+                  // Generate content strategy in background
+                  try {
+                    console.log('🎯 Generating content strategy with preferences:', preferences);
+                    await contentStrategyApi.generateStrategy(preferences);
+                    console.log('✅ Content strategy generated successfully');
+                    toast({
+                      title: "Strategy Created!",
+                      description: "Your personalized content strategy is ready on the Calendar.",
+                    });
+                  } catch (error) {
+                    console.error('Failed to generate strategy:', error);
+                    // Don't show error toast - strategy generation is secondary
+                  } finally {
+                    setStrategyGenerating(false);
+                  }
+                }}
+              />
+            </div>
+          );
+        }
+        
         return (
           <div className="space-y-4 sm:space-y-5 md:space-y-6">
             <div className="text-center">
@@ -1746,8 +1785,16 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               </p>
             </div>
 
+            {/* Show progress bar for regular generation OR after questionnaire is completed */}
             {isGenerating && (
               <div className="space-y-2 max-w-md mx-auto">
+                {strategyGenerating && initialJobId && (
+                  <div className="text-center mb-4">
+                    <p className="text-sm text-primary font-medium">
+                      ✨ Creating your personalized content strategy...
+                    </p>
+                  </div>
+                )}
                 <div className="flex items-center justify-between text-xs sm:text-sm">
                   <span className="text-muted-foreground line-clamp-1">{progressMessage || "Preparing..."}</span>
                   <span className="font-medium ml-2">{progressPercent}%</span>

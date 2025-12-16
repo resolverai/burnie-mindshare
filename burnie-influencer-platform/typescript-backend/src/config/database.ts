@@ -133,6 +133,7 @@ import { DvybAccountPayment } from '../models/DvybAccountPayment';
 import { DvybPromoCode } from '../models/DvybPromoCode';
 import { DvybAcceptedContent } from '../models/DvybAcceptedContent';
 import { DvybRejectedContent } from '../models/DvybRejectedContent';
+import { DvybContentStrategy } from '../models/DvybContentStrategy';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -265,6 +266,7 @@ export const AppDataSource = new DataSource({
     DvybPromoCode,
     DvybAcceptedContent,
     DvybRejectedContent,
+    DvybContentStrategy,
   ],
   migrations: [],
   subscribers: [],

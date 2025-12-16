@@ -22,6 +22,7 @@ import { DvybAccountPayment } from '../models/DvybAccountPayment';
 import { DvybImageEdit } from '../models/DvybImageEdit';
 import { DvybAcceptedContent } from '../models/DvybAcceptedContent';
 import { DvybRejectedContent } from '../models/DvybRejectedContent';
+import { DvybContentStrategy } from '../models/DvybContentStrategy';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 import { UrlCacheService } from '../services/UrlCacheService';
@@ -666,6 +667,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
       const rejectedResult = await transactionalEntityManager.delete(DvybRejectedContent, { accountId });
       logger.info(`  - Deleted ${rejectedResult.affected || 0} rejected content records`);
+
+      // 4b. Delete content strategy
+      const strategyResult = await transactionalEntityManager.delete(DvybContentStrategy, { accountId });
+      logger.info(`  - Deleted ${strategyResult.affected || 0} content strategy records`);
 
       // 5. Delete platform connections
       const twitterConnResult = await transactionalEntityManager.delete(DvybTwitterConnection, { accountId });
