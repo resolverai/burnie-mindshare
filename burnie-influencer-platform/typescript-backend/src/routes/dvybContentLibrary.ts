@@ -10,6 +10,7 @@ import { DvybCaption } from '../models/DvybCaption';
 import { DvybImageEdit } from '../models/DvybImageEdit';
 import { DvybAcceptedContent } from '../models/DvybAcceptedContent';
 import { DvybRejectedContent } from '../models/DvybRejectedContent';
+import { DvybAdminContentApproval } from '../models/DvybAdminContentApproval';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { logger } from '../config/logger';
 import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
@@ -150,6 +151,21 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     });
     
     logger.info(`✅ Found ${allAccepted.length} accepted and ${allRejected.length} rejected items for account ${accountId}`);
+
+    // Get admin content approvals for auto-generated content
+    // Auto-generated content must be approved by admin before being visible to users
+    const adminApprovalRepo = AppDataSource.getRepository(DvybAdminContentApproval);
+    const adminApprovals = accountId ? await adminApprovalRepo.find({
+      where: { accountId, status: 'approved' },
+    }) : [];
+    
+    // Create lookup set for approved auto-generated content: "contentId-postIndex"
+    const adminApprovedSet = new Set<string>();
+    adminApprovals.forEach(approval => {
+      adminApprovedSet.add(`${approval.generatedContentId}-${approval.postIndex}`);
+    });
+    
+    logger.info(`🔐 Found ${adminApprovals.length} admin-approved auto-generated items for account ${accountId}`);
 
     // Get all posted content
     const [instagramPosts, twitterPosts, linkedinPosts, tiktokPosts] = await Promise.all([
@@ -647,9 +663,25 @@ router.get('/', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) 
     const allProcessedContent = (await Promise.all(processedContent)).flat();
 
     // Filter out items with no media (failed generations)
+    // Also filter out auto-generated content that hasn't been approved by admin
     const contentWithMedia = allProcessedContent.filter(c => {
       // Keep items that have a valid mediaUrl
-      return c.mediaUrl && c.mediaUrl.trim() !== '';
+      if (!c.mediaUrl || c.mediaUrl.trim() === '') {
+        return false;
+      }
+      
+      // For auto-generated content, check if it has been approved by admin
+      // Find the original content record to check generationType
+      const originalContent = allContent.find(content => content.id === c.contentId);
+      if (originalContent?.generationType === 'auto') {
+        const approvalKey = `${c.contentId}-${c.postIndex}`;
+        if (!adminApprovedSet.has(approvalKey)) {
+          logger.info(`🔐 Filtering out unapproved auto-generated content: ${approvalKey}`);
+          return false;
+        }
+      }
+      
+      return true;
     });
     
     logger.info(`📊 Filtered out ${allProcessedContent.length - contentWithMedia.length} items with no media (failed generations)`);

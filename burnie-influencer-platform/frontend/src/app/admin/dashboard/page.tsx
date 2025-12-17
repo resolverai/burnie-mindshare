@@ -1154,6 +1154,7 @@ export default function AdminDashboard() {
               <span>Snapshots</span>
             </button> */}
             
+            {/* Referrals tab hidden - functionality still available at /admin/referrals
             <button
               onClick={() => router.push('/admin/referrals')}
               className="px-2 py-1.5 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
@@ -1163,6 +1164,7 @@ export default function AdminDashboard() {
               </svg>
               <span>Referrals</span>
             </button>
+            */}
             
             <button
               onClick={() => router.push('/admin/content-requests')}
@@ -1204,6 +1206,16 @@ export default function AdminDashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
               </svg>
               <span>Dvyb Accounts</span>
+            </button>
+
+            <button
+              onClick={() => router.push('/admin/dvyb-automated-content')}
+              className="px-2 py-1.5 bg-amber-600 text-white text-xs rounded-lg hover:bg-amber-700 transition-colors flex items-center space-x-1 whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>Dvyb Auto Content</span>
             </button>
             
             <button

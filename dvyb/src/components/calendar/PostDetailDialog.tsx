@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { CaptionEditDialog } from "./CaptionEditDialog";
 import { ScheduleDialog } from "./ScheduleDialog";
-import { accountApi, captionsApi, imageEditsApi, contentLibraryApi, postingApi, oauth1Api, authApi, socialConnectionsApi } from "@/lib/api";
+import { accountApi, captionsApi, imageEditsApi, imageRegenerationApi, contentLibraryApi, postingApi, oauth1Api, authApi, socialConnectionsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { saveOAuthFlowState } from "@/lib/oauthFlowState";
 import {
@@ -124,6 +124,19 @@ export const PostDetailDialog = ({
   const [showEditDesign, setShowEditDesign] = useState(false);
   const [isSavingDesign, setIsSavingDesign] = useState(false);
   const [regeneratedImageUrl, setRegeneratedImageUrl] = useState<string | null>(null); // For chat-based image regeneration
+  const [activeImageS3Key, setActiveImageS3Key] = useState<string | null>(null); // Current image S3 key for regeneration
+  const [editDesignBaseImageUrl, setEditDesignBaseImageUrl] = useState<string | null>(null); // Base image URL for Edit Design mode (original or regenerated)
+  const [refreshedOriginalUrl, setRefreshedOriginalUrl] = useState<string | null>(null); // Fresh presigned URL for the absolute original image
+  const [regenerations, setRegenerations] = useState<Array<{
+    id: number;
+    prompt: string;
+    regeneratedImageUrl: string | null;
+    regeneratedImageS3Key: string | null;
+    status: 'pending' | 'processing' | 'completed' | 'failed';
+    createdAt: string;
+  }>>([]); // Regeneration history
+  const [isRegenerating, setIsRegenerating] = useState(false); // Whether regeneration is in progress
+  const [pollingRegenId, setPollingRegenId] = useState<number | null>(null); // ID of regeneration being polled
   const [caption, setCaption] = useState(post?.description || "");
   const [aiPrompt, setAiPrompt] = useState("");
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant', content: string }>>([]);
@@ -1095,6 +1108,97 @@ export const PostDetailDialog = ({
     fetchEditedCaptions();
   }, [open, post?.generatedContentId, post?.postIndex]);
 
+  // Fetch regeneration history when dialog opens in Edit Design mode
+  useEffect(() => {
+    const fetchRegenerations = async () => {
+      if (!open || !showEditDesign || !post?.generatedContentId || post?.postIndex === undefined) return;
+      
+      try {
+        const response = await imageRegenerationApi.getRegenerations(
+          post.generatedContentId,
+          post.postIndex
+        );
+        
+        if (response.success && response.data) {
+          setRegenerations(response.data.map(r => ({
+            id: r.id,
+            prompt: r.prompt,
+            regeneratedImageUrl: r.regeneratedImageUrl,
+            regeneratedImageS3Key: r.regeneratedImageS3Key,
+            status: r.status,
+            createdAt: r.createdAt,
+          })));
+        }
+      } catch (error) {
+        console.error('Failed to fetch regenerations:', error);
+      }
+    };
+
+    fetchRegenerations();
+  }, [open, showEditDesign, post?.generatedContentId, post?.postIndex]);
+
+  // Poll for regeneration status when one is in progress
+  useEffect(() => {
+    if (!pollingRegenId) return;
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await imageRegenerationApi.getStatus(pollingRegenId);
+        
+        if (response.success && response.data) {
+          const { status, regeneratedImageUrl, regeneratedImageS3Key } = response.data;
+          
+          if (status === 'completed' && regeneratedImageUrl) {
+            // Update the regeneration in the list
+            setRegenerations(prev => prev.map(r => 
+              r.id === pollingRegenId 
+                ? { ...r, status: 'completed', regeneratedImageUrl, regeneratedImageS3Key }
+                : r
+            ));
+            
+            // Set as active image
+            setRegeneratedImageUrl(regeneratedImageUrl);
+            if (regeneratedImageS3Key) {
+              setActiveImageS3Key(regeneratedImageS3Key);
+            }
+            
+            // Add success message
+            setChatMessages(prev => [...prev, { 
+              role: 'assistant', 
+              content: "✅ Your image has been regenerated! You can see it on the right panel and continue editing."
+            }]);
+            
+            // Stop polling
+            setPollingRegenId(null);
+            setIsRegenerating(false);
+          } else if (status === 'failed') {
+            // Update status
+            setRegenerations(prev => prev.map(r => 
+              r.id === pollingRegenId 
+                ? { ...r, status: 'failed' }
+                : r
+            ));
+            
+            // Add failure message
+            setChatMessages(prev => [...prev, { 
+              role: 'assistant', 
+              content: `❌ Sorry, the regeneration failed: ${response.data.errorMessage || 'Unknown error'}`
+            }]);
+            
+            // Stop polling
+            setPollingRegenId(null);
+            setIsRegenerating(false);
+          }
+          // If still processing, continue polling
+        }
+      } catch (error) {
+        console.error('Error polling regeneration status:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+    
+    return () => clearInterval(pollInterval);
+  }, [pollingRegenId]);
+
   // Helper function to get platform-specific caption (prioritize edited captions)
   const getPlatformCaption = (platform: Platform): string => {
     // First check if user has edited this platform's caption
@@ -1169,11 +1273,89 @@ export const PostDetailDialog = ({
   }, [open]);
 
   // Notify parent when Edit Design mode changes (desktop only)
-  const handleEditDesignToggle = (value: boolean) => {
+  const handleEditDesignToggle = async (value: boolean) => {
     setShowEditDesign(value);
     // Only collapse sidebar on desktop
     if (window.innerWidth >= 1024) {
       onEditDesignModeChange?.(value);
+    }
+    
+    // When entering Edit Design mode, fetch existing overlays from dvyb_image_edits
+    if (value && post?.generatedContentId && post?.postIndex !== undefined) {
+      // Default to the absolute original from dvyb_generated_content
+      let absoluteOriginal = post.originalMediaUrl || post.image;
+      
+      // Extract S3 key from presigned URL to refresh it
+      const extractS3Key = (url: string): string => {
+        if (!url) return '';
+        const baseUrl = url.split('?')[0];
+        if (baseUrl.includes('.amazonaws.com/')) {
+          return decodeURIComponent(baseUrl.split('.amazonaws.com/')[1] || '');
+        } else if (baseUrl.includes('.cloudfront.net/')) {
+          return decodeURIComponent(baseUrl.split('.cloudfront.net/')[1] || '');
+        }
+        if (!baseUrl.startsWith('http')) return baseUrl;
+        return '';
+      };
+      
+      // Refresh the original image URL to get a fresh presigned URL
+      const originalS3Key = extractS3Key(absoluteOriginal);
+      if (originalS3Key) {
+        try {
+          const refreshResult = await imageEditsApi.refreshUrl(originalS3Key);
+          if (refreshResult.success && refreshResult.data?.presignedUrl) {
+            absoluteOriginal = refreshResult.data.presignedUrl;
+          }
+        } catch (error) {
+          console.error('Failed to refresh original image URL:', error);
+        }
+      }
+      
+      // Store the refreshed original URL for later use (clicking Original Image thumbnail)
+      setRefreshedOriginalUrl(absoluteOriginal);
+      setEditDesignBaseImageUrl(absoluteOriginal);
+      
+      try {
+        const result = await imageEditsApi.getImageEdit(post.generatedContentId, post.postIndex);
+        if (result.success && result.data) {
+          // Load saved overlays as editable elements
+          if (result.data.overlays && result.data.overlays.length > 0) {
+            setTextOverlays(result.data.overlays);
+            toast({
+              title: "Previous edits loaded",
+              description: `${result.data.overlays.length} text overlay(s) restored. You can modify or remove them.`,
+            });
+          } else {
+            setTextOverlays([]);
+          }
+          
+          // Use the image from dvyb_image_edits as the canvas (these are fresh presigned URLs)
+          // Priority: regeneratedImageUrl > originalImageUrl > absoluteOriginal
+          if (result.data.regeneratedImageUrl) {
+            // A regenerated image was used as base - show that
+            setEditDesignBaseImageUrl(result.data.regeneratedImageUrl);
+          } else if (result.data.originalImageUrl) {
+            // Original image was used as base
+            setEditDesignBaseImageUrl(result.data.originalImageUrl);
+          }
+          // If neither, keep the refreshed absoluteOriginal that was already set
+          
+          // Reset active selection - user starts with the saved base image
+          setActiveImageS3Key(null);
+          setRegeneratedImageUrl(null);
+        } else {
+          // No existing edits, keep refreshed absoluteOriginal that was already set
+          setTextOverlays([]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch existing image edits:', error);
+        // Continue without loading - keep absoluteOriginal, user can start fresh
+        setTextOverlays([]);
+      }
+    } else if (!value) {
+      // Exiting Edit Design mode - reset base image and refreshed URL
+      setEditDesignBaseImageUrl(null);
+      setRefreshedOriginalUrl(null);
     }
   };
 
@@ -1204,9 +1386,9 @@ export const PostDetailDialog = ({
         }
       }
 
-      // Extract S3 key from regenerated image URL if present
-      let regeneratedImageS3Key: string | null = null;
-      if (regeneratedImageUrl) {
+      // Use activeImageS3Key if set (from regeneration), otherwise extract from URL
+      let regeneratedImageS3Key: string | null = activeImageS3Key;
+      if (!regeneratedImageS3Key && regeneratedImageUrl) {
         const url = regeneratedImageUrl.split('?')[0];
         if (url.includes('.amazonaws.com/')) {
           regeneratedImageS3Key = url.split('.amazonaws.com/')[1] || null;
@@ -1332,25 +1514,110 @@ export const PostDetailDialog = ({
     // PostDetailDialog stays open in the background
   };
 
-  const handleSendPrompt = () => {
-    if (!aiPrompt.trim()) return;
+  const handleSendPrompt = async () => {
+    if (!aiPrompt.trim() || !post) return;
+    
+    const prompt = aiPrompt.trim();
+    setAiPrompt("");
     
     // Add user message
-    setChatMessages(prev => [...prev, { role: 'user', content: aiPrompt }]);
+    setChatMessages(prev => [...prev, { role: 'user', content: prompt }]);
     
-    // Simulate AI response
-    setTimeout(() => {
+    // Get the source image S3 key
+    // Priority: activeImageS3Key (if regenerated) > originalMediaUrl > extract from post.image
+    let sourceImageS3Key = activeImageS3Key || post.originalMediaUrl || '';
+    if (!sourceImageS3Key && post.image) {
+      // Extract S3 key from presigned URL
+      const url = post.image.split('?')[0];
+      if (url.includes('.amazonaws.com/')) {
+        sourceImageS3Key = url.split('.amazonaws.com/')[1] || '';
+      } else if (url.includes('.cloudfront.net/')) {
+        sourceImageS3Key = url.split('.cloudfront.net/')[1] || '';
+      } else {
+        sourceImageS3Key = url;
+      }
+    }
+    
+    if (!sourceImageS3Key) {
       setChatMessages(prev => [...prev, { 
         role: 'assistant', 
-        content: "I'm updating the design for you now. Please hold on a moment while I make this change."
+        content: "Sorry, I couldn't find the source image to edit. Please try again."
       }]);
-    }, 500);
+      return;
+    }
     
-    setAiPrompt("");
+    const contentId = post.generatedContentId || post.contentId;
+    if (!contentId || post.postIndex === undefined) {
+      setChatMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: "Sorry, I couldn't identify the content. Please try again."
+      }]);
+      return;
+    }
+    
+    // Add processing message
+    setChatMessages(prev => [...prev, { 
+      role: 'assistant', 
+      content: "🎨 I'm regenerating the image for you. This may take a moment..."
+    }]);
+    
+    setIsRegenerating(true);
+    
+    try {
+      // Call regeneration API
+      const result = await imageRegenerationApi.regenerate({
+        generatedContentId: contentId,
+        postIndex: post.postIndex,
+        prompt,
+        sourceImageS3Key,
+      });
+      
+      if (result.success && result.data) {
+        // Start polling for the result
+        setPollingRegenId(result.data.id);
+        
+        // Add to regenerations list as pending
+        setRegenerations(prev => [{
+          id: result.data.id,
+          prompt,
+          regeneratedImageUrl: null,
+          regeneratedImageS3Key: null,
+          status: 'processing',
+          createdAt: new Date().toISOString(),
+        }, ...prev]);
+      } else {
+        setChatMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: `❌ Sorry, I couldn't start the regeneration: ${result.error || 'Unknown error'}`
+        }]);
+        setIsRegenerating(false);
+      }
+    } catch (error: any) {
+      console.error('Error triggering regeneration:', error);
+      setChatMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `❌ Sorry, there was an error: ${error.message || 'Please try again.'}`
+      }]);
+      setIsRegenerating(false);
+    }
   };
 
   const handleExamplePrompt = (prompt: string) => {
     setAiPrompt(prompt);
+  };
+  
+  // Handle clicking on a regenerated image thumbnail
+  const handleSelectRegeneration = (regen: typeof regenerations[0]) => {
+    if (regen.status === 'completed' && regen.regeneratedImageUrl && regen.regeneratedImageS3Key) {
+      setRegeneratedImageUrl(regen.regeneratedImageUrl);
+      setActiveImageS3Key(regen.regeneratedImageS3Key);
+      setEditDesignBaseImageUrl(regen.regeneratedImageUrl);
+      // Keep existing overlays when switching images - they maintain their positions
+      toast({
+        title: "Image Selected",
+        description: "This image is now your active canvas. Overlays preserved.",
+      });
+    }
   };
 
   const allPlatformOptions: { id: Platform; label: string; icon: string }[] = [
@@ -1638,7 +1905,7 @@ export const PostDetailDialog = ({
               >
                 <img 
                   ref={imageRef}
-                  src={post.image} 
+                  src={regeneratedImageUrl || editDesignBaseImageUrl || post.image} 
                   alt={post.title}
                   className="max-w-full max-h-[calc(100vh-18rem)] object-contain select-none"
                   draggable={false}
@@ -2124,33 +2391,33 @@ export const PostDetailDialog = ({
                             variant="outline" 
                             size="sm" 
                             className="w-full justify-start text-xs h-auto py-2"
-                            onClick={() => handleExamplePrompt("Make this into green colour")}
+                            onClick={() => handleExamplePrompt("Add brand logo to this image")}
                           >
-                            Make this into green colour
+                            🏷️ Add Brand Logo
                           </Button>
                           <Button 
                             variant="outline" 
                             size="sm" 
                             className="w-full justify-start text-xs h-auto py-2"
-                            onClick={() => handleExamplePrompt("Make a generated background")}
+                            onClick={() => handleExamplePrompt("Remove the brand logo from this image")}
                           >
-                            Make a generated background
+                            ✂️ Remove Brand Logo
                           </Button>
                           <Button 
                             variant="outline" 
                             size="sm" 
                             className="w-full justify-start text-xs h-auto py-2"
-                            onClick={() => handleExamplePrompt("Change the text style")}
+                            onClick={() => handleExamplePrompt("Change the background to something more professional and modern")}
                           >
-                            Change the text style
+                            🎨 Change Background
                           </Button>
                           <Button 
                             variant="outline" 
                             size="sm" 
                             className="w-full justify-start text-xs h-auto py-2"
-                            onClick={() => handleExamplePrompt("Add brand logo")}
+                            onClick={() => handleExamplePrompt("Replace the model/person with a different one while keeping the same pose and setting")}
                           >
-                            Add brand logo
+                            👤 Replace with Different Model
                           </Button>
                         </div>
                       </div>
@@ -2168,21 +2435,6 @@ export const PostDetailDialog = ({
                       ))
                     )}
 
-                    {/* Example variations */}
-                    {chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'assistant' && (
-                      <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground">Generated variations:</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {[1, 2, 3, 4].map((i) => (
-                            <div key={i} className={`aspect-square rounded-lg bg-gradient-to-br from-green-400 to-emerald-500 p-3 flex items-center justify-center cursor-pointer hover:ring-2 ring-primary transition-all`}>
-                              <p className="text-white text-xs font-bold text-center leading-tight">
-                                {post.title}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </ScrollArea>
 
@@ -2230,15 +2482,132 @@ export const PostDetailDialog = ({
                       </div>
 
                       {/* Right Side - Edit Design Controls */}
-                      <div className="w-80 bg-background border-l p-6 overflow-y-auto flex-shrink-0">
-                        <div className="space-y-6">
+                      <div className="hidden md:flex w-80 bg-background border-l flex-shrink-0 flex-col h-full">
+                        {/* Scrollable content area */}
+                        <div className="flex-1 overflow-y-auto p-6">
+                          <div className="space-y-4">
                           <div>
-                            <h2 className="text-lg font-semibold mb-4">Edit Design</h2>
-                            <p className="text-sm text-muted-foreground mb-4">
-                              Add text, emojis, and stickers to your image. Click Save Design when done.
-                            </p>
+                              <h2 className="text-lg font-semibold mb-2">Edit Design</h2>
+                              <p className="text-sm text-muted-foreground">
+                                Add text overlays or use AI to regenerate.
+                              </p>
+                            </div>
+                            
+                            {/* Image Versions Gallery - Original + Regenerated - Vertical layout */}
+                            <div>
+                              <h3 className="text-sm font-medium mb-2">Image Versions</h3>
+                              <p className="text-xs text-muted-foreground mb-3">
+                                Click an image to use it as your canvas
+                              </p>
+                              <div className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1">
+                                {/* Original Image - Always first - use refreshed original URL */}
+                                <div 
+                                  onClick={() => {
+                                    // Use the refreshed original URL (or fallback)
+                                    const absoluteOriginal = refreshedOriginalUrl || post.originalMediaUrl || post.image;
+                                    setRegeneratedImageUrl(null);
+                                    setActiveImageS3Key(null);
+                                    setEditDesignBaseImageUrl(absoluteOriginal);
+                                    // Keep existing overlays when switching to original
+                                  }}
+                                  className={`relative rounded-lg overflow-hidden cursor-pointer border-2 transition-all ${
+                                    !activeImageS3Key && !regeneratedImageUrl
+                                      ? 'border-primary ring-2 ring-primary/30' 
+                                      : 'border-border hover:border-primary/50'
+                                  }`}
+                                >
+                                  <div className="aspect-video w-full">
+                                    <img 
+                                      src={refreshedOriginalUrl || post.originalMediaUrl || post.image} 
+                                      alt="Original"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                  <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1">
+                                    <p className="text-xs text-white font-medium">📌 Original Image</p>
+                                  </div>
+                                  {!activeImageS3Key && !regeneratedImageUrl && (
+                                    <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-1">
+                                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                {/* Processing placeholder - shown while regenerating */}
+                                {isRegenerating && (
+                                  <div className="relative rounded-lg overflow-hidden border-2 border-dashed border-primary/50 bg-primary/5">
+                                    <div className="aspect-video w-full flex flex-col items-center justify-center gap-2">
+                                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                                      <p className="text-xs text-primary font-medium">Generating...</p>
+                                    </div>
+                                    <div className="absolute bottom-0 left-0 right-0 bg-primary/90 px-2 py-1">
+                                      <p className="text-xs text-white font-medium">✨ New image in progress</p>
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                {/* Regenerated Images */}
+                                {regenerations.map((regen) => (
+                                  <div 
+                                    key={regen.id}
+                                    onClick={() => handleSelectRegeneration(regen)}
+                                    className={`relative rounded-lg overflow-hidden cursor-pointer border-2 transition-all ${
+                                      activeImageS3Key === regen.regeneratedImageS3Key 
+                                        ? 'border-primary ring-2 ring-primary/30' 
+                                        : 'border-border hover:border-primary/50'
+                                    }`}
+                                  >
+                                    {regen.status === 'completed' && regen.regeneratedImageUrl ? (
+                                      <div className="aspect-video w-full">
+                                        <img 
+                                          src={regen.regeneratedImageUrl} 
+                                          alt={regen.prompt}
+                                          className="w-full h-full object-cover"
+                                        />
+                                      </div>
+                                    ) : (
+                                      <div className="aspect-video w-full bg-muted flex items-center justify-center">
+                                        {regen.status === 'processing' || regen.status === 'pending' ? (
+                                          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                                        ) : (
+                                          <span className="text-xs text-destructive">Failed</span>
+                                        )}
+                                      </div>
+                                    )}
+                                    <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1">
+                                      <p className="text-xs text-white truncate">✨ {regen.prompt.slice(0, 25)}...</p>
+                                    </div>
+                                    {activeImageS3Key === regen.regeneratedImageS3Key && (
+                                      <div className="absolute top-2 right-2 bg-primary text-primary-foreground rounded-full p-1">
+                                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                        </svg>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            
+                            {/* Processing indicator */}
+                            {isRegenerating && (
+                              <div className="bg-muted rounded-lg p-3 flex items-center gap-3">
+                                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                                <div>
+                                  <p className="text-sm font-medium">Regenerating...</p>
+                                  <p className="text-xs text-muted-foreground">This may take a moment</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Fixed Save and Cancel buttons at bottom */}
+                        <div className="p-4 border-t bg-background">
                             <Button 
-                              className="w-full mb-3"
+                            className="w-full mb-2"
                               onClick={handleSaveDesign}
                               disabled={isSavingDesign || !canSaveDesign}
                             >
@@ -2254,17 +2623,101 @@ export const PostDetailDialog = ({
                                 </>
                               )}
                             </Button>
-                            {!canSaveDesign && (
-                              <p className="text-xs text-muted-foreground text-center mb-3">
-                                Add text or emojis to enable saving
-                              </p>
-                            )}
                             <Button 
                               variant="outline"
                               className="w-full"
                               onClick={() => handleEditDesignToggle(false)}
                             >
                               Cancel
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      {/* Mobile/Tablet - Bottom drawer for Image Versions */}
+                      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background border-t shadow-lg z-50">
+                        <div className="p-4">
+                          {/* Image Versions - Horizontal scroll */}
+                          <div className="mb-3">
+                            <h3 className="text-xs font-medium mb-2">Image Versions</h3>
+                            <div className="flex gap-2 overflow-x-auto pb-2">
+                              {/* Original Image */}
+                              <div 
+                                onClick={() => {
+                                  // Use the refreshed original URL (or fallback)
+                                  const absoluteOriginal = refreshedOriginalUrl || post.originalMediaUrl || post.image;
+                                  setRegeneratedImageUrl(null);
+                                  setActiveImageS3Key(null);
+                                  setEditDesignBaseImageUrl(absoluteOriginal);
+                                }}
+                                className={`relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden cursor-pointer border-2 ${
+                                  !activeImageS3Key && !regeneratedImageUrl
+                                    ? 'border-primary ring-2 ring-primary/30' 
+                                    : 'border-border'
+                                }`}
+                              >
+                                <img 
+                                  src={refreshedOriginalUrl || post.originalMediaUrl || post.image} 
+                                  alt="Original"
+                                  className="w-full h-full object-cover"
+                                />
+                                {!activeImageS3Key && !regeneratedImageUrl && (
+                                  <div className="absolute top-0.5 right-0.5 bg-primary text-primary-foreground rounded-full p-0.5">
+                                    <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20">
+                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Regenerated Images */}
+                              {regenerations.map((regen) => (
+                                <div 
+                                  key={regen.id}
+                                  onClick={() => handleSelectRegeneration(regen)}
+                                  className={`relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden cursor-pointer border-2 ${
+                                    activeImageS3Key === regen.regeneratedImageS3Key 
+                                      ? 'border-primary ring-2 ring-primary/30' 
+                                      : 'border-border'
+                                  }`}
+                                >
+                                  {regen.status === 'completed' && regen.regeneratedImageUrl ? (
+                                    <img 
+                                      src={regen.regeneratedImageUrl} 
+                                      alt={regen.prompt}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full bg-muted flex items-center justify-center">
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    </div>
+                                  )}
+                                  {activeImageS3Key === regen.regeneratedImageS3Key && (
+                                    <div className="absolute top-0.5 right-0.5 bg-primary text-primary-foreground rounded-full p-0.5">
+                                      <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                      </svg>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          
+                          {/* Action buttons */}
+                          <div className="flex gap-2">
+                            <Button 
+                              variant="outline"
+                              className="flex-1"
+                              onClick={() => handleEditDesignToggle(false)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button 
+                              className="flex-1"
+                              onClick={handleSaveDesign}
+                              disabled={isSavingDesign || !canSaveDesign}
+                            >
+                              {isSavingDesign ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4 mr-1" /> Save</>}
                             </Button>
                           </div>
                         </div>

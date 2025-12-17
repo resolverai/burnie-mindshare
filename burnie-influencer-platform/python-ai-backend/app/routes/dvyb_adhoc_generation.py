@@ -765,6 +765,7 @@ class DvybAdhocGenerationRequest(BaseModel):
     clips_per_video: Optional[int] = 1  # Default 1 clip (8-10s), can be 2 (16-20s) or 3 (24-30s)
     is_onboarding_product_image: Optional[bool] = False  # If true, user_images[0] is explicitly a product image from onboarding
     force_product_marketing: Optional[bool] = False  # If true, force product_marketing video type
+    generation_type: Optional[str] = "on_demand"  # 'on_demand' for manual, 'auto' for automated generation
 
 
 class DvybAdhocGenerationResponse(BaseModel):
@@ -960,7 +961,7 @@ async def create_generation_record(account_id: int, request: DvybAdhocGeneration
             "accountId": account_id,
             "uuid": generation_uuid,
             "jobId": job_id,
-            "generationType": "on_demand",
+            "generationType": request.generation_type or "on_demand",
             "topic": request.topic,
             "userPrompt": request.user_prompt,
             "userImages": request.user_images,

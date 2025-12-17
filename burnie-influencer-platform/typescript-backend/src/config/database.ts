@@ -127,6 +127,7 @@ import { DvybAccountPlan } from '../models/DvybAccountPlan';
 import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
 import { DvybCaption } from '../models/DvybCaption';
 import { DvybImageEdit } from '../models/DvybImageEdit';
+import { DvybImageRegeneration } from '../models/DvybImageRegeneration';
 import { DvybInspirationLink } from '../models/DvybInspirationLink';
 import { DvybAccountSubscription } from '../models/DvybAccountSubscription';
 import { DvybAccountPayment } from '../models/DvybAccountPayment';
@@ -134,6 +135,7 @@ import { DvybPromoCode } from '../models/DvybPromoCode';
 import { DvybAcceptedContent } from '../models/DvybAcceptedContent';
 import { DvybRejectedContent } from '../models/DvybRejectedContent';
 import { DvybContentStrategy } from '../models/DvybContentStrategy';
+import { DvybAdminContentApproval } from '../models/DvybAdminContentApproval';
 
 // Import seed data functions
 import { seedDatabase } from './seedData';
@@ -260,6 +262,7 @@ export const AppDataSource = new DataSource({
     DvybUpgradeRequest,
     DvybCaption,
     DvybImageEdit,
+    DvybImageRegeneration,
     DvybInspirationLink,
     DvybAccountSubscription,
     DvybAccountPayment,
@@ -267,6 +270,7 @@ export const AppDataSource = new DataSource({
     DvybAcceptedContent,
     DvybRejectedContent,
     DvybContentStrategy,
+    DvybAdminContentApproval,
   ],
   migrations: [],
   subscribers: [],

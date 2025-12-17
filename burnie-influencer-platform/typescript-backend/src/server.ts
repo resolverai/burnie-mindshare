@@ -57,6 +57,7 @@ import hotCampaignsRoutes from './routes/hotCampaigns';
 import adminContentApprovalsRoutes from './routes/adminContentApprovals';
 import dedicatedMinerExecutionsRoutes from './routes/dedicatedMinerExecutions';
 import adminDvybAccountsRoutes from './routes/adminDvybAccounts';
+import adminDvybAutomatedContentRoutes from './routes/adminDvybAutomatedContent';
 import adminDvybPlansRoutes from './routes/adminDvybPlans';
 import adminDvybUpgradeRequestsRoutes from './routes/adminDvybUpgradeRequests';
 import adminDvybInspirationsRoutes from './routes/adminDvybInspirations';
@@ -84,6 +85,7 @@ import dvybGenerationRoutes from './routes/dvybGeneration';
 import dvybAdhocGenerationRoutes from './routes/dvybAdhocGeneration';
 import dvybCaptionsRoutes from './routes/dvybCaptions';
 import dvybImageEditsRoutes from './routes/dvybImageEdits';
+import dvybImageRegenerationRoutes from './routes/dvybImageRegeneration';
 import dvybSubscriptionRoutes from './routes/dvybSubscription';
 import stripeWebhookRoutes from './routes/stripeWebhook';
 import dvybDashboardRoutes from './routes/dvybDashboard';
@@ -234,6 +236,7 @@ app.use('/api', dedicatedMinerExecutionsRoutes); // Dedicated miner execution tr
 app.use('/api', approvedMinersRoutes); // Approved miners management
 app.use('/api/admin/twitter-handles', twitterHandlesRoutes); // Twitter handles management
 app.use('/api/admin/dvyb-accounts', adminDvybAccountsRoutes); // DVYB accounts management
+app.use('/api/admin/dvyb-automated-content', adminDvybAutomatedContentRoutes); // DVYB auto-generated content approval management
 app.use('/api/admin/dvyb-plans', adminDvybPlansRoutes); // DVYB pricing plans management
 app.use('/api/admin/dvyb-upgrade-requests', adminDvybUpgradeRequestsRoutes); // DVYB upgrade requests management
 app.use('/api/admin/dvyb-inspirations', adminDvybInspirationsRoutes); // DVYB inspiration links management
@@ -267,6 +270,7 @@ app.use('/api/dvyb/debug/schedules', dvybScheduleDebugRoutes); // DVYB content l
 app.use('/api/dvyb/adhoc', dvybAdhocGenerationRoutes); // DVYB ad-hoc generation (proxies to Python backend)
 app.use('/api/dvyb/captions', dvybCaptionsRoutes); // DVYB user-edited captions
 app.use('/api/dvyb/image-edits', dvybImageEditsRoutes); // DVYB image edits (text overlays, emojis, stickers)
+app.use('/api/dvyb/image-regeneration', dvybImageRegenerationRoutes); // DVYB image regeneration (AI-based image changes)
 app.use('/api/dvyb/subscription', dvybSubscriptionRoutes); // DVYB subscription management (Stripe integration)
 app.use('/api/dvyb/inspirations', dvybInspirationsRoutes); // DVYB inspiration matching for onboarding
 app.use('/api/dvyb', dvybGenerationRoutes); // DVYB content generation routes (has /:uuid catch-all, must be last)

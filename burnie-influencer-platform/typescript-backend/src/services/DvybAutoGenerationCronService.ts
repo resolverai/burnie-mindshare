@@ -23,7 +23,7 @@ import { logger } from '../config/logger';
 export class DvybAutoGenerationCronService {
   private cronTask: cron.ScheduledTask | null = null;
   
-  // Run at 4:00 AM every weekday (Mon-Fri) - PRODUCTION
+  // Run at 4:00 AM every weekday (Mon-Fri)
   // Cron format: minute hour dayOfMonth month dayOfWeek
   private readonly schedule = '0 4 * * 1-5'; // 4:00 AM, Monday through Friday
 
@@ -37,7 +37,7 @@ export class DvybAutoGenerationCronService {
     }
 
     logger.info('🤖 Starting DVYB Auto-Generation Cron Service...');
-    logger.info(`⏰ Schedule: ${this.schedule} (4:00 AM on weekdays, jobs distributed 4 AM - 11:59 PM)`);
+    logger.info(`⏰ Schedule: ${this.schedule} (2:30 PM on weekdays - TESTING MODE)`);
 
     this.cronTask = cron.schedule(this.schedule, async () => {
       try {

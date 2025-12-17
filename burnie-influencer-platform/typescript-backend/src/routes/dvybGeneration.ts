@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { DvybAuthRequest, dvybAuthMiddleware } from '../middleware/dvybAuthMiddleware';
 import { AppDataSource } from '../config/database';
 import { DvybGeneratedContent } from '../models/DvybGeneratedContent';
+import { DvybAdminContentApproval } from '../models/DvybAdminContentApproval';
 import { logger } from '../config/logger';
 
 const router = Router();
@@ -205,6 +206,59 @@ router.post('/save-content', async (req, res) => {
     await generationRepo.save(generation);
 
     logger.info(`✅ Saved generated content for ${uuid}`);
+
+    // For auto-generated content, create pending approval records
+    // IMPORTANT: Use post_index from platformTexts to match content library indexing
+    if (generation.generationType === 'auto') {
+      const approvalRepo = AppDataSource.getRepository(DvybAdminContentApproval);
+      const approvalRecords: DvybAdminContentApproval[] = [];
+
+      // Iterate through platformTexts to get correct post_index for each item
+      if (platformTexts && platformTexts.length > 0) {
+        for (let i = 0; i < platformTexts.length; i++) {
+          const platformText = platformTexts[i];
+          if (!platformText) continue;
+
+          const postIndex = platformText.post_index ?? i;
+          const contentType = platformText.content_type === 'video' ? 'video' : 'image';
+
+          // Verify the content exists
+          let hasContent = false;
+          if (contentType === 'image') {
+            // Count images before this post to get the image array index
+            let imageIdx = 0;
+            for (let j = 0; j < i; j++) {
+              if (platformTexts[j]?.content_type === 'image') imageIdx++;
+            }
+            hasContent = !!(generatedImageUrls && generatedImageUrls[imageIdx]);
+          } else {
+            // Count videos before this post to get the video array index
+            let videoIdx = 0;
+            for (let j = 0; j < i; j++) {
+              if (platformTexts[j]?.content_type === 'video') videoIdx++;
+            }
+            hasContent = !!(generatedVideoUrls && generatedVideoUrls[videoIdx]);
+          }
+
+          if (hasContent) {
+            const approval = approvalRepo.create({
+              accountId: generation.accountId,
+              generatedContentId: generation.id,
+              postIndex: postIndex,
+              contentType: contentType,
+              status: 'pending',
+            });
+            approvalRecords.push(approval);
+            logger.info(`📝 Created approval record: contentId=${generation.id}, postIndex=${postIndex}, type=${contentType}`);
+          }
+        }
+      }
+
+      if (approvalRecords.length > 0) {
+        await approvalRepo.save(approvalRecords);
+        logger.info(`✅ Created ${approvalRecords.length} pending approval records for auto-generated content ${uuid}`);
+      }
+    }
 
     return res.json({
       success: true,

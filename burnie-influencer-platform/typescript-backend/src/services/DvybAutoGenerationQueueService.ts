@@ -320,16 +320,16 @@ async function processAutoGeneration(job: Job<AutoGenerationJobData>): Promise<v
     logger.info(`🎯 Will generate ${numberOfImages} images + ${numberOfVideos} videos = ${totalPosts} posts`);
 
     // Get connected platforms
-    const platforms = await getConnectedPlatforms(accountId);
+    let platforms = await getConnectedPlatforms(accountId);
+    
+    // If no platforms connected, default to Twitter so content still gets generated
+    // Users can connect their platforms later and post the generated content
     if (platforms.length === 0) {
-      logger.warn(`⚠️ Account ${accountId} has no connected platforms, skipping`);
-      account.autoGenerationStatus = 'skipped';
-      account.lastAutoGenerationDate = new Date();
-      await accountRepo.save(account);
-      return;
+      logger.warn(`⚠️ Account ${accountId} has no connected platforms, defaulting to Twitter`);
+      platforms = ['twitter'];
+    } else {
+      logger.info(`📱 Connected platforms: ${platforms.join(', ')}`);
     }
-
-    logger.info(`📱 Connected platforms: ${platforms.join(', ')}`);
 
     // Get previous generations for topic diversity
     const previousGenerations = await generatedContentRepo.find({
@@ -397,6 +397,7 @@ INFLUENCER/MODEL SPECIFICATIONS:
         user_images: null,
         inspiration_links: null,
         clips_per_video: 1,
+        generation_type: 'auto',  // Mark as auto-generated for admin approval workflow
       },
       {
         timeout: 600000, // 10 minutes timeout

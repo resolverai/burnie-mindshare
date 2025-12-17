@@ -9,9 +9,11 @@ import { AppDataSource } from '../config/database';
 import { DvybImageEdit } from '../models/DvybImageEdit';
 import { dvybAuthMiddleware, DvybAuthRequest } from '../middleware/dvybAuthMiddleware';
 import { logger } from '../config/logger';
+import { S3PresignedUrlService } from '../services/S3PresignedUrlService';
 import axios from 'axios';
 
 const router = Router();
+const s3Service = new S3PresignedUrlService();
 
 // Environment variables
 const PYTHON_AI_BACKEND_URL = process.env.PYTHON_AI_BACKEND_URL || 'http://localhost:8000';
@@ -148,15 +150,33 @@ router.get('/:generatedContentId/:postIndex', dvybAuthMiddleware, async (req: Dv
       });
     }
     
+    // Generate presigned URLs for all image fields
+    let originalImageUrl: string | null = null;
+    let regeneratedImageUrl: string | null = null;
+    let editedImageUrl: string | null = null;
+    
+    if (imageEdit.originalImageUrl) {
+      originalImageUrl = await s3Service.generatePresignedUrl(imageEdit.originalImageUrl, 3600, true);
+    }
+    
+    if (imageEdit.regeneratedImageUrl) {
+      regeneratedImageUrl = await s3Service.generatePresignedUrl(imageEdit.regeneratedImageUrl, 3600, true);
+    }
+    
+    if (imageEdit.editedImageUrl) {
+      editedImageUrl = await s3Service.generatePresignedUrl(imageEdit.editedImageUrl, 3600, true);
+    }
+    
     return res.json({
       success: true,
       data: {
         id: imageEdit.id,
         status: imageEdit.status,
-        editedImageUrl: imageEdit.editedImageUrl,
-        originalImageUrl: imageEdit.originalImageUrl,
-        regeneratedImageUrl: imageEdit.regeneratedImageUrl,
+        editedImageUrl,
+        originalImageUrl,
+        regeneratedImageUrl,
         overlays: imageEdit.overlays,
+        referenceWidth: imageEdit.referenceWidth,
         errorMessage: imageEdit.errorMessage,
         createdAt: imageEdit.createdAt,
         updatedAt: imageEdit.updatedAt,
@@ -215,6 +235,48 @@ router.post('/callback', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Error processing image edit callback:', error);
     return res.status(500).json({ success: false, error: 'Callback processing failed' });
+  }
+});
+
+/**
+ * POST /api/dvyb/image-edits/refresh-url
+ * Get a fresh presigned URL for an S3 key (to handle expired URLs)
+ */
+router.post('/refresh-url', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
+  try {
+    const accountId = req.dvybAccountId;
+    if (!accountId) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+    
+    const { s3Key } = req.body;
+    
+    if (!s3Key) {
+      return res.status(400).json({ success: false, error: 's3Key is required' });
+    }
+    
+    logger.info(`🔄 Refreshing presigned URL for account ${accountId}, key: ${s3Key.substring(0, 50)}...`);
+    
+    // Generate fresh presigned URL
+    const presignedUrl = await s3Service.generatePresignedUrl(s3Key, 3600, true);
+    
+    if (!presignedUrl) {
+      return res.status(500).json({ success: false, error: 'Failed to generate presigned URL' });
+    }
+    
+    return res.json({
+      success: true,
+      data: {
+        presignedUrl,
+      },
+    });
+    
+  } catch (error: any) {
+    logger.error('Error refreshing presigned URL:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to refresh URL',
+    });
   }
 });
 

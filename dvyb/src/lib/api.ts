@@ -1162,6 +1162,74 @@ export const imageEditsApi = {
       } | null;
     }>(`/dvyb/image-edits/${generatedContentId}/${postIndex}`);
   },
+
+  async refreshUrl(s3Key: string) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        presignedUrl: string;
+      };
+      error?: string;
+    }>('/dvyb/image-edits/refresh-url', {
+      method: 'POST',
+      body: JSON.stringify({ s3Key }),
+    });
+  },
+};
+
+// Image Regeneration API (AI-based image changes using nano-banana edit)
+export const imageRegenerationApi = {
+  async regenerate(data: {
+    generatedContentId: number;
+    postIndex: number;
+    prompt: string;
+    sourceImageS3Key: string;
+  }) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        id: number;
+        status: string;
+        message: string;
+      };
+      error?: string;
+    }>('/dvyb/image-regeneration/regenerate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async getRegenerations(generatedContentId: number, postIndex: number) {
+    return apiRequest<{
+      success: boolean;
+      data: Array<{
+        id: number;
+        prompt: string;
+        sourceImageS3Key: string;
+        sourceImageUrl: string | null;
+        regeneratedImageS3Key: string | null;
+        regeneratedImageUrl: string | null;
+        status: 'pending' | 'processing' | 'completed' | 'failed';
+        errorMessage: string | null;
+        metadata: any;
+        createdAt: string;
+      }>;
+    }>(`/dvyb/image-regeneration/${generatedContentId}/${postIndex}`);
+  },
+
+  async getStatus(regenerationId: number) {
+    return apiRequest<{
+      success: boolean;
+      data: {
+        id: number;
+        status: 'pending' | 'processing' | 'completed' | 'failed';
+        regeneratedImageS3Key: string | null;
+        regeneratedImageUrl: string | null;
+        errorMessage: string | null;
+        metadata: any;
+      };
+    }>(`/dvyb/image-regeneration/status/${regenerationId}`);
+  },
 };
 
 // Subscription API
@@ -1415,6 +1483,7 @@ export const dvybApi = {
   adhocGeneration: adhocGenerationApi,
   captions: captionsApi,
   imageEdits: imageEditsApi,
+  imageRegeneration: imageRegenerationApi,
   subscription: subscriptionApi,
   inspirations: inspirationsApi,
   contentStrategy: contentStrategyApi,
