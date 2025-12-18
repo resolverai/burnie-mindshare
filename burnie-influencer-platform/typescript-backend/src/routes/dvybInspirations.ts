@@ -143,7 +143,7 @@ router.post('/match', async (req: Request, res: Response) => {
       const shuffled = [...formattedLinks].sort(() => Math.random() - 0.5);
       const minCount = Math.max(2, count); // At least 2 inspirations
       matchedVideos = shuffled.slice(0, Math.min(minCount, shuffled.length));
-      matchedCategories = [...new Set(matchedVideos.map(v => v.category))];
+      matchedCategories = [...new Set(matchedVideos.map((v: InspirationLink) => v.category))];
       
       logger.info(`✅ Fallback: Selected ${matchedVideos.length} random image inspirations`);
     } else {
