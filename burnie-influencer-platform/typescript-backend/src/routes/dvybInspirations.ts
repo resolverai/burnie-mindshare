@@ -132,11 +132,31 @@ router.post('/match', async (req: Request, res: Response) => {
       throw new Error(result.error || 'Inspiration matching failed');
     }
 
-    logger.info(`✅ Matched ${result.data?.inspiration_videos?.length || 0} inspirations for industry: ${industry}`);
+    let matchedVideos = result.data?.inspiration_videos || [];
+    let matchedCategories = result.data?.matched_categories || [];
+
+    // Fallback: If no matching inspirations found, return at least 2 random image inspirations
+    if (matchedVideos.length === 0 && formattedLinks.length > 0) {
+      logger.info(`⚠️ No matching inspirations found for industry: ${industry}. Falling back to random image inspirations.`);
+      
+      // Shuffle and pick at least 2 (or up to 'count') random image inspirations
+      const shuffled = [...formattedLinks].sort(() => Math.random() - 0.5);
+      const minCount = Math.max(2, count); // At least 2 inspirations
+      matchedVideos = shuffled.slice(0, Math.min(minCount, shuffled.length));
+      matchedCategories = [...new Set(matchedVideos.map(v => v.category))];
+      
+      logger.info(`✅ Fallback: Selected ${matchedVideos.length} random image inspirations`);
+    } else {
+      logger.info(`✅ Matched ${matchedVideos.length} inspirations for industry: ${industry}`);
+    }
 
     return res.json({
       success: true,
-      data: result.data,
+      data: {
+        matched_categories: matchedCategories,
+        inspiration_videos: matchedVideos,
+        reasoning: result.data?.reasoning || (matchedVideos.length > 0 && result.data?.inspiration_videos?.length === 0 ? 'Fallback: Random inspirations selected' : ''),
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
