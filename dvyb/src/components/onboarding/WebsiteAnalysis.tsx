@@ -237,9 +237,7 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
               <Image src={dvybLogo} alt="Dvyb Logo" className="w-full h-auto" priority />
             </div>
             <h1 className="text-3xl md:text-4xl lg:text-5xl font-semibold text-foreground leading-tight tracking-tight text-center">
-              All your business&apos;s social posts for $1.99 per day,
-              <br />
-              try free for 7 days
+              Irresistible product shots in seconds
             </h1>
           </div>
 
