@@ -111,8 +111,394 @@ def download_inspiration_video(url: str, output_dir: str = "/tmp/dvyb-inspiratio
             
             print(f"  ✅ Downloaded: {duration:.1f}s video")
             return (output_filename, True)
+    except yt_dlp.utils.DownloadError as e:
+        print(f"  ❌ Video download failed (yt-dlp error): {e}")
+        print(f"     This may be due to: private content, geo-restrictions, or unsupported URL format")
+        return (None, False)
     except Exception as e:
-        print(f"  ❌ Download failed: {e}")
+        print(f"  ❌ Video download failed (unexpected error): {type(e).__name__}: {e}")
+        import traceback
+        print(f"     {traceback.format_exc()}")
+        return (None, False)
+
+
+def download_inspiration_image(url: str, output_dir: str = "/tmp/dvyb-inspirations") -> tuple:
+    """
+    Download image from Instagram/Twitter/any URL using multiple strategies.
+    Returns (image_paths, is_image) - list of downloaded image paths or (None, False) if failed.
+    For Instagram carousels, downloads only the first image.
+    
+    Strategy:
+    - For Instagram/Twitter: Try yt-dlp → instaloader → web scraping
+    - For regular URLs: Skip directly to web scraping (Strategy 3)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    print(f"  📥 Downloading inspiration image(s)...")
+    print(f"     URL: {url[:80]}...")
+    
+    # Detect platform
+    is_instagram = 'instagram.com' in url.lower()
+    is_twitter = 'twitter.com' in url.lower() or 'x.com' in url.lower()
+    is_social_media = is_instagram or is_twitter
+    
+    # Track redirect URL discovered by yt-dlp (for Twitter/X links that redirect to articles)
+    discovered_redirect_url = None
+    
+    # For regular URLs (not social media), skip directly to Strategy 3 (web scraping)
+    if not is_social_media:
+        print(f"  🔍 Regular URL detected (not Instagram/Twitter) - using web scraping directly")
+        # Jump directly to Strategy 3 (defined at the end of this function)
+        # We'll use a flag to skip strategies 1 and 2
+        skip_social_strategies = True
+    else:
+        print(f"  🔍 Social media URL detected - will try yt-dlp → instaloader → web scraping")
+        skip_social_strategies = False
+    
+    # STRATEGY 1: Try yt-dlp first (only for social media platforms)
+    if not skip_social_strategies:
+        print(f"  🔧 Strategy 1: Trying yt-dlp...")
+        output_template = f"{output_dir}/inspiration_%(autonumber)s.%(ext)s"
+        
+        ydl_opts = {
+            'format': 'best',
+            'outtmpl': output_template,
+            'quiet': False,  # Enable output for debugging
+            'no_warnings': False,
+            'writethumbnail': False,
+            'skip_download': False,
+            'playlist_items': '1',  # Only download first item from carousels
+            'noplaylist': False,  # Allow playlist/carousel processing
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                print(f"  🔍 Extracting info from URL...")
+                info = ydl.extract_info(url, download=True)
+                
+                print(f"  🔍 Info type: {'playlist/carousel' if 'entries' in info else 'single media'}")
+                if 'entries' in info:
+                    print(f"  🔍 Number of entries: {len(info.get('entries', []))}")
+                
+                # Collect downloaded files
+                downloaded_files = []
+                
+                # Check if it's a single image
+                if info.get('ext') in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
+                    filename = ydl.prepare_filename(info)
+                    if os.path.exists(filename):
+                        downloaded_files.append(filename)
+                        print(f"  ✅ yt-dlp: Downloaded 1 image")
+                
+                # Check if it's a carousel/multiple images
+                elif 'entries' in info and len(info['entries']) > 0:
+                    # Only process first entry
+                    entry = info['entries'][0]
+                    if entry.get('ext') in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
+                        filename = ydl.prepare_filename(entry)
+                        if os.path.exists(filename):
+                            downloaded_files.append(filename)
+                            print(f"  ✅ yt-dlp: Downloaded first image from carousel")
+                
+                # Scan directory for any downloaded files
+                if not downloaded_files:
+                    for file in os.listdir(output_dir):
+                        file_path = os.path.join(output_dir, file)
+                        if file.startswith('inspiration_') and os.path.isfile(file_path):
+                            ext = file.split('.')[-1].lower()
+                            if ext in ['jpg', 'jpeg', 'png', 'webp', 'gif']:
+                                downloaded_files.append(file_path)
+                
+                if downloaded_files:
+                    return ([downloaded_files[0]], True)
+                
+                # If yt-dlp returned 0 entries for Instagram, try instaloader
+                if is_instagram and 'entries' in info and len(info.get('entries', [])) == 0:
+                    print(f"  ⚠️ yt-dlp returned 0 entries for Instagram, trying fallback...")
+                else:
+                    print(f"  ⚠️ yt-dlp: No images found, trying fallback strategies...")
+                    
+        except Exception as e:
+            error_str = str(e)
+            print(f"  ⚠️ yt-dlp failed: {type(e).__name__}: {e}")
+            
+            # Try to extract redirect URL from "Unsupported URL" error message
+            # Pattern: "ERROR: Unsupported URL: https://..."
+            if 'Unsupported URL:' in error_str:
+                import re
+                url_match = re.search(r'Unsupported URL: (https?://[^\s]+)', error_str)
+                if url_match:
+                    discovered_redirect_url = url_match.group(1)
+                    print(f"  🔍 Discovered redirect URL: {discovered_redirect_url[:80]}...")
+                    print(f"     Will use this URL for Strategy 3 web scraping")
+    
+    # STRATEGY 2: Try instaloader for Instagram (only if Instagram and Strategy 1 failed)
+    if not skip_social_strategies and is_instagram:
+        print(f"  🔧 Strategy 2: Trying instaloader for Instagram...")
+        try:
+            import instaloader
+            
+            # Extract shortcode from Instagram URL
+            # URLs like: https://www.instagram.com/p/DSAr8MDDyWb/ or https://www.instagram.com/p/DSAr8MDDyWb/?img_index=1
+            shortcode = None
+            if '/p/' in url:
+                shortcode = url.split('/p/')[1].split('/')[0].split('?')[0]
+            elif '/reel/' in url:
+                shortcode = url.split('/reel/')[1].split('/')[0].split('?')[0]
+            
+            if not shortcode:
+                print(f"  ❌ Could not extract shortcode from Instagram URL")
+            else:
+                print(f"  🔍 Instagram shortcode: {shortcode}")
+                
+                # Create instaloader instance (anonymous, no login)
+                L = instaloader.Instaloader(
+                    download_videos=False,
+                    download_video_thumbnails=False,
+                    download_geotags=False,
+                    download_comments=False,
+                    save_metadata=False,
+                    compress_json=False,
+                    dirname_pattern=output_dir,
+                    filename_pattern='{shortcode}_{medianame}'
+                )
+                
+                # Get post
+                print(f"  🔍 Fetching Instagram post...")
+                post = instaloader.Post.from_shortcode(L.context, shortcode)
+                
+                # Download first image from post
+                downloaded_files = []
+                
+                if post.typename == 'GraphSidecar':
+                    # It's a carousel - get first image
+                    print(f"  🔍 Carousel detected with {post.mediacount} items")
+                    nodes = list(post.get_sidecar_nodes())
+                    if nodes:
+                        first_node = nodes[0]
+                        img_url = first_node.display_url
+                        print(f"  🔍 Downloading first carousel image from URL...")
+                        
+                        # Download the image directly
+                        import requests
+                        response = requests.get(img_url, timeout=30)
+                        response.raise_for_status()
+                        
+                        img_path = os.path.join(output_dir, f"insta_{shortcode}_0.jpg")
+                        with open(img_path, 'wb') as f:
+                            f.write(response.content)
+                        
+                        downloaded_files.append(img_path)
+                        print(f"  ✅ instaloader: Downloaded first image from carousel")
+                else:
+                    # Single image post
+                    img_url = post.url
+                    print(f"  🔍 Single image post, downloading...")
+                    
+                    import requests
+                    response = requests.get(img_url, timeout=30)
+                    response.raise_for_status()
+                    
+                    img_path = os.path.join(output_dir, f"insta_{shortcode}.jpg")
+                    with open(img_path, 'wb') as f:
+                        f.write(response.content)
+                    
+                    downloaded_files.append(img_path)
+                    print(f"  ✅ instaloader: Downloaded 1 image")
+                
+                if downloaded_files:
+                    return (downloaded_files, True)
+                    
+        except ImportError:
+            print(f"  ❌ instaloader not installed. Install with: pip install instaloader")
+        except Exception as e:
+            print(f"  ⚠️ instaloader failed: {type(e).__name__}: {e}")
+    
+    # STRATEGY 3: Generic web scraping for any URL (universal fallback)
+    # Based on ai/image_downloader.py - proven working approach
+    print(f"  🔧 Strategy 3: Trying web scraping for any URL...")
+    try:
+        from bs4 import BeautifulSoup
+        import requests
+        from urllib.parse import urljoin, urlparse
+        import mimetypes
+        
+        # Use discovered redirect URL if available (from yt-dlp), otherwise use original URL
+        scrape_url = discovered_redirect_url if discovered_redirect_url else url
+        if discovered_redirect_url:
+            print(f"  🔍 Using discovered redirect URL for scraping: {scrape_url[:80]}...")
+        else:
+            print(f"  🔍 Fetching webpage: {scrape_url[:80]}...")
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(scrape_url, headers=headers, timeout=10, allow_redirects=True)
+        response.raise_for_status()
+        
+        print(f"  🔍 Final URL after redirects: {response.url[:80]}...")
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        min_size = 10000  # 10KB minimum to skip icons/thumbnails
+        
+        def download_image_from_url(img_url, source_label):
+            """Helper to download and validate an image"""
+            try:
+                # Make URL absolute
+                full_url = urljoin(response.url, img_url)
+                print(f"  🔍 Trying {source_label}: {full_url[:80]}...")
+                
+                # Download image
+                img_response = requests.get(full_url, headers=headers, timeout=10, stream=True)
+                img_response.raise_for_status()
+                
+                # Verify content type
+                content_type = img_response.headers.get('content-type', '')
+                if 'image' not in content_type.lower():
+                    print(f"  ⚠️ Not an image (content-type: {content_type})")
+                    return None
+                
+                # Check file size
+                content_length = img_response.headers.get('content-length')
+                if content_length:
+                    file_size = int(content_length)
+                    if file_size < min_size:
+                        print(f"  ⚠️ Image too small ({file_size} bytes)")
+                        return None
+                
+                # Determine file extension from content type
+                ext = mimetypes.guess_extension(content_type.split(';')[0])
+                if not ext:
+                    parsed = urlparse(full_url)
+                    ext = os.path.splitext(parsed.path)[1]
+                    if not ext or ext not in ['.jpg', '.jpeg', '.png', '.webp', '.gif']:
+                        ext = '.jpg'
+                
+                # Save image
+                img_path = os.path.join(output_dir, f"scraped_inspiration{ext}")
+                with open(img_path, 'wb') as f:
+                    for chunk in img_response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                # Verify final file size
+                actual_size = os.path.getsize(img_path)
+                if actual_size < min_size:
+                    print(f"  ⚠️ Downloaded image too small ({actual_size} bytes)")
+                    os.remove(img_path)
+                    return None
+                
+                print(f"  ✅ Web scraping: Downloaded from {source_label} ({actual_size} bytes)")
+                return img_path
+                
+            except Exception as e:
+                print(f"  ⚠️ Failed: {type(e).__name__}")
+                return None
+        
+        # PRIORITY 1: Open Graph image (og:image) - best for social media
+        og_image = soup.find('meta', property='og:image')
+        if og_image and og_image.get('content'):
+            img_path = download_image_from_url(og_image['content'], 'og:image')
+            if img_path:
+                return ([img_path], True)
+        
+        # PRIORITY 2: Twitter card image
+        twitter_image = soup.find('meta', attrs={'name': 'twitter:image'})
+        if twitter_image and twitter_image.get('content'):
+            img_path = download_image_from_url(twitter_image['content'], 'twitter:image')
+            if img_path:
+                return ([img_path], True)
+        
+        # PRIORITY 3: Featured/hero/article image (by class name)
+        article_img = soup.find('img', class_=lambda x: x and any(
+            keyword in x.lower() for keyword in ['featured', 'hero', 'main', 'lead', 'article']
+        ))
+        if article_img:
+            img_url = article_img.get('src') or article_img.get('data-src') or article_img.get('data-lazy-src')
+            if img_url:
+                img_path = download_image_from_url(img_url, 'featured article image')
+                if img_path:
+                    return ([img_path], True)
+        
+        # PRIORITY 4: Scan all images and score them
+        print(f"  🔍 Scanning all images on page...")
+        images = soup.find_all('img')
+        candidate_images = []
+        
+        for idx, img in enumerate(images):
+            img_url = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
+            
+            if not img_url:
+                continue
+            
+            # Convert to absolute URL
+            img_url = urljoin(response.url, img_url)
+            
+            # Skip data URIs and SVGs (usually icons)
+            if img_url.startswith('data:') or img_url.endswith('.svg'):
+                continue
+            
+            # Skip common icon/logo patterns
+            img_alt = (img.get('alt') or '').lower()
+            img_class = ' '.join(img.get('class', [])).lower()
+            skip_keywords = ['icon', 'logo', 'avatar', 'sprite', 'badge', 'button']
+            if any(keyword in img_alt or keyword in img_class for keyword in skip_keywords):
+                continue
+            
+            # Score the image based on size hints
+            score = 0
+            width = img.get('width')
+            height = img.get('height')
+            
+            if width and height:
+                try:
+                    w = int(width) if str(width).isdigit() else 0
+                    h = int(height) if str(height).isdigit() else 0
+                    if w > 300 and h > 300:
+                        score += 10
+                except:
+                    pass
+            
+            # Try to get file size via HEAD request
+            try:
+                head_response = requests.head(img_url, headers=headers, timeout=5, allow_redirects=True)
+                content_length = head_response.headers.get('content-length')
+                if content_length:
+                    file_size = int(content_length)
+                    if file_size > min_size:
+                        score += 5
+                else:
+                    file_size = 0
+            except:
+                file_size = 0
+            
+            candidate_images.append({
+                'url': img_url,
+                'score': score,
+                'size': file_size,
+                'index': idx
+            })
+        
+        # Sort by score (higher is better) and then by index (first appearance)
+        candidate_images.sort(key=lambda x: (-x['score'], x['index']))
+        
+        print(f"  🔍 Found {len(candidate_images)} candidate image(s)")
+        
+        # Try downloading top candidates
+        for i, candidate in enumerate(candidate_images[:5]):  # Try top 5 candidates
+            img_path = download_image_from_url(candidate['url'], f"candidate #{i+1} (score: {candidate['score']})")
+            if img_path:
+                return ([img_path], True)
+        
+        print(f"  ⚠️ No suitable images found on webpage")
+        return (None, False)
+        
+    except ImportError:
+        print(f"  ❌ beautifulsoup4 not installed. Install with: pip install beautifulsoup4 lxml")
+        return (None, False)
+    except Exception as e:
+        print(f"  ❌ Web scraping failed: {type(e).__name__}: {e}")
+        import traceback
+        print(f"     {traceback.format_exc()}")
         return (None, False)
 
 
@@ -298,6 +684,260 @@ def extract_and_transcribe_audio(video_path: str, output_dir: str, max_duration:
         return ("", None)
 
 
+def analyze_image_inspiration_with_grok(image_urls: list, context: dict) -> dict:
+    """
+    Analyze image inspiration using Grok - pass images for aesthetic/creative analysis.
+    Returns inspiration analysis dict with visual elements, aesthetics, composition, etc.
+    """
+    from xai_sdk import Client
+    from xai_sdk.chat import user, system, image
+    import json
+    
+    print(f"\n  🤖 Analyzing image inspiration with Grok (xai_sdk)...")
+    print(f"     Images: {len(image_urls)}")
+    
+    if not image_urls:
+        print(f"  ⚠️ No images to analyze")
+        return {}
+    
+    brand_name = context.get('dvyb_context', {}).get('accountName', 'the brand')
+    
+    system_prompt = f"""You are a WORLD-CLASS CREATIVE IMAGE ANALYST specializing in social media content analysis.
+You analyze images to extract creative insights that can inspire new content for {brand_name}.
+
+🎯 YOUR CRITICAL TASK:
+Analyze the provided image(s) to extract EVERY SINGLE VISUAL ELEMENT and creative detail that can guide content creation. BE EXTREMELY DETAILED AND COMPREHENSIVE.
+
+🔍 **WHAT TO ANALYZE - CAPTURE EVERYTHING**:
+
+1. **VISUAL AESTHETICS**:
+   - Color palette (ALL colors present - dominant, accent, background colors)
+   - Color grading and treatment (warm/cool tones, saturation, contrast)
+   - Lighting style (natural daylight, studio, dramatic, soft, harsh, golden hour, backlit, side-lit, etc.)
+   - Overall mood and atmosphere (energetic, calm, moody, bright, dark, etc.)
+   - Visual quality (professional DSLR, mobile casual, cinematic, polished, raw, grainy, etc.)
+   - Any filters or effects applied
+
+2. **COMPOSITION & FRAMING**:
+   - Shot type (extreme close-up, close-up, medium shot, full shot, wide shot, etc.)
+   - Camera angle (eye-level, high angle, low angle, overhead/flatlay, Dutch angle, etc.)
+   - Framing techniques (tight framing, negative space, centered, off-center, etc.)
+   - Compositional rules used (rule of thirds, leading lines, symmetry, golden ratio, etc.)
+   - Depth of field (shallow/bokeh, deep focus, etc.)
+   - Perspective and point of view
+
+3. **HUMAN PRESENCE** (CRITICAL - capture ALL details):
+   - ARE THERE ANY HUMANS? (Full bodies, partial, hands only, silhouettes?)
+   - How many people? (Count them)
+   - Faces: Visible or not? Expressions? Emotions? Age range? Ethnicity? Gender?
+   - Poses: Specific body positioning (standing, sitting, leaning, reaching, etc.)
+   - Gestures: Hand positions, finger placements, arm movements
+   - Body language: Confident, relaxed, dynamic, static?
+   - Clothing style: Casual, formal, athletic, fashion-forward, colors, patterns?
+   - Accessories: Jewelry, watches, bags, hats, glasses?
+   - Hair style and makeup (if visible)
+   - Interaction: Are people interacting with objects? With each other?
+   - Positioning: Where are people placed in the frame?
+
+4. **CHARACTERS & LIVING BEINGS**:
+   - Any animals? (Pets, wildlife - specify species, breed if identifiable)
+   - Any illustrated/animated characters?
+   - Any mascots or brand characters?
+   - Describe their appearance, positioning, and role in the image
+
+5. **OBJECTS & PROPS** (List EVERYTHING):
+   - ALL objects visible in the image (be exhaustive)
+   - Main subjects vs supporting props
+   - Product placement (if any) - how is it showcased?
+   - Food and beverages (specific items, presentation style)
+   - Furniture and decor
+   - Technology and gadgets
+   - Nature elements (flowers, plants, trees, water, etc.)
+   - Tools, instruments, equipment
+   - Packaging, containers, bottles
+   - How objects are arranged (neat, scattered, organized, chaotic?)
+   - Size relationships between objects
+   - Textures visible on objects
+
+6. **SETTING & ENVIRONMENT**:
+   - Location type (indoor, outdoor, studio, cafe, home, office, nature, urban, etc.)
+   - Specific setting details (kitchen, bedroom, park, street, beach, etc.)
+   - Background elements (what's visible in the background?)
+   - Architectural elements (walls, floors, windows, doors, etc.)
+   - Weather conditions (if outdoor: sunny, cloudy, rainy, etc.)
+   - Time of day indicators (morning light, evening, night, etc.)
+   - Environmental atmosphere (clean, messy, minimal, cluttered, luxurious, casual, etc.)
+
+7. **STYLING & AESTHETICS**:
+   - Overall styling approach (minimal, maximalist, vintage, modern, rustic, etc.)
+   - Color coordination and harmony
+   - Pattern usage (stripes, florals, geometric, etc.)
+   - Material textures (wood, metal, fabric, glass, etc.)
+   - Surface finishes (matte, glossy, rough, smooth, etc.)
+
+8. **CREATIVE & TECHNICAL ELEMENTS**:
+   - Motion blur or freeze frame
+   - Focus techniques (selective focus, tilt-shift, etc.)
+   - Lens effects (bokeh, lens flare, vignetting, etc.)
+   - Post-processing treatments (vintage look, high contrast, faded, etc.)
+   - Text or graphics overlay (if any)
+   - Unique creative techniques that stand out
+   - What makes this image visually engaging?
+
+9. **ACTION & MOVEMENT** (if present):
+   - Is there implied movement or action?
+   - Captured moments (pouring, eating, jumping, reaching, etc.)
+   - Dynamic elements vs static elements
+
+10. **REPLICATION TIPS**:
+    - Specific, actionable advice on how to recreate this EXACT aesthetic for {brand_name}
+    - What elements are CRITICAL to capture the same feel?
+    - What would work well for brand content?
+    - Technical tips (lighting setup, camera settings, styling choices)
+
+⚠️ RESPOND ONLY WITH VALID JSON in this exact format (BE EXHAUSTIVE IN YOUR DESCRIPTIONS):
+{{
+  "visual_aesthetics": {{
+    "color_palette": ["ALL colors present - dominant, accent, background"],
+    "color_treatment": "Warm/cool tones, saturation level, contrast level",
+    "lighting_style": "Detailed lighting description",
+    "mood_atmosphere": "Overall mood description",
+    "visual_quality": "Professional/candid/cinematic/etc description",
+    "filters_effects": "Any filters or effects applied"
+  }},
+  "composition": {{
+    "shot_type": "Extreme close-up/close-up/medium/wide/etc",
+    "angle": "Eye-level/high/low/overhead/etc",
+    "framing_techniques": ["technique1", "technique2"],
+    "compositional_rules": ["rule of thirds", "leading lines", etc],
+    "depth_of_field": "Shallow/deep/etc",
+    "perspective": "Perspective description"
+  }},
+  "human_presence": {{
+    "has_humans": true or false,
+    "count": number of people or 0,
+    "visibility": "Full body/partial/hands only/silhouettes/etc",
+    "description": "EXHAUSTIVE description: faces, expressions, age, gender, ethnicity, clothing, accessories, hair, makeup",
+    "poses_and_gestures": ["Specific pose 1", "gesture 2", "body language 3"],
+    "positioning": "Where people are placed in frame",
+    "interactions": "What are they doing/interacting with"
+  }},
+  "characters_and_beings": {{
+    "has_animals": true or false,
+    "animals": ["species/breed if present"],
+    "has_characters": true or false,
+    "characters": ["animated/illustrated characters if present"],
+    "description": "Detailed description of any living beings or characters"
+  }},
+  "objects_and_props": {{
+    "all_objects": ["EXHAUSTIVE list of ALL visible objects"],
+    "main_subjects": ["Primary objects of focus"],
+    "supporting_props": ["Secondary/background objects"],
+    "arrangement": "Detailed description of how objects are arranged",
+    "styling": "Styling approach description",
+    "textures": ["Textures visible on objects"]
+  }},
+  "setting": {{
+    "location_type": "Specific location type",
+    "specific_setting": "Exact setting (kitchen/park/cafe/etc)",
+    "background": "Detailed background description",
+    "environment": "Environmental atmosphere description",
+    "weather_time": "Weather/time of day if applicable"
+  }},
+  "styling_aesthetics": {{
+    "overall_style": "Minimal/maximalist/vintage/modern/etc",
+    "patterns": ["Any patterns present"],
+    "materials": ["Materials visible - wood/metal/fabric/etc"],
+    "finishes": ["Surface finishes - matte/glossy/etc"]
+  }},
+  "technical_creative": {{
+    "motion_elements": "Any implied movement or action",
+    "focus_techniques": "Focus/blur techniques used",
+    "lens_effects": ["Bokeh", "lens flare", "vignetting", etc],
+    "post_processing": "Post-processing treatments applied",
+    "unique_techniques": ["Unique creative elements that stand out"]
+  }},
+  "action_movement": {{
+    "has_action": true or false,
+    "description": "Description of any action, movement, or captured moments"
+  }},
+  "creative_elements": ["ALL creative elements that make this engaging"],
+  "replication_tips": "DETAILED, ACTIONABLE tips to replicate this EXACT aesthetic for {brand_name}, including technical setup"
+}}"""
+
+    # Build user prompt
+    user_prompt = f"""Analyze {'these images' if len(image_urls) > 1 else 'this image'} as creative inspiration for {brand_name}.
+
+{'The images below are from the same post:' if len(image_urls) > 1 else 'Image to analyze:'}
+
+🎯 Extract creative insights that can inspire content for {brand_name}.
+Be DETAILED and SPECIFIC in your analysis."""
+
+    try:
+        print(f"     Creating Grok chat with xai_sdk...")
+        client = Client(api_key=settings.xai_api_key, timeout=3600)
+        chat = client.chat.create(model="grok-4-latest")
+        
+        chat.append(system(system_prompt))
+        
+        # Add images to chat
+        image_objects = [image(image_url=img_url, detail="high") for img_url in image_urls]
+        print(f"     Created {len(image_objects)} image objects for Grok")
+        
+        # Append user message with all images
+        chat.append(user(user_prompt, *image_objects))
+        
+        print(f"     Calling Grok.sample()...")
+        response = chat.sample()
+        response_text = response.content.strip()
+        
+        print(f"  ✅ Grok analysis complete")
+        print(f"     Response length: {len(response_text)} chars")
+        
+        # Parse JSON response (handle markdown)
+        if "```json" in response_text:
+            json_start = response_text.find("```json") + 7
+            json_end = response_text.find("```", json_start)
+            json_content = response_text[json_start:json_end].strip()
+        elif "```" in response_text:
+            json_start = response_text.find("```") + 3
+            json_end = response_text.find("```", json_start)
+            json_content = response_text[json_start:json_end].strip()
+        elif response_text.startswith("{") and response_text.endswith("}"):
+            json_content = response_text
+        else:
+            start_idx = response_text.find("{")
+            end_idx = response_text.rfind("}") + 1
+            if start_idx != -1 and end_idx > start_idx:
+                json_content = response_text[start_idx:end_idx]
+            else:
+                raise ValueError("No valid JSON found in Grok response")
+        
+        # Fix common JSON issues (trailing commas)
+        import re
+        json_content = re.sub(r',(\s*[}\]])', r'\1', json_content)
+        
+        analysis = json.loads(json_content)
+        
+        print(f"  ✅ Image inspiration analysis complete")
+        if 'visual_aesthetics' in analysis:
+            print(f"     Colors: {analysis['visual_aesthetics'].get('color_palette', [])}...")
+        if 'human_presence' in analysis:
+            print(f"     Humans: {analysis['human_presence'].get('has_humans', False)}")
+        
+        return analysis
+        
+    except json.JSONDecodeError as e:
+        print(f"  ❌ Failed to parse Grok JSON response: {e}")
+        print(f"     Raw response: {response_text[:200]}...")
+        return {}
+    except Exception as e:
+        print(f"  ❌ Grok analysis failed: {e}")
+        import traceback
+        print(f"     {traceback.format_exc()}")
+        return {}
+
+
 def analyze_video_inspiration_with_grok(frame_urls: list, transcript: str, context: dict) -> dict:
     """
     Analyze video inspiration using Grok - pass frames in sequence + transcript.
@@ -452,6 +1092,74 @@ Be ULTRA-DETAILED in your storyline - describe it like a professional storyboard
         return {}
 
 
+async def process_image_inspiration_link(url: str, context: dict, account_id: int) -> dict:
+    """
+    Process image inspiration link from Instagram/Twitter.
+    Returns analysis dict with aesthetic and creative insights.
+    """
+    print(f"\n{'='*60}")
+    print(f"🖼️ IMAGE INSPIRATION ANALYSIS")
+    print(f"{'='*60}")
+    print(f"  URL: {url[:80]}...")
+    
+    output_dir = f"/tmp/dvyb-inspirations/{uuid.uuid4().hex[:8]}"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    try:
+        # Step 1: Download image(s)
+        image_paths, is_image = download_inspiration_image(url, output_dir)
+        if not is_image or not image_paths:
+            print(f"  ⚠️ No images downloaded, skipping image analysis")
+            return {}
+        
+        # Step 2: Upload images to S3 and get presigned URLs
+        print(f"  📤 Uploading {len(image_paths)} image(s) to S3...")
+        image_presigned_urls = []
+        for i, image_path in enumerate(image_paths):
+            s3_key = web2_s3_helper.upload_from_file(
+                file_path=image_path,
+                folder=f"dvyb/inspiration-images/{account_id}",
+                filename=f"image_{i:02d}_{uuid.uuid4().hex[:6]}.jpg"
+            )
+            if s3_key:
+                presigned_url = web2_s3_helper.generate_presigned_url(s3_key)
+                if presigned_url:
+                    image_presigned_urls.append(presigned_url)
+        
+        print(f"  ✅ Uploaded {len(image_presigned_urls)} image(s) to S3")
+        
+        if not image_presigned_urls:
+            print(f"  ⚠️ No images uploaded successfully")
+            return {}
+        
+        # Step 3: Analyze with Grok
+        analysis = analyze_image_inspiration_with_grok(image_presigned_urls, context)
+        
+        # Add metadata
+        analysis["source_url"] = url
+        analysis["image_count"] = len(image_presigned_urls)
+        analysis["image_urls"] = image_presigned_urls
+        
+        return analysis
+        
+    except Exception as e:
+        print(f"  ❌ Image inspiration processing failed: {e}")
+        print(f"  ⚠️  Don't worry - content generation will continue without image inspiration")
+        import traceback
+        print(f"     {traceback.format_exc()}")
+        return {}
+    
+    finally:
+        # Cleanup
+        print(f"  🧹 Cleaning up temporary files...")
+        import shutil
+        if os.path.exists(output_dir):
+            try:
+                shutil.rmtree(output_dir)
+            except Exception as e:
+                print(f"  ⚠️ Cleanup warning: {e}")
+
+
 async def process_video_inspiration_link(url: str, context: dict, account_id: int, clips_per_video: int = 1) -> dict:
     """
     Full pipeline for processing a video inspiration link:
@@ -603,6 +1311,7 @@ async def process_video_inspiration_link(url: str, context: dict, account_id: in
         
     except Exception as e:
         print(f"  ❌ Video inspiration processing failed: {e}")
+        print(f"  ⚠️  Don't worry - content generation will continue without video inspiration")
         import traceback
         print(f"     {traceback.format_exc()}")
         return {}
@@ -2319,22 +3028,36 @@ async def analyze_inspiration_links(links: List[str], context: dict = None, acco
         
         result = {}
         
-        # Process video links first (if any)
+        # Process video/image platform links first (if any)
         if video_links and context and account_id:
-            print(f"\n📹 Processing {len(video_links)} video inspiration link(s)...")
+            print(f"\n📹 Processing {len(video_links)} video/image inspiration link(s)...")
             print(f"📊 Clips per video: {clips_per_video} → Processing up to {clips_per_video * 8}s of video")
             video_inspirations = []
+            image_inspirations = []
             
-            for video_link in video_links[:1]:  # Process only first video to avoid long processing
-                video_analysis = await process_video_inspiration_link(video_link, context, account_id, clips_per_video)
+            for link in video_links[:1]:  # Process only first link to avoid long processing
+                # Try video first
+                video_analysis = await process_video_inspiration_link(link, context, account_id, clips_per_video)
                 if video_analysis:
                     video_inspirations.append(video_analysis)
+                else:
+                    # If video processing failed, try as image
+                    print(f"\n📸 Video processing failed, trying as image inspiration...")
+                    image_analysis = await process_image_inspiration_link(link, context, account_id)
+                    if image_analysis:
+                        image_inspirations.append(image_analysis)
             
             if video_inspirations:
                 result["video_inspiration"] = video_inspirations[0]  # Use first video inspiration
                 print(f"\n✅ Video inspiration analysis complete!")
                 print(f"⏭️  Skipping Grok live search on regular links (video inspiration takes priority)")
                 return result  # Return early - skip regular link analysis when video inspiration exists
+            
+            if image_inspirations:
+                result["image_inspiration"] = image_inspirations[0]  # Use first image inspiration
+                print(f"\n✅ Image inspiration analysis complete!")
+                print(f"⏭️  Skipping Grok live search on regular links (image inspiration takes priority)")
+                return result  # Return early - skip regular link analysis when image inspiration exists
         
         # If no regular links, return result (which might be empty or have video analysis)
         if not regular_links:
@@ -2655,7 +3378,9 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     # Format link analysis for Grok
     link_analysis_str = ""
     video_inspiration_str = ""
+    image_inspiration_str = ""
     has_video_inspiration = False
+    has_image_inspiration = False
     
     if link_analysis:
         # Check for video inspiration (from YouTube/Instagram/Twitter reel analysis)
@@ -2697,6 +3422,97 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
             print(f"   Creative Elements: {video_inspiration.get('creative_elements', [])}")
             print(f"   Visual Subjects: humans={humans_desc[:50]}..., objects={objects_props[:3]}")
         
+        # Check for image inspiration (from Instagram/Twitter image post analysis)
+        image_inspiration = link_analysis.get("image_inspiration")
+        if image_inspiration:
+            has_image_inspiration = True
+            import json
+            # Extract ALL visual elements comprehensively
+            visual_aesthetics = image_inspiration.get('visual_aesthetics', {})
+            composition = image_inspiration.get('composition', {})
+            human_presence = image_inspiration.get('human_presence', {})
+            characters_beings = image_inspiration.get('characters_and_beings', {})
+            objects_and_props = image_inspiration.get('objects_and_props', {})
+            setting = image_inspiration.get('setting', {})
+            styling = image_inspiration.get('styling_aesthetics', {})
+            technical = image_inspiration.get('technical_creative', {})
+            action = image_inspiration.get('action_movement', {})
+            
+            image_inspiration_str = f"""
+🖼️ IMAGE INSPIRATION ANALYSIS (from social media image post):
+
+📸 VISUAL AESTHETICS:
+- Color Palette: {', '.join(visual_aesthetics.get('color_palette', []))}
+- Color Treatment: {visual_aesthetics.get('color_treatment', 'N/A')}
+- Lighting Style: {visual_aesthetics.get('lighting_style', 'N/A')}
+- Mood/Atmosphere: {visual_aesthetics.get('mood_atmosphere', 'N/A')}
+- Visual Quality: {visual_aesthetics.get('visual_quality', 'N/A')}
+- Filters/Effects: {visual_aesthetics.get('filters_effects', 'None')}
+
+📐 COMPOSITION & FRAMING:
+- Shot Type: {composition.get('shot_type', 'N/A')}
+- Camera Angle: {composition.get('angle', 'N/A')}
+- Framing Techniques: {', '.join(composition.get('framing_techniques', []))}
+- Compositional Rules: {', '.join(composition.get('compositional_rules', []))}
+- Depth of Field: {composition.get('depth_of_field', 'N/A')}
+- Perspective: {composition.get('perspective', 'N/A')}
+
+👤 HUMAN PRESENCE (CRITICAL):
+- Has Humans: {'Yes' if human_presence.get('has_humans') else 'No'}
+- Count: {human_presence.get('count', 0)} person(s)
+- Visibility: {human_presence.get('visibility', 'N/A')}
+- Description: {human_presence.get('description', 'None')}
+- Poses/Gestures: {', '.join(human_presence.get('poses_and_gestures', []))}
+- Positioning: {human_presence.get('positioning', 'N/A')}
+- Interactions: {human_presence.get('interactions', 'N/A')}
+
+🦁 CHARACTERS & LIVING BEINGS:
+- Animals: {'Yes - ' + ', '.join(characters_beings.get('animals', [])) if characters_beings.get('has_animals') else 'No'}
+- Characters: {'Yes - ' + ', '.join(characters_beings.get('characters', [])) if characters_beings.get('has_characters') else 'No'}
+- Description: {characters_beings.get('description', 'None')}
+
+🎨 OBJECTS & PROPS (ALL ELEMENTS):
+- All Objects: {', '.join(objects_and_props.get('all_objects', [])[:10])}{'...' if len(objects_and_props.get('all_objects', [])) > 10 else ''}
+- Main Subjects: {', '.join(objects_and_props.get('main_subjects', []))}
+- Supporting Props: {', '.join(objects_and_props.get('supporting_props', [])[:5])}{'...' if len(objects_and_props.get('supporting_props', [])) > 5 else ''}
+- Arrangement: {objects_and_props.get('arrangement', 'N/A')}
+- Styling: {objects_and_props.get('styling', 'N/A')}
+- Textures: {', '.join(objects_and_props.get('textures', []))}
+
+🌍 SETTING & ENVIRONMENT:
+- Location Type: {setting.get('location_type', 'N/A')}
+- Specific Setting: {setting.get('specific_setting', 'N/A')}
+- Background: {setting.get('background', 'N/A')}
+- Environment: {setting.get('environment', 'N/A')}
+- Weather/Time: {setting.get('weather_time', 'N/A')}
+
+🎭 STYLING & AESTHETICS:
+- Overall Style: {styling.get('overall_style', 'N/A')}
+- Patterns: {', '.join(styling.get('patterns', []))}
+- Materials: {', '.join(styling.get('materials', []))}
+- Finishes: {', '.join(styling.get('finishes', []))}
+
+📷 TECHNICAL & CREATIVE:
+- Motion Elements: {technical.get('motion_elements', 'N/A')}
+- Focus Techniques: {technical.get('focus_techniques', 'N/A')}
+- Lens Effects: {', '.join(technical.get('lens_effects', []))}
+- Post-Processing: {technical.get('post_processing', 'N/A')}
+- Unique Techniques: {', '.join(technical.get('unique_techniques', []))}
+
+⚡ ACTION & MOVEMENT:
+- Has Action: {'Yes' if action.get('has_action') else 'No'}
+- Description: {action.get('description', 'Static image')}
+
+✨ CREATIVE ELEMENTS: {', '.join(image_inspiration.get('creative_elements', []))}
+
+💡 REPLICATION TIPS: {image_inspiration.get('replication_tips', 'N/A')}
+"""
+            print(f"\n🖼️ IMAGE INSPIRATION DETECTED!")
+            print(f"   Color Palette: {visual_aesthetics.get('color_palette', [])}...")
+            print(f"   Mood: {visual_aesthetics.get('mood_atmosphere', 'N/A')}")
+            print(f"   Human Presence: {'Yes' if human_presence.get('has_humans') else 'No'} ({human_presence.get('count', 0)} person(s))")
+            print(f"   Objects: {len(objects_and_props.get('all_objects', []))} items identified")
+        
         # Regular link analysis summary
         summary = link_analysis.get("summary")
         if summary and str(summary).strip():
@@ -2704,10 +3520,13 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     
     # Randomly decide voiceover for product/brand marketing videos (10% chance voiceover, 90% no voiceover)
     # UGC videos always have voiceover=false (character speaks instead)
-    # Video inspiration detected = ALWAYS no voiceover (use inspiration's background music instead)
+    # Video/Image inspiration detected = ALWAYS no voiceover (use inspiration's background music or just visuals)
     if has_video_inspiration:
         voiceover_for_non_ugc = False
         print(f"🎬 Video inspiration detected: voiceover forced to FALSE (will use inspiration's background music)")
+    elif has_image_inspiration:
+        voiceover_for_non_ugc = False
+        print(f"🖼️ Image inspiration detected: voiceover forced to FALSE (pure visual mode)")
     else:
         voiceover_random = random.random()
         voiceover_for_non_ugc = voiceover_random <= 0.1
@@ -3113,6 +3932,14 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - Only include when it naturally enhances the brand moment
 
 4. **IMAGE PROMPT GENERATION GUIDELINES** (CRITICAL FOR HIGH-QUALITY IMAGES):
+   
+   🚨 **PROMPT LENGTH LIMIT (MANDATORY)**: 
+   - Each IMAGE prompt MUST be UNDER 4000 characters (hard limit is 5000)
+   - Each CLIP prompt MUST be UNDER 4000 characters (hard limit is 5000)
+   - Be CONCISE and capture the ESSENCE, not every micro-detail
+   - Focus on KEY visual elements that define the look and feel
+   - DO NOT list every single object, accessory, or background element
+   - Summarize inspiration into core mood, lighting, composition, and style
    
    **📸 VISUAL STYLE MATCHING** (MANDATORY - Match brand's visual identity):
    The inventory analysis contains `visual_styles` with the brand's visual characteristics.
@@ -3803,8 +4630,45 @@ INSPIRATION LINKS ANALYSIS:
 {'''
 🎬 **CRITICAL - VIDEO INSPIRATION ALIGNMENT**:
 
-A video reel/short inspiration has been provided above. You MUST generate ULTRA-DETAILED clip prompts that replicate the inspiration's storytelling approach while adapting for this brand.
+A video reel/short inspiration has been provided above. Generate clip prompts that replicate the inspiration's storytelling approach while adapting for this brand.
 
+🚨 **PROMPT LENGTH LIMIT**: Each CLIP prompt MUST be UNDER 4000 characters. Capture the ESSENCE of the timeline and key moments - don't describe every micro-detail.
+''' if has_video_inspiration else ''}
+
+{image_inspiration_str if has_image_inspiration else ''}
+{'''
+🖼️ **CRITICAL - IMAGE INSPIRATION ALIGNMENT**:
+
+An image inspiration has been provided above. Create content with the SAME AESTHETIC while featuring the brand's product.
+
+🚨 **PROMPT LENGTH LIMIT**: Each prompt MUST be UNDER 4000 characters. Be CONCISE - capture the ESSENCE, not every detail.
+
+**CAPTURE THE ESSENCE (SUMMARIZE, don't list everything)**:
+
+✅ **CORE AESTHETIC** (describe in 1-2 sentences):
+   - Primary mood/vibe + lighting style + color palette
+
+✅ **COMPOSITION** (1 sentence):
+   - Shot type, angle, depth of field
+
+✅ **HUMAN PRESENCE** (if applicable - be brief):
+   - Simple description of pose, clothing style, positioning
+
+✅ **SETTING** (1 sentence max):
+   - Location type and atmosphere
+
+🎯 **YOUR TASK**: Write a CONCISE prompt (under 4000 chars) that captures the inspiration's VIBE - same mood, lighting, composition style - with the brand's product as hero.
+
+❌ **DO NOT**: List every single object, every accessory, every background element. Focus on what makes the image FEEL the way it does.
+
+✅ **GOOD EXAMPLE** (under 800 chars):
+"Reference product (Floral Sweater) worn by confident young woman, urban street style, sunny outdoor setting with bokeh city background, medium shot eye-level, shallow depth of field, warm natural lighting, edgy fashion vibe with leather jacket layered over sweater, relaxed confident pose, bustling city atmosphere, professional candid photography style"
+
+❌ **BAD EXAMPLE** (too long - over 5000 chars):
+"Reference product worn by young woman in her 20s, Caucasian or mixed ethnicity with fair skin and olive undertones, dark brown hair in messy updo with loose strands falling over face..." [continues for 4000+ more characters listing every detail]
+''' if has_image_inspiration else ''}
+
+{'''
 🚨🚨🚨 **PRODUCT IS THE HERO - MANDATORY** 🚨🚨🚨
 
 **IF PRODUCT IMAGES ARE IDENTIFIED IN INVENTORY ANALYSIS:**
@@ -4305,6 +5169,10 @@ CRITICAL REQUIREMENTS:
     if has_video_inspiration:
         print(f"\n🎬 VIDEO INSPIRATION PASSED TO GROK:")
         print(video_inspiration_str[:500] if len(video_inspiration_str) > 500 else video_inspiration_str)
+    
+    if has_image_inspiration:
+        print(f"\n🖼️ IMAGE INSPIRATION PASSED TO GROK:")
+        print(image_inspiration_str[:500] if len(image_inspiration_str) > 500 else image_inspiration_str)
     print(f"\n📊 FULL SYSTEM PROMPT (first 1000 chars):")
     print(system_prompt[:1000] if len(system_prompt) > 1000 else system_prompt)
     print("=" * 80)
@@ -4753,12 +5621,17 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             print(f"⚠️ No prompt for image index {idx}, skipping")
             continue
         
+        # Safety: Truncate prompt if over FAL's 5000 character limit
+        if len(prompt) > 4500:
+            print(f"  ⚠️ Image prompt too long ({len(prompt)} chars), truncating to 4500 chars")
+            prompt = prompt[:4500] + "..."
+        
         # FALLBACK: Force logo inclusion for ALL image-only posts (even if Grok forgot)
         if not logo_needed:
             print(f"⚠️ Grok forgot to set logo_needed=true for image post {idx}, forcing logo inclusion")
             logo_needed = True
         
-        print(f"\n📝 Image {idx}: {prompt[:80]}...")
+        print(f"\n📝 Image {idx} ({len(prompt)} chars): {prompt[:80]}...")
         print(f"🏷️ Logo needed: {logo_needed} (always true for image posts)")
         print(f"🛍️ Product mapping: {product_mapping if product_mapping else 'None'}")
         
@@ -4920,7 +5793,12 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 frame_s3_urls.append(None)
                 continue
             
-            print(f"\n  📝 Clip {clip_num} frame: {image_prompt[:80]}...")
+            # Safety: Truncate prompt if over FAL's 5000 character limit
+            if len(image_prompt) > 4500:
+                print(f"  ⚠️ Image prompt too long ({len(image_prompt)} chars), truncating to 4500 chars")
+                image_prompt = image_prompt[:4500] + "..."
+            
+            print(f"\n  📝 Clip {clip_num} frame ({len(image_prompt)} chars): {image_prompt[:80]}...")
             print(f"  🏷️ Logo: {logo_needed}")
             print(f"  🛍️ Product mapping: {product_mapping if product_mapping else 'None'}")
             
@@ -5061,7 +5939,12 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 actual_models_used.append(None)
                 continue
             
-            print(f"\n  📝 Clip {clip_num} prompt: {clip_prompt[:80]}...")
+            # Safety: Truncate clip prompt if over 5000 character limit
+            if len(clip_prompt) > 4500:
+                print(f"  ⚠️ Clip prompt too long ({len(clip_prompt)} chars), truncating to 4500 chars")
+                clip_prompt = clip_prompt[:4500] + "..."
+            
+            print(f"\n  📝 Clip {clip_num} prompt ({len(clip_prompt)} chars): {clip_prompt[:80]}...")
             
             # For multi-clip videos: use the same model for all clips (locked after clip 1)
             if CLIPS_PER_VIDEO > 1 and locked_model is not None:
@@ -5711,8 +6594,20 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
             await update_progress_in_db(request.account_id, 25, "Analyzing inspiration links...", generation_uuid)
             # Pass clips_per_video to determine how much of the inspiration video to analyze
             clips_per_video = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 1
-            link_analysis = await analyze_inspiration_links(links_to_analyze, context, request.account_id, clips_per_video)
-            context["link_analysis"] = link_analysis
+            
+            # Wrap inspiration analysis in try-except to ensure content generation continues even if analysis fails
+            try:
+                link_analysis = await analyze_inspiration_links(links_to_analyze, context, request.account_id, clips_per_video)
+                context["link_analysis"] = link_analysis
+                
+                if not link_analysis or (not link_analysis.get("video_inspiration") and not link_analysis.get("image_inspiration") and not link_analysis.get("analysis")):
+                    print("⚠️ Inspiration link analysis returned no results - continuing without inspiration")
+            except Exception as e:
+                print(f"⚠️ Inspiration link analysis failed: {e}")
+                print(f"   Continuing with content generation without inspiration analysis...")
+                import traceback
+                print(f"   {traceback.format_exc()}")
+                context["link_analysis"] = {}  # Set empty dict to avoid KeyError downstream
         else:
             print("⏭️ Skipping link analysis - no inspiration links provided (user or linksJson)")
         

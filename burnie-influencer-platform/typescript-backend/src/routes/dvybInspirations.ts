@@ -16,6 +16,7 @@ interface InspirationLink {
   category: string;
   url: string;
   title: string | null;
+  mediaType: string;
 }
 
 interface MatchedInspiration {
@@ -50,18 +51,19 @@ router.post('/match', async (req: Request, res: Response) => {
 
     const inspirationRepo = AppDataSource.getRepository(DvybInspirationLink);
 
-    // Get all unique categories
+    // Get all unique categories (only from image inspirations)
     const categoriesResult = await inspirationRepo
       .createQueryBuilder('inspiration')
       .select('DISTINCT inspiration.category', 'category')
       .where('inspiration.isActive = :isActive', { isActive: true })
+      .andWhere('inspiration.mediaType = :mediaType', { mediaType: 'image' })
       .orderBy('inspiration.category', 'ASC')
       .getRawMany();
 
     const categories = categoriesResult.map(c => c.category).filter(Boolean);
 
     if (categories.length === 0) {
-      logger.warn('No inspiration categories found in database');
+      logger.warn('No inspiration categories found in database for image type');
       return res.json({
         success: true,
         data: {
@@ -72,13 +74,13 @@ router.post('/match', async (req: Request, res: Response) => {
       });
     }
 
-    // Get all active inspiration links
+    // Get all active image inspiration links only
     const inspirationLinks = await inspirationRepo.find({
-      where: { isActive: true },
+      where: { isActive: true, mediaType: 'image' },
     });
 
     if (inspirationLinks.length === 0) {
-      logger.warn('No inspiration links found in database');
+      logger.warn('No image inspiration links found in database');
       return res.json({
         success: true,
         data: {
@@ -88,6 +90,8 @@ router.post('/match', async (req: Request, res: Response) => {
         timestamp: new Date().toISOString(),
       });
     }
+
+    logger.info(`📷 Found ${inspirationLinks.length} image inspirations across ${categories.length} categories`);
 
     // Format links for the API
     const formattedLinks: InspirationLink[] = inspirationLinks.map(link => ({
@@ -96,6 +100,7 @@ router.post('/match', async (req: Request, res: Response) => {
       category: link.category,
       url: link.url,
       title: link.title || null,
+      mediaType: link.mediaType || 'image',
     }));
 
     // Call Python AI backend for matching

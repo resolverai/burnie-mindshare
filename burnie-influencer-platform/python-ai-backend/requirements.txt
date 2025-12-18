@@ -37,6 +37,9 @@ opencv-python-headless
 moviepy==1.0.3
 ffmpeg-python
 yt-dlp
+instaloader
+beautifulsoup4
+lxml
 # ML and Data Science packages with compatible versions
 numpy
 scipy

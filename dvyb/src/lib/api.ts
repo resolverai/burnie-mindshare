@@ -283,6 +283,7 @@ export const inspirationsApi = {
           category: string;
           url: string;
           title: string | null;
+          mediaType: string;
         }>;
       };
     }>(

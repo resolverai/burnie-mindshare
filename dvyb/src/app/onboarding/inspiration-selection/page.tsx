@@ -11,46 +11,50 @@ import { inspirationsApi } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { trackInspirationPageViewed, trackInspirationSelected } from "@/lib/mixpanel";
 
-interface InspirationVideo {
+interface InspirationItem {
   id: number;
   platform: string;
   category: string;
   url: string;
   title: string | null;
+  mediaType: string; // 'image' or 'video'
 }
 
-// Extract video ID and username from URL based on platform
-const getVideoInfo = (video: InspirationVideo) => {
-  const url = video.url;
-  let videoId = String(video.id);
-  let username = video.title || video.category;
+// Extract post ID and username from URL based on platform
+const getPostInfo = (item: InspirationItem) => {
+  const url = item.url;
+  let postId = String(item.id);
+  let username = item.title || item.category;
   
-  if (video.platform === "tiktok") {
+  if (item.platform === "tiktok") {
     // Extract TikTok video ID and username from URL
     const videoMatch = url.match(/video\/(\d+)/);
-    if (videoMatch) videoId = videoMatch[1];
+    if (videoMatch) postId = videoMatch[1];
     const userMatch = url.match(/@([^\/]+)/);
     if (userMatch) username = userMatch[1];
-  } else if (video.platform === "instagram") {
+  } else if (item.platform === "instagram") {
     // Extract Instagram post ID from URL
     const match = url.match(/\/(p|reel|reels)\/([^\/\?]+)/);
-    if (match) videoId = match[2];
+    if (match) postId = match[2];
     username = "instagram";
-  } else if (video.platform === "youtube") {
+  } else if (item.platform === "youtube") {
     // Extract YouTube channel/username from URL if available
     const channelMatch = url.match(/@([^\/\?]+)/);
     if (channelMatch) {
       username = channelMatch[1];
     } else {
-      username = video.title || "youtube";
+      username = item.title || "youtube";
     }
-    // Video ID will be extracted by extractYouTubeVideoId function
-    videoId = String(video.id);
-  } else if (video.platform === "twitter") {
-    username = video.title || "twitter";
+    postId = String(item.id);
+  } else if (item.platform === "twitter") {
+    // Extract Twitter tweet ID from URL
+    const tweetMatch = url.match(/status\/(\d+)/);
+    if (tweetMatch) postId = tweetMatch[1];
+    const userMatch = url.match(/twitter\.com\/([^\/]+)/);
+    if (userMatch) username = userMatch[1];
   }
   
-  return { videoId, username };
+  return { postId, username };
 };
 
 // Extract YouTube video ID from various URL formats
@@ -75,16 +79,21 @@ const extractYouTubeVideoId = (url: string): string | null => {
 };
 
 // Get embed URL based on platform (matching prototype logic)
-const getEmbedUrl = (video: InspirationVideo, autoplay = false) => {
-  const { videoId } = getVideoInfo(video);
+const getEmbedUrl = (item: InspirationItem, autoplay = false) => {
+  const { postId } = getPostInfo(item);
   
-  if (video.platform === "tiktok") {
-    return `https://www.tiktok.com/embed/v2/${videoId.split('-')[0]}`;
-  } else if (video.platform === "instagram") {
-    return `https://www.instagram.com/reel/${videoId}/embed${autoplay ? '/?autoplay=1' : '/'}`;
-  } else if (video.platform === "youtube") {
+  if (item.platform === "tiktok") {
+    return `https://www.tiktok.com/embed/v2/${postId.split('-')[0]}`;
+  } else if (item.platform === "instagram") {
+    // Check if it's a post (p) or reel
+    const isReel = item.url.includes('/reel/') || item.url.includes('/reels/');
+    if (isReel) {
+      return `https://www.instagram.com/reel/${postId}/embed${autoplay ? '/?autoplay=1' : '/'}`;
+    }
+    return `https://www.instagram.com/p/${postId}/embed/`;
+  } else if (item.platform === "youtube") {
     // Extract proper YouTube video ID
-    const ytVideoId = extractYouTubeVideoId(video.url) || videoId;
+    const ytVideoId = extractYouTubeVideoId(item.url) || postId;
     // Use proper embed parameters for better compatibility
     const params = new URLSearchParams({
       rel: '0',
@@ -93,9 +102,17 @@ const getEmbedUrl = (video: InspirationVideo, autoplay = false) => {
       ...(autoplay && { autoplay: '1' })
     });
     return `https://www.youtube.com/embed/${ytVideoId}?${params.toString()}`;
+  } else if (item.platform === "twitter") {
+    // Twitter/X embed - use publish.twitter.com
+    return `https://platform.twitter.com/embed/Tweet.html?id=${postId}`;
   }
   
-  return video.url;
+  return item.url;
+};
+
+// Check if an item is a video type
+const isVideoType = (item: InspirationItem): boolean => {
+  return item.mediaType === 'video';
 };
 
 export default function InspirationSelectionPage() {
@@ -103,9 +120,9 @@ export default function InspirationSelectionPage() {
   const { toast } = useToast();
   
   const [detectedCategory, setDetectedCategory] = useState<string>("");
-  const [inspirationVideos, setInspirationVideos] = useState<InspirationVideo[]>([]);
+  const [inspirationItems, setInspirationItems] = useState<InspirationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedVideo, setSelectedVideo] = useState<InspirationVideo | null>(null);
+  const [selectedItem, setSelectedItem] = useState<InspirationItem | null>(null);
   
   // Ref to prevent duplicate API calls (React Strict Mode runs effects twice)
   const hasFetchedRef = useRef(false);
@@ -138,13 +155,13 @@ export default function InspirationSelectionPage() {
         const response = await inspirationsApi.matchInspirations(detectedIndustry, 6);
         
         if (response.success && response.data) {
-          const videos = response.data.inspiration_videos || [];
-          setInspirationVideos(videos);
+          const items = response.data.inspiration_videos || [];
+          setInspirationItems(items);
           
           // Track page view with inspiration data
           trackInspirationPageViewed({
             industry: detectedIndustry,
-            inspirationCount: videos.length,
+            inspirationCount: items.length,
           });
         }
       } catch (error: any) {
@@ -162,21 +179,21 @@ export default function InspirationSelectionPage() {
     loadInspirations();
   }, [router, toast]);
 
-  const handleVideoPreview = (video: InspirationVideo) => {
-    setSelectedVideo(video);
+  const handleItemPreview = (item: InspirationItem) => {
+    setSelectedItem(item);
   };
 
-  const handleUseVideo = () => {
-    if (selectedVideo) {
+  const handleUseItem = () => {
+    if (selectedItem) {
       // Track inspiration selection
       trackInspirationSelected({
-        inspirationId: selectedVideo.id,
-        platform: selectedVideo.platform,
-        category: selectedVideo.category,
+        inspirationId: selectedItem.id,
+        platform: selectedItem.platform,
+        category: selectedItem.category,
       });
       
       // Store selected inspiration in localStorage
-      localStorage.setItem("dvyb_selected_inspirations", JSON.stringify([selectedVideo]));
+      localStorage.setItem("dvyb_selected_inspirations", JSON.stringify([selectedItem]));
       
       // Navigate to login page - after login, user will be redirected to brand-profile
       // and analysis will be saved to context
@@ -259,37 +276,46 @@ export default function InspirationSelectionPage() {
               </div>
             </div>
 
-            {/* Inspiration Videos Grid */}
-            {inspirationVideos.length > 0 ? (
+            {/* Inspiration Items Grid */}
+            {inspirationItems.length > 0 ? (
               <div className="space-y-4 animate-fade-in">
                 <h2 className="text-2xl font-heading font-semibold text-foreground text-center">
-                  Choose an inspiration video
+                  Choose an inspiration
                 </h2>
                 <p className="text-foreground/70 text-center">
                   Click to preview, then select your style
                 </p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {inspirationVideos.map((video) => (
+                  {inspirationItems.map((item) => (
                       <button
-                        key={video.id}
-                        onClick={() => handleVideoPreview(video)}
-                        className="group relative aspect-[9/16] bg-white/10 backdrop-blur-xl border border-white/20 rounded-xl overflow-hidden hover:border-primary/50 hover:scale-[1.02] transition-all duration-300 shadow-lg"
+                        key={item.id}
+                        onClick={() => handleItemPreview(item)}
+                        className={`group relative bg-white/10 backdrop-blur-xl border border-white/20 rounded-xl overflow-hidden hover:border-primary/50 hover:scale-[1.02] transition-all duration-300 shadow-lg ${
+                          isVideoType(item) ? 'aspect-[9/16]' : 'aspect-[4/5]'
+                        }`}
                       >
                         <iframe
-                          src={getEmbedUrl(video)}
+                          src={getEmbedUrl(item)}
                           className="w-full h-full pointer-events-none"
                           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                           allowFullScreen
                         />
+                        {/* Overlay */}
                         <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors duration-300" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="bg-white/90 rounded-full p-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                            <Play className="w-8 h-8 text-primary fill-primary" />
+                        
+                        {/* Play button - only for videos */}
+                        {isVideoType(item) && (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <div className="bg-white/90 rounded-full p-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                              <Play className="w-8 h-8 text-primary fill-primary" />
+                            </div>
                           </div>
-                        </div>
+                        )}
+                        
+                        {/* Platform badge */}
                         <div className="absolute bottom-3 left-3 right-3">
                           <span className="text-white text-xs font-medium px-2 py-0.5 bg-black/50 rounded-full capitalize">
-                            {video.platform}
+                            {item.platform}
                           </span>
                         </div>
                       </button>
@@ -299,7 +325,7 @@ export default function InspirationSelectionPage() {
             ) : (
               <div className="space-y-4 animate-fade-in">
                 <h2 className="text-2xl font-heading font-semibold text-foreground text-center">
-                  No inspiration videos available
+                  No inspirations available
                 </h2>
                 <p className="text-foreground/70 text-center">
                   We couldn&apos;t find matching inspirations for your industry.
@@ -319,41 +345,45 @@ export default function InspirationSelectionPage() {
         </div>
       </div>
 
-      {/* Video Preview Modal - exactly matching prototype */}
-      <Dialog open={!!selectedVideo} onOpenChange={(open) => !open && setSelectedVideo(null)}>
+      {/* Preview Modal */}
+      <Dialog open={!!selectedItem} onOpenChange={(open) => !open && setSelectedItem(null)}>
         <DialogContent className="max-w-md p-0 bg-black border-none overflow-hidden">
           <button 
-            onClick={() => setSelectedVideo(null)}
+            onClick={() => setSelectedItem(null)}
             className="absolute top-4 right-4 z-20 bg-black/50 rounded-full p-2 hover:bg-black/70 transition-colors"
           >
             <X className="w-5 h-5 text-white" />
           </button>
           
-          {selectedVideo && (
+          {selectedItem && (
             <div className="relative">
-              <div className={`w-full ${selectedVideo.platform === 'instagram' ? 'aspect-[4/5]' : 'aspect-[9/16]'}`}>
-                {/* For Instagram, show embed with overlay since it redirects on click */}
-                {selectedVideo.platform === 'instagram' ? (
+              <div className={`w-full ${
+                isVideoType(selectedItem) ? 'aspect-[9/16]' : 'aspect-[4/5]'
+              }`}>
+                {/* For Instagram and Twitter posts (images), show embed with overlay */}
+                {(selectedItem.platform === 'instagram' || selectedItem.platform === 'twitter') ? (
                   <div className="relative w-full h-full">
                     <iframe
-                      src={getEmbedUrl(selectedVideo, false)}
+                      src={getEmbedUrl(selectedItem, false)}
                       className="w-full h-full pointer-events-none"
                       allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                       allowFullScreen
                     />
-                    {/* Overlay with play button to watch on Instagram */}
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                      <button
-                        onClick={() => window.open(selectedVideo.url, '_blank')}
-                        className="bg-white/90 hover:bg-white rounded-full p-4 shadow-lg hover:scale-110 transition-transform duration-300"
-                      >
-                        <Play className="w-10 h-10 text-primary fill-primary" />
-                      </button>
-                    </div>
+                    {/* Overlay with play button only for videos */}
+                    {isVideoType(selectedItem) && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                        <button
+                          onClick={() => window.open(selectedItem.url, '_blank')}
+                          className="bg-white/90 hover:bg-white rounded-full p-4 shadow-lg hover:scale-110 transition-transform duration-300"
+                        >
+                          <Play className="w-10 h-10 text-primary fill-primary" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <iframe
-                    src={getEmbedUrl(selectedVideo, true)}
+                    src={getEmbedUrl(selectedItem, isVideoType(selectedItem))}
                     className="w-full h-full"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
@@ -363,16 +393,16 @@ export default function InspirationSelectionPage() {
               <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
                 <div className="flex items-center gap-2 mb-3">
                   <span className="text-white text-xs font-medium px-2 py-0.5 bg-white/20 rounded-full capitalize">
-                    {selectedVideo.platform}
+                    {selectedItem.platform}
                   </span>
                 </div>
-                {selectedVideo.platform === 'instagram' && (
+                {isVideoType(selectedItem) && selectedItem.platform === 'instagram' && (
                   <p className="text-white/70 text-xs text-center mb-2">
                     Click play to watch on Instagram
                   </p>
                 )}
                 <Button 
-                  onClick={handleUseVideo}
+                  onClick={handleUseItem}
                   className="w-full btn-gradient-cta font-semibold"
                   size="lg"
                 >

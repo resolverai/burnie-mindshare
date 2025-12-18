@@ -20,6 +20,8 @@ import { DvybUpgradeRequest } from '../models/DvybUpgradeRequest';
 import { DvybAccountSubscription } from '../models/DvybAccountSubscription';
 import { DvybAccountPayment } from '../models/DvybAccountPayment';
 import { DvybImageEdit } from '../models/DvybImageEdit';
+import { DvybImageRegeneration } from '../models/DvybImageRegeneration';
+import { DvybAdminContentApproval } from '../models/DvybAdminContentApproval';
 import { DvybAcceptedContent } from '../models/DvybAcceptedContent';
 import { DvybRejectedContent } from '../models/DvybRejectedContent';
 import { DvybContentStrategy } from '../models/DvybContentStrategy';
@@ -657,6 +659,18 @@ router.delete('/:id', async (req: Request, res: Response) => {
       const tiktokPostResult = await transactionalEntityManager.delete(DvybTikTokPost, { accountId });
       logger.info(`  - Deleted ${tiktokPostResult.affected || 0} TikTok posts`);
 
+      // 3a. Delete image regenerations (must be before generated content due to foreign key)
+      const imageRegenResult = await transactionalEntityManager.delete(DvybImageRegeneration, { accountId });
+      logger.info(`  - Deleted ${imageRegenResult.affected || 0} image regenerations`);
+
+      // 3b. Delete image edits (must be before generated content due to foreign key)
+      const imageEditResult = await transactionalEntityManager.delete(DvybImageEdit, { accountId });
+      logger.info(`  - Deleted ${imageEditResult.affected || 0} image edits`);
+
+      // 3c. Delete admin content approvals (must be before generated content)
+      const adminApprovalResult = await transactionalEntityManager.delete(DvybAdminContentApproval, { accountId });
+      logger.info(`  - Deleted ${adminApprovalResult.affected || 0} admin content approvals`);
+
       // 4. Delete generated content
       const contentResult = await transactionalEntityManager.delete(DvybGeneratedContent, { accountId });
       logger.info(`  - Deleted ${contentResult.affected || 0} generated content records`);
@@ -696,15 +710,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
       const upgradeResult = await transactionalEntityManager.delete(DvybUpgradeRequest, { accountId });
       logger.info(`  - Deleted ${upgradeResult.affected || 0} upgrade requests`);
 
-      // 7a. Delete image edits
-      const imageEditResult = await transactionalEntityManager.delete(DvybImageEdit, { accountId });
-      logger.info(`  - Deleted ${imageEditResult.affected || 0} image edits`);
-
-      // 7b. Delete Stripe payments (must be before subscriptions due to foreign key)
+      // 7a. Delete Stripe payments (must be before subscriptions due to foreign key)
       const paymentResult = await transactionalEntityManager.delete(DvybAccountPayment, { accountId });
       logger.info(`  - Deleted ${paymentResult.affected || 0} account payments`);
 
-      // 7c. Delete Stripe subscriptions
+      // 7b. Delete Stripe subscriptions
       const subscriptionResult = await transactionalEntityManager.delete(DvybAccountSubscription, { accountId });
       logger.info(`  - Deleted ${subscriptionResult.affected || 0} account subscriptions`);
 

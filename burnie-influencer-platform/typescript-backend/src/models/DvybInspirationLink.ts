@@ -43,6 +43,13 @@ export class DvybInspirationLink {
   addedBy!: string | null;
 
   /**
+   * Type of media content (image or video)
+   */
+  @Column({ type: 'varchar', length: 20, default: 'image' })
+  @Index()
+  mediaType!: 'image' | 'video';
+
+  /**
    * Whether this inspiration link is active/visible
    */
   @Column({ type: 'boolean', default: true })

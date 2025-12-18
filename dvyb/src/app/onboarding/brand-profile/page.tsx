@@ -115,8 +115,8 @@ export default function BrandProfilePage() {
     trackAutoContentGenerationStarted({
       topic: contentTopic,
       platforms: ['twitter'],
-      imageCount: 1,
-      videoCount: 1,
+      imageCount: 2,
+      videoCount: 0,
     });
     
     try {
@@ -126,8 +126,8 @@ export default function BrandProfilePage() {
         topic: contentTopic,
         platforms: ['twitter'],  // Twitter only for faster demo
         number_of_posts: 2,
-        number_of_images: 1,
-        number_of_videos: 1,  // 1 image + 1 video for better demo
+        number_of_images: 2,
+        number_of_videos: 0,  // 2 images for faster onboarding experience
         user_prompt: topicDescription,  // Use topic description as additional context
         user_images: hasProductImage ? userImages : undefined,
         inspiration_links: inspirationLinks.length > 0 ? inspirationLinks : undefined,

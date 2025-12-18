@@ -17,7 +17,7 @@ const router = Router();
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { platform, category, search, page = '1', limit = '20' } = req.query;
+    const { platform, category, search, mediaType, page = '1', limit = '20' } = req.query;
     
     const inspirationRepo = AppDataSource.getRepository(DvybInspirationLink);
     
@@ -30,6 +30,10 @@ router.get('/', async (req: Request, res: Response) => {
     
     if (category) {
       queryBuilder.andWhere('inspiration.category = :category', { category });
+    }
+    
+    if (mediaType) {
+      queryBuilder.andWhere('inspiration.mediaType = :mediaType', { mediaType });
     }
     
     if (search) {
@@ -95,7 +99,7 @@ router.get('/categories', async (_req: Request, res: Response) => {
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { platform, category, url, title, addedBy } = req.body;
+    const { platform, category, url, title, addedBy, mediaType } = req.body;
     
     if (!platform || !category || !url) {
       return res.status(400).json({
@@ -110,6 +114,16 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         error: `Invalid platform. Must be one of: ${validPlatforms.join(', ')}`,
+      });
+    }
+    
+    // Validate mediaType
+    const validMediaTypes = ['image', 'video'];
+    const selectedMediaType = mediaType?.toLowerCase() || 'image';
+    if (!validMediaTypes.includes(selectedMediaType)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid mediaType. Must be one of: ${validMediaTypes.join(', ')}`,
       });
     }
     
@@ -130,6 +144,7 @@ router.post('/', async (req: Request, res: Response) => {
       url: url.trim(),
       title: title?.trim() || null,
       addedBy: addedBy || null,
+      mediaType: selectedMediaType as 'image' | 'video',
       isActive: true,
     });
     
@@ -155,7 +170,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id!);
-    const { platform, category, url, title, isActive } = req.body;
+    const { platform, category, url, title, isActive, mediaType } = req.body;
     
     const inspirationRepo = AppDataSource.getRepository(DvybInspirationLink);
     
@@ -169,6 +184,12 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (url) inspiration.url = url.trim();
     if (title !== undefined) inspiration.title = title?.trim() || null;
     if (isActive !== undefined) inspiration.isActive = isActive;
+    if (mediaType) {
+      const validMediaTypes = ['image', 'video'];
+      if (validMediaTypes.includes(mediaType.toLowerCase())) {
+        inspiration.mediaType = mediaType.toLowerCase() as 'image' | 'video';
+      }
+    }
     
     await inspirationRepo.save(inspiration);
     
@@ -232,6 +253,14 @@ router.get('/stats', async (_req: Request, res: Response) => {
       .groupBy('inspiration.platform')
       .getRawMany();
     
+    const mediaTypeStats = await inspirationRepo
+      .createQueryBuilder('inspiration')
+      .select('inspiration.mediaType', 'mediaType')
+      .addSelect('COUNT(*)', 'count')
+      .where('inspiration.isActive = :isActive', { isActive: true })
+      .groupBy('inspiration.mediaType')
+      .getRawMany();
+    
     const total = await inspirationRepo.count({ where: { isActive: true } });
     const categoryCount = await inspirationRepo
       .createQueryBuilder('inspiration')
@@ -244,6 +273,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
       data: {
         total,
         byPlatform: stats,
+        byMediaType: mediaTypeStats,
         categoryCount: parseInt(categoryCount?.count || '0'),
       },
     });

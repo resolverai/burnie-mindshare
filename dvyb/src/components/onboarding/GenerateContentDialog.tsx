@@ -414,11 +414,11 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
           }
         } catch (error) {
           console.error('Error getting auth URL:', error);
-          toast({
+      toast({
             title: "Connection Failed",
             description: "Unable to connect. Please try again.",
-            variant: "destructive",
-          });
+        variant: "destructive",
+      });
           clearOAuthFlowState();
         }
       }, 1000);
@@ -1183,8 +1183,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
     // Animate out first, then close
     setIsVisible(false);
     setTimeout(() => {
-      resetDialog();
-      onOpenChange(false);
+    resetDialog();
+    onOpenChange(false);
       // Notify parent that dialog has closed (for onboarding tracking)
       onDialogClosed?.();
     }, 300);
@@ -1786,7 +1786,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         const showQuestionnaireFullScreen = isGenerating && !questionnaireCompleted && initialJobId;
         
         if (showQuestionnaireFullScreen) {
-          return (
+        return (
             <div className="h-full flex flex-col -m-4 sm:-m-6">
               <StrategyQuestionnaire
                 progressPercent={progressPercent}
@@ -1901,7 +1901,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   key={`animating-${animatingOutPost.id}`}
                   className="absolute inset-0 flex items-center justify-center pointer-events-none z-20"
                 >
-                  <Card
+                <Card
                     className="overflow-hidden max-w-lg w-full shadow-xl"
                     style={{
                       transform: isAnimatingOut === 'right' 
@@ -2009,15 +2009,15 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                           <img
                             src={currentPost.image}
                             alt={currentPost.title}
-                            className="w-full aspect-square object-cover"
-                          />
+                      className="w-full aspect-square object-cover"
+                    />
                         )
-                      ) : (
+                  ) : (
                         <div className="w-full aspect-square bg-muted flex flex-col items-center justify-center">
                           <Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-emerald-500 mb-3" />
                           <span className="text-sm text-muted-foreground">Generating content...</span>
-                        </div>
-                      )}
+                    </div>
+                  )}
                       
                       {/* Accepted/Rejected Badge */}
                       {acceptedPosts.includes(currentPost.id) && (
@@ -2042,8 +2042,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                       {!currentPost.isGenerating && !currentPost.isFailed && (
                         <div className="hidden sm:flex gap-4 mt-4 justify-center">
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
+                          onClick={(e) => {
+                            e.stopPropagation();
                               handleReject(currentPost);
                             }}
                             className="w-14 h-14 rounded-full bg-white dark:bg-gray-800 border-2 border-red-200 dark:border-red-800 shadow-lg flex items-center justify-center hover:scale-110 hover:border-red-400 transition-all active:scale-95"
@@ -2052,17 +2052,17 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                             <XCircle className="w-8 h-8 text-red-500" />
                           </button>
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
+                          onClick={(e) => {
+                            e.stopPropagation();
                               handleAccept(currentPost);
-                            }}
+                          }}
                             className="w-14 h-14 rounded-full bg-white dark:bg-gray-800 border-2 border-emerald-200 dark:border-emerald-800 shadow-lg flex items-center justify-center hover:scale-110 hover:border-emerald-400 transition-all active:scale-95"
                             aria-label="Accept"
-                          >
+                        >
                             <Heart className="w-8 h-8 text-emerald-500" />
                           </button>
-                        </div>
-                      )}
+                      </div>
+                    )}
                       
                       {/* Mobile: Swipe hint */}
                       {!currentPost.isGenerating && !currentPost.isFailed && (
@@ -2074,12 +2074,12 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                       {currentPost.isGenerating && (
                         <div className="flex items-center justify-center mt-4 text-sm text-muted-foreground">
                           <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          Generating...
-                        </div>
-                      )}
-                    </div>
-                  </Card>
-                </div>
+                        Generating...
+                      </div>
+                    )}
+                  </div>
+                </Card>
+            </div>
               )}
 
               {/* No content yet */}
@@ -2087,7 +2087,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <Loader2 className="w-12 h-12 animate-spin text-emerald-500 mb-4" />
                   <p className="text-muted-foreground">Waiting for content...</p>
-                </div>
+            </div>
               )}
             </div>
 
@@ -2155,8 +2155,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
               {/* Content */}
               <div className="py-8 md:py-16 px-4">
                 <div className="max-w-3xl mx-auto">
-                  {renderStep()}
-                </div>
+            {renderStep()}
+          </div>
               </div>
             </div>
           </div>
