@@ -18,6 +18,7 @@ interface InspirationItem {
   url: string;
   title: string | null;
   mediaType: string; // 'image' or 'video'
+  mediaUrl?: string | null; // For custom uploaded files
 }
 
 // Extract post ID and username from URL based on platform
@@ -82,6 +83,11 @@ const extractYouTubeVideoId = (url: string): string | null => {
 const getEmbedUrl = (item: InspirationItem, autoplay = false) => {
   const { postId } = getPostInfo(item);
   
+  // For custom platform, return the direct media URL
+  if (item.platform === "custom") {
+    return item.mediaUrl || item.url;
+  }
+  
   if (item.platform === "tiktok") {
     return `https://www.tiktok.com/embed/v2/${postId.split('-')[0]}`;
   } else if (item.platform === "instagram") {
@@ -108,6 +114,11 @@ const getEmbedUrl = (item: InspirationItem, autoplay = false) => {
   }
   
   return item.url;
+};
+
+// Check if this is a custom uploaded item
+const isCustomPlatform = (item: InspirationItem): boolean => {
+  return item.platform === 'custom';
 };
 
 // Check if an item is a video type
@@ -294,12 +305,30 @@ export default function InspirationSelectionPage() {
                           isVideoType(item) ? 'aspect-[9/16]' : 'aspect-[4/5]'
                         }`}
                       >
-                        <iframe
-                          src={getEmbedUrl(item)}
-                          className="w-full h-full pointer-events-none"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
+                        {/* Custom platform - render direct media */}
+                        {isCustomPlatform(item) ? (
+                          isVideoType(item) ? (
+                            <video
+                              src={getEmbedUrl(item)}
+                              className="w-full h-full object-cover pointer-events-none"
+                              muted
+                              playsInline
+                            />
+                          ) : (
+                            <img
+                              src={getEmbedUrl(item)}
+                              alt={item.title || 'Custom inspiration'}
+                              className="w-full h-full object-cover pointer-events-none"
+                            />
+                          )
+                        ) : (
+                          <iframe
+                            src={getEmbedUrl(item)}
+                            className="w-full h-full pointer-events-none"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        )}
                         {/* Overlay */}
                         <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors duration-300" />
                         
@@ -360,8 +389,24 @@ export default function InspirationSelectionPage() {
               <div className={`w-full ${
                 isVideoType(selectedItem) ? 'aspect-[9/16]' : 'aspect-[4/5]'
               }`}>
-                {/* For Instagram and Twitter posts (images), show embed with overlay */}
-                {(selectedItem.platform === 'instagram' || selectedItem.platform === 'twitter') ? (
+                {/* Custom platform - render direct media */}
+                {isCustomPlatform(selectedItem) ? (
+                  isVideoType(selectedItem) ? (
+                    <video
+                      src={getEmbedUrl(selectedItem)}
+                      className="w-full h-full object-cover"
+                      controls
+                      autoPlay
+                      playsInline
+                    />
+                  ) : (
+                    <img
+                      src={getEmbedUrl(selectedItem)}
+                      alt={selectedItem.title || 'Custom inspiration'}
+                      className="w-full h-full object-cover"
+                    />
+                  )
+                ) : (selectedItem.platform === 'instagram' || selectedItem.platform === 'twitter') ? (
                   <div className="relative w-full h-full">
                     <iframe
                       src={getEmbedUrl(selectedItem, false)}

@@ -39,6 +39,7 @@ class InspirationLink(BaseModel):
     url: str
     title: Optional[str] = None
     mediaType: Optional[str] = "image"
+    mediaUrl: Optional[str] = None
 
 
 class InspirationMatchRequest(BaseModel):

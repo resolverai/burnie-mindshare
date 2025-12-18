@@ -284,6 +284,7 @@ export const inspirationsApi = {
           url: string;
           title: string | null;
           mediaType: string;
+          mediaUrl?: string | null;
         }>;
       };
     }>(

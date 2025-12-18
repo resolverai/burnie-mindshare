@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { 
   ArrowLeft, Search, Plus, Trash2, ExternalLink, Youtube, Instagram, 
-  Twitter, Music2, Filter, X, Check, ChevronDown, Loader2, Image, Video, Pencil
+  Twitter, Music2, Filter, X, Check, ChevronDown, Loader2, Image, Video, Pencil,
+  Upload, Globe
 } from 'lucide-react';
 
 // Custom hook for debounced value
@@ -25,15 +26,17 @@ const PlatformIcon = ({ platform }: { platform: string }) => {
     case 'instagram': return <Instagram className={`${iconClass} text-pink-500`} />;
     case 'twitter': return <Twitter className={`${iconClass} text-blue-400`} />;
     case 'tiktok': return <Music2 className={`${iconClass} text-black`} />;
+    case 'custom': return <Globe className={`${iconClass} text-purple-500`} />;
     default: return <ExternalLink className={iconClass} />;
   }
 };
 
 interface InspirationLink {
   id: number;
-  platform: 'youtube' | 'instagram' | 'twitter' | 'tiktok';
+  platform: 'youtube' | 'instagram' | 'twitter' | 'tiktok' | 'custom';
   category: string;
   url: string;
+  mediaUrl: string | null;
   title: string | null;
   addedBy: string | null;
   isActive: boolean;
@@ -49,6 +52,7 @@ const PLATFORMS = [
   { value: 'instagram', label: 'Instagram', icon: <Instagram className="h-4 w-4 text-pink-500" /> },
   { value: 'twitter', label: 'Twitter', icon: <Twitter className="h-4 w-4 text-blue-400" /> },
   { value: 'tiktok', label: 'TikTok', icon: <Music2 className="h-4 w-4" /> },
+  { value: 'custom', label: 'Custom', icon: <Globe className="h-4 w-4 text-purple-500" /> },
 ];
 
 const MEDIA_TYPES = [
@@ -74,6 +78,7 @@ export default function DvybInspirationsPage() {
   // Track if filters changed to reset pagination
   const isFirstRender = useRef(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showUploadForm, setShowUploadForm] = useState(false);
   const [formPlatform, setFormPlatform] = useState('');
   const [formCategory, setFormCategory] = useState('');
   const [formCategorySearch, setFormCategorySearch] = useState('');
@@ -82,6 +87,18 @@ export default function DvybInspirationsPage() {
   const [formMediaType, setFormMediaType] = useState('image');
   const [submitting, setSubmitting] = useState(false);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  
+  // File upload state
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFilePreview, setUploadFilePreview] = useState<string | null>(null);
+  const [uploadCategory, setUploadCategory] = useState('');
+  const [uploadCategorySearch, setUploadCategorySearch] = useState('');
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadMediaType, setUploadMediaType] = useState('image');
+  const [showUploadCategoryDropdown, setShowUploadCategoryDropdown] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Edit modal state
   const [editingInspiration, setEditingInspiration] = useState<InspirationLink | null>(null);
@@ -143,7 +160,13 @@ export default function DvybInspirationsPage() {
     return categories.filter(cat => cat.toLowerCase().includes(formCategorySearch.toLowerCase()));
   }, [categories, formCategorySearch]);
 
+  const filteredUploadCategories = useMemo(() => {
+    if (!uploadCategorySearch) return categories;
+    return categories.filter(cat => cat.toLowerCase().includes(uploadCategorySearch.toLowerCase()));
+  }, [categories, uploadCategorySearch]);
+
   const showAddNewCategory = formCategorySearch && !categories.some(cat => cat.toLowerCase() === formCategorySearch.toLowerCase());
+  const showUploadAddNewCategory = uploadCategorySearch && !categories.some(cat => cat.toLowerCase() === uploadCategorySearch.toLowerCase());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,6 +193,92 @@ export default function DvybInspirationsPage() {
       const data = await response.json();
       if (data.success) { fetchInspirations(); fetchStats(); } else { alert(data.error || 'Failed to delete'); }
     } catch (error) { console.error('Error deleting:', error); alert('Failed to delete'); }
+  };
+
+  // File upload handlers
+  const handleFileSelect = (file: File) => {
+    // Validate file type
+    if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+      alert('Only image and video files are allowed');
+      return;
+    }
+    setUploadFile(file);
+    // Create preview URL
+    const previewUrl = URL.createObjectURL(file);
+    setUploadFilePreview(previewUrl);
+    // Auto-detect media type
+    setUploadMediaType(file.type.startsWith('video/') ? 'video' : 'image');
+  };
+
+  const handleRemoveFile = () => {
+    if (uploadFilePreview) {
+      URL.revokeObjectURL(uploadFilePreview);
+    }
+    setUploadFile(null);
+    setUploadFilePreview(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFileSelect(file);
+  };
+
+  const handleUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadFile || !uploadCategory) { alert('Please select a file and category'); return; }
+    setSubmitting(true);
+    setUploadProgress(0);
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadFile);
+      formData.append('category', uploadCategory);
+      formData.append('title', uploadTitle || '');
+      formData.append('mediaType', uploadMediaType);
+
+      const response = await fetch(`${API_BASE}/api/admin/dvyb-inspirations/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        // Cleanup preview URL
+        if (uploadFilePreview) {
+          URL.revokeObjectURL(uploadFilePreview);
+        }
+        setUploadFile(null);
+        setUploadFilePreview(null);
+        setUploadCategory('');
+        setUploadCategorySearch('');
+        setUploadTitle('');
+        setUploadMediaType('image');
+        setShowUploadForm(false);
+        setUploadProgress(0);
+        fetchInspirations();
+        fetchCategories();
+        fetchStats();
+      } else {
+        alert(data.error || 'Failed to upload file');
+      }
+    } catch (error) {
+      console.error('Error uploading:', error);
+      alert('Failed to upload file');
+    } finally {
+      setSubmitting(false);
+      setUploadProgress(0);
+    }
   };
 
   const openEditModal = (inspiration: InspirationLink) => {
@@ -232,23 +341,29 @@ export default function DvybInspirationsPage() {
             <p className="text-gray-600 text-sm">Manage inspiration links for AI content generation</p>
           </div>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)} className="bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2">
-          {showAddForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-          {showAddForm ? 'Cancel' : 'Add Inspiration'}
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => { setShowUploadForm(!showUploadForm); if (showAddForm) setShowAddForm(false); }} className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2">
+            {showUploadForm ? <X className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+            {showUploadForm ? 'Cancel Upload' : 'Upload File'}
+          </Button>
+          <Button onClick={() => { setShowAddForm(!showAddForm); if (showUploadForm) setShowUploadForm(false); }} className="bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2">
+            {showAddForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {showAddForm ? 'Cancel' : 'Add Link'}
+          </Button>
+        </div>
       </div>
 
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow p-4"><div className="text-2xl font-bold text-gray-900">{stats.total}</div><div className="text-sm text-gray-500">Total Links</div></div>
-          <div className="bg-white rounded-lg shadow p-4"><div className="text-2xl font-bold text-gray-900">{stats.categoryCount}</div><div className="text-sm text-gray-500">Categories</div></div>
+        <div className="flex flex-wrap gap-3 mb-6">
+          <div className="bg-white rounded-lg shadow px-4 py-3 min-w-[100px]"><div className="text-xl font-bold text-gray-900">{stats.total}</div><div className="text-xs text-gray-500">Total</div></div>
+          <div className="bg-white rounded-lg shadow px-4 py-3 min-w-[100px]"><div className="text-xl font-bold text-gray-900">{stats.categoryCount}</div><div className="text-xs text-gray-500">Categories</div></div>
           {MEDIA_TYPES.map(m => {
             const count = stats.byMediaType?.find(s => s.mediaType === m.value)?.count || '0';
-            return (<div key={m.value} className="bg-white rounded-lg shadow p-4"><div className="flex items-center gap-2">{m.icon}<div className="text-xl font-bold text-gray-900">{count}</div></div><div className="text-sm text-gray-500">{m.label}s</div></div>);
+            return (<div key={m.value} className="bg-white rounded-lg shadow px-4 py-3 min-w-[100px]"><div className="flex items-center gap-1.5">{m.icon}<div className="text-xl font-bold text-gray-900">{count}</div></div><div className="text-xs text-gray-500">{m.label}s</div></div>);
           })}
           {PLATFORMS.map(p => {
             const count = stats.byPlatform.find(s => s.platform === p.value)?.count || '0';
-            return (<div key={p.value} className="bg-white rounded-lg shadow p-4"><div className="flex items-center gap-2">{p.icon}<div className="text-xl font-bold text-gray-900">{count}</div></div><div className="text-sm text-gray-500">{p.label}</div></div>);
+            return (<div key={p.value} className="bg-white rounded-lg shadow px-4 py-3 min-w-[100px]"><div className="flex items-center gap-1.5">{p.icon}<div className="text-xl font-bold text-gray-900">{count}</div></div><div className="text-xs text-gray-500">{p.label}</div></div>);
           })}
         </div>
       )}
@@ -261,7 +376,7 @@ export default function DvybInspirationsPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Platform <span className="text-red-500">*</span></label>
                 <div className="flex flex-wrap gap-2">
-                  {PLATFORMS.map(p => (
+                  {PLATFORMS.filter(p => p.value !== 'custom').map(p => (
                     <button key={p.value} type="button" onClick={() => setFormPlatform(p.value)}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${formPlatform === p.value ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'}`}>
                       {p.icon}<span className="text-sm text-gray-700">{p.label}</span>{formPlatform === p.value && <Check className="h-4 w-4 text-purple-600" />}
@@ -308,6 +423,127 @@ export default function DvybInspirationsPage() {
             <div className="flex justify-end">
               <Button type="submit" disabled={submitting || !formPlatform || !formCategory || !formUrl} className="bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2">
                 {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Adding...</> : <><Plus className="h-4 w-4" />Add Inspiration</>}
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Upload Form */}
+      {showUploadForm && (
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6 border-2 border-green-200">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Upload Custom Inspiration</h2>
+          <form onSubmit={handleUploadSubmit} className="space-y-4">
+            {/* File Dropzone */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`relative border-2 border-dashed rounded-xl transition-all min-h-[200px] ${
+                isDragging ? 'border-green-500 bg-green-50' : uploadFile ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-green-400 hover:bg-green-50/50'
+              }`}
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+                accept="image/*,video/*"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+              
+              <div className="flex items-center justify-center p-6 min-h-[200px]">
+                {uploadFilePreview ? (
+                  <div className="relative group">
+                    {uploadFile?.type.startsWith('video/') ? (
+                      <video
+                        src={uploadFilePreview}
+                        className="max-h-[180px] max-w-full rounded-lg object-contain"
+                        muted
+                        playsInline
+                      />
+                    ) : (
+                      <img
+                        src={uploadFilePreview}
+                        alt="Preview"
+                        className="max-h-[180px] max-w-full rounded-lg object-contain"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleRemoveFile(); }}
+                      className="absolute -top-2 -right-2 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors z-20 shadow-md"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                    <div className="mt-2 text-center">
+                      <p className="text-sm text-gray-700 font-medium truncate max-w-[200px]">{uploadFile?.name}</p>
+                      <p className="text-xs text-gray-500">{uploadFile && (uploadFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center space-y-3">
+                    <Upload className="h-12 w-12 text-gray-400 mx-auto" />
+                    <div>
+                      <p className="text-gray-700 font-medium">Drop your file here</p>
+                      <p className="text-sm text-gray-500 mt-1">or click to browse</p>
+                    </div>
+                    <p className="text-xs text-gray-400">PNG, JPG, WEBP, MP4, MOV (max 200MB)</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Category */}
+              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Category <span className="text-red-500">*</span></label>
+                <div className="relative">
+                  <input type="text" value={uploadCategory || uploadCategorySearch}
+                    onChange={(e) => { setUploadCategorySearch(e.target.value); setUploadCategory(''); setShowUploadCategoryDropdown(true); }}
+                    onFocus={() => setShowUploadCategoryDropdown(true)} placeholder="Search or add category..."
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 bg-white" />
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                </div>
+                {showUploadCategoryDropdown && (uploadCategorySearch || categories.length > 0) && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                    {showUploadAddNewCategory && (<button type="button" onClick={() => { setUploadCategory(uploadCategorySearch); setShowUploadCategoryDropdown(false); }}
+                      className="w-full px-4 py-2 text-left hover:bg-green-50 flex items-center gap-2 text-green-600"><Plus className="h-4 w-4" /><span>Add &quot;{uploadCategorySearch}&quot;</span></button>)}
+                    {filteredUploadCategories.map(cat => (<button key={cat} type="button" onClick={() => { setUploadCategory(cat); setUploadCategorySearch(''); setShowUploadCategoryDropdown(false); }}
+                      className="w-full px-4 py-2 text-left hover:bg-gray-50 text-gray-700">{cat}</button>))}
+                  </div>
+                )}
+              </div>
+              
+              {/* Title */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Title <span className="text-gray-400">(optional)</span></label>
+                <input type="text" value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="Brief description..."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-gray-900 bg-white" />
+              </div>
+
+              {/* Media Type */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Media Type <span className="text-red-500">*</span></label>
+                <div className="flex flex-wrap gap-2">
+                  {MEDIA_TYPES.map(m => (
+                    <button key={m.value} type="button" onClick={() => setUploadMediaType(m.value)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${uploadMediaType === m.value ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                      {m.icon}<span className="text-sm text-gray-700">{m.label}</span>{uploadMediaType === m.value && <Check className="h-4 w-4 text-green-600" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {uploadProgress > 0 && (
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-green-600 h-2 rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button type="submit" disabled={submitting || !uploadFile || !uploadCategory} className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2">
+                {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Uploading...</> : <><Upload className="h-4 w-4" />Upload Inspiration</>}
               </Button>
             </div>
           </form>
@@ -386,6 +622,7 @@ export default function DvybInspirationsPage() {
         )}
       </div>
       {showCategoryDropdown && <div className="fixed inset-0 z-0" onClick={() => setShowCategoryDropdown(false)} />}
+      {showUploadCategoryDropdown && <div className="fixed inset-0 z-0" onClick={() => setShowUploadCategoryDropdown(false)} />}
 
       {/* Edit Modal */}
       {editingInspiration && (
@@ -398,14 +635,22 @@ export default function DvybInspirationsPage() {
             <form onSubmit={handleUpdate} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Platform <span className="text-red-500">*</span></label>
-                <div className="flex flex-wrap gap-2">
-                  {PLATFORMS.map(p => (
-                    <button key={p.value} type="button" onClick={() => setEditPlatform(p.value)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${editPlatform === p.value ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                      {p.icon}<span className="text-sm text-gray-700">{p.label}</span>{editPlatform === p.value && <Check className="h-4 w-4 text-purple-600" />}
-                    </button>
-                  ))}
-                </div>
+                {editingInspiration?.platform === 'custom' ? (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-purple-500 bg-purple-50">
+                    <Globe className="h-4 w-4 text-purple-500" />
+                    <span className="text-sm text-gray-700">Custom (uploaded file)</span>
+                    <span className="text-xs text-gray-400">(cannot change)</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {PLATFORMS.filter(p => p.value !== 'custom').map(p => (
+                      <button key={p.value} type="button" onClick={() => setEditPlatform(p.value)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${editPlatform === p.value ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        {p.icon}<span className="text-sm text-gray-700">{p.label}</span>{editPlatform === p.value && <Check className="h-4 w-4 text-purple-600" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Category <span className="text-red-500">*</span></label>
@@ -428,7 +673,9 @@ export default function DvybInspirationsPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">URL <span className="text-red-500">*</span></label>
                 <input type="url" value={editUrl} onChange={(e) => setEditUrl(e.target.value)} placeholder="https://..." required
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 bg-white" />
+                  readOnly={editingInspiration?.platform === 'custom'}
+                  className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-gray-900 ${editingInspiration?.platform === 'custom' ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`} />
+                {editingInspiration?.platform === 'custom' && <p className="text-xs text-gray-400 mt-1">URL cannot be changed for uploaded files</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Title <span className="text-gray-400">(optional)</span></label>

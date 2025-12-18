@@ -17,6 +17,7 @@ interface InspirationLink {
   url: string;
   title: string | null;
   mediaType: string;
+  mediaUrl?: string | null;
 }
 
 interface MatchedInspiration {
@@ -101,6 +102,7 @@ router.post('/match', async (req: Request, res: Response) => {
       url: link.url,
       title: link.title || null,
       mediaType: link.mediaType || 'image',
+      mediaUrl: link.mediaUrl || null,
     }));
 
     // Call Python AI backend for matching

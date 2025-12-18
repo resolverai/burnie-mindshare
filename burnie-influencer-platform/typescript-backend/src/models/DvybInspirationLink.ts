@@ -15,7 +15,13 @@ export class DvybInspirationLink {
    */
   @Column({ type: 'varchar', length: 50 })
   @Index()
-  platform!: 'youtube' | 'instagram' | 'twitter' | 'tiktok';
+  platform!: 'youtube' | 'instagram' | 'twitter' | 'tiktok' | 'custom';
+
+  /**
+   * For custom uploads - the S3 URL of the uploaded media file
+   */
+  @Column({ type: 'text', nullable: true })
+  mediaUrl!: string | null;
 
   /**
    * Category for organizing inspiration content (e.g., "Fashion", "Tech", "Food")
