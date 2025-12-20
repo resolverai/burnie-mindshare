@@ -237,7 +237,7 @@ export const WebsiteAnalysis = ({ onComplete }: WebsiteAnalysisProps) => {
               <Image src={dvybLogo} alt="Dvyb Logo" className="w-full h-auto" priority />
             </div>
             <h1 className="text-3xl md:text-4xl lg:text-5xl font-semibold text-foreground leading-tight tracking-tight text-center">
-              Irresistible product shots in seconds
+              Scroll stopping content without a single prompt, lets get started
             </h1>
           </div>
 
