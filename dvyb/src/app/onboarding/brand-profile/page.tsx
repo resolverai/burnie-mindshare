@@ -114,7 +114,7 @@ export default function BrandProfilePage() {
     // Track auto content generation started
     trackAutoContentGenerationStarted({
       topic: contentTopic,
-      platforms: ['twitter'],
+      platforms: ['instagram', 'linkedin', 'twitter'],
       imageCount: 2,
       videoCount: 0,
     });
@@ -124,7 +124,7 @@ export default function BrandProfilePage() {
       
       const genResponse = await adhocGenerationApi.generateContent({
         topic: contentTopic,
-        platforms: ['twitter'],  // Twitter only for faster demo
+        platforms: ['instagram', 'linkedin', 'twitter'],  // All platforms
         number_of_posts: 2,
         number_of_images: 2,
         number_of_videos: 0,  // 2 images for faster onboarding experience

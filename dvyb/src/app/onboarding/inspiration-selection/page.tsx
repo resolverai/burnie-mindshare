@@ -322,23 +322,23 @@ export default function InspirationSelectionPage() {
                             />
                           )
                         ) : (
-                          <iframe
+                        <iframe
                             src={getEmbedUrl(item)}
-                            className="w-full h-full pointer-events-none"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                          />
+                          className="w-full h-full pointer-events-none"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
                         )}
                         {/* Overlay */}
                         <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors duration-300" />
                         
                         {/* Play button - only for videos */}
                         {isVideoType(item) && (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="bg-white/90 rounded-full p-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                              <Play className="w-8 h-8 text-primary fill-primary" />
-                            </div>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="bg-white/90 rounded-full p-4 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                            <Play className="w-8 h-8 text-primary fill-primary" />
                           </div>
+                        </div>
                         )}
                         
                         {/* Platform badge */}
@@ -416,14 +416,14 @@ export default function InspirationSelectionPage() {
                     />
                     {/* Overlay with play button only for videos */}
                     {isVideoType(selectedItem) && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                        <button
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                      <button
                           onClick={() => window.open(selectedItem.url, '_blank')}
-                          className="bg-white/90 hover:bg-white rounded-full p-4 shadow-lg hover:scale-110 transition-transform duration-300"
-                        >
-                          <Play className="w-10 h-10 text-primary fill-primary" />
-                        </button>
-                      </div>
+                        className="bg-white/90 hover:bg-white rounded-full p-4 shadow-lg hover:scale-110 transition-transform duration-300"
+                      >
+                        <Play className="w-10 h-10 text-primary fill-primary" />
+                      </button>
+                    </div>
                     )}
                   </div>
                 ) : (

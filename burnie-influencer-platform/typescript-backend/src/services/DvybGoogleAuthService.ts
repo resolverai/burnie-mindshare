@@ -51,7 +51,8 @@ export class DvybGoogleAuthService {
    */
   static async handleGoogleCallback(
     code: string,
-    state: string
+    state: string,
+    initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot'
   ): Promise<{
     account: DvybAccount;
     isNewAccount: boolean;
@@ -181,8 +182,12 @@ export class DvybGoogleAuthService {
             accountName: name,
             primaryEmail: email,
             accountType: 'web2',
+            // Set initial acquisition flow - only on first account creation, never updated
+            initialAcquisitionFlow: initialAcquisitionFlow || null,
           });
           await accountRepo.save(account);
+          
+          logger.info(`📊 New account created with initialAcquisitionFlow: ${initialAcquisitionFlow || 'not specified'}`);
 
           googleConnection = googleConnRepo.create({
             accountId: account.id,

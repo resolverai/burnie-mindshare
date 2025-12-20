@@ -44,8 +44,23 @@ function DvybGoogleCallbackContent() {
         
         console.log('📡 Calling backend callback endpoint...')
         
-        // Call the callback endpoint
-        const response = await authApi.handleGoogleCallback(code, state)
+        // Determine which flow the user came from for acquisition tracking
+        const currentLandingFlow = localStorage.getItem('dvyb_landing_flow')
+        const currentProductFlowPending = localStorage.getItem('dvyb_product_flow_pending')
+        const currentProductFlowPendingGeneration = localStorage.getItem('dvyb_product_flow_pending_generation')
+        
+        // Determine initial acquisition flow for new accounts
+        let initialAcquisitionFlow: 'website_analysis' | 'product_photoshot' | undefined
+        if (currentLandingFlow === 'product' || currentProductFlowPending === 'true' || currentProductFlowPendingGeneration === 'true') {
+          initialAcquisitionFlow = 'product_photoshot'
+        } else {
+          initialAcquisitionFlow = 'website_analysis'
+        }
+        
+        console.log('   - initialAcquisitionFlow:', initialAcquisitionFlow)
+        
+        // Call the callback endpoint with flow information
+        const response = await authApi.handleGoogleCallback(code, state, initialAcquisitionFlow)
         
         console.log('📥 Backend response:', JSON.stringify(response, null, 2))
         
@@ -140,6 +155,30 @@ function DvybGoogleCallbackContent() {
         // This is a sign-in flow - determine where to redirect based on user state
         const isNewAccount = response.data?.is_new_account
         const onboardingComplete = response.data?.onboarding_complete
+        
+        // Check if user was in product shot flow (Flow 2)
+        const productFlowPending = localStorage.getItem('dvyb_product_flow_pending')
+        const productFlowPendingUpload = localStorage.getItem('dvyb_product_flow_pending_upload')
+        const productFlowPendingGeneration = localStorage.getItem('dvyb_product_flow_pending_generation')
+        const productShotSession = localStorage.getItem('dvyb_product_shot_session')
+        const landingFlow = localStorage.getItem('dvyb_landing_flow')
+        const isProductFlow = productFlowPending === 'true' || productFlowPendingUpload === 'true' || productFlowPendingGeneration === 'true' || !!productShotSession || landingFlow === 'product'
+        
+        if (isProductFlow) {
+          console.log('📦 Product shot flow detected - redirecting to /')
+          // Clear some pending flags but KEEP dvyb_product_flow_pending_generation for ProductShotFlow to detect
+          localStorage.removeItem('dvyb_product_flow_pending')
+          localStorage.removeItem('dvyb_product_flow_pending_upload')
+          // Keep dvyb_product_flow_pending_generation - ProductShotFlow will clear it after starting generation
+          // Keep dvyb_product_shot_s3_key - needed for generation
+          // Keep dvyb_landing_flow so page.tsx routes to ProductShotFlow
+          
+          setTimeout(() => {
+            console.log('🚀 Navigating to / (product flow)')
+            window.location.href = '/'
+          }, 800)
+          return
+        }
         
         // Check localStorage for analysis (in case user just did it before signing in)
         const storedAnalysis = localStorage.getItem('dvyb_website_analysis')

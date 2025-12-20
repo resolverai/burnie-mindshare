@@ -346,12 +346,12 @@ export const trackOnboardingCompleted = () => {
   trackEvent('Onboarding Completed');
 };
 
-export const trackWebsiteAnalysisStarted = (url: string) => {
-  trackEvent('Website Analysis Started', { url });
+export const trackWebsiteAnalysisStarted = (websiteUrl: string) => {
+  trackEvent('Website Analysis Started', { websiteUrl });
 };
 
-export const trackWebsiteAnalysisCompleted = (url: string, durationMs: number) => {
-  trackEvent('Website Analysis Completed', { url, durationMs });
+export const trackWebsiteAnalysisCompleted = (websiteUrl: string, durationMs: number) => {
+  trackEvent('Website Analysis Completed', { websiteUrl, durationMs });
 };
 
 // --- USER ACTIONS ---
@@ -662,6 +662,65 @@ export const trackChangePlanClicked = (data: {
   source: 'subscription_page' | 'pricing_modal' | 'upgrade_prompt';
 }) => {
   trackEvent('Change Plan Clicked', data);
+};
+
+// ============================================
+// FLOW 2: PRODUCT SHOT FLOW EVENTS
+// ============================================
+
+export const trackProductShotLandingViewed = () => {
+  trackEvent('Product Shot Landing Viewed', { flow: 'product_shot' });
+};
+
+export const trackProductShotGetStartedClicked = () => {
+  trackEvent('Product Shot Get Started Clicked', { flow: 'product_shot' });
+};
+
+export const trackProductShotUploadViewed = () => {
+  trackEvent('Product Shot Upload Viewed', { flow: 'product_shot' });
+};
+
+export const trackProductShotUploaded = (data: {
+  fileType: string;
+  fileSizeMB: number;
+}) => {
+  trackEvent('Product Shot Uploaded', { flow: 'product_shot', ...data });
+};
+
+export const trackProductShotGenerationStarted = (data: {
+  isAuthenticated: boolean;
+  imageCount: number;
+}) => {
+  trackEvent('Product Shot Generation Started', { flow: 'product_shot', ...data });
+};
+
+export const trackProductShotGenerationCompleted = (data: {
+  imageCount: number;
+  durationMs?: number;
+}) => {
+  trackEvent('Product Shot Generation Completed', { flow: 'product_shot', ...data });
+};
+
+export const trackProductShotSignupClicked = () => {
+  trackEvent('Product Shot Signup Clicked', { flow: 'product_shot' });
+};
+
+export const trackProductShotGenerateMoreClicked = (data: {
+  imageCount: number;
+  isPaidCustomer: boolean;
+}) => {
+  trackEvent('Product Shot Generate More Clicked', { flow: 'product_shot', ...data });
+};
+
+export const trackProductShotPricingShown = () => {
+  trackEvent('Product Shot Pricing Shown', { flow: 'product_shot' });
+};
+
+export const trackProductShotFlowCompleted = (data: {
+  totalImagesGenerated: number;
+  signedUp: boolean;
+}) => {
+  trackEvent('Product Shot Flow Completed', { flow: 'product_shot', ...data });
 };
 
 export default {

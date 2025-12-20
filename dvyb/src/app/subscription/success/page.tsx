@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Loader2, Sparkles, ArrowRight } from "lucide-react";
 
 function SubscriptionSuccessContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -20,7 +19,15 @@ function SubscriptionSuccessContent() {
   }, []);
 
   const handleContinue = () => {
-    router.push('/home');
+    // Clear any remaining product flow flags
+    localStorage.removeItem("dvyb_landing_flow");
+    localStorage.removeItem("dvyb_product_flow_pending");
+    localStorage.removeItem("dvyb_product_shot_s3_key");
+    localStorage.removeItem("dvyb_product_preview_url");
+    localStorage.removeItem("dvyb_product_shot_job_id");
+    
+    // Redirect based on flow - both flows now go to content-library
+    router.push('/content-library');
   };
 
   return (
@@ -82,7 +89,7 @@ function SubscriptionSuccessContent() {
               size="lg" 
               className="w-full py-6 text-lg font-semibold"
             >
-              Continue to Dashboard
+              Continue to Content Library
               <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
           </>

@@ -53,6 +53,15 @@ export class DvybAccount {
   @Column({ type: 'int', default: 0 })
   autoGenerationRetryCount!: number;
 
+  // Customer Acquisition Segment - set once on first login, never updated
+  @Column({ 
+    type: 'varchar', 
+    length: 50, 
+    nullable: true,
+    comment: 'The flow through which the customer first signed up: website_analysis (flow 1) or product_photoshot (flow 2)'
+  })
+  initialAcquisitionFlow!: 'website_analysis' | 'product_photoshot' | null;
+
   // Stripe Integration
   @Column({ type: 'varchar', length: 100, nullable: true })
   stripeCustomerId!: string | null;

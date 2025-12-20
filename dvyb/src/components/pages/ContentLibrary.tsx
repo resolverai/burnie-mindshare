@@ -101,7 +101,17 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
   const loadMoreRef = useRef<HTMLDivElement>(null);
   
   // PRIORITY CHECK: Onboarding generation job (auto-open dialog for new users)
+  // Skip for Flow 2 users who already saw their content on ProductShotGeneration screen
   useEffect(() => {
+    // Check if user completed Flow 2 - they already saw their content, skip auto-dialog
+    const flow2Complete = localStorage.getItem('dvyb_flow_2_complete');
+    if (flow2Complete === 'true') {
+      console.log('📦 Flow 2 complete - skipping auto GenerateContentDialog');
+      localStorage.removeItem('dvyb_flow_2_complete');
+      localStorage.removeItem('dvyb_onboarding_generation_job_id'); // Clean up if present
+      return;
+    }
+    
     const storedJobId = localStorage.getItem('dvyb_onboarding_generation_job_id');
     if (storedJobId) {
       console.log('🎉 [PRIORITY] Onboarding generation detected on Content Library:', storedJobId);

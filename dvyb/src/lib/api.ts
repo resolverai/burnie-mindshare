@@ -94,7 +94,7 @@ export const authApi = {
     );
   },
 
-  async handleGoogleCallback(code: string, state: string) {
+  async handleGoogleCallback(code: string, state: string, initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot') {
     return apiRequest<{ 
       success: boolean; 
       data: { 
@@ -108,7 +108,11 @@ export const authApi = {
       '/dvyb/auth/google/callback',
       {
         method: 'POST',
-        body: JSON.stringify({ code, state }),
+        body: JSON.stringify({ 
+          code, 
+          state,
+          initial_acquisition_flow: initialAcquisitionFlow,
+        }),
       }
     );
   },
@@ -471,6 +475,34 @@ export const uploadApi = {
         body: JSON.stringify({ filename, contentType, uploadType }),
       }
     );
+  },
+
+  /**
+   * Upload a file for guest (unauthenticated) users
+   * Returns presigned URL for preview and S3 key for later use
+   */
+  async uploadGuestImage(file: File, guestSessionId?: string): Promise<{ 
+    success: boolean; 
+    data: { s3_key: string; presigned_url: string; guest_session_id: string } 
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (guestSessionId) {
+      formData.append('guestSessionId', guestSessionId);
+    }
+
+    const response = await fetch(`${API_URL}/dvyb/upload/guest`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Upload failed');
+    }
+
+    return data;
   },
 };
 
@@ -1011,6 +1043,7 @@ export const adhocGenerationApi = {
     inspiration_links?: string[];
     is_onboarding_product_image?: boolean;  // If true, user_images[0] is explicitly a product image
     force_product_marketing?: boolean;  // If true, force product_marketing video type
+    is_product_shot_flow?: boolean;  // If true, use product photography specialist persona (Flow 2)
   }) {
     return apiRequest<{
       success: boolean;

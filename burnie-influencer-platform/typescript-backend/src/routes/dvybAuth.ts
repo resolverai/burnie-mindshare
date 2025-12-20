@@ -166,10 +166,11 @@ router.post('/google/callback', async (req: Request, res: Response) => {
     logger.info('📥 DVYB Google callback received');
     logger.info(`   - Request body keys: ${Object.keys(req.body || {}).join(', ')}`);
     
-    const { code, state } = req.body;
+    const { code, state, initial_acquisition_flow } = req.body;
 
     logger.info(`   - code: ${code ? code.substring(0, 20) + '...' : 'MISSING'}`);
     logger.info(`   - state: ${state || 'MISSING'}`);
+    logger.info(`   - initial_acquisition_flow: ${initial_acquisition_flow || 'not provided'}`);
 
     if (!code || !state) {
       logger.warn('❌ Missing code or state in callback');
@@ -200,7 +201,8 @@ router.post('/google/callback', async (req: Request, res: Response) => {
     logger.info('🔄 Calling DvybGoogleAuthService.handleGoogleCallback...');
     const { account, isNewAccount, onboardingComplete } = await DvybGoogleAuthService.handleGoogleCallback(
       code,
-      state
+      state,
+      initial_acquisition_flow as 'website_analysis' | 'product_photoshot' | undefined
     );
     
     logger.info(`✅ Google callback handled - Account ID: ${account.id}, isNew: ${isNewAccount}`);

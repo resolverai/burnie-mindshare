@@ -347,9 +347,9 @@ export default function DvybInspirationsPage() {
             {showUploadForm ? 'Cancel Upload' : 'Upload File'}
           </Button>
           <Button onClick={() => { setShowAddForm(!showAddForm); if (showUploadForm) setShowUploadForm(false); }} className="bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2">
-            {showAddForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {showAddForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
             {showAddForm ? 'Cancel' : 'Add Link'}
-          </Button>
+        </Button>
         </div>
       </div>
 

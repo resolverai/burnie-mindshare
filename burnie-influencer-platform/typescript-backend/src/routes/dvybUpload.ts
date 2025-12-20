@@ -645,5 +645,86 @@ router.post('/media', dvybAuthMiddleware, upload.array('media', 50), async (req:
   }
 });
 
+/**
+ * POST /api/dvyb/upload/guest
+ * Upload a file for guest (unauthenticated) users
+ * Files are stored in a temp guest folder with a UUID-based session ID
+ */
+router.post('/guest', upload.single('file'), async (req, res: Response) => {
+  try {
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Validate file type (images only for guest uploads)
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid file type. Only JPEG, JPG, PNG, and WEBP are allowed.',
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Get or generate guest session ID from request body or create new one
+    const guestSessionId = (req.body?.guestSessionId as string) || crypto.randomUUID();
+
+    // Convert WEBP to PNG if needed
+    let buffer = file.buffer;
+    let contentType = file.mimetype;
+    let fileExtension = path.extname(file.originalname).toLowerCase();
+
+    if (file.mimetype === 'image/webp') {
+      buffer = await sharp(file.buffer).png().toBuffer();
+      contentType = 'image/png';
+      fileExtension = '.png';
+    }
+
+    // Generate unique filename in guest folder
+    const fileId = crypto.randomUUID();
+    const uniqueFilename = `dvyb/guest/${guestSessionId}/${fileId}${fileExtension}`;
+
+    logger.info(`📤 Guest upload: ${uniqueFilename} (${contentType})`);
+
+    // Upload to S3
+    const uploadCommand = new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: uniqueFilename,
+      Body: buffer,
+      ContentType: contentType,
+    });
+
+    await s3Client.send(uploadCommand);
+
+    // Generate presigned URL for preview
+    const presignedUrl = await s3PresignedUrlService.generatePresignedUrl(uniqueFilename, 3600, true);
+
+    logger.info(`✅ Guest upload successful: ${uniqueFilename}`);
+
+    return res.json({
+      success: true,
+      data: {
+        s3_key: uniqueFilename,
+        presigned_url: presignedUrl,
+        guest_session_id: guestSessionId,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('❌ Guest upload error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to upload file',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
 export default router;
 

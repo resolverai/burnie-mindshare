@@ -328,7 +328,7 @@ async function processAutoGeneration(job: Job<AutoGenerationJobData>): Promise<v
       logger.warn(`⚠️ Account ${accountId} has no connected platforms, defaulting to Twitter`);
       platforms = ['twitter'];
     } else {
-      logger.info(`📱 Connected platforms: ${platforms.join(', ')}`);
+    logger.info(`📱 Connected platforms: ${platforms.join(', ')}`);
     }
 
     // Get previous generations for topic diversity

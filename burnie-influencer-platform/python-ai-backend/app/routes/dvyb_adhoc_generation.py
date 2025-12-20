@@ -1464,7 +1464,7 @@ class DvybAdhocGenerationRequest(BaseModel):
     """Request for ad-hoc content generation"""
     account_id: int
     topic: str
-    platforms: List[str]  # e.g., ["instagram", "twitter", "linkedin", "tiktok"]
+    platforms: List[str] = ["instagram", "linkedin", "twitter"]  # Default to all 3 platforms
     number_of_posts: int  # 1-4
     number_of_images: Optional[int] = None  # Specific number of image posts (calculated by frontend based on limits)
     number_of_videos: Optional[int] = None  # Specific number of video posts (calculated by frontend based on limits)
@@ -1474,6 +1474,7 @@ class DvybAdhocGenerationRequest(BaseModel):
     clips_per_video: Optional[int] = 1  # Default 1 clip (8-10s), can be 2 (16-20s) or 3 (24-30s)
     is_onboarding_product_image: Optional[bool] = False  # If true, user_images[0] is explicitly a product image from onboarding
     force_product_marketing: Optional[bool] = False  # If true, force product_marketing video type
+    is_product_shot_flow: Optional[bool] = False  # If true, use product photography specialist persona (Flow 2)
     generation_type: Optional[str] = "on_demand"  # 'on_demand' for manual, 'auto' for automated generation
 
 
@@ -3791,6 +3792,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   - **CRITICAL COLOR USAGE**: Use brand colors ONLY in physical objects/surfaces (clothing, walls, furniture, props, decor) - NEVER in lighting, glows, or effects
   - Example: "wearing {color_palette.get('primary')} colored shirt" ✅ NOT "using {color_palette.get('primary')} for lighting accents" ❌
   - **MANDATORY ENDING**: End with: ", colors used only in physical objects and surfaces not in lighting or glow effects, use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
+  - **AI ARTIFACT PREVENTION**: End with "[PREVENT: ...]" with 3-5 SPECIFIC points unique to THIS scene (use actual product name, specific hand positions, specific environment)
   - Remember: These frames will become video starting points, so they must be high-quality and on-brand
   
   🎬 **CLIP MOTION PROMPTS** (Video Animation - CINEMATIC QUALITY):
@@ -4420,6 +4422,18 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   
   - **MANDATORY ENDING**: Every image prompt MUST end with: ", colors used only in physical objects and surfaces not in lighting or glow effects, use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
   - **ABSOLUTELY MANDATORY**: The hex codes should be used by the AI model for color palette application in PHYSICAL OBJECTS ONLY, never as lighting effects, and must NEVER appear as visible text anywhere in the generated images
+  
+  🚫 **INTELLIGENT ARTIFACT PREVENTION** (DYNAMIC per prompt):
+  Generate UNIQUE prevention text for EACH prompt based on its SPECIFIC elements:
+  
+  - Use the ACTUAL product name from inventory (not generic "product")
+  - Describe SPECIFIC hand positions for THAT action (e.g., "right hand holding bottle, left receiving spray")
+  - Mention SPECIFIC environment elements from YOUR prompt
+  - Keep it SHORT: 3-5 targeted prevention points per prompt
+  - Each prompt's prevention MUST be DIFFERENT
+  
+  Format: End with "[PREVENT: ...]" with scene-specific details.
+  Example: "[PREVENT: single Floral Sweater with consistent pattern, model's two arms in natural pose, urban rooftop with coherent skyline]"
    
    **PROFESSIONAL QUALITY** (Social Media Excellence):
    - Specify professional lighting: studio lighting, natural light, golden hour, soft diffused light, dramatic lighting
@@ -4487,10 +4501,255 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   ]
 }}'''
 
-    system_prompt = f"""You are a WORLD-CLASS CREATIVE DIRECTOR specializing in social media content creation.
+    # Determine persona based on flow type OR if product images were detected
+    is_product_shot_flow = context.get("is_product_shot_flow", False)
+    use_photographer_persona = context.get("use_photographer_persona", False)
+    
+    # Use photographer persona if either:
+    # 1. User explicitly came through product shot flow (Flow 2), OR
+    # 2. Product images were detected in inventory analysis
+    if is_product_shot_flow or use_photographer_persona:
+        if use_photographer_persona and not is_product_shot_flow:
+            print(f"📸 Using PHOTOGRAPHER persona (product images detected in inventory analysis)")
+        else:
+            print(f"📸 Using PHOTOGRAPHER persona (product shot flow)")
+        # FLOW 2: Product Photography Specialist persona
+        persona_intro = f"""You are a WORLD-CLASS PRODUCT PHOTOGRAPHER and COMMERCIAL VISUAL SPECIALIST.
+You create stunning, high-end product imagery and video clips that rival top advertising agencies.
 You respond ONLY with valid JSON objects, no extra text or formatting.
 
-Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
+Generate {number_of_posts} pieces of PREMIUM PRODUCT PHOTOGRAPHY content for: "{request.topic}"
+
+🚨🚨🚨 CRITICAL - AUTONOMOUS PRODUCT DISPLAY DECISION 🚨🚨🚨
+
+You MUST intelligently decide HOW to display the product based on its category from inventory analysis:
+
+**WEARABLE PRODUCTS** (clothing, sweaters, dresses, jackets, shoes, jewelry, watches, accessories, hats, scarves, bags):
+→ MUST use human models wearing/displaying the product
+→ 🚨 FACE MUST BE VISIBLE: Always show the model's face clearly - no cropped heads, no back-of-head shots, no faceless images
+→ Shot types: full body, 3/4 body, or upper body - BUT ALWAYS with face visible and expressive
+→ Show models in different moods: confident swagger, relaxed chill, sophisticated elegance, playful energy
+→ Vary contexts: urban street style, cozy indoor vibes, outdoor adventures, rooftop sunset, cafe scenes
+→ Set `no_characters: false` and include full model specifications in prompts
+→ Example: "Reference product (floral sweater) worn by confident 25-year-old Black woman with natural curly hair, face visible with warm genuine smile, urban street setting, golden hour light, full body shot mid-stride, looking at camera with confident expression"
+
+**CONSUMABLE/DTC PRODUCTS** (skincare, cosmetics, food, beverages, supplements, perfumes, candles):
+→ Use a MIX of flat-lay hero shots AND lifestyle shots with hands/models interacting
+→ Show texture details, application moments, unboxing experiences
+→ 🚨 CRITICAL: When showing product IN USE, detail the EXACT realistic usage action:
+   - Perfumes: spraying on wrist/neck (pulse points), NOT on random objects
+   - Serums: dropper dispensing onto fingertips/palm for face application
+   - Creams: being gently applied/patted onto skin
+   - Beverages: being sipped, poured, or held naturally
+→ Examples:
+   - "Reference product (perfume) being elegantly sprayed onto inner wrist by model with face visible, soft golden light, luxurious vanity setting"
+   - "Reference product (serum) with dropper releasing golden drop onto fingertips, preparing for facial application, clean spa aesthetic"
+   - "Reference product (coffee) cup raised to smiling lips, steam rising, cozy morning light through window"
+
+**TECH/GADGETS** (electronics, devices, gadgets, tools, equipment):
+→ Clean studio hero shots with dramatic lighting
+→ Lifestyle shots showing product in use context
+→ Detail shots of craftsmanship/materials
+→ Example: "Reference product (wireless earbuds) floating above brushed metal surface, dramatic rim lighting, reflective case open below, tech-noir aesthetic"
+
+**HOME/DECOR** (furniture, home goods, art, plants):
+→ Styled room/environment shots
+→ Detail texture close-ups
+→ Lifestyle context with or without people
+
+🎯 YOUR EXPERTISE - PROFESSIONAL PRODUCT PHOTOGRAPHY:
+
+**ENVIRONMENT MASTERY** (Vary across outputs):
+- **Studio Setups**: Clean infinity cove, marble surfaces, velvet backdrops, textured stone, brushed metal
+- **Lifestyle Contexts**: Sunset terraces with warm golden light, misty forest floors, urban rooftops at dusk, cozy cafes, city streets
+- **Fashion Locations**: Urban streets, rooftop parties, beach boardwalks, boutique interiors, art galleries
+- **Atmospheric Elements**: Dust particles in light beams, water droplets, rising steam, floating petals, wind in hair/fabric
+
+**LIGHTING TECHNIQUES** (Be specific in prompts):
+- **Rim Lighting**: "dramatic rim light creating glowing edge silhouette"
+- **Golden Hour**: "warm sunset light casting long shadows, orange and amber tones"
+- **Studio Softbox**: "soft diffused light from left, subtle fill from right, no harsh shadows"
+- **Dramatic Moody**: "single spotlight from above, deep shadows, noir aesthetic"
+- **Natural Daylight**: "soft overcast natural light, flattering skin tones, no harsh shadows"
+
+**CAMERA ANGLES & MOVEMENTS** (Vary these):
+- **Full Body Fashion**: "full body shot showing complete outfit, model mid-stride, confident posture"
+- **3/4 Portrait**: "three-quarter angle capturing model and product, environmental context visible"
+- **Hero Shots**: "low angle looking up at product/model, making them appear powerful and premium"
+- **Macro Details**: "extreme close-up on texture/material, shallow depth of field"
+- **Lifestyle Candid**: "natural candid moment, model interacting with product authentically"
+
+🚨 **FRAMING RULES FOR MODEL SHOTS** (CRITICAL - Avoid cropped heads):
+- **NEVER crop the top of the head** - always leave adequate headroom above the model's head
+- **Medium shot minimum**: waist-up or higher, with full head and some space above
+- **Full body preferred**: when showing wearables, full body shots are ideal
+- **Include in prompts**: "full head visible with headroom", "medium shot with complete head in frame", "properly framed with space above head"
+- **Camera distance**: Step back! Don't zoom in so close that the frame cuts off hair/head
+- **Aspect ratio awareness**: For 1:1 square, ensure vertical framing includes full head
+- **Examples of GOOD framing phrases**:
+  → "medium shot from waist up, full head visible with comfortable headroom above"
+  → "full body shot, model completely in frame from head to toe"
+  → "portrait framing with ample space above head, face fully visible"
+- **Examples of BAD framing** (NEVER do this):
+  → Cropped at forehead or hairline
+  → Top of head cut off by frame edge
+  → Extreme close-up cutting off any part of face/head
+
+**MODEL SPECIFICATIONS** (REQUIRED for wearables - be diverse):
+- ALWAYS specify: ethnicity, age range, gender, body type, hair, style vibe, expression, pose
+- 🚨 MANDATORY: Always include "face visible" and describe facial expression (smile, confident gaze, etc.)
+- 🚨 NEVER: No cropped heads, no back-of-head shots, no obscured faces, no looking away from camera entirely
+- Vary across outputs: different ethnicities, ages, styles, moods
+- Examples (note face/expression details):
+  → "25-year-old Black woman, natural curly hair, athletic build, face visible with confident smile looking at camera, urban streetwear styling"
+  → "30-year-old East Asian man, minimalist fashion, face visible with relaxed chill expression, slight smile, hands in pockets"
+  → "22-year-old Latina woman, long wavy hair, face visible with playful laugh, head tilted, spinning with fabric flowing"
+  → "35-year-old South Asian woman, elegant professional look, face visible with serene confident gaze, subtle smile"
+
+**FOR WEARABLES - MOOD VARIATIONS** (use different moods, FACE ALWAYS VISIBLE):
+- **Swagger/Confidence**: Bold poses, face visible with direct eye contact at camera, power stance
+- **Chill/Relaxed**: Casual lean, face visible with natural genuine smile, comfortable body language
+- **Elegant/Sophisticated**: Refined posture, face visible with subtle confident expression, upscale setting
+- **Playful/Energetic**: Movement, face visible with joyful laughter, dynamic action but face still clear
+- **Editorial/High Fashion**: Dramatic poses, face visible with intense captivating gaze, artistic composition
+
+🎨 **INSPIRATION IMAGES FROM INVENTORY** (CRITICAL - USE IF PROVIDED):
+If the inventory analysis contains `inspiration_images` with count > 0, you MUST incorporate their aesthetic:
+
+**HOW TO USE INSPIRATION IMAGES**:
+1. **READ the inspiration analysis carefully** - note the style, colors, mood, composition, lighting
+2. **APPLY the aesthetic** to your product photography prompts:
+   - Match the color palette (warm tones, cool tones, vibrant, muted)
+   - Match the lighting style (soft natural, dramatic moody, golden hour, studio)
+   - Match the composition approach (minimalist, layered, symmetrical, dynamic)
+   - Match the mood/atmosphere (luxury, casual, editorial, cozy)
+3. **DO NOT just copy** - blend the inspiration's aesthetic with professional product photography
+4. **EXPLICIT INTEGRATION**: In your prompts, describe elements FROM the inspiration:
+   - "warm golden lighting matching inspiration's sunset aesthetic"
+   - "minimalist composition with clean negative space as seen in reference"
+   - "muted earth tone color palette inspired by uploaded style reference"
+
+**EXAMPLE USAGE**:
+If inspiration shows: "bohemian outdoor setting, warm golden hour, earthy tones, natural textures, layered fabrics"
+→ Your prompt: "Reference product (floral sweater) worn by model on outdoor patio with woven rattan furniture, warm golden hour sunlight streaming through, earthy terracotta pots with dried pampas grass, layered textiles in muted earth tones, bohemian luxe aesthetic inspired by reference styling"
+
+🚨 **DON'T IGNORE INSPIRATION**: If inspiration images are provided, they represent the user's desired visual direction. Your outputs should REFLECT that aesthetic!
+
+🔗 **LINK INSPIRATION ANALYSIS** (From YouTube, Instagram, Twitter URLs - IF PROVIDED):
+If `INSPIRATION LINKS ANALYSIS` or `VIDEO INSPIRATION ANALYSIS` or `IMAGE INSPIRATION ANALYSIS` is provided below, you MUST incorporate that aesthetic:
+
+**FOR VIDEO INSPIRATION** (from reels/shorts):
+- Study the storyline, hook, creative elements, visual techniques
+- Apply similar pacing, camera movements, transitions to your clip prompts
+- Match the mood/atmosphere and product showcase style
+- Use the visual subjects (humans, objects, settings) as reference for your shots
+
+**FOR IMAGE INSPIRATION** (from social media image posts):
+- Study the visual aesthetics: color palette, lighting style, mood
+- Match the composition: shot type, camera angle, framing techniques
+- If humans present: replicate similar poses, visibility, positioning
+- Apply the same styling aesthetics and technical approach
+- Match the setting/environment type
+
+**EXAMPLE - Applying Image Inspiration to Product Shot**:
+If inspiration shows: "warm golden lighting, shallow depth of field, medium shot, model in relaxed pose, earth tone color palette, cozy cafe setting"
+→ Your product shot prompt: "Reference product (floral sweater) worn by relaxed model in cozy cafe setting, warm golden ambient lighting from window, medium shot with shallow depth of field, earth tone color palette, model in natural relaxed seated pose, face visible with gentle smile, soft bokeh background"
+
+🎯 REALISTIC PRODUCT USAGE (CRITICAL - Use world knowledge):
+
+When showing product in use, ALWAYS detail the NATURAL, REALISTIC way the product would be used:
+
+**PERFUMES/FRAGRANCES**:
+→ Spray on pulse points: wrists, neck, behind ears, inner elbows
+→ NEVER spray on: leaves, objects, air randomly, body parts where fragrance isn't applied
+→ Examples: "model spraying perfume on inner wrist", "gentle mist applied to neck", "elegant spray behind ear"
+→ If hands visible: spray should target wrist/hand area naturally
+
+**SKINCARE/SERUMS/CREAMS**:
+→ Apply to face, hands, or relevant skin area
+→ Show dropper dispensing onto palm, fingertips touching cream, gentle application motions
+→ Examples: "serum dropper releasing golden drop onto fingertips", "cream being gently patted onto cheekbone"
+
+**COSMETICS/MAKEUP**:
+→ Lipstick applied to lips, mascara to lashes, foundation blended on face
+→ Show realistic application gestures and tools
+→ Examples: "lipstick gliding across full lips", "mascara wand sweeping through lashes"
+
+**BEVERAGES/FOOD**:
+→ Being consumed, poured, or held in natural drinking/eating position
+→ Show realistic enjoyment moments
+→ Examples: "coffee cup raised to lips with steam rising", "wine glass tilted for elegant sip"
+
+**TECH/GADGETS**:
+→ Being used for their intended purpose: earbuds in ears, phone in hand being used, watch on wrist
+→ Examples: "earbuds nestled in ears, person lost in music", "smartwatch on wrist displaying notification"
+
+⚠️ NEVER show product being used in unnatural/illogical ways - use your world knowledge of how products are actually used in real life.
+
+🚨 CRITICAL RULES:
+1. Generate DIVERSE outputs - EACH image should show a DIFFERENT model in a DIFFERENT setting with a DIFFERENT mood
+2. For wearables with models: FACE MUST ALWAYS BE VISIBLE AND EXPRESSIVE - include phrases like "face visible", "looking at camera", "genuine smile", "confident gaze"
+3. NO headless/faceless fashion shots - the model's face is essential for emotional connection
+4. In prompts, explicitly state: "face clearly visible" or "model's face showing [expression]"
+5. NO TWO OUTPUTS SHOULD LOOK THE SAME - vary models, settings, moods, lighting
+6. When showing product in use: ALWAYS describe the EXACT realistic usage action matching the product's real-world purpose
+7. 🚨 PROPER FRAMING - NO CROPPED HEADS: Always include "full head visible with headroom" or "medium/full body shot with complete head in frame" - NEVER let the frame cut off the top of the model's head
+8. If INSPIRATION IMAGES provided in inventory: APPLY their aesthetic (colors, lighting, mood, composition) to your product photography
+9. If LINK INSPIRATION provided (from URLs): Study and APPLY the aesthetic - lighting, composition, mood, camera style, human poses - to your product shots
+
+🚫 INTELLIGENT ARTIFACT PREVENTION (UNIQUE PER PROMPT):
+Generate DYNAMIC, CONTEXT-SPECIFIC prevention text for EACH image prompt. Each prompt's prevention MUST be DIFFERENT and SPECIFIC to that scene.
+
+**RULES FOR PREVENTION GENERATION**:
+1. ANALYZE your specific image prompt - what product? what action? what setting?
+2. Write SHORT, TARGETED prevention (3-5 specific points max)
+3. MENTION the actual product by name from inventory analysis
+4. DESCRIBE the specific action correctly if hands/usage is shown
+5. NEVER copy-paste same prevention text across prompts
+
+**DYNAMIC PREVENTION EXAMPLES** (each is UNIQUE to its scene):
+
+Scene: Perfume spray on wrist
+→ [PREVENT: single Midnight Bloom bottle, one spray nozzle, two hands only - left holding bottle right receiving spray, mist between nozzle and wrist only]
+
+Scene: Sweater worn by model on rooftop  
+→ [PREVENT: single Floral Knit Sweater with consistent pattern, model wearing one sweater, full head visible with headroom above - no cropped head, natural rooftop railing perspective, single coherent city skyline]
+
+Scene: Serum dropper application to face
+→ [PREVENT: single dropper tip, one golden drop falling toward cheek, clear face with natural skin, right hand holding dropper near face]
+
+Scene: Sunglasses product shot on marble
+→ [PREVENT: single pair of sunglasses, symmetrical frames, consistent lens tint, natural marble veining, no duplicate products]
+
+Scene: Lipstick being applied
+→ [PREVENT: single lipstick tube, one application point on lips, natural lip shape, hand holding lipstick at natural angle, mirror reflection if present must be consistent]
+
+**WHAT MAKES PREVENTION DYNAMIC**:
+- Uses ACTUAL product name from inventory (e.g., "Floral Knit Sweater" not "product")
+- Describes SPECIFIC hand positions for THAT action (e.g., "left hand holding bottle at 45 degrees")
+- Mentions SPECIFIC environmental elements from YOUR prompt (e.g., "sunset terrace railing" not generic "environment")
+- Focuses on 3-5 RISKY elements for THAT particular composition
+
+**ANTI-PATTERNS TO AVOID**:
+❌ Same prevention text for multiple prompts
+❌ Generic "anatomically correct human" without specifics
+❌ Listing elements NOT in your prompt
+❌ Long exhaustive lists covering everything
+❌ Copy-pasting prevention examples from these instructions
+
+**FOR MODEL SHOTS - ALWAYS ADD TO PREVENTION**:
+→ "full head visible with headroom above, no cropped head"
+→ "properly framed medium/full body shot"
+This prevents AI from generating images where the model's head is cut off at the top.
+"""
+    else:
+        # FLOW 1: Social Media Creative Director persona (default)
+        persona_intro = f"""You are a WORLD-CLASS CREATIVE DIRECTOR specializing in social media content creation.
+You respond ONLY with valid JSON objects, no extra text or formatting.
+
+Generate {number_of_posts} pieces of content for the topic: "{request.topic}\""""
+    
+    system_prompt = f"""{persona_intro}
 
 🎯 YOUR DECISION-MAKING RESPONSIBILITY:
 
@@ -5534,8 +5793,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             print(f"❌ Logo URL generation failed: {e}")
     
     if not presigned_logo_url:
-        print(f"⚠️ No logo URL - Nano Banana Edit requires image_urls parameter!")
-        raise ValueError("Logo URL is required for Nano Banana Edit model")
+        print(f"⚠️ No logo URL available - will use product/model images if available")
     
     # Get presigned URLs from context (already generated in pipeline)
     user_images_presigned = context.get('user_images_presigned', {})
@@ -5660,32 +5918,83 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             elif product_mapping:
                 print(f"  ⚠️ Product mapping '{product_mapping}' not found in available products")
             
-            # Log reference images being used
-            print(f"📸 [NANO-BANANA-EDIT] Image {idx} - Reference images ({len(image_urls)}):")
+            # Ensure at least one image is passed (Nano Banana Edit requirement)
+            # Priority: already added images > logo > any available product
+            if not image_urls:
+                if presigned_logo_url:
+                    image_urls.append(presigned_logo_url)
+                    print(f"  🏷️ Fallback: Including logo image (no other images available)")
+                elif product_presigned_urls:
+                    # Use the first available product image as fallback
+                    first_product_key = list(product_presigned_urls.keys())[0]
+                    image_urls.append(product_presigned_urls[first_product_key])
+                    print(f"  🛍️ Fallback: Including product image {first_product_key} (no logo available)")
+            
+            # Model selection: Force GPT 1.5 for product shot flow or when product images detected, otherwise 50/50 random
+            is_product_shot_flow = context.get("is_product_shot_flow", False)
+            use_photographer_persona = context.get("use_photographer_persona", False)
+            if is_product_shot_flow or use_photographer_persona:
+                # Flow 2: Always use GPT 1.5 Image for high-quality product photography
+                selected_image_model = "gpt-1.5-image"
+                selected_image_model_fal = "fal-ai/gpt-image-1.5/edit"
+                print(f"  🎨 Image model selection: {selected_image_model.upper()} (FORCED - Product Shot Flow)")
+            else:
+                # Flow 1: Random selection 50% Nano Banana Edit, 50% GPT 1.5 Image Edit
+                image_model_random = random.random()
+                if image_model_random > 0.5:
+                    selected_image_model = "nano-banana"
+                    selected_image_model_fal = "fal-ai/nano-banana/edit"
+                else:
+                    selected_image_model = "gpt-1.5-image"
+                    selected_image_model_fal = "fal-ai/gpt-image-1.5/edit"
+                print(f"  🎲 Image model selection: {selected_image_model.upper()} (random: {image_model_random:.2f})")
+            
+            # Log reference images being used (after model selection)
+            print(f"📸 [{selected_image_model.upper()}] Image {idx} - Reference images ({len(image_urls)}):")
             if image_urls:
                 for i, url in enumerate(image_urls):
                     print(f"   {i+1}. {url[:80]}...")
             else:
-                print(f"   ⚠️ No reference images provided - logo is required!")
+                print(f"   ⚠️ No reference images provided - image edit models require at least 1 image!")
+                print(f"   ❌ Skipping image {idx} generation - no reference images available")
+                continue
             
             def on_queue_update(update):
                 if isinstance(update, fal_client.InProgress):
                     for log in update.logs:
                         print(log["message"])
             
-            result = fal_client.subscribe(
-                "fal-ai/nano-banana/edit",
-                arguments={
-                    "prompt": prompt,
-                    "num_images": 1,
-                    "output_format": "jpeg",
-                    "aspect_ratio": "1:1",
-                    "image_urls": image_urls,
-                    "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
-                },
-                with_logs=True,
-                on_queue_update=on_queue_update
-            )
+            if selected_image_model == "nano-banana":
+                result = fal_client.subscribe(
+                    "fal-ai/nano-banana/edit",
+                    arguments={
+                        "prompt": prompt,
+                        "num_images": 1,
+                        "output_format": "jpeg",
+                        "aspect_ratio": "1:1",
+                        "image_urls": image_urls,
+                        "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
+                    },
+                    with_logs=True,
+                    on_queue_update=on_queue_update
+                )
+            else:
+                # GPT 1.5 Image Edit model
+                result = fal_client.subscribe(
+                    "fal-ai/gpt-image-1.5/edit",
+                    arguments={
+                        "prompt": prompt,
+                        "image_urls": image_urls,
+                        "image_size": "1024x1024",
+                        "background": "auto",
+                        "quality": "medium",
+                        "input_fidelity": "high",
+                        "num_images": 1,
+                        "output_format": "png"
+                    },
+                    with_logs=True,
+                    on_queue_update=on_queue_update
+                )
             
             if result and "images" in result and result["images"]:
                 fal_url = result["images"][0]["url"]
@@ -5712,7 +6021,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 # Track model usage
                 model_usage["imageGeneration"].append({
                     "post_index": idx,
-                    "model": "fal-ai/nano-banana/edit",
+                    "model": selected_image_model_fal,
                     "type": "image_post"
                 })
                 
@@ -5782,6 +6091,9 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
         print(f"\n🖼️ Generating {CLIPS_PER_VIDEO} starting frames...")
         
         frame_s3_urls = []
+        locked_frame_model = None  # For multi-clip videos: lock to the model used for frame 1
+        locked_frame_model_fal = None
+        
         for clip_num in range(1, CLIPS_PER_VIDEO + 1):
             clip_data = video_clip_data.get(clip_num, {})
             image_prompt = clip_data.get('image_prompt')
@@ -5843,36 +6155,90 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                             image_urls.append(prev_frame_presigned)
                             print(f"  🔗 Including previous frame for visual continuity (clip {clip_num - 1} → clip {clip_num})")
                 
-                # Ensure at least logo is passed (Nano Banana Edit requirement)
-                if not image_urls and presigned_logo_url:
-                    image_urls.append(presigned_logo_url)
+                # Ensure at least one image is passed (Nano Banana Edit requirement)
+                # Priority: already added images > logo > any available product
+                if not image_urls:
+                    if presigned_logo_url:
+                        image_urls.append(presigned_logo_url)
+                        print(f"  🏷️ Fallback: Including logo image (no other images available)")
+                    elif product_presigned_urls:
+                        # Use the first available product image as fallback
+                        first_product_key = list(product_presigned_urls.keys())[0]
+                        image_urls.append(product_presigned_urls[first_product_key])
+                        print(f"  🛍️ Fallback: Including product image {first_product_key} (no logo available)")
+                
+                # Model selection for frame generation
+                # For multi-clip videos: use the same model for all frames (locked after frame 1)
+                is_product_shot_flow = context.get("is_product_shot_flow", False)
+                use_photographer_persona = context.get("use_photographer_persona", False)
+                if CLIPS_PER_VIDEO > 1 and locked_frame_model is not None:
+                    selected_frame_model = locked_frame_model
+                    selected_frame_model_fal = locked_frame_model_fal
+                    print(f"  🔒 Using locked frame model for consistency: {selected_frame_model.upper()}")
+                elif is_product_shot_flow or use_photographer_persona:
+                    # Flow 2: Always use GPT 1.5 Image for high-quality product photography
+                    selected_frame_model = "gpt-1.5-image"
+                    selected_frame_model_fal = "fal-ai/gpt-image-1.5/edit"
+                    print(f"  🎨 Frame model selection: {selected_frame_model.upper()} (FORCED - Product Shot Flow)")
+                else:
+                    # Flow 1: Random model selection 50% Nano Banana Edit, 50% GPT 1.5 Image Edit
+                    frame_model_random = random.random()
+                    if frame_model_random > 0.5:
+                        selected_frame_model = "nano-banana"
+                        selected_frame_model_fal = "fal-ai/nano-banana/edit"
+                    else:
+                        selected_frame_model = "gpt-1.5-image"
+                        selected_frame_model_fal = "fal-ai/gpt-image-1.5/edit"
+                    
+                    print(f"  🎲 Frame model selection: {selected_frame_model.upper()} (random: {frame_model_random:.2f})")
                 
                 # Log reference images being used for frame generation
-                print(f"  📸 [NANO-BANANA-EDIT] Frame {clip_num} - Reference images ({len(image_urls)}):")
+                print(f"  📸 [{selected_frame_model.upper()}] Frame {clip_num} - Reference images ({len(image_urls)}):")
                 if image_urls:
                     for i, url in enumerate(image_urls):
                         print(f"     {i+1}. {url[:80]}...")
                 else:
-                    print(f"     ⚠️ No reference images provided")
+                    print(f"     ⚠️ No reference images available - Image edit models require at least 1 image!")
+                    print(f"     ❌ Skipping frame {clip_num} generation")
+                    frame_s3_urls.append(None)
+                    continue
                 
                 def on_queue_update(update):
                     if isinstance(update, fal_client.InProgress):
                         for log in update.logs:
                             print(log["message"])
                 
-                result = fal_client.subscribe(
-                    "fal-ai/nano-banana/edit",
-                    arguments={
-                        "prompt": image_prompt,
-                        "num_images": 1,
-                        "output_format": "jpeg",
-                        "aspect_ratio": "1:1",
-                        "image_urls": image_urls,
-                        "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
-                    },
-                    with_logs=True,
-                    on_queue_update=on_queue_update
-                )
+                if selected_frame_model == "nano-banana":
+                    result = fal_client.subscribe(
+                        "fal-ai/nano-banana/edit",
+                        arguments={
+                            "prompt": image_prompt,
+                            "num_images": 1,
+                            "output_format": "jpeg",
+                            "aspect_ratio": "1:1",
+                            "image_urls": image_urls,
+                            "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
+                        },
+                        with_logs=True,
+                        on_queue_update=on_queue_update
+                    )
+                else:
+                    # GPT 1.5 Image Edit model
+                    result = fal_client.subscribe(
+                        "fal-ai/gpt-image-1.5/edit",
+                        arguments={
+                            "prompt": image_prompt,
+                            "image_urls": image_urls,
+                            "image_size": "1024x1024",
+                            "background": "auto",
+                            "quality": "medium",
+                            "input_fidelity": "high",
+                            "num_images": 1,
+                            "output_format": "png"
+                        },
+                        with_logs=True,
+                        on_queue_update=on_queue_update
+                    )
                 
                 if result and "images" in result and result["images"]:
                     fal_url = result["images"][0]["url"]
@@ -5893,11 +6259,17 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     
                     frame_s3_urls.append(s3_url)
                     
+                    # Lock the frame model for multi-clip videos (after first successful frame)
+                    if CLIPS_PER_VIDEO > 1 and locked_frame_model is None:
+                        locked_frame_model = selected_frame_model
+                        locked_frame_model_fal = selected_frame_model_fal
+                        print(f"  🔒 Locking frame model to {selected_frame_model.upper()} for remaining clips")
+                    
                     # Track model usage for frame generation
                     model_usage["videoFrameGeneration"].append({
                         "post_index": video_idx,
                         "clip_number": clip_num,
-                        "model": "fal-ai/nano-banana/edit",
+                        "model": selected_frame_model_fal,
                         "type": "video_frame"
                     })
                     
@@ -6579,6 +6951,15 @@ async def run_adhoc_generation_pipeline(job_id: str, request: DvybAdhocGeneratio
             # Store flags for prompt generation
             context["is_onboarding_product_image"] = request.is_onboarding_product_image or False
             context["force_product_marketing"] = request.force_product_marketing or False
+            context["is_product_shot_flow"] = request.is_product_shot_flow or False
+            
+            # Check if product images were detected - if so, use photographer persona
+            product_images_detected = inventory_analysis.get("product_images", {}).get("count", 0) > 0
+            if product_images_detected:
+                context["use_photographer_persona"] = True
+                print(f"📸 Product images detected in inventory analysis - will use photographer persona")
+            else:
+                context["use_photographer_persona"] = False
         else:
             print("⏭️ Skipping inventory analysis - no user images provided")
         

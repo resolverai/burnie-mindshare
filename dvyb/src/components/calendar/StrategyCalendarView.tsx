@@ -278,26 +278,30 @@ export function StrategyCalendarView() {
     );
   }
 
-  if (items.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-center px-4">
-        <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-          <Sparkles className="w-10 h-10 text-primary" />
-        </div>
-        <h3 className="text-xl font-semibold mb-2">No Content Strategy Yet</h3>
-        <p className="text-muted-foreground max-w-md mb-6">
-          Generate content to create your personalized content strategy. 
-          We'll ask you a few questions to understand your goals and create a 4-week content plan.
-        </p>
-        <Badge variant="secondary" className="text-sm">
-          Strategy is created during content generation
-        </Badge>
-      </div>
-    );
-  }
+  // Check if we have any strategy data
+  const hasStrategyData = items.length > 0 || availableMonths.size > 0;
+  
+  // For navigation when no strategy exists, only allow current month
+  const canNavigatePrev = hasStrategyData ? canGoPrev : false;
+  const canNavigateNext = hasStrategyData ? canGoNext : false;
 
   return (
     <div className="space-y-6">
+      {/* No strategy banner - show subtle message when no strategy exists */}
+      {!hasStrategyData && (
+        <div className="flex items-center gap-3 p-4 rounded-lg bg-primary/5 border border-primary/10">
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-5 h-5 text-primary" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium">No content strategy yet</p>
+            <p className="text-xs text-muted-foreground">
+              Generate content to create your personalized 4-week content plan
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2 sm:gap-4">
@@ -305,8 +309,8 @@ export function StrategyCalendarView() {
             variant="outline" 
             size="icon" 
             onClick={handlePrevMonth}
-            disabled={!canGoPrev}
-            className={`h-8 w-8 sm:h-10 sm:w-10 ${!canGoPrev ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={!canNavigatePrev}
+            className={`h-8 w-8 sm:h-10 sm:w-10 ${!canNavigatePrev ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
@@ -317,8 +321,8 @@ export function StrategyCalendarView() {
             variant="outline" 
             size="icon" 
             onClick={handleNextMonth}
-            disabled={!canGoNext}
-            className={`h-8 w-8 sm:h-10 sm:w-10 ${!canGoNext ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={!canNavigateNext}
+            className={`h-8 w-8 sm:h-10 sm:w-10 ${!canNavigateNext ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <ChevronRight className="w-4 h-4" />
           </Button>
@@ -417,7 +421,8 @@ export function StrategyCalendarView() {
         </div>
       </Card>
 
-      {/* Mobile: List view of items for current month */}
+      {/* Mobile: List view of items for current month - only show if there are items */}
+      {items.length > 0 && (
       <div className="sm:hidden space-y-2">
         <h3 className="text-sm font-semibold text-muted-foreground">
           Posts this month ({items.length})
@@ -454,8 +459,10 @@ export function StrategyCalendarView() {
           </p>
         )}
       </div>
+      )}
 
-      {/* Stats */}
+      {/* Stats - only show if there are items */}
+      {items.length > 0 && (
       <div className="grid grid-cols-4 gap-2 sm:gap-4">
         <Card className="p-2 sm:p-4">
           <div className="text-lg sm:text-2xl font-bold text-primary">{items.length}</div>
@@ -489,6 +496,7 @@ export function StrategyCalendarView() {
           </div>
         </Card>
       </div>
+      )}
 
       {/* Item Detail Dialog */}
       <StrategyItemDetail

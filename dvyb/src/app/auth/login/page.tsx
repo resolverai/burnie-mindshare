@@ -19,6 +19,24 @@ export default function AuthLoginPage() {
   // If already authenticated, redirect based on onboarding status
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
+      // Check if user was in product shot flow (Flow 2)
+      const productFlowPending = localStorage.getItem('dvyb_product_flow_pending');
+      const productFlowPendingUpload = localStorage.getItem('dvyb_product_flow_pending_upload');
+      const productFlowPendingGeneration = localStorage.getItem('dvyb_product_flow_pending_generation');
+      const productShotSession = localStorage.getItem('dvyb_product_shot_session');
+      const landingFlow = localStorage.getItem('dvyb_landing_flow');
+      const isProductFlow = productFlowPending === 'true' || productFlowPendingUpload === 'true' || productFlowPendingGeneration === 'true' || !!productShotSession || landingFlow === 'product';
+      
+      if (isProductFlow) {
+        console.log('📦 Product shot flow detected - redirecting to /');
+        localStorage.removeItem('dvyb_product_flow_pending');
+        localStorage.removeItem('dvyb_product_flow_pending_upload');
+        // Keep dvyb_product_flow_pending_generation - ProductShotFlow needs it
+        // Keep dvyb_landing_flow so page.tsx routes correctly
+        router.push('/');
+        return;
+      }
+      
       if (onboardingComplete) {
         console.log('✅ Already authenticated & onboarded - redirecting to /home');
         router.push('/home');
