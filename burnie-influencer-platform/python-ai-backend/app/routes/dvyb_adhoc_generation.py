@@ -3792,7 +3792,7 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   - **CRITICAL COLOR USAGE**: Use brand colors ONLY in physical objects/surfaces (clothing, walls, furniture, props, decor) - NEVER in lighting, glows, or effects
   - Example: "wearing {color_palette.get('primary')} colored shirt" ✅ NOT "using {color_palette.get('primary')} for lighting accents" ❌
   - **MANDATORY ENDING**: End with: ", colors used only in physical objects and surfaces not in lighting or glow effects, use provided hex colour codes for generating images but no hex colour code as text in image anywhere"
-  - **AI ARTIFACT PREVENTION**: End with "[PREVENT: ...]" with 3-5 SPECIFIC points unique to THIS scene (use actual product name, specific hand positions, specific environment)
+  - **AI ARTIFACT PREVENTION**: End prompt with quality details (3-5 SPECIFIC points): product name, hand anatomy if visible, environment specifics - naturally written, no brackets
   - Remember: These frames will become video starting points, so they must be high-quality and on-brand
   
   🎬 **CLIP MOTION PROMPTS** (Video Animation - CINEMATIC QUALITY):
@@ -4427,13 +4427,23 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   Generate UNIQUE prevention text for EACH prompt based on its SPECIFIC elements:
   
   - Use the ACTUAL product name from inventory (not generic "product")
-  - Describe SPECIFIC hand positions for THAT action (e.g., "right hand holding bottle, left receiving spray")
+  - Describe SPECIFIC hand positions for THAT action
   - Mention SPECIFIC environment elements from YOUR prompt
-  - Keep it SHORT: 3-5 targeted prevention points per prompt
   - Each prompt's prevention MUST be DIFFERENT
   
-  Format: End with "[PREVENT: ...]" with scene-specific details.
-  Example: "[PREVENT: single Floral Sweater with consistent pattern, model's two arms in natural pose, urban rooftop with coherent skyline]"
+  🚨 **MANDATORY WHEN HUMANS/HANDS APPEAR** (ALWAYS include these phrases):
+  - Hands visible: "each hand has exactly five fingers with one thumb, natural finger proportions, no extra digits, no fused fingers"
+  - Two hands: "two distinct hands - left and right clearly differentiated"
+  - Body visible: "anatomically correct human, two arms, two legs, natural proportions, no extra limbs"
+  - Face visible: "symmetrical natural face, two eyes, natural skin texture, full head visible with headroom"
+  
+  Format: End your prompt with quality assurance phrases naturally written (no brackets, no special keywords).
+  
+  Example WITH humans - end prompt with:
+  "...single Sweater with consistent pattern, each hand has exactly five fingers with one thumb, anatomically correct body with two arms, natural proportions, full head visible with headroom, coherent skyline background"
+  
+  Example NO humans - end prompt with:
+  "...single Watch on marble surface, symmetrical watch face, consistent strap texture, no duplicate products, natural marble veining"
    
    **PROFESSIONAL QUALITY** (Social Media Excellence):
    - Specify professional lighting: studio lighting, natural light, golden hour, soft diffused light, dramatic lighting
@@ -4520,42 +4530,79 @@ You respond ONLY with valid JSON objects, no extra text or formatting.
 
 Generate {number_of_posts} pieces of PREMIUM PRODUCT PHOTOGRAPHY content for: "{request.topic}"
 
-🚨🚨🚨 CRITICAL - AUTONOMOUS PRODUCT DISPLAY DECISION 🚨🚨🚨
+🎯🎯🎯 **USER INSTRUCTIONS ARE TOP PRIORITY** 🎯🎯🎯
 
-You MUST intelligently decide HOW to display the product based on its category from inventory analysis:
+**BEFORE generating ANY content, CHECK user instructions:**
+USER INSTRUCTIONS: {request.user_prompt if request.user_prompt and request.user_prompt.strip() else '(No specific instructions)'}
+
+**IF user has provided specific instructions:**
+- FOLLOW them EXACTLY - they override all default behaviors
+- Examples of user instruction types to honor:
+  * "Show product on a beach" → Generate beach setting shots
+  * "Use models wearing the product" → Include models in shots
+  * "Focus on product details only" → No models, just closeups
+  * "Create lifestyle shots" → Lifestyle context with people
+  * "Make it minimal and clean" → Minimalist aesthetic
+  * "Show product in use" → Demonstrate usage with hands/models
+- User knows their brand best - their vision takes precedence
+
+**IF no specific instructions provided:**
+- Use your expertise to decide the best approach
+- Apply the variety and autonomous decision rules below
+
+🚨🚨🚨 CRITICAL - AUTONOMOUS PRODUCT DISPLAY DECISION + VARIETY 🚨🚨🚨
+
+You MUST intelligently decide HOW to display the product AND create VARIETY across outputs.
+
+⚠️ **MANDATORY VARIETY RULE**: Do NOT put human models in ALL images. Mix it up!
+- For 4 images: aim for 2 with models, 2 product-only (closeups, flat-lays, studio shots)
+- For 2 images: 1 with model, 1 product-only
+- Product-only shots are ESSENTIAL for showcasing details, textures, craftsmanship
+
+**SHOT TYPE MIX** (Apply to ALL product categories):
+1. **HERO/CLOSEUP SHOTS** (NO humans): Dramatic product-only shots highlighting design, texture, materials
+2. **DETAIL/MACRO SHOTS** (NO humans): Extreme closeups showing craftsmanship, stitching, buttons, logos
+3. **FLAT-LAY/STYLED SHOTS** (NO humans): Product on beautiful surfaces with complementary props
+4. **LIFESTYLE SHOTS** (WITH humans): Models wearing/using the product in context
 
 **WEARABLE PRODUCTS** (clothing, sweaters, dresses, jackets, shoes, jewelry, watches, accessories, hats, scarves, bags):
-→ MUST use human models wearing/displaying the product
-→ 🚨 FACE MUST BE VISIBLE: Always show the model's face clearly - no cropped heads, no back-of-head shots, no faceless images
-→ Shot types: full body, 3/4 body, or upper body - BUT ALWAYS with face visible and expressive
-→ Show models in different moods: confident swagger, relaxed chill, sophisticated elegance, playful energy
-→ Vary contexts: urban street style, cozy indoor vibes, outdoor adventures, rooftop sunset, cafe scenes
-→ Set `no_characters: false` and include full model specifications in prompts
-→ Example: "Reference product (floral sweater) worn by confident 25-year-old Black woman with natural curly hair, face visible with warm genuine smile, urban street setting, golden hour light, full body shot mid-stride, looking at camera with confident expression"
+→ MIX of model shots AND product-only shots:
+  - 50% WITH models wearing/displaying (face visible, varied moods)
+  - 50% PRODUCT-ONLY: flat-lays, hanging shots, closeups on fabric/details, artistic arrangements
+→ For model shots: face visible, varied ethnicities, moods, settings
+→ For product-only: dramatic lighting, texture details, premium surfaces
+→ Examples WITH model:
+  - "Reference product (floral sweater) worn by confident 25-year-old Black woman, face visible with warm smile, urban street setting"
+→ Examples PRODUCT-ONLY (equally important!):
+  - "Reference product (floral sweater) laid flat on warm wooden surface, soft natural light, visible texture details, cozy blanket and coffee cup nearby"
+  - "Reference product (watch) extreme closeup on dial and hands, dramatic rim lighting, brushed metal surface, luxury aesthetic"
+  - "Reference product (sneakers) artistic arrangement on concrete steps, urban setting, dramatic shadows, no people"
 
 **CONSUMABLE/DTC PRODUCTS** (skincare, cosmetics, food, beverages, supplements, perfumes, candles):
-→ Use a MIX of flat-lay hero shots AND lifestyle shots with hands/models interacting
-→ Show texture details, application moments, unboxing experiences
-→ 🚨 CRITICAL: When showing product IN USE, detail the EXACT realistic usage action:
-   - Perfumes: spraying on wrist/neck (pulse points), NOT on random objects
-   - Serums: dropper dispensing onto fingertips/palm for face application
-   - Creams: being gently applied/patted onto skin
-   - Beverages: being sipped, poured, or held naturally
-→ Examples:
-   - "Reference product (perfume) being elegantly sprayed onto inner wrist by model with face visible, soft golden light, luxurious vanity setting"
-   - "Reference product (serum) with dropper releasing golden drop onto fingertips, preparing for facial application, clean spa aesthetic"
-   - "Reference product (coffee) cup raised to smiling lips, steam rising, cozy morning light through window"
+→ MIX of product-only hero shots AND lifestyle shots:
+  - 60% PRODUCT-ONLY: flat-lays, bottle closeups, texture shots, ingredient showcases
+  - 40% WITH hands/models: application moments, usage demonstrations
+→ Product-only examples:
+  - "Reference product (serum bottle) hero shot on marble surface, golden liquid visible through glass, soft diffused light"
+  - "Reference product (perfume) floating with dramatic rim lighting, mist particles visible, black velvet background"
+→ Lifestyle examples (when showing usage, detail the EXACT realistic action):
+  - Perfumes: spraying on wrist/neck (pulse points), NOT on random objects
+  - Serums: dropper dispensing onto fingertips/palm
+  - Creams: being gently applied/patted onto skin
 
 **TECH/GADGETS** (electronics, devices, gadgets, tools, equipment):
-→ Clean studio hero shots with dramatic lighting
-→ Lifestyle shots showing product in use context
-→ Detail shots of craftsmanship/materials
+→ Primarily PRODUCT-ONLY shots (70%):
+  - Clean studio hero shots with dramatic lighting
+  - Detail shots of craftsmanship/materials
+  - Floating/levitation effects
+→ Some lifestyle shots (30%): product in use context
 → Example: "Reference product (wireless earbuds) floating above brushed metal surface, dramatic rim lighting, reflective case open below, tech-noir aesthetic"
 
 **HOME/DECOR** (furniture, home goods, art, plants):
-→ Styled room/environment shots
-→ Detail texture close-ups
-→ Lifestyle context with or without people
+→ Primarily PRODUCT-ONLY styled shots (80%):
+  - Styled room/environment shots
+  - Detail texture close-ups
+→ Occasional lifestyle context with people (20%)
 
 🎯 YOUR EXPERTISE - PROFESSIONAL PRODUCT PHOTOGRAPHY:
 
@@ -4687,15 +4734,16 @@ When showing product in use, ALWAYS detail the NATURAL, REALISTIC way the produc
 ⚠️ NEVER show product being used in unnatural/illogical ways - use your world knowledge of how products are actually used in real life.
 
 🚨 CRITICAL RULES:
-1. Generate DIVERSE outputs - EACH image should show a DIFFERENT model in a DIFFERENT setting with a DIFFERENT mood
-2. For wearables with models: FACE MUST ALWAYS BE VISIBLE AND EXPRESSIVE - include phrases like "face visible", "looking at camera", "genuine smile", "confident gaze"
-3. NO headless/faceless fashion shots - the model's face is essential for emotional connection
-4. In prompts, explicitly state: "face clearly visible" or "model's face showing [expression]"
-5. NO TWO OUTPUTS SHOULD LOOK THE SAME - vary models, settings, moods, lighting
+1. 🚨 VARIETY IS MANDATORY: Do NOT put human models in ALL images! Mix product-only shots with model shots (aim for 50/50 split)
+2. Generate DIVERSE outputs - vary shot types: closeups, flat-lays, lifestyle, studio, macro details
+3. For model shots: FACE MUST ALWAYS BE VISIBLE AND EXPRESSIVE - include phrases like "face visible", "looking at camera", "genuine smile"
+4. For product-only shots: focus on textures, details, dramatic lighting, premium surfaces - NO humans needed
+5. NO TWO OUTPUTS SHOULD LOOK THE SAME - vary shot types, settings, lighting, angles
 6. When showing product in use: ALWAYS describe the EXACT realistic usage action matching the product's real-world purpose
-7. 🚨 PROPER FRAMING - NO CROPPED HEADS: Always include "full head visible with headroom" or "medium/full body shot with complete head in frame" - NEVER let the frame cut off the top of the model's head
-8. If INSPIRATION IMAGES provided in inventory: APPLY their aesthetic (colors, lighting, mood, composition) to your product photography
-9. If LINK INSPIRATION provided (from URLs): Study and APPLY the aesthetic - lighting, composition, mood, camera style, human poses - to your product shots
+7. 🚨 PROPER FRAMING (for model shots): "full head visible with headroom" - NEVER crop heads
+8. If INSPIRATION IMAGES provided: APPLY their aesthetic to your product photography
+9. If LINK INSPIRATION provided: Study and APPLY the aesthetic from the inspiration
+10. Product-only shots are PREMIUM content - closeups of watches, jewelry, shoes, clothing details are highly valuable
 
 🚫 INTELLIGENT ARTIFACT PREVENTION (UNIQUE PER PROMPT):
 Generate DYNAMIC, CONTEXT-SPECIFIC prevention text for EACH image prompt. Each prompt's prevention MUST be DIFFERENT and SPECIFIC to that scene.
@@ -4707,22 +4755,22 @@ Generate DYNAMIC, CONTEXT-SPECIFIC prevention text for EACH image prompt. Each p
 4. DESCRIBE the specific action correctly if hands/usage is shown
 5. NEVER copy-paste same prevention text across prompts
 
-**DYNAMIC PREVENTION EXAMPLES** (each is UNIQUE to its scene):
+**QUALITY ASSURANCE EXAMPLES** (add these details naturally at the END of your prompts - no brackets, no special keywords):
 
-Scene: Perfume spray on wrist
-→ [PREVENT: single Midnight Bloom bottle, one spray nozzle, two hands only - left holding bottle right receiving spray, mist between nozzle and wrist only]
+Scene: Perfume spray on wrist (HANDS VISIBLE)
+End prompt with: "...single Midnight Bloom bottle, one spray nozzle, each hand has exactly five fingers with one thumb, left hand gripping bottle, right wrist receiving spray, no extra digits, no fused fingers, natural finger proportions, mist between nozzle and wrist"
 
-Scene: Sweater worn by model on rooftop  
-→ [PREVENT: single Floral Knit Sweater with consistent pattern, model wearing one sweater, full head visible with headroom above - no cropped head, natural rooftop railing perspective, single coherent city skyline]
+Scene: Sweater worn by model on rooftop (FULL BODY VISIBLE)
+End prompt with: "...single Floral Knit Sweater with consistent pattern, anatomically correct human with two arms two legs, natural body proportions, no extra limbs, full head visible with headroom above, symmetrical face, natural rooftop perspective, single coherent skyline"
 
-Scene: Serum dropper application to face
-→ [PREVENT: single dropper tip, one golden drop falling toward cheek, clear face with natural skin, right hand holding dropper near face]
+Scene: Serum dropper application to palm (HANDS + FACE VISIBLE)
+End prompt with: "...single dropper tip, each hand has exactly five fingers with one thumb, right hand holding dropper at natural angle, left palm open receiving drop, no extra fingers, no fused digits, symmetrical natural face with two eyes, natural skin texture, one golden drop falling"
 
-Scene: Sunglasses product shot on marble
-→ [PREVENT: single pair of sunglasses, symmetrical frames, consistent lens tint, natural marble veining, no duplicate products]
+Scene: Sunglasses product shot on marble (NO HUMANS)
+End prompt with: "...single pair of sunglasses, symmetrical frames, consistent lens tint, natural marble veining, no duplicate products"
 
-Scene: Lipstick being applied
-→ [PREVENT: single lipstick tube, one application point on lips, natural lip shape, hand holding lipstick at natural angle, mirror reflection if present must be consistent]
+Scene: Lipstick being applied (HAND + FACE VISIBLE)
+End prompt with: "...single lipstick tube, one application point on lips, hand holding lipstick with exactly five fingers and one thumb, natural finger grip, symmetrical face, natural lip shape, no extra fingers"
 
 **WHAT MAKES PREVENTION DYNAMIC**:
 - Uses ACTUAL product name from inventory (e.g., "Floral Knit Sweater" not "product")
@@ -4732,22 +4780,57 @@ Scene: Lipstick being applied
 
 **ANTI-PATTERNS TO AVOID**:
 ❌ Same prevention text for multiple prompts
-❌ Generic "anatomically correct human" without specifics
 ❌ Listing elements NOT in your prompt
 ❌ Long exhaustive lists covering everything
 ❌ Copy-pasting prevention examples from these instructions
 
-**FOR MODEL SHOTS - ALWAYS ADD TO PREVENTION**:
-→ "full head visible with headroom above, no cropped head"
-→ "properly framed medium/full body shot"
-This prevents AI from generating images where the model's head is cut off at the top.
+🚨🚨🚨 **MANDATORY HUMAN ANATOMY PREVENTION** (ALWAYS include when humans/hands appear) 🚨🚨🚨
+
+When your prompt includes ANY human element (full body, hands, face), you MUST include these SPECIFIC prevention phrases:
+
+**WHEN HANDS ARE VISIBLE** (holding product, applying, gesturing):
+→ ALWAYS add: "each hand has exactly five fingers, one thumb per hand, natural finger proportions, no extra digits, no fused fingers, no floating hands"
+→ If two hands: "two distinct hands - left and right clearly differentiated"
+→ If one hand: "single hand with five fingers and one thumb"
+
+**WHEN FULL/PARTIAL BODY VISIBLE**:
+→ ALWAYS add: "anatomically correct human body, two arms, two legs, natural body proportions, no extra limbs, no merged body parts"
+
+**WHEN FACE VISIBLE**:
+→ ALWAYS add: "symmetrical natural face, two eyes, one nose, one mouth, natural skin texture, no distorted features"
+→ Plus: "full head visible with headroom above, no cropped head"
+
+**EXAMPLE PROMPT ENDINGS WITH HUMAN ANATOMY** (add naturally at the END of your prompt - no brackets, no keywords):
+
+Scene: Model holding serum bottle, applying drop to hand
+End prompt with: "...single Hydra Serum bottle, one dropper tip, each hand has exactly five fingers with one thumb per hand, natural finger proportions, no extra digits, no fused fingers, two distinct hands - right holding bottle left receiving drop, one golden drop falling, symmetrical natural face with two eyes, natural skin texture, anatomically correct arms with natural proportions"
+
+Scene: Hands spraying perfume on wrist
+End prompt with: "...single perfume bottle, one spray nozzle, each hand has exactly five fingers with one thumb, left hand gripping bottle naturally, right wrist receiving spray, no extra fingers, no floating hands, natural wrist anatomy, mist arc between nozzle and wrist"
+
+Scene: Model wearing sweater, full body
+End prompt with: "...single sweater with consistent pattern, anatomically correct human body with two arms and two legs, natural body proportions, no extra limbs, full head visible with headroom, symmetrical face, natural posture"
+
+🚨 This is NOT optional - hand/body distortions are the #1 AI artifact problem. ALWAYS include these phrases naturally at the end when humans appear.
 """
     else:
         # FLOW 1: Social Media Creative Director persona (default)
         persona_intro = f"""You are a WORLD-CLASS CREATIVE DIRECTOR specializing in social media content creation.
 You respond ONLY with valid JSON objects, no extra text or formatting.
 
-Generate {number_of_posts} pieces of content for the topic: "{request.topic}\""""
+Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
+
+🎯🎯🎯 **USER INSTRUCTIONS ARE TOP PRIORITY** 🎯🎯🎯
+
+**BEFORE generating ANY content, CHECK user instructions (provided below in USER INSTRUCTIONS section).**
+
+**IF user has provided specific instructions:**
+- FOLLOW them EXACTLY - they override all default behaviors
+- User knows their brand best - their vision takes precedence
+- Honor specific requests about style, mood, setting, models, etc.
+
+**IF no specific instructions provided:**
+- Use your expertise and the guidelines below to decide\""""
     
     system_prompt = f"""{persona_intro}
 
@@ -5114,6 +5197,14 @@ If the user has NOT provided specific content instructions or topic guidance:
    - Posts at indices {sorted(image_only_indices)}: Static images (1:1 aspect ratio)
    - Include brand colors: {color_str}
    - Optimized for AI image generation
+   
+   🚨 **SHOT TYPE VARIETY** (CRITICAL - Do NOT put humans in ALL images):
+   - Mix product-only shots with lifestyle/model shots
+   - For 4 images: 2 product-only (closeups, flat-lays, studio), 2 with models/hands
+   - Product-only shots: dramatic lighting, texture details, macro closeups, flat-lays
+   - Lifestyle shots: models wearing/using product, hands interacting
+   - Example product-only: "Reference product (watch) extreme closeup on dial, dramatic rim lighting, no humans"
+   - Example lifestyle: "Reference product (watch) worn by confident model, urban setting, face visible"
    
    🏷️ **LOGO REQUIREMENT FOR IMAGE POSTS** (MANDATORY):
    - **ALL image-only posts MUST include the brand logo**
@@ -5987,7 +6078,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         "image_urls": image_urls,
                         "image_size": "1024x1024",
                         "background": "auto",
-                        "quality": "medium",
+                        "quality": "high",
                         "input_fidelity": "high",
                         "num_images": 1,
                         "output_format": "png"
