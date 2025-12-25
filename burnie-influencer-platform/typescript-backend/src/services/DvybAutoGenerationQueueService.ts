@@ -396,7 +396,7 @@ INFLUENCER/MODEL SPECIFICATIONS:
         user_prompt: enhancedUserPrompt,
         user_images: null,
         inspiration_links: null,
-        clips_per_video: 1,
+        video_length_mode: 'standard',  // NEW: Default to standard (16s) for auto-generation
         generation_type: 'auto',  // Mark as auto-generated for admin approval workflow
       },
       {

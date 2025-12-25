@@ -429,6 +429,7 @@ export const ProductShotFlow = () => {
         onClose={handlePricingClose}
         canSkip={true}
         reason="user_initiated"
+        userFlow="product_photoshot"
       />
     </>
   );

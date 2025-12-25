@@ -98,6 +98,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
   const [inspirationLinks, setInspirationLinks] = useState<string[]>([""]);
   const [imagePostCount, setImagePostCount] = useState([2]);
   const [videoPostCount, setVideoPostCount] = useState([2]);
+  const [videoLengthMode, setVideoLengthMode] = useState<"quick" | "standard" | "story">("standard");
+  const [videoStyle, setVideoStyle] = useState<"brand_marketing" | "product_marketing" | "ugc_influencer">("brand_marketing");
   const [imageSliderMax, setImageSliderMax] = useState(4);
   const [videoSliderMax, setVideoSliderMax] = useState(4);
   const [usageData, setUsageData] = useState<any>(null);
@@ -550,6 +552,8 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         inspiration_links: inspirationLinks.filter(link => link.trim()).length > 0 
           ? inspirationLinks.filter(link => link.trim()) 
           : undefined,
+        video_length_mode: videoLengthMode,  // Video length mode (quick/standard/story)
+        video_style: numberOfVideos > 0 ? videoStyle : undefined,  // Video style (brand_marketing/product_marketing/ugc_influencer)
       });
       
       if (!response.success) {
@@ -1529,6 +1533,105 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
                   )}
                 </div>
 
+                {/* Video Style Selector - Only show when videos are selected */}
+                {videoPostCount[0] > 0 && (
+                  <div className="pt-3 border-t">
+                    <label className="text-xs sm:text-sm font-medium mb-3 block">
+                      Video Style
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setVideoStyle("brand_marketing")}
+                        className={`p-3 rounded-lg border-2 transition-all text-center ${
+                          videoStyle === "brand_marketing"
+                            ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="text-xs font-medium">Brand Promotion</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVideoStyle("product_marketing")}
+                        className={`p-3 rounded-lg border-2 transition-all text-center ${
+                          videoStyle === "product_marketing"
+                            ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="text-xs font-medium">Product Promotion</div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVideoStyle("ugc_influencer")}
+                        className={`p-3 rounded-lg border-2 transition-all text-center ${
+                          videoStyle === "ugc_influencer"
+                            ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                            : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="text-xs font-medium">UGC</div>
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {videoStyle === "brand_marketing" && "Cinematic brand storytelling with mixed audio styles"}
+                      {videoStyle === "product_marketing" && "Product showcase with professional narration"}
+                      {videoStyle === "ugc_influencer" && "Authentic creator-style with character speaking"}
+                    </p>
+                    
+                    {/* Video Length Selector */}
+                    <div className="mt-4">
+                      <label className="text-xs sm:text-sm font-medium mb-3 block">
+                        Video Length
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setVideoLengthMode("quick")}
+                          className={`p-3 rounded-lg border-2 transition-all text-center ${
+                            videoLengthMode === "quick"
+                              ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
+                          }`}
+                        >
+                          <div className="text-lg font-semibold">8s</div>
+                          <div className="text-xs text-muted-foreground">Quick</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setVideoLengthMode("standard")}
+                          className={`p-3 rounded-lg border-2 transition-all text-center ${
+                            videoLengthMode === "standard"
+                              ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
+                          }`}
+                        >
+                          <div className="text-lg font-semibold">16s</div>
+                          <div className="text-xs text-muted-foreground">Standard</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setVideoLengthMode("story")}
+                          className={`p-3 rounded-lg border-2 transition-all text-center ${
+                            videoLengthMode === "story"
+                              ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-gray-200 dark:border-gray-700 hover:border-gray-300"
+                          }`}
+                        >
+                          <div className="text-lg font-semibold">30-45s</div>
+                          <div className="text-xs text-muted-foreground">Story</div>
+                        </button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {videoLengthMode === "quick" && "Perfect for quick hooks and teasers"}
+                        {videoLengthMode === "standard" && "Ideal for product showcases and reels"}
+                        {videoLengthMode === "story" && "Full storytelling arc with emotional beats"}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Total Posts Summary */}
                 <div className="pt-2 border-t">
                   <p className="text-sm font-medium">
@@ -2363,6 +2466,7 @@ export const GenerateContentDialog = ({ open, onOpenChange, initialJobId, onDial
         isAuthenticated={true}
         canSkip={true}
         reason="quota_exhausted"
+        userFlow={usageData?.initialAcquisitionFlow || 'website_analysis'}
       />
     </>
   );

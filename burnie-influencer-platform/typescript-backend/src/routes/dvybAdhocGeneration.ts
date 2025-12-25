@@ -246,6 +246,8 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
       is_onboarding_product_image,
       force_product_marketing,
       is_product_shot_flow,
+      video_length_mode,  // "quick" (8s) | "standard" (16s) | "story" (30-45s)
+      video_style,  // User's choice: "brand_marketing" | "product_marketing" | "ugc_influencer"
     } = req.body;
 
     // Validate required fields
@@ -407,6 +409,8 @@ router.post('/generate', async (req: DvybAuthRequest, res: Response) => {
         is_onboarding_product_image,
         force_product_marketing,
         is_product_shot_flow,
+        video_length_mode: video_length_mode || 'standard',  // Default to standard (16s)
+        video_style: video_style || undefined,  // User's choice of video style
       }),
     });
 

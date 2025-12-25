@@ -29,7 +29,7 @@ import os
 from app.config.settings import settings
 import tempfile
 import requests
-from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, CompositeAudioClip
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, concatenate_audioclips, CompositeVideoClip, CompositeAudioClip
 from PIL import Image
 import io
 
@@ -53,6 +53,339 @@ FAL_CLIP_TIMEOUT_SECONDS = 300
 
 # Max duration for video inspiration (15 seconds) - longer videos will be trimmed to this
 MAX_VIDEO_INSPIRATION_DURATION = 15
+
+# ============================================
+# VIDEO LENGTH MODES & STORYTELLING FRAMEWORKS
+# ============================================
+
+# Video length mode configurations
+VIDEO_LENGTH_MODES = {
+    "quick": {
+        "description": "Quick 8s single clip",
+        "target_duration": 8,
+        "min_clips": 1,
+        "max_clips": 1,
+        "framework": "hook_reveal"  # Condensed hook + reveal
+    },
+    "standard": {
+        "description": "Standard 16s video (2 clips)",
+        "target_duration": 16,
+        "min_clips": 2,
+        "max_clips": 2,
+        "framework": "condensed_story"  # Hook → Build/Reveal → Payoff
+    },
+    "story": {
+        "description": "Story-like 30-60s+ video (3-8 clips)",
+        "target_duration": 45,  # Target middle of range
+        "min_clips": 3,
+        "max_clips": 8,  # Allow up to 8 clips for complex narratives (8 clips × 8s = 64s max)
+        "framework": "full_7_beat"  # Full 7-beat storytelling arc (can extend beyond 7 beats)
+    }
+}
+
+# Model duration capabilities
+MODEL_DURATIONS = {
+    "veo3.1": [4, 6, 8],  # Veo supports 4s, 6s, 8s
+    "kling_v2.6": [5, 10]  # Kling supports 5s, 10s
+}
+
+# Category detection keywords for emotional triggers
+CATEGORY_KEYWORDS = {
+    "food": ["food", "restaurant", "cafe", "bakery", "coffee", "tea", "beverage", "drink", "meal", "cuisine", 
+             "chef", "cooking", "recipe", "ice cream", "dessert", "snack", "pizza", "burger", "sushi", 
+             "biryani", "curry", "chocolate", "candy", "catering", "kitchen", "dining"],
+    "fashion": ["fashion", "clothing", "apparel", "shoes", "sneakers", "jewelry", "watch", "accessories",
+                "handbag", "bag", "dress", "shirt", "pants", "jeans", "jacket", "coat", "hat", "cap",
+                "sunglasses", "eyewear", "boutique", "style", "outfit", "wardrobe", "designer", "luxury"],
+    "tech_gadget": ["tech", "technology", "gadget", "device", "electronic", "phone", "smartphone", "laptop",
+                   "computer", "tablet", "headphone", "earbuds", "speaker", "camera", "drone", "smartwatch",
+                   "gaming", "console", "software", "app", "saas", "ai", "robot", "iot"],
+    "beauty_wellness": ["beauty", "skincare", "cosmetic", "makeup", "perfume", "fragrance", "spa", "wellness",
+                       "salon", "hair", "nail", "serum", "cream", "lotion", "lipstick", "mascara"],
+    "digital_service": ["agency", "consulting", "marketing", "design", "development", "service", "studio",
+                       "creative", "branding", "advertising", "seo", "social media", "content", "strategy",
+                       "freelance", "coach", "mentor", "course", "education", "training"]
+}
+
+# Category-specific emotional triggers and visual strategies
+CATEGORY_STORYTELLING = {
+    "food": {
+        "emotions": ["comfort", "craving", "nostalgia", "joy", "satisfaction", "warmth"],
+        "visual_levers": ["slow-mo pour/drizzle", "steam rising", "texture closeups", "sizzle shots", 
+                         "ingredient showcase", "bite moments", "golden cheese pull"],
+        "hook_styles": ["sensory tease", "craving trigger", "comfort promise", "secret ingredient"],
+        "goal": "Make viewer salivate and crave the product"
+    },
+    "fashion": {
+        "emotions": ["confidence", "identity", "transformation", "aspiration", "self-expression"],
+        "visual_levers": ["before→after transformation", "movement/flow", "glow-up moment", 
+                         "slow-mo fabric flow", "confident strut", "mirror reveal"],
+        "hook_styles": ["identity question", "transformation promise", "confidence unlock", "style upgrade"],
+        "goal": "Make viewer feel they'd look and feel better with product"
+    },
+    "tech_gadget": {
+        "emotions": ["power", "efficiency", "smartness", "control", "futuristic", "sleek"],
+        "visual_levers": ["frustration→solution", "speed comparison", "feature reveal", 
+                         "interface showcase", "seamless integration", "wow moment"],
+        "hook_styles": ["problem statement", "life hack reveal", "future glimpse", "efficiency promise"],
+        "goal": "Make viewer feel life becomes smarter and easier"
+    },
+    "beauty_wellness": {
+        "emotions": ["self-care", "transformation", "radiance", "confidence", "luxury", "ritual"],
+        "visual_levers": ["skin texture macro", "application ritual", "before→after glow", 
+                         "sensory experience", "pampering moments", "mirror confidence"],
+        "hook_styles": ["self-care invite", "transformation promise", "secret reveal", "glow trigger"],
+        "goal": "Make viewer feel the transformation and self-care moment"
+    },
+    "digital_service": {
+        "emotions": ["aspiration", "trust", "success", "growth", "relief", "empowerment"],
+        "visual_levers": ["pain point dramatization", "success transformation", "results showcase",
+                         "behind-the-scenes", "client testimonial style", "growth visualization"],
+        "hook_styles": ["pain point call-out", "success story tease", "expertise flex", "outcome promise"],
+        "goal": "Make viewer trust brand to grow their life/business"
+    },
+    "general": {
+        "emotions": ["curiosity", "delight", "satisfaction", "trust", "connection"],
+        "visual_levers": ["product hero shots", "lifestyle integration", "benefit demonstration",
+                         "quality showcase", "user experience"],
+        "hook_styles": ["curiosity trigger", "benefit tease", "problem solution", "value reveal"],
+        "goal": "Connect viewer emotionally with the brand and product"
+    }
+}
+
+# 7-Beat Storytelling Framework for Creative Director (lifestyle/UGC videos)
+SEVEN_BEAT_FRAMEWORK = """
+🎬 MANDATORY VIDEO STRUCTURE - 7-BEAT STORYTELLING ARC
+
+You MUST structure videos following this emotional arc:
+
+**BEAT 1 - HOOK (0-3s)**: Stop the scroll!
+- Shock, humor, tension, or intrigue
+- Relatable "that's so me" moment
+- Pattern interrupt that demands attention
+- Examples: "Nobody told me...", "POV: You finally...", "This literally changed..."
+
+**BEAT 2 - PROBLEM/DESIRE BUILD (3-10s)**: Create emotional connection
+- Expand the emotional feeling
+- Make viewer think "this is about ME"
+- Build tension or desire
+- Show the pain point or aspiration
+
+**BEAT 3 - ESCALATION (10-18s)**: Raise the stakes
+- Add humor, deeper relatability, or increased tension
+- "And then it got worse..." or "But wait..."
+- Build anticipation for the solution
+
+**BEAT 4 - TRANSITION/BEAT DROP (~18s)**: The mood shift
+- Music change or tonal shift
+- Visual transformation (lighting, color, energy)
+- Emotional release point
+- The "everything changed when..." moment
+
+**BEAT 5 - PRODUCT REVEAL + PAYOFF (18-35s)**: The hero moment
+- Product solves the emotional state
+- Sensory/aspirational/lifestyle satisfaction
+- Show transformation and benefit
+- Cinematic product showcase
+
+**BEAT 6 - PUNCHLINE/MESSAGE (35-42s)**: The memorable takeaway
+- Crystallize the message
+- Emotional resonance
+- Brand positioning
+- The line they'll remember
+
+**BEAT 7 - CTA (42-45s)**: Call to action
+- Clear next step
+- Urgency or invitation
+- Brand/product name mention
+"""
+
+# 3-Beat Product Framework for Photographer (product-centric videos)
+THREE_BEAT_PRODUCT_FRAMEWORK = """
+🎬 PRODUCT VIDEO STRUCTURE - 3-BEAT VISUAL SHOWCASE
+
+For product-centric videos, follow this visual spectacle arc:
+
+**BEAT 1 - INTRIGUE/REVEAL (0-3s)**: Create mystery
+- Dramatic entrance from darkness/mist
+- Blur to focus reveal
+- Zoom or dolly reveal
+- Silhouette to full reveal
+- NO humans needed - product is the star
+
+**BEAT 2 - GLORY/SHOWCASE (3-10s)**: The main event
+- Hero shots with dramatic lighting
+- Camera orbits (180° or 360°)
+- Texture and detail macro shots
+- Multiple angle transitions
+- Slow-mo beauty moments
+- Rim lighting, reflections, lens flares
+- THIS IS THE MAIN EVENT - make it spectacular
+
+**BEAT 3 - PAYOFF/FINALE (10-15s)**: The hero moment
+- Final beauty shot at perfect angle
+- Hold on hero composition
+- Logo/branding reveal (optional)
+- Seamless loop point (optional)
+- Dramatic final lighting
+
+PRODUCT VIDEO TYPES (LLM should choose based on product):
+- **Hero Orbit**: Camera orbits 360° around product (watches, jewelry, bottles)
+- **Dramatic Reveal**: Product emerges from darkness/mist (luxury, tech)
+- **Texture Journey**: Macro camera travels across surface (fabric, leather, food)
+- **Levitation/Float**: Product floating with dramatic lighting (cosmetics, perfumes)
+- **Pour/Drip/Steam**: Sensory motion elements (food, beverages, skincare)
+"""
+
+
+def detect_brand_category(context: Dict) -> str:
+    """
+    Detect brand category from context for emotional targeting.
+    Returns one of: food, fashion, tech_gadget, beauty_wellness, digital_service, general
+    """
+    dvyb_context = context.get("dvyb_context", {})
+    
+    # Gather text to analyze
+    text_to_analyze = " ".join([
+        str(dvyb_context.get("industry", "")),
+        str(dvyb_context.get("businessOverview", "")),
+        str(dvyb_context.get("popularProducts", "")),
+        str(context.get("topic", "")),
+        str(dvyb_context.get("accountName", "")),
+        str(dvyb_context.get("website", "")),
+    ]).lower()
+    
+    # Count keyword matches per category
+    category_scores = {}
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        score = sum(1 for keyword in keywords if keyword in text_to_analyze)
+        category_scores[category] = score
+    
+    # Find highest scoring category
+    if category_scores:
+        best_category = max(category_scores, key=category_scores.get)
+        if category_scores[best_category] > 0:
+            return best_category
+    
+    return "general"
+
+
+def get_storytelling_context(category: str, video_length_mode: str, is_product_flow: bool) -> Dict:
+    """
+    Get storytelling context based on category and video mode.
+    Returns framework instructions and emotional triggers.
+    """
+    category_data = CATEGORY_STORYTELLING.get(category, CATEGORY_STORYTELLING["general"])
+    mode_config = VIDEO_LENGTH_MODES.get(video_length_mode, VIDEO_LENGTH_MODES["standard"])
+    
+    if is_product_flow:
+        # Use 3-beat product framework for Photographer persona
+        framework = THREE_BEAT_PRODUCT_FRAMEWORK
+        framework_type = "3-beat product showcase"
+    else:
+        # Use appropriate framework based on video length mode for Creative Director
+        if video_length_mode == "quick":
+            framework = """
+🎬 QUICK VIDEO STRUCTURE (8s single clip)
+- HOOK (0-2s): Instant attention grab
+- REVEAL + PAYOFF (2-7s): Product/message showcase
+- CTA (7-8s): Quick call to action or brand
+Keep it punchy, impactful, loop-friendly!
+"""
+            framework_type = "quick hook-reveal"
+        elif video_length_mode == "standard":
+            framework = """
+🎬 STANDARD VIDEO STRUCTURE (16s, 2 clips)
+
+**CLIP 1 (8s)**: Hook + Problem/Desire
+- 0-3s: Strong hook (shock, humor, relatability)
+- 3-8s: Build tension/desire, escalate emotion
+
+**CLIP 2 (8s)**: Resolution + Payoff
+- 0-4s: Beat drop / transition moment
+- 4-7s: Product reveal + satisfaction
+- 7-8s: Punchline + CTA
+"""
+            framework_type = "condensed 4-beat"
+        else:  # story mode
+            framework = SEVEN_BEAT_FRAMEWORK
+            framework_type = "full 7-beat"
+    
+    return {
+        "category": category,
+        "category_data": category_data,
+        "framework": framework,
+        "framework_type": framework_type,
+        "mode_config": mode_config,
+        "emotions": category_data["emotions"],
+        "visual_levers": category_data["visual_levers"],
+        "hook_styles": category_data["hook_styles"],
+        "goal": category_data["goal"]
+    }
+
+
+def map_duration_to_model(requested_duration: int, model_name: str) -> int:
+    """
+    Map LLM-requested duration to actual model capabilities.
+    Returns the closest supported duration for the given model.
+    """
+    supported = MODEL_DURATIONS.get(model_name, [8])
+    
+    # Find closest supported duration
+    closest = min(supported, key=lambda x: abs(x - requested_duration))
+    return closest
+
+
+def calculate_clip_structure(video_length_mode: str, model_name: str) -> List[Dict]:
+    """
+    Calculate optimal clip structure based on video length mode and model.
+    Returns list of clip configurations with durations.
+    """
+    mode_config = VIDEO_LENGTH_MODES.get(video_length_mode, VIDEO_LENGTH_MODES["standard"])
+    target_duration = mode_config["target_duration"]
+    min_clips = mode_config["min_clips"]
+    max_clips = mode_config["max_clips"]
+    
+    supported_durations = MODEL_DURATIONS.get(model_name, [8])
+    max_clip_duration = max(supported_durations)
+    
+    clips = []
+    
+    if video_length_mode == "quick":
+        # Single 8s clip
+        duration = map_duration_to_model(8, model_name)
+        clips.append({"clip_num": 1, "duration": duration, "beat": "hook_reveal"})
+    
+    elif video_length_mode == "standard":
+        # 2 clips, aim for 16s total
+        duration = map_duration_to_model(8, model_name)
+        clips.append({"clip_num": 1, "duration": duration, "beat": "hook_build"})
+        clips.append({"clip_num": 2, "duration": duration, "beat": "reveal_payoff"})
+    
+    elif video_length_mode == "story":
+        # 3-5 clips for 30-45s, use varied durations for rhythm
+        if model_name == "veo3.1":
+            # Veo: Use varied durations for cinematic feel
+            # Hook (4s) → Build (6s) → Escalation (8s) → Reveal (8s) → Payoff (6s)
+            clips = [
+                {"clip_num": 1, "duration": 4, "beat": "hook"},
+                {"clip_num": 2, "duration": 6, "beat": "problem_desire"},
+                {"clip_num": 3, "duration": 8, "beat": "escalation_transition"},
+                {"clip_num": 4, "duration": 8, "beat": "reveal_payoff"},
+                {"clip_num": 5, "duration": 6, "beat": "punchline_cta"},
+            ]
+        else:
+            # Kling: Use 5s and 10s clips
+            # Hook (5s) → Build (10s) → Escalation+Transition (10s) → Reveal+Payoff (10s)
+            clips = [
+                {"clip_num": 1, "duration": 5, "beat": "hook"},
+                {"clip_num": 2, "duration": 10, "beat": "problem_desire_escalation"},
+                {"clip_num": 3, "duration": 10, "beat": "transition_reveal"},
+                {"clip_num": 4, "duration": 10, "beat": "payoff_punchline_cta"},
+            ]
+    
+    return clips
+
 
 # ============================================
 # VIDEO INSPIRATION PROCESSING
@@ -491,7 +824,7 @@ def download_inspiration_image(url: str, output_dir: str = "/tmp/dvyb-inspiratio
         
         print(f"  ⚠️ No suitable images found on webpage")
         return (None, False)
-        
+                
     except ImportError:
         print(f"  ❌ beautifulsoup4 not installed. Install with: pip install beautifulsoup4 lxml")
         return (None, False)
@@ -1356,7 +1689,7 @@ def generate_clip_with_timeout_and_fallback(
                 "prompt": clip_prompt,
                 "image_url": frame_presigned_url,
                 "duration": model_config["duration_param"],  # "5" or "10" (string without 's')
-                "negative_prompt": "blur, distort, low quality, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra text, double logos",
+                "negative_prompt": "blur, distort, low quality, pixelated, noisy, grainy, out of focus, poorly lit, poorly exposed, poorly composed, poorly framed, poorly cropped, poorly color corrected, poorly color graded, additional bubbles, particles, extra text, double logos, extra fingers, six fingers, missing fingers, fused fingers, extra hands, three hands, extra limbs, extra arms, extra legs, deformed hands, mutated hands, malformed hands, distorted face, morphing face, asymmetrical face, extra eyes, cross-eyed, deformed body, unnatural proportions, limb stretching, body parts morphing, product morphing, shape distortion, flickering",
                 "cfg_scale": 0.5,
                 "generate_audio": True
             }
@@ -1471,11 +1804,21 @@ class DvybAdhocGenerationRequest(BaseModel):
     user_prompt: Optional[str] = None
     user_images: Optional[List[str]] = None  # S3 URLs
     inspiration_links: Optional[List[str]] = None
-    clips_per_video: Optional[int] = 1  # Default 1 clip (8-10s), can be 2 (16-20s) or 3 (24-30s)
+    clips_per_video: Optional[int] = 1  # DEPRECATED: Use video_length_mode instead. Kept for backward compatibility.
     is_onboarding_product_image: Optional[bool] = False  # If true, user_images[0] is explicitly a product image from onboarding
     force_product_marketing: Optional[bool] = False  # If true, force product_marketing video type
     is_product_shot_flow: Optional[bool] = False  # If true, use product photography specialist persona (Flow 2)
     generation_type: Optional[str] = "on_demand"  # 'on_demand' for manual, 'auto' for automated generation
+    # NEW: Video length mode for flexible video generation
+    # - "quick": 8s single clip (1 clip, hook+reveal)
+    # - "standard": 16s (2 clips, condensed story) - DEFAULT
+    # - "story": 30-45s (3-5 clips, full 7-beat arc for Creative Director, extended 3-beat for Photographer)
+    video_length_mode: Optional[str] = "standard"  # "quick" | "standard" | "story"
+    # User's video style choice
+    # - "brand_marketing": Cinematic brand storytelling with mixed audio (DEFAULT)
+    # - "product_marketing": Product showcase with professional narration
+    # - "ugc_influencer": Authentic creator-style with character speaking
+    video_style: Optional[str] = "brand_marketing"  # "brand_marketing" | "product_marketing" | "ugc_influencer"
 
 
 class DvybAdhocGenerationResponse(BaseModel):
@@ -2185,8 +2528,10 @@ def trim_ugc_clip_at_speech_end(video_path: str, min_search_time: float = 5.0, b
 async def generate_background_music_with_pixverse(video_s3_url: str, audio_prompt: str, duration: int, account_id: int, generation_uuid: str, video_index: int) -> str:
     """Generate background music for video using Pixverse Sound Effects."""
     try:
-        print(f"🎵 Generating background music with Pixverse Sound Effects...")
-        print(f"   Audio prompt: {audio_prompt[:100]}...")
+        print(f"   🎵 generate_background_music_with_pixverse() called")
+        print(f"      Video: {video_s3_url[:60]}...")
+        print(f"      Duration: {duration}s")
+        print(f"      Audio prompt: {audio_prompt[:100]}...")
         
         # Generate presigned URL for video
         presigned_video_url = web2_s3_helper.generate_presigned_url(video_s3_url)
@@ -2232,39 +2577,253 @@ async def generate_background_music_with_pixverse(video_s3_url: str, audio_promp
         return None
 
 
+async def generate_music_with_elevenlabs(music_prompt: str, duration_seconds: int) -> str:
+    """Generate background music using ElevenLabs Sound Effects v2 via FAL.
+    
+    Args:
+        music_prompt: Short description of the music style/mood
+        duration_seconds: Duration in seconds (typically 4, 6, or 8 for clips)
+        
+    Returns:
+        Path to generated audio file, or None on failure
+    """
+    try:
+        print(f"   🎵 generate_music_with_elevenlabs() called")
+        print(f"      Music prompt: {music_prompt[:100]}...")
+        print(f"      Duration: {duration_seconds}s")
+        
+        def on_queue_update(update):
+            if isinstance(update, fal_client.InProgress):
+                for log in update.logs:
+                    print(f"      📋 ElevenLabs: {log.get('message', str(log))}")
+        
+        result = await asyncio.to_thread(
+            fal_client.subscribe,
+            "fal-ai/elevenlabs/sound-effects/v2",
+            arguments={
+                "text": music_prompt,
+                "prompt_influence": 0.3,
+                "output_format": "mp3_44100_128",
+                "duration_seconds": duration_seconds
+            },
+            with_logs=True,
+            on_queue_update=on_queue_update
+        )
+        
+        # ElevenLabs returns: {"audio": {"url": "..."}}
+        if result and result.get("audio") and result["audio"].get("url"):
+            audio_url = result["audio"]["url"]
+            print(f"      ✅ ElevenLabs music generated: {audio_url[:60]}...")
+            
+            # Download audio to temp file
+            response = requests.get(audio_url)
+            if response.status_code == 200:
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+                    temp_file.write(response.content)
+                    print(f"      ✅ Music downloaded to: {temp_file.name}")
+                    return temp_file.name
+            else:
+                print(f"      ❌ Failed to download audio: HTTP {response.status_code}")
+                return None
+        else:
+            print(f"      ❌ No audio file in ElevenLabs result")
+            print(f"      Result: {result}")
+            return None
+            
+    except Exception as e:
+        print(f"   ❌ Error generating ElevenLabs music: {str(e)}")
+        logger.error(f"ElevenLabs music generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+async def apply_music_to_clip(clip_path: str, music_path: str, output_path: str) -> bool:
+    """Apply background music to a video clip (replacing any existing audio).
+    
+    Args:
+        clip_path: Path to video clip (no audio or with audio to replace)
+        music_path: Path to music audio file
+        output_path: Path for output video with music
+        
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        print(f"      🎵 apply_music_to_clip() called")
+        print(f"         Clip: {clip_path}")
+        print(f"         Music: {music_path}")
+        
+        video = VideoFileClip(clip_path)
+        music = AudioFileClip(music_path)
+        
+        # Trim or loop music to match video duration
+        if music.duration < video.duration:
+            # Loop music if shorter than video
+            loops_needed = int(video.duration / music.duration) + 1
+            music_clips = [music] * loops_needed
+            music = concatenate_audioclips(music_clips)
+        
+        # Trim music to video duration
+        music = music.subclip(0, video.duration)
+        
+        # Set music as video audio
+        video_with_music = video.set_audio(music)
+        
+        # Write output
+        video_with_music.write_videofile(
+            output_path,
+            codec='libx264',
+            audio_codec='aac',
+            temp_audiofile='temp-audio.m4a',
+            remove_temp=True,
+            logger=None
+        )
+        
+        # Cleanup
+        video.close()
+        music.close()
+        video_with_music.close()
+        
+        print(f"      ✅ Music applied successfully")
+        return True
+        
+    except Exception as e:
+        print(f"      ❌ Error applying music to clip: {str(e)}")
+        logger.error(f"Apply music error: {e}")
+        return False
+
+
+async def mix_music_and_voiceover_for_clip(
+    no_audio_clip_path: str, 
+    music_path: str, 
+    voiceover_path: str, 
+    output_path: str,
+    music_volume: float = 0.3,
+    voiceover_volume: float = 1.0
+) -> bool:
+    """Mix background music with voiceover for a clip.
+    
+    Args:
+        no_audio_clip_path: Path to video clip without audio
+        music_path: Path to music audio file
+        voiceover_path: Path to voiceover audio file
+        output_path: Path for output video
+        music_volume: Volume multiplier for music (default 0.3 = 30%)
+        voiceover_volume: Volume multiplier for voiceover (default 1.0 = 100%)
+        
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        print(f"      🎵 mix_music_and_voiceover_for_clip() called")
+        print(f"         Clip: {no_audio_clip_path}")
+        print(f"         Music: {music_path}")
+        print(f"         Voiceover: {voiceover_path}")
+        print(f"         Mix ratio: music {music_volume*100:.0f}%, voiceover {voiceover_volume*100:.0f}%")
+        
+        video = VideoFileClip(no_audio_clip_path)
+        music = AudioFileClip(music_path)
+        voiceover = AudioFileClip(voiceover_path)
+        
+        # Trim or loop music to match video duration
+        if music.duration < video.duration:
+            loops_needed = int(video.duration / music.duration) + 1
+            music_clips = [music] * loops_needed
+            music = concatenate_audioclips(music_clips)
+        music = music.subclip(0, video.duration)
+        
+        # Adjust volumes
+        music = music.volumex(music_volume)
+        voiceover = voiceover.volumex(voiceover_volume)
+        
+        # Trim voiceover if longer than video (shouldn't happen but safety)
+        if voiceover.duration > video.duration:
+            voiceover = voiceover.subclip(0, video.duration)
+        
+        # Mix audio tracks
+        mixed_audio = CompositeAudioClip([music, voiceover])
+        
+        # Apply to video
+        video_with_audio = video.set_audio(mixed_audio)
+        
+        # Write output
+        video_with_audio.write_videofile(
+            output_path,
+            codec='libx264',
+            audio_codec='aac',
+            temp_audiofile='temp-audio.m4a',
+            remove_temp=True,
+            logger=None
+        )
+        
+        # Cleanup
+        video.close()
+        music.close()
+        voiceover.close()
+        mixed_audio.close()
+        video_with_audio.close()
+        
+        print(f"      ✅ Music and voiceover mixed successfully")
+        return True
+        
+    except Exception as e:
+        print(f"      ❌ Error mixing music and voiceover: {str(e)}")
+        logger.error(f"Mix music/voiceover error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 async def mix_voiceover_with_background_music(video_with_music_s3_url: str, voiceover_audio_path: str, account_id: int, generation_uuid: str, video_index: int) -> str:
     """Mix voiceover with background music video, with voiceover at higher volume."""
     try:
-        print(f"🎵 Mixing voiceover with background music...")
+        print(f"   🎵 mix_voiceover_with_background_music() called")
+        print(f"      Video with music: {video_with_music_s3_url[:60]}...")
+        print(f"      Voiceover file: {voiceover_audio_path}")
         
         # Download video with music from S3
+        print(f"      📥 Downloading video with background music from S3...")
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
             presigned_url = web2_s3_helper.generate_presigned_url(video_with_music_s3_url)
             response = requests.get(presigned_url)
             temp_file.write(response.content)
             video_with_music_path = temp_file.name
+        print(f"      ✅ Downloaded: {len(response.content) / 1024:.1f} KB")
         
         # Verify voiceover file exists
         if not os.path.exists(voiceover_audio_path):
-            print(f"❌ Voiceover file not found: {voiceover_audio_path}")
+            print(f"      ❌ Voiceover file not found: {voiceover_audio_path}")
             return None
         
+        voiceover_size = os.path.getsize(voiceover_audio_path)
+        print(f"      ✅ Voiceover file exists: {voiceover_size / 1024:.1f} KB")
+        
         # Load video and audio files
+        print(f"      🔊 Loading audio tracks...")
         video_clip = VideoFileClip(video_with_music_path)
         background_music_clip = video_clip.audio
         voiceover_clip = AudioFileClip(voiceover_audio_path)
         
+        print(f"         Background music duration: {background_music_clip.duration:.1f}s")
+        print(f"         Voiceover duration: {voiceover_clip.duration:.1f}s")
+        
         # Adjust volumes: voiceover louder than background music
+        print(f"      🔉 Adjusting volumes...")
+        print(f"         Background music: 30% (ducked under voiceover)")
+        print(f"         Voiceover: 100% (full volume)")
         background_music_clip = background_music_clip.volumex(0.3)  # 30% volume for background music
         voiceover_clip = voiceover_clip.volumex(1.0)  # 100% volume for voiceover
         
         # Mix audio tracks together
+        print(f"      🎚️ Compositing audio tracks...")
         combined_audio = CompositeAudioClip([background_music_clip, voiceover_clip])
         
         # Set audio to video
         final_clip = video_clip.set_audio(combined_audio)
         
         # Save final clip to temporary file
+        print(f"      💾 Encoding final video with mixed audio...")
         with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as final_temp:
             final_path = final_temp.name
         
@@ -2277,7 +2836,11 @@ async def mix_voiceover_with_background_music(video_with_music_s3_url: str, voic
             logger=None
         )
         
+        final_size = os.path.getsize(final_path)
+        print(f"      ✅ Encoded: {final_size / (1024*1024):.1f} MB")
+        
         # Upload to S3
+        print(f"      📤 Uploading final video to S3...")
         s3_url = web2_s3_helper.upload_from_file(
             file_path=final_path,
             folder=f"dvyb/generated/{account_id}/{generation_uuid}",
@@ -2296,7 +2859,7 @@ async def mix_voiceover_with_background_music(video_with_music_s3_url: str, voic
         except:
             pass
         
-        print(f"✅ Voiceover mixed with background music: {s3_url}")
+        print(f"   ✅ AUDIO MIX COMPLETE: {s3_url}")
         return s3_url
         
     except Exception as e:
@@ -3318,10 +3881,31 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         print(f"⚠️ Frontend didn't provide mix, using default (maximize videos): {num_clips} videos, {num_images} images")
     
     # Video configuration (Model-agnostic - Kling v2.6 or Veo3.1 selected randomly per video)
-    # Kling v2.6: supports 5s and 10s (using 10s default)
-    # Veo3.1: supports 4s, 6s, 8s (using 8s default)
-    # Ratio: 60% Kling, 40% Veo
-    CLIPS_PER_VIDEO = request.clips_per_video if hasattr(request, 'clips_per_video') and request.clips_per_video else 1
+    # Kling v2.6: supports 5s and 10s
+    # Veo3.1: supports 4s, 6s, 8s
+    # Ratio: 10% Kling, 90% Veo
+    
+    # Get video length mode (new system) or fall back to clips_per_video (legacy)
+    video_length_mode = request.video_length_mode if hasattr(request, 'video_length_mode') and request.video_length_mode else "standard"
+    mode_config = VIDEO_LENGTH_MODES.get(video_length_mode, VIDEO_LENGTH_MODES["standard"])
+    
+    # Get user's video style choice (defaults to brand_marketing)
+    user_video_style = request.video_style if hasattr(request, 'video_style') and request.video_style else "brand_marketing"
+    USER_CHOSE_VIDEO_STYLE = True  # User always has a choice (with default)
+    print(f"🎬 Video style: {user_video_style}")
+    
+    # For story mode: Grok decides clip count. For others: use max_clips as fixed value
+    MIN_CLIPS = mode_config["min_clips"]
+    MAX_CLIPS = mode_config["max_clips"]
+    CLIPS_PER_VIDEO = MAX_CLIPS  # Will be used as maximum/example, Grok can choose fewer
+    GROK_DECIDES_CLIP_COUNT = (video_length_mode == "story")  # Story mode = Grok decides
+    
+    # Legacy support: Override with clips_per_video if explicitly set (backward compatibility)
+    if hasattr(request, 'clips_per_video') and request.clips_per_video and request.clips_per_video > 1:
+        CLIPS_PER_VIDEO = request.clips_per_video
+        MAX_CLIPS = request.clips_per_video
+        GROK_DECIDES_CLIP_COUNT = False
+        print(f"⚠️ Legacy clips_per_video override: {CLIPS_PER_VIDEO}")
     
     # Override CLIPS_PER_VIDEO if video inspiration is provided with dynamic clips_per_video
     link_analysis = context.get("link_analysis", {})
@@ -3333,11 +3917,21 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         CLIPS_PER_VIDEO = dynamic_clips
         print(f"🎬 Video inspiration detected ({inspiration_duration:.1f}s) → Overriding clips per video: {original_clips} → {CLIPS_PER_VIDEO}")
     
+    # Detect brand category for emotional targeting
+    brand_category = detect_brand_category(context)
+    is_product_flow = context.get("is_product_shot_flow", False) or context.get("use_photographer_persona", False)
+    
+    # Get storytelling context based on category and mode
+    storytelling_ctx = get_storytelling_context(brand_category, video_length_mode, is_product_flow)
+    
     # CLIP_DURATION will be set per video based on model selection (8s for Veo, 10s for Kling)
     # For Grok prompt generation, we use a conservative estimate
     CLIP_DURATION_ESTIMATE = 8  # Conservative estimate for prompt generation
     VIDEO_DURATION_ESTIMATE = CLIPS_PER_VIDEO * CLIP_DURATION_ESTIMATE
     
+    print(f"⚙️ Video Length Mode: {video_length_mode} ({mode_config['description']})")
+    print(f"⚙️ Brand Category: {brand_category} (Goal: {storytelling_ctx['goal']})")
+    print(f"⚙️ Storytelling Framework: {storytelling_ctx['framework_type']}")
     print(f"⚙️ Video Configuration: {CLIPS_PER_VIDEO} clip(s) per video, ~{CLIP_DURATION_ESTIMATE}-10s per clip")
     print(f"⚙️ Model Selection: 10% Kling v2.6 (10s clips), 90% Veo3.1 (8s clips)")
     
@@ -3519,19 +4113,26 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         if summary and str(summary).strip():
             link_analysis_str = summary
     
-    # Randomly decide voiceover for product/brand marketing videos (10% chance voiceover, 90% no voiceover)
-    # UGC videos always have voiceover=false (character speaks instead)
-    # Video/Image inspiration detected = ALWAYS no voiceover (use inspiration's background music or just visuals)
+    # Voiceover decision - Now Grok has CREATIVE FREEDOM to decide per-clip
+    # But still respect inspiration overrides (no voiceover when inspiration is provided)
+    voiceover_allowed = True  # Grok can decide
+    voiceover_forced_off = False  # Override flag
+    
     if has_video_inspiration:
-        voiceover_for_non_ugc = False
-        print(f"🎬 Video inspiration detected: voiceover forced to FALSE (will use inspiration's background music)")
+        voiceover_forced_off = True
+        voiceover_allowed = False
+        print(f"🎬 Video inspiration detected: voiceover FORCED OFF (will use inspiration's background music)")
+        print(f"   → Grok will NOT include voiceover in any clips")
     elif has_image_inspiration:
-        voiceover_for_non_ugc = False
-        print(f"🖼️ Image inspiration detected: voiceover forced to FALSE (pure visual mode)")
+        voiceover_forced_off = True
+        voiceover_allowed = False
+        print(f"🖼️ Image inspiration detected: voiceover FORCED OFF (pure visual mode)")
+        print(f"   → Grok will NOT include voiceover in any clips")
     else:
-        voiceover_random = random.random()
-        voiceover_for_non_ugc = voiceover_random <= 0.1
-        print(f"🎲 Voiceover decision: random={voiceover_random:.2f}, voiceover_for_non_ugc={voiceover_for_non_ugc} (<=0.1 means voiceover)")
+        print(f"🎤 Voiceover: GROK HAS CREATIVE FREEDOM")
+        print(f"   → Grok will decide per-clip based on brand category, storytelling beat, and content type")
+        print(f"   → Brand category: {brand_category}")
+        print(f"   → Storytelling framework: {storytelling_ctx['framework_type']}")
     
     # Build Grok prompt with clip prompts (matching web3 flow)
     # Color palette for prompts
@@ -3563,12 +4164,16 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         # For each video index, generate CLIPS_PER_VIDEO sets of prompts
         for video_idx in sorted(video_indices):
             for clip_num in range(1, CLIPS_PER_VIDEO + 1):
-                video_examples.append(f'''  "video_{video_idx}_clip_{clip_num}_image_prompt": "Detailed visual description for starting frame of clip {clip_num} in video {video_idx} (9:16 vertical aspect ratio, Instagram Reels style)...",
+                video_examples.append(f'''  "video_{video_idx}_clip_{clip_num}_duration": 4 or 6 or 8 (MANDATORY: choose duration based on the beat/purpose of this clip - see STORYTELLING FRAMEWORK),
+  "video_{video_idx}_clip_{clip_num}_beat": "hook" or "build" or "escalation" or "transition" or "reveal" or "payoff" or "cta" (identify the storytelling beat for this clip),
+  "video_{video_idx}_clip_{clip_num}_has_voiceover": true or false (YOUR CREATIVE DECISION - should this clip have voiceover narration?),
+  "video_{video_idx}_clip_{clip_num}_music_prompt": "CONTEXT-AWARE music for this specific brand + beat (e.g. for food brand reveal: 'warm comfort food crescendo, satisfying meal moment', for tech hook: 'futuristic synth intro, innovation teaser')" or null (set null if voiceover/speech should dominate),
+  "video_{video_idx}_clip_{clip_num}_image_prompt": "Detailed visual description for starting frame of clip {clip_num} in video {video_idx} (9:16 vertical aspect ratio, Instagram Reels style)...",
   "video_{video_idx}_clip_{clip_num}_product_mapping": "image_1" or "image_2" or null (map to product image if needed for this specific frame),
-  "video_{video_idx}_clip_{clip_num}_prompt": "Cinematic 8-10 second video description with smooth motion, no text overlays. [THEN add voiceover OR character speech at the END]",
+  "video_{video_idx}_clip_{clip_num}_prompt": "🚨 MANDATORY: Cinematic description + DYNAMIC QA specific to THIS clip's elements (see QA section). Analyze your image_prompt: what character/product details? Write QA protecting THOSE specific elements (e.g., '[product name] maintains shape', 'consistent [character hair/outfit]', 'five fingers on hand holding [object]'). Then 'no text overlays'. If has_voiceover=true, add voiceover at END.",
   "video_{video_idx}_clip_{clip_num}_logo_needed": true or false''')
             
-            # Single audio prompt per video (added after stitching)
+            # Legacy audio prompt per video (kept for backward compatibility)
             video_examples.append(f'''  "video_{video_idx}_audio_prompt": "Create instrumental background music for {VIDEO_DURATION_ESTIMATE}-second video. Focus ONLY on music composition, NO sound effects."''')
         
         video_prompts_section = ",\n  ".join(video_examples)
@@ -3577,17 +4182,17 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
 
 3. VIDEO TYPE SELECTION & GENERATION ({num_clips} videos, each ~{VIDEO_DURATION_ESTIMATE}-{CLIPS_PER_VIDEO * 10}s):
    
-   🎯 CRITICAL: INTELLIGENT VIDEO TYPE & FLAGS DECISION
+   🎯 CRITICAL: VIDEO TYPE DECISION
    
-   **DECISION HIERARCHY**:
-   1. **Intelligently infer from USER INSTRUCTIONS** what type of video they want:
-      → If user intent is about showcasing/launching/featuring a PRODUCT → use "product_marketing"
-      → If user intent is about brand storytelling/awareness/values → use "brand_marketing"
-      → If user intent is about authentic creator content/testimonials/personal experience → use "ugc_influencer"
-   2. **If user instructions don't clearly indicate a preference**, autonomously decide based on:
-      → Inventory analysis (what products/items are shown)
-      → Brand context (industry, voice, audience)
-      → Content purpose (educational, promotional, storytelling)
+   🚨🚨🚨 **USER SELECTED VIDEO STYLE: {user_video_style.upper()}** 🚨🚨🚨
+   
+   **YOU MUST USE**: video_type = "{user_video_style}"
+   **DO NOT OVERRIDE** - User explicitly selected this style, respect their choice!
+   
+   **VIDEO STYLES REFERENCE** (for your understanding):
+   - **brand_marketing**: Cinematic brand storytelling, mixed audio (character speaking + voiceover + music)
+   - **product_marketing**: Product showcase, professional narration, product as hero
+   - **ugc_influencer**: Authentic creator-style, character speaking to camera throughout
    
    🚨🚨🚨 **CRITICAL - USER INTENT OVERRIDES EVERYTHING** 🚨🚨🚨
    
@@ -3602,32 +4207,77 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - The difference is STYLE: product_marketing is professional/cinematic, ugc_influencer is authentic/casual
    - Having a model in the video does NOT automatically make it UGC
    
-   Only use "ugc_influencer" when user explicitly wants:
-   - Authentic creator/influencer style content
-   - First-person testimonials or reviews
-   - Casual, relatable, personal vlog-style content
+   Only use "ugc_influencer" when ALL conditions are met:
+   - {"❌ NOT ALLOWED: This video has {CLIPS_PER_VIDEO} clips (3+) → ugc_influencer is BLOCKED" if CLIPS_PER_VIDEO >= 3 else "✅ Video is SHORT (1-2 clips) → ugc_influencer is allowed"}
+   - User explicitly wants authentic creator/influencer style content
+   - Content is first-person testimonials, reviews, or casual vlog-style
    
-   Based on this analysis, YOU MUST DECIDE the optimal video type. However, the VOICEOVER FLAG IS PRE-DETERMINED - you MUST use exactly the value specified below:
+   Based on this analysis, YOU MUST DECIDE the optimal video type.
    
-   🚨🚨🚨 **MANDATORY VOICEOVER FLAG FOR THIS GENERATION** 🚨🚨🚨
-   For product_marketing and brand_marketing videos: **voiceover MUST BE {"true" if voiceover_for_non_ugc else "false"}**
-   {"You MUST include voiceover narration in clip prompts." if voiceover_for_non_ugc else "You MUST NOT include ANY voiceover or speech in clip prompts. PURE VISUAL ONLY."}
-   This is PRE-DETERMINED. Do NOT change this value. Do NOT override this decision.
+   🎤🎤🎤 **PER-CLIP AUDIO DECISION - YOUR CREATIVE FREEDOM** 🎤🎤🎤
+   
+   {"🚨 VOICEOVER FORCED OFF: Inspiration content detected. All clips MUST have has_voiceover=false. NO voiceover in any clips." if voiceover_forced_off else f'''You have FULL CREATIVE CONTROL over audio for EACH CLIP independently.
+   
+   **THREE AUDIO OPTIONS PER CLIP** (mix freely for maximum engagement):
+   1. **CHARACTER SPEAKING** → has_voiceover=false, add "Saying in [tone]: [speech]" in prompt
+      - Character's lips move, authentic UGC feel, great for hooks & CTAs
+   2. **VOICEOVER NARRATION** → has_voiceover=true, add "Voiceover in [voice]: [text]" at END
+      - Professional narration over visuals, great for storytelling & explanations
+   3. **PURE VISUAL + MUSIC** → has_voiceover=false, NO speech text in prompt
+      - Music carries the emotion, great for reveals & sensory moments
+   
+   **DECISION CRITERIA** (use your creative judgment):
+   - **Brand Category**: {brand_category}
+   - **Storytelling Framework**: {storytelling_ctx["framework_type"]}
+   - **Emotional Goal**: {storytelling_ctx["goal"]}
+   
+   **AUDIO STRATEGY BY BEAT** (suggestions, not rules):
+   | Beat | Best Option | Why |
+   |------|-------------|-----|
+   | Hook | Character speaking | Direct connection, grabs attention |
+   | Problem | Character OR voiceover | Relatable moment OR narrative setup |
+   | Escalation | Music builds OR voiceover | Tension through sound |
+   | Reveal | Pure visual + music | Let the moment breathe |
+   | Payoff | Character reaction OR music | Emotional authenticity |
+   | CTA | Character speaking | Personal invitation feels genuine |
+   
+   🎭 **NATURAL EXPRESSIONS BY BEAT** (EMBED in image + clip prompts):
+   | Beat | Expression Cues to Include |
+   |------|---------------------------|
+   | Hook | "curious raised eyebrow", "slight head tilt", "engaged eye contact", "intrigued expression" |
+   | Problem | "furrowed brow", "frustrated sigh", "disappointed head shake", "lips pressed in mild annoyance" |
+   | Escalation | "eyes widening with realization", "mouth opening in surprise", "excited energy building" |
+   | Reveal | "awe-struck expression", "jaw dropping slightly", "eyes sparkling with delight" |
+   | Payoff | "satisfied closed-eye moment", "genuine smile reaching eyes", "content exhale" |
+   | CTA | "warm inviting smile", "enthusiastic eye contact", "leaning toward camera", "animated gestures" |
+   
+   **AUDIO STRATEGY BY CATEGORY**:
+   - FOOD: Character reacting to taste + sensory visuals with music
+   - FASHION: Character showing off + lifestyle music beats
+   - TECH: Mix of character demo + voiceover for features
+   - DIGITAL SERVICE: Voiceover builds credibility + character testimonial
+   - BEAUTY: Character transformation + reveal with music
+   
+   🎯 **GOAL**: Create a SCROLL-STOPPING video by mixing character speech, voiceover, and pure visuals strategically.
+   
+   **FOR EACH CLIP**:
+   - "video_X_clip_Y_has_voiceover": true (for voiceover narration) or false (for character speech OR pure visual)
+   - Add appropriate text in clip prompt based on your choice'''}
    
    A. **PRODUCT MARKETING VIDEO** (Professional product showcase):
       - Use when: User wants product-focused content, product launch, product showcase, OR user explicitly mentions "product marketing"
       - ⚠️ CAN include human models wearing/using the product - this is STILL product marketing, NOT UGC
       - FLAGS TO OUTPUT:
         * "video_type": "product_marketing"
-        * "voiceover": {"true" if voiceover_for_non_ugc else "false"} ← MANDATORY - DO NOT CHANGE THIS VALUE
+        * "voiceover": false (legacy field - per-clip has_voiceover is now used)
         * "no_characters": true OR false (can have models in product marketing - set false if user wants model)
         * "human_characters_only": true if including models, false if pure product
         * "influencer_marketing": false (ALWAYS false for product marketing)
       - Style: Professional product showcase, feature highlights
-      {"- Voiceover Style: Professional, authoritative narrator voice (e.g., 'In a professional male narrator voice:', 'In a confident female voice:')" if voiceover_for_non_ugc else "- 🚨 PURE VISUAL MODE (voiceover=false): NO voiceover, NO character speech, NO humans. This is a cinematic product video with ONLY visuals and background music."}
-      {"- Example clip prompt WITH voiceover: 'Sleek smartphone rotating on marble surface, camera orbiting to reveal elegant design features, professional studio lighting, no text overlays. Voiceover in professional male narrator voice: Introducing the future of mobile technology.'" if voiceover_for_non_ugc else "- Example clip prompt WITHOUT voiceover: 'Sleek smartphone rotating on marble surface, 360-degree orbit revealing elegant design features, dramatic rim lighting creating golden edge glow, rack focus from foreground element to product, cinematic atmosphere, no text overlays.'"}
-      {"- CRITICAL: Include voiceover text at END of clip prompt. Specify voice type/tone (professional/enthusiastic/warm/authoritative, male/female)" if voiceover_for_non_ugc else "- 🚨 CRITICAL: NO 'Voiceover:', NO 'Saying:', NO speech text. Focus ONLY on CINEMATIC VISUALS - dramatic lighting, creative camera movements, artistic compositions."}
-      {"- 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text." if voiceover_for_non_ugc else ""}
+      - **PER-CLIP VOICEOVER**: Decide has_voiceover for each clip based on beat purpose
+      - Example clip WITH voiceover (has_voiceover=true): 'Sleek smartphone rotating on marble surface, camera orbiting, no text overlays. Voiceover in professional male voice: Introducing the future of technology.'
+      - Example clip WITHOUT voiceover (has_voiceover=false): 'Sleek smartphone rotating, 360-degree orbit, dramatic rim lighting, cinematic atmosphere, no text overlays.'
+      - 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text.
    
    B. **UGC INFLUENCER VIDEO** (Authentic influencer style):
       - Use when: Lifestyle/personal use context, human engagement needed, relatable content, OR user explicitly requests UGC/influencer style video
@@ -3637,14 +4287,36 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
         * "no_characters": false
         * "human_characters_only": true
         * "influencer_marketing": true
-      - Speech limit: 12-14 words MAX per 8-10s clip
+      - Speech limit: 12-14 words MAX per 8-10s clip (for clips with influencer speaking)
       - Style: Authentic, conversational, relatable UGC content
       
-      🎬 **COMPELLING HOOKS & STORYLINES** (CRITICAL FOR 8-SECOND IMPACT):
+      🎬 **UGC CLIP VARIETY** (NOT EVERY CLIP NEEDS INFLUENCER!):
       
-      Every UGC clip MUST have a mini-narrative with PURPOSE. The influencer is promoting a brand - make every second count:
+      **IMPORTANT**: UGC videos can MIX influencer clips with pure visual clips for maximum impact!
       
-      **8-SECOND STORY STRUCTURE**:
+      **CLIP TYPES FOR UGC VIDEOS** (mix intelligently):
+      1. **INFLUENCER SPEAKING** → Character talks to camera, lips move, authentic feel
+      2. **PURE VISUALS** → No human, just product/scene visuals (B-roll style)
+      3. **INFLUENCER REACTING** → Character visible but not speaking, just reacting/using product
+      
+      **EXAMPLE UGC STORY FLOW** (5 clips):
+      - Clip 1 [hook]: Influencer speaks to camera "POV: You just discovered..."
+      - Clip 2 [problem]: Pure visual - close-up of the problem/situation (no human)
+      - Clip 3 [build]: Influencer reacting with excited expression (minimal/no speech)
+      - Clip 4 [reveal]: Pure visual - product hero shot (no human, let product shine)
+      - Clip 5 [cta]: Influencer speaks "Link in bio, you need this!"
+      
+      **WHY MIX?**: 
+      - Pure visual clips add VARIETY and keep viewers engaged
+      - Product close-ups without influencer = professional feel within UGC
+      - Not every moment needs talking - some beats are VISUAL
+      - Creates scroll-stopping rhythm: talk → visual → talk → visual → CTA
+      
+      🎬 **COMPELLING HOOKS & STORYLINES** (CRITICAL FOR IMPACT):
+      
+      Every UGC clip MUST have a PURPOSE. The influencer is promoting a brand - make every second count:
+      
+      **STORY STRUCTURE**:
       - **Hook (0-2s)**: Grab attention with emotion, question, or surprising statement
       - **Core Message (2-6s)**: Deliver value/benefit authentically  
       - **Impact (6-8s)**: Resolution, reaction, or emotional payoff
@@ -3716,37 +4388,71 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
       
       - Example (product focus): "Reference model holding product up to camera, speaking with enthusiasm, camera zooms slowly into product details while voice continues, then zooms out to satisfied smile, studio lighting, no text overlays. Saying in testimonial tone (14 words max): Feel this quality, see this design, this is why I switched and never looked back."
    
-   C. **BRAND MARKETING VIDEO** (Brand storytelling):
-      - Use when: Abstract brand values, emotional storytelling, no specific product, OR user explicitly requests brand storytelling/brand-focused video
+   C. **BRAND MARKETING VIDEO** (Brand storytelling with CHARACTER-DRIVEN narrative):
+      - Use when: Story videos (3+ clips), brand values through relatable stories, OR user explicitly requests brand storytelling
+      - {"🎬 **THIS IS A STORY VIDEO ({} clips)** - MUST have characters and narrative arc!".format(CLIPS_PER_VIDEO) if CLIPS_PER_VIDEO >= 3 else "Can be abstract or character-driven"}
       - FLAGS TO OUTPUT:
         * "video_type": "brand_marketing"
-        * "voiceover": {"true" if voiceover_for_non_ugc else "false"} ← MANDATORY - DO NOT CHANGE THIS VALUE
-        * "no_characters": true (NO human characters - NEVER include people)
-        * "human_characters_only": false
+        * "voiceover": false (legacy field - per-clip has_voiceover is now used)
+        * "no_characters": {"false (STORY VIDEOS NEED CHARACTERS!)" if CLIPS_PER_VIDEO >= 3 else "true or false (your choice)"}
+        * "human_characters_only": {"true (use relatable human characters for story)" if CLIPS_PER_VIDEO >= 3 else "false"}
         * "influencer_marketing": false
-      - Style: Artistic, emotional, brand-focused
-      {"- Voiceover Style: Inspirational, cinematic narrator voice (specify: warm/inspiring/dramatic, male/female)" if voiceover_for_non_ugc else "- 🚨 PURE VISUAL MODE (voiceover=false): NO voiceover, NO character speech, NO humans. This is a cinematic brand video with ONLY artistic visuals and background music."}
-      {"- Example clip prompt WITH voiceover: 'Abstract artistic representation of innovation, flowing light patterns, dynamic camera movement revealing brand essence, cinematic atmosphere, no text overlays. Voiceover in warm inspiring male voice: Your journey to excellence starts here.'" if voiceover_for_non_ugc else "- Example clip prompt WITHOUT voiceover: 'Abstract artistic representation of innovation, flowing light patterns transitioning through brand colors, sweeping crane shot revealing brand essence, dramatic rim lighting with lens flare, timelapse of environment evolving, cinematic atmosphere, no text overlays.'"}
-      {"- CRITICAL: Include voiceover text at END of clip prompt. Specify voice type/tone for emotional impact (inspiring/dramatic/warm/confident, male/female)" if voiceover_for_non_ugc else "- 🚨 CRITICAL: NO 'Voiceover:', NO 'Saying:', NO speech text. Focus ONLY on CINEMATIC ARTISTRY - dramatic lighting, creative camera work, artistic compositions, abstract visuals."}
-      {"- 🚨 VOICEOVER TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-) in voiceover text." if voiceover_for_non_ugc else ""}
+      
+      {"🎭 **STORY VIDEO CHARACTER RULES** (3+ clips):".format(CLIPS_PER_VIDEO) if CLIPS_PER_VIDEO >= 3 else ""}
+      {'''- MUST include relatable human characters experiencing a journey
+      - Characters CAN speak directly to camera (UGC-style moments) in some clips
+      - Characters CAN have voiceover narration in other clips  
+      - Some clips can be pure visual (product reveal, sensory moments)
+      - MIX techniques for maximum engagement - NOT all voiceover, NOT all character speaking
+      - Create a STORY ARC: relatable problem → tension → discovery → satisfaction
+      
+      **CHARACTER-DRIVEN STORY EXAMPLE** (5 clips for food brand):
+      
+      Clip 1 [hook] - CHARACTER SPEAKS (no product):
+      "South Asian man, 30s, in cozy American apartment, nostalgic expression, no text overlays. Saying in genuine relatable tone (14 words max): Missing home, you know that feeling when nothing tastes like mom's cooking?"
+      
+      Clip 2 [problem] - CHARACTER FRUSTRATION (no product):
+      "Reference character scrolling food delivery apps with disappointed frown, kitchen background, no text overlays. Saying in frustrated tone (14 words max): I've tried everything here, but nothing hits the same, it's just not authentic."
+      
+      Clip 3 [escalation] - DISCOVERY MOMENT (no product yet):
+      "Reference character eyes widening with excitement looking at phone, growing hope, no text overlays. Saying in excited building tone (14 words max): Wait, what is this? Everyone's talking about it, could this actually be real?"
+      
+      Clip 4 [reveal] - PRODUCT HERO SHOT (product mapping now!):
+      "Reference product [Biryani] revealed with steam rising, dramatic food lighting, mouth-watering presentation, no text overlays." (pure visual - music carries this moment)
+      
+      Clip 5 [cta] - SATISFACTION + CALL (product visible):
+      "Reference character taking bite with eyes closed in bliss, reference product visible, no text overlays. Saying in satisfied inviting tone (14 words max): This is it, this is home, you have to try this yourself."
+      ''' if CLIPS_PER_VIDEO >= 3 else '''- Style: Artistic, emotional, brand-focused
+      - Example clip WITH voiceover: 'Abstract flowing light patterns, dynamic camera, no text overlays. Voiceover in warm voice: Your journey starts here.'
+      - Example clip WITHOUT voiceover: 'Abstract flowing light patterns, sweeping crane shot, dramatic lighting, no text overlays.' '''}
+      
+      - 🚨 VOICEOVER/SPEECH TEXT FORMATTING: NEVER use em-dashes (—) or hyphens (-). Use commas, periods instead.
    
    YOU MUST OUTPUT (at the top level):
    "video_type": "product_marketing" OR "ugc_influencer" OR "brand_marketing",
-   "voiceover": {"true" if voiceover_for_non_ugc else "false"} ← 🚨 FOR PRODUCT/BRAND MARKETING: USE EXACTLY THIS VALUE. For UGC: always false.
+   "voiceover": false (LEGACY - per-clip has_voiceover field is now authoritative),
    "no_characters": true OR false,
    "human_characters_only": true OR false,
    "influencer_marketing": true OR false,
    "web3": false (always false for DVYB)
    
-   ⚠️ VOICEOVER FLAG REMINDER: For product_marketing and brand_marketing, voiceover MUST be {"true" if voiceover_for_non_ugc else "false"}. This is PRE-DETERMINED.
+   **PER-CLIP VOICEOVER** (NEW - YOUR CREATIVE DECISION):
+   For each clip, set "video_X_clip_Y_has_voiceover": true or false based on beat purpose and brand category.
    
    📋 MULTI-CLIP VIDEO STRUCTURE (Kling v2.6 / Veo3.1 with 9:16 aspect ratio):
    Video indices: {sorted(video_indices)}
+   
+   {"🎬 **FLEXIBLE CLIP COUNT - YOUR CREATIVE DECISION**:" if GROK_DECIDES_CLIP_COUNT else ""}
+   {"→ You can generate between {} and {} clips based on what your story needs".format(MIN_CLIPS, MAX_CLIPS) if GROK_DECIDES_CLIP_COUNT else ""}
+   {"→ Simple stories: 3-4 clips | Standard narratives: 5-6 clips | Epic tales: 7-8 clips" if GROK_DECIDES_CLIP_COUNT else ""}
+   {"→ Each clip: 4s, 6s, or 8s (choose duration based on beat purpose)" if GROK_DECIDES_CLIP_COUNT else ""}
+   {"→ FIRST output: 'total_clips': N (where N is your chosen clip count)" if GROK_DECIDES_CLIP_COUNT else ""}
+   
    Each video requires:
-   - {CLIPS_PER_VIDEO} image prompts (starting frames for each 8-10s clip)
-   - {CLIPS_PER_VIDEO} clip prompts (motion/animation descriptions)
-   - {CLIPS_PER_VIDEO} logo decisions (true/false for each frame)
-   - 1 audio prompt (background music for entire {VIDEO_DURATION_ESTIMATE}-{CLIPS_PER_VIDEO * 10}s video)
+   - {"YOUR CHOSEN NUMBER of" if GROK_DECIDES_CLIP_COUNT else str(CLIPS_PER_VIDEO)} image prompts (starting frames for each clip)
+   - {"YOUR CHOSEN NUMBER of" if GROK_DECIDES_CLIP_COUNT else str(CLIPS_PER_VIDEO)} clip prompts (motion/animation descriptions)
+   - {"YOUR CHOSEN NUMBER of" if GROK_DECIDES_CLIP_COUNT else str(CLIPS_PER_VIDEO)} logo decisions (true/false for each frame)
+   - 1 audio prompt (background music for entire video)
    
    Format: "video_{{index}}_clip_{{num}}_image_prompt", "video_{{index}}_clip_{{num}}_prompt", etc.
    
@@ -3764,20 +4470,22 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    🚨 USE "REFERENCE MODEL" KEYWORD (MANDATORY):
    - If inventory analysis shows has_model_image=true:
      * You MUST use the exact term **"reference model"** in ALL image prompts for UGC videos
-     * Example: "Reference model sitting at table, looking at camera with genuine excitement"
-     * Example: "Reference model holding product and speaking naturally to camera"
+     * 🚨 MUST start with SHOT TYPE: "MEDIUM SHOT, waist-up with headroom: Reference model..."
+     * Example: "MEDIUM SHOT, waist-up with generous headroom above: Reference model sitting at table, looking at camera with genuine excitement, full head visible"
+     * Example: "THREE-QUARTER SHOT with complete head in frame: Reference model holding product and speaking naturally to camera, ample space above head"
      * DO NOT describe new character details - just use "reference model" to refer to the person from the uploaded image
      * This ensures the same person appears consistently across all frames
    
   - If no model image provided (has_model_image=false - AUTONOMOUS DIVERSE CHARACTER GENERATION):
     * **🎨 IMPORTANT**: Create diverse, authentic influencer characters representing different ethnicities, genders, ages, and styles
     * Consider the brand's target audience and product category when designing the character
-    * Clip 1 image prompt: FULL character description (MUST specify: ethnicity, age range, gender, style, appearance, clothing, body type)
-      → Example 1: "South Asian woman, mid-20s, long dark hair, casual modern style, denim jacket over white tee, confident smile, modern apartment background"
-      → Example 2: "African American man, early 30s, athletic build, streetwear outfit, friendly approachable demeanor, urban loft setting"
-      → Example 3: "East Asian woman, late 20s, minimalist fashion, professional blazer, calm thoughtful expression, clean modern office"
-    * Clip 2+ image prompts: **"Reference character from previous frame"** + new context/action or setting
-      → Example: "Reference character from previous frame, now in elegant living room, demonstrating product use"
+    * 🚨 MUST start EVERY prompt with SHOT TYPE: "MEDIUM SHOT, waist-up with headroom: ..."
+    * Clip 1 image prompt: SHOT TYPE + FULL character description (MUST specify: ethnicity, age range, gender, style, appearance, clothing, body type)
+      → Example 1: "MEDIUM SHOT, waist-up with generous headroom above: South Asian woman, mid-20s, long dark hair, casual modern style, denim jacket over white tee, confident smile, face fully visible, modern apartment background"
+      → Example 2: "THREE-QUARTER SHOT with complete head in frame: African American man, early 30s, athletic build, streetwear outfit, friendly approachable demeanor, full head visible with space above, urban loft setting"
+      → Example 3: "MEDIUM SHOT with ample headroom: East Asian woman, late 20s, minimalist fashion, professional blazer, calm thoughtful expression, face visible, clean modern office"
+    * Clip 2+ image prompts: SHOT TYPE + **"Reference character from previous frame"** + new context/action or setting
+      → Example: "MEDIUM SHOT, waist-up with headroom: Reference character from previous frame, now in elegant living room, demonstrating product use, full head visible"
     * IMPORTANT: Using "reference character" ensures the same person appears consistently across clips
    
    - Same person MUST appear across all clips in the video for consistency
@@ -3867,28 +4575,129 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   
   **UNLIMITED CREATIVITY**: These examples are just INSPIRATION - not limitations. You have COMPLETE creative freedom to invent entirely new cinematic techniques, combine approaches in unexpected ways, or create something we haven't even imagined. The best clip prompts often go far beyond these examples. Trust your creative instincts. Pure visual storytelling with no boundaries.
   
-  🛍️ **PRODUCT MAPPING FOR CLIP FRAMES** (SAME AS IMAGE POSTS):
-  - For EACH clip image prompt, decide if a product should be referenced
-  - Output `"video_X_clip_Y_product_mapping": "image_Z"` or `null`
-  - When product is mapped: Use **"reference product"** keyword in the clip image prompt
-  - **MANDATORY**: Also include **"do not morph the product distinguishing features"** at the end
+  🎬 **VIDEO CLIP QUALITY ASSURANCE** (MANDATORY - DYNAMIC PER CLIP):
   
-  **EXAMPLES**:
+  Video generation models produce artifacts. You MUST generate CONTEXT-SPECIFIC quality assurance for EACH clip based on what's actually in that clip. DO NOT copy-paste the same QA text - analyze your clip prompt and image prompt to determine what needs protection.
+  
+  **🎯 DYNAMIC QA GENERATION PROCESS** (for each clip):
+  
+  1. **ANALYZE your clip prompt**: What elements are present?
+     - Humans? → Which body parts visible? Hands? Face? Full body?
+     - Products? → What product specifically? What angle/view?
+     - Interactions? → Hands touching objects? Pouring? Applying?
+     - Environment? → Background elements that could morph?
+  
+  2. **ANALYZE the associated image prompt**: What was in the starting frame?
+     - Character details from image prompt
+     - Product details from image prompt
+     - Setting/environment specifics
+  
+  3. **GENERATE SPECIFIC QA** based on YOUR analysis:
+  
+  **IF HANDS ARE VISIBLE** (holding, touching, gesturing):
+  → Write QA specific to THAT hand action:
+  - Holding bottle: "right hand gripping [product name] bottle with five fingers, thumb wrapped around neck, no finger clipping through glass"
+  - Applying makeup: "hand holding [product] with natural grip, five fingers visible, index finger applying product, no digit duplication"
+  - Gesturing: "both hands with five fingers each, natural gesturing motion, no extra digits appearing"
+  
+  **IF FACE IS VISIBLE**:
+  → Write QA specific to THAT character:
+  - "consistent face of [character description from image prompt], two symmetrical eyes, natural expressions, no facial morphing"
+  - Include character-specific details: skin tone, hair, features that should stay consistent
+  
+  **IF FULL/PARTIAL BODY VISIBLE**:
+  → Write QA specific to THAT body view:
+  - Full body: "complete figure with two arms, two legs, natural proportions, [clothing from image prompt] stays consistent"
+  - Waist-up: "stable torso, two arms visible, consistent [outfit details], no limb stretching"
+  
+  **IF PRODUCT IS FEATURED**:
+  → Write QA specific to THAT product:
+  - "[Actual product name] maintains exact shape throughout, [specific features like logo/texture/color] stay stable"
+  - "single [product] with consistent [distinguishing features], no duplication"
+  
+  **🚨 EACH CLIP'S QA MUST BE UNIQUE** - based on that specific clip's content!
+  
+  **DYNAMIC QA EXAMPLES** (notice how each is specific to its scene):
+  
+  Scene: Person picking up coffee cup (from image prompt: "30-year-old woman, blonde hair, white blouse")
+  → "Camera follows blonde woman picking up coffee cup, warm café lighting, hand gripping ceramic cup with five fingers and thumb, consistent blonde hair and white blouse throughout motion, facial features stable, cup maintains same size, no text overlays"
+  
+  Scene: Hand spraying perfume (from image prompt: "Midnight Bloom perfume bottle, gold cap")
+  → "Close-up of hand spraying Midnight Bloom perfume, five fingers gripping black bottle, thumb on gold cap spray mechanism, single spray nozzle, mist direction consistent, product shape stable throughout spray action, no text overlays"
+  
+  Scene: Product rotating (from image prompt: "wireless headphones, silver, LED strip")
+  → "Wireless headphones rotating on display, silver finish maintains consistent color, LED strip stays in same position relative to ear cup, no shape warping during rotation, product size stable, no text overlays"
+  
+  Scene: Influencer speaking (from image prompt: "South Asian man, beard, denim jacket")
+  → "Reference character speaking to camera, beard shape consistent, denim jacket texture stable, natural lip movement matching speech, five fingers on each hand when gesturing, no facial distortion during expressions, no text overlays. Saying: [speech]"
+  
+  **🚨 NEVER USE GENERIC QA**: Do NOT write "anatomically correct human" - instead write "consistent [specific character details from your image prompt]"
+  
+  🛍️ **PRODUCT MAPPING RULES - IMAGE POSTS vs VIDEO POSTS** (CRITICAL DIFFERENCE):
+  
+  🚨🚨🚨 **IMAGE POSTS vs VIDEO POSTS - DIFFERENT RULES!** 🚨🚨🚨
+  
+  **📸 IMAGE POSTS (Static images at indices {sorted(image_only_indices)}):**
+  - ✅ **ALWAYS** map product to ALL image posts
+  - ✅ Set `image_X_product_mapping: "image_1"` (or image_2, etc.) for EVERY image
+  - ✅ Product is the STAR of image posts - no storytelling needed
+  - ✅ Use "Reference product" at START of every image prompt
+  - ❌ NEVER set product_mapping to null for image posts when products exist
+  
+  **🎬 VIDEO POSTS (Story videos at indices {sorted(video_indices)}):**
+  - ⚠️ **FOLLOW THE STORYTELLING FRAMEWORK** for product placement
+  - ❌ Do NOT show product in early beats (hook, problem, escalation)
+  - ✅ ONLY show product in later beats (transition, reveal, payoff, CTA)
+  - 📖 The story builds TENSION before the product REVEAL
+  
+  **WHY DIFFERENT RULES?**
+  - Image posts = Product showcase (immediate impact)
+  - Video posts = Storytelling (build anticipation → reveal → satisfaction)
+  - Early product in video = BORING (no story arc)
+  - Late product reveal = ENGAGING (tension → payoff)
+  
+  🚨🚨🚨 **PRODUCT PLACEMENT TIMING FOR VIDEO CLIPS** (MANDATORY):
+  
+  **DO NOT show product in these beats** (set product_mapping to null):
+  - ❌ Hook (beat 1) → Focus on CHARACTER/SITUATION, NOT product
+  - ❌ Problem (beat 2) → Show the PAIN POINT, NOT the solution
+  - ❌ Escalation (beat 3) → Build TENSION, product not revealed yet
+  
+  **SHOW product ONLY in these beats** (set product_mapping to image):
+  - ✅ Transition (beat 4) → Can START to hint at solution
+  - ✅ Reveal (beat 5) → HERO MOMENT - product revealed as solution
+  - ✅ Payoff (beat 6) → Product in use, satisfaction
+  - ✅ CTA (beat 7) → Product with call-to-action
+  
+  **WHY THIS MATTERS**:
+  - Showing product too early KILLS the story arc
+  - Viewers need TENSION before RELEASE
+  - The reveal moment creates IMPACT
+  
+  **EXAMPLES FOR STORY VIDEO** (5 clips):
   ```
-  Available products: image_1 (headphones front), image_2 (headphones side)
-  
-  Video 0, Clip 1 (opening shot with product):
+  Beat 1 - Intrigue/Hook (NO PRODUCT):
   {{
-    "video_0_clip_1_product_mapping": "image_1",
-    "video_0_clip_1_image_prompt": "Reference product (wireless headphones) on modern desk, front angle view showing LED lighting...",
-    "video_0_clip_1_logo_needed": true
+    "video_0_clip_1_beat": "hook",
+    "video_0_clip_1_product_mapping": null,
+    "video_0_clip_1_image_prompt": "Character looking frustrated/curious/intrigued, relatable situation, NO product visible...",
+    "video_0_clip_1_prompt": "Character speaking to camera with relatable expression... Saying in genuine tone (14 words max): Have you ever felt like [relatable problem]..."
   }}
   
-  Video 0, Clip 2 (detail shot):
+  Beat 2 - Problem/Showcase (NO PRODUCT for story, or product showcase for 3-beat):
   {{
-    "video_0_clip_2_product_mapping": "image_2",
-    "video_0_clip_2_image_prompt": "Reference product from side angle, close-up on touch controls, premium materials visible...",
-    "video_0_clip_2_logo_needed": false
+    "video_0_clip_2_beat": "problem",
+    "video_0_clip_2_product_mapping": null,
+    "video_0_clip_2_image_prompt": "Character experiencing the problem, emotional tension building...",
+    "video_0_clip_2_prompt": "Character's frustrated reaction, camera captures emotion..."
+  }}
+  
+  Beat 4 - Reveal (PRODUCT APPEARS!):
+  {{
+    "video_0_clip_4_beat": "reveal",
+    "video_0_clip_4_product_mapping": "image_1",
+    "video_0_clip_4_image_prompt": "Reference product [name] revealed as hero shot, dramatic presentation...",
+    "video_0_clip_4_prompt": "Camera reveals product with satisfying cinematography, triumphant moment..."
   }}
   ```
   
@@ -3904,18 +4713,46 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
   - ❌ BAD: "This product changed everything — I absolutely love it"
   - ❌ BAD: "This product changed everything - I absolutely love it"
   
-  - If video_type = "ugc_influencer":
+  - If video_type = "ugc_influencer" (SHORT videos only, 1-2 clips):
     * Clip prompts MUST include: "Character saying (14 words max): [natural speech]"
     * Speech embedded in Veo3.1 clip (character's lips move)
     * Example: "saying (14 words max): This lipstick changed everything about my makeup routine and I absolutely love it"
     * 🏢 **USE BRAND NAME IN SPEECH**: In the character's speech, use "{dvyb_context.get('accountName', 'the brand')}" when mentioning the brand
     * Example: "saying in excited tone: I've been using {dvyb_context.get('accountName', 'the brand')} and it's a game changer"
-  - If video_type = "product_marketing" or "brand_marketing":
-    * NO character speech in clip prompts
-    * Voiceover added separately (narration, NOT embedded)
-    * Clip prompts focus on pure visual storytelling
-    * 🏢 **USE BRAND NAME IN VOICEOVER**: In the voiceover text, use "{dvyb_context.get('accountName', 'the brand')}" when mentioning the brand
-    * Example: "Voiceover in professional voice: {dvyb_context.get('accountName', 'the brand')} transforms your social presence"
+  
+  - If video_type = "brand_marketing" (REQUIRED for story videos with 3+ clips):
+    
+    🎬 **YOU HAVE FULL CREATIVE AUTONOMY** - Make this video SCROLL-STOPPING and ENGAGING!
+    
+    **MIX TECHNIQUES FREELY ACROSS CLIPS** - Your goal is maximum engagement:
+    * **CHARACTER SPEAKING (UGC-style moments)**: Add "Saying in [tone] (14 words max): [speech]"
+      → Great for: hooks, relatable moments, CTAs, building connection
+      → Character's lips move, feels authentic and personal
+    * **VOICEOVER NARRATION**: Set `has_voiceover=true`, add "Voiceover in [voice style]: [narration]" at END
+      → Great for: explaining value, storytelling transitions, emotional builds
+      → Professional voice over the visuals
+    * **PURE VISUAL WITH MUSIC**: No speech, no voiceover - music and visuals tell the story
+      → Great for: product reveals, sensory moments, beat drops, emotional payoffs
+    
+    🎯 **CREATIVE GUIDANCE** (not rules - use your judgment):
+    | Beat | Consider | Why |
+    | Hook | Character speaking to camera | Grabs attention, feels like talking to viewer |
+    | Problem | Character expression OR voiceover | Relatability OR narrative |
+    | Escalation | Music building OR voiceover | Tension through sound OR story |
+    | Reveal | Pure visual with triumphant music | Let the product/moment shine |
+    | Payoff | Character reacting OR voiceover | Emotional connection OR narration |
+    | CTA | Character speaking directly | Personal invitation to act |
+    
+    🔥 **GOAL**: Create a video that mixes authentic UGC moments with cinematic storytelling.
+    Not every clip needs speech. Not every clip needs voiceover. Find the perfect rhythm.
+    
+    🏢 **USE BRAND NAME**: "{dvyb_context.get('accountName', 'the brand')}" in speech OR voiceover
+  
+  - If video_type = "product_marketing" (product showcases):
+    * Focus on PRODUCT as hero
+    * Typically uses voiceover narration (set has_voiceover=true for clips needing narration)
+    * Some clips can be pure visual with music (product glory shots)
+    * 🏢 **USE BRAND NAME IN VOICEOVER**: "{dvyb_context.get('accountName', 'the brand')}"
    
    🏆 LOGO INTEGRATION (Intelligent decisions):
    
@@ -3942,6 +4779,28 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
    - Focus on KEY visual elements that define the look and feel
    - DO NOT list every single object, accessory, or background element
    - Summarize inspiration into core mood, lighting, composition, and style
+   
+   🚨🚨🚨 **CLIP PROMPT QUALITY ASSURANCE - FINAL REMINDER** 🚨🚨🚨
+   
+   EVERY clip prompt MUST include DYNAMIC, CONTEXT-SPECIFIC quality assurance text BEFORE "no text overlays".
+   
+   **DO NOT USE GENERIC QA** - generate QA specific to each clip's content!
+   
+   **ANALYZE BEFORE WRITING QA**:
+   1. What's in your IMAGE PROMPT for this clip? (character details, product name, setting)
+   2. What ACTION happens in your CLIP PROMPT? (hands touching, product rotating, person speaking)
+   3. Write QA that protects THOSE SPECIFIC elements from artifacts
+   
+   **EXAMPLE CLIP PROMPT STRUCTURE**:
+   "[Scene], [camera], [lighting], [SPECIFIC QA for this clip's elements], no text overlays. [Voiceover if applicable]"
+   
+   ❌ GENERIC (BAD): "Camera orbits product, dramatic lighting, product maintains shape, no text overlays"
+   ✅ SPECIFIC (GOOD): "Camera orbits Midnight Bloom perfume, dramatic lighting, black bottle maintains exact shape, gold cap position stable, label text legible throughout rotation, no text overlays"
+   
+   ❌ GENERIC (BAD): "Person picks up cup, hands have five fingers, no text overlays"  
+   ✅ SPECIFIC (GOOD): "Blonde woman in white blouse picks up coffee cup, right hand gripping ceramic handle with five fingers, consistent blonde hair and facial features, cup size stable, no text overlays"
+   
+   EACH CLIP'S QA MUST BE UNIQUE based on its specific content!
    
    **📸 VISUAL STYLE MATCHING** (MANDATORY - Match brand's visual identity):
    The inventory analysis contains `visual_styles` with the brand's visual characteristics.
@@ -4496,7 +5355,8 @@ async def generate_prompts_with_grok(request: DvybAdhocGenerationRequest, contex
     # Build complete JSON example
     json_example = f'''{{
   "video_type": "product_marketing" or "ugc_influencer" or "brand_marketing",
-  "voiceover": {"true" if voiceover_for_non_ugc else "false"} for product/brand marketing OR false for ugc_influencer,
+  {"'total_clips': 3 or 4 or 5 (YOUR DECISION - how many clips does your story need? Min: {}, Max: {}),".format(MIN_CLIPS, MAX_CLIPS) if GROK_DECIDES_CLIP_COUNT else ""}
+  "voiceover": false (LEGACY - per-clip has_voiceover is now used),
   "no_characters": true or false,
   "human_characters_only": true or false,
   "influencer_marketing": true or false,
@@ -4626,32 +5486,47 @@ You MUST intelligently decide HOW to display the product AND create VARIETY acro
 - **Macro Details**: "extreme close-up on texture/material, shallow depth of field"
 - **Lifestyle Candid**: "natural candid moment, model interacting with product authentically"
 
-🚨 **FRAMING RULES FOR MODEL SHOTS** (CRITICAL - Avoid cropped heads):
-- **NEVER crop the top of the head** - always leave adequate headroom above the model's head
-- **Medium shot minimum**: waist-up or higher, with full head and some space above
-- **Full body preferred**: when showing wearables, full body shots are ideal
-- **Include in prompts**: "full head visible with headroom", "medium shot with complete head in frame", "properly framed with space above head"
-- **Camera distance**: Step back! Don't zoom in so close that the frame cuts off hair/head
-- **Aspect ratio awareness**: For 1:1 square, ensure vertical framing includes full head
-- **Examples of GOOD framing phrases**:
-  → "medium shot from waist up, full head visible with comfortable headroom above"
-  → "full body shot, model completely in frame from head to toe"
-  → "portrait framing with ample space above head, face fully visible"
-- **Examples of BAD framing** (NEVER do this):
-  → Cropped at forehead or hairline
-  → Top of head cut off by frame edge
-  → Extreme close-up cutting off any part of face/head
+🚨🚨🚨 **FRAMING RULES FOR MODEL SHOTS** (ABSOLUTELY CRITICAL - #1 PRIORITY) 🚨🚨🚨
+
+⚠️ **SHOT TYPE MUST BE FIRST WORDS OF EVERY MODEL PROMPT** - This is the MOST important rule!
+
+**MANDATORY PROMPT STRUCTURE for prompts with humans:**
+START every prompt with shot type: "MEDIUM SHOT, waist-up with headroom: ..." or "FULL BODY SHOT: ..."
+
+**REQUIRED SHOT TYPES** (choose one and put it FIRST):
+- "MEDIUM SHOT, waist-up with generous headroom above: [rest of prompt]"
+- "FULL BODY SHOT from head to toe: [rest of prompt]"  
+- "THREE-QUARTER SHOT with complete head in frame: [rest of prompt]"
+
+**FRAMING RULES**:
+- **NEVER crop the top of the head** - always leave 15-20% space above the model's head
+- **Camera MUST step back** - do NOT zoom in close to faces
+- **Head + hair MUST be fully visible** - no hairline cropping, no forehead cut off
+- **Safe zone**: Imagine a box around the model - their ENTIRE head must be well inside the frame
+
+**EXAMPLE PROMPT STRUCTURE** (notice shot type comes FIRST):
+✅ "MEDIUM SHOT, waist-up with generous headroom above: Reference product (baseball cap) worn by 28-year-old South Asian man, athletic build, face visible with confident smile, neutral beige background..."
+✅ "FULL BODY SHOT from head to toe: Model wearing reference product (sweater), standing in urban setting, complete figure in frame with space above head..."
+
+❌ **WRONG** (shot type buried or missing): "Reference product worn by 25-year-old woman, face visible..." (NO shot type = will crop head!)
+
+**EXAMPLES of BAD framing to AVOID**:
+- Close-up shots where forehead/hairline is cropped
+- Top of head cut off by frame edge  
+- Extreme close-up cutting off any part of head
+- Tight chest-up shots without headroom
 
 **MODEL SPECIFICATIONS** (REQUIRED for wearables - be diverse):
-- ALWAYS specify: ethnicity, age range, gender, body type, hair, style vibe, expression, pose
+- 🚨 FIRST: Always start with SHOT TYPE (e.g., "MEDIUM SHOT, waist-up with headroom:")
+- THEN specify: ethnicity, age range, gender, body type, hair, style vibe, expression, pose
 - 🚨 MANDATORY: Always include "face visible" and describe facial expression (smile, confident gaze, etc.)
 - 🚨 NEVER: No cropped heads, no back-of-head shots, no obscured faces, no looking away from camera entirely
 - Vary across outputs: different ethnicities, ages, styles, moods
-- Examples (note face/expression details):
-  → "25-year-old Black woman, natural curly hair, athletic build, face visible with confident smile looking at camera, urban streetwear styling"
-  → "30-year-old East Asian man, minimalist fashion, face visible with relaxed chill expression, slight smile, hands in pockets"
-  → "22-year-old Latina woman, long wavy hair, face visible with playful laugh, head tilted, spinning with fabric flowing"
-  → "35-year-old South Asian woman, elegant professional look, face visible with serene confident gaze, subtle smile"
+- Examples (note SHOT TYPE comes FIRST, then face/expression details):
+  → "MEDIUM SHOT, waist-up with generous headroom above: 25-year-old Black woman, natural curly hair, athletic build, face visible with confident smile looking at camera, urban streetwear styling"
+  → "FULL BODY SHOT from head to toe: 30-year-old East Asian man, minimalist fashion, face visible with relaxed chill expression, slight smile, hands in pockets, complete figure in frame"
+  → "THREE-QUARTER SHOT with complete head visible: 22-year-old Latina woman, long wavy hair, face visible with playful laugh, head tilted, spinning with fabric flowing"
+  → "MEDIUM SHOT with ample headroom: 35-year-old South Asian woman, elegant professional look, face visible with serene confident gaze, subtle smile"
 
 **FOR WEARABLES - MOOD VARIATIONS** (use different moods, FACE ALWAYS VISIBLE):
 - **Swagger/Confidence**: Bold poses, face visible with direct eye contact at camera, power stance
@@ -4734,16 +5609,17 @@ When showing product in use, ALWAYS detail the NATURAL, REALISTIC way the produc
 ⚠️ NEVER show product being used in unnatural/illogical ways - use your world knowledge of how products are actually used in real life.
 
 🚨 CRITICAL RULES:
-1. 🚨 VARIETY IS MANDATORY: Do NOT put human models in ALL images! Mix product-only shots with model shots (aim for 50/50 split)
-2. Generate DIVERSE outputs - vary shot types: closeups, flat-lays, lifestyle, studio, macro details
-3. For model shots: FACE MUST ALWAYS BE VISIBLE AND EXPRESSIVE - include phrases like "face visible", "looking at camera", "genuine smile"
-4. For product-only shots: focus on textures, details, dramatic lighting, premium surfaces - NO humans needed
-5. NO TWO OUTPUTS SHOULD LOOK THE SAME - vary shot types, settings, lighting, angles
-6. When showing product in use: ALWAYS describe the EXACT realistic usage action matching the product's real-world purpose
-7. 🚨 PROPER FRAMING (for model shots): "full head visible with headroom" - NEVER crop heads
-8. If INSPIRATION IMAGES provided: APPLY their aesthetic to your product photography
-9. If LINK INSPIRATION provided: Study and APPLY the aesthetic from the inspiration
-10. Product-only shots are PREMIUM content - closeups of watches, jewelry, shoes, clothing details are highly valuable
+1. 🚨🚨🚨 **SHOT TYPE FIRST** (for model shots): ALWAYS start prompts with "MEDIUM SHOT, waist-up with headroom:" or "FULL BODY SHOT:" - This PREVENTS cropped heads!
+2. 🚨 VARIETY IS MANDATORY: Do NOT put human models in ALL images! Mix product-only shots with model shots (aim for 50/50 split)
+3. Generate DIVERSE outputs - vary shot types: closeups, flat-lays, lifestyle, studio, macro details
+4. For model shots: FACE MUST ALWAYS BE VISIBLE AND EXPRESSIVE - include phrases like "face visible", "looking at camera", "genuine smile"
+5. For product-only shots: focus on textures, details, dramatic lighting, premium surfaces - NO humans needed
+6. NO TWO OUTPUTS SHOULD LOOK THE SAME - vary shot types, settings, lighting, angles
+7. When showing product in use: ALWAYS describe the EXACT realistic usage action matching the product's real-world purpose
+8. 🚨 PROPER FRAMING (for model shots): "full head visible with generous headroom above" - NEVER crop heads - include 15-20% space above head
+9. If INSPIRATION IMAGES provided: APPLY their aesthetic to your product photography
+10. If LINK INSPIRATION provided: Study and APPLY the aesthetic from the inspiration
+11. Product-only shots are PREMIUM content - closeups of watches, jewelry, shoes, clothing details are highly valuable
 
 🚫 INTELLIGENT ARTIFACT PREVENTION (UNIQUE PER PROMPT):
 Generate DYNAMIC, CONTEXT-SPECIFIC prevention text for EACH image prompt. Each prompt's prevention MUST be DIFFERENT and SPECIFIC to that scene.
@@ -4811,7 +5687,82 @@ End prompt with: "...single perfume bottle, one spray nozzle, each hand has exac
 Scene: Model wearing sweater, full body
 End prompt with: "...single sweater with consistent pattern, anatomically correct human body with two arms and two legs, natural body proportions, no extra limbs, full head visible with headroom, symmetrical face, natural posture"
 
-🚨 This is NOT optional - hand/body distortions are the #1 AI artifact problem. ALWAYS include these phrases naturally at the end when humans appear.
+  🚨 This is NOT optional - hand/body distortions are the #1 AI artifact problem. ALWAYS include these phrases naturally at the end when humans appear.
+  
+  🎭 **NATURAL CHARACTER EXPRESSIONS** (CRITICAL FOR BELIEVABLE HUMANS):
+  
+  AI-generated characters often look unnatural, robotic, or expressionless. You MUST add NATURAL EXPRESSION CUES to make characters feel authentic and relatable.
+  
+  **EXPRESSION ELEMENTS TO INCLUDE** (intelligently embed in prompts):
+  
+  **FACIAL EXPRESSIONS** (match the beat/emotion):
+  - Hook/Problem: "slight furrow in brow", "eyes narrowing with curiosity", "lips pressed in mild frustration"
+  - Discovery: "eyes widening with realization", "eyebrows raising in surprise", "mouth opening slightly in awe"
+  - Satisfaction: "genuine warm smile reaching eyes", "relaxed facial muscles", "satisfied closed-eye moment"
+  - Speaking: "natural lip movement", "eyes engaged with camera", "expressive eyebrows during speech"
+  
+  **BODY LANGUAGE** (match the mood):
+  - Frustration: "shoulders slightly hunched", "hand running through hair", "leaning back in exasperation"
+  - Excitement: "leaning forward with energy", "animated hand gestures", "open body posture"
+  - Satisfaction: "relaxed shoulders", "content posture", "natural breathing visible"
+  - Authenticity: "small natural fidgets", "weight shifting", "genuine micro-expressions"
+  
+  **AVOID ROBOTIC APPEARANCES**:
+  - ❌ "person looking at camera" (too static)
+  - ✅ "person glancing at camera with slight head tilt and warm smile, eyes crinkling at corners"
+  
+  - ❌ "happy expression" (too generic)
+  - ✅ "genuine smile with visible teeth, crow's feet forming at eyes, cheeks raised naturally"
+  
+  - ❌ "speaking to camera" (too flat)
+  - ✅ "speaking with animated expressions, eyebrows rising for emphasis, natural hand gestures accompanying words"
+  
+  **EMBED NATURALLY IN IMAGE PROMPTS**:
+  "South Asian man, 30s, friendly nostalgic expression with *slight wistful smile and distant gaze*, casual checkered shirt..."
+  
+  **EMBED NATURALLY IN CLIP PROMPTS**:
+  "Reference character *turning to camera with eyes lighting up in recognition*, subtle head tilt forward, *genuine excited micro-expressions forming*, no text overlays. Saying in..."
+
+🎬🎬🎬 **VIDEO CLIP QUALITY ASSURANCE** (MANDATORY - DYNAMIC PER CLIP) 🎬🎬🎬
+
+Video generation models produce WORSE artifacts than image models. You MUST generate CONTEXT-SPECIFIC quality assurance for EACH clip based on what's in that specific clip and its associated image prompt.
+
+**🎯 DYNAMIC QA GENERATION** (DO NOT copy-paste - generate unique QA per clip):
+
+1. **LOOK AT YOUR IMAGE PROMPT** for this clip - what specific elements are there?
+2. **LOOK AT YOUR CLIP PROMPT** - what actions/movements are happening?
+3. **WRITE QA SPECIFIC TO THOSE ELEMENTS** - use actual names and details!
+
+**DYNAMIC QA RULES BY ELEMENT TYPE**:
+
+**HANDS VISIBLE** → Describe SPECIFIC hand action:
+- "right hand holding [exact product name from inventory] with five fingers, thumb stabilizing grip"
+- "fingers applying [product] to [target], natural pressure, no clipping through surface"
+- "both hands visible with five fingers each during [specific action]"
+
+**FACE/CHARACTER VISIBLE** → Reference YOUR image prompt details:
+- "consistent [character details you wrote in image prompt], facial features stable during [action]"
+- "same [hair color/style, skin tone, outfit] as starting frame throughout motion"
+
+**PRODUCT FEATURED** → Use ACTUAL product name:
+- "[Product name from inventory] maintains exact shape, [specific feature like logo/cap/texture] stays stable"
+- "single [product] throughout, no duplication, [distinguishing features] consistent"
+
+**PRODUCT PHOTOGRAPHY DYNAMIC QA EXAMPLES**:
+
+Scene: Serum dropper (image prompt had: "Hydra Glow serum, amber glass bottle, gold dropper")
+→ "Close-up of Hydra Glow serum application, amber glass bottle shape stable, gold dropper dispensing single drop, hand with five fingers gripping dropper naturally, golden liquid drop maintaining form as it falls, no text overlays"
+
+Scene: Model wearing sweater (image prompt had: "25-year-old Asian woman, black hair, Floral Knit sweater")
+→ "Model showcase of Floral Knit sweater, consistent floral pattern on sweater fabric, Asian woman's black hair and facial features stable, sweater fit unchanged during movement, natural arm positions with two arms visible, no text overlays"
+
+Scene: Watch detail shot (image prompt had: "Chronos Elite watch, silver case, black leather strap")
+→ "Macro detail of Chronos Elite watch, silver case maintains circular shape, black leather strap texture consistent, watch face details stable during slow rotation, no dial distortion, no text overlays"
+
+**🚨 ANTI-PATTERNS TO AVOID**:
+❌ Generic: "anatomically correct human" → ✅ Specific: "consistent [your character description]"
+❌ Generic: "product maintains shape" → ✅ Specific: "[Product name] maintains [specific features]"
+❌ Same QA for every clip → ✅ Unique QA based on each clip's content
 """
     else:
         # FLOW 1: Social Media Creative Director persona (default)
@@ -4832,7 +5783,52 @@ Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
 **IF no specific instructions provided:**
 - Use your expertise and the guidelines below to decide\""""
     
+    # Build storytelling framework section based on category and mode
+    storytelling_section = f"""
+🎬🎬🎬 **STORYTELLING FRAMEWORK - {storytelling_ctx['framework_type'].upper()}** 🎬🎬🎬
+
+**BRAND CATEGORY DETECTED**: {brand_category.upper()}
+**EMOTIONAL GOAL**: {storytelling_ctx['goal']}
+**VIDEO LENGTH MODE**: {video_length_mode} ({mode_config['description']})
+**TARGET CLIPS**: {mode_config['min_clips']}-{mode_config['max_clips']} clips
+
+**EMOTIONAL TRIGGERS TO USE** (for this category):
+- Emotions: {', '.join(storytelling_ctx['emotions'])}
+- Visual Levers: {', '.join(storytelling_ctx['visual_levers'][:5])}
+- Hook Styles: {', '.join(storytelling_ctx['hook_styles'])}
+
+{storytelling_ctx['framework']}
+
+🎯 **CLIP DURATION SPECIFICATION** (MANDATORY):
+
+You MUST specify the duration for each clip in your output. The video generation model will use these exact durations.
+
+**SUPPORTED DURATIONS**:
+- Veo3.1: 4s, 6s, 8s
+- Kling: 5s, 10s
+
+**For each clip, add a "duration" field**:
+- "video_X_clip_Y_duration": 4 or 6 or 8 (for beat-appropriate timing)
+
+**DURATION GUIDANCE BY BEAT**:
+- Hook/Intro beats: 4s (punchy, attention-grabbing)
+- Build/Escalation beats: 6s-8s (time to develop emotion)  
+- Reveal/Payoff beats: 6s-8s (time for satisfaction)
+- CTA/Outro beats: 4s (quick, memorable)
+
+**Example for story mode (5 clips)**:
+- Clip 1 (Hook): 4s - Quick attention grab
+- Clip 2 (Problem/Desire): 6s - Build tension
+- Clip 3 (Escalation+Transition): 8s - Stakes + beat drop
+- Clip 4 (Reveal+Payoff): 8s - Product satisfaction
+- Clip 5 (Punchline+CTA): 6s - Memorable ending
+
+**VARY DURATIONS for cinematic rhythm** - don't make every clip the same length!
+"""
+    
     system_prompt = f"""{persona_intro}
+
+{storytelling_section}
 
 🎯 YOUR DECISION-MAKING RESPONSIBILITY:
 
@@ -4840,21 +5836,99 @@ Generate {number_of_posts} pieces of content for the topic: "{request.topic}"
    - Analyze brand context, inventory, user instructions, and link analysis
    - Set appropriate flags based on your decision
 
-2. **⚠️ VOICEOVER FLAG IS PRE-DETERMINED** (DO NOT OVERRIDE):
-   - For product_marketing and brand_marketing: voiceover MUST be {"true" if voiceover_for_non_ugc else "false"} (this is pre-decided)
-   - For ugc_influencer: voiceover is always false (character speaks on camera)
+2. **🎤 PER-CLIP VOICEOVER - YOUR CREATIVE FREEDOM**:
+   {"🚨 VOICEOVER FORCED OFF: Inspiration detected. Set has_voiceover=false for ALL clips." if voiceover_forced_off else f'''You decide voiceover for EACH CLIP independently based on:
+   - Brand Category: {brand_category} → {storytelling_ctx["goal"]}
+   - Beat Purpose: Hook clips usually NO voiceover, CTA clips often YES
+   - Content Type: UGC = character speech, Product/Brand = your choice per clip'''}
 
-3. **GENERATE PROMPTS BASED ON FLAGS**:
-   {"- voiceover=true for product/brand marketing → Include 'Voiceover in [tone] [gender] voice:' at END of clip prompts" if voiceover_for_non_ugc else "- voiceover=false for product/brand marketing → NO voiceover, NO speech - PURE VISUAL with cinematic effects only"}
+3. **GENERATE PROMPTS BASED ON YOUR VOICEOVER DECISIONS**:
+   - If has_voiceover=true for a clip → Include 'Voiceover in [tone] [gender] voice:' at END of clip prompt
+   - If has_voiceover=false for a clip → Pure visual, NO voiceover text
    - influencer_marketing=true (UGC) → Include "saying in [tone] (14 words max): [speech]" in clip prompts
    - no_characters=true → NO human characters in prompts
 
-3. **SPECIFY VOICE/TONE** (CRITICAL for Veo3.1 audio quality):
+4. **SPECIFY VOICE/TONE** (CRITICAL for Veo3.1 audio quality when has_voiceover=true):
    - Product/Brand videos: "Voiceover in professional male narrator voice:" or "warm confident female voice:"
    - UGC videos: "saying in conversational excited tone:" or "genuine relatable tone:"
    - Voice/tone specification ensures Veo3.1 generates appropriate, high-quality embedded audio
 
-4. **USE ACTUAL BRAND NAME IN CLIP PROMPTS ONLY** (MANDATORY for voiceover/speech):
+5. **🎵 PER-CLIP MUSIC PROMPT - CONTEXT-AWARE GENERATION**:
+   Generate music prompts that are SPECIFIC to the brand, story context, and beat purpose. NOT generic prompts!
+   
+   **🎯 MUSIC PROMPT MUST CONSIDER**:
+   1. **BRAND CONTEXT**: Industry, target audience, brand personality
+   2. **STORY CONTEXT**: What's happening visually in this clip
+   3. **BEAT PURPOSE**: Where this clip sits in the storytelling framework
+   4. **EMOTIONAL GOAL**: What feeling should the viewer have
+   
+   **MUSIC PROMPT GENERATION BY BRAND CATEGORY**:
+   
+   **FOOD/BEVERAGE BRANDS**:
+   - Hook: "warm acoustic intro, anticipation of delicious moment, subtle sizzle undertone"
+   - Build: "gentle rhythm building hunger, cozy kitchen ambiance"
+   - Reveal: "satisfying crescendo, comfort food warmth, feel-good resolution"
+   - CTA: "upbeat cheerful melody, inviting dining atmosphere"
+   
+   **FASHION/BEAUTY BRANDS**:
+   - Hook: "sleek modern beat, runway energy, confident pulse"
+   - Build: "stylish electronic groove, transformation building"
+   - Reveal: "glamorous reveal music, empowering beat drop, confidence surge"
+   - CTA: "trendy pop energy, aspirational lifestyle vibe"
+   
+   **TECH/GADGET BRANDS**:
+   - Hook: "futuristic synth intro, innovation teaser, clean digital tone"
+   - Build: "technological pulse building, anticipation of reveal"
+   - Reveal: "epic tech reveal, powerful bass drop, future-forward triumph"
+   - CTA: "energetic electronic, cutting-edge momentum, call to action drive"
+   
+   **DIGITAL SERVICE/SaaS BRANDS**:
+   - Hook: "professional corporate intro, trust-building tone"
+   - Build: "steady momentum, productivity rhythm, focus energy"
+   - Reveal: "achievement unlocked feel, success crescendo"
+   - CTA: "motivational upbeat, take-action energy, confident close"
+   
+   **LIFESTYLE/WELLNESS BRANDS**:
+   - Hook: "serene nature sounds, peaceful intro, mindful moment"
+   - Build: "gentle yoga flow rhythm, wellness journey building"
+   - Reveal: "blissful transformation, inner peace crescendo"
+   - CTA: "uplifting acoustic warmth, self-care motivation"
+   
+   **🎬 MUSIC BY STORYTELLING BEAT** (7-Beat Framework):
+   | Beat | Purpose | Music Characteristics |
+   | Hook | Grab attention | Punchy intro, immediate impact, curiosity trigger |
+   | Problem | Show pain point | Tension undertone, relatable struggle feel |
+   | Escalation | Raise stakes | Building intensity, momentum increase |
+   | Transition | Mood shift | Beat drop, dramatic pause, pivot moment |
+   | Reveal | Product solution | Triumphant swell, satisfaction payoff |
+   | Payoff | Emotional reward | Warm resolution, feel-good achievement |
+   | CTA | Drive action | Energetic push, confident call to action |
+   
+   **🎬 MUSIC BY STORYTELLING BEAT** (3-Beat Product Framework):
+   | Beat | Purpose | Music Characteristics |
+   | Intrigue | Hook attention | Mysterious intro, curiosity building |
+   | Showcase | Product glory | Epic reveal, premium feel, showcase worthy |
+   | Payoff | Drive desire | Satisfying close, want-to-buy energy |
+   
+   **WHEN TO SKIP MUSIC** (set null):
+   - UGC clips where character speech is the main focus
+   - Clips with important voiceover that shouldn't compete with music
+   - Clips where ambient/natural sounds tell the story better
+   
+   **EXAMPLE MUSIC PROMPTS** (context-aware, not generic):
+   
+   ❌ GENERIC (BAD): "upbeat music"
+   ✅ CONTEXT-AWARE (GOOD): "warm coffee shop acoustic, morning energy, cozy cafe vibe for breakfast brand reveal"
+   
+   ❌ GENERIC (BAD): "dramatic music"  
+   ✅ CONTEXT-AWARE (GOOD): "sleek runway beat with confident bass drop, fashion transformation moment"
+   
+   ❌ GENERIC (BAD): "happy music"
+   ✅ CONTEXT-AWARE (GOOD): "blissful skincare transformation crescendo, self-care achievement, glowing results payoff"
+   
+   **WRITE MUSIC PROMPTS THAT MATCH YOUR SPECIFIC BRAND AND STORY!**
+
+6. **USE ACTUAL BRAND NAME IN CLIP PROMPTS ONLY** (MANDATORY for voiceover/speech):
    - **Brand Name**: {dvyb_context.get('accountName', 'the brand')}
    - **ONLY in CLIP PROMPTS** (video motion descriptions with voiceover/speech):
      * When generating voiceover text or character speech that mentions the brand
@@ -5505,9 +6579,61 @@ CRITICAL REQUIREMENTS:
   * **VIDEO CLIP FRAMES**: Decide true/false for each video clip frame based on creative judgment
   * Think like a creative director for video frames, but image posts ALWAYS need logo
 
+- **🛍️ PRODUCT MAPPING REMINDER** (CRITICAL):
+  * **IMAGE POSTS** (indices {sorted(image_only_indices)}): **ALWAYS** set `image_X_product_mapping: "image_1"` (or rotate through products)
+    → Product in EVERY image post - they are product showcases!
+  * **VIDEO CLIPS**: Follow BEAT-SPECIFIC rules
+    → ❌ Clips 1-3 (hook/problem/escalation): `product_mapping: null`
+    → ✅ Clips 4+ (transition/reveal/payoff/cta): `product_mapping: "image_1"`
+    → Build story TENSION before product REVEAL
+
 - **JSON VALIDATION**: Must be valid and parseable
 
 - **VIDEO INDICES**: Posts at indices {sorted(video_indices)} are {VIDEO_DURATION_ESTIMATE}-{CLIPS_PER_VIDEO * 10}s videos ({CLIPS_PER_VIDEO} clips each), rest are images
+
+{"🚨🚨🚨 CRITICAL STORY VIDEO REMINDERS (YOU HAVE {} CLIPS) 🚨🚨🚨".format(CLIPS_PER_VIDEO) if CLIPS_PER_VIDEO >= 3 else ""}
+{'''
+**⚠️ THIS IS A STORY VIDEO - FOLLOW THESE RULES:**
+
+1. **CHARACTERS ARE REQUIRED** - Use relatable human characters, NOT just product shots
+   - Set no_characters=false, human_characters_only=true
+   - Create diverse, authentic characters appropriate for the brand
+
+2. **CHARACTER SPEAKING IS REQUIRED** in at least 2-3 clips (UGC-style)
+   - Hook clip: Character speaks to camera about relatable problem
+   - CTA clip: Character invites viewer with genuine enthusiasm
+   - Use "Saying in [tone] (14 words max): [speech]" format
+
+3. **PRODUCT TIMING - DO NOT SHOW PRODUCT IN EARLY CLIPS**
+   - Clip 1-2: NO product_mapping (focus on CHARACTER and PROBLEM)
+   - Clip 3: Can hint at solution
+   - Clip 4-5: Product appears (REVEAL and PAYOFF)
+   
+4. **CREATE TENSION BEFORE RELIEF**
+   - Early clips: frustration, longing, problem
+   - Later clips: discovery, satisfaction, invitation
+   
+5. **MIX AUDIO TECHNIQUES**
+   - Some clips: Character speaking (UGC feel)
+   - Some clips: Voiceover narration
+   - Some clips: Pure visual with music (especially for product reveal)
+
+❌ BAD VIDEO (all product, no story):
+- Clip 1: Product shot with voiceover
+- Clip 2: Product shot with voiceover
+- Clip 3: Product shot with voiceover
+- Clip 4: Product shot with voiceover
+- Clip 5: Product shot with voiceover
+→ BORING, NO ENGAGEMENT, NOT SCROLL-STOPPING
+
+✅ GOOD VIDEO (character-driven story):
+- Clip 1: Character speaks about relatable problem (no product)
+- Clip 2: Character shows frustration (no product)
+- Clip 3: Character discovers solution (no product yet)
+- Clip 4: PRODUCT REVEALED with dramatic cinematography
+- Clip 5: Character satisfied, invites viewer (product visible)
+→ ENGAGING, SCROLL-STOPPING, MEMORABLE
+''' if CLIPS_PER_VIDEO >= 3 else ""}
 """
     
     # Debug logging
@@ -5615,12 +6741,48 @@ CRITICAL REQUIREMENTS:
         influencer_marketing = prompts_data.get("influencer_marketing", False)
         nudge = False  # OVERRIDE: Always False (nudge output quality not good yet)
         
-        # OVERRIDE: Force product_marketing when onboarding product image is provided
+        # NEW: Extract Grok's clip count decision (for story mode)
+        grok_clip_count = prompts_data.get("total_clips")
+        if grok_clip_count and GROK_DECIDES_CLIP_COUNT:
+            # Grok chose the clip count - use it (within bounds)
+            grok_clip_count = int(grok_clip_count)
+            actual_clips = max(MIN_CLIPS, min(grok_clip_count, MAX_CLIPS))
+            print(f"  🎬 Grok chose {grok_clip_count} clips → Using {actual_clips} clips (bounds: {MIN_CLIPS}-{MAX_CLIPS})")
+            CLIPS_PER_VIDEO = actual_clips
+        else:
+            # Count how many clips Grok actually generated by checking keys
+            for video_idx in video_indices:
+                clip_count = 0
+                for i in range(1, 10):  # Check up to 10 clips
+                    if f"video_{video_idx}_clip_{i}_prompt" in prompts_data or f"video_{video_idx}_clip_{i}_image_prompt" in prompts_data:
+                        clip_count = i
+                if clip_count > 0 and clip_count != CLIPS_PER_VIDEO:
+                    print(f"  🎬 Grok generated {clip_count} clips for video {video_idx} (expected {CLIPS_PER_VIDEO})")
+                    CLIPS_PER_VIDEO = max(CLIPS_PER_VIDEO, clip_count)  # Use the max found
+        
+        # Apply user's video style choice (always has a value, defaults to brand_marketing)
+        user_video_style = request.video_style if hasattr(request, 'video_style') and request.video_style else "brand_marketing"
+        if user_video_style in ['brand_marketing', 'product_marketing', 'ugc_influencer']:
+            if video_type != user_video_style:
+                print(f"🎬 Applying user's video style: '{user_video_style}' (Grok suggested: '{video_type}')")
+            video_type = user_video_style
+            # Set flags based on user's choice
+            if user_video_style == "ugc_influencer":
+                influencer_marketing = True
+                no_characters = False
+                human_characters_only = True
+            elif user_video_style == "product_marketing":
+                influencer_marketing = False
+            elif user_video_style == "brand_marketing":
+                influencer_marketing = False
+        
+        # OVERRIDE: Force product_marketing when onboarding product image is provided (higher priority than user choice)
         force_product_marketing = context.get("force_product_marketing", False)
         if force_product_marketing and video_type != "product_marketing":
             print(f"🛍️ OVERRIDE: force_product_marketing=True, changing video_type from '{video_type}' to 'product_marketing'")
             video_type = "product_marketing"
-            influencer_marketing = False  # Product marketing is never influencer style
+            influencer_marketing = False
+        
         web3 = prompts_data.get("web3", False)
         
         print(f"\n🎯 GROK DECISIONS:")
@@ -5673,7 +6835,10 @@ CRITICAL REQUIREMENTS:
                 image_prompt_key = f"video_{video_idx}_clip_{clip_num}_image_prompt"
                 clip_prompt_key = f"video_{video_idx}_clip_{clip_num}_prompt"
                 logo_key = f"video_{video_idx}_clip_{clip_num}_logo_needed"
-                product_mapping_key = f"video_{video_idx}_clip_{clip_num}_product_mapping"  # NEW
+                product_mapping_key = f"video_{video_idx}_clip_{clip_num}_product_mapping"
+                duration_key = f"video_{video_idx}_clip_{clip_num}_duration"  # NEW: Per-clip duration
+                beat_key = f"video_{video_idx}_clip_{clip_num}_beat"  # NEW: Storytelling beat
+                has_voiceover_key = f"video_{video_idx}_clip_{clip_num}_has_voiceover"  # NEW: Per-clip voiceover
                 
                 clip_data = {}
                 if image_prompt_key in prompts_data:
@@ -5683,7 +6848,7 @@ CRITICAL REQUIREMENTS:
                 if logo_key in prompts_data:
                     logo_val = prompts_data[logo_key]
                     clip_data['logo_needed'] = logo_val if isinstance(logo_val, bool) else str(logo_val).lower() in ['true', '1', 'yes']
-                if product_mapping_key in prompts_data:  # NEW
+                if product_mapping_key in prompts_data:
                     product_mapping_val = prompts_data[product_mapping_key]
                     # Store if not null/none
                     if product_mapping_val and str(product_mapping_val).lower() not in ['null', 'none']:
@@ -5691,6 +6856,48 @@ CRITICAL REQUIREMENTS:
                         print(f"  📦 Video {video_idx}, Clip {clip_num} product mapping: {product_mapping_val}")
                 else:
                         clip_data['product_mapping'] = None
+                
+                # NEW: Extract per-clip duration (Grok's creative decision)
+                if duration_key in prompts_data:
+                    duration_val = prompts_data[duration_key]
+                    if isinstance(duration_val, int):
+                        clip_data['duration'] = duration_val
+                    elif isinstance(duration_val, str) and duration_val.isdigit():
+                        clip_data['duration'] = int(duration_val)
+                    else:
+                        clip_data['duration'] = 8  # Default
+                    print(f"  ⏱️  Video {video_idx}, Clip {clip_num} duration: {clip_data['duration']}s")
+                else:
+                    clip_data['duration'] = 8  # Default
+                
+                # NEW: Extract storytelling beat
+                if beat_key in prompts_data:
+                    clip_data['beat'] = prompts_data[beat_key]
+                    print(f"  🎬 Video {video_idx}, Clip {clip_num} beat: {clip_data['beat']}")
+                else:
+                    clip_data['beat'] = 'unknown'
+                
+                # NEW: Extract per-clip voiceover decision (Grok's creative decision)
+                if has_voiceover_key in prompts_data:
+                    vo_val = prompts_data[has_voiceover_key]
+                    clip_data['has_voiceover'] = vo_val if isinstance(vo_val, bool) else str(vo_val).lower() in ['true', '1', 'yes']
+                    print(f"  🎤 Video {video_idx}, Clip {clip_num} voiceover: {'YES' if clip_data['has_voiceover'] else 'NO'}")
+                else:
+                    clip_data['has_voiceover'] = False  # Default to no voiceover
+                
+                # NEW: Extract per-clip music prompt (Grok's creative decision)
+                music_prompt_key = f"video_{video_idx}_clip_{clip_num}_music_prompt"
+                if music_prompt_key in prompts_data:
+                    music_val = prompts_data[music_prompt_key]
+                    # Can be a string or null
+                    if music_val and isinstance(music_val, str) and music_val.lower() not in ['null', 'none', '']:
+                        clip_data['music_prompt'] = music_val
+                        print(f"  🎵 Video {video_idx}, Clip {clip_num} music: {music_val[:50]}...")
+                    else:
+                        clip_data['music_prompt'] = None
+                        print(f"  🎵 Video {video_idx}, Clip {clip_num} music: NONE (no custom music)")
+                else:
+                    clip_data['music_prompt'] = None  # Default to no custom music
                 
                 if clip_data:
                     video_prompts_dict[video_idx][clip_num] = clip_data
@@ -5792,25 +6999,44 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
     else:
         print(f"🎶 No inspiration background music available (will use AI-generated audio)")
     
-    # Model selection: 60% Kling v2.6 (10s clips), 40% Veo3.1 (8s clips)
+    # Model selection: 10% Kling v2.6, 90% Veo3.1
     # Selection is done per video, not per clip (all clips in a video use same model)
+    # NEW: Duration is now specified per-clip by the LLM
     import random
     
-    def select_video_model():
+    def get_model_duration_param(model_name: str, requested_duration: int) -> tuple:
+        """
+        Map LLM-requested duration to actual model-supported duration.
+        Returns (actual_duration, duration_param_string)
+        """
+        if model_name == "kling_v2.6":
+            # Kling supports 5 and 10 seconds
+            supported = [5, 10]
+            closest = min(supported, key=lambda x: abs(x - requested_duration))
+            return (closest, str(closest))  # Kling uses "5" or "10"
+        else:
+            # Veo supports 4, 6, 8 seconds
+            supported = [4, 6, 8]
+            closest = min(supported, key=lambda x: abs(x - requested_duration))
+            return (closest, f"{closest}s")  # Veo uses "4s", "6s", "8s"
+    
+    def select_video_model(default_duration: int = 8):
         """Select video model with 10:90 ratio (Kling:Veo)"""
         if random.random() < 0.10:
+            actual_duration, duration_param = get_model_duration_param("kling_v2.6", default_duration)
             return {
                 "name": "kling_v2.6",
                 "fal_model": "fal-ai/kling-video/v2.6/pro/image-to-video",
-                "clip_duration": 10,  # Kling supports 5 or 10, using 10
-                "duration_param": "10",  # Kling uses string "5" or "10"
+                "clip_duration": actual_duration,
+                "duration_param": duration_param,
             }
         else:
+            actual_duration, duration_param = get_model_duration_param("veo3.1", default_duration)
             return {
                 "name": "veo3.1",
                 "fal_model": "fal-ai/veo3.1/fast/image-to-video",
-                "clip_duration": 8,  # Veo supports 4, 6, 8, using 8
-                "duration_param": "8s",  # Veo uses "4s", "6s", "8s"
+                "clip_duration": actual_duration,
+                "duration_param": duration_param,
             }
     
     dvyb_context = context.get('dvyb_context', {})
@@ -6064,7 +7290,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         "output_format": "jpeg",
                         "aspect_ratio": "1:1",
                         "image_urls": image_urls,
-                        "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
+                        "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic features, hashtags, double logos, extra text, cropped head, cut off head, forehead cropped, head out of frame, top of head missing, hairline cropped, extreme close-up, zoomed in too close, tight framing cutting off head"
                     },
                     with_logs=True,
                     on_queue_update=on_queue_update
@@ -6082,10 +7308,10 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         "input_fidelity": "high",
                         "num_images": 1,
                         "output_format": "png"
-                    },
-                    with_logs=True,
-                    on_queue_update=on_queue_update
-                )
+                },
+                with_logs=True,
+                on_queue_update=on_queue_update
+            )
             
             if result and "images" in result and result["images"]:
                 fal_url = result["images"][0]["url"]
@@ -6293,12 +7519,12 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     print(f"     ❌ Skipping frame {clip_num} generation")
                     frame_s3_urls.append(None)
                     continue
-                
+            
                 def on_queue_update(update):
                     if isinstance(update, fal_client.InProgress):
                         for log in update.logs:
                             print(log["message"])
-                
+            
                 if selected_frame_model == "nano-banana":
                     result = fal_client.subscribe(
                         "fal-ai/nano-banana/edit",
@@ -6308,7 +7534,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                             "output_format": "jpeg",
                             "aspect_ratio": "1:1",
                             "image_urls": image_urls,
-                            "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic proportions, unrealistic features, hashtags, double logos, extra text"
+                            "negative_prompt": "blurry, low quality, distorted, oversaturated, unrealistic proportions, unrealistic face, unrealistic body, unrealistic features, hashtags, double logos, extra text, cropped head, cut off head, forehead cropped, head out of frame, top of head missing, hairline cropped, extreme close-up, zoomed in too close, tight framing cutting off head"
                         },
                         with_logs=True,
                         on_queue_update=on_queue_update
@@ -6330,7 +7556,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         with_logs=True,
                         on_queue_update=on_queue_update
                     )
-                
+            
                 if result and "images" in result and result["images"]:
                     fal_url = result["images"][0]["url"]
                     print(f"  📥 FAL URL received: {fal_url[:100]}...")
@@ -6396,6 +7622,13 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             clip_prompt = clip_data.get('clip_prompt')
             frame_s3_url = frame_s3_urls[clip_num - 1] if clip_num <= len(frame_s3_urls) else None
             
+            # NEW: Get clip-specific duration from LLM output (default to 8s if not specified)
+            llm_requested_duration = clip_data.get('duration', 8)
+            clip_beat = clip_data.get('beat', 'unknown')
+            
+            # NEW: Get clip-specific voiceover decision from LLM output
+            has_voiceover = clip_data.get('has_voiceover', False)
+            
             if not clip_prompt or not frame_s3_url:
                 print(f"  ⚠️ Missing clip prompt or frame for clip {clip_num}, skipping")
                 clip_s3_urls.append(None)
@@ -6407,16 +7640,37 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 print(f"  ⚠️ Clip prompt too long ({len(clip_prompt)} chars), truncating to 4500 chars")
                 clip_prompt = clip_prompt[:4500] + "..."
             
-            print(f"\n  📝 Clip {clip_num} prompt ({len(clip_prompt)} chars): {clip_prompt[:80]}...")
+            print(f"\n  📝 Clip {clip_num} [{clip_beat}] prompt ({len(clip_prompt)} chars): {clip_prompt[:80]}...")
+            print(f"  ⏱️  LLM requested duration: {llm_requested_duration}s")
+            print(f"  🎤 Voiceover: {'YES - has voiceover' if has_voiceover else 'NO - pure visual'}")
             
             # For multi-clip videos: use the same model for all clips (locked after clip 1)
             if CLIPS_PER_VIDEO > 1 and locked_model is not None:
-                current_primary_model = locked_model
-                current_fallback_model = locked_model  # Same model for fallback to ensure consistency
-                print(f"  🔒 Using locked model for consistency: {locked_model['name'].upper()}")
+                # Update locked model with clip-specific duration
+                actual_duration, duration_param = get_model_duration_param(locked_model['name'], llm_requested_duration)
+                current_primary_model = {
+                    **locked_model,
+                    'clip_duration': actual_duration,
+                    'duration_param': duration_param
+                }
+                current_fallback_model = current_primary_model  # Same model for fallback to ensure consistency
+                print(f"  🔒 Using locked model for consistency: {locked_model['name'].upper()} with {actual_duration}s")
             else:
-                current_primary_model = selected_model
-                current_fallback_model = fallback_model
+                # Update selected model with clip-specific duration
+                actual_duration, duration_param = get_model_duration_param(selected_model['name'], llm_requested_duration)
+                current_primary_model = {
+                    **selected_model,
+                    'clip_duration': actual_duration,
+                    'duration_param': duration_param
+                }
+                # Also update fallback model with clip-specific duration
+                fb_actual_duration, fb_duration_param = get_model_duration_param(fallback_model['name'], llm_requested_duration)
+                current_fallback_model = {
+                    **fallback_model,
+                    'clip_duration': fb_actual_duration,
+                    'duration_param': fb_duration_param
+                }
+                print(f"  ⏱️  Mapped to {selected_model['name'].upper()}: {actual_duration}s")
             
             try:
                 # Generate presigned URL for starting frame
@@ -6516,7 +7770,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 CLIP_DURATION = actual_model["clip_duration"]
                 break
         
-        # Step 3c: Process clips (Demucs separation for non-influencer videos)
+        # Step 3c: Process clips with per-clip audio (music and voiceover)
         print(f"\n🎵 Processing {len([c for c in clip_s3_urls if c])} clips...")
         
         valid_clips = [url for url in clip_s3_urls if url]
@@ -6530,55 +7784,273 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
         influencer_marketing_flag = prompts["influencer_marketing"]
         voiceover_flag = prompts["voiceover"]
         
-        # Step 3c-1: Separate voice from music for each clip (unless influencer marketing OR single clip)
-        # NEW: Skip audio processing if CLIPS_PER_VIDEO == 1 (treat all single clips like UGC videos)
+        # Step 3c-1: Process each clip with per-clip audio logic
+        # NEW LOGIC:
+        # - If clip has music_prompt → Clean Veo music, generate ElevenLabs music, apply/mix
+        # - Else if inspiration_music exists → Clean Veo music, apply inspiration music, mix
+        # - Else → Keep original clip as-is (Veo's default audio is fine)
+        
+        # Flag to track if per-clip audio was applied (skip post-stitching audio if true)
+        per_clip_audio_applied = False
+        
         if not influencer_marketing_flag and CLIPS_PER_VIDEO > 1:
             print(f"\n{'='*60}")
-            print(f"🎵 VEO MODEL: Separating voice from background music for each clip")
+            print(f"🎵 PER-CLIP AUDIO PROCESSING (NEW)")
             print(f"{'='*60}")
+            print(f"   Inspiration music available: {'YES' if inspiration_music_s3_key else 'NO'}")
             
-            cleaned_clips = []
+            processed_clips = []
+            any_clip_had_custom_audio = False  # Track if any clip had custom audio
+            
             for idx, clip_url in enumerate(valid_clips):
                 clip_num = idx + 1
-                print(f"\n🎬 Processing clip {clip_num}/{len(valid_clips)}...")
+                # Get clip data for this clip (match by index - valid_clips may have gaps removed)
+                # Find the actual clip_num by counting through clip_s3_urls
+                actual_clip_num = 0
+                valid_idx = 0
+                for i, url in enumerate(clip_s3_urls, 1):
+                    if url:
+                        if valid_idx == idx:
+                            actual_clip_num = i
+                            break
+                        valid_idx += 1
                 
-                # Download clip
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
-                    presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
-                    response = requests.get(presigned_url)
-                    temp_file.write(response.content)
-                    clip_path = temp_file.name
-                    print(f"  📥 Downloaded clip {clip_num}")
+                clip_data = video_clip_data.get(actual_clip_num, {})
+                music_prompt = clip_data.get('music_prompt')
+                has_voiceover = clip_data.get('has_voiceover', False)
+                clip_duration = clip_data.get('duration', 8)
+                clip_beat = clip_data.get('beat', 'unknown')
                 
-                # Separate voice from music using Demucs
-                cleaned_clip_path = separate_voice_from_music_demucs(clip_path)
-                if not cleaned_clip_path or cleaned_clip_path == clip_path:
-                    print(f"  ⚠️ Using original clip (Demucs not available or failed)")
-                    cleaned_clip_path = clip_path
+                print(f"\n🎬 Processing clip {clip_num}/{len(valid_clips)} [{clip_beat}]...")
+                print(f"   Music prompt: {music_prompt[:50] + '...' if music_prompt else 'NONE'}")
+                print(f"   Has voiceover: {'YES' if has_voiceover else 'NO'}")
+                print(f"   Duration: {clip_duration}s")
                 
-                # Upload cleaned clip to S3
-                cleaned_clip_s3_url = web2_s3_helper.upload_from_file(
-                    file_path=cleaned_clip_path,
-                    folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
-                    filename=f"cleaned_clip_{clip_num}.mp4"
-                )
+                # Determine audio processing path
+                if music_prompt:
+                    # PATH A: Custom music from ElevenLabs
+                    print(f"   → PATH A: Custom ElevenLabs music")
+                    any_clip_had_custom_audio = True
                 
-                # Clean up local files
-                try:
-                    os.remove(clip_path)
-                    if cleaned_clip_path != clip_path:
-                        os.remove(cleaned_clip_path)
-                except:
-                    pass
+                    # Download clip
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+                        presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
+                        response = requests.get(presigned_url)
+                        temp_file.write(response.content)
+                        clip_path = temp_file.name
+                        print(f"      📥 Downloaded clip")
                 
-                cleaned_clips.append(cleaned_clip_s3_url)
-                print(f"  ✅ Clip {clip_num} cleaned and uploaded")
+                    # Clean Veo background music with Demucs
+                    print(f"      🎵 Cleaning Veo background music with Demucs...")
+                    cleaned_clip_path = separate_voice_from_music_demucs(clip_path)
+                    if not cleaned_clip_path or cleaned_clip_path == clip_path:
+                        print(f"      ⚠️ Demucs failed, using original clip")
+                        cleaned_clip_path = clip_path
+                
+                    # Generate ElevenLabs music
+                    print(f"      🎵 Generating ElevenLabs music: {music_prompt[:60]}...")
+                    music_path = await generate_music_with_elevenlabs(music_prompt, clip_duration)
+                    
+                    if music_path:
+                        # Create no-audio clip for mixing
+                        no_audio_path = remove_audio_from_video(cleaned_clip_path)
+                        
+                        # Extract voiceover audio if clip has voiceover
+                        if has_voiceover:
+                            voiceover_path = extract_audio_from_video(cleaned_clip_path)
+                            
+                            # Mix music (30%) + voiceover (100%)
+                            final_clip_path = cleaned_clip_path.replace('.mp4', '_final.mp4')
+                            success = await mix_music_and_voiceover_for_clip(
+                                no_audio_clip_path=no_audio_path,
+                                music_path=music_path,
+                                voiceover_path=voiceover_path,
+                                output_path=final_clip_path,
+                                music_volume=0.3,
+                                voiceover_volume=1.0
+                            )
+                            
+                            if success:
+                                print(f"      ✅ Music + voiceover mixed successfully")
+                            else:
+                                # Fallback: apply music only
+                                success = await apply_music_to_clip(no_audio_path, music_path, final_clip_path)
+                                print(f"      ⚠️ Voiceover mix failed, applied music only")
+                            
+                            # Clean up voiceover file
+                            try:
+                                os.remove(voiceover_path)
+                            except:
+                                pass
+                        else:
+                            # No voiceover - just apply music
+                            final_clip_path = cleaned_clip_path.replace('.mp4', '_final.mp4')
+                            success = await apply_music_to_clip(no_audio_path, music_path, final_clip_path)
+                            print(f"      ✅ Music applied (no voiceover)")
+                        
+                        # Clean up temp files
+                        try:
+                            os.remove(no_audio_path)
+                            os.remove(music_path)
+                        except:
+                            pass
+                        
+                        # Upload processed clip
+                        if success and os.path.exists(final_clip_path):
+                            processed_s3_url = web2_s3_helper.upload_from_file(
+                                file_path=final_clip_path,
+                                folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                                filename=f"processed_clip_{clip_num}.mp4"
+                            )
+                            processed_clips.append(processed_s3_url)
+                            print(f"      ✅ Clip {clip_num} processed and uploaded")
+                            try:
+                                os.remove(final_clip_path)
+                            except:
+                                pass
+                        else:
+                            # Fallback to cleaned clip
+                            cleaned_s3_url = web2_s3_helper.upload_from_file(
+                                file_path=cleaned_clip_path,
+                                folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                                filename=f"cleaned_clip_{clip_num}.mp4"
+                            )
+                            processed_clips.append(cleaned_s3_url)
+                            print(f"      ⚠️ Music processing failed, using cleaned clip")
+                    else:
+                        # ElevenLabs failed - use cleaned clip
+                        cleaned_s3_url = web2_s3_helper.upload_from_file(
+                            file_path=cleaned_clip_path,
+                            folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                            filename=f"cleaned_clip_{clip_num}.mp4"
+                        )
+                        processed_clips.append(cleaned_s3_url)
+                        print(f"      ⚠️ ElevenLabs failed, using cleaned clip")
+                
+                    # Clean up local files
+                    try:
+                        os.remove(clip_path)
+                        if cleaned_clip_path != clip_path:
+                            os.remove(cleaned_clip_path)
+                    except:
+                        pass
+                
+                elif inspiration_music_s3_key:
+                    # PATH B: Inspiration music from user-provided video
+                    print(f"   → PATH B: Inspiration music from video link")
+                    any_clip_had_custom_audio = True
+                    
+                    # Download clip
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+                        presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
+                        response = requests.get(presigned_url)
+                        temp_file.write(response.content)
+                        clip_path = temp_file.name
+                        print(f"      📥 Downloaded clip")
+                    
+                    # Clean Veo background music with Demucs
+                    print(f"      🎵 Cleaning Veo background music with Demucs...")
+                    cleaned_clip_path = separate_voice_from_music_demucs(clip_path)
+                    if not cleaned_clip_path or cleaned_clip_path == clip_path:
+                        print(f"      ⚠️ Demucs failed, using original clip")
+                        cleaned_clip_path = clip_path
+                    
+                    # Download inspiration music
+                    print(f"      🎵 Downloading inspiration music...")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as music_file:
+                        inspiration_presigned = web2_s3_helper.generate_presigned_url(inspiration_music_s3_key)
+                        music_response = requests.get(inspiration_presigned)
+                        music_file.write(music_response.content)
+                        inspiration_music_path = music_file.name
+                    
+                    # Create no-audio clip for mixing
+                    no_audio_path = remove_audio_from_video(cleaned_clip_path)
+                    
+                    # Extract voiceover audio if clip has voiceover
+                    if has_voiceover:
+                        voiceover_path = extract_audio_from_video(cleaned_clip_path)
+                        
+                        # Mix inspiration music (30%) + voiceover (100%)
+                        final_clip_path = cleaned_clip_path.replace('.mp4', '_final.mp4')
+                        success = await mix_music_and_voiceover_for_clip(
+                            no_audio_clip_path=no_audio_path,
+                            music_path=inspiration_music_path,
+                            voiceover_path=voiceover_path,
+                            output_path=final_clip_path,
+                            music_volume=0.3,
+                            voiceover_volume=1.0
+                        )
+                        
+                        if success:
+                            print(f"      ✅ Inspiration music + voiceover mixed")
+                        else:
+                            # Fallback: apply music only
+                            success = await apply_music_to_clip(no_audio_path, inspiration_music_path, final_clip_path)
+                            print(f"      ⚠️ Voiceover mix failed, applied music only")
+                        
+                        try:
+                            os.remove(voiceover_path)
+                        except:
+                            pass
+                    else:
+                        # No voiceover - just apply inspiration music
+                        final_clip_path = cleaned_clip_path.replace('.mp4', '_final.mp4')
+                        success = await apply_music_to_clip(no_audio_path, inspiration_music_path, final_clip_path)
+                        print(f"      ✅ Inspiration music applied (no voiceover)")
+                    
+                    # Clean up temp files
+                    try:
+                        os.remove(no_audio_path)
+                        os.remove(inspiration_music_path)
+                    except:
+                        pass
+                    
+                    # Upload processed clip
+                    if success and os.path.exists(final_clip_path):
+                        processed_s3_url = web2_s3_helper.upload_from_file(
+                            file_path=final_clip_path,
+                            folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                            filename=f"processed_clip_{clip_num}.mp4"
+                        )
+                        processed_clips.append(processed_s3_url)
+                        print(f"      ✅ Clip {clip_num} processed and uploaded")
+                        try:
+                            os.remove(final_clip_path)
+                        except:
+                            pass
+                    else:
+                        # Fallback to cleaned clip
+                        cleaned_s3_url = web2_s3_helper.upload_from_file(
+                            file_path=cleaned_clip_path,
+                            folder=f"dvyb/generated/{request.account_id}/{generation_uuid}/video_{video_idx}",
+                            filename=f"cleaned_clip_{clip_num}.mp4"
+                        )
+                        processed_clips.append(cleaned_s3_url)
+                        print(f"      ⚠️ Processing failed, using cleaned clip")
+                    
+                    # Clean up local files
+                    try:
+                        os.remove(clip_path)
+                        if cleaned_clip_path != clip_path:
+                            os.remove(cleaned_clip_path)
+                    except:
+                        pass
+                        
+                else:
+                    # PATH C: No custom music - keep original Veo clip as-is
+                    print(f"   → PATH C: Keep original clip (no custom music)")
+                    processed_clips.append(clip_url)
+                    print(f"      ✅ Clip {clip_num} kept as-is (Veo default audio)")
             
-            # Use cleaned clips for stitching
-            valid_clips = cleaned_clips
+            # Use processed clips for stitching
+            valid_clips = processed_clips
+            
+            # Set flag if any clip had custom audio (skip post-stitching audio)
+            per_clip_audio_applied = any_clip_had_custom_audio
             
             print(f"\n{'='*60}")
-            print(f"✅ ALL CLIPS CLEANED: Background music removed from all Veo clips")
+            print(f"✅ ALL CLIPS PROCESSED: Per-clip audio applied")
+            print(f"   Custom audio applied to at least one clip: {'YES' if any_clip_had_custom_audio else 'NO'}")
             print(f"{'='*60}\n")
         elif CLIPS_PER_VIDEO == 1:
             print(f"⚡ Single clip video: Skipping audio processing (using raw Veo3.1 output)")
@@ -6591,7 +8063,7 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 for idx, clip_url in enumerate(valid_clips):
                     clip_num = idx + 1
                     print(f"\n✂️ Processing UGC clip {clip_num} for speech-end trim...")
-                    
+                
                     # Download clip
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
                         presigned_url = web2_s3_helper.generate_presigned_url(clip_url)
@@ -6671,8 +8143,52 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
             else:
                 print(f"🎤 UGC/Influencer multi-clip (Kling v2.6): Skipping speech-end trimming (not needed for Kling)")
         
-        # Step 3c-2: Stitch clips together (random: simple concat or crossfade)
-        print(f"\n🎞️ Stitching {len(valid_clips)} clips...")
+        # Step 3c-2: Stitch clips together (smart: simple concat or crossfade based on audio content)
+        # First, log audio summary for debugging and build clip audio status
+        print(f"\n{'='*60}")
+        print(f"🎤 AUDIO SUMMARY FOR VIDEO {video_idx}")
+        print(f"{'='*60}")
+        voiceover_clips = []
+        character_speech_clips = []
+        pure_visual_clips = []
+        clips_with_audio = set()  # Clips that have voiceover OR character speech
+        
+        for clip_num in range(1, CLIPS_PER_VIDEO + 1):
+            clip_data = video_clip_data.get(clip_num, {})
+            clip_has_vo = clip_data.get('has_voiceover', False)
+            clip_beat = clip_data.get('beat', 'unknown')
+            clip_duration = clip_data.get('duration', 8)
+            clip_prompt = clip_data.get('clip_prompt', '')
+            
+            # Check for character speech in clip prompt (e.g., "Saying in", "saying:", etc.)
+            has_character_speech = any(indicator in clip_prompt.lower() for indicator in [
+                'saying in', 'saying:', 'says:', 'speaks:', 'talking:', 
+                '(14 words max):', 'words max):'
+            ])
+            
+            if clip_has_vo:
+                voiceover_clips.append(clip_num)
+                clips_with_audio.add(clip_num)
+                print(f"   Clip {clip_num} [{clip_beat}] ({clip_duration}s): 🎤 HAS VOICEOVER")
+            elif has_character_speech:
+                character_speech_clips.append(clip_num)
+                clips_with_audio.add(clip_num)
+                print(f"   Clip {clip_num} [{clip_beat}] ({clip_duration}s): 🗣️ CHARACTER SPEAKING")
+            else:
+                pure_visual_clips.append(clip_num)
+                print(f"   Clip {clip_num} [{clip_beat}] ({clip_duration}s): 🎬 PURE VISUAL (music only)")
+        
+        print(f"\n   📊 Summary: {len(voiceover_clips)} voiceover, {len(character_speech_clips)} character speech, {len(pure_visual_clips)} pure visual")
+        if voiceover_clips:
+            print(f"   🎤 Voiceover clips: {voiceover_clips}")
+        if character_speech_clips:
+            print(f"   🗣️ Character speech clips: {character_speech_clips}")
+        if pure_visual_clips:
+            print(f"   🎬 Pure visual clips: {pure_visual_clips}")
+        print(f"   🔗 Clips needing simple stitch (have audio): {sorted(clips_with_audio)}")
+        print(f"{'='*60}\n")
+        
+        print(f"🎞️ Stitching {len(valid_clips)} clips...")
 
         
         if len(valid_clips) == 1:
@@ -6702,17 +8218,18 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                 print(f"✅ Final video ready: {final_video_url}")
         
         else:
-            # Multiple clips - stitch them
+            # Multiple clips - stitch them with SMART transitions
             try:
-                # Randomly choose stitching method (50% simple, 50% crossfade)
+                # SMART STITCHING: Use crossfade ONLY between pure visual clips
+                # If either clip has voiceover OR character speech, use simple stitch
                 # Exception: Influencer marketing ALWAYS uses simple stitching
+                
                 if influencer_marketing_flag:
-                    use_crossfade = False
+                    use_smart_transitions = False
                     print(f"🎤 Influencer Marketing: Using SIMPLE STITCHING (no crossfade)")
                 else:
-                    use_crossfade = random.choice([True, False])
-                    stitch_method = "crossfade" if use_crossfade else "simple"
-                    print(f"🎲 Stitching method: {stitch_method}")
+                    use_smart_transitions = True
+                    print(f"🎬 Smart Stitching: Crossfade only between pure visual clips")
                 
                 # Download clips to temporary location
                 temp_clips = []
@@ -6735,28 +8252,101 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                     
                     clips = [VideoFileClip(path) for path in temp_clips]
                     
-                    if use_crossfade:
-                        # Crossfade stitching (1-second overlap)
+                    if use_smart_transitions:
+                        # SMART TRANSITIONS: Per-clip-pair decision
+                        # Only crossfade between BOTH pure visual clips
                         transition_duration = 1.0
-                        final_clips = []
                         
-                        for i, clip in enumerate(clips):
-                            if i == 0:
-                                # First clip: add fade-out at end
-                                final_clips.append(clip.crossfadeout(transition_duration))
-                            elif i == len(clips) - 1:
-                                # Last clip: add fade-in at start
-                                final_clips.append(clip.crossfadein(transition_duration).set_start(final_clips[-1].end - transition_duration))
+                        # Build list of transition types for each join point
+                        # Index i represents the transition AFTER clip i (before clip i+1)
+                        transition_types = []
+                        for i in range(len(clips) - 1):
+                            clip_num_current = i + 1  # 1-indexed clip number
+                            clip_num_next = i + 2
+                            
+                            current_has_audio = clip_num_current in clips_with_audio
+                            next_has_audio = clip_num_next in clips_with_audio
+                            
+                            if current_has_audio or next_has_audio:
+                                transition_types.append('simple')
+                                reason = []
+                                if current_has_audio:
+                                    reason.append(f"clip {clip_num_current} has audio")
+                                if next_has_audio:
+                                    reason.append(f"clip {clip_num_next} has audio")
+                                print(f"  🔗 Transition {i+1}→{i+2}: SIMPLE ({', '.join(reason)})")
                             else:
-                                # Middle clips: both fade-in and fade-out
-                                final_clips.append(
-                                    clip.crossfadein(transition_duration).crossfadeout(transition_duration).set_start(final_clips[-1].end - transition_duration)
-                                )
+                                transition_types.append('crossfade')
+                                print(f"  ✨ Transition {i+1}→{i+2}: CROSSFADE (both pure visual)")
                         
-                        combined = CompositeVideoClip(final_clips)
-                        print(f"  ✨ Applied crossfade transitions")
+                        # Check if we need any crossfades at all
+                        has_any_crossfade = 'crossfade' in transition_types
+                        
+                        if not has_any_crossfade:
+                            # All transitions are simple - just concatenate
+                            combined = concatenate_videoclips(clips, method="compose")
+                            print(f"  🔗 All transitions are simple (clips have audio)")
+                        else:
+                            # Mixed transitions - build composite carefully
+                            # For simplicity, we'll concatenate segments with simple joins
+                            # and only apply crossfade where both clips are pure visual
+                            
+                            current_time = 0
+                            final_clips = []
+                            
+                            for i, clip in enumerate(clips):
+                                if i == 0:
+                                    # First clip
+                                    if i < len(transition_types) and transition_types[i] == 'crossfade':
+                                        # Next transition is crossfade, add fadeout
+                                        modified_clip = clip.crossfadeout(transition_duration)
+                                    else:
+                                        modified_clip = clip
+                                    modified_clip = modified_clip.set_start(current_time)
+                                    final_clips.append(modified_clip)
+                                    
+                                    # Update time based on next transition
+                                    if i < len(transition_types) and transition_types[i] == 'crossfade':
+                                        current_time = modified_clip.end - transition_duration
+                                    else:
+                                        current_time = modified_clip.end
+                                        
+                                elif i == len(clips) - 1:
+                                    # Last clip
+                                    prev_transition = transition_types[i-1] if i > 0 else 'simple'
+                                    if prev_transition == 'crossfade':
+                                        modified_clip = clip.crossfadein(transition_duration)
+                                    else:
+                                        modified_clip = clip
+                                    modified_clip = modified_clip.set_start(current_time)
+                                    final_clips.append(modified_clip)
+                                    
+                                else:
+                                    # Middle clip
+                                    prev_transition = transition_types[i-1]
+                                    next_transition = transition_types[i]
+                                    
+                                    modified_clip = clip
+                                    if prev_transition == 'crossfade':
+                                        modified_clip = modified_clip.crossfadein(transition_duration)
+                                    if next_transition == 'crossfade':
+                                        modified_clip = modified_clip.crossfadeout(transition_duration)
+                                    
+                                    modified_clip = modified_clip.set_start(current_time)
+                                    final_clips.append(modified_clip)
+                                    
+                                    # Update time based on next transition
+                                    if next_transition == 'crossfade':
+                                        current_time = modified_clip.end - transition_duration
+                                    else:
+                                        current_time = modified_clip.end
+                            
+                            combined = CompositeVideoClip(final_clips)
+                            crossfade_count = transition_types.count('crossfade')
+                            simple_count = transition_types.count('simple')
+                            print(f"  ✨ Applied {crossfade_count} crossfade + {simple_count} simple transitions")
                     else:
-                        # Simple concatenation
+                        # Simple concatenation (influencer marketing)
                         combined = concatenate_videoclips(clips, method="compose")
                         print(f"  🔗 Simple concatenation")
                     
@@ -6804,22 +8394,53 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                         except:
                             pass
                     
-                    # Step 3c-3: Process audio for stitched video (unless influencer marketing)
-                    if not influencer_marketing_flag:
+                    # Step 3c-3: Process audio for stitched video (unless influencer marketing OR per-clip audio applied)
+                    if not influencer_marketing_flag and not per_clip_audio_applied:
                         print(f"\n{'='*60}")
-                        print(f"🎵 PROCESSING AUDIO FOR FINAL VIDEO")
+                        print(f"🎵 PROCESSING AUDIO FOR FINAL VIDEO (POST-STITCHING)")
                         print(f"{'='*60}")
-                        
+                        print(f"   Video type: {video_type}")
+                        print(f"   Voiceover clips: {voiceover_clips if voiceover_clips else 'None'}")
+                        print(f"   Pure visual clips: {pure_visual_clips if pure_visual_clips else 'None'}")
+                        print(f"   Inspiration music: {'YES' if inspiration_music_s3_key else 'NO (will use Pixverse)'}")
+                        print(f"")
+                        print(f"   🔄 AUDIO PROCESSING PIPELINE:")
+                        print(f"      1. Extract embedded audio from stitched video (voiceover + ambient)")
+                        print(f"      2. Create video-only version (no audio)")
+                        print(f"      3. Add background music (inspiration or Pixverse)")
+                        print(f"      4. Mix voiceover (100%) with background music (30%)")
+                        print(f"{'='*60}")
+                    elif per_clip_audio_applied:
+                        # Per-clip audio was already applied - use stitched video as final
+                        print(f"\n{'='*60}")
+                        print(f"⏭️ SKIPPING POST-STITCHING AUDIO (Per-clip audio already applied)")
+                        print(f"{'='*60}")
+                        print(f"   Audio was processed per-clip with ElevenLabs/inspiration music")
+                        print(f"   Stitched video already has correct audio mix")
+                        final_video_url = stitched_video_s3_url
+                    
+                    if not influencer_marketing_flag and not per_clip_audio_applied:
                         # Extract voiceover audio from stitched video
-                        print(f"🎤 Extracting voiceover from stitched video...")
+                        print(f"\n🎤 Step 1: Extracting audio from stitched video...")
                         voiceover_audio_path = extract_audio_from_video(stitched_path)
                         
                         if not voiceover_audio_path:
-                            print(f"  ⚠️ No voiceover audio found, using stitched video as-is")
+                            print(f"  ⚠️ No audio extracted from stitched video")
+                            if len(voiceover_clips) > 0:
+                                print(f"     Expected voiceover in clips {voiceover_clips} but extraction failed")
+                            else:
+                                print(f"     This is expected - all clips are pure visual")
+                            print(f"  → Using stitched video as-is")
                             final_video_url = stitched_video_s3_url
                         else:
+                            print(f"  ✅ Audio extracted successfully")
+                            if len(voiceover_clips) > 0:
+                                print(f"     Contains voiceover from clips: {voiceover_clips}")
+                            else:
+                                print(f"     Contains ambient audio only (no voiceover clips)")
+                            
                             # Remove audio from stitched video (create video-only)
-                            print(f"🎬 Creating video-only version...")
+                            print(f"\n🎬 Step 2: Creating video-only version...")
                             video_only_path = remove_audio_from_video(stitched_path)
                             
                             if not video_only_path:
@@ -6838,9 +8459,14 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                                 )
                                 
                                 # Choose between inspiration music or Pixverse Sound Effects
+                                # NOTE: Pixverse Sound Effects is currently DISABLED - skipping background music generation
+                                SKIP_PIXVERSE_BACKGROUND_MUSIC = True  # Set to False to re-enable Pixverse background music
+                                
+                                print(f"\n🎵 Step 3: Adding background music...")
                                 if inspiration_music_s3_key:
                                     # Use inspiration background music instead of Pixverse
-                                    print(f"🎶 Using inspiration background music (skipping Pixverse)...")
+                                    print(f"   Source: INSPIRATION MUSIC from user-provided video link")
+                                    print(f"   → Skipping Pixverse AI generation")
                                     
                                     video_with_music_s3_url = await replace_video_audio_with_inspiration_music(
                                         video_s3_url=video_only_s3_url,
@@ -6858,11 +8484,29 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                                             "audio_source": "video_inspiration_link",
                                             "duration": VIDEO_DURATION
                                         })
+                                elif SKIP_PIXVERSE_BACKGROUND_MUSIC:
+                                    # Skip Pixverse background music - use original stitched video with voiceover
+                                    print(f"   ⏭️ SKIPPING Pixverse background music generation (disabled)")
+                                    print(f"   → Using original stitched video with voiceover audio intact")
+                                    # Set final video directly to stitched video (skip mixing step entirely)
+                                    final_video_url = stitched_video_s3_url
+                                    print(f"\n{'='*60}")
+                                    print(f"✅ AUDIO PROCESSING COMPLETE (Pixverse skipped)")
+                                    print(f"{'='*60}\n")
+                                    # Clean up intermediate files
+                                    try:
+                                        os.remove(video_only_path)
+                                        os.remove(voiceover_audio_path)
+                                    except:
+                                        pass
+                                    # Skip the rest of audio processing by using a sentinel value
+                                    video_with_music_s3_url = "SKIPPED"
                                 else:
                                     # Generate background music with Pixverse Sound Effects
-                                    print(f"🎵 Adding background music with Pixverse Sound Effects...")
+                                    print(f"   Source: PIXVERSE AI-GENERATED music")
                                     audio_prompt = prompts["video_audio_prompts"].get(video_idx, "Upbeat background music")
-                                    
+                                    print(f"   Audio prompt: {audio_prompt[:80]}...")
+                                
                                     video_with_music_s3_url = await generate_background_music_with_pixverse(
                                         video_s3_url=video_only_s3_url,
                                         audio_prompt=audio_prompt,
@@ -6881,7 +8525,10 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                                             "duration": VIDEO_DURATION
                                         })
                                 
-                                if not video_with_music_s3_url:
+                                if video_with_music_s3_url == "SKIPPED":
+                                    # Pixverse was skipped, final_video_url already set, nothing more to do
+                                    pass
+                                elif not video_with_music_s3_url:
                                     print(f"  ⚠️ Failed to add background music, using stitched video")
                                     final_video_url = stitched_video_s3_url
                                     try:
@@ -6889,9 +8536,19 @@ async def generate_content(request: DvybAdhocGenerationRequest, prompts: Dict, c
                                         os.remove(voiceover_audio_path)
                                     except:
                                         pass
+                                    print(f"\n{'='*60}")
+                                    print(f"✅ AUDIO PROCESSING COMPLETE")
+                                    print(f"{'='*60}\n")
                                 else:
                                     # Mix voiceover with background music
-                                    print(f"🎤 Mixing voiceover with background music...")
+                                    print(f"\n🎤 Step 4: Mixing audio tracks...")
+                                    print(f"   Background music volume: 30%")
+                                    print(f"   Voiceover volume: 100%")
+                                    if len(voiceover_clips) > 0:
+                                        print(f"   → Voiceover from clips {voiceover_clips} will be audible")
+                                    else:
+                                        print(f"   → No voiceover clips - only ambient audio will mix with music")
+                                    
                                     final_video_url = await mix_voiceover_with_background_music(
                                         video_with_music_s3_url=video_with_music_s3_url,
                                         voiceover_audio_path=voiceover_audio_path,

@@ -71,6 +71,7 @@ interface SubscriptionData {
     videosRemaining: number;
   };
   planName?: string;
+  initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot' | null;
 }
 
 interface Payment {
@@ -567,6 +568,7 @@ export const SubscriptionPage = () => {
         isAuthenticated={true}
         canSkip={true}
         reason="user_initiated"
+        userFlow={subscriptionData?.initialAcquisitionFlow || 'website_analysis'}
       />
 
       {/* Cancel Confirmation Dialog */}

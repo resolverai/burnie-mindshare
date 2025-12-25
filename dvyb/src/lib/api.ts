@@ -1044,6 +1044,8 @@ export const adhocGenerationApi = {
     is_onboarding_product_image?: boolean;  // If true, user_images[0] is explicitly a product image
     force_product_marketing?: boolean;  // If true, force product_marketing video type
     is_product_shot_flow?: boolean;  // If true, use product photography specialist persona (Flow 2)
+    video_length_mode?: 'quick' | 'standard' | 'story';  // Video length: 8s | 16s | 30-45s
+    video_style?: 'brand_marketing' | 'product_marketing' | 'ugc_influencer';  // User's choice of video style
   }) {
     return apiRequest<{
       success: boolean;

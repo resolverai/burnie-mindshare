@@ -1301,6 +1301,7 @@ export const ContentLibrary = ({ onEditDesignModeChange }: ContentLibraryProps) 
         isAuthenticated={true}
         canSkip={canSkipPricingModal}
         reason="quota_exhausted"
+        userFlow={usageData?.initialAcquisitionFlow || 'website_analysis'}
       />
 
       {/* Inactive Account Dialog */}

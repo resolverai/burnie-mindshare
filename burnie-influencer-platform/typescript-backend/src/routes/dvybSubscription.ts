@@ -301,16 +301,17 @@ router.get('/current', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
   try {
     const accountId = req.dvybAccountId!;
 
+    // Always fetch account to get initialAcquisitionFlow
+    const accountRepo = AppDataSource.getRepository(DvybAccount);
+    const account = await accountRepo.findOne({
+      where: { id: accountId },
+    });
+
     const subscription = await StripeService.getAccountSubscription(accountId);
 
     if (!subscription) {
       // Check if user has a free plan
-      const accountRepo = AppDataSource.getRepository(DvybAccount);
       const planRepo = AppDataSource.getRepository(DvybPricingPlan);
-      
-      const account = await accountRepo.findOne({
-        where: { id: accountId },
-      });
 
       if (account?.currentPlanId) {
         const currentPlan = await planRepo.findOne({ where: { id: account.currentPlanId } });
@@ -321,18 +322,27 @@ router.get('/current', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Res
               isSubscribed: false,
               currentPlan: currentPlan,
               isFree: currentPlan.isFreeTrialPlan,
+              initialAcquisitionFlow: account.initialAcquisitionFlow,
             },
           });
         }
       }
 
-      return res.json({ success: true, data: { isSubscribed: false, currentPlan: null } });
+      return res.json({ 
+        success: true, 
+        data: { 
+          isSubscribed: false, 
+          currentPlan: null,
+          initialAcquisitionFlow: account?.initialAcquisitionFlow || null,
+        } 
+      });
     }
 
     return res.json({
       success: true,
       data: {
         isSubscribed: true,
+        initialAcquisitionFlow: account?.initialAcquisitionFlow || null,
         subscription: {
           id: subscription.id,
           planId: subscription.planId,

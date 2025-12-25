@@ -60,6 +60,7 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
     planId?: number;
     monthlyPrice?: number;
     annualPrice?: number;
+    initialAcquisitionFlow?: 'website_analysis' | 'product_photoshot' | null;
   } | null>(null);
   const [showPricingModal, setShowPricingModal] = useState(false);
   const { accountId, logout } = useAuth();
@@ -131,6 +132,7 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
             planId: data.data.planId,
             monthlyPrice: data.data.monthlyPrice,
             annualPrice: data.data.annualPrice,
+            initialAcquisitionFlow: data.data.initialAcquisitionFlow,
           });
         }
       } catch (error) {
@@ -350,6 +352,7 @@ export const AppSidebar = ({ activeView, onViewChange, isMobileOpen = false, onM
         isAuthenticated={true}
         canSkip={true}
         reason="user_initiated"
+        userFlow={planInfo?.initialAcquisitionFlow || 'website_analysis'}
       />
     </>
   );

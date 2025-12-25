@@ -403,6 +403,7 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
         remainingImages,
         remainingVideos,
         hasUpgradeRequest: !!existingRequest,
+        initialAcquisitionFlow: account.initialAcquisitionFlow,
       },
       timestamp: new Date().toISOString(),
     });
@@ -423,6 +424,10 @@ router.get('/usage', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respo
 router.get('/plan', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Response) => {
   try {
     const accountId = req.dvybAccountId!;
+
+    // Fetch account for initialAcquisitionFlow
+    const accountRepo = AppDataSource.getRepository(DvybAccount);
+    const account = await accountRepo.findOne({ where: { id: accountId } });
 
     const accountPlanRepo = AppDataSource.getRepository(DvybAccountPlan);
     const currentPlan = await accountPlanRepo.findOne({
@@ -449,6 +454,7 @@ router.get('/plan', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respon
           planPrice: 0,
           isFreeTrialPlan: false,
           startDate: null,
+          initialAcquisitionFlow: account?.initialAcquisitionFlow || null,
         },
         timestamp: new Date().toISOString(),
       });
@@ -477,8 +483,12 @@ router.get('/plan', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respon
         imagePostsLimit,
         videoPostsLimit,
         planPrice,
+        monthlyPrice: Number(currentPlan.plan.monthlyPrice),
+        annualPrice: Number(currentPlan.plan.annualPrice),
         isFreeTrialPlan: currentPlan.plan.isFreeTrialPlan,
         startDate: currentPlan.startDate,
+        planFlow: currentPlan.plan.planFlow,
+        initialAcquisitionFlow: account?.initialAcquisitionFlow || null,
       },
       timestamp: new Date().toISOString(),
     });
@@ -495,13 +505,25 @@ router.get('/plan', dvybAuthMiddleware, async (req: DvybAuthRequest, res: Respon
 /**
  * GET /api/dvyb/account/pricing-plans
  * Get all active pricing plans (public endpoint - no auth required)
+ * Query params:
+ *   - flow: 'website_analysis' | 'product_photoshot' (optional, defaults to 'website_analysis')
+ *   - includeFree: 'true' to include free trial plans (optional)
  */
-router.get('/pricing-plans', async (_req: Request, res: Response) => {
+router.get('/pricing-plans', async (req: Request, res: Response) => {
   try {
     const planRepo = AppDataSource.getRepository(DvybPricingPlan);
     
+    // Get flow from query parameter, default to 'website_analysis'
+    const flowParam = req.query.flow as string;
+    const planFlow = (flowParam === 'website_analysis' || flowParam === 'product_photoshot') 
+      ? flowParam 
+      : 'website_analysis';
+    
     const plans = await planRepo.find({
-      where: { isActive: true },
+      where: { 
+        isActive: true,
+        planFlow: planFlow,
+      },
       order: { monthlyPrice: 'ASC' },
     });
 
@@ -520,6 +542,7 @@ router.get('/pricing-plans', async (_req: Request, res: Response) => {
         extraImagePostPrice: Number(plan.extraImagePostPrice),
         extraVideoPostPrice: Number(plan.extraVideoPostPrice),
         isFreeTrialPlan: plan.isFreeTrialPlan,
+        planFlow: plan.planFlow,
       })),
       timestamp: new Date().toISOString(),
     });

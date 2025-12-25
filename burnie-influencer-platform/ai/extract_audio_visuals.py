@@ -18,7 +18,7 @@ def is_supported_url(input_str):
     """Check if input is a supported video URL (Instagram, YouTube, or Twitter/X)"""
     patterns = [
         # Instagram
-        r'instagram\.com/reel/',
+        r'instagram\.com/reels?/',  # matches both /reel/ and /reels/
         r'instagram\.com/p/',
         r'instagram\.com/tv/',
         r'instagr\.am/',
@@ -172,22 +172,14 @@ def main(input_path):
     if not video_path.exists():
         raise FileNotFoundError(f"Video file not found: {video_path}")
     
-    # Check video duration (max 20 seconds)
+    # Get video duration info
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = total_frames / fps if fps > 0 else 0
     cap.release()
     
-    if duration > 20:
-        print(f"\n❌ Video is too long: {duration:.2f} seconds (max: 20 seconds)")
-        print(f"   Skipping processing.")
-        if is_downloaded and video_path.exists():
-            video_path.unlink()
-            print(f"   🧹 Cleaned up downloaded video")
-        return
-    
-    print(f"✅ Video duration: {duration:.2f} seconds (within 20s limit)")
+    print(f"✅ Video duration: {duration:.2f} seconds")
     
     # Create temporary audio file path
     audio_path = video_path.parent / f"{video_path.stem}_audio.mp3"

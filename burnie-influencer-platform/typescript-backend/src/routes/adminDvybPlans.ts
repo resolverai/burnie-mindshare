@@ -38,6 +38,12 @@ router.get('/', async (req: Request, res: Response) => {
       query = query.andWhere('plan.isActive = :isActive', { isActive: false });
     }
 
+    // Flow filter
+    const flowFilter = req.query.flow as string;
+    if (flowFilter && (flowFilter === 'website_analysis' || flowFilter === 'product_photoshot')) {
+      query = query.andWhere('plan.planFlow = :planFlow', { planFlow: flowFilter });
+    }
+
     // Get total count
     const total = await query.getCount();
 
@@ -87,6 +93,7 @@ router.post('/', async (req: Request, res: Response) => {
       extraVideoPostPrice,
       isActive,
       isFreeTrialPlan,
+      planFlow, // Flow type: 'website_analysis' or 'product_photoshot'
       createStripeProduct, // Flag to auto-create Stripe product
     } = req.body;
 
@@ -118,6 +125,7 @@ router.post('/', async (req: Request, res: Response) => {
       extraVideoPostPrice: extraVideoPostPrice || 0,
       isActive: isActive !== undefined ? isActive : true,
       isFreeTrialPlan: isFreeTrialPlan || false,
+      planFlow: planFlow || 'website_analysis',
     });
 
     await planRepo.save(newPlan);
@@ -191,6 +199,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
       extraVideoPostPrice,
       isActive,
       isFreeTrialPlan,
+      planFlow, // Flow type: 'website_analysis' or 'product_photoshot'
       // Stripe fields - can be manually updated
       stripeProductId,
       stripeMonthlyPriceId,
@@ -217,6 +226,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
     if (extraVideoPostPrice !== undefined) plan.extraVideoPostPrice = extraVideoPostPrice;
     if (isActive !== undefined) plan.isActive = isActive;
     if (isFreeTrialPlan !== undefined) plan.isFreeTrialPlan = isFreeTrialPlan;
+    if (planFlow !== undefined) plan.planFlow = planFlow;
 
     // Update Stripe IDs (manual entry)
     if (stripeProductId !== undefined) plan.stripeProductId = stripeProductId || null;

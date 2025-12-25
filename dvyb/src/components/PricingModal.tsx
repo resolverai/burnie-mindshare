@@ -44,6 +44,7 @@ interface PricingPlan {
   extraImagePostPrice: number;
   extraVideoPostPrice: number;
   isFreeTrialPlan: boolean;
+  planFlow?: 'website_analysis' | 'product_photoshot';
 }
 
 interface CurrentPlanInfo {
@@ -63,6 +64,7 @@ interface PricingModalProps {
   isAuthenticated?: boolean;
   canSkip?: boolean; // If true, user can skip and proceed to generate (only one quota exhausted)
   reason?: 'quota_exhausted' | 'user_initiated'; // Why the modal was opened
+  userFlow?: 'website_analysis' | 'product_photoshot'; // User's acquisition flow - determines which plans to show
 }
 
 // Animated Toggle Switch Component
@@ -124,6 +126,13 @@ const PlanCard = ({
   const isPopular = !plan.isFreeTrialPlan && paidPlans.length > 1 && 
     paidPlans[Math.floor(paidPlans.length / 2)]?.id === plan.id;
   const isFree = plan.isFreeTrialPlan;
+
+  // Determine labels based on plan flow
+  // Product Shots flow: "Images" / "Videos"
+  // Website Analysis flow: "Image Posts" / "Video Posts"
+  const isProductFlow = plan.planFlow === 'product_photoshot';
+  const imageLabel = isProductFlow ? 'Images' : 'Image Posts';
+  const videoLabel = isProductFlow ? 'Videos' : 'Video Posts';
 
   // Free plan always uses monthly values
   const getPrice = () => isFree ? 0 : (billingCycle === 'monthly' ? plan.monthlyPrice : plan.annualPrice);
@@ -235,7 +244,7 @@ const PlanCard = ({
           </div>
           <div>
             <p className="text-foreground font-semibold">
-              {getImageLimit()} Image Posts
+              {getImageLimit()} {imageLabel}
             </p>
             <p className="text-muted-foreground text-sm">
               {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
@@ -249,7 +258,7 @@ const PlanCard = ({
           </div>
           <div>
             <p className="text-foreground font-semibold">
-              {getVideoLimit()} Video Posts
+              {getVideoLimit()} {videoLabel}
             </p>
             <p className="text-muted-foreground text-sm">
               {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
@@ -338,7 +347,7 @@ const PlanCard = ({
       {/* Extra post pricing */}
       {!isFree && (plan.extraImagePostPrice > 0 || plan.extraVideoPostPrice > 0) && (
         <p className="text-center text-muted-foreground text-sm mt-4">
-          Extra posts: ${plan.extraImagePostPrice}/image, ${plan.extraVideoPostPrice}/video
+          Extra {isProductFlow ? 'content' : 'posts'}: ${plan.extraImagePostPrice}/{isProductFlow ? 'image' : 'image post'}, ${plan.extraVideoPostPrice}/{isProductFlow ? 'video' : 'video post'}
         </p>
       )}
     </div>
@@ -500,7 +509,8 @@ export const PricingModal = ({
   quotaType = 'both',
   isAuthenticated = true,
   canSkip = false,
-  reason = 'user_initiated'
+  reason = 'user_initiated',
+  userFlow = 'website_analysis'
 }: PricingModalProps) => {
   const router = useRouter();
   const [plans, setPlans] = useState<PricingPlan[]>([]);
@@ -537,16 +547,17 @@ export const PricingModal = ({
       }, 300);
       return () => clearTimeout(timeout);
     }
-  }, [open]);
+  }, [open, userFlow]);
 
   const fetchPlans = async () => {
     try {
       setLoading(true);
       
       // Fetch plans and subscription status in parallel
+      // Pass flow parameter to filter plans by user's acquisition flow
       const [plansResponse, subscriptionData] = await Promise.all([
         fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/pricing-plans?includeFree=true`
+          `${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/pricing-plans?includeFree=true&flow=${userFlow}`
         ).then(res => res.json()),
         isAuthenticated 
           ? dvybApi.subscription.getCurrentSubscription().catch(() => ({ success: false, data: null }))

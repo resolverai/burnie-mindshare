@@ -51,6 +51,15 @@ export class DvybPricingPlan {
   @Column({ type: 'varchar', length: 100, nullable: true })
   stripeAnnualPriceId!: string | null;
 
+  // Flow type - which acquisition flow this plan is for
+  @Column({ 
+    type: 'varchar', 
+    length: 50, 
+    default: 'website_analysis',
+    comment: 'The flow this plan is for: website_analysis (flow 1) or product_photoshot (flow 2)'
+  })
+  planFlow!: 'website_analysis' | 'product_photoshot';
+
   @CreateDateColumn()
   createdAt!: Date;
 

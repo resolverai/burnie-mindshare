@@ -34,6 +34,7 @@ interface PricingPlan {
   extraVideoPostPrice: number;
   isActive: boolean;
   isFreeTrialPlan: boolean;
+  planFlow: 'website_analysis' | 'product_photoshot';
   stripeProductId: string | null;
   stripeMonthlyPriceId: string | null;
   stripeAnnualPriceId: string | null;
@@ -75,6 +76,7 @@ export default function DvybPlansPage() {
     extraImagePostPrice: '',
     extraVideoPostPrice: '',
     isFreeTrialPlan: false,
+    planFlow: 'website_analysis' as 'website_analysis' | 'product_photoshot',
     stripeProductId: '',
     stripeMonthlyPriceId: '',
     stripeAnnualPriceId: '',
@@ -128,6 +130,7 @@ export default function DvybPlansPage() {
         extraImagePostPrice: plan.extraImagePostPrice.toString(),
         extraVideoPostPrice: plan.extraVideoPostPrice.toString(),
         isFreeTrialPlan: plan.isFreeTrialPlan,
+        planFlow: plan.planFlow || 'website_analysis',
         stripeProductId: plan.stripeProductId || '',
         stripeMonthlyPriceId: plan.stripeMonthlyPriceId || '',
         stripeAnnualPriceId: plan.stripeAnnualPriceId || '',
@@ -147,6 +150,7 @@ export default function DvybPlansPage() {
         extraImagePostPrice: '',
         extraVideoPostPrice: '',
         isFreeTrialPlan: false,
+        planFlow: 'website_analysis',
         stripeProductId: '',
         stripeMonthlyPriceId: '',
         stripeAnnualPriceId: '',
@@ -183,6 +187,7 @@ export default function DvybPlansPage() {
           extraImagePostPrice: parseFloat(formData.extraImagePostPrice),
           extraVideoPostPrice: parseFloat(formData.extraVideoPostPrice),
           isFreeTrialPlan: formData.isFreeTrialPlan,
+          planFlow: formData.planFlow,
           // Stripe fields
           stripeProductId: formData.stripeProductId || null,
           stripeMonthlyPriceId: formData.stripeMonthlyPriceId || null,
@@ -389,6 +394,9 @@ export default function DvybPlansPage() {
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Flow
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Stripe
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -474,6 +482,17 @@ export default function DvybPlansPage() {
                               Inactive
                             </>
                           )}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            plan.planFlow === 'product_photoshot'
+                              ? 'bg-pink-100 text-pink-800'
+                              : 'bg-blue-100 text-blue-800'
+                          }`}
+                        >
+                          {plan.planFlow === 'product_photoshot' ? 'Product Shots' : 'Website Analysis'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -794,6 +813,24 @@ export default function DvybPlansPage() {
                   </label>
                   <p className="text-xs text-gray-500 mt-1 ml-6">
                     If checked, this plan will be automatically assigned to all new accounts upon registration
+                  </p>
+                </div>
+
+                {/* Plan Flow Selection */}
+                <div className="col-span-2 mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Plan Flow / Product *
+                  </label>
+                  <select
+                    value={formData.planFlow}
+                    onChange={(e) => setFormData({ ...formData, planFlow: e.target.value as 'website_analysis' | 'product_photoshot' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white text-gray-900"
+                  >
+                    <option value="website_analysis">Website Analysis Flow (Image Posts / Video Posts)</option>
+                    <option value="product_photoshot">Product Shots Flow (Images / Videos)</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Determines which user acquisition flow this plan belongs to. Users will only see plans matching their signup flow.
                   </p>
                 </div>
 

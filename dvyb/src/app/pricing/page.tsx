@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { 
   Check, 
@@ -32,6 +32,7 @@ interface PricingPlan {
   extraImagePostPrice: number;
   extraVideoPostPrice: number;
   isFreeTrialPlan: boolean;
+  planFlow?: 'website_analysis' | 'product_photoshot';
 }
 
 // Animated Toggle Switch Component
@@ -95,6 +96,13 @@ const PlanCard = ({
   const paidPlans = displayPlans.filter(p => !p.isFreeTrialPlan);
   const isPopular = !plan.isFreeTrialPlan && paidPlans.length > 1 && paidPlans[Math.floor(paidPlans.length / 2)]?.id === plan.id;
   const isFree = plan.isFreeTrialPlan;
+
+  // Determine labels based on plan flow
+  // Product Shots flow: "Images" / "Videos"
+  // Website Analysis flow: "Image Posts" / "Video Posts"
+  const isProductFlow = plan.planFlow === 'product_photoshot';
+  const imageLabel = isProductFlow ? 'Images' : 'Image Posts';
+  const videoLabel = isProductFlow ? 'Videos' : 'Video Posts';
 
   // Free plan always uses monthly values
   const getPrice = () => isFree ? 0 : (billingCycle === 'monthly' ? plan.monthlyPrice : plan.annualPrice);
@@ -194,7 +202,7 @@ const PlanCard = ({
           </div>
           <div>
             <p className="text-foreground font-semibold">
-              {getImageLimit()} Image Posts
+              {getImageLimit()} {imageLabel}
             </p>
             <p className="text-muted-foreground text-sm">
               {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
@@ -208,7 +216,7 @@ const PlanCard = ({
           </div>
           <div>
             <p className="text-foreground font-semibold">
-              {getVideoLimit()} Video Posts
+              {getVideoLimit()} {videoLabel}
             </p>
             <p className="text-muted-foreground text-sm">
               {isFree ? 'during trial' : `per ${billingCycle === 'monthly' ? 'month' : 'year'}`}
@@ -434,22 +442,30 @@ const PlanCarousel = ({
   );
 };
 
-export default function PricingPage() {
+// Inner component that uses useSearchParams
+function PricingPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [plans, setPlans] = useState<PricingPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
 
+  // Get flow from URL parameter, default to 'website_analysis'
+  const flowParam = searchParams.get('flow');
+  const planFlow = (flowParam === 'website_analysis' || flowParam === 'product_photoshot') 
+    ? flowParam 
+    : 'website_analysis';
+
   useEffect(() => {
     fetchPlans();
-  }, []);
+  }, [planFlow]);
 
   const fetchPlans = async () => {
     try {
       setLoading(true);
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/pricing-plans?includeFree=true`
+        `${process.env.NEXT_PUBLIC_API_URL || 'https://mindshareapi.burnie.io'}/dvyb/account/pricing-plans?includeFree=true&flow=${planFlow}`
       );
       const data = await response.json();
       
@@ -582,5 +598,23 @@ export default function PricingPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Loading fallback component
+function PricingPageLoading() {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center">
+      <Loader2 className="h-10 w-10 animate-spin text-primary" />
+    </div>
+  );
+}
+
+// Main page component wrapped in Suspense
+export default function PricingPage() {
+  return (
+    <Suspense fallback={<PricingPageLoading />}>
+      <PricingPageContent />
+    </Suspense>
   );
 }
